@@ -161,7 +161,7 @@ Name: "{{autodesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}";
 
 [Run]
 Filename: "{{sys}}\\msiexec.exe"; Parameters: "/i ""{{app}}\\drivers\\ViGEmBusSetup_x64.msi"" /qn /norestart"; StatusMsg: "Installing ViGEmBus virtual gamepad driver..."; Flags: waituntilterminated; Tasks: installvigem; Check: ShouldInstallViGEmBus
-Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runascurrentuser
 
 [Code]
 function ViGEmBusInstalled: Boolean;
