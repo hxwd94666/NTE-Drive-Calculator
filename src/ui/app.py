@@ -43,14 +43,22 @@ TEMPLATE_DIR = CONFIG_DIR / "templates"
 OUTPUT_FILE = USER_CONFIG_DIR / "real_inventory.json"
 SCREENSHOT_DIR = DATA_ROOT / "scanned_images"
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/hxwd94666/NTE-Drive-Calc/releases/latest"
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
+CORE_CONFIG_FILES = ("roles.json", "sets.json", "shapes.json", "stats.json")
+USER_DATA_FILES = ("equipped_state.json", "real_inventory.json")
 
 def _seed_user_config():
     if BUNDLED_CONFIG_DIR.exists():
-        for fname in ("roles.json", "sets.json", "shapes.json", "stats.json", "equipped_state.json", "real_inventory.json"):
+        for fname in CORE_CONFIG_FILES:
+            dst = USER_CONFIG_DIR / fname
+            src = BUNDLED_CONFIG_DIR / fname
+            if src.exists() and src.resolve() != dst.resolve():
+                shutil.copy2(str(src), str(dst))
+
+        for fname in USER_DATA_FILES:
             dst = USER_CONFIG_DIR / fname
             src = BUNDLED_CONFIG_DIR / fname
             if dst.exists():
@@ -590,13 +598,15 @@ class MainWindow(QMainWindow):
         # Hotkey config
         self._hk_capture="F9"; self._hk_finish="F10"; self._hk_stop="F12"
         self._load_hotkey_config()
+        self._update_config=self._load_update_config()
+        self._update_check_manual=True
 
         self.log_signal.connect(self._on_log); self.identify_capture_signal.connect(self._add_identify_capture_path); self.identify_capture_done_signal.connect(self._finish_identify_capture_mode); self._log_sink=QtLogSink(self.log_signal)
         try:
             from loguru import logger as lu
             lu.add(self._log_sink,format="{time:HH:mm:ss} | {level: <8} | {message}",level="INFO",colorize=False)
         except: pass
-        self._build_ui(); self._load_data(); self._on_log("系统就绪"); self._maybe_show_quick_start()
+        self._build_ui(); self._load_data(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
 
     def _load_hotkey_config(self):
         path=USER_CONFIG_DIR/"hotkeys.json"
@@ -608,6 +618,26 @@ class MainWindow(QMainWindow):
     def _save_hotkey_config(self):
         with open(USER_CONFIG_DIR/"hotkeys.json","w",encoding="utf-8") as f:
             json.dump({"capture":self._hk_capture,"finish":self._hk_finish,"stop":self._hk_stop},f,indent=2)
+
+    def _load_update_config(self):
+        path=USER_CONFIG_DIR/"update_config.json"
+        default={"never_remind":False,"ignored_version":""}
+        try:
+            if path.exists():
+                with open(path,"r",encoding="utf-8") as f:
+                    data=json.load(f)
+                if isinstance(data,dict):
+                    default.update({
+                        "never_remind":bool(data.get("never_remind",False)),
+                        "ignored_version":str(data.get("ignored_version","") or ""),
+                    })
+        except Exception:
+            pass
+        return default
+
+    def _save_update_config(self):
+        with open(USER_CONFIG_DIR/"update_config.json","w",encoding="utf-8") as f:
+            json.dump(self._update_config,f,ensure_ascii=False,indent=2)
 
     # ── Frameless
     def _on_edge(self,pos): w,h=self.width(),self.height(); m=self._resize_margin; return (pos.x()<m,pos.y()<m,pos.x()>w-m,pos.y()>h-m)
@@ -2564,7 +2594,7 @@ class MainWindow(QMainWindow):
         c_update.layout().addWidget(self._update_status)
         ur=QHBoxLayout(); ur.setSpacing(10)
         self._check_update_btn=QPushButton("检查更新"); self._check_update_btn.setObjectName("btnPrimary")
-        self._check_update_btn.clicked.connect(self._check_updates)
+        self._check_update_btn.clicked.connect(lambda: self._check_updates(manual=True))
         home_btn=QPushButton("GitHub 主页"); home_btn.clicked.connect(self._open_update_homepage)
         ur.addWidget(self._check_update_btn); ur.addWidget(home_btn); ur.addStretch()
         c_update.layout().addLayout(ur); l.addWidget(c_update)
@@ -2589,9 +2619,20 @@ class MainWindow(QMainWindow):
             b=QPushButton(lbl); b.clicked.connect(lambda checked,p=path: os.startfile(str(p)) if p.exists() else None); qr.addWidget(b)
         qr.addStretch(); c4.layout().addLayout(qr); l.addWidget(c4); l.addStretch(); return scroll
 
-    def _check_updates(self):
-        self._check_update_btn.setEnabled(False)
-        self._update_status.setText("正在检查更新...")
+    def _maybe_check_updates_on_startup(self):
+        if self._update_config.get("never_remind"):
+            return
+        QTimer.singleShot(1200, lambda: self._check_updates(manual=False))
+
+    def _check_updates(self, manual=True):
+        if hasattr(self,"_update_worker") and self._update_worker.isRunning():
+            if manual:
+                self._update_status.setText("正在检查更新...")
+            return
+        self._update_check_manual=manual
+        if manual:
+            self._check_update_btn.setEnabled(False)
+            self._update_status.setText("正在检查更新...")
         self._update_worker=WorkerThread(target=self._fetch_update_info,parent=self)
         self._update_worker.result_ready.connect(self._on_update_checked)
         self._update_worker.error.connect(self._on_update_error)
@@ -2624,31 +2665,98 @@ class MainWindow(QMainWindow):
             "latest":latest,
             "newer":self._is_newer_version(latest,APP_VERSION),
             "url":url,
+            "release_url":data.get("html_url") or GITHUB_RELEASES_URL,
             "message":data.get("body") or "",
+            "name":data.get("name") or latest,
         }
 
     def _on_update_checked(self,info):
-        self._check_update_btn.setEnabled(True)
+        manual=getattr(self,"_update_check_manual",True)
+        if manual:
+            self._check_update_btn.setEnabled(True)
         if not info.get("has_release"):
             self._update_status.setText(f"当前版本: {APP_VERSION}。{info.get('message','')}")
-            QMessageBox.information(self,"检查更新","当前仓库还没有发布 Release，已为你打开 GitHub 主页。")
-            self._open_url(GITHUB_HOME_URL)
+            if manual:
+                QMessageBox.information(self,"检查更新","当前仓库还没有发布 Release。")
             return
 
         latest=info.get("latest") or "未知"
         if info.get("newer"):
             self._update_status.setText(f"发现新版本: {latest}（当前 {APP_VERSION}）")
-            if QMessageBox.question(self,"发现更新",f"发现新版本 {latest}。\n是否打开下载页面？")==QMessageBox.Yes:
-                self._open_url(info.get("url") or GITHUB_RELEASES_URL)
+            if manual or self._should_show_startup_update(info):
+                self._show_update_dialog(info, manual=manual)
         else:
             self._update_status.setText(f"当前已是最新版本: {APP_VERSION}")
-            QMessageBox.information(self,"检查更新",f"当前已是最新版本。\n当前版本: {APP_VERSION}\n最新版本: {latest}")
+            if manual:
+                QMessageBox.information(self,"检查更新",f"当前已是最新版本。\n当前版本: {APP_VERSION}\n最新版本: {latest}")
 
     def _on_update_error(self,err):
-        self._check_update_btn.setEnabled(True)
-        self._update_status.setText(f"检查失败: {err}")
-        if QMessageBox.question(self,"检查更新失败",f"无法自动检查更新:\n{err}\n\n是否打开 GitHub 主页？")==QMessageBox.Yes:
-            self._open_update_homepage()
+        manual=getattr(self,"_update_check_manual",True)
+        if manual:
+            self._check_update_btn.setEnabled(True)
+            self._update_status.setText(f"检查失败: {err}")
+            if QMessageBox.question(self,"检查更新失败",f"无法自动检查更新:\n{err}\n\n是否打开 GitHub 主页？")==QMessageBox.Yes:
+                self._open_update_homepage()
+        else:
+            logger.warning(f"启动自动检查更新失败: {err}")
+
+    def _should_show_startup_update(self, info):
+        latest=str(info.get("latest") or "")
+        if self._update_config.get("never_remind"):
+            return False
+        if latest and self._update_config.get("ignored_version")==latest:
+            return False
+        return True
+
+    def _show_update_dialog(self, info, manual=False):
+        latest=str(info.get("latest") or "未知")
+        dlg=QDialog(self)
+        dlg.setWindowTitle("发现更新")
+        dlg.setMinimumSize(560,420)
+        dlg.setStyleSheet(STYLE)
+        layout=QVBoxLayout(dlg); layout.setContentsMargins(16,16,16,16); layout.setSpacing(10)
+
+        title=QLabel(f"发现新版本 {latest}")
+        title.setStyleSheet("font-size:18px;font-weight:700;color:#58a6ff")
+        layout.addWidget(title)
+        subtitle=QLabel(f"当前版本: {APP_VERSION}")
+        subtitle.setStyleSheet("color:#8b949e")
+        layout.addWidget(subtitle)
+
+        notes=QTextEdit()
+        notes.setReadOnly(True)
+        notes.setMinimumHeight(220)
+        release_text=(info.get("message") or "").strip() or "此版本没有填写更新说明。"
+        notes.setPlainText(release_text)
+        layout.addWidget(notes,1)
+
+        url=info.get("url") or info.get("release_url") or GITHUB_RELEASES_URL
+        link=QLabel(f"下载页面: {url}")
+        link.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        link.setStyleSheet("color:#8b949e;font-size:12px")
+        layout.addWidget(link)
+
+        never_cb=QCheckBox("永不提醒")
+        ignore_cb=QCheckBox("当前版本不再提醒")
+        never_cb.setChecked(False)
+        ignore_cb.setChecked(False)
+        layout.addWidget(never_cb)
+        layout.addWidget(ignore_cb)
+
+        buttons=QDialogButtonBox(QDialogButtonBox.Ok)
+        buttons.accepted.connect(dlg.accept)
+        layout.addWidget(buttons)
+        dlg.exec()
+
+        changed=False
+        if never_cb.isChecked():
+            self._update_config["never_remind"]=True
+            changed=True
+        if ignore_cb.isChecked():
+            self._update_config["ignored_version"]=latest
+            changed=True
+        if changed:
+            self._save_update_config()
 
     def _open_update_homepage(self):
         self._open_url(GITHUB_HOME_URL)
