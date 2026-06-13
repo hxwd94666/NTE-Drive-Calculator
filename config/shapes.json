@@ -1,0 +1,134 @@
+{
+  "shapes": [
+    {
+      "shape_id": "TAPE_15",
+      "label": "Tape",
+      "matrix": [
+        [0]
+      ],
+      "area": 15,
+      "description": "卡带占位符，不参与拼图"
+    },
+    {
+      "shape_id": "Trap_4_V",
+      "label": "Type-4",
+      "matrix": [
+        [0, 1],
+        [1, 1],
+        [1, 0]
+      ],
+      "area": 4,
+      "description": "竖Z字 4格"
+    },
+    {
+      "shape_id": "Trap_4_H",
+      "label": "Type-4",
+      "matrix": [
+        [0, 1, 1],
+        [1, 1, 0]
+      ],
+      "area": 4,
+      "description": "横Z字 4格"
+    },
+    {
+      "shape_id": "V_4",
+      "label": "Type-4",
+      "matrix": [
+        [1],
+        [1],
+        [1],
+        [1]
+      ],
+      "area": 4,
+      "description": "竖一字 4格"
+    },
+    {
+      "shape_id": "H_4",
+      "label": "Type-4",
+      "matrix": [
+        [1, 1, 1, 1]
+      ],
+      "area": 4,
+      "description": "横一字 4格"
+    },
+    {
+      "shape_id": "L_3_TL",
+      "label": "Type-3",
+      "matrix": [
+        [1, 1],
+        [1, 0]
+      ],
+      "area": 3,
+      "description": "L型 左上"
+    },
+    {
+      "shape_id": "L_3_TR",
+      "label": "Type-3",
+      "matrix": [
+        [1, 1],
+        [0, 1]
+      ],
+      "area": 3,
+      "description": "L型 右上"
+    },
+    {
+      "shape_id": "L_3_BL",
+      "label": "Type-3",
+      "matrix": [
+        [1, 0],
+        [1, 1]
+      ],
+      "area": 3,
+      "description": "L型 左下"
+    },
+    {
+      "shape_id": "L_3_BR",
+      "label": "Type-3",
+      "matrix": [
+        [0, 1],
+        [1, 1]
+      ],
+      "area": 3,
+      "description": "L型 右下"
+    },
+    {
+      "shape_id": "V_3",
+      "label": "Type-3",
+      "matrix": [
+        [1],
+        [1],
+        [1]
+      ],
+      "area": 3,
+      "description": "竖一字 3格"
+    },
+    {
+      "shape_id": "H_3",
+      "label": "Type-3",
+      "matrix": [
+        [1, 1, 1]
+      ],
+      "area": 3,
+      "description": "横一字 3格"
+    },
+    {
+      "shape_id": "V_2",
+      "label": "Type-2",
+      "matrix": [
+        [1],
+        [1]
+      ],
+      "area": 2,
+      "description": "竖一字 2格"
+    },
+    {
+      "shape_id": "H_2",
+      "label": "Type-2",
+      "matrix": [
+        [1, 1]
+      ],
+      "area": 2,
+      "description": "横一字 2格"
+    }
+  ]
+}

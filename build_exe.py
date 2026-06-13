@@ -1,0 +1,195 @@
+"""
+NTE Drive Calc - PyInstaller 打包脚本
+
+用法:
+    python build_exe.py              # 单目录模式（推荐）
+    python build_exe.py --onefile    # 单文件模式
+"""
+
+import sys
+import os
+import shutil
+from pathlib import Path
+
+import PyInstaller.__main__
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+    copy_metadata,
+)
+
+ROOT = Path(__file__).parent.resolve()
+DIST = ROOT / "dist"
+BUILD = ROOT / "build"
+SPEC = ROOT / "NTE_Drive_Calc.spec"
+
+for path in (DIST, BUILD):
+    if path.exists():
+        shutil.rmtree(path)
+if SPEC.exists():
+    SPEC.unlink()
+
+onefile = "--onefile" in sys.argv
+
+args = [
+    str(ROOT / "main.py"),
+    "--name=NTE_Drive_Calc",
+    "--windowed" if "--console" not in sys.argv else "--console",
+    "--clean",
+    "--noconfirm",
+]
+
+if onefile:
+    args.append("--onefile")
+else:
+    args.append("--onedir")
+
+if sys.platform == "win32":
+    args.append("--uac-admin")
+
+config_dir = ROOT / "config"
+assets_dir = ROOT / "assets"
+icon_path = assets_dir / "app_icon.ico"
+sep = ";" if sys.platform == "win32" else ":"
+args.append(f"--add-data={config_dir}{sep}config")
+if assets_dir.exists():
+    args.append(f"--add-data={assets_dir}{sep}assets")
+if icon_path.exists():
+    args.append(f"--icon={icon_path}")
+
+
+def _append_add_data(src: str | Path, dst: str):
+    args.append(f"--add-data={Path(src)}{sep}{dst}")
+
+
+def _append_add_binary(src: str | Path, dst: str):
+    args.append(f"--add-binary={Path(src)}{sep}{dst}")
+
+hidden_imports = [
+    "cv2", "cv2.mat_wrapper",
+    "numpy", "numpy._core", "numpy.linalg",
+    "rapidocr_openvino", "rapidocr_onnxruntime", "onnxruntime",
+    "openvino", "openvino.runtime",
+    "mss", "keyboard", "pyautogui", "vgamepad",
+    "scipy", "scipy.optimize", "scipy.sparse", "scipy.spatial",
+    "pydantic", "loguru", "pypinyin",
+    "PIL", "PIL.Image",
+    "json", "hashlib", "difflib", "re", "copy", "itertools", "collections",
+    "pathlib", "logging", "shutil",
+    "src.scanner.gamepad_controller",
+]
+
+for pkg_name in ("rapidocr_openvino", "rapidocr_onnxruntime"):
+    try:
+        hidden_imports.extend(collect_submodules(pkg_name))
+    except Exception:
+        pass
+
+for imp in hidden_imports:
+    args.append(f"--hidden-import={imp}")
+
+excludes = [
+    # 科学计算/ML（完全不用）
+    "matplotlib", "pandas", "torch", "tensorflow", "jupyter", "IPython", "sympy",
+    "sklearn",
+    # tkinter（用 PySide6）
+    "tkinter", "_tkinter",
+    # onnxruntime 未使用的 execution provider
+    "onnxruntime.transformers",
+    # PySide6 未使用子模块
+    "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtPdf",
+    "PySide6.QtVirtualKeyboard", "PySide6.QtWebEngine",
+    "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets",
+    "PySide6.QtBluetooth", "PySide6.QtNfc",
+    "PySide6.QtSensors", "PySide6.QtSerialPort",
+    "PySide6.QtWebChannel", "PySide6.QtWebSockets",
+    "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtXml",
+    "PySide6.QtPrintSupport", "PySide6.QtHelp",
+    "PySide6.QtPositioning", "PySide6.QtLocation",
+    "PySide6.QtRemoteObjects", "PySide6.QtScxml",
+    "PySide6.QtStateMachine", "PySide6.QtTextToSpeech",
+    "PySide6.Qt3DCore", "PySide6.Qt3DInput",
+    "PySide6.Qt3DRender", "PySide6.Qt3DAnimation",
+    "PySide6.Qt3DExtras", "PySide6.Qt3DLogic",
+    "PySide6.QtCharts", "PySide6.QtDataVisualization",
+    "PySide6.QtGraphs", "PySide6.QtGrpc",
+    "PySide6.QtHttpServer", "PySide6.QtQuick3D",
+    "PySide6.QtQuickControls2", "PySide6.QtQuickWidgets",
+    "PySide6.QtSpatialAudio", "PySide6.QtSvgWidgets",
+    "PySide6.QtSvg", "PySide6.QtUiTools",
+    "PySide6.QtDesigner", "PySide6.QtOpenGL",
+    "PySide6.QtOpenGLWidgets", "PySide6.QtNetwork",
+    "PySide6.QtNetworkAuth", "PySide6.QtDBus",
+    "PySide6.QtConcurrent",
+    # PIL 未使用
+    "PIL.ImageTk",
+]
+
+for exc in excludes:
+    args.append(f"--exclude-module={exc}")
+
+# rapidocr 数据文件（模型和配置）— 优先 openvino，兼容 onnxruntime
+for ocr_pkg_name in ("rapidocr_openvino", "rapidocr_onnxruntime"):
+    try:
+        for src, dst in collect_data_files(ocr_pkg_name):
+            _append_add_data(src, dst)
+        for src, dst in copy_metadata(ocr_pkg_name):
+            _append_add_data(src, dst)
+    except Exception:
+        pass
+
+# OpenVINO runtime: complete libs, cache.json, and package metadata.
+# A hand-written DLL list is fragile and can miss plugin/data files.
+try:
+    for src, dst in collect_dynamic_libs("openvino"):
+        _append_add_binary(src, dst)
+    for src, dst in collect_data_files("openvino", includes=["libs/cache.json"]):
+        _append_add_data(src, dst)
+    for src, dst in copy_metadata("openvino"):
+        _append_add_data(src, dst)
+except Exception:
+    pass
+
+# ONNX Runtime / DirectML runtime: required when a discrete GPU is available.
+try:
+    for src, dst in collect_dynamic_libs("onnxruntime"):
+        _append_add_binary(src, dst)
+    for package_name in ("onnxruntime-directml", "onnxruntime"):
+        try:
+            for src, dst in copy_metadata(package_name):
+                _append_add_data(src, dst)
+        except Exception:
+            pass
+except Exception:
+    pass
+
+# ViGEmClient.dll（虚拟手柄）
+try:
+    import vgamepad
+    vg_path = Path(vgamepad.__file__).parent
+    vigem_dll = vg_path / "win" / "vigem" / "client" / "x64" / "ViGEmClient.dll"
+    if vigem_dll.exists():
+        args.append(f"--add-binary={vigem_dll}{sep}vgamepad/win/vigem/client/x64")
+except ImportError:
+    pass
+
+# UPX 压缩（如果可用）
+args.append("--upx-dir=.")
+
+print(f"[BUILD] Mode: {'Single File' if onefile else 'Single Dir'}")
+PyInstaller.__main__.run(args)
+
+output = DIST / "NTE_Drive_Calc"
+if onefile:
+    output = DIST / "NTE_Drive_Calc.exe"
+
+if output.exists():
+    size_mb = sum(
+        f.stat().st_size for f in output.rglob("*") if f.is_file()
+    ) / (1024 * 1024)
+    print(f"\n[OK] Build complete: {output}")
+    print(f"[SIZE] {size_mb:.1f} MB")
+else:
+    print("\n[FAIL] Build failed.")
+    sys.exit(1)

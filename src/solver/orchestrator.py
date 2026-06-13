@@ -1,0 +1,196 @@
+"""End-to-end pipeline for blueprints, scoring, dispatch, and output."""
+
+import json
+import os
+from typing import List, Dict, Any
+
+from src.models.equipment import DriveShape, Drive, Tape
+from src.solver.combinatorics import PuzzleCombinatorics
+from src.solver.dfs_puzzle import DFSPuzzleSolver
+from src.optimizer.scoring import ScoringEngine
+from src.optimizer.dispatcher import DispatcherEngine
+from src.utils.visualizer import BoardVisualizer
+from src.utils.logger import logger
+from src.utils.name_resolver import resolve_name
+
+
+class NTEPipelineOrchestrator:
+
+    def __init__(self, config_dir: str = "config"):
+        self.config_dir = config_dir
+        self.roles_db = {}
+        self.sets_db = {}
+        self.shapes_db = {}
+        self._load_configs()
+
+    def _load_configs(self):
+        with open(os.path.join(self.config_dir, "roles.json"), "r", encoding="utf-8") as f:
+            self.roles_db = json.load(f)
+        with open(os.path.join(self.config_dir, "sets.json"), "r", encoding="utf-8") as f:
+            self.sets_db = json.load(f)["sets"]
+        with open(os.path.join(self.config_dir, "shapes.json"), "r", encoding="utf-8") as f:
+            for s in json.load(f)["shapes"]:
+                self.shapes_db[s["shape_id"]] = DriveShape(**s)
+        self._canonicalize_role_sets()
+
+    def _resolve_set_name(self, set_name: str) -> str:
+        resolved = resolve_name(set_name, self.sets_db.keys(), cutoff=0.78)
+        if not resolved:
+            available = "、".join(self.sets_db.keys())
+            raise ValueError(f"错误：指定的套装 {set_name} 不存在于 sets.json 中！可用套装：{available}")
+        return resolved
+
+    def _canonicalize_role_sets(self):
+        for role_name, role_data in self.roles_db.items():
+            if "default_set" not in role_data:
+                continue
+            raw_set = role_data["default_set"]
+            resolved = self._resolve_set_name(raw_set)
+            if resolved != raw_set:
+                logger.warning(f"角色 [{role_name}] 默认套装名已自动修正: {raw_set} -> {resolved}")
+                role_data["default_set"] = resolved
+
+    def _canonicalize_custom_sets(self, custom_sets: Dict[str, str] | None) -> Dict[str, str]:
+        resolved_sets = {}
+        for role_name, set_name in (custom_sets or {}).items():
+            if set_name:
+                resolved_sets[role_name] = self._resolve_set_name(set_name)
+        return resolved_sets
+
+    def solve_blueprints(self, target_roles: List[str], custom_sets: Dict[str, str] = None) -> Dict[str, List[Dict]]:
+        custom_sets = self._canonicalize_custom_sets(custom_sets)
+        logger.info(f"\n[阶段 2] 求解 {target_roles} 的合法底盘图纸...")
+        combinatorics = PuzzleCombinatorics(self.shapes_db)
+        dfs_solver = DFSPuzzleSolver(self.shapes_db)
+        real_blueprints_db = {}
+
+        import time as _time
+
+        for role_name in target_roles:
+            role_data = self.roles_db[role_name]
+            set_name = self._resolve_set_name(custom_sets.get(role_name, role_data["default_set"]))
+
+            set_shapes = self.sets_db[set_name]["shapes"]
+            extra_label = role_data["extra_shape_label"]
+            board_matrix = role_data["board_matrix"]
+
+            logger.info(f"  -> [{role_name}] 套装: {set_name} | 求解中...")
+            _t0 = _time.time()
+            combos = combinatorics.generate_piece_combinations(set_shapes, extra_label)
+            logger.info(f"     组合数: {len(combos)} | 耗时: {_time.time()-_t0:.2f}s")
+            role_blueprints = []
+
+            for combo in combos:
+                pieces_to_place = set_shapes + combo
+                board_copy = [row[:] for row in board_matrix]
+                results = []
+                dfs_solver.solve(board_copy, pieces_to_place, results, max_solutions=1)
+
+                if results:
+                    role_blueprints.append({
+                        "extra_pieces": combo,
+                        "board": results[0]
+                    })
+
+            real_blueprints_db[role_name] = role_blueprints
+            logger.success(f"  [{role_name}] 图纸求解完成，共 {len(role_blueprints)} 套合法方案。(总耗时 {_time.time()-_t0:.2f}s)")
+
+        return real_blueprints_db
+
+    def run_full_allocation(self, inventory: List[Dict], priority_list: List[str],
+                            custom_sets: Dict[str, str] = None, mode: str = "role_priority",
+                            locked_uids: set = None):
+        locked_uids = locked_uids or set()
+        custom_sets = self._canonicalize_custom_sets(custom_sets)
+        logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
+        blueprints_db = self.solve_blueprints(priority_list, custom_sets)
+
+        logger.info(f"\n[阶段 3] 接收到 {len(inventory)} 个资产，正在过滤与类型转换...")
+        parsed_inventory = []
+        filtered_count = 0
+
+        for item in inventory:
+            # 兼容旧版本卡带的主词条格式，强行拍扁为字符串
+            if item.get("item_type") == "tape" and isinstance(item.get("main_stats"), dict):
+                if item["main_stats"]:
+                    item["main_stats"] = list(item["main_stats"].keys())[0]
+                else:
+                    item["main_stats"] = "未知主词条"
+
+            # 实例化
+            obj = Drive(**item) if item.get("item_type") == "drive" else Tape(**item)
+
+            # Skip equipment already worn by other characters
+            if obj.uid in locked_uids:
+                filtered_count += 1
+                continue
+
+            parsed_inventory.append(obj)
+
+        if locked_uids:
+            logger.info(
+                f"[模式四] 已屏蔽 {filtered_count} 件锁定装备，使用剩余 {len(parsed_inventory)} 件进行分配。")
+
+        scoring_engine = ScoringEngine(config_dir=self.config_dir)
+        screened_pools = scoring_engine.evaluate_global_inventory(inventory=parsed_inventory,
+                                                                  top_k_per_shape_per_role=15)
+
+        logger.success("  筛选完成。")
+        logger.info(f"     - 入选驱动数: {len(screened_pools['drives'])}")
+        logger.info(f"     - 卡带分桶: 各角色 Top 3 已锁定")
+
+        logger.info(f"\n[阶段 4] 启动调度模式: [{mode}]...")
+        dispatcher = DispatcherEngine(roles_db=self.roles_db, sets_db=self.sets_db, blueprints_db=blueprints_db)
+
+        final_plan = dispatcher.execute_dispatch(
+            mode=mode,
+            candidate_pool=screened_pools,
+            priority_list=priority_list,
+            custom_sets=custom_sets
+        )
+
+        self._render_results(final_plan, scoring_engine, custom_sets)
+
+        return final_plan
+
+    def _render_results(self, final_plan: Dict, scoring_engine: ScoringEngine, custom_sets: Dict[str, str]):
+        custom_sets = custom_sets or {}
+        for role, plan in final_plan.items():
+            if not plan or not plan.get("valid", True):
+                logger.error(f"角色 [{role}] 分配失败: 无法凑齐合法图纸。\n")
+                continue
+
+            grade = scoring_engine.get_grade_tag(plan['score'], area=20)
+            used_set = custom_sets.get(role, self.roles_db[role]["default_set"])
+
+            BoardVisualizer.display_final_plan(role_name=role, plan=plan, default_set=used_set, grade=grade)
+
+            logger.opt(raw=True).info("  [卡带分配]\n")
+            assigned_tape: Tape = plan.get("assigned_tape")
+            if assigned_tape:
+                t_score = assigned_tape.role_scores.get(role, 0.0)
+                t_grade = scoring_engine.get_grade_tag(t_score, area=15)
+                logger.opt(raw=True).info(f"     - {assigned_tape.set_name.ljust(8)} | "
+                                          f"评级:[{t_grade.ljust(3)}] | "
+                                          f"总得分:{str(t_score).ljust(6)} | "
+                                          f"品质:{assigned_tape.quality.ljust(5)} |\n"
+                                          f"       主词条: {assigned_tape.main_stats}\n"
+                                          f"       副词条: {assigned_tape.sub_stats}\n")
+            else:
+                logger.warning("     - 未为此角色分配合法卡带。")
+
+            for category, key in [("\n  [四件套驱动]\n", 'assigned_set_drives'),
+                                  ("  [额外散件]\n", 'assigned_extra_drives')]:
+                logger.opt(raw=True).info(f"{category}")
+                for d in plan.get(key, []):
+                    score = d.role_scores.get(role, 0.0)
+                    d_grade = scoring_engine.get_grade_tag(score, d.area)
+
+                    mvp_tag = f" [先选: 第 {d.pick_order} 顺位]" if d.is_mvp else ""
+
+                    logger.opt(raw=True).info(f"     - {d.shape_id.ljust(10)} | "
+                                              f"评级:[{d_grade.ljust(3)}] | "
+                                              f"得分:{str(score).ljust(5)} | "
+                                              f"品质:{d.quality.ljust(5)} | "
+                                              f"数值:{d.sub_stats}{mvp_tag}\n")
+            logger.opt(raw=True).info("\n" + "=" * 60 + "\n")

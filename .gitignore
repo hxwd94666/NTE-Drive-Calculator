@@ -1,0 +1,40 @@
+# Python cache and local runtime state
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Build outputs
+build/
+dist/
+*.spec
+
+# Installer generated files with local absolute paths
+installer/*.iss
+installer/output/
+
+# Runtime data
+logs/
+scanned_images/
+identify_captures/
+config/real_inventory.json
+config/equipped_state.json
+config/priority_config.json
+config/hotkeys.json
+config/update_config.json
+
+# Temporary OCR and scan artifacts
+*.log
+*.tmp
+
