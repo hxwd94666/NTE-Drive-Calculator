@@ -6,6 +6,7 @@ import cv2
 import time
 import shutil
 import re
+import hashlib
 
 from src.scanner.config import ScannerConfig
 from src.scanner.shape_recognizer import ShapeRecognizer
@@ -43,6 +44,7 @@ class BatchProcessor:
         self.successful_image_paths = []
         self._last_parsed_filename = None
         self._last_parsed_signature = None
+        self._existing_inventory_signatures = None
 
     def process_all(self):
         if not os.path.exists(self.input_dir):
@@ -200,6 +202,10 @@ class BatchProcessor:
         item_data = self._process_single_image(image_path)
         current_name = filename or os.path.basename(image_path)
         current_signature = self._item_signature(item_data)
+        is_inventory_probe_duplicate = (
+            self._is_inventory_probe_filename(current_name)
+            and current_signature in self._load_existing_inventory_signatures()
+        )
         is_adjacent_duplicate = (
             self._last_parsed_signature == current_signature
             and self._are_named_neighbors(self._last_parsed_filename, current_name)
@@ -208,6 +214,10 @@ class BatchProcessor:
         self._last_parsed_filename = current_name
         self._last_parsed_signature = current_signature
         self._mark_image_success(image_path)
+
+        if is_inventory_probe_duplicate:
+            logger.info(f"兜底首图与现有库存数据一致，跳过重复入库: {current_name}")
+            return item_data, False
 
         if is_adjacent_duplicate:
             return item_data, False
@@ -320,9 +330,39 @@ class BatchProcessor:
         raise ValueError(f"未知鉴定类型: {forced_type}")
 
     def _item_signature(self, item_data) -> str:
-        data = item_data.model_dump()
-        data.pop("uid", None)
+        data = self._normalized_signature_data(item_data.model_dump())
         return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def _item_signature_from_dict(self, item_data: dict) -> str:
+        data = self._normalized_signature_data(item_data)
+        return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def _normalized_signature_data(self, item_data: dict) -> dict:
+        data = dict(item_data or {})
+        for key in ("uid", "role_scores", "max_score", "is_mvp", "pick_order"):
+            data.pop(key, None)
+        return data
+
+    def _load_existing_inventory_signatures(self) -> set[str]:
+        if self._existing_inventory_signatures is not None:
+            return self._existing_inventory_signatures
+        signatures = set()
+        if not self.replace_output and os.path.exists(self.output_file):
+            try:
+                with open(self.output_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict):
+                            signatures.add(self._item_signature_from_dict(item))
+            except Exception as exc:
+                logger.debug(f"读取现有库存签名失败，跳过兜底首图库存去重: {exc}")
+        self._existing_inventory_signatures = signatures
+        return signatures
+
+    def _is_inventory_probe_filename(self, filename: str | None) -> bool:
+        stem = os.path.splitext(os.path.basename(filename or ""))[0]
+        return stem.startswith("raw_drive_probe_")
 
     def _cluster_identify_lines(self, lines: list[dict], image_shape: tuple[int, int]) -> list[list[dict]]:
         height, width = image_shape
@@ -512,11 +552,18 @@ class BatchProcessor:
         return match.group(1), int(match.group(2))
 
     def _are_named_neighbors(self, previous_filename: str | None, current_filename: str | None) -> bool:
+        if self._is_probe_first_new_pair(previous_filename, current_filename):
+            return True
         previous_key = self._filename_sequence_key(previous_filename)
         current_key = self._filename_sequence_key(current_filename)
         if not previous_key or not current_key:
             return False
         return previous_key[0] == current_key[0] and current_key[1] == previous_key[1] + 1
+
+    def _is_probe_first_new_pair(self, previous_filename: str | None, current_filename: str | None) -> bool:
+        previous_stem = os.path.splitext(os.path.basename(previous_filename or ""))[0]
+        current_stem = os.path.splitext(os.path.basename(current_filename or ""))[0]
+        return previous_stem.startswith("raw_drive_probe_") and current_stem == "raw_drive_new_0001"
 
     def _process_single_image(self, image_path: str):
         img = imread_unicode(image_path)

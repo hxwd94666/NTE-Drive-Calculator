@@ -193,13 +193,14 @@ class DroneScanner:
         logger.warning("=" * 50)
         time.sleep(3)
 
+        probe_captured = 0
         total_captured = 0
         page = 1
 
         with mss.MSS() as sct:
-            first_filename = os.path.join(self.output_dir, f"raw_drive_new_{total_captured + 1:04d}.png")
+            first_filename = os.path.join(self.output_dir, "raw_drive_probe_0000.png")
             self._capture_window_png(sct, first_filename)
-            total_captured += 1
+            probe_captured = 1
             logger.success("已先抓取当前第一个驱动，避免漏掉首个 NEW 装备。")
 
             while not self._stopped:
@@ -245,7 +246,7 @@ class DroneScanner:
                 page += 1
 
         logger.info(f"扫描任务完成，共捕获 {total_captured} 个新资产。")
-        return total_captured
+        return probe_captured + total_captured
 
     def start_semi_auto_scan(self):
         """半自动模式：手动点击装备后按 F9 截图，F10 结束"""
