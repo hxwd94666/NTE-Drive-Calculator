@@ -9,6 +9,22 @@ from src.scanner.window_capture import capture_foreground_window
 from src.utils.logger import logger
 
 
+class ViGEmDriverNotReadyError(RuntimeError):
+    """Raised when the virtual gamepad driver is missing or not running."""
+
+
+def _format_vigem_error(exc: Exception) -> str:
+    raw = str(exc) or exc.__class__.__name__
+    return (
+        "ViGEmBus 虚拟手柄驱动未就绪，无法启动全量扫描。\n\n"
+        "请按下面顺序处理：\n"
+        "1. 先重启电脑，再重新打开本程序。\n"
+        "2. 如果仍然报错，打开开始菜单里的 NTE Drive Calc -> Install ViGEmBus Driver 重新安装/修复驱动。\n"
+        "3. 修复后再次重启电脑。\n\n"
+        f"原始错误: {raw}"
+    )
+
+
 class GamepadScanner:
     MAX_INVENTORY_COUNT = 2000
 
@@ -20,8 +36,14 @@ class GamepadScanner:
         self.cols = 7
 
         logger.info("正在连接虚拟 Xbox 360 手柄...")
-        import vgamepad as vg
-        self.gamepad = vg.VX360Gamepad()
+        try:
+            import vgamepad as vg
+            self.gamepad = vg.VX360Gamepad()
+        except Exception as exc:
+            text = str(exc).upper()
+            if "VIGEM" in text or "BUS_NOT_FOUND" in text or "VI_GEM" in text:
+                raise ViGEmDriverNotReadyError(_format_vigem_error(exc)) from exc
+            raise
         time.sleep(2)
         logger.success("虚拟手柄连接完成")
 

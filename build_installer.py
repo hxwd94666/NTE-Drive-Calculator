@@ -155,23 +155,19 @@ Name: "{{app}}\\scanned_images"; Permissions: users-modify
 
 [Icons]
 Name: "{{group}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; WorkingDir: "{{app}}"
-Name: "{{group}}\\Install ViGEmBus Driver"; Filename: "{{sys}}\\msiexec.exe"; Parameters: "/i ""{{app}}\\drivers\\ViGEmBusSetup_x64.msi"" /qn /norestart"; WorkingDir: "{{app}}"; Check: IsWin64
+Name: "{{group}}\\Install ViGEmBus Driver"; Filename: "{{sys}}\\msiexec.exe"; Parameters: "/i ""{{app}}\\drivers\\ViGEmBusSetup_x64.msi"" /qn /norestart REINSTALL=ALL REINSTALLMODE=amus"; WorkingDir: "{{app}}"; Check: IsWin64
 Name: "{{group}}\\Uninstall {{#MyAppName}}"; Filename: "{{uninstallexe}}"
 Name: "{{autodesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; WorkingDir: "{{app}}"; Tasks: desktopicon
 
 [Run]
-Filename: "{{sys}}\\msiexec.exe"; Parameters: "/i ""{{app}}\\drivers\\ViGEmBusSetup_x64.msi"" /qn /norestart"; StatusMsg: "Installing ViGEmBus virtual gamepad driver..."; Flags: waituntilterminated; Tasks: installvigem; Check: ShouldInstallViGEmBus
+Filename: "{{sys}}\\msiexec.exe"; Parameters: "/i ""{{app}}\\drivers\\ViGEmBusSetup_x64.msi"" /qn /norestart REINSTALL=ALL REINSTALLMODE=amus"; StatusMsg: "Installing or repairing ViGEmBus virtual gamepad driver..."; Flags: waituntilterminated; Tasks: installvigem; Check: ShouldInstallViGEmBus
+Filename: "{{cmd}}"; Parameters: "/C sc start ViGEmBus >NUL 2>NUL & exit /B 0"; StatusMsg: "Starting ViGEmBus driver service..."; Flags: runhidden waituntilterminated; Tasks: installvigem; Check: IsWin64
 Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runascurrentuser
 
 [Code]
-function ViGEmBusInstalled: Boolean;
-begin
-  Result := RegKeyExists(HKLM, 'SYSTEM\\CurrentControlSet\\Services\\ViGEmBus');
-end;
-
 function ShouldInstallViGEmBus: Boolean;
 begin
-  Result := IsWin64 and WizardIsTaskSelected('installvigem') and (not ViGEmBusInstalled);
+  Result := IsWin64 and WizardIsTaskSelected('installvigem');
 end;
 """
     ISS_PATH.write_text(content, encoding="utf-8")
