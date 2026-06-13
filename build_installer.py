@@ -180,7 +180,7 @@ end;
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build NTE Drive Calc installer.")
-    parser.add_argument("--version", default=os.environ.get("APP_VERSION", "1.0.0"))
+    parser.add_argument("--version", default=os.environ.get("APP_VERSION", "1.0.1"))
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
     args = parser.parse_args()

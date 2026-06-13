@@ -43,7 +43,7 @@ TEMPLATE_DIR = CONFIG_DIR / "templates"
 OUTPUT_FILE = USER_CONFIG_DIR / "real_inventory.json"
 SCREENSHOT_DIR = DATA_ROOT / "scanned_images"
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/hxwd94666/NTE-Drive-Calc/releases/latest"
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
