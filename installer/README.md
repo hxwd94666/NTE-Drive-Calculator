@@ -32,7 +32,7 @@ $env:INNO_SETUP_ISCC = "D:\Tools\Inno Setup 6\ISCC.exe"
 The final installer is written to:
 
 ```text
-installer\output\NTE_Drive_Calc_Setup_1.0.0.exe
+installer\output\NTE_Drive_Calc_Setup_1.0.1.exe
 ```
 
 ## Included Runtime Dependencies
@@ -41,11 +41,13 @@ The installer packages:
 
 - `dist\NTE_Drive_Calc\NTE_Drive_Calc.exe`
 - `dist\NTE_Drive_Calc\_internal`
-- `ViGEmBusSetup_x64.msi` from the installed `vgamepad` Python package
+- `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the project root when present
+- `ViGEmBusSetup_x64.msi` from the installed `vgamepad` Python package as a fallback
 
-During installation, the setup runs the ViGEmBus driver installer silently when the
-`ViGEmBus` service is not already installed. The setup requires administrator
-permission because driver installation needs elevated rights on Windows.
+During installation, the setup runs the ViGEmBus driver installer silently when
+the user keeps the `Install ViGEmBus virtual gamepad driver` task selected. The
+setup requires administrator permission because driver installation needs
+elevated rights on Windows.
 
 After installation, the app itself can be opened normally. Only the automatic scan
 modes that control mouse/gamepad input will prompt the user to restart as

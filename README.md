@@ -28,6 +28,7 @@
 <https://github.com/hxwd94666/NTE-Drive-Calc/releases>
 
 下载 `NTE_Drive_Calc_Setup_x.x.x.exe` 后直接运行安装即可。安装程序需要管理员权限，因为它可能需要安装 ViGEmBus 虚拟手柄驱动。
+当前安装包内置 Nefarius ViGEmBus `x64/x86/arm64` 合包驱动，安装时保持 `Install ViGEmBus virtual gamepad driver` 勾选即可。
 
 安装完成后从桌面快捷方式或开始菜单启动程序。
 
