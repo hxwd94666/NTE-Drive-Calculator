@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -53,6 +54,15 @@ def _find_iscc() -> Path | None:
         if candidate and Path(candidate).exists():
             return Path(candidate)
     return None
+
+
+def _read_app_version() -> str:
+    app_path = ROOT / "src" / "ui" / "app.py"
+    text = app_path.read_text(encoding="utf-8")
+    match = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
+    if not match:
+        raise RuntimeError(f"APP_VERSION not found in {app_path}")
+    return match.group(1)
 
 
 def _find_vigem_installer() -> tuple[Path, bool]:
@@ -198,7 +208,7 @@ end;
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build NTE Drive Calc installer.")
-    parser.add_argument("--version", default=os.environ.get("APP_VERSION", "1.0.1"))
+    parser.add_argument("--version", default=os.environ.get("APP_VERSION") or _read_app_version())
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
     args = parser.parse_args()
