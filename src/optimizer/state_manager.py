@@ -1,7 +1,7 @@
+# 管理已保存配装和锁定状态。
 """Persistence helpers for saved equipment plans and locked items."""
 
 import json
-import os
 from pathlib import Path
 from src.utils.logger import logger
 
