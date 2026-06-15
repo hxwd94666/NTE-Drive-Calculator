@@ -1,3 +1,4 @@
+# 提供支持中文路径的图像读取工具。
 """Unicode-safe image loading helpers for Windows paths."""
 
 from pathlib import Path
