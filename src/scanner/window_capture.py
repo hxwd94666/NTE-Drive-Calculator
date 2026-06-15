@@ -1,3 +1,4 @@
+# 捕获前台窗口并裁剪游戏画面区域。
 """Window capture and coordinate conversion utilities for game screenshots."""
 
 import ctypes
