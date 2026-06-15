@@ -1,3 +1,4 @@
+# 定义驱动盘和音擎的数据模型。
 """Typed equipment models shared by scanning, scoring, and allocation."""
 
 from pydantic import BaseModel, Field, model_validator
