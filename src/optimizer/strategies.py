@@ -1,3 +1,4 @@
+# 实现角色优先、驱动优先和全局最优分配策略。
 """Allocation strategies for role-first, item-first, and global matching."""
 
 import copy
