@@ -32,7 +32,7 @@ $env:INNO_SETUP_ISCC = "D:\Tools\Inno Setup 6\ISCC.exe"
 The final installer is written to:
 
 ```text
-installer\output\NTE_Drive_Calc_Setup_1.0.1.exe
+installer\output\NTE_Drive_Calc_Setup_x.x.x.exe
 ```
 
 ## Included Runtime Dependencies
