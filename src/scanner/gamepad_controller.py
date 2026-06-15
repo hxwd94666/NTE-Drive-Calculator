@@ -1,3 +1,4 @@
+# 使用虚拟手柄执行自动背包扫描。
 """Full inventory scanner driven by the virtual gamepad controller."""
 
 import os
