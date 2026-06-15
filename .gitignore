@@ -25,10 +25,10 @@ installer/*.iss
 installer/output/
 
 # Runtime data
-logs/
-scanned_images/
-identify_captures/
-accounts/
+/logs/
+/scanned_images/
+/identify_captures/
+/accounts/
 config/real_inventory.json
 config/equipped_state.json
 config/priority_config.json
