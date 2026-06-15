@@ -1,3 +1,4 @@
+# 构建 Windows 可执行程序的打包脚本。
 """
 NTE Drive Calc - PyInstaller 打包脚本
 
