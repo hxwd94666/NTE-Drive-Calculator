@@ -1,3 +1,4 @@
+# 通过鼠标热键执行半自动装备截图。
 """Incremental scanner for screenshot-driven inventory capture."""
 
 import time
