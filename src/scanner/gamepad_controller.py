@@ -1,9 +1,13 @@
 """Full inventory scanner driven by the virtual gamepad controller."""
 
-import time
 import os
+import shutil
+import time
+
+import cv2
 import mss
 import mss.tools
+import numpy as np
 
 from src.scanner.window_capture import capture_foreground_window
 from src.utils.logger import logger
@@ -27,17 +31,20 @@ def _format_vigem_error(exc: Exception) -> str:
 
 class GamepadScanner:
     MAX_INVENTORY_COUNT = 2000
+    SAME_FRAME_DIFF_THRESHOLD = 1.0
 
     def __init__(self, output_dir="scanned_images"):
         self.output_dir = output_dir
+        self.capture_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self._stopped = False
-
         self.cols = 7
+        self._last_capture_fingerprint = None
 
         logger.info("正在连接虚拟 Xbox 360 手柄...")
         try:
             import vgamepad as vg
+
             self.gamepad = vg.VX360Gamepad()
         except Exception as exc:
             text = str(exc).upper()
@@ -64,16 +71,57 @@ class GamepadScanner:
         if removed:
             logger.info(f"全量扫描前已清理旧截图 {removed} 张。")
 
-    def capture_panel(self, counter):
-        """截图并以前导零序号命名保存"""
-        with mss.MSS() as sct:
+    def _prepare_temp_output(self):
+        self.capture_dir = os.path.join(self.output_dir, "temp")
+        if os.path.exists(self.capture_dir):
+            shutil.rmtree(self.capture_dir, ignore_errors=True)
+        os.makedirs(self.capture_dir, exist_ok=True)
+
+    def _commit_temp_output(self):
+        self._clear_output_images()
+        moved = 0
+        for name in sorted(os.listdir(self.capture_dir)):
+            src = os.path.join(self.capture_dir, name)
+            dst = os.path.join(self.output_dir, name)
+            if os.path.isfile(src):
+                shutil.move(src, dst)
+                moved += 1
+        shutil.rmtree(self.capture_dir, ignore_errors=True)
+        self.capture_dir = self.output_dir
+        logger.success(f"全量扫描截图已写入根目录，共 {moved} 张。")
+
+    def _frame_fingerprint(self, screenshot):
+        frame = np.asarray(screenshot)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
+        return cv2.resize(gray, (96, 54), interpolation=cv2.INTER_AREA)
+
+    def _is_same_frame(self, previous, current) -> bool:
+        if previous is None or current is None:
+            return False
+        diff = cv2.absdiff(previous, current)
+        return float(np.mean(diff)) <= self.SAME_FRAME_DIFF_THRESHOLD
+
+    def capture_panel(self, sct, counter):
+        screenshot = None
+        fingerprint = None
+        attempt = 1
+
+        for attempt in range(1, 7):
             screenshot, _ = capture_foreground_window(sct)
-            filename = os.path.join(self.output_dir, f"raw_drive_{counter:04d}.png")
-            mss.tools.to_png(screenshot.rgb, screenshot.size, output=filename)
+            fingerprint = self._frame_fingerprint(screenshot)
+            if not self._is_same_frame(self._last_capture_fingerprint, fingerprint):
+                break
+            time.sleep(0.08)
+
+        filename = os.path.join(self.capture_dir, f"raw_drive_{counter:04d}.png")
+        mss.tools.to_png(screenshot.rgb, screenshot.size, output=filename)
+        self._last_capture_fingerprint = fingerprint
+        if attempt > 1:
+            logger.info(f"[{counter:04d}] 捕获成功（等待画面变化 {attempt - 1} 次）")
+        else:
             logger.info(f"[{counter:04d}] 捕获成功")
 
     def push_left_joystick(self, x, y):
-        """微操控制摇杆"""
         self.gamepad.left_joystick_float(x_value_float=x, y_value_float=y)
         self.gamepad.update()
         time.sleep(0.04)
@@ -82,37 +130,36 @@ class GamepadScanner:
         time.sleep(0.25)
 
     def _generate_path(self, total_drives: int) -> list:
-        """生成 S 形遍历路径，处理最后一行不满的情况"""
         scan_order = []
-        for r in range((total_drives + self.cols - 1) // self.cols):
-            cols_in_row = min(self.cols, total_drives - r * self.cols)
-            if r % 2 == 0:
-                for c in range(cols_in_row): scan_order.append((r, c))
+        for row in range((total_drives + self.cols - 1) // self.cols):
+            cols_in_row = min(self.cols, total_drives - row * self.cols)
+            if row % 2 == 0:
+                for col in range(cols_in_row):
+                    scan_order.append((row, col))
             else:
-                for c in range(cols_in_row - 1, -1, -1): scan_order.append((r, c))
+                for col in range(cols_in_row - 1, -1, -1):
+                    scan_order.append((row, col))
 
         commands = []
-        curr_r, curr_c = 0, 0
-        for target_r, target_c in scan_order:
+        curr_row, curr_col = 0, 0
+        for target_row, target_col in scan_order:
             moves = []
-            # 优先水平移动，再垂直下落（避免越界）
-            while curr_c < target_c:
-                moves.append('R')
-                curr_c += 1
-            while curr_c > target_c:
-                moves.append('L')
-                curr_c -= 1
-            # 垂直下落
-            while curr_r < target_r:
-                moves.append('D')
-                curr_r += 1
+            while curr_col < target_col:
+                moves.append("R")
+                curr_col += 1
+            while curr_col > target_col:
+                moves.append("L")
+                curr_col -= 1
+            while curr_row < target_row:
+                moves.append("D")
+                curr_row += 1
             commands.append(moves)
         return commands
 
     def start_scan(self, total_drives=None):
         logger.warning("\n" + "=" * 50)
         logger.warning("虚拟手柄已就位，将在 3 秒后接管控制，请切回游戏")
-        logger.warning("请确保此时已选中第一排第一个驱动。")
+        logger.warning("请确保此时已选中第一排第一个驱动/卡带")
         logger.warning("=" * 50)
         time.sleep(3)
 
@@ -126,28 +173,35 @@ class GamepadScanner:
         self.push_left_joystick(-1.0, 0.0)
         time.sleep(0.5)
 
-        logger.info(f"\n====== S 形遍历启动 (总目标: {total_drives} 个) ======")
-
-        # 预先生成所有的微操指令
-        self._clear_output_images()
+        logger.info(f"\n====== S 形遍历启动（总目标 {total_drives} 个）======")
+        self._prepare_temp_output()
         path_commands = self._generate_path(total_drives)
+        captured_count = 0
 
-        for i, moves in enumerate(path_commands, 1):
-            if self._stopped:
-                break
-            for move in moves:
-                if move == 'R':
-                    self.push_left_joystick(1.0, 0.0)
-                elif move == 'L':
-                    self.push_left_joystick(-1.0, 0.0)
-                elif move == 'D':
-                    self.push_left_joystick(0.0, -1.0)
+        with mss.MSS() as sct:
+            for index, moves in enumerate(path_commands, 1):
+                if self._stopped:
+                    break
+                for move in moves:
+                    if move == "R":
+                        self.push_left_joystick(1.0, 0.0)
+                    elif move == "L":
+                        self.push_left_joystick(-1.0, 0.0)
+                    elif move == "D":
+                        self.push_left_joystick(0.0, -1.0)
 
-            if self._stopped:
-                break
-            self.capture_panel(i)
+                if self._stopped:
+                    break
+                self.capture_panel(sct, index)
+                captured_count += 1
+
+        if self._stopped or captured_count != total_drives:
+            logger.warning("全量扫描未完整结束，临时截图未替换当前根目录。")
+            return 0
+
+        self._commit_temp_output()
 
         logger.success("\n" + "=" * 40)
-        logger.success(f"扫描完成，共处理 {total_drives} 个驱动。")
+        logger.success(f"扫描完成，共处理 {total_drives} 个装备。")
         logger.success("=" * 40)
-        return total_drives
+        return captured_count

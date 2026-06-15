@@ -97,10 +97,31 @@ class NTEPipelineOrchestrator:
 
         return real_blueprints_db
 
+    def _estimate_drive_screen_limit(self, blueprints_db: Dict[str, List[Dict]], custom_sets: Dict[str, str]) -> int:
+        shape_demands: Dict[str, int] = {}
+        for role_name, blueprints in blueprints_db.items():
+            if not blueprints:
+                continue
+            set_name = self._resolve_set_name(custom_sets.get(role_name, self.roles_db[role_name]["default_set"]))
+            role_max_demands: Dict[str, int] = {}
+            for blueprint in blueprints:
+                counts: Dict[str, int] = {}
+                for shape_id in self.sets_db[set_name]["shapes"] + blueprint.get("extra_pieces", []):
+                    counts[shape_id] = counts.get(shape_id, 0) + 1
+                for shape_id, count in counts.items():
+                    role_max_demands[shape_id] = max(role_max_demands.get(shape_id, 0), count)
+            for shape_id, count in role_max_demands.items():
+                shape_demands[shape_id] = shape_demands.get(shape_id, 0) + count
+
+        return max(15, max(shape_demands.values(), default=0) + 5)
+
     def run_full_allocation(self, inventory: List[Dict], priority_list: List[str],
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
-                            locked_uids: set = None):
+                            locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
+                            crit_priority_modes: Dict[str, str] = None):
         locked_uids = locked_uids or set()
+        tape_main_filters = tape_main_filters or {}
+        crit_priority_modes = crit_priority_modes or {}
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
         blueprints_db = self.solve_blueprints(priority_list, custom_sets)
@@ -132,8 +153,24 @@ class NTEPipelineOrchestrator:
                 f"[模式四] 已屏蔽 {filtered_count} 件锁定装备，使用剩余 {len(parsed_inventory)} 件进行分配。")
 
         scoring_engine = ScoringEngine(config_dir=self.config_dir)
+        drive_screen_limit = self._estimate_drive_screen_limit(blueprints_db, custom_sets)
+        if drive_screen_limit > 15:
+            logger.info(f"  候选驱动筛选上限已按当前角色需求提升到 Top {drive_screen_limit}/形状/角色。")
         screened_pools = scoring_engine.evaluate_global_inventory(inventory=parsed_inventory,
-                                                                  top_k_per_shape_per_role=15)
+                                                                  top_k_per_shape_per_role=drive_screen_limit)
+        filtered_tape_count = 0
+        for role_name, allowed_mains in tape_main_filters.items():
+            allowed = {str(v) for v in allowed_mains if v}
+            if not allowed or role_name not in screened_pools.get("tapes", {}):
+                continue
+            before = len(screened_pools["tapes"].get(role_name, []))
+            screened_pools["tapes"][role_name] = [
+                tape for tape in screened_pools["tapes"].get(role_name, [])
+                if str(getattr(tape, "main_stats", "")) in allowed
+            ]
+            filtered_tape_count += before - len(screened_pools["tapes"][role_name])
+        if filtered_tape_count:
+            logger.info(f"  已按角色优先级配置过滤卡带主词条，排除 {filtered_tape_count} 张卡带候选。")
 
         logger.success("  筛选完成。")
         logger.info(f"     - 入选驱动数: {len(screened_pools['drives'])}")
@@ -146,7 +183,8 @@ class NTEPipelineOrchestrator:
             mode=mode,
             candidate_pool=screened_pools,
             priority_list=priority_list,
-            custom_sets=custom_sets
+            custom_sets=custom_sets,
+            crit_priority_modes=crit_priority_modes
         )
 
         self._render_results(final_plan, scoring_engine, custom_sets)

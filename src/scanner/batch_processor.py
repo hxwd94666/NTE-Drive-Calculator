@@ -7,6 +7,7 @@ import time
 import shutil
 import re
 import hashlib
+import numpy as np
 
 from src.scanner.config import ScannerConfig
 from src.scanner.shape_recognizer import ShapeRecognizer
@@ -44,6 +45,7 @@ class BatchProcessor:
         self.successful_image_paths = []
         self._last_parsed_filename = None
         self._last_parsed_signature = None
+        self._last_parsed_image_fingerprint = None
         self._existing_inventory_signatures = None
 
     def process_all(self):
@@ -134,7 +136,7 @@ class BatchProcessor:
                 logger.info(f"[{idx:04d}/{total_files:04d}] 解析: {cost:.2f}s | {filename}")
                 if not added:
                     duplicate_count += 1
-                    logger.info("      > 命名相邻截图解析数据一致，已过滤重复入库\n")
+                    logger.info("      > 相邻截图画面与解析数据均一致，按连拍重复过滤\n")
                     continue
 
                 if item_obj.item_type == "drive":
@@ -157,7 +159,7 @@ class BatchProcessor:
         cost_time = time.time() - start_time
         avg_time = cost_time / total_files if total_files else 0
         logger.success("=" * 60)
-        logger.success(f"解析完成。本次入库 {success_count} 个装备，过滤相邻重复 {duplicate_count} 个。")
+        logger.success(f"解析完成。本次入库 {success_count} 个装备，过滤疑似连拍重复 {duplicate_count} 个。")
         logger.success(f"总耗时: {cost_time:.2f} 秒 (平均 {avg_time:.2f} 秒/张)")
         logger.success("=" * 60)
 
@@ -198,10 +200,25 @@ class BatchProcessor:
     def _mark_image_success(self, image_path: str) -> None:
         self.successful_image_paths.append(image_path)
 
+    def _image_fingerprint(self, image_path: str):
+        img = imread_unicode(image_path)
+        if img is None:
+            return None
+        img = crop_window_border_from_image(img)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+        return cv2.resize(gray, (96, 54), interpolation=cv2.INTER_AREA)
+
+    def _is_same_capture(self, previous, current) -> bool:
+        if previous is None or current is None:
+            return False
+        diff = cv2.absdiff(previous, current)
+        return float(np.mean(diff)) <= 1.0
+
     def process_image_file(self, image_path: str, filename: str | None = None):
         item_data = self._process_single_image(image_path)
         current_name = filename or os.path.basename(image_path)
         current_signature = self._item_signature(item_data)
+        current_fingerprint = self._image_fingerprint(image_path)
         is_inventory_probe_duplicate = (
             self._is_inventory_probe_filename(current_name)
             and current_signature in self._load_existing_inventory_signatures()
@@ -209,10 +226,12 @@ class BatchProcessor:
         is_adjacent_duplicate = (
             self._last_parsed_signature == current_signature
             and self._are_named_neighbors(self._last_parsed_filename, current_name)
+            and self._is_same_capture(self._last_parsed_image_fingerprint, current_fingerprint)
         )
 
         self._last_parsed_filename = current_name
         self._last_parsed_signature = current_signature
+        self._last_parsed_image_fingerprint = current_fingerprint
         self._mark_image_success(image_path)
 
         if is_inventory_probe_duplicate:
@@ -724,7 +743,19 @@ class BatchProcessor:
         existing_inventory = []
         existing_uids = set()
 
-        if not self.replace_output and os.path.exists(self.output_file):
+        if self.replace_output:
+            for item in self.inventory:
+                data = item.model_dump()
+                uid = data.get("uid") or f"item_{int(time.time() * 1000)}"
+                data["uid"] = self._make_unique_uid(uid, existing_uids)
+                existing_inventory.append(data)
+                existing_uids.add(data["uid"])
+            with open(self.output_file, "w", encoding="utf-8") as f:
+                json.dump(existing_inventory, f, ensure_ascii=False, indent=4)
+            logger.success(f"仓库覆盖更新完成。本次写入 {len(existing_inventory)} 个装备。")
+            return
+
+        if os.path.exists(self.output_file):
             try:
                 with open(self.output_file, "r", encoding="utf-8") as f:
                     existing_inventory = json.load(f)

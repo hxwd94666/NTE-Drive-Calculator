@@ -49,7 +49,7 @@ logger.add(
     colorize=True
 )
 
-logger.add(
+_file_sink_id = logger.add(
     str(LOG_DIR / "nte_runtime.log"),
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}",
     level="INFO",
@@ -58,4 +58,22 @@ logger.add(
     encoding="utf-8"
 )
 
-__all__ = ["logger"]
+def set_log_dir(path: str | Path) -> None:
+    global LOG_DIR, _file_sink_id
+    new_dir = Path(path)
+    new_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        logger.remove(_file_sink_id)
+    except Exception:
+        pass
+    LOG_DIR = new_dir
+    _file_sink_id = logger.add(
+        str(LOG_DIR / "nte_runtime.log"),
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}",
+        level="INFO",
+        rotation="5 MB",
+        retention="7 days",
+        encoding="utf-8"
+    )
+
+__all__ = ["logger", "set_log_dir", "LOG_DIR"]

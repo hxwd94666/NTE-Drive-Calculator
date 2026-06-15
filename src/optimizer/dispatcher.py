@@ -14,11 +14,13 @@ class DispatcherEngine:
         }
 
     def execute_dispatch(self, mode: str, candidate_pool: Dict[str, Any], priority_list: List[str],
-                         custom_sets: Dict[str, str] = None) -> Dict[str, Any]:
+                         custom_sets: Dict[str, str] = None,
+                         crit_priority_modes: Dict[str, str] = None) -> Dict[str, Any]:
         custom_sets = custom_sets or {}
+        crit_priority_modes = crit_priority_modes or {}
         strategy = self.strategies.get(mode)
 
         if not strategy:
             raise ValueError(f"未知的调度模式 [{mode}]，支持的模式: {list(self.strategies.keys())}")
 
-        return strategy.execute(candidate_pool, priority_list, custom_sets)
+        return strategy.execute(candidate_pool, priority_list, custom_sets, crit_priority_modes)
