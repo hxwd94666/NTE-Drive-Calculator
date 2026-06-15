@@ -1,3 +1,4 @@
+# 命令行入口，串联解析、分配和保存流程。
 """CLI entry point and packaged-runtime bootstrap for NTE Drive Calc."""
 
 import os
