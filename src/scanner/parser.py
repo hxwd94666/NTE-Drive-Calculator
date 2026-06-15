@@ -1,11 +1,11 @@
+# 将 OCR 文本和形状结果解析为装备数据。
 """OCR text normalization and equipment object synthesis."""
 
 import os
 import json
 import re
 import difflib
-import time
-from typing import Dict, Any, List
+from typing import Dict, List
 import hashlib
 from src.utils.logger import logger
 from src.utils.exceptions import ConfigMissingError
