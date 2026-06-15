@@ -1,3 +1,4 @@
+# 初始化 OCR 后端并识别截图文本。
 """OCR backend selection and text extraction for equipment screenshots."""
 
 import sys
