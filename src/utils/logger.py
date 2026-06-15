@@ -1,3 +1,4 @@
+# 配置日志输出路径和格式。
 """Shared logging configuration for console and desktop UI output."""
 
 import sys
