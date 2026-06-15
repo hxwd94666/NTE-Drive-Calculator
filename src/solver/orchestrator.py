@@ -1,8 +1,9 @@
+# 统筹库存、评分和求解器生成最终配装。
 """End-to-end pipeline for blueprints, scoring, dispatch, and output."""
 
 import json
 import os
-from typing import List, Dict, Any
+from typing import List, Dict
 
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
