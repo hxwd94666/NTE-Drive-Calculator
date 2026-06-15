@@ -1,3 +1,4 @@
+# 识别驱动盘形状模板。
 """Template matching for drive shape and quality recognition."""
 
 from typing import Union
