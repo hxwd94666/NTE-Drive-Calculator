@@ -1,3 +1,4 @@
+# 计算装备词条和套装评分。
 """Equipment scoring rules driven by role and stat configuration."""
 
 import json
