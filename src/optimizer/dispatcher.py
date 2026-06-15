@@ -1,3 +1,4 @@
+# 分配算法的调度入口。
 """Dispatch facade that selects the requested allocation strategy."""
 
 from typing import List, Dict, Any
