@@ -1,3 +1,4 @@
+# 生成安装包脚本并同步应用版本信息。
 """
 Build the Windows installer for NTE Drive Calc.
 
@@ -15,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -58,12 +58,11 @@ def _find_iscc() -> Path | None:
 
 
 def _read_app_version() -> str:
-    app_path = ROOT / "src" / "ui" / "app.py"
-    text = app_path.read_text(encoding="utf-8")
-    match = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
-    if not match:
-        raise RuntimeError(f"APP_VERSION not found in {app_path}")
-    return match.group(1)
+    try:
+        from src.app.constants import APP_VERSION
+    except Exception as exc:
+        raise RuntimeError("APP_VERSION not found in src.app.constants") from exc
+    return APP_VERSION
 
 
 def _find_vigem_installer() -> tuple[Path, bool]:
@@ -317,7 +316,7 @@ end;
 
 {chinese_custom_messages}
 """
-    ISS_PATH.write_text(content, encoding="utf-8")
+    ISS_PATH.write_text(content, encoding="utf-8-sig")
     print(f"[OK] Wrote installer script: {ISS_PATH}")
 
 
