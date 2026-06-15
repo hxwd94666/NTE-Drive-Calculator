@@ -1,6 +1,6 @@
+# 将布局矩阵渲染为文本展示。
 """Console-friendly board visualization for solved equipment layouts."""
 
-import collections
 from src.utils.logger import logger
 
 class BoardVisualizer:
