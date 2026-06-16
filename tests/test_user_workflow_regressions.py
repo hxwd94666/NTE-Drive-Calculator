@@ -6,8 +6,22 @@ import unittest
 import urllib.error
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+class ConfigurationWorkflowTests(unittest.TestCase):
+    def test_role_board_cell_change_updates_draft_data(self):
+        from src.features.configuration import page
+
+        window = SimpleNamespace(_current_config_name="roles.json")
+        data = {"role": {"board_matrix": [[0] * 5 for _ in range(5)]}}
+
+        page.save_role_board_cell(window, "role", 1, 2, "-1", data, Path("."))
+
+        self.assertTrue(window._config_dirty)
+        self.assertEqual(-1, data["role"]["board_matrix"][1][2])
 
 
 class UpdateWorkflowTests(unittest.TestCase):
@@ -264,6 +278,67 @@ class UpdateWorkflowTests(unittest.TestCase):
         )
         app.processEvents()
 
+    def test_settings_page_does_not_show_inventory_info_card(self):
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout
+
+        from src.features.settings.page import build_settings_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            _log_enabled = False
+            _hk_capture = "F9"
+            _hk_finish = "F10"
+            _hk_stop = "F8"
+
+            def _card(self, title):
+                card = QFrame()
+                layout = QVBoxLayout(card)
+                layout.addWidget(QLabel(title))
+                return card
+
+            def _toggle_log(self, *_args):
+                pass
+
+            def _save_hotkeys(self):
+                pass
+
+            def _check_updates(self, manual=True):
+                pass
+
+            def _open_update_homepage(self):
+                pass
+
+            def _open_url(self, _url):
+                pass
+
+            def _refresh_ss(self):
+                pass
+
+            def _clear_ss(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scroll = build_settings_page(
+                Window(),
+                "1.1.0",
+                lambda: {
+                    "screenshot_dir": root / "scanned_images",
+                    "output_file": root / "config" / "real_inventory.json",
+                    "config_dir": root / "config",
+                    "accounts_dir": root / "accounts",
+                    "log_dir": root / "logs",
+                },
+                lambda _path: [],
+                "",
+            )
+
+        labels = [label.text() for label in scroll.findChildren(QLabel)]
+        self.assertNotIn("库存信息", labels)
+        self.assertFalse(any("real_inventory.json" in text for text in labels))
+        app.processEvents()
+
 
 class UsageGuideWorkflowTests(unittest.TestCase):
     def test_usage_guide_does_not_show_folder_open_buttons(self):
@@ -322,7 +397,7 @@ class RolePriorityWorkflowTests(unittest.TestCase):
             selector.load_roles({"A": {}, "B": {}}, ["S"], [], ["攻击力"])
 
             selector.selected = ["A"]
-            selector.save_priority_config()
+            selector.save_priority_config(show_message=False)
             selector.selected = ["B"]
             selector.reset_selection()
 
@@ -357,6 +432,91 @@ class RolePriorityWorkflowTests(unittest.TestCase):
 
             self.assertEqual(["B"], selector.selected)
         app.processEvents()
+
+    def test_priority_selector_persists_set_effect_modes_and_defaults_to_four_piece(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+        from src.solver.set_effects import FOUR_PIECE, NO_EFFECT, TWO_PIECE
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "priority_config.json"
+            selector = RoleSelector(priority_config_path_provider=lambda: path)
+            selector.load_roles({"A": {}, "B": {}, "C": {}}, ["S"], [], [])
+            selector.selected = ["A", "B", "C"]
+            selector._set_set_effect_mode("A", TWO_PIECE)
+            selector._set_set_effect_mode("B", NO_EFFECT)
+            selector._set_set_effect_mode("C", FOUR_PIECE)
+
+            selector.save_priority_config(show_message=False)
+
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual({"A": TWO_PIECE, "B": NO_EFFECT}, data["set_effect_modes"])
+
+            restored = RoleSelector(priority_config_path_provider=lambda: path)
+            restored.load_roles({"A": {}, "B": {}, "C": {}}, ["S"], [], [])
+            restored.load_priority_config()
+
+            self.assertEqual(["A", "B", "C"], restored.selected)
+            self.assertEqual(TWO_PIECE, restored.set_effect_modes["A"])
+            self.assertEqual(NO_EFFECT, restored.set_effect_modes["B"])
+            self.assertEqual({"A": TWO_PIECE, "B": NO_EFFECT}, restored.get_set_effect_modes())
+            self.assertNotIn("C", restored.set_effect_modes)
+        app.processEvents()
+
+    def test_priority_save_shows_success_message(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation import role_selector
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        messages = []
+        original_information = role_selector.QMessageBox.information
+        role_selector.QMessageBox.information = lambda _parent, title, text: messages.append((title, text))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "priority_config.json"
+                selector = RoleSelector(priority_config_path_provider=lambda: path)
+                selector.load_roles({"A": {}}, ["S"], [], [])
+                selector.selected = ["A"]
+                selector.save_priority_config()
+        finally:
+            role_selector.QMessageBox.information = original_information
+
+        self.assertTrue(messages)
+        self.assertIn("保存成功", messages[-1][0])
+        self.assertIn("随时读取", messages[-1][1])
+        app.processEvents()
+
+
+class IdentificationWorkflowTests(unittest.TestCase):
+    def test_set_combo_data_refreshes_searchable_combo_without_legacy_restore_api(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.identification.controller import _set_combo_data
+        from src.ui.widgets import SearchableComboBox
+
+        app = QApplication.instance() or QApplication([])
+        combo = SearchableComboBox()
+        combo.addItem("形状A", "A")
+
+        _set_combo_data(None, combo, "A")
+
+        self.assertEqual("A", combo.currentData())
+        app.processEvents()
+
+
+class ScanPromptWorkflowTests(unittest.TestCase):
+    def test_cancel_message_does_not_claim_inventory_was_written(self):
+        from src.features.scanning.controller import vision_cancel_message
+
+        message = vision_cancel_message(3)
+
+        self.assertIn("已停止继续解析", message)
+        self.assertIn("已解析 3 张", message)
+        self.assertNotIn("已入库", message)
 
 
 class OfflineParseWorkflowTests(unittest.TestCase):
