@@ -5,9 +5,11 @@ import json
 import os
 from typing import List, Dict
 
+from src.domain.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
 from src.solver.dfs_puzzle import DFSPuzzleSolver
+from src.solver.set_effects import normalize_set_effect_mode, set_piece_options_for_mode
 from src.optimizer.scoring import ScoringEngine
 from src.optimizer.dispatcher import DispatcherEngine
 from src.utils.visualizer import BoardVisualizer
@@ -58,8 +60,10 @@ class NTEPipelineOrchestrator:
                 resolved_sets[role_name] = self._resolve_set_name(set_name)
         return resolved_sets
 
-    def solve_blueprints(self, target_roles: List[str], custom_sets: Dict[str, str] = None) -> Dict[str, List[Dict]]:
+    def solve_blueprints(self, target_roles: List[str], custom_sets: Dict[str, str] = None,
+                         set_effect_modes: Dict[str, str] = None) -> Dict[str, List[Dict]]:
         custom_sets = self._canonicalize_custom_sets(custom_sets)
+        set_effect_modes = set_effect_modes or {}
         logger.info(f"\n[阶段 2] 求解 {target_roles} 的合法底盘图纸...")
         combinatorics = PuzzleCombinatorics(self.shapes_db)
         dfs_solver = DFSPuzzleSolver(self.shapes_db)
@@ -74,24 +78,30 @@ class NTEPipelineOrchestrator:
             set_shapes = self.sets_db[set_name]["shapes"]
             extra_label = role_data["extra_shape_label"]
             board_matrix = role_data["board_matrix"]
+            set_effect_mode = normalize_set_effect_mode(set_effect_modes.get(role_name))
+            set_piece_options = set_piece_options_for_mode(set_shapes, set_effect_mode)
 
-            logger.info(f"  -> [{role_name}] 套装: {set_name} | 求解中...")
+            logger.info(f"  -> [{role_name}] 套装: {set_name} | 套装效果: {set_effect_mode} | 求解中...")
             _t0 = _time.time()
-            combos = combinatorics.generate_piece_combinations(set_shapes, extra_label)
-            logger.info(f"     组合数: {len(combos)} | 耗时: {_time.time()-_t0:.2f}s")
             role_blueprints = []
 
-            for combo in combos:
-                pieces_to_place = set_shapes + combo
-                board_copy = [row[:] for row in board_matrix]
-                results = []
-                dfs_solver.solve(board_copy, pieces_to_place, results, max_solutions=1)
+            for set_pieces in set_piece_options:
+                combos = combinatorics.generate_piece_combinations(set_pieces, extra_label)
+                logger.info(f"     套装形状: {len(set_pieces)} | 组合数: {len(combos)} | 耗时: {_time.time()-_t0:.2f}s")
 
-                if results:
-                    role_blueprints.append({
-                        "extra_pieces": combo,
-                        "board": results[0]
-                    })
+                for combo in combos:
+                    pieces_to_place = set_pieces + combo
+                    board_copy = [row[:] for row in board_matrix]
+                    results = []
+                    dfs_solver.solve(board_copy, pieces_to_place, results, max_solutions=1)
+
+                    if results:
+                        role_blueprints.append({
+                            "set_pieces": list(set_pieces),
+                            "extra_pieces": combo,
+                            "set_effect_mode": set_effect_mode,
+                            "board": results[0]
+                        })
 
             real_blueprints_db[role_name] = role_blueprints
             logger.success(f"  [{role_name}] 图纸求解完成，共 {len(role_blueprints)} 套合法方案。(总耗时 {_time.time()-_t0:.2f}s)")
@@ -107,7 +117,8 @@ class NTEPipelineOrchestrator:
             role_max_demands: Dict[str, int] = {}
             for blueprint in blueprints:
                 counts: Dict[str, int] = {}
-                for shape_id in self.sets_db[set_name]["shapes"] + blueprint.get("extra_pieces", []):
+                set_pieces = blueprint.get("set_pieces", self.sets_db[set_name]["shapes"])
+                for shape_id in list(set_pieces) + blueprint.get("extra_pieces", []):
                     counts[shape_id] = counts.get(shape_id, 0) + 1
                 for shape_id, count in counts.items():
                     role_max_demands[shape_id] = max(role_max_demands.get(shape_id, 0), count)
@@ -119,27 +130,21 @@ class NTEPipelineOrchestrator:
     def run_full_allocation(self, inventory: List[Dict], priority_list: List[str],
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
-                            crit_priority_modes: Dict[str, str] = None):
+                            crit_priority_modes: Dict[str, str] = None, set_effect_modes: Dict[str, str] = None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
+        set_effect_modes = set_effect_modes or {}
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
-        blueprints_db = self.solve_blueprints(priority_list, custom_sets)
+        blueprints_db = self.solve_blueprints(priority_list, custom_sets, set_effect_modes)
 
         logger.info(f"\n[阶段 3] 接收到 {len(inventory)} 个资产，正在过滤与类型转换...")
         parsed_inventory = []
         filtered_count = 0
 
         for item in inventory:
-            # 兼容旧版本卡带的主词条格式，强行拍扁为字符串
-            if item.get("item_type") == "tape" and isinstance(item.get("main_stats"), dict):
-                if item["main_stats"]:
-                    item["main_stats"] = list(item["main_stats"].keys())[0]
-                else:
-                    item["main_stats"] = "未知主词条"
-
-            # 实例化
+            item = normalize_equipment_item(item)
             obj = Drive(**item) if item.get("item_type") == "drive" else Tape(**item)
 
             # Skip equipment already worn by other characters
@@ -218,7 +223,7 @@ class NTEPipelineOrchestrator:
             else:
                 logger.warning("     - 未为此角色分配合法卡带。")
 
-            for category, key in [("\n  [四件套驱动]\n", 'assigned_set_drives'),
+            for category, key in [("\n  [套装效果驱动]\n", 'assigned_set_drives'),
                                   ("  [额外散件]\n", 'assigned_extra_drives')]:
                 logger.opt(raw=True).info(f"{category}")
                 for d in plan.get(key, []):
