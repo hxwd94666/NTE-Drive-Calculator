@@ -6,12 +6,14 @@ import os
 import math
 import ctypes
 import ctypes.wintypes
+from pathlib import Path
 import mss
 import mss.tools
 import cv2
 import numpy as np
 
 from src.utils.logger import logger
+from src.utils.image_io import imread_unicode
 from src.scanner.window_capture import capture_foreground_window, fit_content_rect, get_foreground_client_rect
 
 # SendInput 结构定义
@@ -46,6 +48,17 @@ def _send_input(flags, dx=0, dy=0):
     ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
 
 
+def load_new_tag_template(template_path):
+    path = Path(template_path)
+    if not path.exists():
+        raise FileNotFoundError(f"找不到模板文件 {path}，请先截取一个 NEW 标签图片。")
+    template = imread_unicode(path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        size = path.stat().st_size if path.exists() else 0
+        raise ValueError(f"NEW 标签模板损坏或无法读取: {path} (size={size})")
+    return template
+
+
 class DroneScanner:
     """
     增量视觉扫描器：捕捉 'NEW' 标签，使用键鼠操作逐一点击并截图。
@@ -70,11 +83,7 @@ class DroneScanner:
         self._content_top = 0
         self._window_rect = get_foreground_client_rect()
 
-        if not os.path.exists(template_path):
-            raise FileNotFoundError(f"找不到模板文件 {template_path}，请先截取一个 NEW 标签图片。")
-        self._raw_template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
-        if self._raw_template is None:
-            raise ValueError(f"NEW 标签模板损坏或无法读取: {template_path}")
+        self._raw_template = load_new_tag_template(template_path)
         self.template = self._raw_template
         self.template_w, self.template_h = self.template.shape[::-1]
 
