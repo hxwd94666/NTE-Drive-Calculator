@@ -25,7 +25,7 @@ from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', '_start_scan', '_start_gamepad_scan', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
+__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', 'vision_cancel_message', '_start_scan', '_start_gamepad_scan', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
 
 
 def install_methods(app_module, window_cls):
@@ -35,6 +35,13 @@ def install_methods(app_module, window_cls):
 
 def offline_scope_replaces_inventory(scope: str) -> bool:
     return scope in ("full", "all")
+
+
+def vision_cancel_message(parsed_count: int) -> str:
+    return (
+        f"已停止继续解析，本次已解析 {int(parsed_count or 0)} 张截图。\n\n"
+        "由于解析任务已取消，本次结果未写入/更新 real_inventory.json。"
+    )
 
 
 def _page_execute(self):
@@ -105,7 +112,8 @@ def _do_exec(self):
     cs=self.role_selector.get_custom_sets()
     tmf=self.role_selector.get_tape_main_filters()
     cpm=self.role_selector.get_crit_priority_modes()
-    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm
+    sem=self.role_selector.get_set_effect_modes()
+    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_set_effect_modes=sem
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
 
@@ -118,7 +126,7 @@ def _do_exec(self):
     elif sm=="1":
         self._start_gamepad_scan(total_drives)
     else:
-        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm),parent=self)
+        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem),parent=self)
         self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
 
 def _scan_lifecycle(self):
@@ -264,7 +272,7 @@ def _on_vision_canceled(self,count):
         self._progress_dlg.close()
     self.btn_run.setEnabled(True); self.btn_run.setText("开始执行")
     self._pending_parse_only=False
-    QMessageBox.information(self,"解析已取消",f"已停止继续解析，本次已入库 {count} 张截图。")
+    QMessageBox.information(self,"解析已取消",vision_cancel_message(count))
 
 def _start_scan(self,drone_mode):
     self._pending_scan_mode=drone_mode
