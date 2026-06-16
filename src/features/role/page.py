@@ -17,12 +17,15 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QGroupBox,
-    QDialog
+    QDialog,
+    QTableWidget,
+    QTableWidgetItem,
 )
-
+from PySide6.QtWidgets import QSizePolicy, QHeaderView
 from PySide6.QtCore import Qt
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox, match_pinyin
+from src.app import runtime
 
 __all__ = ["_page_my_role", "_refresh_my_role", "install_methods"]
 
@@ -93,14 +96,19 @@ def _get_config_dir(window) -> Path:
     return window._settings_paths()["config_dir"]
 
 
-def _get_my_roles_path(window) -> Path:
-    config_dir = _get_config_dir(window)
+def _get_user_account_config_dir() -> Path:
+    return runtime.USER_CONFIG_DIR
+
+
+def _get_my_roles_path() -> Path:
+    config_dir = _get_user_account_config_dir()
     return config_dir / "my_roles.json"
 
 
 def _get_my_roles_model_path(window) -> Path:
     config_dir = _get_config_dir(window)
     return config_dir / "my_roles_model.json"
+
 
 def _get_stats_path(window) -> Path:
     config_dir = _get_config_dir(window)
@@ -123,7 +131,7 @@ def _load_stats(window) -> dict:
 
 def _load_my_roles(window) -> dict:
     """加载 my_roles.json 数据，若不存在则从模板复制."""
-    filepath = _get_my_roles_path(window)
+    filepath = _get_my_roles_path()
     model_path = _get_my_roles_model_path(window)
     if not filepath.exists() and model_path.exists():
         import shutil
@@ -140,7 +148,7 @@ def _save_my_roles(window):
     if data is None:
         QMessageBox.information(window, "提示", "没有需要保存的数据。")
         return
-    filepath = _get_my_roles_path(window)
+    filepath = _get_my_roles_path()
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     window._my_role_dirty = False
@@ -255,6 +263,47 @@ def _render_my_roles(window):
         form.setContentsMargins(15, 15, 15, 15)
 
         role_data = data[role_name]
+
+        # ---- 0. 边际收益 ----
+        total_stats = _get_character_total_stats(window, role_name)
+        margins = _calc_marginal_benefits(window, total_stats)
+        if margins:
+            group_margin = QGroupBox("边际收益（按每单位收益排序）")
+            margin_layout = QVBoxLayout(group_margin)
+
+            table = QTableWidget()
+            table.setColumnCount(4)
+            table.setHorizontalHeaderLabels(["参数", "当前值", "1单位", "每单位提升"])
+            table.setRowCount(len(margins))
+            table.setEditTriggers(QTableWidget.NoEditTriggers)
+            table.setSelectionBehavior(QTableWidget.SelectRows)
+            table.verticalHeader().setVisible(False)
+
+            # 去掉滚动条
+            table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+            for i, (name, cur_val, unit_val, gain) in enumerate(margins):
+                table.setItem(i, 0, QTableWidgetItem(name))
+                table.setItem(i, 1, QTableWidgetItem(cur_val))
+                table.setItem(i, 2, QTableWidgetItem(unit_val))
+                gain_item = QTableWidgetItem(f"{gain:.4f}%")
+                table.setItem(i, 3, gain_item)
+
+            # 四列均匀拉伸填满宽度
+            header = table.horizontalHeader()
+            for col in range(4):
+                header.setSectionResizeMode(col, QHeaderView.Stretch)
+
+            # 固定高度 = 表头 + 数据行 + 边框
+            header_height = header.height()
+            row_height = table.verticalHeader().defaultSectionSize()
+            frame = table.frameWidth() * 2
+            total_height = header_height + row_height * len(margins) + frame
+            table.setFixedHeight(total_height)
+
+            margin_layout.addWidget(table)
+            form.addWidget(group_margin)
 
         # ---- 1. 基础加成 ----
         group_base = QGroupBox("基础加成")
@@ -968,3 +1017,158 @@ def _calc_role_bonus_info(window, role_name):
         new_drives.append(d)
 
     return window._equipment_bonus_rows(role_name, None, new_drives)
+
+
+def _get_character_total_stats(window, role_name: str) -> dict:
+    """计算角色所有属性汇总（覆盖率已乘，别名已统一），返回字典 {规范名称: 值}"""
+    data = window._my_role_form_data
+    if not data or role_name not in data:
+        return {}
+    role = data[role_name]
+
+    stats = _load_stats(window)
+    tape_main_pool = stats.get("tape_main_stat_values", {})
+    # 优先使用 benefit_alias_mapping，未命中再用 stat_alias_mapping，最后保留原键
+    benefit_map = stats.get("benefit_alias_mapping", {})
+    alias_map = stats.get("stat_alias_mapping", {})
+
+    total = {}
+
+    def add_stat(key, value):
+        if value is None:
+            return
+        try:
+            v = float(value)
+        except (ValueError, TypeError):
+            return
+        # 先看 benefit 映射，再看 stat 映射，都没命中则用原键
+        canonical = benefit_map.get(key)
+        if canonical is None:
+            canonical = alias_map.get(key, key)
+        total[canonical] = total.get(canonical, 0.0) + v
+
+    # 1. 基础 info
+    for k, v in role.get("info", {}).items():
+        add_stat(k, v)
+
+    # 2. 驱动汇总 info
+    calc_rows = _calc_role_bonus_info(window, role_name)
+    for k, v in calc_rows:
+        add_stat(k, v)
+
+    # 3. 武器
+    weapon = role.get("weapon", {})
+    for k, v in weapon.get("info", {}).items():
+        add_stat(k, v)
+    w_skill = weapon.get("skill", {})
+    w_cover = float(weapon.get("skill_cover", 0.0))
+    for k, v in w_skill.items():
+        add_stat(k, float(v) * w_cover)
+
+    # 4. 空幕
+    tape = role.get("tape", {})
+    t_cover = float(tape.get("skill_cover", 0.0))
+    main_key = tape.get("main", "")
+    if main_key and main_key in tape_main_pool:
+        add_stat(main_key, tape_main_pool[main_key])
+    for k, v in tape.get("skill", {}).items():
+        add_stat(k, float(v) * t_cover)
+    for k, v in tape.get("skill_2", {}).items():
+        add_stat(k, float(v) * t_cover)
+    for k, v in tape.get("info", {}).items():
+        add_stat(k, v)
+
+    # 5. 额外形状增益
+    drive = role.get("drive", {})
+    buff_num = drive.get("extra_shape_buffs", 0.0)
+    if buff_num > 0.0:
+        for k, v in role.get("extra_shape_buffs", {}).items():
+            add_stat(k, v * buff_num)
+
+    return total
+
+
+def _calc_marginal_benefits(window, total_stats: dict) -> list:
+    """
+    返回列表，每项: (参数名, 当前值字符串, 单位价值字符串, 收益百分比数值)
+    已按收益数值从大到小排序。
+    """
+    stats = _load_stats(window)
+    benefit_one = stats.get("benefit_one", {})
+
+    # 单位价值，缺失时默认1.0
+    unit_a_base = benefit_one.get("攻击力白值", 1.0) or 1.0
+    unit_a_pct = benefit_one.get("攻击力%", 1.0) or 1.0
+    unit_a_flat = benefit_one.get("攻击力", 1.0) or 1.0
+    unit_elem = benefit_one.get("元素伤害%", 1.0) or 1.0
+    unit_dmg = benefit_one.get("伤害增加%", 1.0) or 1.0
+    unit_cr = benefit_one.get("暴击率%", 1.0) or 1.0
+    unit_cd = benefit_one.get("暴击伤害%", 1.0) or 1.0
+
+    a_base = total_stats.get("攻击力白值", 0.0)
+    a_pct = total_stats.get("攻击力%", 0.0)
+    a_flat = total_stats.get("攻击力", 0.0)
+    elem = total_stats.get("元素伤害%", 0.0)
+    dmg = total_stats.get("伤害增加%", 0.0)
+    cr_raw = total_stats.get("暴击率%", 0.0)
+    cd_raw = total_stats.get("暴击伤害%", 0.0)
+
+    cr = min(cr_raw / 100.0, 1.0)
+    cd = cd_raw / 100.0
+
+    def damage(base, pct, flat, elem_val, dmg_val, crit_rate, crit_dmg):
+        return (base * (1 + pct / 100.0) + flat) * (1 + (elem_val + dmg_val) / 100.0) * (1 + crit_rate * crit_dmg)
+
+    base_damage = damage(a_base, a_pct, a_flat, elem, dmg, cr, cd)
+    if base_damage == 0:
+        return []
+
+    items = []
+
+    # 攻击力白值
+    step = unit_a_base
+    d = damage(a_base + step, a_pct, a_flat, elem, dmg, cr, cd)
+    gain = (d / base_damage - 1) * 100
+    items.append(("攻击力白值", f"{a_base:.0f}", f"{step:.0f}", gain))
+
+    # 攻击力%
+    step = unit_a_pct
+    d = damage(a_base, a_pct + step, a_flat, elem, dmg, cr, cd)
+    gain = (d / base_damage - 1) * 100
+    items.append(("攻击力%", f"{a_pct:.2f}%", f"{step:.2f}%", gain))
+
+    # 攻击力
+    step = unit_a_flat
+    d = damage(a_base, a_pct, a_flat + step, elem, dmg, cr, cd)
+    gain = (d / base_damage - 1) * 100
+    items.append(("攻击力", f"{a_flat:.0f}", f"{step:.0f}", gain))
+
+    # 元素伤害%
+    step = unit_elem
+    d = damage(a_base, a_pct, a_flat, elem + step, dmg, cr, cd)
+    gain = (d / base_damage - 1) * 100
+    items.append(("元素伤害%", f"{elem:.2f}%", f"{step:.2f}%", gain))
+
+    # 伤害增加%
+    step = unit_dmg
+    d = damage(a_base, a_pct, a_flat, elem, dmg + step, cr, cd)
+    gain = (d / base_damage - 1) * 100
+    items.append(("伤害增加%", f"{dmg:.2f}%", f"{step:.2f}%", gain))
+
+    # 暴击率%
+    step = unit_cr
+    cr_new = min((cr_raw + step) / 100.0, 1.0)
+    d = damage(a_base, a_pct, a_flat, elem, dmg, cr_new, cd)
+    gain = (d / base_damage - 1) * 100
+    items.append(("暴击率%", f"{cr_raw:.2f}%", f"{step:.2f}%", gain))
+
+    # 暴击伤害%
+    step = unit_cd
+    cd_new = (cd_raw + step) / 100.0
+    d = damage(a_base, a_pct, a_flat, elem, dmg, cr, cd_new)
+    gain = (d / base_damage - 1) * 100
+    items.append(("暴击伤害%", f"{cd_raw:.2f}%", f"{step:.2f}%", gain))
+
+    # 按收益降序排序
+    items.sort(key=lambda x: x[3], reverse=True)
+    return items
