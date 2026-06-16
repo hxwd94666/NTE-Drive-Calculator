@@ -10,6 +10,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
+from src.solver.set_effects import FOUR_PIECE, NO_EFFECT, SET_EFFECT_MODES, TWO_PIECE, normalize_set_effect_mode
 
 
 def resolve_priority_choice(values: list[str], raw_text: str | None, current_data=None) -> str:
@@ -67,6 +69,7 @@ class RoleSelector(QWidget):
         self.custom_sets: dict[str, str] = {}
         self.tape_main_filters: dict[str, list[str]] = {}
         self.stat_priority_configs: dict[str, dict] = {}
+        self.set_effect_modes: dict[str, str] = {}
         self._cards: dict = {}
         self._build()
 
@@ -228,6 +231,14 @@ class RoleSelector(QWidget):
             self.stat_priority_configs.pop(name, None)
         self.orderChanged.emit()
 
+    def _set_set_effect_mode(self, name, mode):
+        normalized = normalize_set_effect_mode(mode)
+        if normalized == FOUR_PIECE:
+            self.set_effect_modes.pop(name, None)
+        else:
+            self.set_effect_modes[name] = normalized
+        self.orderChanged.emit()
+
     def _show_help(self, title, text):
         if self._help_callback:
             self._help_callback(self, title, text)
@@ -311,7 +322,7 @@ class RoleSelector(QWidget):
             else {}
         )
         selected_stats = [s for s in list(current_stat_cfg.get("stats", []) or []) if s in self.drive_sub_stats]
-        stat_box = QGroupBox("词条优先")
+        stat_box = QGroupBox("词条自选")
         stat_layout = QVBoxLayout(stat_box)
         stat_layout.setSpacing(8)
         stat_row = QHBoxLayout()
@@ -327,11 +338,11 @@ class RoleSelector(QWidget):
         stat_row.addWidget(clear_stat_btn)
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
-        help_btn.clicked.connect(lambda: self._show_help("词条优先说明", STAT_PRIORITY_HELP))
+        help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
         stat_row.addWidget(help_btn)
         stat_layout.addLayout(stat_row)
 
-        stat_equal = QCheckBox("词条优先级一致")
+        stat_equal = QCheckBox("词条自选优先级一致")
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
         stat_layout.addWidget(stat_equal)
 
@@ -361,6 +372,23 @@ class RoleSelector(QWidget):
         refresh_stat_label()
         layout.addWidget(stat_box)
 
+        effect_box = QGroupBox("套装效果")
+        effect_layout = QHBoxLayout(effect_box)
+        effect_layout.setSpacing(8)
+        effect_combo = QComboBox()
+        effect_combo.addItem("四件套", FOUR_PIECE)
+        effect_combo.addItem("二件套", TWO_PIECE)
+        effect_combo.addItem("无效果", NO_EFFECT)
+        current_effect = normalize_set_effect_mode(self.set_effect_modes.get(name))
+        effect_index = effect_combo.findData(current_effect)
+        effect_combo.setCurrentIndex(effect_index if effect_index >= 0 else 0)
+        effect_layout.addWidget(effect_combo, 1)
+        effect_help_btn = QPushButton("?")
+        effect_help_btn.setObjectName("btnHelp")
+        effect_help_btn.clicked.connect(lambda: self._show_help("套装效果说明", SET_EFFECT_HELP))
+        effect_layout.addWidget(effect_help_btn)
+        layout.addWidget(effect_box)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
@@ -372,6 +400,7 @@ class RoleSelector(QWidget):
             self._set_custom_set(name, resolved_set)
             self._set_tape_main_filter(name, selected_main_stats)
             self._set_stat_priority_config(name, selected_stats, stat_equal.isChecked())
+            self._set_set_effect_mode(name, effect_combo.currentData())
             self._render_grid(self.search.text())
 
     def reset_selection(self):
@@ -380,6 +409,7 @@ class RoleSelector(QWidget):
         self.custom_sets.clear()
         self.tape_main_filters.clear()
         self.stat_priority_configs.clear()
+        self.set_effect_modes.clear()
         self._render_grid(self.search.text())
 
     def _toggle(self, name):
@@ -414,8 +444,17 @@ class RoleSelector(QWidget):
             if self.stat_priority_configs.get(name)
         }
 
-    def save_priority_config(self):
+    def get_set_effect_modes(self):
+        return {
+            name: normalize_set_effect_mode(self.set_effect_modes.get(name))
+            for name in self.selected
+            if normalize_set_effect_mode(self.set_effect_modes.get(name)) != FOUR_PIECE
+        }
+
+    def save_priority_config(self, show_message: bool = True):
         self._write_priority_config(self._priority_config_path())
+        if show_message:
+            QMessageBox.information(self, "保存成功", "当前角色优先级方案已保存，可随时读取该方案。")
 
     def save_temporary_priority_config(self):
         self._write_priority_config(temporary_priority_config_path(self._priority_config_path()))
@@ -427,6 +466,7 @@ class RoleSelector(QWidget):
             "custom_sets": self.get_custom_sets(),
             "tape_main_filters": self.get_tape_main_filters(),
             "stat_priority_configs": self.get_crit_priority_modes(),
+            "set_effect_modes": self.get_set_effect_modes(),
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -449,6 +489,7 @@ class RoleSelector(QWidget):
         self.custom_sets.clear()
         self.tape_main_filters.clear()
         self.stat_priority_configs.clear()
+        self.set_effect_modes.clear()
         if not path.exists():
             self._render_grid(self.search.text())
             return
@@ -477,6 +518,11 @@ class RoleSelector(QWidget):
                         "stats": stats,
                         "equal_priority": bool(cfg_item.get("equal_priority", False)),
                     }
+            self.set_effect_modes = {}
+            for role, mode in data.get("set_effect_modes", {}).items():
+                normalized = normalize_set_effect_mode(mode)
+                if role in self.all_roles and normalized in SET_EFFECT_MODES and normalized != FOUR_PIECE:
+                    self.set_effect_modes[role] = normalized
             self._render_grid(self.search.text())
         except Exception as exc:
             QMessageBox.warning(self, "恢复优先级", f"读取优先级配置失败：{exc}")
@@ -491,8 +537,16 @@ PRIORITY_SAVE_HELP = (
 
 
 STAT_PRIORITY_HELP = (
-    "词条优先只影响该角色挑选驱动/卡带时的候选顺序，不改变词条权重，也不会额外增加最终评分。\n\n"
-    "关闭“词条优先级一致”时：按照添加顺序作为优先级，先从最高优先级词条的候选池中寻找，没有合适的再逐级向后找，最后回到全局池。\n\n"
-    "开启“词条优先级一致”时：不看添加顺序，优先使用覆盖所选词条数量更多的装备。\n\n"
+    "词条自选只影响该角色挑选驱动/卡带时的候选顺序，不改变词条权重，也不会额外增加最终评分。\n\n"
+    "关闭“词条自选优先级一致”时：按照添加顺序作为优先级，先从最高优先级词条的候选池中寻找，没有合适的再逐级向后找，最后回到全局池。\n\n"
+    "开启“词条自选优先级一致”时：不看添加顺序，优先使用覆盖所选词条数量更多的装备。\n\n"
     "卡带会先满足卡带主词条筛选，再在满足主词条的池子里应用本规则。为了避免只因词条命中选到低质装备，命中优先只对至少 A 级评分的装备生效。"
+)
+
+
+SET_EFFECT_HELP = (
+    "四件套：沿用默认规则，必须凑齐目标套装的 4 个驱动形状。\n\n"
+    "二件套：只要求目标套装中任意 2 个驱动形状生效，剩余底盘空间优先填入该角色的额外形状，再用其他形状补满。\n\n"
+    "无效果：不强制使用目标套装形状，整张底盘都优先填入该角色的额外形状，再用其他形状补满。\n\n"
+    "该选项只影响图纸和驱动匹配逻辑，不修改 roles.json 或 sets.json。旧配置未设置时默认按四件套处理。"
 )
