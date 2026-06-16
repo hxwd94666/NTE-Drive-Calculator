@@ -1,7 +1,7 @@
 # PySide6 主窗口入口和功能模块挂载。
 """NTE Drive Calc - PySide6 Desktop Application"""
 
-import sys, os, json, threading, ctypes
+import sys, os, threading, ctypes
 from pathlib import Path
 from typing import Optional
 
@@ -122,8 +122,11 @@ from src.features.scanning.file_lifecycle import (
 )
 from src.optimizer.state_manager import StateManager
 from src.optimizer.scoring import ScoringEngine
+from src.domain.stat_catalog import StatCatalog
+from src.storage.json_store import read_json, write_json
 from src.utils.logger import logger, set_log_dir
 from src.utils.name_resolver import resolve_name
+from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.hotkeys import load_hotkey_config, save_hotkey_config
 from src.features.configuration.page import (
@@ -141,6 +144,7 @@ from src.features.configuration.page import (
     render_sets_form,
     save_config_data as config_save_config_data,
     save_config_form as config_save_config_form,
+    save_role_board_cell as config_save_role_board_cell,
     save_role_field as config_save_role_field,
     save_role_weight_value as config_save_role_weight_value,
     save_set_shapes as config_save_set_shapes,
@@ -256,19 +260,15 @@ class MainWindow(QMainWindow):
         path=USER_CONFIG_DIR/"ui_preferences.json"
         default={"skip_unsaved_allocation_prompt":False}
         try:
-            if path.exists():
-                with open(path,"r",encoding="utf-8") as f:
-                    data=json.load(f)
-                if isinstance(data,dict):
-                    default["skip_unsaved_allocation_prompt"]=bool(data.get("skip_unsaved_allocation_prompt",False))
+            data=read_json(path, default={}) or {}
+            if isinstance(data,dict):
+                default["skip_unsaved_allocation_prompt"]=bool(data.get("skip_unsaved_allocation_prompt",False))
         except Exception:
             pass
         return default
 
     def _save_ui_preferences(self):
-        USER_CONFIG_DIR.mkdir(parents=True,exist_ok=True)
-        with open(USER_CONFIG_DIR/"ui_preferences.json","w",encoding="utf-8") as f:
-            json.dump(self._ui_preferences,f,ensure_ascii=False,indent=2)
+        write_json(USER_CONFIG_DIR/"ui_preferences.json", self._ui_preferences)
 
     # ── Frameless
     def _on_edge(self,pos): w,h=self.width(),self.height(); m=self._resize_margin; return (pos.x()<m,pos.y()<m,pos.x()>w-m,pos.y()>h-m)
@@ -328,16 +328,17 @@ class MainWindow(QMainWindow):
         body=QHBoxLayout(); body.setContentsMargins(0,0,0,0); body.setSpacing(0)
         sidebar=QWidget(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(200)
         sl=QVBoxLayout(sidebar); sl.setContentsMargins(0,12,0,0); sl.setSpacing(0)
-        self.btn_exec=self._nav("⚡  执行","execute"); self.btn_equip=self._nav("💎  配装","equipment")
-        self.btn_identify=self._nav("🔍  鉴定","identify")
-        self.btn_blueprint=self._nav("📐  图纸","blueprint")
-        self.btn_config=self._nav("⚙  配置","config"); self.btn_settings=self._nav("🔧  设置","settings")
-        for b in [self.btn_exec,self.btn_equip,self.btn_identify,self.btn_blueprint,self.btn_config,self.btn_settings]: sl.addWidget(b)
+        self._nav_buttons={}
+        for item in NAV_ITEMS:
+            button=self._nav(item.label,item.key)
+            setattr(self,item.button_attr,button)
+            self._nav_buttons[item.key]=button
+            sl.addWidget(button)
         sl.addStretch(); body.addWidget(sidebar)
 
         right=QWidget(); rr=QVBoxLayout(right); rr.setContentsMargins(0,0,0,0); rr.setSpacing(0)
         tbar=QWidget(); tbar.setObjectName("topbar"); tbh=QHBoxLayout(tbar); tbh.setContentsMargins(20,10,20,10)
-        self.topbar_title=QLabel("⚡  执行"); tbh.addWidget(self.topbar_title); tbh.addStretch()
+        self.topbar_title=QLabel(NAV_ITEMS[0].label); tbh.addWidget(self.topbar_title); tbh.addStretch()
         self.account_combo=QComboBox(); self.account_combo.setFixedWidth(150)
         self.account_combo.currentIndexChanged.connect(self._on_account_combo_changed)
         tbh.addWidget(self.account_combo)
@@ -347,10 +348,8 @@ class MainWindow(QMainWindow):
         guide_btn.setText("使用教程")
         rr.addWidget(tbar)
         self.stack=QStackedWidget()
-        self.stack.addWidget(self._page_execute()); self.stack.addWidget(self._page_equipment())
-        self.stack.addWidget(self._page_identify())
-        self.stack.addWidget(self._page_blueprint())
-        self.stack.addWidget(self._page_config()); self.stack.addWidget(self._page_settings())
+        for item in NAV_ITEMS:
+            self.stack.addWidget(getattr(self,item.page_builder)())
         rr.addWidget(self.stack,1)
 
         self.log_frame=QWidget(); self.log_frame.setObjectName("logPanel"); self.log_frame.setVisible(False)
@@ -360,22 +359,24 @@ class MainWindow(QMainWindow):
         self.log_view=QTextEdit(); self.log_view.setReadOnly(True); self.log_view.setMaximumHeight(140); lf.addWidget(self.log_view)
         rr.addWidget(self.log_frame)
         body.addWidget(right,1); root.addLayout(body)
-        QSizeGrip(self).setStyleSheet("background:transparent"); self.btn_exec.setChecked(True)
+        QSizeGrip(self).setStyleSheet("background:transparent"); self._nav_buttons[NAV_ITEMS[0].key].setChecked(True)
         self._refresh_account_combo()
 
     def _nav(self,text,page): b=QPushButton(text); b.setCheckable(True); b.clicked.connect(lambda: self._go(page)); return b
+    def _nav_key_for_index(self,index):
+        return NAV_ITEMS[index].key if 0<=index<len(NAV_ITEMS) else NAV_ITEMS[0].key
+
     def _go(self,page):
-        m={"execute":0,"equipment":1,"identify":2,"blueprint":3,"config":4,"settings":5}
-        if self.stack.currentIndex()==4 and page!="config" and not self._confirm_leave_config_page():
+        item=nav_item_by_key(page) or NAV_ITEMS[0]
+        indexes=nav_index_map()
+        if self._nav_key_for_index(self.stack.currentIndex())=="config" and item.key!="config" and not self._confirm_leave_config_page():
             return
-        self.stack.setCurrentIndex(m.get(page,0))
-        t={"execute":"⚡  执行","equipment":"💎  配装","identify":"🔍  鉴定","blueprint":"📐  图纸","config":"⚙  配置","settings":"🔧  设置"}; self.topbar_title.setText(t.get(page,""))
-        for btn in [self.btn_exec,self.btn_equip,self.btn_identify,self.btn_blueprint,self.btn_config,self.btn_settings]: btn.setChecked(False)
-        {"execute":self.btn_exec,"equipment":self.btn_equip,"identify":self.btn_identify,"blueprint":self.btn_blueprint,"config":self.btn_config,"settings":self.btn_settings}[page].setChecked(True)
-        if page=="equipment": self._refresh_equip()
-        elif page=="identify": self._refresh_identify_options()
-        elif page=="config": self._refresh_config_forms()
-        elif page=="blueprint": self._refresh_blueprints()
+        self.stack.setCurrentIndex(indexes.get(item.key,0))
+        self.topbar_title.setText(item.label)
+        for btn in self._nav_buttons.values(): btn.setChecked(False)
+        self._nav_buttons[item.key].setChecked(True)
+        if item.refresh_method:
+            getattr(self,item.refresh_method)()
 
     def _refresh_account_combo(self):
         if not hasattr(self,"account_combo"):
@@ -440,19 +441,23 @@ class MainWindow(QMainWindow):
     # ── Data
     def _load_data(self):
         try:
-            with open(CONFIG_DIR/"roles.json","r",encoding="utf-8") as f: self.roles_db=json.load(f)
-            with open(CONFIG_DIR/"sets.json","r",encoding="utf-8") as f:
-                sd=json.load(f).get("sets",{}); self.sets_db=sd; self.all_set_names=list(sd.keys())
-            with open(CONFIG_DIR/"stats.json","r",encoding="utf-8") as f:
-                self.stats_config=json.load(f)
-                self.tape_main_stats=self.stats_config.get("tape_main_stats_pool",[])
-                self.drive_sub_stats=list((self.stats_config.get("gold_base_values",{}) or {}).keys())
+            self.roles_db=read_json(CONFIG_DIR/"roles.json", default={}) or {}
+            sd=(read_json(CONFIG_DIR/"sets.json", default={}) or {}).get("sets",{})
+            self.sets_db=sd; self.all_set_names=list(sd.keys())
+            catalog=StatCatalog.from_config_dir(CONFIG_DIR)
+            self.stats_config={
+                "gold_base_values": catalog.gold_base_values,
+                "tape_main_stats_pool": catalog.tape_main_stats,
+                "tape_main_stat_values": catalog.tape_main_values,
+                "main_only_keywords": catalog.main_only_keywords,
+                "stat_alias_mapping": catalog.stat_alias_mapping,
+            }
+            self.tape_main_stats=catalog.tape_main_stats
+            self.drive_sub_stats=list(catalog.gold_base_values.keys())
             self._canonicalize_loaded_role_sets()
-            with open(CONFIG_DIR/"shapes.json","r",encoding="utf-8") as f:
-                self._shape_areas={s["shape_id"]:s["area"] for s in json.load(f).get("shapes",[])}
+            self._shape_areas={s["shape_id"]:s["area"] for s in (read_json(CONFIG_DIR/"shapes.json", default={}) or {}).get("shapes",[])}
             sf=USER_CONFIG_DIR/"equipped_state.json"
-            if sf.exists():
-                with open(sf,"r",encoding="utf-8") as f: self.equipped_state=json.load(f)
+            self.equipped_state=read_json(sf, default={}) or {}
             self.scoring_engine=ScoringEngine(str(CONFIG_DIR))
             logger.info(f"加载完成：{len(self.roles_db)} 角色，{len(self.sets_db)} 套装")
             self._update_inventory_status()
@@ -474,8 +479,7 @@ class MainWindow(QMainWindow):
                 logger.warning(f"角色 [{role_name}] 默认套装名已自动修正: {raw_set} -> {resolved}")
         if changed:
             try:
-                with open(CONFIG_DIR/"roles.json","w",encoding="utf-8") as f:
-                    json.dump(self.roles_db,f,ensure_ascii=False,indent=4)
+                write_json(CONFIG_DIR/"roles.json", self.roles_db, indent=4)
             except Exception as e:
                 logger.warning(f"默认套装名已在内存中修正，但写回 roles.json 失败: {e}")
 
@@ -485,8 +489,7 @@ class MainWindow(QMainWindow):
             self.status_lbl.setStyleSheet("color:#d2991d;font-size:12px")
             return
         try:
-            with open(OUTPUT_FILE,"r",encoding="utf-8") as f:
-                data=json.load(f)
+            data=read_json(OUTPUT_FILE, default=[])
             count=len(data) if isinstance(data,list) else 0
             self.status_lbl.setText(f"库存 {count} 件" if count else "库存为空")
             self.status_lbl.setStyleSheet("color:#3fb950;font-size:12px" if count else "color:#d2991d;font-size:12px")
@@ -552,6 +555,9 @@ class MainWindow(QMainWindow):
 
     def _save_role_weight_value(self,rn,key,value,data):
         return config_save_role_weight_value(self,rn,key,value,data,CONFIG_DIR)
+
+    def _save_role_board_cell(self,rn,row,col,value,data):
+        return config_save_role_board_cell(self,rn,row,col,value,data,CONFIG_DIR)
 
     def _save_role_field(self,rn,key,value,data):
         return config_save_role_field(self,rn,key,value,data,CONFIG_DIR)
