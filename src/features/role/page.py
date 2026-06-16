@@ -1072,7 +1072,7 @@ def _get_character_total_stats(window, role_name: str) -> dict:
     if main_key and main_key in tape_main_pool:
         add_stat(main_key, tape_main_pool[main_key])
     for k, v in tape.get("skill", {}).items():
-        add_stat(k, float(v) * t_cover)
+        add_stat(k, float(v))
     for k, v in tape.get("skill_2", {}).items():
         add_stat(k, float(v) * t_cover)
     for k, v in tape.get("info", {}).items():
