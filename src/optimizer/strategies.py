@@ -2,6 +2,7 @@
 """Allocation strategies for role-first, item-first, and global matching."""
 
 import copy
+import heapq
 import itertools
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -10,6 +11,7 @@ from typing import List, Dict, Any
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
 from src.models.equipment import Drive, Tape
+from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
 
 class BaseDispatchStrategy:
     def __init__(self, roles_db: Dict, sets_db: Dict, blueprints_db: Dict[str, List[Dict]]):
@@ -66,6 +68,11 @@ class BaseDispatchStrategy:
 
     def _rank_score_for_drive(self, role: str, drive: Drive, base_score: float, config) -> float:
         return self._rank_score_for_item(role, drive, base_score, config)
+
+    def _set_pieces_for_blueprint(self, blueprint: Dict, target_set: str) -> list[str]:
+        if "set_pieces" in blueprint:
+            return list(blueprint.get("set_pieces") or [])
+        return list(self.sets_db[target_set]["shapes"])
 
     def _pick_best_drive(self, role: str, candidates: list[tuple[int, Drive]], config=None) -> tuple[int, Drive, float] | None:
         if not candidates:
@@ -150,8 +157,8 @@ class BaseDispatchStrategy:
 
         return assigned_tapes
 
-    def execute(self, candidate_pool: Dict[str, Any], priority_list: List[str], custom_sets: Dict[str, str],
-                crit_priority_modes: Dict[str, str] = None) -> Dict[str, Any]:
+    def execute(self, candidate_pool: CandidatePool, priority_list: List[str], custom_sets: CustomSetMap,
+                crit_priority_modes: StatPriorityConfigMap = None) -> AllocationResult:
         raise NotImplementedError
 
 class RolePriorityStrategy(BaseDispatchStrategy):
@@ -159,7 +166,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
 
     def _find_best_fit(self, role_name: str, blueprint: Dict, available_pool: List[Drive], target_set: str,
                        crit_mode: str | None = None) -> Dict:
-        set_shapes = self.sets_db[target_set]["shapes"]
+        set_shapes = self._set_pieces_for_blueprint(blueprint, target_set)
         extra_shapes = blueprint["extra_pieces"]
 
         used_indices = set()
@@ -196,8 +203,8 @@ class RolePriorityStrategy(BaseDispatchStrategy):
         return {"valid": True, "blueprint": blueprint, "assigned_set_drives": assigned_set,
                 "assigned_extra_drives": assigned_extra, "score": round(total_score, 2)}
 
-    def execute(self, candidate_pool: Dict[str, Any], priority_list: List[str], custom_sets: Dict[str, str],
-                crit_priority_modes: Dict[str, str] = None) -> Dict[str, Any]:
+    def execute(self, candidate_pool: CandidatePool, priority_list: List[str], custom_sets: CustomSetMap,
+                crit_priority_modes: StatPriorityConfigMap = None) -> AllocationResult:
         logger.info("启动分配模式: 角色优先")
 
         drives_pool = list(candidate_pool.get("drives", []))
@@ -237,33 +244,139 @@ class RolePriorityStrategy(BaseDispatchStrategy):
 class MatrixBaseStrategy(BaseDispatchStrategy):
     """Shared helpers for matrix-based allocation strategies."""
 
-    MAX_COMBO_LIMIT = 200
+    MAX_COMBO_LIMIT = 500
 
     def _build_matrix_environment(self, priority_list):
         role_blueprints_list, valid_roles = [], []
         for role in priority_list:
-            bps = self.blueprints_db.get(role, [])
+            raw_bps = self.blueprints_db.get(role, [])
+            bps = self._dedupe_blueprints_by_extra_pieces(raw_bps)
             if bps:
+                if len(bps) < len(raw_bps):
+                    logger.info(f"角色 [{role}] 图纸形状组合去重: {len(raw_bps)} -> {len(bps)}")
                 role_blueprints_list.append(bps)
                 valid_roles.append(role)
             else:
                 logger.warning(f"角色 [{role}] 没有合法图纸，跳过分配。")
         return role_blueprints_list, valid_roles
 
-    def _iter_bp_combos(self, role_bps_list):
+    def _blueprint_extra_key(self, blueprint):
+        set_key = tuple(sorted(str(shape_id) for shape_id in blueprint.get("set_pieces", [])))
+        extra_key = tuple(sorted(str(shape_id) for shape_id in blueprint.get("extra_pieces", [])))
+        return set_key, extra_key
+
+    def _dedupe_blueprints_by_extra_pieces(self, blueprints):
+        seen = set()
+        unique = []
+        for bp in blueprints:
+            key = self._blueprint_extra_key(bp)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(bp)
+        return unique
+
+    def _shape_score_buckets(self, role, drives_pool, crit_config=None):
+        buckets = {}
+        for drive in drives_pool or []:
+            base_score = drive.role_scores.get(role, 0.0)
+            rank_score = self._rank_score_for_drive(role, drive, base_score, crit_config)
+            buckets.setdefault(drive.shape_id, []).append(rank_score)
+        for scores in buckets.values():
+            scores.sort(reverse=True)
+        return buckets
+
+    def _blueprint_theoretical_score(self, role, blueprint, drives_pool, custom_sets, crit_config=None):
+        target_set = self._target_set(role, custom_sets)
+        required_shapes = self._set_pieces_for_blueprint(blueprint, target_set) + list(blueprint.get("extra_pieces", []))
+        buckets = self._shape_score_buckets(role, drives_pool, crit_config)
+        used_counts = {}
+        total = 0.0
+        for shape in required_shapes:
+            used = used_counts.get(shape, 0)
+            scores = buckets.get(shape, [])
+            if used >= len(scores):
+                return -10000.0
+            total += scores[used]
+            used_counts[shape] = used + 1
+        return total
+
+    def _rank_role_blueprints(self, role_bps_list, valid_roles, drives_pool, custom_sets, crit_priority_modes=None):
+        crit_priority_modes = crit_priority_modes or {}
+        ranked = []
+        for role, bps in zip(valid_roles, role_bps_list):
+            role_ranked = [
+                (
+                    self._blueprint_theoretical_score(
+                        role,
+                        bp,
+                        drives_pool,
+                        custom_sets,
+                        crit_priority_modes.get(role),
+                    ),
+                    index,
+                    bp,
+                )
+                for index, bp in enumerate(bps)
+            ]
+            role_ranked.sort(key=lambda item: (-item[0], item[1]))
+            ranked.append(role_ranked)
+        return ranked
+
+    def _iter_ranked_bp_combos(self, ranked_role_bps):
+        if not ranked_role_bps or any(not bps for bps in ranked_role_bps):
+            return
+
+        start = tuple(0 for _ in ranked_role_bps)
+
+        def score_for(indexes):
+            return sum(ranked_role_bps[role_idx][bp_idx][0] for role_idx, bp_idx in enumerate(indexes))
+
+        seen = {start}
+        heap = [(-score_for(start), start)]
+        count = 0
+
+        while heap and count < self.MAX_COMBO_LIMIT:
+            _, indexes = heapq.heappop(heap)
+            yield tuple(ranked_role_bps[role_idx][bp_idx][2] for role_idx, bp_idx in enumerate(indexes))
+            count += 1
+
+            for role_idx in range(len(indexes)):
+                next_indexes = list(indexes)
+                next_indexes[role_idx] += 1
+                if next_indexes[role_idx] >= len(ranked_role_bps[role_idx]):
+                    continue
+                next_indexes = tuple(next_indexes)
+                if next_indexes in seen:
+                    continue
+                seen.add(next_indexes)
+                heapq.heappush(heap, (-score_for(next_indexes), next_indexes))
+
+    def _iter_bp_combos(self, role_bps_list, valid_roles=None, drives_pool=None, custom_sets=None, crit_priority_modes=None):
         total = 1
         for bps in role_bps_list:
             total *= len(bps)
         if total <= self.MAX_COMBO_LIMIT:
             yield from itertools.product(*role_bps_list)
         else:
-            logger.info(f"图纸组合数 {total} 过大，采样前 {self.MAX_COMBO_LIMIT} 组...")
-            count = 0
-            for combo in itertools.product(*role_bps_list):
-                yield combo
-                count += 1
-                if count >= self.MAX_COMBO_LIMIT:
-                    break
+            logger.info(f"图纸组合数 {total} 过大，按理论上限筛选前 {self.MAX_COMBO_LIMIT} 组...")
+            if not valid_roles or drives_pool is None:
+                count = 0
+                for combo in itertools.product(*role_bps_list):
+                    yield combo
+                    count += 1
+                    if count >= self.MAX_COMBO_LIMIT:
+                        break
+                return
+
+            ranked_role_bps = self._rank_role_blueprints(
+                role_bps_list,
+                valid_roles,
+                drives_pool,
+                custom_sets or {},
+                crit_priority_modes,
+            )
+            yield from self._iter_ranked_bp_combos(ranked_role_bps)
 
     def _build_profit_matrix(self, bp_combo, valid_roles, drives_pool, custom_sets, crit_priority_modes=None):
         crit_priority_modes = crit_priority_modes or {}
@@ -271,7 +384,7 @@ class MatrixBaseStrategy(BaseDispatchStrategy):
         for role_idx, role in enumerate(valid_roles):
             bp = bp_combo[role_idx]
             target_set = self._target_set(role, custom_sets)
-            for shape in self.sets_db[target_set]["shapes"]:
+            for shape in self._set_pieces_for_blueprint(bp, target_set):
                 slots.append({"role": role, "type": "set", "shape": shape, "set_name": target_set, "bp": bp})
             for shape in bp["extra_pieces"]:
                 slots.append({"role": role, "type": "extra", "shape": shape, "set_name": None, "bp": bp})
@@ -306,8 +419,8 @@ class MatrixBaseStrategy(BaseDispatchStrategy):
 
 class DrivePriorityStrategy(MatrixBaseStrategy):
     """Greedy best-drive-first allocation via profit matrix."""
-    def execute(self, candidate_pool: Dict[str, Any], priority_list: List[str], custom_sets: Dict[str, str],
-                crit_priority_modes: Dict[str, str] = None) -> Dict[str, Any]:
+    def execute(self, candidate_pool: CandidatePool, priority_list: List[str], custom_sets: CustomSetMap,
+                crit_priority_modes: StatPriorityConfigMap = None) -> AllocationResult:
         logger.info("启动分配模式: 驱动优先")
         drives_pool = candidate_pool.get("drives", [])
         assigned_tapes = self._pre_allocate_tapes_optimal(priority_list, custom_sets, candidate_pool.get("tapes", {}))
@@ -317,7 +430,7 @@ class DrivePriorityStrategy(MatrixBaseStrategy):
         best_team_score, best_allocation = -1.0, {}
         combo_count = 0
 
-        for bp_combo in self._iter_bp_combos(role_bps_list):
+        for bp_combo in self._iter_bp_combos(role_bps_list, valid_roles, drives_pool, custom_sets, crit_priority_modes):
             combo_count += 1
             if combo_count % 50 == 0:
                 logger.info(f"  驱动优先: 已评估 {combo_count} 组图纸组合...")
@@ -365,8 +478,8 @@ class DrivePriorityStrategy(MatrixBaseStrategy):
 
 class GlobalOptimalStrategy(MatrixBaseStrategy):
     """Optimal allocation via Hungarian algorithm."""
-    def execute(self, candidate_pool: Dict[str, Any], priority_list: List[str], custom_sets: Dict[str, str],
-                crit_priority_modes: Dict[str, str] = None) -> Dict[str, Any]:
+    def execute(self, candidate_pool: CandidatePool, priority_list: List[str], custom_sets: CustomSetMap,
+                crit_priority_modes: StatPriorityConfigMap = None) -> AllocationResult:
         logger.info("启动分配模式: 全局最优 (匈牙利算法)")
         drives_pool = candidate_pool.get("drives", [])
         assigned_tapes = self._pre_allocate_tapes_optimal(priority_list, custom_sets, candidate_pool.get("tapes", {}))
@@ -376,7 +489,7 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
         best_team_score, best_allocation = -1.0, {}
         combo_count = 0
 
-        for bp_combo in self._iter_bp_combos(role_bps_list):
+        for bp_combo in self._iter_bp_combos(role_bps_list, valid_roles, drives_pool, custom_sets, crit_priority_modes):
             combo_count += 1
             if combo_count % 50 == 0:
                 logger.info(f"  全局最优: 已评估 {combo_count} 组图纸组合...")
