@@ -60,8 +60,29 @@ def are_named_neighbors(previous_filename: str | None, current_filename: str | N
     return previous_key[0] == current_key[0] and current_key[1] == previous_key[1] + 1
 
 
+def has_meaningful_parse_data(item_data, valid_stats=None) -> bool:
+    item_type = getattr(item_data, "item_type", "")
+    sub_stats = getattr(item_data, "sub_stats", {}) or {}
+    if sub_stats:
+        if valid_stats is None:
+            return True
+        valid_stats = set(valid_stats)
+        if any(stat in valid_stats for stat in sub_stats.keys()):
+            return True
+    if item_type == "drive":
+        return False
+    if item_type == "tape":
+        set_name = str(getattr(item_data, "set_name", "") or "").strip()
+        main_stats = str(getattr(item_data, "main_stats", "") or "").strip()
+        return set_name not in ("", "未知套装") or main_stats not in ("", "未知主词条")
+    return False
+
+
 def process_image_file(processor, image_path: str, filename: str | None = None):
     item_data = processor._process_single_image(image_path)
+    valid_stats = getattr(getattr(processor, "parser", None), "GOLD_BASE_VALUES", {}) or {}
+    if not has_meaningful_parse_data(item_data, valid_stats.keys()):
+        raise ValueError("未识别到有效装备数据")
     current_name = filename or os.path.basename(image_path)
     current_signature = processor._item_signature(item_data)
     current_fingerprint = image_fingerprint(image_path)
