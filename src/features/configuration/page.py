@@ -457,7 +457,7 @@ def add_weight(window, rn, data, cb, config_dir):
     stats_path = config_dir / "stats.json"
     pool = []
     if stats_path.exists():
-        pool = sorted(StatCatalog.from_config_dir(config_dir).gold_base_values.keys())
+        pool = StatCatalog.from_config_dir(config_dir).weight_choice_pool()
     existing = set(data[rn].get("weights", {}).keys())
     available = [s for s in pool if s not in existing]
     if not available:
@@ -474,12 +474,13 @@ def stat_choice_pool(window):
     pool = set()
     if isinstance(window.stats_config, dict):
         pool.update((window.stats_config.get("gold_base_values", {}) or {}).keys())
-        aliases = window.stats_config.get("stat_alias_mapping", {}) or {}
-        pool.update(aliases.values())
-        pool.update(window._canonical_stat_name(s) for s in window.stats_config.get("tape_main_stats_pool", []) or [])
+        pool.update((window.stats_config.get("tape_main_stat_values", {}) or {}).keys())
     if window.scoring_engine:
-        pool.update(getattr(window.scoring_engine, "gold_base_values", {}).keys())
-        pool.update((getattr(window.scoring_engine, "stat_alias_mapping", {}) or {}).values())
+        catalog = getattr(window.scoring_engine, "stat_catalog", None)
+        if catalog:
+            pool.update(catalog.weight_choice_pool())
+        else:
+            pool.update(getattr(window.scoring_engine, "gold_base_values", {}).keys())
     return sorted(s for s in pool if s)
 
 
