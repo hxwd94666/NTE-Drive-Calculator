@@ -11,6 +11,295 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
+class PriorityGroupWorkflowTests(unittest.TestCase):
+    def test_priority_links_promote_boundary_splits_two_equal_batches(self):
+        from src.features.allocation.priority_groups import (
+            links_to_priority_groups,
+            promote_priority_boundary,
+        )
+
+        roles = ["A", "B", "C", "D"]
+        links = [">", ">", "="]
+
+        promote_priority_boundary(links, 1)
+
+        self.assertEqual(["=", ">>", "="], links)
+        self.assertEqual([["A", "B"], ["C", "D"]], links_to_priority_groups(roles, links))
+
+    def test_priority_link_cycles_strict_equal_boundary_with_expected_batch_edits(self):
+        from src.features.allocation.priority_groups import (
+            cycle_priority_link,
+            links_to_priority_groups,
+        )
+
+        roles = ["A", "B", "C", "D", "E"]
+        links = [">", ">", ">", ">>"]
+
+        cycle_priority_link(links, 1)
+        self.assertEqual([">", "=", ">", ">>"], links)
+        self.assertEqual([["A"], ["B", "C"], ["D"], ["E"]], links_to_priority_groups(roles, links))
+
+        cycle_priority_link(links, 1)
+        self.assertEqual(["=", ">>", ">", ">>"], links)
+        self.assertEqual([["A", "B"], ["C"], ["D"], ["E"]], links_to_priority_groups(roles, links))
+
+        cycle_priority_link(links, 1)
+        self.assertEqual([">", ">", ">", ">>"], links)
+        self.assertEqual([["A"], ["B"], ["C"], ["D"], ["E"]], links_to_priority_groups(roles, links))
+
+    def test_priority_groups_loads_old_priority_list_as_strict_order(self):
+        from src.features.allocation.priority_groups import load_priority_selection
+
+        data = {"priority_list": ["A", "B", "C"]}
+
+        selected, links = load_priority_selection(data, {"A": {}, "B": {}, "C": {}})
+
+        self.assertEqual(["A", "B", "C"], selected)
+        self.assertEqual([">", ">"], links)
+
+    def test_priority_groups_loads_new_group_config(self):
+        from src.features.allocation.priority_groups import load_priority_selection
+
+        data = {"priority_groups": [["A", "B"], ["C"]], "priority_list": ["C", "A", "B"]}
+
+        selected, links = load_priority_selection(data, {"A": {}, "B": {}, "C": {}})
+
+        self.assertEqual(["A", "B", "C"], selected)
+        self.assertEqual(["=", ">>"], links)
+
+    def test_role_selector_reorder_selected_moves_role_without_changing_links(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
+        selector.selected = ["A", "B", "C", "D"]
+        selector.priority_links = ["=", ">>", "="]
+
+        selector._reorder_selected(3, 1)
+
+        self.assertEqual(["A", "D", "B", "C"], selector.selected)
+        self.assertEqual(["=", ">>", "="], selector.priority_links)
+
+    def test_role_selector_available_names_excludes_selected_and_filters(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"早雾": {}, "达芙蒂尔": {}, "薄荷": {}}, [])
+        selector.selected = ["早雾"]
+
+        self.assertEqual(["薄荷", "达芙蒂尔"], selector._available_role_names(""))
+        self.assertEqual(["达芙蒂尔"], selector._available_role_names("达"))
+
+    def test_role_selector_drop_selected_to_target_position_from_front(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
+        selector.selected = ["A", "B", "C", "D"]
+        selector.priority_links = [">", ">>", "="]
+
+        selector._drop_selected_on(0, 2)
+
+        self.assertEqual(["B", "A", "C", "D"], selector.selected)
+        self.assertEqual([">", ">>", "="], selector.priority_links)
+
+    def test_role_selector_drop_selected_to_target_position_from_back(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
+        selector.selected = ["A", "B", "C", "D"]
+        selector.priority_links = [">", ">>", "="]
+
+        selector._drop_selected_on(3, 1)
+
+        self.assertEqual(["A", "D", "B", "C"], selector.selected)
+        self.assertEqual([">", ">>", "="], selector.priority_links)
+
+    def test_role_selector_uses_single_combined_scroll_area(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+
+        self.assertTrue(hasattr(selector, "roles_scroll"))
+        self.assertFalse(hasattr(selector, "priority_scroll"))
+        self.assertFalse(hasattr(selector, "grid_scroll"))
+
+    def test_role_selector_priority_frame_width_is_content_based(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+
+        short_width = selector._priority_role_frame_width("早雾")
+        long_width = selector._priority_role_frame_width("达芙蒂尔")
+
+        self.assertGreater(long_width, short_width)
+        self.assertLess(short_width, 140)
+
+    def test_role_selector_wrapped_priority_unit_keeps_content_width(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.selected = ["A", "LongRoleA", "B", "LongRoleB", "C", "D"]
+        selector.priority_links = [">", ">", ">", ">", ">"]
+
+        selector._render_priority_row()
+        selector.resize(900, 400)
+        selector.show()
+        app.processEvents()
+        selector.priority_layout.activate()
+        app.processEvents()
+
+        wrapped_unit = selector.priority_layout.itemAt(5).widget()
+
+        self.assertEqual(wrapped_unit.sizeHint().width(), wrapped_unit.geometry().width())
+
+    def test_priority_role_button_builds_drag_pixmap_without_render_overload(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import PriorityRoleButton, RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        button = PriorityRoleButton(selector, "A", 0)
+        button.resize(120, 40)
+        button.show()
+        app.processEvents()
+
+        pixmap = button._make_drag_pixmap(button)
+
+        self.assertFalse(pixmap.isNull())
+
+    def test_role_priority_batch_uses_local_optimum_within_equal_group(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        roles_db = {"A": {"default_set": "Set"}, "B": {"default_set": "Set"}}
+        sets_db = {"Set": {"shapes": []}}
+        blueprints_db = {
+            "A": [{"set_pieces": [], "extra_pieces": ["X"]}],
+            "B": [{"set_pieces": [], "extra_pieces": ["X"]}],
+        }
+        drives = [
+            Drive(
+                uid="drive_1",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 100.0, "B": 99.0},
+            ),
+            Drive(
+                uid="drive_2",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 98.0, "B": 1.0},
+            ),
+        ]
+
+        result = RolePriorityStrategy(roles_db, sets_db, blueprints_db).execute(
+            {"drives": drives, "tapes": {}},
+            ["A", "B"],
+            {"A": "Set", "B": "Set"},
+            priority_groups=[["A", "B"]],
+        )
+
+        self.assertEqual("drive_2", result["A"]["assigned_extra_drives"][0].uid)
+        self.assertEqual("drive_1", result["B"]["assigned_extra_drives"][0].uid)
+
+    def test_role_priority_batch_reuses_matrix_combo_iterator(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        class TrackingRolePriorityStrategy(RolePriorityStrategy):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.used_matrix_combo_iterator = False
+
+            def _iter_bp_combos(self, *args, **kwargs):
+                self.used_matrix_combo_iterator = True
+                yield from super()._iter_bp_combos(*args, **kwargs)
+
+        roles_db = {"A": {"default_set": "Set"}, "B": {"default_set": "Set"}}
+        sets_db = {"Set": {"shapes": []}}
+        blueprints_db = {
+            "A": [{"set_pieces": [], "extra_pieces": ["X"]}],
+            "B": [{"set_pieces": [], "extra_pieces": ["X"]}],
+        }
+        drives = [
+            Drive(
+                uid="drive_1",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 10.0, "B": 9.0},
+            ),
+            Drive(
+                uid="drive_2",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 8.0, "B": 7.0},
+            ),
+        ]
+        strategy = TrackingRolePriorityStrategy(roles_db, sets_db, blueprints_db)
+
+        strategy.execute(
+            {"drives": drives, "tapes": {}},
+            ["A", "B"],
+            {"A": "Set", "B": "Set"},
+            priority_groups=[["A", "B"]],
+        )
+
+        self.assertTrue(strategy.used_matrix_combo_iterator)
+
+    def test_matrix_base_does_not_shadow_shared_matrix_helpers(self):
+        from src.optimizer.strategies import MatrixBaseStrategy
+
+        duplicated_helpers = {
+            "_blueprint_extra_key",
+            "_dedupe_blueprints_by_extra_pieces",
+            "_shape_score_buckets",
+            "_blueprint_theoretical_score",
+            "_rank_role_blueprints",
+            "_iter_ranked_bp_combos",
+            "_iter_bp_combos",
+            "_build_profit_matrix",
+            "_init_temp_alloc",
+        }
+
+        self.assertFalse(duplicated_helpers & set(MatrixBaseStrategy.__dict__))
+
+
 class ConfigurationWorkflowTests(unittest.TestCase):
     def test_role_board_cell_change_updates_draft_data(self):
         from src.features.configuration import page
@@ -548,6 +837,36 @@ class ScanPromptWorkflowTests(unittest.TestCase):
 
 
 class ExecutePageWorkflowTests(unittest.TestCase):
+    def test_save_allocation_reload_keeps_current_priority_selector_state(self):
+        from src.features.allocation.runner import _save_alloc
+
+        class StateManager:
+            def __init__(self):
+                self.saved = []
+
+            def save_allocation(self, final_plan, mode=""):
+                self.saved.append((final_plan, mode))
+
+        class Window:
+            def __init__(self):
+                self.final_plan = {"A": {"valid": True}}
+                self.state_mgr = StateManager()
+                self._pending_strat = "role_priority"
+                self._allocation_dirty = True
+                self.reload_priority_args = []
+
+            def _load_data(self, reload_priority=True):
+                self.reload_priority_args.append(reload_priority)
+
+        window = Window()
+
+        result = _save_alloc(window, show_message=False)
+
+        self.assertTrue(result)
+        self.assertFalse(window._allocation_dirty)
+        self.assertEqual([({"A": {"valid": True}}, "role_priority")], window.state_mgr.saved)
+        self.assertEqual([False], window.reload_priority_args)
+
     def test_save_allocation_button_keeps_success_popup_enabled(self):
         from PySide6.QtCore import Signal
         from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
