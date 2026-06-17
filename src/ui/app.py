@@ -449,8 +449,12 @@ class MainWindow(QMainWindow):
                 "gold_base_values": catalog.gold_base_values,
                 "tape_main_stats_pool": catalog.tape_main_stats,
                 "tape_main_stat_values": catalog.tape_main_values,
+                "tape_stat_values": catalog.tape_stat_values,
                 "main_only_keywords": catalog.main_only_keywords,
                 "stat_alias_mapping": catalog.stat_alias_mapping,
+                "benefit_one": catalog.benefit_one,
+                "benefit_alias_mapping": catalog.benefit_alias_mapping,
+                "weight_pool": catalog.weight_pool,
             }
             self.tape_main_stats=catalog.tape_main_stats
             self.drive_sub_stats=list(catalog.gold_base_values.keys())
