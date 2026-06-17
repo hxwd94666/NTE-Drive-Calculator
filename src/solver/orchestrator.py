@@ -1,8 +1,10 @@
 # 统筹库存、评分和求解器生成最终配装。
 """End-to-end pipeline for blueprints, scoring, dispatch, and output."""
 
+import copy
 import json
 import os
+import time
 from typing import List, Dict
 
 from src.domain.equipment_normalizer import normalize_equipment_item
@@ -18,6 +20,8 @@ from src.utils.name_resolver import resolve_name
 
 
 class NTEPipelineOrchestrator:
+    _blueprint_cache: dict[str, List[Dict]] = {}
+    _blueprint_cache_limit = 256
 
     def __init__(self, config_dir: str = "config"):
         self.config_dir = config_dir
@@ -69,8 +73,6 @@ class NTEPipelineOrchestrator:
         dfs_solver = DFSPuzzleSolver(self.shapes_db)
         real_blueprints_db = {}
 
-        import time as _time
-
         for role_name in target_roles:
             role_data = self.roles_db[role_name]
             set_name = self._resolve_set_name(custom_sets.get(role_name, role_data["default_set"]))
@@ -80,14 +82,26 @@ class NTEPipelineOrchestrator:
             board_matrix = role_data["board_matrix"]
             set_effect_mode = normalize_set_effect_mode(set_effect_modes.get(role_name))
             set_piece_options = set_piece_options_for_mode(set_shapes, set_effect_mode)
+            cache_key = self._blueprint_cache_key(
+                role_name,
+                set_name,
+                set_shapes,
+                extra_label,
+                board_matrix,
+                set_effect_mode,
+            )
 
             logger.info(f"  -> [{role_name}] 套装: {set_name} | 套装效果: {set_effect_mode} | 求解中...")
-            _t0 = _time.time()
+            _t0 = time.perf_counter()
+            if cache_key in self._blueprint_cache:
+                real_blueprints_db[role_name] = copy.deepcopy(self._blueprint_cache[cache_key])
+                logger.info(f"  [{role_name}] 图纸缓存命中，共 {len(real_blueprints_db[role_name])} 套合法方案。")
+                continue
             role_blueprints = []
 
             for set_pieces in set_piece_options:
                 combos = combinatorics.generate_piece_combinations(set_pieces, extra_label)
-                logger.info(f"     套装形状: {len(set_pieces)} | 组合数: {len(combos)} | 耗时: {_time.time()-_t0:.2f}s")
+                logger.info(f"     套装形状: {len(set_pieces)} | 组合数: {len(combos)} | 耗时: {time.perf_counter()-_t0:.2f}s")
 
                 for combo in combos:
                     pieces_to_place = set_pieces + combo
@@ -104,9 +118,39 @@ class NTEPipelineOrchestrator:
                         })
 
             real_blueprints_db[role_name] = role_blueprints
-            logger.success(f"  [{role_name}] 图纸求解完成，共 {len(role_blueprints)} 套合法方案。(总耗时 {_time.time()-_t0:.2f}s)")
+            self._remember_blueprint_cache(cache_key, role_blueprints)
+            logger.success(f"  [{role_name}] 图纸求解完成，共 {len(role_blueprints)} 套合法方案。(总耗时 {time.perf_counter()-_t0:.2f}s)")
 
         return real_blueprints_db
+
+    def _blueprint_cache_key(
+        self,
+        role_name: str,
+        set_name: str,
+        set_shapes: List[str],
+        extra_label: str,
+        board_matrix: List[List[int]],
+        set_effect_mode: str,
+    ) -> str:
+        shape_payload = {
+            shape_id: {"area": shape.area, "label": shape.label}
+            for shape_id, shape in sorted(self.shapes_db.items())
+        }
+        payload = {
+            "role": role_name,
+            "set": set_name,
+            "set_shapes": list(set_shapes or []),
+            "extra_label": extra_label,
+            "board_matrix": board_matrix,
+            "set_effect_mode": set_effect_mode,
+            "shapes": shape_payload,
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def _remember_blueprint_cache(self, cache_key: str, blueprints: List[Dict]) -> None:
+        if len(self._blueprint_cache) >= self._blueprint_cache_limit:
+            self._blueprint_cache.pop(next(iter(self._blueprint_cache)))
+        self._blueprint_cache[cache_key] = copy.deepcopy(blueprints)
 
     def _estimate_drive_screen_limit(self, blueprints_db: Dict[str, List[Dict]], custom_sets: Dict[str, str]) -> int:
         shape_demands: Dict[str, int] = {}
@@ -136,10 +180,14 @@ class NTEPipelineOrchestrator:
         crit_priority_modes = crit_priority_modes or {}
         set_effect_modes = set_effect_modes or {}
         custom_sets = self._canonicalize_custom_sets(custom_sets)
+        total_t0 = time.perf_counter()
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
+        stage_t0 = time.perf_counter()
         blueprints_db = self.solve_blueprints(priority_list, custom_sets, set_effect_modes)
+        logger.info(f"[计时] 图纸求解阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         logger.info(f"\n[阶段 3] 接收到 {len(inventory)} 个资产，正在过滤与类型转换...")
+        stage_t0 = time.perf_counter()
         parsed_inventory = []
         filtered_count = 0
 
@@ -157,7 +205,9 @@ class NTEPipelineOrchestrator:
         if locked_uids:
             logger.info(
                 f"[模式四] 已屏蔽 {filtered_count} 件锁定装备，使用剩余 {len(parsed_inventory)} 件进行分配。")
+        logger.info(f"[计时] 库存转换阶段: {time.perf_counter() - stage_t0:.2f}s")
 
+        stage_t0 = time.perf_counter()
         scoring_engine = ScoringEngine(config_dir=self.config_dir)
         drive_screen_limit = self._estimate_drive_screen_limit(blueprints_db, custom_sets)
         if drive_screen_limit > 15:
@@ -181,8 +231,10 @@ class NTEPipelineOrchestrator:
         logger.success("  筛选完成。")
         logger.info(f"     - 入选驱动数: {len(screened_pools['drives'])}")
         logger.info(f"     - 卡带分桶: 各角色 Top 3 已锁定")
+        logger.info(f"[计时] 评分筛选阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         logger.info(f"\n[阶段 4] 启动调度模式: [{mode}]...")
+        stage_t0 = time.perf_counter()
         dispatcher = DispatcherEngine(roles_db=self.roles_db, sets_db=self.sets_db, blueprints_db=blueprints_db)
 
         final_plan = dispatcher.execute_dispatch(
@@ -192,8 +244,12 @@ class NTEPipelineOrchestrator:
             custom_sets=custom_sets,
             crit_priority_modes=crit_priority_modes
         )
+        logger.info(f"[计时] 调度阶段: {time.perf_counter() - stage_t0:.2f}s")
 
+        stage_t0 = time.perf_counter()
         self._render_results(final_plan, scoring_engine, custom_sets)
+        logger.info(f"[计时] 日志渲染阶段: {time.perf_counter() - stage_t0:.2f}s")
+        logger.info(f"[计时] 完整分配流程总耗时: {time.perf_counter() - total_t0:.2f}s")
 
         return final_plan
 
