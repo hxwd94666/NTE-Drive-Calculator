@@ -490,6 +490,34 @@ class RolePriorityWorkflowTests(unittest.TestCase):
         self.assertIn("随时读取", messages[-1][1])
         app.processEvents()
 
+    def test_priority_save_button_keeps_success_popup_enabled(self):
+        from PySide6.QtWidgets import QApplication, QPushButton
+
+        from src.features.allocation import role_selector
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        messages = []
+        original_information = role_selector.QMessageBox.information
+        role_selector.QMessageBox.information = lambda _parent, title, text: messages.append((title, text))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "priority_config.json"
+                selector = RoleSelector(priority_config_path_provider=lambda: path)
+                selector.load_roles({"A": {}}, ["S"], [], [])
+                selector.selected = ["A"]
+                save_button = next(
+                    button for button in selector.findChildren(QPushButton) if button.text() == "\u4fdd\u5b58"
+                )
+
+                save_button.click()
+        finally:
+            role_selector.QMessageBox.information = original_information
+
+        self.assertTrue(messages)
+        self.assertIn("\u4fdd\u5b58\u6210\u529f", messages[-1][0])
+        app.processEvents()
+
 
 class IdentificationWorkflowTests(unittest.TestCase):
     def test_set_combo_data_refreshes_searchable_combo_without_legacy_restore_api(self):
@@ -517,6 +545,59 @@ class ScanPromptWorkflowTests(unittest.TestCase):
         self.assertIn("已停止继续解析", message)
         self.assertIn("已解析 3 张", message)
         self.assertNotIn("已入库", message)
+
+
+class ExecutePageWorkflowTests(unittest.TestCase):
+    def test_save_allocation_button_keeps_success_popup_enabled(self):
+        from PySide6.QtCore import Signal
+        from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
+
+        from src.features.allocation.execute_page import build_execute_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class FakeRoleSelector(QWidget):
+            orderChanged = Signal()
+
+        class Window(QWidget):
+            def __init__(self):
+                super().__init__()
+                self.save_args = []
+
+            def _card(self, _title):
+                card = QFrame()
+                QVBoxLayout(card)
+                return card
+
+            def _on_scan_change(self, *_args):
+                pass
+
+            def _on_priority_changed(self, *_args):
+                pass
+
+            def _do_exec(self):
+                pass
+
+            def _save_alloc(self, show_message=True):
+                self.save_args.append(show_message)
+                return True
+
+        window = Window()
+        scroll = build_execute_page(
+            window,
+            FakeRoleSelector,
+            {},
+            {},
+            {},
+            lambda *_args: None,
+        )
+        save_button = window.btn_save
+
+        save_button.click()
+
+        self.assertEqual([True], window.save_args)
+        self.assertIsNotNone(scroll)
+        app.processEvents()
 
 
 class OfflineParseWorkflowTests(unittest.TestCase):
