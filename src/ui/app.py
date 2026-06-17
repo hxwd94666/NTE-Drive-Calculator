@@ -439,7 +439,7 @@ class MainWindow(QMainWindow):
         else: self.log_view.clear(); self.log_view.insertPlainText("(日志已关闭)\n")
 
     # ── Data
-    def _load_data(self):
+    def _load_data(self, reload_priority=True):
         try:
             self.roles_db=read_json(CONFIG_DIR/"roles.json", default={}) or {}
             sd=(read_json(CONFIG_DIR/"sets.json", default={}) or {}).get("sets",{})
@@ -466,7 +466,8 @@ class MainWindow(QMainWindow):
             logger.info(f"加载完成：{len(self.roles_db)} 角色，{len(self.sets_db)} 套装")
             self._update_inventory_status()
             self.role_selector.load_roles(self.roles_db,self.all_set_names,self.tape_main_stats,self.drive_sub_stats)
-            self.role_selector.load_startup_priority_config()
+            if reload_priority:
+                self.role_selector.load_startup_priority_config()
             self._identify_blueprint_cache=None
             if hasattr(self,"ident_shape_combo"):
                 self._refresh_identify_options()
