@@ -111,12 +111,22 @@ def _calc_grade(self, score, area):
     elif ratio >= 0.2: return "C"
     return "D"
 
-def _stat_w(self,sn,wts):
-    if not wts: return 0.0
-    if sn in wts: return wts[sn]
-    for k,v in wts.items():
-        if k.replace("%","")==sn.replace("%","") or sn.replace("%","")==k.replace("%",""): return v
-        if k in sn or sn in k: return v
+def _stat_w(self, sn, wts):
+    stat_alias_mapping = getattr(self, 'stats_config', {}).get('stat_alias_mapping', {})
+    if not wts:
+        return 0.0
+    # 将驱动词条名映射为规范名
+    if stat_alias_mapping:
+        sn = stat_alias_mapping.get(sn, sn)  # 若未映射则保留原名
+    # 1. 精确匹配权重中的规范名
+    if sn in wts:
+        return wts[sn]
+    # 2. 遍历权重，将权重键也映射后比较
+    if stat_alias_mapping:
+        for wk, wv in wts.items():
+            wk_canon = stat_alias_mapping.get(wk, wk)
+            if wk_canon == sn:
+                return wv
     return 0.0
 
 def _stat_c(self,w):
