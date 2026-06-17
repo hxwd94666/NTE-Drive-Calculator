@@ -439,7 +439,7 @@ def _render_my_roles(window):
         )
 
         # =========================
-        # 技能数据（单key + 下拉）
+        # 技能数据（单key + 下拉，允许清空）
         # =========================
         skill_label = QLabel("技能数据：")
         skill_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
@@ -448,26 +448,28 @@ def _render_my_roles(window):
         if not tape_pool:
             tape_pool = {"攻击力%": 0}
 
-        # 保证只有一个 key
-        if not wskill:
-            first = next(iter(tape_pool.keys()))
-            wskill.clear()
-            wskill[first] = 0.0
-
+        # 保证 wskill 为单键字典或空
+        if not isinstance(wskill, dict):
+            wskill = {}
         if len(wskill) > 1:
             k = next(iter(wskill))
             v = wskill[k]
             wskill.clear()
             wskill[k] = v
 
-        skill_key = next(iter(wskill.keys()))
-        skill_val = float(wskill.get(skill_key, 0.0))
+        # 当前技能键和值，若为空则留空
+        skill_key = next(iter(wskill.keys())) if wskill else ""
+        skill_val = float(wskill.get(skill_key, 0.0)) if skill_key else 0.0
 
         skill_row = QHBoxLayout()
 
         skill_combo = SearchableComboBox()
+        skill_combo.addItem("")  # 空选项，表示不设置技能
         skill_combo.addItems(list(tape_pool.keys()))
-        skill_combo.setCurrentText(skill_key)
+        if skill_key in tape_pool:
+            skill_combo.setCurrentText(skill_key)
+        else:
+            skill_combo.setCurrentIndex(0)
 
         skill_spin = NoWheelDoubleSpinBox()
         skill_spin.setRange(-999999, 999999)
@@ -475,10 +477,13 @@ def _render_my_roles(window):
         skill_spin.setValue(skill_val)
 
         def commit_skill():
-            k = skill_combo.currentText()
+            k = skill_combo.currentText().strip()
             v = skill_spin.value()
-            weapon_data["skill"] = {k: v}
-            _mark_my_role_dirty(window)
+            if k and k in tape_pool:
+                weapon_data["skill"] = {k: v}
+            else:
+                weapon_data["skill"] = {}  # 清空技能
+            _save_my_roles_silent(window)
 
         skill_combo.currentTextChanged.connect(lambda _: commit_skill())
         skill_spin.editingFinished.connect(commit_skill)
@@ -488,13 +493,12 @@ def _render_my_roles(window):
         weapon_layout.addLayout(skill_row)
 
         # =========================
-        # 额外加成（info）
+        # 额外加成（info，允许第二个属性置空）
         # =========================
         info_label = QLabel("额外加成：")
         info_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
         weapon_layout.addWidget(info_label)
 
-        # 初始化白值
         winfo.setdefault("攻击力白值", 300.0)
 
         def safe_float(v):
@@ -507,47 +511,37 @@ def _render_my_roles(window):
 
         stats_keys = list(tape_pool.keys()) if tape_pool else ["暴击率%"]
 
-        # 初始化 second_key：优先从 winfo 中取真实键
+        # 提取第二个键（如果没有就留空）
         second_key = None
         for k in winfo:
             if k != "攻击力白值":
                 second_key = k
                 break
-
-        # 如果 winfo 里除了白值没有别的键，再从 tape_pool 里取默认
-        if second_key is None:
-            for k in stats_keys:
-                if k != "攻击力白值":
-                    second_key = k
-                    break
-            second_key = second_key or (stats_keys[0] if stats_keys else "暴击率%")
-
+        # 不再自动补全
         white_spin = NoWheelDoubleSpinBox()
         white_spin.setRange(-999999, 999999)
         white_spin.setValue(float(winfo.get("攻击力白值", 300.0)))
 
         second_combo = SearchableComboBox()
-        # 保证下拉框里一定有 second_key
-        if second_key and second_key not in stats_keys:
-            all_keys = [second_key] + stats_keys
+        second_combo.addItem("")  # 空选项
+        second_combo.addItems(stats_keys)
+        if second_key and second_key in stats_keys:
+            second_combo.setCurrentText(second_key)
         else:
-            all_keys = stats_keys
-
-        second_combo = SearchableComboBox()
-        second_combo.addItems(all_keys)
-        second_combo.setCurrentText(second_key)
+            second_combo.setCurrentIndex(0)  # 选中空
 
         second_spin = NoWheelDoubleSpinBox()
         second_spin.setRange(-999999, 999999)
-        second_spin.setValue(safe_float(winfo.get(second_key, 0.0)))
+        second_spin.setValue(safe_float(winfo.get(second_key, 0.0)) if second_key else 0.0)
 
         def commit_info():
-            key = second_combo.currentText()
-            weapon_data["info"] = {
-                "攻击力白值": white_spin.value(),
-                key: second_spin.value()
-            }
-            _mark_my_role_dirty(window)
+            key = second_combo.currentText().strip()
+            white_val = white_spin.value()
+            new_info = {"攻击力白值": white_val}
+            if key and key in tape_pool:
+                new_info[key] = second_spin.value()
+            weapon_data["info"] = new_info
+            _save_my_roles_silent(window)
 
         white_spin.editingFinished.connect(commit_info)
         second_combo.currentTextChanged.connect(lambda _: commit_info())
@@ -598,7 +592,7 @@ def _render_my_roles(window):
         tape_info = tape_data["info"]
 
         # =========================
-        # 主词条（统一风格：下拉 + 固定数值显示）
+        # 主词条（允许留空）
         # =========================
         main_label = QLabel("主词条：")
         main_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
@@ -609,34 +603,41 @@ def _render_my_roles(window):
 
         main_row = QHBoxLayout()
         main_combo = SearchableComboBox()
+        main_combo.addItem("")  # 空选项，表示不设置主词条
         main_combo.addItems(main_items)
 
-        # 反显
+        # 反显已保存的主词条
         saved_main_key = tape_data["main"]
-        if saved_main_key in tape_main_pool:
+        if saved_main_key and saved_main_key in tape_main_pool:
             main_combo.setCurrentText(f"{saved_main_key} ({tape_main_pool[saved_main_key]})")
-        elif main_items:
-            main_combo.setCurrentIndex(0)
+        else:
+            main_combo.setCurrentIndex(0)  # 默认选择空
 
-        # 右侧固定数值标签
+        # 右侧数值标签（空选择时留空）
         main_value_label = QLabel()
         main_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         main_value_label.setStyleSheet("background-color:#2a2a2a; padding:2px 6px; border-radius:3px;")
 
         def update_main_value():
             text = main_combo.currentText()
-            key = text.rsplit(" (", 1)[0]
-            val = tape_main_pool.get(key, 0)
-            main_value_label.setText(str(val))
+            if text:
+                key = text.rsplit(" (", 1)[0]
+                val = tape_main_pool.get(key, 0)
+                main_value_label.setText(str(val))
+            else:
+                main_value_label.setText("")
 
         update_main_value()
 
         def commit_main():
             text = main_combo.currentText()
-            key = text.rsplit(" (", 1)[0]
-            tape_data["main"] = key
+            if text:
+                key = text.rsplit(" (", 1)[0]
+                tape_data["main"] = key
+            else:
+                tape_data["main"] = ""  # 清空
             update_main_value()
-            _mark_my_role_dirty(window)
+            _save_my_roles_silent(window)  # 立即静默保存
 
         main_combo.currentTextChanged.connect(lambda _: commit_main())
 
@@ -714,44 +715,29 @@ def _render_my_roles(window):
         create_single_skill_row(tape_skill, "技能1：")
         create_single_skill_row(tape_skill2, "技能2：")
 
-        # =========================
-        # 额外属性（固定4条，数值显示为固定值，不可编辑）
-        # =========================
-        info_label = QLabel("额外属性（4条，数值固定）：")
+        # 额外属性（最多4条，允许留空）
+        info_label = QLabel("额外属性（最多4条，留空表示未设置）：")
         info_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
         tape_layout.addWidget(info_label)
 
-        pool_keys = list(tape_pool.keys())
-        if len(tape_info) != 4:
-            existing = list(tape_info.items())[:4]
-            used_keys = {k for k, v in existing}
-            need = 4 - len(existing)
-            for k in pool_keys:
-                if k not in used_keys and need > 0:
-                    existing.append((k, tape_pool.get(k, 0.0)))
-                    used_keys.add(k)
-                    need -= 1
-                if need == 0:
-                    break
-            while len(existing) < 4 and pool_keys:
-                existing.append((pool_keys[0], tape_pool.get(pool_keys[0], 0.0)))
-            tape_info.clear()
-            tape_info.update(existing)
+        # 准备4个槽位，已存在的词条优先，不足用空位填充
+        info_entries = list(tape_info.items())
+        while len(info_entries) < 4:
+            info_entries.append(("", 0.0))
+        info_entries = info_entries[:4]
 
-        info_items = list(tape_info.items())
         tape_pool_items = [f"{k} ({v})" for k, v in tape_pool.items()]
         info_widgets = []
 
-        for idx, (key, val) in enumerate(info_items):
+        for idx, (key, val) in enumerate(info_entries):
             row = QHBoxLayout()
             combo = SearchableComboBox()
+            combo.addItem("")  # 空选项，代表未设置
             combo.addItems(tape_pool_items)
-            if key in tape_pool:
+            if key and key in tape_pool:
                 combo.setCurrentText(f"{key} ({tape_pool[key]})")
             else:
-                tape_pool[key] = val
-                combo.addItem(f"{key} ({val})")
-                combo.setCurrentText(f"{key} ({val})")
+                combo.setCurrentIndex(0)  # 选择空
 
             value_label = QLabel()
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -759,9 +745,12 @@ def _render_my_roles(window):
 
             def update_value_label(cb, lbl):
                 text = cb.currentText()
-                k = text.rsplit(" (", 1)[0]
-                v = tape_pool.get(k, 0)
-                lbl.setText(str(v))
+                if text:
+                    k = text.rsplit(" (", 1)[0]
+                    v = tape_pool.get(k, 0)
+                    lbl.setText(str(v))
+                else:
+                    lbl.setText("")
 
             update_value_label(combo, value_label)
             combo.currentTextChanged.connect(lambda _, c=combo, l=value_label: update_value_label(c, l))
@@ -774,12 +763,13 @@ def _render_my_roles(window):
         def commit_info():
             new_info = {}
             for combo, lbl in info_widgets:
-                text = combo.currentText()
-                key = text.rsplit(" (", 1)[0]
-                val = tape_pool.get(key, 0)
-                new_info[key] = val
+                text = combo.currentText().strip()
+                if text:  # 空项不加入
+                    key = text.rsplit(" (", 1)[0]
+                    val = tape_pool.get(key, 0)
+                    new_info[key] = val
             tape_data["info"] = new_info
-            _mark_my_role_dirty(window)
+            _save_my_roles_silent(window)  # 自动保存
 
         for combo, lbl in info_widgets:
             combo.currentTextChanged.connect(lambda _, c=combo, l=lbl: commit_info())
