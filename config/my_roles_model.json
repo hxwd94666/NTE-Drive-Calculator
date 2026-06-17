@@ -12,7 +12,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -36,9 +35,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "暴击率%": 7.5
     }
   },
   "浔": {
@@ -54,7 +50,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -78,9 +73,6 @@
       "攻击力%": 0.9,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "光属性异能伤害增强%": 10.0
     }
   },
   "娜娜莉": {
@@ -96,7 +88,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -120,9 +111,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "暴击率%": 6.0
     }
   },
   "安魂曲": {
@@ -138,7 +126,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -162,9 +149,6 @@
       "攻击力%": 0.7,
       "攻击力": 0.35,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "暗属性异能伤害增强%": 10.0
     }
   },
   "达芙蒂尔": {
@@ -180,7 +164,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -204,9 +187,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 1.0
-    },
-    "extra_shape_buffs": {
-      "暗属性异能伤害增强%": 10.0
     }
   },
   "小吱": {
@@ -222,7 +202,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -246,9 +225,6 @@
       "攻击力%": 0.5,
       "攻击力": 0.25,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "光属性异能伤害增强%": 10.0
     }
   },
   "阿德勒": {
@@ -264,7 +240,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -285,9 +260,6 @@
       "防御力": 0.45,
       "环合强度": 1.0,
       "倾陷强度": 0.75
-    },
-    "extra_shape_buffs": {
-      "防御力%": 12.0
     }
   },
   "九原": {
@@ -303,7 +275,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -327,9 +298,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "暴击率%": 6.0
     }
   },
   "哈尼娅": {
@@ -345,7 +313,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -364,9 +331,6 @@
     "weights": {
       "环合强度": 1.0,
       "倾陷强度": 0.75
-    },
-    "extra_shape_buffs": {
-      "攻击力%": 10.0
     }
   },
   "埃德嘉": {
@@ -382,7 +346,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -404,9 +367,6 @@
       "生命值": 0.5,
       "环合强度": 1.0,
       "倾陷强度": 0.75
-    },
-    "extra_shape_buffs": {
-      "生命值%": 10.0
     }
   },
   "法蒂娅": {
@@ -422,7 +382,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -443,9 +402,6 @@
       "生命值": 0.5,
       "环合强度": 1.0,
       "倾陷强度": 0.75
-    },
-    "extra_shape_buffs": {
-      "生命值%": 6.0
     }
   },
   "早雾": {
@@ -461,7 +417,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -485,9 +440,6 @@
       "攻击力%": 0.7,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "咒属性异能伤害增强%": 9.0
     }
   },
   "哈索尔": {
@@ -503,7 +455,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -527,9 +478,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "攻击力%": 10.0
     }
   },
   "白藏": {
@@ -545,7 +493,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -569,9 +516,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "暴击率%": 7.5
     }
   },
   "海月": {
@@ -587,7 +531,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -611,9 +554,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "攻击力%": 10.0
     }
   },
   "翳": {
@@ -629,7 +569,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -653,9 +592,6 @@
       "攻击力%": 0.75,
       "攻击力": 0.4,
       "倾陷强度": 0.25
-    },
-    "extra_shape_buffs": {
-      "攻击力%": 10.0
     }
   },
   "主角": {
@@ -671,7 +607,6 @@
     "drive": {
       "blueprint_layout": [],
       "drives": [],
-      "extra_shape_buffs": 0,
       "info": {}
     },
     "tape": {
@@ -696,9 +631,6 @@
       "攻击力": 0.4,
       "倾陷强度": 0.25,
       "环合强度": 1.0
-    },
-    "extra_shape_buffs": {
-      "攻击力%": 10.0
     }
   }
 }

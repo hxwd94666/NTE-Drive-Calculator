@@ -329,12 +329,6 @@ def _render_my_roles(window):
         drive_layout.setSpacing(8)
 
         drive_data = role_data.get("drive", {})
-        # 1. extra_shape_buffs 可编辑
-        esb = drive_data.get("extra_shape_buffs", 0)
-        add_single_value_row(
-            drive_layout, "额外形状增益 (extra_shape_buffs):", ["drive", "extra_shape_buffs"],
-            window, role_name, default=esb, is_float=True
-        )
 
         # 2. 显示驱动数量
         drives = drive_data.get("drives", [])
@@ -777,17 +771,6 @@ def _render_my_roles(window):
             weights_layout.addWidget(QLabel("（未设置权重）"))
         form.addWidget(group_weights)
 
-        # ---- 6. 额外形状增益（顶层） ----
-        group_extra = QGroupBox("额外形状增益")
-        extra_layout = QVBoxLayout(group_extra)
-        extra_layout.setSpacing(8)
-        extra_data = role_data.get("extra_shape_buffs", {})
-        if extra_data:
-            add_dict_rows(extra_layout, extra_data, ["extra_shape_buffs"], window, role_name)
-        else:
-            extra_layout.addWidget(QLabel("（无额外形状增益）"))
-        form.addWidget(group_extra)
-
         form.addStretch()
 
     # 构建标签页
@@ -840,36 +823,29 @@ def _update_field(window, role_name, key, value):
 
 
 def migrate_drive_data(role_data: dict):
-    """确保角色的 drive 字段包含 drives, extra_shape_buffs, info，并计算 info"""
+    """确保角色的 drive 字段包含 drives,  info，并计算 info"""
     drive = role_data.get("drive", {})
     if not isinstance(drive, dict):
         drive = {}
     # 检查是否有 drives 字段
     if "drives" not in drive:
-        # 旧格式，可能只有 extra_shape_buffs 和 info
-        # 我们将旧 info 视为手动设置的，但按需求应重新计算，所以忽略旧 info
+        # info
         drives = []
-        extra_shape_buffs = drive.get("extra_shape_buffs", 0)
-        # 如果旧 info 有内容，可能用户想保留？但按照新设计，info 由 drives 计算，所以忽略
-        # 但为了迁移，我们可以保留旧 info 作为初始汇总？不，我们重新计算。
         # 但如果没有 drives，则 info 应为空
         blueprint_layout = drive.get("blueprint_layout", [])
         new_drive = {
             "blueprint_layout": blueprint_layout,
             "drives": drives,
-            "extra_shape_buffs": extra_shape_buffs,
             "info": compute_drive_info(drives)  # 空
         }
     else:
         # 已有 drives，检查 info 是否需要更新
         blueprint_layout = drive.get("blueprint_layout", [])
         drives = drive.get("drives", [])
-        extra_shape_buffs = drive.get("extra_shape_buffs", 0)
         # 重新计算 info，覆盖旧的
         new_drive = {
             "blueprint_layout": blueprint_layout,
             "drives": drives,
-            "extra_shape_buffs": extra_shape_buffs,
             "info": compute_drive_info(drives)
         }
     role_data["drive"] = new_drive
@@ -1077,13 +1053,6 @@ def _get_character_total_stats(window, role_name: str) -> dict:
         add_stat(k, float(v) * t_cover)
     for k, v in tape.get("info", {}).items():
         add_stat(k, v)
-
-    # 5. 额外形状增益
-    drive = role.get("drive", {})
-    buff_num = drive.get("extra_shape_buffs", 0.0)
-    if buff_num > 0.0:
-        for k, v in role.get("extra_shape_buffs", {}).items():
-            add_stat(k, v * buff_num)
 
     return total
 
