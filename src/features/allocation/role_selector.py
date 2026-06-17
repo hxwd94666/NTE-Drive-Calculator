@@ -103,7 +103,7 @@ class RoleSelector(QWidget):
 
         primary_save_btn = QPushButton("保存")
         primary_save_btn.setObjectName("btnAction")
-        primary_save_btn.clicked.connect(self.save_priority_config)
+        primary_save_btn.clicked.connect(lambda _checked=False: self.save_priority_config())
         search_row.addWidget(primary_save_btn)
 
         primary_load_btn = QPushButton("读取")
