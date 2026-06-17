@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QTableWidget,
     QTableWidgetItem,
+    QInputDialog
 )
 from PySide6.QtWidgets import QSizePolicy, QHeaderView
 from PySide6.QtCore import Qt
@@ -155,12 +156,26 @@ def _save_my_roles(window):
     QMessageBox.information(window, "保存", "my_roles.json 已保存")
 
 
+def _save_my_roles_silent(window):
+    """静默保存，不弹提示框"""
+    data = getattr(window, "_my_role_form_data", None)
+    if data is None:
+        return
+    filepath = _get_my_roles_path()
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+    window._my_role_dirty = False
+
+
 def _mark_my_role_dirty(window):
     """标记角色页面有未保存修改."""
     window._my_role_dirty = True
 
 
 def _render_my_roles(window):
+    # 记录当前选中的角色（用于删除/添加后保持选中）
+    current_role = getattr(window, '_current_my_role', None)
+
     """清除旧内容并重新渲染所有角色，分块展示各模块."""
     layout = window.my_role_form_layout
     while layout.count():
@@ -267,6 +282,17 @@ def _render_my_roles(window):
         # ---- 0. 边际收益 ----
         total_stats = _get_character_total_stats(window, role_name)
         margins = _calc_marginal_benefits(window, total_stats)
+        if margins:
+            # 根据权重过滤边际收益词条
+            stats_config = _load_stats(window)
+            alias_map = stats_config.get("benefit_alias_mapping", {})
+            weights = role_data.get("weights", {})
+            allowed_categories = set()
+            for weight_key in weights.keys():
+                canonical = alias_map.get(weight_key, weight_key)
+                allowed_categories.add(canonical)
+            # 只保留允许的类别
+            margins = [m for m in margins if m[0] in allowed_categories]
         if margins:
             group_margin = QGroupBox("边际收益（按每单位收益排序）")
             margin_layout = QVBoxLayout(group_margin)
@@ -764,11 +790,70 @@ def _render_my_roles(window):
         group_weights = QGroupBox("词条权重")
         weights_layout = QVBoxLayout(group_weights)
         weights_layout.setSpacing(8)
-        weights_data = role_data.get("weights", {})
-        if weights_data:
-            add_dict_rows(weights_layout, weights_data, ["weights"], window, role_name)
-        else:
-            weights_layout.addWidget(QLabel("（未设置权重）"))
+
+        top_row = QHBoxLayout()
+        top_row.addWidget(QLabel("词条权重:"))
+        top_row.addStretch()
+        add_btn = QPushButton("+ 添加词条")
+        add_btn.setObjectName("btnAction")
+        top_row.addWidget(add_btn)
+        weights_layout.addLayout(top_row)
+
+        weights_container = QVBoxLayout()
+        weights_layout.addLayout(weights_container)
+
+        weights_dict = role_data.get("weights", {})
+
+        # 渲染权重行
+        for key in sorted(weights_dict.keys()):
+            val = weights_dict[key]
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            row.addWidget(QLabel(key))
+
+            spin = NoWheelDoubleSpinBox()
+            spin.setRange(0, 10)
+            spin.setSingleStep(0.05)
+            spin.setDecimals(3)
+            spin.setValue(float(val))
+            spin.setKeyboardTracking(False)
+            spin.valueChanged.connect(lambda v, k=key: _update_weight_value(k, v))
+            row.addWidget(spin)
+
+            del_btn = QPushButton("×")
+            del_btn.setObjectName("btnSm")
+            del_btn.setFixedSize(28, 28)
+            del_btn.clicked.connect(lambda checked=False, rn=role_name, k=key: _delete_weight(rn, k))
+            row.addWidget(del_btn)
+            weights_container.addLayout(row)
+
+        def _update_weight_value(k, v):
+            if role_name in data:
+                data[role_name].setdefault("weights", {})[k] = v
+                _mark_my_role_dirty(window)
+
+        def _delete_weight(rn, k):
+            if rn in data and k in data[rn].get("weights", {}):
+                del data[rn]["weights"][k]
+                _save_my_roles(window)  # 需要定义静默保存
+                _refresh_my_role(window)  # 全量刷新
+
+        def _add_weight():
+            stats = _load_stats(window)
+            pool = sorted(stats.get("weight_pool", []))
+            existing = set(weights_dict.keys())
+            available = [s for s in pool if s not in existing]
+            if not available:
+                QMessageBox.information(window, "提示", "所有词条已添加。")
+                return
+            wt, ok = QInputDialog.getItem(window, "添加词条", "选择词条:", available, 0, False)
+            if ok and wt.strip():
+                data[role_name].setdefault("weights", {})[wt.strip()] = 0.5
+                _save_my_roles(window)
+                _refresh_my_role(window)
+
+        add_btn.clicked.connect(_add_weight)
+
         form.addWidget(group_weights)
 
         form.addStretch()
@@ -787,8 +872,16 @@ def _render_my_roles(window):
             idx = tabs.addTab(scroll, rname)
             tab_indices[rname] = idx
         filter_tabs(role_search.text())
-        tabs.currentChanged.connect(lambda _: _load_visible_tab())
+        tabs.currentChanged.connect(lambda idx: _on_tab_changed(idx))
+        # 恢复之前选中的角色
+        if current_role in tab_indices:
+            tabs.setCurrentIndex(tab_indices[current_role])
         _load_visible_tab()
+
+    def _on_tab_changed(index):
+        if index >= 0:
+            window._current_my_role = tabs.tabText(index)
+            _load_visible_tab()
 
     def _load_visible_tab():
         idx = tabs.currentIndex()
