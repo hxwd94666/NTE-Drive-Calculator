@@ -265,6 +265,36 @@ def _render_my_roles(window):
         parent_layout.addLayout(row)
 
     # ------------------------------------------------------------
+    def _apply_margins_to_weights(rn, margins):
+        """将边际收益的 gain 值覆盖到对应权重"""
+        if rn not in data:
+            return
+        stats_config = _load_stats(window)
+        alias_map = stats_config.get("benefit_alias_mapping", {})
+        weights = data[rn].setdefault("weights", {})
+
+        # 建立反向映射：规范名 -> 所有权重键列表
+        reverse_map = {}
+        for wk in weights.keys():
+            canonical = alias_map.get(wk, wk)
+            reverse_map.setdefault(canonical, []).append(wk)
+
+        # 遍历边际收益表，更新匹配的权重键
+        updated = 0
+        for name, cur_val, unit_val, gain in margins:
+            if name in reverse_map:
+                for wk in reverse_map[name]:
+                    weights[wk] = round(gain, 4)  # 保留4位小数
+                    updated += 1
+            else:
+                # 若没有对应词条，可选择自动添加，这里先给出提示
+                pass
+
+        if updated == 0:
+            QMessageBox.information(window, "提示", "当前权重中没有与边际收益匹配的词条，未能更新。")
+        else:
+            _save_my_roles(window)
+            _refresh_my_role(window)  # 刷新以显示新权重值
 
     def populate_role_tab(role_name, tab_scroll):
         role_name = str(role_name)  # 确保是字符串
@@ -329,6 +359,15 @@ def _render_my_roles(window):
             table.setFixedHeight(total_height)
 
             margin_layout.addWidget(table)
+
+            # 添加“设为权重”按钮
+            set_weights_btn = QPushButton("设为权重")
+            set_weights_btn.setObjectName("btnAction")
+            set_weights_btn.clicked.connect(
+                lambda: _apply_margins_to_weights(role_name, margins)
+            )
+            margin_layout.addWidget(set_weights_btn)
+
             form.addWidget(group_margin)
 
         # ---- 1. 基础加成 ----
