@@ -113,7 +113,8 @@ def _do_exec(self):
     tmf=self.role_selector.get_tape_main_filters()
     cpm=self.role_selector.get_crit_priority_modes()
     sem=self.role_selector.get_set_effect_modes()
-    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_set_effect_modes=sem
+    pg=self.role_selector.get_priority_groups() if hasattr(self.role_selector,"get_priority_groups") else None
+    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
 
@@ -126,7 +127,7 @@ def _do_exec(self):
     elif sm=="1":
         self._start_gamepad_scan(total_drives)
     else:
-        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem),parent=self)
+        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg),parent=self)
         self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
 
 def _scan_lifecycle(self):
