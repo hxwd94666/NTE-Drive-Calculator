@@ -28,6 +28,7 @@ class DispatcherEngine:
         priority_list: list[str],
         custom_sets: CustomSetMap = None,
         crit_priority_modes: StatPriorityConfigMap = None,
+        priority_groups: list[list[str]] | None = None,
     ) -> AllocationResult:
         custom_sets = custom_sets or {}
         crit_priority_modes = crit_priority_modes or {}
@@ -36,4 +37,12 @@ class DispatcherEngine:
         if not strategy:
             raise ValueError(f"未知的调度模式 [{mode}]，支持的模式: {list(STRATEGY_MODES)}")
 
+        if mode == "role_priority":
+            return strategy.execute(
+                candidate_pool,
+                priority_list,
+                custom_sets,
+                crit_priority_modes,
+                priority_groups=priority_groups,
+            )
         return strategy.execute(candidate_pool, priority_list, custom_sets, crit_priority_modes)

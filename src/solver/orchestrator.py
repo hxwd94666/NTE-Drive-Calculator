@@ -174,11 +174,13 @@ class NTEPipelineOrchestrator:
     def run_full_allocation(self, inventory: List[Dict], priority_list: List[str],
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
-                            crit_priority_modes: Dict[str, str] = None, set_effect_modes: Dict[str, str] = None):
+                            crit_priority_modes: Dict[str, str] = None, set_effect_modes: Dict[str, str] = None,
+                            priority_groups: List[List[str]] = None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
         set_effect_modes = set_effect_modes or {}
+        priority_groups = priority_groups or None
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         total_t0 = time.perf_counter()
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
@@ -242,7 +244,8 @@ class NTEPipelineOrchestrator:
             candidate_pool=screened_pools,
             priority_list=priority_list,
             custom_sets=custom_sets,
-            crit_priority_modes=crit_priority_modes
+            crit_priority_modes=crit_priority_modes,
+            priority_groups=priority_groups,
         )
         logger.info(f"[计时] 调度阶段: {time.perf_counter() - stage_t0:.2f}s")
 
