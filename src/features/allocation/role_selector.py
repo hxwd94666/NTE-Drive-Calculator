@@ -198,7 +198,7 @@ class RoleSelector(QWidget):
 
         self.priority_w = QWidget()
         self.priority_layout = QGridLayout(self.priority_w)
-        self.priority_layout.setContentsMargins(6, 6, 6, 6)
+        self.priority_layout.setContentsMargins(0, 6, 0, 6)
         self.priority_layout.setHorizontalSpacing(8)
         self.priority_layout.setVerticalSpacing(8)
         self.priority_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
