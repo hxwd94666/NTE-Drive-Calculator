@@ -381,7 +381,7 @@ class IncrementalBaselineTests(unittest.TestCase):
 
 
 class GamepadScannerTests(unittest.TestCase):
-    def test_capture_panel_does_not_save_when_screen_never_changes(self):
+    def test_capture_panel_saves_current_frame_after_short_change_wait(self):
         from src.scanner import gamepad_controller
 
         class FakeScreenshot:
@@ -398,19 +398,32 @@ class GamepadScannerTests(unittest.TestCase):
 
         original_capture = gamepad_controller.capture_foreground_window
         original_to_png = gamepad_controller.mss.tools.to_png
+        original_sleep = gamepad_controller.time.sleep
         writes = []
-        gamepad_controller.capture_foreground_window = lambda _sct: (FakeScreenshot(), None)
+        captures = []
+        sleeps = []
+
+        def fake_capture(_sct):
+            captures.append(True)
+            return FakeScreenshot(), None
+
+        gamepad_controller.capture_foreground_window = fake_capture
         gamepad_controller.mss.tools.to_png = lambda *_args, **_kwargs: writes.append(True)
+        gamepad_controller.time.sleep = lambda seconds, *_args, **_kwargs: sleeps.append(seconds)
         try:
             captured = scanner.capture_panel(object(), 1)
         finally:
             gamepad_controller.capture_foreground_window = original_capture
             gamepad_controller.mss.tools.to_png = original_to_png
+            gamepad_controller.time.sleep = original_sleep
 
-        self.assertFalse(captured)
-        self.assertEqual([], writes)
+        self.assertTrue(captured)
+        self.assertEqual([True], writes)
+        self.assertEqual(scanner.CAPTURE_CHANGE_ATTEMPTS, len(captures))
+        self.assertEqual(4, len(sleeps))
+        self.assertTrue(all(seconds == 0.05 for seconds in sleeps))
 
-    def test_start_scan_retries_move_when_capture_is_stale_then_continues(self):
+    def test_start_scan_does_not_retry_move_when_capture_is_stale(self):
         from src.scanner import gamepad_controller
 
         class FakeScreenshot:
@@ -443,7 +456,7 @@ class GamepadScannerTests(unittest.TestCase):
         scanner._prepare_temp_output = lambda: None
         scanner._commit_temp_output = lambda: commits.append(True)
 
-        frames = [FakeScreenshot(1)] + [FakeScreenshot(1)] * scanner.CAPTURE_CHANGE_ATTEMPTS + [FakeScreenshot(10)]
+        frames = [FakeScreenshot(1)] + [FakeScreenshot(1)] * scanner.CAPTURE_CHANGE_ATTEMPTS
 
         original_capture = gamepad_controller.capture_foreground_window
         original_to_png = gamepad_controller.mss.tools.to_png
@@ -465,7 +478,7 @@ class GamepadScannerTests(unittest.TestCase):
         right_moves = [move for move in moves if move == (1.0, 0.0)]
         self.assertEqual(2, count)
         self.assertEqual(2, len(writes))
-        self.assertEqual(2, len(right_moves))
+        self.assertEqual(1, len(right_moves))
         self.assertEqual([True], commits)
 
 
