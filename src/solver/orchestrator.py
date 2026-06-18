@@ -171,6 +171,14 @@ class NTEPipelineOrchestrator:
 
         return max(15, max(shape_demands.values(), default=0) + 5)
 
+    def _max_priority_group_size(self, priority_list: List[str], priority_groups: List[List[str]] | None) -> int:
+        selected = set(priority_list or [])
+        max_size = 1
+        for group in priority_groups or []:
+            size = len([role for role in group or [] if role in selected])
+            max_size = max(max_size, size)
+        return max_size
+
     def run_full_allocation(self, inventory: List[Dict], priority_list: List[str],
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
@@ -211,28 +219,27 @@ class NTEPipelineOrchestrator:
 
         stage_t0 = time.perf_counter()
         scoring_engine = ScoringEngine(config_dir=self.config_dir)
-        drive_screen_limit = self._estimate_drive_screen_limit(blueprints_db, custom_sets)
+        max_priority_group_size = self._max_priority_group_size(priority_list, priority_groups)
+        drive_screen_limit = max(
+            self._estimate_drive_screen_limit(blueprints_db, custom_sets),
+            max(15, max_priority_group_size * 10),
+        )
+        tape_screen_limit = max(6, max_priority_group_size * 4)
         if drive_screen_limit > 15:
             logger.info(f"  候选驱动筛选上限已按当前角色需求提升到 Top {drive_screen_limit}/形状/角色。")
-        screened_pools = scoring_engine.evaluate_global_inventory(inventory=parsed_inventory,
-                                                                  top_k_per_shape_per_role=drive_screen_limit)
-        filtered_tape_count = 0
-        for role_name, allowed_mains in tape_main_filters.items():
-            allowed = {str(v) for v in allowed_mains if v}
-            if not allowed or role_name not in screened_pools.get("tapes", {}):
-                continue
-            before = len(screened_pools["tapes"].get(role_name, []))
-            screened_pools["tapes"][role_name] = [
-                tape for tape in screened_pools["tapes"].get(role_name, [])
-                if str(getattr(tape, "main_stats", "")) in allowed
-            ]
-            filtered_tape_count += before - len(screened_pools["tapes"][role_name])
-        if filtered_tape_count:
-            logger.info(f"  已按角色优先级配置过滤卡带主词条，排除 {filtered_tape_count} 张卡带候选。")
+        screened_pools = scoring_engine.evaluate_global_inventory(
+            inventory=parsed_inventory,
+            top_k_per_shape_per_role=drive_screen_limit,
+            tape_top_k_per_set_per_role=tape_screen_limit,
+            tape_main_filters=tape_main_filters,
+            crit_priority_modes=crit_priority_modes,
+        )
+        if tape_main_filters:
+            logger.info("  已按角色优先级配置提前过滤卡带主词条。")
 
         logger.success("  筛选完成。")
         logger.info(f"     - 入选驱动数: {len(screened_pools['drives'])}")
-        logger.info(f"     - 卡带分桶: 各角色 Top 3 已锁定")
+        logger.info(f"     - 卡带分桶: 各角色每套装 Top {tape_screen_limit} 已锁定")
         logger.info(f"[计时] 评分筛选阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         logger.info(f"\n[阶段 4] 启动调度模式: [{mode}]...")
