@@ -155,6 +155,19 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertLess(short_width, 140)
         self.assertLess(selector._priority_role_name_font_size("ABCDE"), selector._priority_role_name_font_size("AB"))
 
+    def test_role_selector_priority_and_pool_left_edges_align(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+
+        self.assertEqual(
+            selector.grid_layout.contentsMargins().left(),
+            selector.priority_layout.contentsMargins().left(),
+        )
+
     def test_role_selector_wrapped_priority_unit_keeps_content_width(self):
         from PySide6.QtWidgets import QApplication
 
@@ -629,6 +642,69 @@ class UpdateWorkflowTests(unittest.TestCase):
         self.assertFalse(any("real_inventory.json" in text for text in labels))
         app.processEvents()
 
+    def test_settings_hotkey_save_button_is_short_and_in_title_row(self):
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QVBoxLayout
+
+        from src.features.settings.page import build_settings_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            _log_enabled = False
+            _hk_capture = "F9"
+            _hk_finish = "F10"
+            _hk_stop = "F8"
+
+            def _card(self, title):
+                card = QFrame()
+                layout = QVBoxLayout(card)
+                layout.addWidget(QLabel(title))
+                return card
+
+            def _toggle_log(self, *_args):
+                pass
+
+            def _save_hotkeys(self):
+                pass
+
+            def _check_updates(self, manual=True):
+                pass
+
+            def _open_update_homepage(self):
+                pass
+
+            def _open_url(self, _url):
+                pass
+
+            def _refresh_ss(self):
+                pass
+
+            def _clear_ss(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scroll = build_settings_page(
+                Window(),
+                "1.1.0",
+                lambda: {
+                    "screenshot_dir": root / "scanned_images",
+                    "output_file": root / "config" / "real_inventory.json",
+                    "config_dir": root / "config",
+                    "accounts_dir": root / "accounts",
+                    "log_dir": root / "logs",
+                },
+                lambda _path: [],
+                "",
+            )
+
+        save_button = next(button for button in scroll.findChildren(QPushButton) if button.text() == "保存快捷键")
+        title_label = next(label for label in scroll.findChildren(QLabel) if label.text() == "快捷键绑定")
+
+        self.assertLessEqual(save_button.maximumWidth(), 130)
+        self.assertIs(save_button.parentWidget(), title_label.parentWidget())
+        app.processEvents()
+
 
 class UsageGuideWorkflowTests(unittest.TestCase):
     def test_usage_guide_does_not_show_folder_open_buttons(self):
@@ -919,6 +995,81 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertIsNotNone(scroll)
         app.processEvents()
 
+    def test_result_header_grade_uses_full_350_score_even_without_tape(self):
+        from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout
+
+        from src.features.allocation import results_view
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.result_card = QFrame()
+                self.result_content_layout = QVBoxLayout(self.result_card)
+                self.roles_db = {"A": {}}
+                self.grade_areas = []
+                self._pending_strat = "role_priority"
+
+            def _calc_grade(self, score, area):
+                self.grade_areas.append(area)
+                return "A"
+
+        window = Window()
+        results_view._render_results(
+            window,
+            {
+                "A": {
+                    "valid": True,
+                    "score": 150.8,
+                    "blueprint": {},
+                    "assigned_tape": None,
+                    "assigned_set_drives": [],
+                    "assigned_extra_drives": [],
+                }
+            },
+        )
+
+        self.assertEqual([35], window.grade_areas)
+        app.processEvents()
+
+    def test_console_grade_uses_full_350_score_even_without_tape(self):
+        from src.solver import orchestrator as orchestrator_module
+        from src.solver.orchestrator import NTEPipelineOrchestrator
+
+        captured = []
+
+        class Scoring:
+            def get_grade_tag(self, score, area):
+                captured.append((score, area))
+                return "A"
+
+        original_display = orchestrator_module.BoardVisualizer.display_final_plan
+        orchestrator_module.BoardVisualizer.display_final_plan = (
+            lambda **kwargs: captured.append(("display", kwargs["grade"]))
+        )
+        try:
+            orchestrator = object.__new__(NTEPipelineOrchestrator)
+            orchestrator.roles_db = {"A": {"default_set": "Set"}}
+            orchestrator._render_results(
+                {
+                    "A": {
+                        "valid": True,
+                        "score": 150.8,
+                        "blueprint": {"board": []},
+                        "assigned_tape": None,
+                        "assigned_set_drives": [],
+                        "assigned_extra_drives": [],
+                    }
+                },
+                Scoring(),
+                {},
+            )
+        finally:
+            orchestrator_module.BoardVisualizer.display_final_plan = original_display
+
+        self.assertIn((150.8, 35), captured)
+        self.assertNotIn((150.8, 20), captured)
+
 
 class ScoringScreeningWorkflowTests(unittest.TestCase):
     def _write_scoring_config(self, config_dir: Path):
@@ -1133,6 +1284,52 @@ class ConfigDraftWorkflowTests(unittest.TestCase):
         app.processEvents()
 
         self.assertTrue(tabs.widget(1).property("loaded"))
+
+    def test_roles_form_can_open_newly_added_role_tab(self):
+        from PySide6.QtWidgets import QApplication, QTabWidget, QVBoxLayout, QWidget
+
+        from src.features.configuration import page as config_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            all_set_names = ["套装A"]
+
+            def __init__(self):
+                self.container = QWidget()
+                self.config_form_layout = QVBoxLayout(self.container)
+
+            def _stat_choice_pool(self):
+                return ["攻击力"]
+
+            def _save_role_field(self, *_args):
+                pass
+
+            def _save_single_extra_shape_buff(self, *_args):
+                pass
+
+            def _save_role_weight_value(self, *_args):
+                pass
+
+            def _del_role(self, *_args):
+                pass
+
+            def _add_weight(self, *_args):
+                pass
+
+            def _del_weight(self, *_args):
+                pass
+
+        data = {
+            "A": {"default_set": "套装A", "extra_shape_buffs": {}, "board_matrix": [[0] * 5 for _ in range(5)], "weights": {}},
+            "新角色": {"default_set": "套装A", "extra_shape_buffs": {}, "board_matrix": [[0] * 5 for _ in range(5)], "weights": {}},
+        }
+        window = Window()
+        config_page.render_roles_form(window, data, active_role="新角色")
+        tabs = window.container.findChild(QTabWidget)
+
+        self.assertEqual("新角色", tabs.tabText(tabs.currentIndex()))
+        app.processEvents()
 
     def test_confirm_pending_config_changes_can_cancel_navigation(self):
         from src.features.configuration import page as config_page
