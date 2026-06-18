@@ -5,6 +5,7 @@ import json
 import os
 from typing import List, Dict, Any
 
+from src.domain.stat_catalog import StatCatalog
 from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
 
@@ -14,6 +15,7 @@ class ScoringEngine:
     def __init__(self, config_dir: str = "config"):
         self.config_dir = config_dir
         self.roles_db = {}
+        self.stat_catalog = StatCatalog()
         self.gold_base_values = {}
         self.main_only_keywords = []
         self.stat_alias_mapping = {}
@@ -30,11 +32,10 @@ class ScoringEngine:
 
         stats_path = os.path.join(self.config_dir, 'stats.json')
         if os.path.exists(stats_path):
-            with open(stats_path, 'r', encoding='utf-8') as f:
-                stats_data = json.load(f)
-                self.gold_base_values = stats_data.get("gold_base_values", {})
-                self.main_only_keywords = stats_data.get("main_only_keywords", [])
-                self.stat_alias_mapping = stats_data.get("stat_alias_mapping", {})
+            self.stat_catalog = StatCatalog.from_config_dir(self.config_dir)
+            self.gold_base_values = self.stat_catalog.gold_base_values
+            self.main_only_keywords = self.stat_catalog.main_only_keywords
+            self.stat_alias_mapping = self.stat_catalog.stat_alias_mapping
         else:
             logger.error(f"找不到数值规则文件: {stats_path}")
 
@@ -46,12 +47,26 @@ class ScoringEngine:
         return max_sub_weight if max_sub_weight > 0 else 1.0
 
     def _get_flexible_weight(self, stat_name: str, weights: Dict[str, float]) -> float:
-        mapped_name = self.stat_alias_mapping.get(stat_name, stat_name)
-        w = weights.get(mapped_name, 0.0)
-        if w > 0: return w
-        if mapped_name not in ["攻击力", "防御力", "生命值"]:
-            w = weights.get(f"{mapped_name}%", 0.0)
-        return w
+        names = [str(stat_name or "").strip()]
+        normalized = self.stat_catalog.normalize_stat_name(names[0], is_percent="%" in names[0])
+        if normalized:
+            names.append(normalized)
+        mapped_name = self.stat_catalog.flexible_weight_name(names[0])
+        if mapped_name:
+            names.append(mapped_name)
+
+        for name in dict.fromkeys(n for n in names if n):
+            w = weights.get(name, 0.0)
+            if w > 0:
+                return w
+
+        flat_names = {"攻击力", "防御力", "生命值"}
+        for name in dict.fromkeys(n for n in names if n):
+            if name not in flat_names:
+                w = weights.get(f"{name}%", 0.0)
+                if w > 0:
+                    return w
+        return 0.0
 
     def calculate_drive_score(self, drive: Drive, weights: Dict[str, float], max_weight: float) -> float:
         if max_weight <= 0: return 0.0

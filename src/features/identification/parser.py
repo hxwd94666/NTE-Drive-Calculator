@@ -230,6 +230,7 @@ def identify_stat_texts(lines: list[dict], forced_type: str | None = None) -> li
         "装备者", "角色位于", "依旧生效", "推荐", "装配一个", "每装配",
     )
     good_keywords = ("增加", "提升", "增强", "%")
+    stat_keywords = ("暴击率", "暴击伤害", "伤害", "攻击力", "防御力", "生命值", "环合强度", "倾陷强度")
     texts = []
     for line in sorted(lines, key=lambda item: (item["box"][1], item["box"][0])):
         text = (line.get("text") or "").strip()
@@ -237,7 +238,10 @@ def identify_stat_texts(lines: list[dict], forced_type: str | None = None) -> li
             continue
         if any(keyword in text for keyword in bad_keywords):
             continue
-        if forced_type in ("drive", "tape") and not any(keyword in text for keyword in good_keywords):
+        if forced_type in ("drive", "tape") and not (
+            any(keyword in text for keyword in good_keywords)
+            or any(keyword in text for keyword in stat_keywords)
+        ):
             continue
         if len(text) > 24:
             continue
@@ -255,7 +259,10 @@ def is_identify_stat_candidate(text: str) -> bool:
     )
     if any(keyword in text for keyword in bad_keywords):
         return False
-    return any(keyword in text for keyword in ("增加", "提升", "增强", "%"))
+    stat_keywords = ("暴击率", "暴击伤害", "伤害", "攻击力", "防御力", "生命值", "环合强度", "倾陷强度")
+    return any(keyword in text for keyword in ("增加", "提升", "增强", "%")) or any(
+        keyword in text for keyword in stat_keywords
+    )
 
 
 def dedupe_identify_items(processor, items: list) -> list:

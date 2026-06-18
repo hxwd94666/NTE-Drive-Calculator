@@ -38,6 +38,8 @@ class NTEAppFacade:
         mode="role_priority",
         tape_main_filters=None,
         crit_priority_modes=None,
+        set_effect_modes=None,
+        priority_groups=None,
     ):
         if not os.path.exists(inventory_file):
             logger.error(f"找不到 {inventory_file}！")
@@ -59,5 +61,7 @@ class NTEAppFacade:
             locked_uids=locked_uids,
             tape_main_filters=tape_main_filters or {},
             crit_priority_modes=crit_priority_modes or {},
+            set_effect_modes=set_effect_modes or {},
+            priority_groups=priority_groups,
         )
         return final_plan, state_manager

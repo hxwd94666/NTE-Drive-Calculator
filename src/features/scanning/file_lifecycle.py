@@ -9,21 +9,23 @@ to review and rollback independently from UI changes.
 
 from __future__ import annotations
 
-import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
 from src.utils.logger import logger
-
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp"}
-FULL_SCAN_PREFIX = "raw_drive_"
-INCREMENTAL_PREFIXES = ("raw_drive_probe_", "raw_drive_new_", "raw_drive_semi_")
-AUTO_INCREMENTAL_PREFIXES = ("raw_drive_probe_", "raw_drive_new_")
-SEMI_INCREMENTAL_PREFIXES = ("raw_drive_semi_",)
-FAILED_SCREENSHOT_DIRNAME = "failed"
-FULL_SCAN_TEMP_DIRNAME = "temp"
+from src.utils.image_io import imread_unicode
+from src.features.scanning.naming import (
+    FAILED_SCREENSHOT_DIRNAME,
+    FULL_SCAN_TEMP_DIRNAME,
+    IMAGE_EXTS,
+    PROBE_PREFIX,
+    full_scan_filename,
+    is_full_scan_filename,
+    is_incremental_filename,
+    raw_drive_index_from_name,
+)
 
 
 @dataclass
@@ -55,8 +57,7 @@ def iter_root_image_files(path: Path) -> list[Path]:
 def raw_drive_index(path: Path) -> int | None:
     """Extract the numeric index from names like raw_drive_0001.png."""
 
-    match = re.fullmatch(r"raw_drive_(\d+)", path.stem)
-    return int(match.group(1)) if match else None
+    return raw_drive_index_from_name(path)
 
 
 def is_allowed_filename(filename: str, parse_scope: str, skip_names: Iterable[str] | None = None) -> bool:
@@ -64,18 +65,15 @@ def is_allowed_filename(filename: str, parse_scope: str, skip_names: Iterable[st
 
     if filename in set(skip_names or []):
         return False
-    stem = Path(filename).stem
     suffix = Path(filename).suffix.lower()
     if suffix and suffix not in IMAGE_EXTS:
         return False
-    if parse_scope == "full":
-        return re.fullmatch(r"raw_drive_\d+", stem) is not None
-    if parse_scope == "incremental_auto":
-        return stem.startswith(AUTO_INCREMENTAL_PREFIXES)
-    if parse_scope == "incremental_semi":
-        return stem.startswith(SEMI_INCREMENTAL_PREFIXES)
     if parse_scope == "incremental":
-        return stem.startswith(INCREMENTAL_PREFIXES)
+        return is_incremental_filename(filename, parse_scope)
+    if parse_scope == "full":
+        return is_full_scan_filename(filename)
+    if parse_scope in ("incremental_auto", "incremental_semi"):
+        return is_incremental_filename(filename, parse_scope)
     return True
 
 
@@ -154,7 +152,7 @@ class ScanFileLifecycle:
         if parse_scope not in ("incremental", "incremental_auto"):
             return result
         probes = sorted(
-            [p for p in iter_root_image_files(self.screenshot_dir) if p.stem.startswith("raw_drive_probe_")]
+            [p for p in iter_root_image_files(self.screenshot_dir) if p.stem.startswith(PROBE_PREFIX)]
         )
         if not probes:
             return result
@@ -162,6 +160,10 @@ class ScanFileLifecycle:
         baseline = self.screenshot_dir / "raw_drive_0001.png"
         if not baseline.exists():
             result.baseline_missing = True
+            return result
+        if imread_unicode(baseline) is None:
+            result.baseline_missing = True
+            logger.warning(f"增量扫描基准图不可读取，请重新全量扫描: {baseline}")
             return result
 
         first_probe = probes[0]
@@ -242,10 +244,10 @@ class ScanFileLifecycle:
             src_path = Path(src)
             if not src_path.exists():
                 continue
-            target = self.screenshot_dir / f"raw_drive_{next_index:04d}{src_path.suffix.lower() or '.png'}"
+            target = self.screenshot_dir / full_scan_filename(next_index, src_path.suffix.lower() or ".png")
             while target.exists():
                 next_index += 1
-                target = self.screenshot_dir / f"raw_drive_{next_index:04d}{src_path.suffix.lower() or '.png'}"
+                target = self.screenshot_dir / full_scan_filename(next_index, src_path.suffix.lower() or ".png")
             try:
                 src_path.rename(target)
                 renamed += 1
@@ -262,10 +264,10 @@ class ScanFileLifecycle:
             return False
         first_path = first_candidates[0]
         next_index = self.next_full_scan_index()
-        target = self.screenshot_dir / f"raw_drive_{next_index:04d}{first_path.suffix.lower() or '.png'}"
+        target = self.screenshot_dir / full_scan_filename(next_index, first_path.suffix.lower() or ".png")
         while target.exists():
             next_index += 1
-            target = self.screenshot_dir / f"raw_drive_{next_index:04d}{first_path.suffix.lower() or '.png'}"
+            target = self.screenshot_dir / full_scan_filename(next_index, first_path.suffix.lower() or ".png")
         first_path.rename(target)
         logger.info(f"全自动增量首图插队：旧 raw_drive_0001 已移动到 {target.name}")
         return True
@@ -290,12 +292,12 @@ class ScanFileLifecycle:
             probe_success = []
             if scope == "incremental_auto":
                 probe_success = [
-                    p for p in added_paths if Path(p).stem.startswith("raw_drive_probe_") and Path(p).exists()
+                    p for p in added_paths if Path(p).stem.startswith(PROBE_PREFIX) and Path(p).exists()
                 ]
             if probe_success:
                 probe_path = Path(probe_success[0])
                 self.move_first_full_scan_to_tail()
-                target = self.screenshot_dir / f"raw_drive_0001{probe_path.suffix.lower() or '.png'}"
+                target = self.screenshot_dir / full_scan_filename(1, probe_path.suffix.lower() or ".png")
                 probe_path.rename(target)
                 renamed += 1
                 added_paths = [p for p in added_paths if Path(p) != probe_path]

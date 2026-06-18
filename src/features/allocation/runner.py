@@ -24,11 +24,11 @@ def install_methods(app_module, window_cls):
     _install_main_window_methods(app_module, window_cls, __all__, globals())
 
 
-def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes=None):
+def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes=None,set_effect_modes=None,priority_groups=None):
     try:
         logger.info(f"开始分配计算: 策略={strat}, 角色={sel}")
         a=NTEAppFacade(config_dir=str(runtime.CONFIG_DIR),user_config_dir=str(runtime.USER_CONFIG_DIR))
-        fp,_=a.execute_allocation(str(runtime.OUTPUT_FILE),sel,cs,strat,tape_main_filters=tape_main_filters or {},crit_priority_modes=crit_priority_modes or {})
+        fp,_=a.execute_allocation(str(runtime.OUTPUT_FILE),sel,cs,strat,tape_main_filters=tape_main_filters or {},crit_priority_modes=crit_priority_modes or {},set_effect_modes=set_effect_modes or {},priority_groups=priority_groups)
         logger.info(f"分配计算完成: result_type={type(fp).__name__}")
         return fp
     except Exception as e:
@@ -38,7 +38,7 @@ def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes
 
 def _start_allocation_worker(self):
     logger.info("启动分配工作线程...")
-    self._worker=WorkerThread(target=lambda:self._run_allocation(self._pending_strat,self._pending_sel,self._pending_cs,getattr(self,"_pending_tape_main_filters",{}),getattr(self,"_pending_crit_priority_modes",{})),parent=self)
+    self._worker=WorkerThread(target=lambda:self._run_allocation(self._pending_strat,self._pending_sel,self._pending_cs,getattr(self,"_pending_tape_main_filters",{}),getattr(self,"_pending_crit_priority_modes",{}),getattr(self,"_pending_set_effect_modes",{}),getattr(self,"_pending_priority_groups",None)),parent=self)
     self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
     logger.info("分配线程已启动")
 
@@ -100,7 +100,7 @@ def _save_alloc(self, show_message=True):
         return False
     try:
         self.state_mgr.save_allocation(self.final_plan, mode=getattr(self,'_pending_strat',''))
-        self._load_data()
+        self._load_data(reload_priority=False)
         self._allocation_dirty=False
         if show_message:
             QMessageBox.information(self,"保存成功","配装保存成功")

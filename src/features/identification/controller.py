@@ -84,7 +84,7 @@ def _get_tape_main_stats_pool(self):
 def _set_combo_data(self,combo,value):
     if value is None: return
     if isinstance(combo,SearchableComboBox):
-        combo._restore_items()
+        combo.refresh_search_items()
     idx=combo.findData(value)
     if idx<0: idx=combo.findText(str(value))
     if idx>=0: combo.setCurrentIndex(idx)

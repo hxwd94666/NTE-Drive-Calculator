@@ -6,8 +6,311 @@ import unittest
 import urllib.error
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+class PriorityGroupWorkflowTests(unittest.TestCase):
+    def test_priority_links_promote_boundary_splits_two_equal_batches(self):
+        from src.features.allocation.priority_groups import (
+            links_to_priority_groups,
+            promote_priority_boundary,
+        )
+
+        roles = ["A", "B", "C", "D"]
+        links = [">", ">", "="]
+
+        promote_priority_boundary(links, 1)
+
+        self.assertEqual(["=", ">>", "="], links)
+        self.assertEqual([["A", "B"], ["C", "D"]], links_to_priority_groups(roles, links))
+
+    def test_priority_link_cycles_strict_equal_boundary_with_expected_batch_edits(self):
+        from src.features.allocation.priority_groups import (
+            cycle_priority_link,
+            links_to_priority_groups,
+        )
+
+        roles = ["A", "B", "C", "D", "E"]
+        links = [">", ">", ">", ">>"]
+
+        cycle_priority_link(links, 1)
+        self.assertEqual([">", "=", ">", ">>"], links)
+        self.assertEqual([["A"], ["B", "C"], ["D"], ["E"]], links_to_priority_groups(roles, links))
+
+        cycle_priority_link(links, 1)
+        self.assertEqual(["=", ">>", ">", ">>"], links)
+        self.assertEqual([["A", "B"], ["C"], ["D"], ["E"]], links_to_priority_groups(roles, links))
+
+        cycle_priority_link(links, 1)
+        self.assertEqual([">", ">", ">", ">>"], links)
+        self.assertEqual([["A"], ["B"], ["C"], ["D"], ["E"]], links_to_priority_groups(roles, links))
+
+    def test_priority_groups_loads_old_priority_list_as_strict_order(self):
+        from src.features.allocation.priority_groups import load_priority_selection
+
+        data = {"priority_list": ["A", "B", "C"]}
+
+        selected, links = load_priority_selection(data, {"A": {}, "B": {}, "C": {}})
+
+        self.assertEqual(["A", "B", "C"], selected)
+        self.assertEqual([">", ">"], links)
+
+    def test_priority_groups_loads_new_group_config(self):
+        from src.features.allocation.priority_groups import load_priority_selection
+
+        data = {"priority_groups": [["A", "B"], ["C"]], "priority_list": ["C", "A", "B"]}
+
+        selected, links = load_priority_selection(data, {"A": {}, "B": {}, "C": {}})
+
+        self.assertEqual(["A", "B", "C"], selected)
+        self.assertEqual(["=", ">>"], links)
+
+    def test_role_selector_reorder_selected_moves_role_without_changing_links(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
+        selector.selected = ["A", "B", "C", "D"]
+        selector.priority_links = ["=", ">>", "="]
+
+        selector._reorder_selected(3, 1)
+
+        self.assertEqual(["A", "D", "B", "C"], selector.selected)
+        self.assertEqual(["=", ">>", "="], selector.priority_links)
+
+    def test_role_selector_available_names_excludes_selected_and_filters(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"早雾": {}, "达芙蒂尔": {}, "薄荷": {}}, [])
+        selector.selected = ["早雾"]
+
+        self.assertEqual(["薄荷", "达芙蒂尔"], selector._available_role_names(""))
+        self.assertEqual(["达芙蒂尔"], selector._available_role_names("达"))
+
+    def test_role_selector_drop_selected_to_target_position_from_front(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
+        selector.selected = ["A", "B", "C", "D"]
+        selector.priority_links = [">", ">>", "="]
+
+        selector._drop_selected_on(0, 2)
+
+        self.assertEqual(["B", "A", "C", "D"], selector.selected)
+        self.assertEqual([">", ">>", "="], selector.priority_links)
+
+    def test_role_selector_drop_selected_to_target_position_from_back(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
+        selector.selected = ["A", "B", "C", "D"]
+        selector.priority_links = [">", ">>", "="]
+
+        selector._drop_selected_on(3, 1)
+
+        self.assertEqual(["A", "D", "B", "C"], selector.selected)
+        self.assertEqual([">", ">>", "="], selector.priority_links)
+
+    def test_role_selector_uses_single_combined_scroll_area(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+
+        self.assertTrue(hasattr(selector, "roles_scroll"))
+        self.assertFalse(hasattr(selector, "priority_scroll"))
+        self.assertFalse(hasattr(selector, "grid_scroll"))
+
+    def test_role_selector_priority_frame_width_is_content_based(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+
+        short_width = selector._priority_role_frame_width("早雾")
+        long_width = selector._priority_role_frame_width("达芙蒂尔")
+
+        self.assertGreater(long_width, short_width)
+        self.assertLess(short_width, 140)
+
+    def test_role_selector_wrapped_priority_unit_keeps_content_width(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.selected = ["A", "LongRoleA", "B", "LongRoleB", "C", "D"]
+        selector.priority_links = [">", ">", ">", ">", ">"]
+
+        selector._render_priority_row()
+        selector.resize(900, 400)
+        selector.show()
+        app.processEvents()
+        selector.priority_layout.activate()
+        app.processEvents()
+
+        wrapped_unit = selector.priority_layout.itemAt(5).widget()
+
+        self.assertEqual(wrapped_unit.sizeHint().width(), wrapped_unit.geometry().width())
+
+    def test_priority_role_button_builds_drag_pixmap_without_render_overload(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import PriorityRoleButton, RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        button = PriorityRoleButton(selector, "A", 0)
+        button.resize(120, 40)
+        button.show()
+        app.processEvents()
+
+        pixmap = button._make_drag_pixmap(button)
+
+        self.assertFalse(pixmap.isNull())
+
+    def test_role_priority_batch_uses_local_optimum_within_equal_group(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        roles_db = {"A": {"default_set": "Set"}, "B": {"default_set": "Set"}}
+        sets_db = {"Set": {"shapes": []}}
+        blueprints_db = {
+            "A": [{"set_pieces": [], "extra_pieces": ["X"]}],
+            "B": [{"set_pieces": [], "extra_pieces": ["X"]}],
+        }
+        drives = [
+            Drive(
+                uid="drive_1",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 100.0, "B": 99.0},
+            ),
+            Drive(
+                uid="drive_2",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 98.0, "B": 1.0},
+            ),
+        ]
+
+        result = RolePriorityStrategy(roles_db, sets_db, blueprints_db).execute(
+            {"drives": drives, "tapes": {}},
+            ["A", "B"],
+            {"A": "Set", "B": "Set"},
+            priority_groups=[["A", "B"]],
+        )
+
+        self.assertEqual("drive_2", result["A"]["assigned_extra_drives"][0].uid)
+        self.assertEqual("drive_1", result["B"]["assigned_extra_drives"][0].uid)
+
+    def test_role_priority_batch_reuses_matrix_combo_iterator(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        class TrackingRolePriorityStrategy(RolePriorityStrategy):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.used_matrix_combo_iterator = False
+
+            def _iter_bp_combos(self, *args, **kwargs):
+                self.used_matrix_combo_iterator = True
+                yield from super()._iter_bp_combos(*args, **kwargs)
+
+        roles_db = {"A": {"default_set": "Set"}, "B": {"default_set": "Set"}}
+        sets_db = {"Set": {"shapes": []}}
+        blueprints_db = {
+            "A": [{"set_pieces": [], "extra_pieces": ["X"]}],
+            "B": [{"set_pieces": [], "extra_pieces": ["X"]}],
+        }
+        drives = [
+            Drive(
+                uid="drive_1",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 10.0, "B": 9.0},
+            ),
+            Drive(
+                uid="drive_2",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 8.0, "B": 7.0},
+            ),
+        ]
+        strategy = TrackingRolePriorityStrategy(roles_db, sets_db, blueprints_db)
+
+        strategy.execute(
+            {"drives": drives, "tapes": {}},
+            ["A", "B"],
+            {"A": "Set", "B": "Set"},
+            priority_groups=[["A", "B"]],
+        )
+
+        self.assertTrue(strategy.used_matrix_combo_iterator)
+
+    def test_matrix_base_does_not_shadow_shared_matrix_helpers(self):
+        from src.optimizer.strategies import MatrixBaseStrategy
+
+        duplicated_helpers = {
+            "_blueprint_extra_key",
+            "_dedupe_blueprints_by_extra_pieces",
+            "_shape_score_buckets",
+            "_blueprint_theoretical_score",
+            "_rank_role_blueprints",
+            "_iter_ranked_bp_combos",
+            "_iter_bp_combos",
+            "_build_profit_matrix",
+            "_init_temp_alloc",
+        }
+
+        self.assertFalse(duplicated_helpers & set(MatrixBaseStrategy.__dict__))
+
+
+class ConfigurationWorkflowTests(unittest.TestCase):
+    def test_role_board_cell_change_updates_draft_data(self):
+        from src.features.configuration import page
+
+        window = SimpleNamespace(_current_config_name="roles.json")
+        data = {"role": {"board_matrix": [[0] * 5 for _ in range(5)]}}
+
+        page.save_role_board_cell(window, "role", 1, 2, "-1", data, Path("."))
+
+        self.assertTrue(window._config_dirty)
+        self.assertEqual(-1, data["role"]["board_matrix"][1][2])
 
 
 class UpdateWorkflowTests(unittest.TestCase):
@@ -264,6 +567,67 @@ class UpdateWorkflowTests(unittest.TestCase):
         )
         app.processEvents()
 
+    def test_settings_page_does_not_show_inventory_info_card(self):
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout
+
+        from src.features.settings.page import build_settings_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            _log_enabled = False
+            _hk_capture = "F9"
+            _hk_finish = "F10"
+            _hk_stop = "F8"
+
+            def _card(self, title):
+                card = QFrame()
+                layout = QVBoxLayout(card)
+                layout.addWidget(QLabel(title))
+                return card
+
+            def _toggle_log(self, *_args):
+                pass
+
+            def _save_hotkeys(self):
+                pass
+
+            def _check_updates(self, manual=True):
+                pass
+
+            def _open_update_homepage(self):
+                pass
+
+            def _open_url(self, _url):
+                pass
+
+            def _refresh_ss(self):
+                pass
+
+            def _clear_ss(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scroll = build_settings_page(
+                Window(),
+                "1.1.0",
+                lambda: {
+                    "screenshot_dir": root / "scanned_images",
+                    "output_file": root / "config" / "real_inventory.json",
+                    "config_dir": root / "config",
+                    "accounts_dir": root / "accounts",
+                    "log_dir": root / "logs",
+                },
+                lambda _path: [],
+                "",
+            )
+
+        labels = [label.text() for label in scroll.findChildren(QLabel)]
+        self.assertNotIn("库存信息", labels)
+        self.assertFalse(any("real_inventory.json" in text for text in labels))
+        app.processEvents()
+
 
 class UsageGuideWorkflowTests(unittest.TestCase):
     def test_usage_guide_does_not_show_folder_open_buttons(self):
@@ -322,7 +686,7 @@ class RolePriorityWorkflowTests(unittest.TestCase):
             selector.load_roles({"A": {}, "B": {}}, ["S"], [], ["攻击力"])
 
             selector.selected = ["A"]
-            selector.save_priority_config()
+            selector.save_priority_config(show_message=False)
             selector.selected = ["B"]
             selector.reset_selection()
 
@@ -356,6 +720,202 @@ class RolePriorityWorkflowTests(unittest.TestCase):
             selector.load_startup_priority_config()
 
             self.assertEqual(["B"], selector.selected)
+        app.processEvents()
+
+    def test_priority_selector_persists_set_effect_modes_and_defaults_to_four_piece(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+        from src.solver.set_effects import FOUR_PIECE, NO_EFFECT, TWO_PIECE
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "priority_config.json"
+            selector = RoleSelector(priority_config_path_provider=lambda: path)
+            selector.load_roles({"A": {}, "B": {}, "C": {}}, ["S"], [], [])
+            selector.selected = ["A", "B", "C"]
+            selector._set_set_effect_mode("A", TWO_PIECE)
+            selector._set_set_effect_mode("B", NO_EFFECT)
+            selector._set_set_effect_mode("C", FOUR_PIECE)
+
+            selector.save_priority_config(show_message=False)
+
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual({"A": TWO_PIECE, "B": NO_EFFECT}, data["set_effect_modes"])
+
+            restored = RoleSelector(priority_config_path_provider=lambda: path)
+            restored.load_roles({"A": {}, "B": {}, "C": {}}, ["S"], [], [])
+            restored.load_priority_config()
+
+            self.assertEqual(["A", "B", "C"], restored.selected)
+            self.assertEqual(TWO_PIECE, restored.set_effect_modes["A"])
+            self.assertEqual(NO_EFFECT, restored.set_effect_modes["B"])
+            self.assertEqual({"A": TWO_PIECE, "B": NO_EFFECT}, restored.get_set_effect_modes())
+            self.assertNotIn("C", restored.set_effect_modes)
+        app.processEvents()
+
+    def test_priority_save_shows_success_message(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation import role_selector
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        messages = []
+        original_information = role_selector.QMessageBox.information
+        role_selector.QMessageBox.information = lambda _parent, title, text: messages.append((title, text))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "priority_config.json"
+                selector = RoleSelector(priority_config_path_provider=lambda: path)
+                selector.load_roles({"A": {}}, ["S"], [], [])
+                selector.selected = ["A"]
+                selector.save_priority_config()
+        finally:
+            role_selector.QMessageBox.information = original_information
+
+        self.assertTrue(messages)
+        self.assertIn("保存成功", messages[-1][0])
+        self.assertIn("随时读取", messages[-1][1])
+        app.processEvents()
+
+    def test_priority_save_button_keeps_success_popup_enabled(self):
+        from PySide6.QtWidgets import QApplication, QPushButton
+
+        from src.features.allocation import role_selector
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        messages = []
+        original_information = role_selector.QMessageBox.information
+        role_selector.QMessageBox.information = lambda _parent, title, text: messages.append((title, text))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "priority_config.json"
+                selector = RoleSelector(priority_config_path_provider=lambda: path)
+                selector.load_roles({"A": {}}, ["S"], [], [])
+                selector.selected = ["A"]
+                save_button = next(
+                    button for button in selector.findChildren(QPushButton) if button.text() == "\u4fdd\u5b58"
+                )
+
+                save_button.click()
+        finally:
+            role_selector.QMessageBox.information = original_information
+
+        self.assertTrue(messages)
+        self.assertIn("\u4fdd\u5b58\u6210\u529f", messages[-1][0])
+        app.processEvents()
+
+
+class IdentificationWorkflowTests(unittest.TestCase):
+    def test_set_combo_data_refreshes_searchable_combo_without_legacy_restore_api(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.identification.controller import _set_combo_data
+        from src.ui.widgets import SearchableComboBox
+
+        app = QApplication.instance() or QApplication([])
+        combo = SearchableComboBox()
+        combo.addItem("形状A", "A")
+
+        _set_combo_data(None, combo, "A")
+
+        self.assertEqual("A", combo.currentData())
+        app.processEvents()
+
+
+class ScanPromptWorkflowTests(unittest.TestCase):
+    def test_cancel_message_does_not_claim_inventory_was_written(self):
+        from src.features.scanning.controller import vision_cancel_message
+
+        message = vision_cancel_message(3)
+
+        self.assertIn("已停止继续解析", message)
+        self.assertIn("已解析 3 张", message)
+        self.assertNotIn("已入库", message)
+
+
+class ExecutePageWorkflowTests(unittest.TestCase):
+    def test_save_allocation_reload_keeps_current_priority_selector_state(self):
+        from src.features.allocation.runner import _save_alloc
+
+        class StateManager:
+            def __init__(self):
+                self.saved = []
+
+            def save_allocation(self, final_plan, mode=""):
+                self.saved.append((final_plan, mode))
+
+        class Window:
+            def __init__(self):
+                self.final_plan = {"A": {"valid": True}}
+                self.state_mgr = StateManager()
+                self._pending_strat = "role_priority"
+                self._allocation_dirty = True
+                self.reload_priority_args = []
+
+            def _load_data(self, reload_priority=True):
+                self.reload_priority_args.append(reload_priority)
+
+        window = Window()
+
+        result = _save_alloc(window, show_message=False)
+
+        self.assertTrue(result)
+        self.assertFalse(window._allocation_dirty)
+        self.assertEqual([({"A": {"valid": True}}, "role_priority")], window.state_mgr.saved)
+        self.assertEqual([False], window.reload_priority_args)
+
+    def test_save_allocation_button_keeps_success_popup_enabled(self):
+        from PySide6.QtCore import Signal
+        from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
+
+        from src.features.allocation.execute_page import build_execute_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class FakeRoleSelector(QWidget):
+            orderChanged = Signal()
+
+        class Window(QWidget):
+            def __init__(self):
+                super().__init__()
+                self.save_args = []
+
+            def _card(self, _title):
+                card = QFrame()
+                QVBoxLayout(card)
+                return card
+
+            def _on_scan_change(self, *_args):
+                pass
+
+            def _on_priority_changed(self, *_args):
+                pass
+
+            def _do_exec(self):
+                pass
+
+            def _save_alloc(self, show_message=True):
+                self.save_args.append(show_message)
+                return True
+
+        window = Window()
+        scroll = build_execute_page(
+            window,
+            FakeRoleSelector,
+            {},
+            {},
+            {},
+            lambda *_args: None,
+        )
+        save_button = window.btn_save
+
+        save_button.click()
+
+        self.assertEqual([True], window.save_args)
+        self.assertIsNotNone(scroll)
         app.processEvents()
 
 
