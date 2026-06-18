@@ -7,6 +7,7 @@ import os
 import time
 from typing import List, Dict
 
+from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.domain.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
@@ -270,7 +271,7 @@ class NTEPipelineOrchestrator:
                 logger.error(f"角色 [{role}] 分配失败: 无法凑齐合法图纸。\n")
                 continue
 
-            grade = scoring_engine.get_grade_tag(plan['score'], area=20)
+            grade = scoring_engine.get_grade_tag(plan['score'], area=ALLOCATION_TOTAL_SCORE_AREA)
             used_set = custom_sets.get(role, self.roles_db[role]["default_set"])
 
             BoardVisualizer.display_final_plan(role_name=role, plan=plan, default_set=used_set, grade=grade)
