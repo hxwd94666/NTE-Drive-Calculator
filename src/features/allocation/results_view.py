@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import GRADE_BGS, GRADE_COLORS, STYLE
 from src.ui.puzzle_board import PuzzleBoardWidget, get_shape_pixmap as _get_shape_pixmap
 
@@ -38,7 +39,7 @@ def _render_results(self,plan):
     for role,p in plan.items():
         if not p or not p.get("valid"):
             self.result_content_layout.addWidget(QLabel(f"❌ {role}: 无有效配装方案")); continue
-        total_score=p.get('score',0); total_grade=self._calc_grade(total_score,20)
+        total_score=p.get('score',0); total_grade=self._calc_grade(total_score,ALLOCATION_TOTAL_SCORE_AREA)
         gc=GRADE_COLORS.get(total_grade,"#58a6ff"); gbg=GRADE_BGS.get(total_grade,f"{gc}15")
 
         grp=QGroupBox(""); grp.setStyleSheet("QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:12px;padding:18px}")
