@@ -152,7 +152,7 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     result_header.addStretch()
     window.btn_save = QPushButton("保存装备锁定")
     window.btn_save.setObjectName("btnAction")
-    window.btn_save.clicked.connect(window._save_alloc)
+    window.btn_save.clicked.connect(lambda _checked=False: window._save_alloc())
     result_header.addWidget(window.btn_save)
     result_layout.addLayout(result_header)
     window.result_content = QWidget()

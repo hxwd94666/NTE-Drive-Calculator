@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import json
-
 from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -22,6 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, SearchableComboBox, match_pinyin
+from src.domain.stat_catalog import StatCatalog
+from src.storage.json_store import read_json, write_json_atomic
 
 
 def build_config_page(window):
@@ -73,8 +73,7 @@ def refresh_config_forms(window, config_dir):
 
 
 def load_config_data(name, config_dir):
-    with open(config_dir / name, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return read_json(config_dir / name, default={})
 
 
 def confirm_pending_config_changes(window, config_dir):
@@ -285,7 +284,7 @@ def render_roles_form(window, data):
         form_layout.addLayout(buff_row)
 
         form_layout.addWidget(QLabel("底盘矩阵 (0=空格, -1=锁定):"))
-        board_matrix = role_data.get("board_matrix", [[0] * 5] * 5)
+        board_matrix = role_data.get("board_matrix", [[0] * 5 for _ in range(5)])
         board_widget = QWidget()
         board_grid = QGridLayout(board_widget)
         board_grid.setSpacing(2)
@@ -296,6 +295,9 @@ def render_roles_form(window, data):
                 combo.addItems(["-1", "0"])
                 combo.setCurrentText(value)
                 combo.setFixedWidth(76)
+                combo.currentTextChanged.connect(
+                    lambda text, rn=role_name, r=row, c=col: window._save_role_board_cell(rn, r, c, text, data)
+                )
                 board_grid.addWidget(combo, row, col)
         form_layout.addWidget(board_widget)
 
@@ -437,8 +439,7 @@ def config_add_item(window, config_dir):
         if getattr(window, "_config_dirty", False) and hasattr(window, "_config_form_data"):
             data = window._config_form_data
         elif path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = read_json(path, default={})
         add_role(window, data, config_dir)
     elif name == "sets.json":
         data = {}
@@ -447,9 +448,8 @@ def config_add_item(window, config_dir):
             raw = window._config_form_data
             data = raw.get("sets", {}) if isinstance(raw, dict) else {}
         elif path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-                data = raw.get("sets", {})
+            raw = read_json(path, default={})
+            data = raw.get("sets", {})
         add_set(window, data, config_dir)
 
 
@@ -457,8 +457,7 @@ def add_weight(window, rn, data, cb, config_dir):
     stats_path = config_dir / "stats.json"
     pool = []
     if stats_path.exists():
-        with open(stats_path, "r", encoding="utf-8") as f:
-            pool = sorted(json.load(f).get("gold_base_values", {}).keys())
+        pool = StatCatalog.from_config_dir(config_dir).weight_choice_pool()
     existing = set(data[rn].get("weights", {}).keys())
     available = [s for s in pool if s not in existing]
     if not available:
@@ -475,12 +474,13 @@ def stat_choice_pool(window):
     pool = set()
     if isinstance(window.stats_config, dict):
         pool.update((window.stats_config.get("gold_base_values", {}) or {}).keys())
-        aliases = window.stats_config.get("stat_alias_mapping", {}) or {}
-        pool.update(aliases.values())
-        pool.update(window._canonical_stat_name(s) for s in window.stats_config.get("tape_main_stats_pool", []) or [])
+        pool.update((window.stats_config.get("tape_main_stat_values", {}) or {}).keys())
     if window.scoring_engine:
-        pool.update(getattr(window.scoring_engine, "gold_base_values", {}).keys())
-        pool.update((getattr(window.scoring_engine, "stat_alias_mapping", {}) or {}).values())
+        catalog = getattr(window.scoring_engine, "stat_catalog", None)
+        if catalog:
+            pool.update(catalog.weight_choice_pool())
+        else:
+            pool.update(getattr(window.scoring_engine, "gold_base_values", {}).keys())
     return sorted(s for s in pool if s)
 
 
@@ -502,6 +502,34 @@ def save_role_weight_value(window, rn, key, value, data, config_dir):
     if rn in data and key in data[rn].get("weights", {}):
         data[rn]["weights"][key] = round(float(value), 3)
         save_config_data(window, data, config_dir)
+
+
+def save_role_board_cell(window, rn, row, col, value, data, config_dir):
+    if rn not in data:
+        return
+    try:
+        cell_value = int(value)
+    except (TypeError, ValueError):
+        cell_value = 0
+    cell_value = -1 if cell_value == -1 else 0
+    matrix = data[rn].get("board_matrix")
+    if not isinstance(matrix, list):
+        matrix = []
+    normalized = []
+    for r in range(5):
+        source_row = matrix[r] if r < len(matrix) and isinstance(matrix[r], list) else []
+        normalized.append([
+            int(source_row[c]) if c < len(source_row) and str(source_row[c]) in ("-1", "0") else 0
+            for c in range(5)
+        ])
+    if not 0 <= row < 5 or not 0 <= col < 5:
+        return
+    if normalized[row][col] == cell_value:
+        data[rn]["board_matrix"] = normalized
+        return
+    normalized[row][col] = cell_value
+    data[rn]["board_matrix"] = normalized
+    save_config_data(window, data, config_dir)
 
 
 def save_role_field(window, rn, key, value, data, config_dir):
@@ -531,7 +559,7 @@ def add_role(window, data, config_dir):
             "default_set": window.all_set_names[0] if window.all_set_names else "",
             "extra_shape_label": "",
             "extra_shape_buffs": {},
-            "board_matrix": [[0] * 5] * 5,
+            "board_matrix": [[0] * 5 for _ in range(5)],
             "weights": {},
         }
         save_config_data(window, data, config_dir)
@@ -580,10 +608,8 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     path = config_dir / name
     data = getattr(window, "_config_form_data", None)
     if data is None:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+        data = read_json(path, default={})
+    write_json_atomic(path, data, indent=4)
     window._config_dirty = False
     window._load_data()
     QMessageBox.information(window, "保存", f"{name} 已保存")

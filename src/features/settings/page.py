@@ -1,8 +1,8 @@
 # 构建设置页的日志、热键、更新和文件管理区域。
 """Settings page builder.
 
-The settings page shows hotkeys, updates, screenshot management, inventory
-information, and quick-access folders. MainWindow still owns all callbacks.
+The settings page shows hotkeys, updates, screenshot management, and quick-access
+folders. MainWindow still owns all callbacks.
 """
 
 from __future__ import annotations
@@ -125,14 +125,6 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     screenshot_row.addStretch()
     screenshot_card.layout().addLayout(screenshot_row)
     layout.addWidget(screenshot_card)
-
-    inventory_card = window._card("库存信息")
-    output_file = get_paths()["output_file"]
-    if output_file.exists():
-        inventory_card.layout().addWidget(QLabel(f"real_inventory.json: {output_file.stat().st_size / 1024:.1f} KB"))
-    else:
-        inventory_card.layout().addWidget(QLabel("real_inventory.json 不存在"))
-    layout.addWidget(inventory_card)
 
     quick_card = window._card("快捷访问")
     quick_row = QHBoxLayout()

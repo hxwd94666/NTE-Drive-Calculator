@@ -7,6 +7,7 @@ import re
 import difflib
 from typing import Dict, List
 import hashlib
+from src.domain.stat_catalog import StatCatalog
 from src.utils.logger import logger
 from src.utils.exceptions import ConfigMissingError
 from src.utils.name_resolver import resolve_name
@@ -17,9 +18,12 @@ class DriveDataParser:
     """数据清洗与推理引擎：OCR 原文解析、品质逆推、词条提取"""
     def __init__(self, config_dir: str = "config"):
         self.config_dir = config_dir
-        self.stat_pattern = re.compile(r"([\u4e00-\u9fa5]+?)(?:增加|提升)?([0-9\.]+)(%?)")
+        self.stat_pattern = re.compile(r"([\u4e00-\u9fa5A-Za-z%]+?)(?:增加|提升)?\s*[+：:= ]*\s*([-+]?\d+(?:\.\d+)?)\s*(%?)")
         self.REAL_SETS_WHITE_LIST = self._load_sets_from_json()
-        self.GOLD_BASE_VALUES, self.TAPE_MAIN_STATS_POOL = self._load_stats_from_json()
+        self.stat_catalog = self._load_stat_catalog()
+        self.GOLD_BASE_VALUES = self.stat_catalog.gold_base_values
+        self.TAPE_MAIN_STATS_POOL = self.stat_catalog.tape_main_stats
+        self.STAT_ALIAS_MAPPING = self.stat_catalog.stat_alias_mapping
 
     def _generate_uid(self, prefix: str, **kwargs) -> str:
         """根据装备特征生成唯一 MD5 指纹"""
@@ -39,29 +43,36 @@ class DriveDataParser:
             logger.warning(f"无法读取 sets.json，使用兜底套装。")
             return ["森林萤火之心", "迪亚波罗斯", "音速蓝刺猬", "守卫王国", "失落光芒"]
 
-    def _load_stats_from_json(self) -> tuple[Dict[str, float], List[str]]:
-        stats_path = os.path.join(self.config_dir, "stats.json")
+    def _load_stat_catalog(self) -> StatCatalog:
         try:
-            with open(stats_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                gold_bases = data.get("gold_base_values", {})
-                tape_mains = data.get("tape_main_stats_pool", [])
-                logger.info(f"Parser 成功加载数值引擎。")
-                return gold_bases, tape_mains
+            catalog = StatCatalog.from_config_dir(self.config_dir)
+            if not catalog.gold_base_values:
+                raise ConfigMissingError("stats.json 缺少 gold_base_values")
+            logger.info(f"Parser 成功加载数值引擎。")
+            return catalog
         except Exception as e:
+            stats_path = os.path.join(self.config_dir, "stats.json")
             raise ConfigMissingError(f"找不到或无法解析 {stats_path}: {e}")
+
+    def _resolve_stat_name(self, raw_name: str, is_percent: bool) -> str | None:
+        return self.stat_catalog.normalize_stat_name(raw_name, is_percent=is_percent)
 
     def _clean_stats(self, raw_texts: List[str]) -> Dict[str, float]:
         clean_stats = {}
-        joined_text = "".join(raw_texts).replace(" ", "")
+        candidates = [str(text or "").strip() for text in raw_texts if str(text or "").strip()]
+        compact_joined = "".join(candidates).replace(" ", "")
+        if compact_joined:
+            candidates.append(compact_joined)
 
-        for match in self.stat_pattern.finditer(joined_text):
-            stat_name = match.group(1)
-            stat_value = float(match.group(2))
-            is_percent = match.group(3) == "%"
+        for text in candidates:
+            for match in self.stat_pattern.finditer(text):
+                stat_name = match.group(1)
+                stat_value = float(match.group(2))
+                is_percent = match.group(3) == "%" or "%" in stat_name
 
-            final_name = f"{stat_name}%" if is_percent else stat_name
-            clean_stats[final_name] = stat_value
+                final_name = self._resolve_stat_name(stat_name, is_percent)
+                if final_name:
+                    clean_stats[final_name] = stat_value
 
         return clean_stats
 
