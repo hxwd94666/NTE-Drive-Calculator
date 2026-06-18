@@ -303,6 +303,9 @@ class StatCatalogTests(unittest.TestCase):
 
         self.assertIn("\u653b\u51fb\u529b", pool)
         self.assertIn("\u5149\u5c5e\u6027\u5f02\u80fd\u4f24\u5bb3\u589e\u5f3a%", pool)
+        self.assertIn("\u4f24\u5bb3\u589e\u52a0%", pool)
+        self.assertIn("\u751f\u547d\u503c", pool)
+        self.assertIn("\u9632\u5fa1\u529b", pool)
         self.assertIn("\u4f24\u5bb3\u589e\u52a0%", catalog.valid_sub_stats)
 
 
