@@ -148,11 +148,12 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         selector = RoleSelector()
 
-        short_width = selector._priority_role_frame_width("早雾")
-        long_width = selector._priority_role_frame_width("达芙蒂尔")
+        short_width = selector._priority_role_frame_width("AB")
+        long_width = selector._priority_role_frame_width("ABCDE")
 
-        self.assertGreater(long_width, short_width)
+        self.assertEqual(short_width, long_width)
         self.assertLess(short_width, 140)
+        self.assertLess(selector._priority_role_name_font_size("ABCDE"), selector._priority_role_name_font_size("AB"))
 
     def test_role_selector_wrapped_priority_unit_keeps_content_width(self):
         from PySide6.QtWidgets import QApplication
@@ -917,6 +918,114 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertEqual([True], window.save_args)
         self.assertIsNotNone(scroll)
         app.processEvents()
+
+
+class ScoringScreeningWorkflowTests(unittest.TestCase):
+    def _write_scoring_config(self, config_dir: Path):
+        roles = {
+            "A": {
+                "default_set": "Set",
+                "extra_shape_label": "X",
+                "board_matrix": [[1]],
+                "weights": {
+                    "Wanted": 1.0,
+                    "Other": 2.0,
+                    "Sub": 1.0,
+                    "H1": 10.0,
+                    "H2": 10.0,
+                    "Crit": 16.0,
+                },
+            }
+        }
+        stats = {
+            "gold_base_values": {"Sub": 1.0, "H1": 1.0, "H2": 1.0, "Crit": 1.0},
+            "tape_main_stats_pool": ["Wanted", "Other"],
+            "tape_main_stat_values": {"Wanted": 1.0, "Other": 1.0},
+            "tape_stat_values": {},
+            "main_only_keywords": [],
+            "stat_alias_mapping": {},
+            "benefit_one": {},
+            "benefit_alias_mapping": {},
+            "weight_pool": [],
+        }
+        (config_dir / "roles.json").write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
+        (config_dir / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
+
+    def test_tape_main_filter_is_applied_before_tape_top_limit(self):
+        from src.models.equipment import Tape
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            tapes = [
+                Tape(uid=f"other_{idx}", quality="Gold", area=15, set_name="Set", main_stats="Other", sub_stats={})
+                for idx in range(4)
+            ]
+            tapes.append(
+                Tape(uid="wanted", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={"Sub": 1})
+            )
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                tapes,
+                tape_top_k_per_set_per_role=3,
+                tape_main_filters={"A": ["Wanted"]},
+            )
+
+            self.assertEqual(["wanted"], [tape.uid for tape in result["tapes"]["A"]])
+
+    def test_stat_priority_is_applied_before_drive_top_limit(self):
+        from src.models.equipment import Drive
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            drives = [
+                Drive(
+                    uid=f"high_{idx}",
+                    quality="Gold",
+                    area=1,
+                    shape_id="S1",
+                    set_name="Set",
+                    main_stats={"m1": 1, "m2": 1},
+                    sub_stats={"H1": 1, "H2": 1},
+                )
+                for idx in range(3)
+            ]
+            drives.append(
+                Drive(
+                    uid="crit",
+                    quality="Gold",
+                    area=1,
+                    shape_id="S1",
+                    set_name="Set",
+                    main_stats={"m1": 1, "m2": 1},
+                    sub_stats={"Crit": 1},
+                )
+            )
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                drives,
+                top_k_per_shape_per_role=3,
+                crit_priority_modes={"A": {"stats": ["Crit"], "equal_priority": False}},
+            )
+
+            self.assertIn("crit", [drive.uid for drive in result["drives"]])
+
+    def test_orchestrator_reads_largest_priority_group_size(self):
+        from src.solver.orchestrator import NTEPipelineOrchestrator
+
+        orchestrator = object.__new__(NTEPipelineOrchestrator)
+
+        self.assertEqual(1, orchestrator._max_priority_group_size(["A", "B"], None))
+        self.assertEqual(
+            3,
+            orchestrator._max_priority_group_size(
+                ["A", "B", "C", "D"],
+                [["A", "B", "C"], ["D"]],
+            ),
+        )
 
 
 class OfflineParseWorkflowTests(unittest.TestCase):
