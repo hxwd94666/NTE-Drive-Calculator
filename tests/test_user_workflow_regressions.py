@@ -296,6 +296,86 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         self.assertTrue(strategy.used_matrix_combo_iterator)
 
+    def test_role_priority_single_role_deduplicates_equivalent_blueprints(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        class TrackingRolePriorityStrategy(RolePriorityStrategy):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.fit_calls = 0
+
+            def _find_best_fit(self, *args, **kwargs):
+                self.fit_calls += 1
+                return super()._find_best_fit(*args, **kwargs)
+
+        roles_db = {"A": {"default_set": "Set"}}
+        sets_db = {"Set": {"shapes": []}}
+        blueprints_db = {
+            "A": [
+                {"set_pieces": [], "extra_pieces": ["X"], "board": [["first"]]},
+                {"set_pieces": [], "extra_pieces": ["X"], "board": [["duplicate"]]},
+            ]
+        }
+        drives = [
+            Drive(
+                uid="drive_1",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 10.0},
+            )
+        ]
+        strategy = TrackingRolePriorityStrategy(roles_db, sets_db, blueprints_db)
+
+        strategy.execute({"drives": drives, "tapes": {}}, ["A"], {"A": "Set"})
+
+        self.assertEqual(1, strategy.fit_calls)
+
+    def test_role_priority_single_role_filters_unused_drive_shapes_before_matching(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        class TrackingRolePriorityStrategy(RolePriorityStrategy):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.available_shapes = []
+
+            def _find_best_fit(self, role_name, blueprint, available_pool, target_set, crit_mode=None):
+                self.available_shapes.append({drive.shape_id for drive in available_pool})
+                return super()._find_best_fit(role_name, blueprint, available_pool, target_set, crit_mode)
+
+        roles_db = {"A": {"default_set": "Set"}}
+        sets_db = {"Set": {"shapes": []}}
+        blueprints_db = {"A": [{"set_pieces": [], "extra_pieces": ["X"], "board": []}]}
+        drives = [
+            Drive(
+                uid="drive_x",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 10.0},
+            ),
+            Drive(
+                uid="drive_y",
+                quality="Gold",
+                area=1,
+                shape_id="Y",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                role_scores={"A": 99.0},
+            ),
+        ]
+        strategy = TrackingRolePriorityStrategy(roles_db, sets_db, blueprints_db)
+
+        strategy.execute({"drives": drives, "tapes": {}}, ["A"], {"A": "Set"})
+
+        self.assertEqual([{"X"}], strategy.available_shapes)
+
     def test_matrix_base_does_not_shadow_shared_matrix_helpers(self):
         from src.optimizer.strategies import MatrixBaseStrategy
 
@@ -328,6 +408,54 @@ class ConfigurationWorkflowTests(unittest.TestCase):
 
 
 class UpdateWorkflowTests(unittest.TestCase):
+    def test_update_check_default_timeout_is_short(self):
+        from src.features.settings import updates
+
+        seen_timeouts = []
+        original_urlopen = updates.urllib.request.urlopen
+
+        def fake_urlopen(_request, **kwargs):
+            seen_timeouts.append(kwargs.get("timeout"))
+            raise urllib.error.URLError("network unavailable")
+
+        updates.urllib.request.urlopen = fake_urlopen
+        try:
+            updates.fetch_update_info(
+                "https://example.invalid/latest",
+                "https://example.invalid/releases",
+                "1.1.0",
+            )
+        finally:
+            updates.urllib.request.urlopen = original_urlopen
+
+        self.assertTrue(seen_timeouts)
+        self.assertTrue(all(timeout <= 3 for timeout in seen_timeouts))
+
+    def test_startup_update_error_updates_status_without_prompt(self):
+        import src.ui.app as app_module
+
+        class Label:
+            def __init__(self):
+                self.text = ""
+
+            def setText(self, text):
+                self.text = text
+
+        class Window:
+            def __init__(self):
+                self._update_check_manual = False
+                self._update_status = Label()
+                self.prompts = []
+
+            def _show_update_failure_netdisk_prompt(self, detail=""):
+                self.prompts.append(detail)
+
+        window = Window()
+        app_module.MainWindow._on_update_error(window, "timeout")
+
+        self.assertIn("GitHub请求失败", window._update_status.text)
+        self.assertEqual([], window.prompts)
+
     def test_update_network_failure_returns_user_facing_result(self):
         from src.features.settings import updates
 
@@ -1031,6 +1159,609 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         self.assertEqual([35], window.grade_areas)
         app.processEvents()
+
+    def test_result_view_marks_added_equipment_from_plan_diff(self):
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+
+        from src.features.allocation import results_view
+
+        app = QApplication.instance() or QApplication([])
+        drive = SimpleNamespace(
+            uid="d1",
+            shape_id="H_2",
+            sub_stats={},
+            role_scores={"A": 12.0},
+            area=2,
+            is_mvp=False,
+            pick_order=0,
+            quality="Gold",
+        )
+
+        class Window:
+            def __init__(self):
+                self.result_card = QFrame()
+                self.result_content_layout = QVBoxLayout(self.result_card)
+                self.roles_db = {"A": {"weights": {}}}
+                self._pending_strat = "role_priority"
+                self.allocation_plan_diff = {
+                    "A": {
+                        "changed": True,
+                        "added_uids": {"d1"},
+                        "added": [{"uid": "d1", "display_name": "new drive"}],
+                        "removed": [{"uid": "old", "display_name": "old drive"}],
+                    }
+                }
+                self.new_flags = []
+                self.header_widgets = []
+
+            def _calc_grade(self, *_args):
+                return "A"
+
+            def _section_label(self, text):
+                return QLabel(text)
+
+            def _bonus_summary_widget(self, *_args, **_kwargs):
+                return QWidget()
+
+            def _equip_card(self, *args, **kwargs):
+                self.new_flags.append(kwargs.get("is_new", False))
+                return QWidget()
+
+            def _show_plan_diff_dialog(self, *_args, **_kwargs):
+                pass
+
+        window = Window()
+        results_view._render_results(
+            window,
+            {
+                "A": {
+                    "valid": True,
+                    "score": 12.0,
+                    "blueprint": {},
+                    "assigned_tape": None,
+                    "assigned_set_drives": [drive],
+                    "assigned_extra_drives": [],
+                }
+            },
+        )
+
+        self.assertEqual([True], window.new_flags)
+        header_layout = window.result_content_layout.itemAt(0).widget().layout().itemAt(0).layout()
+        window.header_widgets = [header_layout.itemAt(i).widget() for i in range(header_layout.count()) if header_layout.itemAt(i).widget()]
+        diff_button_index = next(i for i, widget in enumerate(window.header_widgets) if isinstance(widget, QPushButton))
+        mode_label_index = next(i for i, widget in enumerate(window.header_widgets) if isinstance(widget, QLabel) and widget.text() == "角色优先")
+        score_badge_index = next(i for i, widget in enumerate(window.header_widgets) if isinstance(widget, QFrame) and not isinstance(widget, QLabel) and i > diff_button_index)
+        self.assertLess(diff_button_index, mode_label_index)
+        self.assertLess(mode_label_index, score_badge_index)
+        self.assertLess(diff_button_index, score_badge_index)
+        self.assertEqual(window.header_widgets[diff_button_index].sizeHint(), window.header_widgets[diff_button_index].minimumSizeHint())
+        app.processEvents()
+
+    def test_result_diff_dialog_renders_equipment_cards(self):
+        from PySide6.QtWidgets import QApplication, QWidget
+
+        from src.features.allocation import results_view
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.roles_db = {"A": {"weights": {}}}
+                self.card_labels = []
+
+            def _equip_card(self, label, *_args, **_kwargs):
+                self.card_labels.append(label)
+                return QWidget()
+
+        window = Window()
+        dialog = results_view._build_plan_diff_dialog(
+            window,
+            "A",
+            {
+                "removed": [{"uid": "old", "type": "drive", "shape_id": "H_2", "sub_stats": {}, "quality": "Gold"}],
+                "added": [{"uid": "new", "type": "drive", "shape_id": "V_2", "sub_stats": {}, "quality": "Gold"}],
+            },
+        )
+
+        self.assertEqual(["H_2"], window.card_labels)
+        self.assertIn("配装变动", dialog.windowTitle())
+        app.processEvents()
+
+    def test_result_diff_card_hydrates_compact_item_from_saved_equipment(self):
+        from src.features.allocation import results_view
+
+        class Window:
+            def __init__(self):
+                self.roles_db = {"A": {"weights": {}}}
+                self.equipped_state = {
+                    "A": {
+                        "equipped_tape": None,
+                        "equipped_drives": [
+                            {
+                                "uid": "new_drive",
+                                "shape_id": "V_2",
+                                "sub_stats": {"攻击力%": 2.5, "暴击率%": 2.0},
+                                "quality": "Gold",
+                                "score": 18.8,
+                                "grade": "S",
+                                "score_area": 2,
+                            }
+                        ],
+                    }
+                }
+                self.cards = []
+
+            def _equip_card(self, *args, **kwargs):
+                self.cards.append((args, kwargs))
+                return None
+
+        window = Window()
+        results_view._diff_item_card(window, "A", {"uid": "new_drive", "display_name": "V_2-攻击力%_2.5"}, is_new=True)
+
+        args, kwargs = window.cards[0]
+        self.assertEqual("V_2", args[0])
+        self.assertEqual({"攻击力%": 2.5, "暴击率%": 2.0}, args[2])
+        self.assertEqual("V_2", args[3])
+        self.assertEqual((18.8, "S"), args[6])
+        self.assertTrue(kwargs["is_new"])
+
+    def test_result_diff_card_hydrates_removed_item_from_inventory_file(self):
+        from src.app import runtime
+        from src.features.allocation import results_view
+
+        class Window:
+            def __init__(self):
+                self.roles_db = {"A": {"weights": {}}}
+                self.equipped_state = {}
+                self.final_plan = None
+                self.cards = []
+
+            def _equip_card(self, *args, **kwargs):
+                self.cards.append((args, kwargs))
+                return None
+
+            def _calc_grade(self, score, area):
+                return "S" if score and area else "D"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old_output = getattr(runtime, "OUTPUT_FILE", None)
+            runtime.OUTPUT_FILE = Path(tmp) / "real_inventory.json"
+            runtime.OUTPUT_FILE.write_text(
+                json.dumps(
+                    [
+                        {
+                            "uid": "old_drive",
+                            "item_type": "drive",
+                            "quality": "Gold",
+                            "area": 2,
+                            "shape_id": "H_2",
+                            "sub_stats": {"伤害%": 2.0, "攻击力": 16.0},
+                            "role_scores": {"A": 16.6},
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            try:
+                window = Window()
+                results_view._diff_item_card(window, "A", {"uid": "old_drive", "display_name": "old"}, is_new=False)
+            finally:
+                if old_output is None:
+                    delattr(runtime, "OUTPUT_FILE")
+                else:
+                    runtime.OUTPUT_FILE = old_output
+
+        args, kwargs = window.cards[0]
+        self.assertEqual("H_2", args[0])
+        self.assertEqual({"伤害%": 2.0, "攻击力": 16.0}, args[2])
+        self.assertEqual("H_2", args[3])
+        self.assertEqual((16.6, "S"), args[6])
+        self.assertFalse(kwargs["is_new"])
+
+    def test_saved_equipment_grade_uses_full_350_score_even_without_tape(self):
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
+
+        from src.features.inventory import page as inventory_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.equip_content = QFrame()
+                self.equip_content_layout = QVBoxLayout(self.equip_content)
+                self.equipped_state = {
+                    "A": {
+                        "equipped_tape": None,
+                        "equipped_drives": [
+                            {"uid": "d1", "shape_id": "H_2", "sub_stats": {}, "quality": "Gold"},
+                        ],
+                    }
+                }
+                self.roles_db = {"A": {"weights": {}}}
+                self._shape_areas = {"H_2": 20}
+                self.grade_areas = []
+
+            def _score_drive_dict(self, *_args, **_kwargs):
+                return 150.8
+
+            def _score_tape_dict(self, *_args, **_kwargs):
+                return 0.0
+
+            def _calc_grade(self, score, area):
+                self.grade_areas.append(area)
+                return "A"
+
+            def _section_label(self, text):
+                return QLabel(text)
+
+            def _bonus_summary_widget(self, *_args, **_kwargs):
+                return QWidget()
+
+            def _equip_card(self, *_args, **_kwargs):
+                return QWidget()
+
+        window = Window()
+        inventory_page._refresh_equip(window)
+
+        self.assertIn(35, window.grade_areas)
+        self.assertNotIn(20, window.grade_areas[:1])
+        app.processEvents()
+
+    def test_saved_equipment_prefers_saved_score_snapshot(self):
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+
+        from src.features.inventory import page as inventory_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.equip_content = QFrame()
+                self.equip_content_layout = QVBoxLayout(self.equip_content)
+                self.equipped_state = {
+                    "A": {
+                        "total_score": 188.8,
+                        "total_grade": "SS",
+                        "score_area": 35,
+                        "strategy_mode": "role_priority",
+                        "last_diff": {
+                            "changed": True,
+                            "added": [{"uid": "d1", "display_name": "new drive"}],
+                            "removed": [{"uid": "old", "display_name": "old drive"}],
+                            "added_uids": ["d1"],
+                        },
+                        "equipped_tape": None,
+                        "equipped_drives": [
+                            {
+                                "uid": "d1",
+                                "shape_id": "H_2",
+                                "sub_stats": {},
+                                "quality": "Gold",
+                                "score": 18.8,
+                                "grade": "S",
+                                "score_area": 2,
+                                "is_new": True,
+                            },
+                        ],
+                    }
+                }
+                self.roles_db = {"A": {"weights": {}}}
+                self._shape_areas = {"H_2": 2}
+                self.equip_cards = []
+                self.new_flags = []
+
+            def _score_drive_dict(self, *_args, **_kwargs):
+                raise AssertionError("saved equipment should use stored score")
+
+            def _score_tape_dict(self, *_args, **_kwargs):
+                raise AssertionError("saved equipment should use stored score")
+
+            def _calc_grade(self, *_args, **_kwargs):
+                raise AssertionError("saved equipment should use stored grade")
+
+            def _section_label(self, text):
+                return QLabel(text)
+
+            def _bonus_summary_widget(self, *_args, **_kwargs):
+                return QWidget()
+
+            def _equip_card(self, *args, **_kwargs):
+                self.equip_cards.append(args)
+                self.new_flags.append(_kwargs.get("is_new", False))
+                return QWidget()
+
+        window = Window()
+        inventory_page._refresh_equip(window)
+
+        self.assertEqual((18.8, "S"), window.equip_cards[0][6])
+        self.assertEqual([True], window.new_flags)
+        header_layout = window.equip_content_layout.itemAt(0).widget().layout().itemAt(0).layout()
+        widgets = [header_layout.itemAt(i).widget() for i in range(header_layout.count()) if header_layout.itemAt(i).widget()]
+        diff_button_index = next(i for i, widget in enumerate(widgets) if isinstance(widget, QPushButton) and widget.text() == "变动")
+        mode_label_index = next(i for i, widget in enumerate(widgets) if isinstance(widget, QLabel) and widget.text() == "角色优先")
+        score_badge_index = next(i for i, widget in enumerate(widgets) if isinstance(widget, QFrame) and not isinstance(widget, QLabel) and i > diff_button_index)
+        self.assertLess(diff_button_index, mode_label_index)
+        self.assertLess(mode_label_index, score_badge_index)
+        self.assertLess(diff_button_index, score_badge_index)
+        app.processEvents()
+
+    def test_state_manager_saves_score_snapshot_for_new_allocations(self):
+        from src.models.equipment import Drive, Tape
+        from src.optimizer.state_manager import StateManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = StateManager(config_dir=tmp)
+            tape = Tape(
+                uid="t1",
+                quality="Gold",
+                area=15,
+                set_name="Set",
+                main_stats="Main",
+                sub_stats={"Sub": 1.0},
+                role_scores={"A": 42.0},
+            )
+            drive = Drive(
+                uid="d1",
+                quality="Gold",
+                area=2,
+                shape_id="H_2",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                sub_stats={"Sub": 2.0},
+                role_scores={"A": 18.8},
+            )
+
+            manager.save_allocation(
+                {
+                    "A": {
+                        "valid": True,
+                        "score": 188.8,
+                        "blueprint": {"board": [[1]]},
+                        "assigned_tape": tape,
+                        "assigned_set_drives": [drive],
+                        "assigned_extra_drives": [],
+                    }
+                },
+                mode="role_priority",
+            )
+
+            saved = json.loads((Path(tmp) / "equipped_state.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(188.8, saved["A"]["total_score"])
+        self.assertEqual(35, saved["A"]["score_area"])
+        self.assertEqual(42.0, saved["A"]["equipped_tape"]["score"])
+        self.assertEqual(15, saved["A"]["equipped_tape"]["score_area"])
+        self.assertEqual(18.8, saved["A"]["equipped_drives"][0]["score"])
+        self.assertEqual(2, saved["A"]["equipped_drives"][0]["score_area"])
+        self.assertNotIn("is_new", saved["A"]["equipped_tape"])
+        self.assertNotIn("is_new", saved["A"]["equipped_drives"][0])
+        self.assertNotIn("last_diff", saved["A"])
+
+    def test_state_manager_marks_only_changes_against_existing_saved_equipment(self):
+        from src.models.equipment import Drive
+        from src.optimizer.state_manager import StateManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "equipped_state.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "A": {
+                            "equipped_tape": None,
+                            "equipped_drives": [
+                                {"uid": "old_drive", "display_name": "old drive", "shape_id": "X", "sub_stats": {}}
+                            ],
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            manager = StateManager(config_dir=tmp)
+            new_drive = Drive(
+                uid="new_drive",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                sub_stats={},
+                role_scores={"A": 10.0},
+            )
+
+            manager.save_allocation(
+                {
+                    "A": {
+                        "valid": True,
+                        "score": 10.0,
+                        "blueprint": {"board": [[1]]},
+                        "assigned_tape": None,
+                        "assigned_set_drives": [new_drive],
+                        "assigned_extra_drives": [],
+                    }
+                }
+            )
+
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(saved["A"]["equipped_drives"][0]["is_new"])
+        self.assertEqual(["old_drive"], [item["uid"] for item in saved["A"]["last_diff"]["removed"]])
+        self.assertEqual(["new_drive"], [item["uid"] for item in saved["A"]["last_diff"]["added"]])
+        self.assertEqual("X", saved["A"]["last_diff"]["removed"][0]["shape_id"])
+        self.assertEqual("X", saved["A"]["last_diff"]["added"][0]["shape_id"])
+        self.assertEqual(10.0, saved["A"]["last_diff"]["added"][0]["score"])
+
+    def test_state_manager_clears_new_marker_when_same_equipment_is_saved_again(self):
+        from src.models.equipment import Drive
+        from src.optimizer.state_manager import StateManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "equipped_state.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "A": {
+                            "last_diff": {"changed": True},
+                            "equipped_tape": None,
+                            "equipped_drives": [
+                                {
+                                    "uid": "same_drive",
+                                    "display_name": "same drive",
+                                    "shape_id": "X",
+                                    "sub_stats": {},
+                                    "is_new": True,
+                                }
+                            ],
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            manager = StateManager(config_dir=tmp)
+            same_drive = Drive(
+                uid="same_drive",
+                quality="Gold",
+                area=1,
+                shape_id="X",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                sub_stats={},
+                role_scores={"A": 10.0},
+            )
+
+            manager.save_allocation(
+                {
+                    "A": {
+                        "valid": True,
+                        "score": 10.0,
+                        "blueprint": {"board": [[1]]},
+                        "assigned_tape": None,
+                        "assigned_set_drives": [same_drive],
+                        "assigned_extra_drives": [],
+                    }
+                }
+            )
+
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertNotIn("is_new", saved["A"]["equipped_drives"][0])
+        self.assertNotIn("last_diff", saved["A"])
+
+    def test_plan_diff_marks_added_and_removed_equipment(self):
+        from src.models.equipment import Drive, Tape
+        from src.optimizer.plan_diff import build_plan_diff
+
+        old_state = {
+            "A": {
+                "equipped_tape": {"uid": "old_tape", "display_name": "old tape"},
+                "equipped_drives": [{"uid": "old_drive", "display_name": "old drive"}],
+            }
+        }
+        new_tape = Tape(
+            uid="new_tape",
+            quality="Gold",
+            area=15,
+            set_name="Set",
+            main_stats="Main",
+            sub_stats={},
+            role_scores={"A": 1.0},
+        )
+        new_drive = Drive(
+            uid="new_drive",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            set_name="Set",
+            main_stats={"m1": 1, "m2": 1},
+            sub_stats={},
+            role_scores={"A": 2.0},
+        )
+
+        diff = build_plan_diff(
+            old_state,
+            {
+                "A": {
+                    "valid": True,
+                    "assigned_tape": new_tape,
+                    "assigned_set_drives": [new_drive],
+                    "assigned_extra_drives": [],
+                }
+            },
+        )
+
+        self.assertTrue(diff["A"]["changed"])
+        self.assertEqual({"new_tape", "new_drive"}, diff["A"]["added_uids"])
+        self.assertEqual(["old_tape", "old_drive"], [item["uid"] for item in diff["A"]["removed"]])
+        self.assertEqual(["new_tape", "new_drive"], [item["uid"] for item in diff["A"]["added"]])
+        self.assertEqual("Set", diff["A"]["added"][0]["set_name"])
+        self.assertEqual("H_2", diff["A"]["added"][1]["shape_id"])
+        self.assertEqual(2.0, diff["A"]["added"][1]["score"])
+
+    def test_plan_diff_does_not_mark_new_equipment_when_role_has_no_history(self):
+        from src.models.equipment import Drive
+        from src.optimizer.plan_diff import build_plan_diff
+
+        drive = Drive(
+            uid="new_drive",
+            quality="Gold",
+            area=1,
+            shape_id="X",
+            set_name="Set",
+            main_stats={"m1": 1, "m2": 1},
+            sub_stats={},
+            role_scores={"A": 10.0},
+        )
+
+        diff = build_plan_diff(
+            {},
+            {
+                "A": {
+                    "valid": True,
+                    "assigned_tape": None,
+                    "assigned_set_drives": [drive],
+                    "assigned_extra_drives": [],
+                }
+            },
+        )
+
+        self.assertFalse(diff["A"]["changed"])
+        self.assertEqual(set(), diff["A"]["added_uids"])
+        self.assertEqual([], diff["A"]["added"])
+        self.assertEqual([], diff["A"]["removed"])
+
+    def test_runner_builds_plan_diff_before_rendering_results(self):
+        from src.features.allocation import runner
+
+        class State:
+            def load_state(self):
+                return {"A": {"equipped_tape": None, "equipped_drives": [{"uid": "old"}]}}
+
+        class Button:
+            def setEnabled(self, _value):
+                pass
+
+            def setText(self, _value):
+                pass
+
+        class Window:
+            def __init__(self):
+                self.state_mgr = State()
+                self.btn_run = Button()
+                self._allocation_dirty = False
+                self.rendered_diff = None
+
+            def _render_results(self, _result):
+                self.rendered_diff = self.allocation_plan_diff
+
+        window = Window()
+        result = {"A": {"valid": True, "assigned_tape": None, "assigned_set_drives": [], "assigned_extra_drives": []}}
+
+        runner._on_done(window, result)
+
+        self.assertTrue(window.rendered_diff["A"]["changed"])
+        self.assertEqual(["old"], [item["uid"] for item in window.rendered_diff["A"]["removed"]])
 
     def test_console_grade_uses_full_350_score_even_without_tape(self):
         from src.solver import orchestrator as orchestrator_module

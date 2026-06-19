@@ -3,6 +3,7 @@
 
 import json
 from pathlib import Path
+from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.utils.logger import logger
 
 
@@ -17,9 +18,12 @@ class StateManager:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             self.state_file.write_text("{}", encoding='utf-8')
 
-    def get_locked_uids(self) -> set:
+    def load_state(self) -> dict:
         with open(self.state_file, 'r', encoding='utf-8') as f:
-            state = json.load(f)
+            return json.load(f)
+
+    def get_locked_uids(self) -> set:
+        state = self.load_state()
         locked_uids = set()
 
         for role_data in state.values():
@@ -35,9 +39,70 @@ class StateManager:
     def _format_sub_stats(self, sub_stats: dict) -> str:
         return "|".join(f"{k}_{v}" for k, v in sub_stats.items())
 
+    def _grade_tag(self, score: float, area: int) -> str:
+        max_score = float(area or 0) * 10.0
+        if max_score <= 0:
+            return "D"
+        ratio = float(score or 0.0) / max_score
+        if ratio >= 0.8:
+            return "ACE"
+        if ratio >= 0.7:
+            return "SSS"
+        if ratio >= 0.6:
+            return "SS"
+        if ratio >= 0.5:
+            return "S"
+        if ratio >= 0.4:
+            return "A"
+        if ratio >= 0.3:
+            return "B"
+        if ratio >= 0.2:
+            return "C"
+        return "D"
+
+    def _item_map(self, role_data: dict) -> dict:
+        if isinstance(role_data, list):
+            return {str(uid): {"uid": str(uid), "type": "equipment", "display_name": str(uid)} for uid in role_data if uid}
+        if not isinstance(role_data, dict):
+            return {}
+        items = {}
+        tape = role_data.get("equipped_tape")
+        if isinstance(tape, dict) and tape.get("uid"):
+            items[tape["uid"]] = self._saved_item_snapshot(tape, "tape")
+        for drive in role_data.get("equipped_drives", []) or []:
+            if isinstance(drive, dict) and drive.get("uid"):
+                items[drive["uid"]] = self._saved_item_snapshot(drive, "drive")
+        return items
+
+    def _saved_item_snapshot(self, item: dict, item_type: str) -> dict:
+        snapshot = {
+            "uid": str(item.get("uid", "")),
+            "type": item_type,
+            "display_name": str(item.get("display_name") or item.get("uid") or ""),
+        }
+        for key in ("shape_id", "set_name", "main_stats", "sub_stats", "quality", "score", "grade", "score_area", "area"):
+            if key in item:
+                snapshot[key] = item[key]
+        return snapshot
+
+    def _build_role_diff(self, old_data: dict, new_data: dict) -> dict:
+        old_items = self._item_map(old_data)
+        new_items = self._item_map(new_data)
+        if not old_items:
+            return {"changed": False, "added_uids": [], "added": [], "removed": []}
+        old_uids = set(old_items)
+        new_uids = set(new_items)
+        added_uids = new_uids - old_uids
+        removed_uids = old_uids - new_uids
+        return {
+            "changed": bool(added_uids or removed_uids),
+            "added_uids": list(added_uids),
+            "added": [item for uid, item in new_items.items() if uid in added_uids],
+            "removed": [item for uid, item in old_items.items() if uid in removed_uids],
+        }
+
     def save_allocation(self, final_plan: dict, mode: str = ""):
-        with open(self.state_file, 'r', encoding='utf-8') as f:
-            old_state = json.load(f)
+        old_state = self.load_state()
 
         new_state = {}
         # 继承未参与本次统筹的角色
@@ -68,29 +133,50 @@ class StateManager:
                 "blueprint_layout": formatted_board,
                 "equipped_tape": None,
                 "equipped_drives": [],
-                "strategy_mode": mode
+                "strategy_mode": mode,
+                "total_score": round(float(plan.get("score", 0.0) or 0.0), 2),
+                "total_grade": self._grade_tag(plan.get("score", 0.0), ALLOCATION_TOTAL_SCORE_AREA),
+                "score_area": ALLOCATION_TOTAL_SCORE_AREA,
             }
 
             tape = plan.get("assigned_tape")
             if tape:
+                tape_score = round(float(tape.role_scores.get(role, 0.0)), 2)
                 role_data["equipped_tape"] = {
                     "uid": tape.uid,
                     "display_name": f"{tape.set_name}-{tape.main_stats}-{self._format_sub_stats(tape.sub_stats)}",
                     "set_name": tape.set_name,
                     "main_stats": tape.main_stats,
                     "sub_stats": tape.sub_stats,
-                    "quality": tape.quality
+                    "quality": tape.quality,
+                    "score": tape_score,
+                    "grade": self._grade_tag(tape_score, 15),
+                    "score_area": 15,
                 }
 
             drives = plan.get("assigned_set_drives", []) + plan.get("assigned_extra_drives", [])
             for d in drives:
+                drive_score = round(float(d.role_scores.get(role, 0.0)), 2)
                 role_data["equipped_drives"].append({
                     "uid": d.uid,
                     "display_name": f"{d.shape_id}-{self._format_sub_stats(d.sub_stats)}",
                     "shape_id": d.shape_id,
                     "sub_stats": d.sub_stats,
-                    "quality": d.quality
+                    "quality": d.quality,
+                    "score": drive_score,
+                    "grade": self._grade_tag(drive_score, d.area),
+                    "score_area": d.area,
                 })
+
+            role_diff = self._build_role_diff(old_state.get(role), role_data)
+            if role_diff["changed"]:
+                added_uids = set(role_diff["added_uids"])
+                if role_data.get("equipped_tape") and role_data["equipped_tape"]["uid"] in added_uids:
+                    role_data["equipped_tape"]["is_new"] = True
+                for drive_data in role_data.get("equipped_drives", []):
+                    if drive_data["uid"] in added_uids:
+                        drive_data["is_new"] = True
+                role_data["last_diff"] = role_diff
 
             new_state[role] = role_data
 

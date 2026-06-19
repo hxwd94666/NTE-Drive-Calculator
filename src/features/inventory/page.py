@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.app import runtime
+from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import GRADE_BGS, GRADE_COLORS
 from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.ui.puzzle_board import PuzzleBoardWidget
@@ -18,7 +19,7 @@ from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-__all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equipment', '_refresh_equip', '_clear_all_equipment', '_delete_role_equipment', '_save_eq']
+__all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equipment', '_refresh_equip', '_saved_plan_diff_text', '_show_saved_plan_diff_dialog', '_clear_all_equipment', '_delete_role_equipment', '_save_eq']
 
 
 def install_methods(app_module, window_cls):
@@ -56,18 +57,21 @@ def _refresh_equip(self):
         if not isinstance(rd,dict): continue
         shown+=1; wts=self.roles_db.get(role_name,{}).get("weights",{})
 
-        total_score=0.0; total_area=0
+        total_score=0.0
         tape_data=rd.get("equipped_tape")
-        if tape_data:
-            t_q=tape_data.get("quality","Gold")
-            t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
-            total_score+=t_s; total_area+=15
-        for d in rd.get("equipped_drives",[]):
-            d_area=self._shape_areas.get(d.get("shape_id",""),3)
-            d_q=d.get("quality","Gold")
-            d_s=self._score_drive_dict(d.get("sub_stats",{}),d.get("shape_id",""),wts,d_q)
-            total_score+=d_s; total_area+=d_area
-        total_grade=self._calc_grade(total_score,total_area)
+        if "total_score" in rd and rd.get("total_grade"):
+            total_score=float(rd.get("total_score",0.0) or 0.0)
+            total_grade=str(rd.get("total_grade") or "D")
+        else:
+            if tape_data:
+                t_q=tape_data.get("quality","Gold")
+                t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
+                total_score+=t_s
+            for d in rd.get("equipped_drives",[]):
+                d_q=d.get("quality","Gold")
+                d_s=self._score_drive_dict(d.get("sub_stats",{}),d.get("shape_id",""),wts,d_q)
+                total_score+=d_s
+            total_grade=self._calc_grade(total_score,ALLOCATION_TOTAL_SCORE_AREA)
         gc=GRADE_COLORS.get(total_grade,"#58a6ff"); gbg=GRADE_BGS.get(total_grade,f"{gc}15")
 
         grp=QGroupBox(""); grp.setStyleSheet("QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:12px;padding:18px}")
@@ -76,6 +80,13 @@ def _refresh_equip(self):
         rnl=QLabel(role_name)
         rnl.setStyleSheet(f"font-size:15px;font-weight:800;color:#4dd0e1;border:1px solid #4dd0e1;border-radius:7px;padding:4px 14px;background:#4dd0e122")
         role_hdr.addWidget(rnl)
+        last_diff=rd.get("last_diff",{}) or {}
+        if last_diff.get("changed"):
+            diff_btn=QPushButton("变动")
+            diff_btn.setFixedSize(64,32)
+            diff_btn.setStyleSheet("QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;border-radius:6px;font-weight:700}QPushButton:hover{background:#388bfd}")
+            diff_btn.clicked.connect(lambda _=False,rn=role_name,d=last_diff: self._show_saved_plan_diff_dialog(rn,d))
+            role_hdr.addWidget(diff_btn)
         _sm=rd.get("strategy_mode","")
         if _sm:
             _ml={"role_priority":"角色优先","drive_priority":"驱动优先","global_optimal":"全局最优","update_mode":"增量更新"}.get(_sm,_sm)
@@ -95,6 +106,7 @@ def _refresh_equip(self):
         gv=QLabel(total_grade); gv.setStyleSheet(f"font-size:15px;font-weight:800;color:{gc};border:none")
         glb.addWidget(QLabel("评级")); glb.addWidget(gv); role_hdr.addWidget(gf)
         del_btn=QPushButton("删除"); del_btn.setObjectName("btnDanger")
+        del_btn.setFixedSize(64,32)
         del_btn.clicked.connect(lambda _=False, rn=role_name: self._delete_role_equipment(rn))
         role_hdr.addWidget(del_btn)
         gl.addLayout(role_hdr); gl.addSpacing(6)
@@ -110,21 +122,49 @@ def _refresh_equip(self):
             gl.addLayout(bp_row)
         if tape_data:
             t_q=tape_data.get("quality","Gold")
-            t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
-            t_g=self._calc_grade(t_s,15)
+            if "score" in tape_data and tape_data.get("grade"):
+                t_s=float(tape_data.get("score",0.0) or 0.0)
+                t_g=str(tape_data.get("grade") or "D")
+            else:
+                t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
+                t_g=self._calc_grade(t_s,15)
             gl.addWidget(self._section_label("卡带:"))
-            gl.addWidget(self._equip_card(tape_data.get("set_name",""),tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),None,tape_data.get("uid",""),wts,(t_s,t_g),t_q))
+            gl.addWidget(self._equip_card(tape_data.get("set_name",""),tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),None,tape_data.get("uid",""),wts,(t_s,t_g),t_q,is_new=bool(tape_data.get("is_new"))))
         if drives:
             gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
             for d in drives:
                 d_q=d.get("quality","Gold")
-                d_s=self._score_drive_dict(d.get("sub_stats",{}),d.get("shape_id",""),wts,d_q)
-                d_g=self._calc_grade(d_s,self._shape_areas.get(d.get("shape_id",""),3))
-                gl.addWidget(self._equip_card(d.get("shape_id",""),"",d.get("sub_stats",{}),d.get("shape_id",""),d.get("uid",""),wts,(d_s,d_g),d_q))
+                if "score" in d and d.get("grade"):
+                    d_s=float(d.get("score",0.0) or 0.0)
+                    d_g=str(d.get("grade") or "D")
+                else:
+                    d_s=self._score_drive_dict(d.get("sub_stats",{}),d.get("shape_id",""),wts,d_q)
+                    d_g=self._calc_grade(d_s,self._shape_areas.get(d.get("shape_id",""),3))
+                gl.addWidget(self._equip_card(d.get("shape_id",""),"",d.get("sub_stats",{}),d.get("shape_id",""),d.get("uid",""),wts,(d_s,d_g),d_q,is_new=bool(d.get("is_new"))))
         self.equip_content_layout.addWidget(grp)
     if shown==0:
         ph=QLabel("暂无已保存的配装。请先执行分配并保存。"); ph.setStyleSheet("color:#6e7681;padding:24px"); ph.setAlignment(Qt.AlignCenter); self.equip_content_layout.addWidget(ph)
     self.equip_content_layout.addStretch()
+
+def _saved_plan_diff_text(self, role_name, diff):
+    removed=diff.get("removed",[]) or []
+    added=diff.get("added",[]) or []
+    if not removed and not added:
+        return "本次保存与上一套方案没有装备变动。"
+    lines=[f"{role_name} 配装变动："]
+    if removed:
+        lines.append("\n卸下：")
+        lines.extend(f"- {item.get('display_name') or item.get('uid')}" for item in removed)
+    if added:
+        lines.append("\n换上：")
+        lines.extend(f"+ {item.get('display_name') or item.get('uid')}" for item in added)
+    return "\n".join(lines)
+
+def _show_saved_plan_diff_dialog(self, role_name, diff):
+    if hasattr(self, "_build_plan_diff_dialog"):
+        self._build_plan_diff_dialog(role_name, diff).exec()
+        return
+    QMessageBox.information(self,"配装变动",self._saved_plan_diff_text(role_name,diff))
 
 def _clear_all_equipment(self):
     if not self.equipped_state:
