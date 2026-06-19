@@ -662,6 +662,8 @@ class MainWindow(QMainWindow):
             self._show_update_failure_netdisk_prompt(err)
             return
         else:
+            if hasattr(self, "_update_status"):
+                self._update_status.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
             logger.warning(f"启动自动检查更新失败: {err}")
 
     def _should_show_startup_update(self, info):
