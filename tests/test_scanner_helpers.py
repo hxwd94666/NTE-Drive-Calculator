@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -381,20 +382,43 @@ class IncrementalBaselineTests(unittest.TestCase):
 
 
 class GamepadScannerTests(unittest.TestCase):
-    def test_capture_panel_saves_current_frame_after_short_change_wait(self):
+    def test_push_left_joystick_uses_lenient_timing(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        updates = []
+        sleeps = []
+        scanner.gamepad = SimpleNamespace(
+            left_joystick_float=lambda **kwargs: updates.append(kwargs),
+            update=lambda: updates.append("update"),
+        )
+        original_sleep = gamepad_controller.time.sleep
+        gamepad_controller.time.sleep = lambda seconds, *_args, **_kwargs: sleeps.append(seconds)
+        try:
+            scanner.push_left_joystick(1.0, 0.0)
+        finally:
+            gamepad_controller.time.sleep = original_sleep
+
+        self.assertEqual([0.10, 0.30], sleeps)
+        self.assertEqual(
+            [
+                {"x_value_float": 1.0, "y_value_float": 0.0},
+                "update",
+                {"x_value_float": 0.0, "y_value_float": 0.0},
+                "update",
+            ],
+            updates,
+        )
+
+    def test_capture_panel_saves_single_current_frame_without_waiting_for_change(self):
         from src.scanner import gamepad_controller
 
         class FakeScreenshot:
             size = (4, 4)
             rgb = b"\x00" * 4 * 4 * 3
 
-            def __array__(self, dtype=None):
-                arr = np.zeros((4, 4, 4), dtype=np.uint8)
-                return arr.astype(dtype) if dtype is not None else arr
-
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
         scanner.capture_dir = "unused"
-        scanner._last_capture_fingerprint = np.zeros((54, 96), dtype=np.uint8)
 
         original_capture = gamepad_controller.capture_foreground_window
         original_to_png = gamepad_controller.mss.tools.to_png
@@ -419,9 +443,8 @@ class GamepadScannerTests(unittest.TestCase):
 
         self.assertTrue(captured)
         self.assertEqual([True], writes)
-        self.assertEqual(scanner.CAPTURE_CHANGE_ATTEMPTS, len(captures))
-        self.assertEqual(4, len(sleeps))
-        self.assertTrue(all(seconds == 0.05 for seconds in sleeps))
+        self.assertEqual([True], captures)
+        self.assertEqual([], sleeps)
 
     def test_start_scan_does_not_retry_move_when_capture_is_stale(self):
         from src.scanner import gamepad_controller
@@ -449,14 +472,13 @@ class GamepadScannerTests(unittest.TestCase):
         scanner.capture_dir = "unused"
         scanner._stopped = False
         scanner.cols = 7
-        scanner._last_capture_fingerprint = None
         moves = []
         commits = []
         scanner.push_left_joystick = lambda x, y: moves.append((x, y))
         scanner._prepare_temp_output = lambda: None
         scanner._commit_temp_output = lambda: commits.append(True)
 
-        frames = [FakeScreenshot(1)] + [FakeScreenshot(1)] * scanner.CAPTURE_CHANGE_ATTEMPTS
+        frames = [FakeScreenshot(1), FakeScreenshot(1)]
 
         original_capture = gamepad_controller.capture_foreground_window
         original_to_png = gamepad_controller.mss.tools.to_png

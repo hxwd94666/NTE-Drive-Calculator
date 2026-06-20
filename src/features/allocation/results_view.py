@@ -57,8 +57,8 @@ def _render_results(self,plan):
         role_hdr.addWidget(rnl)
         if role_diff.get("changed"):
             diff_btn=QPushButton("变动")
-            diff_btn.setFixedSize(64,32)
-            diff_btn.setStyleSheet("QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;border-radius:6px;font-weight:700}QPushButton:hover{background:#388bfd}")
+            diff_btn.setFixedSize(76,32)
+            diff_btn.setStyleSheet("QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;border-radius:6px;font-size:13px;font-weight:700;padding:0;min-width:76px;min-height:32px}QPushButton:hover{background:#388bfd}")
             diff_btn.clicked.connect(lambda _checked=False,rn=role,d=role_diff: self._show_plan_diff_dialog(rn,d))
             role_hdr.addWidget(diff_btn)
         if mode_name:
