@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - '*'
@@ -10,7 +11,7 @@ permissions:
 
 jobs:
   windows-installer:
-    name: Build and publish Windows installer
+    name: Build Windows installer
     runs-on: windows-latest
 
     steps:
@@ -27,16 +28,27 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $tag = '${{ github.ref_name }}'
-          $version = $tag -replace '^v', ''
-
-          if ($version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
-            throw "Tag '$tag' does not look like a release version. Use tags like '1.1.2' or 'v1.1.2'."
-          }
-
+          $eventName = '${{ github.event_name }}'
           $appVersion = python -c "from src.app.constants import APP_VERSION; print(APP_VERSION)"
-          if ($appVersion -ne $version) {
-            throw "Tag version '$version' must match src.app.constants.APP_VERSION '$appVersion'."
+
+          if ($eventName -eq 'push') {
+            $tag = '${{ github.ref_name }}'
+            $version = $tag -replace '^v', ''
+
+            if ($version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
+              throw "Tag '$tag' does not look like a release version. Use tags like '1.1.2' or 'v1.1.2'."
+            }
+
+            if ($appVersion -ne $version) {
+              throw "Tag version '$version' must match src.app.constants.APP_VERSION '$appVersion'."
+            }
+          } else {
+            $tag = ''
+            $version = $appVersion
+
+            if ($version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
+              throw "src.app.constants.APP_VERSION '$version' does not look like a release version."
+            }
           }
 
           "tag=$tag" >> $env:GITHUB_OUTPUT
@@ -92,6 +104,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create or update GitHub release
+        if: github.event_name == 'push'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
