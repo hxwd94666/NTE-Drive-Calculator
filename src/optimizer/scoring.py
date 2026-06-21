@@ -91,8 +91,60 @@ class ScoringEngine:
 
         return round(main_score + sub_score, 2)
 
-    def evaluate_global_inventory(self, inventory: List[BaseEquipment], top_k_per_shape_per_role: int = 15) -> Dict[str, Any]:
+    def _is_a_grade_item(self, role: str, item: BaseEquipment) -> bool:
+        score = getattr(item, "role_scores", {}).get(role, 0.0)
+        area = getattr(item, "area", 1) or 1
+        return score >= area * 10.0 * 0.4
+
+    def _item_has_stat(self, item: BaseEquipment, stat_key: str) -> bool:
+        target = str(stat_key or "").replace("%", "")
+        names = [str(name).replace("%", "") for name in (getattr(item, "sub_stats", {}) or {}).keys()]
+        return any(target == name or target in name or name in target for name in names)
+
+    def _priority_rank_for_item(self, role: str, item: BaseEquipment, config: dict | None) -> tuple[int, int]:
+        if not isinstance(config, dict) or not self._is_a_grade_item(role, item):
+            return (0, 0)
+        stats = [str(stat) for stat in config.get("stats", []) if stat]
+        if not stats:
+            return (0, 0)
+        if config.get("equal_priority"):
+            covered = sum(1 for stat in stats if self._item_has_stat(item, stat))
+            return (covered, 0)
+        for tier, stat in enumerate(stats):
+            if self._item_has_stat(item, stat):
+                return (len(stats) - tier, 0)
+        return (0, 0)
+
+    def _allowed_tape_main_names(self, allowed_mains: List[str] | None) -> set[str]:
+        allowed = set()
+        for value in allowed_mains or []:
+            raw = str(value or "").strip()
+            if not raw:
+                continue
+            allowed.add(raw)
+            normalized = self.stat_catalog.normalize_tape_main_stat(raw)
+            if normalized:
+                allowed.add(normalized)
+        return allowed
+
+    def _tape_main_allowed(self, tape: Tape, allowed: set[str]) -> bool:
+        if not allowed:
+            return True
+        raw = str(getattr(tape, "main_stats", "") or "").strip()
+        normalized = self.stat_catalog.normalize_tape_main_stat(raw)
+        return raw in allowed or normalized in allowed
+
+    def evaluate_global_inventory(
+        self,
+        inventory: List[BaseEquipment],
+        top_k_per_shape_per_role: int = 15,
+        tape_top_k_per_set_per_role: int = 3,
+        tape_main_filters: Dict[str, List[str]] | None = None,
+        crit_priority_modes: Dict[str, dict] | None = None,
+    ) -> Dict[str, Any]:
         if not self.roles_db: return {"drives": [], "tapes": {}}
+        tape_main_filters = tape_main_filters or {}
+        crit_priority_modes = crit_priority_modes or {}
         logger.info(f"  评分引擎: 开始评估 {len(inventory)} 件装备 × {len(self.roles_db)} 角色...")
 
         valid_drives: List[Drive] = []
@@ -129,7 +181,13 @@ class ScoringEngine:
                     buckets.setdefault(d.shape_id, []).append(d)
 
             for shape, drives_in_bucket in buckets.items():
-                drives_in_bucket.sort(key=lambda x: x.role_scores[role_name], reverse=True)
+                drives_in_bucket.sort(
+                    key=lambda x: (
+                        self._priority_rank_for_item(role_name, x, crit_priority_modes.get(role_name)),
+                        x.role_scores[role_name],
+                    ),
+                    reverse=True,
+                )
                 for d in drives_in_bucket[:top_k_per_shape_per_role]:
                     global_drive_uids.add(d.uid)
 
@@ -139,14 +197,22 @@ class ScoringEngine:
         optimal_tapes = {role: [] for role in self.roles_db.keys()}
         for role_name in self.roles_db.keys():
             role_tapes = [t for t in valid_tapes if t.role_scores[role_name] > 0]
+            allowed_mains = self._allowed_tape_main_names(tape_main_filters.get(role_name))
+            role_tapes = [t for t in role_tapes if self._tape_main_allowed(t, allowed_mains)]
             set_buckets = {}
             for t in role_tapes:
                 set_buckets.setdefault(t.set_name, []).append(t)
 
             final_role_tapes = []
             for s_name, bucket in set_buckets.items():
-                bucket.sort(key=lambda x: x.role_scores[role_name], reverse=True)
-                final_role_tapes.extend(bucket[:3])
+                bucket.sort(
+                    key=lambda x: (
+                        self._priority_rank_for_item(role_name, x, crit_priority_modes.get(role_name)),
+                        x.role_scores[role_name],
+                    ),
+                    reverse=True,
+                )
+                final_role_tapes.extend(bucket[:tape_top_k_per_set_per_role])
 
             final_role_tapes.sort(key=lambda x: x.role_scores[role_name], reverse=True)
             optimal_tapes[role_name] = final_role_tapes

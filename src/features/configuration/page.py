@@ -99,7 +99,7 @@ def confirm_pending_config_changes(window, config_dir):
     return True
 
 
-def switch_config_form(window, name, config_dir, use_draft=False):
+def switch_config_form(window, name, config_dir, use_draft=False, active_role=None):
     if not name:
         return
     current_name = getattr(window, "_current_config_name", None)
@@ -153,7 +153,7 @@ def switch_config_form(window, name, config_dir, use_draft=False):
     if name != current_name:
         window._config_dirty = False
     if name == "roles.json":
-        render_roles_form(window, data)
+        render_roles_form(window, data, active_role=active_role)
     elif name == "sets.json":
         render_sets_form(window, data)
     if hasattr(window, "config_form_area"):
@@ -173,7 +173,7 @@ def _field(label, widget, layout):
     layout.addLayout(row)
 
 
-def render_roles_form(window, data):
+def render_roles_form(window, data, active_role=None):
     header = QHBoxLayout()
     role_search = QLineEdit()
     role_search.setPlaceholderText("搜索角色（支持拼音）...")
@@ -371,7 +371,7 @@ def render_roles_form(window, data):
             roles_tabs.setCurrentIndex(tab_indices[active_role])
         load_current_tab()
 
-    rebuild_all_tabs()
+    rebuild_all_tabs(active_role)
     role_search.textChanged.connect(filter_tabs)
     roles_tabs.currentChanged.connect(lambda _index: load_current_tab())
     window.config_form_layout.addWidget(roles_tabs)
@@ -553,9 +553,10 @@ def del_weight(window, rn, key, data, cb, config_dir):
 
 def add_role(window, data, config_dir):
     name, ok = QInputDialog.getText(window, "添加角色", "角色名称:")
-    if ok and name.strip() and name.strip() not in data:
-        data[name.strip()] = {
-            "role_name": name.strip(),
+    role_name = name.strip()
+    if ok and role_name and role_name not in data:
+        data[role_name] = {
+            "role_name": role_name,
             "default_set": window.all_set_names[0] if window.all_set_names else "",
             "extra_shape_label": "",
             "extra_shape_buffs": {},
@@ -563,7 +564,7 @@ def add_role(window, data, config_dir):
             "weights": {},
         }
         save_config_data(window, data, config_dir)
-        switch_config_form(window, "roles.json", config_dir, use_draft=True)
+        switch_config_form(window, "roles.json", config_dir, use_draft=True, active_role=role_name)
 
 
 def del_role(window, rn, data, config_dir, cb=None):

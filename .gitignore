@@ -23,6 +23,7 @@ dist/
 # Installer generated files with local absolute paths
 installer/*.iss
 installer/output/
+installer/README.md
 
 # Runtime data
 /logs/

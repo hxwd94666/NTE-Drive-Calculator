@@ -324,18 +324,38 @@ class BaseDispatchStrategy:
 class RolePriorityStrategy(BaseDispatchStrategy):
     """Greedy per-role allocation by priority order."""
 
+    def _required_shapes_for_role_blueprints(self, role_name: str, blueprints: list[dict], custom_sets: Dict[str, str]) -> set[str]:
+        target_set = self._target_set(role_name, custom_sets)
+        shapes = set()
+        for blueprint in blueprints:
+            shapes.update(self._set_pieces_for_blueprint(blueprint, target_set))
+            shapes.update(blueprint.get("extra_pieces", []) or [])
+        return shapes
+
+    def _filter_drives_by_shapes(self, drives_pool: list[Drive], required_shapes: set[str]) -> list[Drive]:
+        if not required_shapes:
+            return []
+        return [drive for drive in drives_pool if drive.shape_id in required_shapes]
+
+    def _drive_buckets(self, drives_pool: list[Drive]) -> dict[str, list[tuple[int, Drive]]]:
+        buckets = {}
+        for index, drive in enumerate(drives_pool):
+            buckets.setdefault(drive.shape_id, []).append((index, drive))
+        return buckets
+
     def _find_best_fit(self, role_name: str, blueprint: Dict, available_pool: List[Drive], target_set: str,
                        crit_mode: str | None = None) -> Dict:
         set_shapes = self._set_pieces_for_blueprint(blueprint, target_set)
         extra_shapes = blueprint["extra_pieces"]
+        drive_buckets = self._drive_buckets(available_pool)
 
         used_indices = set()
         assigned_set, assigned_extra, total_score = [], [], 0.0
 
         for req_shape in set_shapes:
             candidates = [
-                (idx, drive) for idx, drive in enumerate(available_pool)
-                if idx not in used_indices and drive.shape_id == req_shape
+                (idx, drive) for idx, drive in drive_buckets.get(req_shape, [])
+                if idx not in used_indices
             ]
             picked = self._pick_best_drive(role_name, candidates, crit_mode)
             if picked:
@@ -348,8 +368,8 @@ class RolePriorityStrategy(BaseDispatchStrategy):
 
         for req_shape in extra_shapes:
             candidates = [
-                (idx, drive) for idx, drive in enumerate(available_pool)
-                if idx not in used_indices and drive.shape_id == req_shape
+                (idx, drive) for idx, drive in drive_buckets.get(req_shape, [])
+                if idx not in used_indices
             ]
             picked = self._pick_best_drive(role_name, candidates, crit_mode)
             if picked:
@@ -600,9 +620,12 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                 continue
 
             role_name = group[0]
-            blueprints = self.blueprints_db.get(role_name, [])
+            raw_blueprints = self.blueprints_db.get(role_name, [])
+            blueprints = self._dedupe_blueprints_for_role_priority(raw_blueprints)
             target_set = self._target_set(role_name, custom_sets)
-            logger.info(f"  [{role_name}] 匹配中... (图纸数: {len(blueprints)}, 候选池: {len(drives_pool)})")
+            required_shapes = self._required_shapes_for_role_blueprints(role_name, blueprints, custom_sets)
+            role_drives_pool = self._filter_drives_by_shapes(drives_pool, required_shapes)
+            logger.info(f"  [{role_name}] 匹配中... (图纸数: {len(blueprints)}, 候选池: {len(role_drives_pool)})")
 
             role_tape = assigned_tapes.get(role_name)
             tape_score = role_tape.role_scores.get(role_name, 0.0) if role_tape else 0.0
@@ -610,7 +633,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             best_plan = {"valid": False, "score": -1.0}
 
             for bp in blueprints:
-                plan = self._find_best_fit(role_name, bp, drives_pool, target_set, crit_priority_modes.get(role_name))
+                plan = self._find_best_fit(role_name, bp, role_drives_pool, target_set, crit_priority_modes.get(role_name))
                 if plan["valid"]:
                     total_score = plan["score"] + tape_score
                     if total_score > best_plan["score"]:
