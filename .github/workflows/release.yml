@@ -58,6 +58,15 @@ jobs:
       - name: Install Python dependencies
         shell: pwsh
         run: |
+          $stubDir = Join-Path $env:RUNNER_TEMP 'pip-msiexec-stub'
+          New-Item -ItemType Directory -Force -Path $stubDir | Out-Null
+          Set-Content -Path (Join-Path $stubDir 'msiexec.bat') -Encoding ascii -Value @(
+            '@echo off',
+            'echo Skipping vgamepad ViGEmBus driver install during dependency installation.',
+            'exit /b 0'
+          )
+          $env:PATH = "$stubDir;$env:PATH"
+
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
