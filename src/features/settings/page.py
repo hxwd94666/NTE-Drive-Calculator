@@ -23,6 +23,27 @@ from PySide6.QtWidgets import (
 )
 
 
+def _move_card_title_to_row(card, title, button):
+    layout = card.layout()
+    title_label = None
+    if layout and layout.count():
+        first_item = layout.itemAt(0)
+        first_widget = first_item.widget() if first_item else None
+        if isinstance(first_widget, QLabel) and first_widget.text() == title:
+            layout.takeAt(0)
+            title_label = first_widget
+    if title_label is None:
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size:14px;font-weight:600;color:#58a6ff")
+
+    title_row = QHBoxLayout()
+    title_row.setSpacing(10)
+    title_row.addWidget(title_label)
+    title_row.addWidget(button)
+    title_row.addStretch()
+    layout.insertLayout(0, title_row)
+
+
 def build_settings_page(window, app_version, get_paths, iter_image_files, netdisk_url=""):
     page = QWidget()
     scroll = QScrollArea()
@@ -44,6 +65,12 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     layout.addWidget(log_card)
 
     hotkey_card = window._card("快捷键绑定")
+    save_hotkeys = QPushButton("保存快捷键")
+    save_hotkeys.setObjectName("btnPrimary")
+    save_hotkeys.setFixedWidth(112)
+    save_hotkeys.clicked.connect(window._save_hotkeys)
+    _move_card_title_to_row(hotkey_card, "快捷键绑定", save_hotkeys)
+
     form = QFormLayout()
     form.setSpacing(10)
 
@@ -74,10 +101,6 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     stop_row.addStretch()
     form.addRow(stop_row)
 
-    save_hotkeys = QPushButton("保存快捷键")
-    save_hotkeys.setObjectName("btnPrimary")
-    save_hotkeys.clicked.connect(window._save_hotkeys)
-    form.addRow(save_hotkeys)
     hotkey_card.layout().addLayout(form)
     layout.addWidget(hotkey_card)
 

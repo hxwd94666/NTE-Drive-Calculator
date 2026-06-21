@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLabel, QTex
 
 UPDATE_FAILURE_NETDISK_MESSAGE = "GitHub请求失败，可前往网盘链接查看版本更新情况"
 UPDATE_FALLBACK_MESSAGE = "GitHub API 请求失败，已通过 Release 页面获取版本号。"
+UPDATE_CHECK_TIMEOUT_SECONDS = 2
 
 
 class ReleaseNotesHTMLParser(HTMLParser):
@@ -74,7 +75,12 @@ def is_newer_version(remote, current) -> bool:
     return nums(remote) > nums(current)
 
 
-def fetch_update_info(latest_release_api: str, releases_url: str, app_version: str, timeout: int = 10) -> dict:
+def fetch_update_info(
+    latest_release_api: str,
+    releases_url: str,
+    app_version: str,
+    timeout: int = UPDATE_CHECK_TIMEOUT_SECONDS,
+) -> dict:
     feed_result = fetch_update_info_from_atom_feed(releases_url, app_version, timeout=timeout)
     if feed_result.get("has_release"):
         return feed_result
@@ -127,7 +133,11 @@ def fetch_update_info(latest_release_api: str, releases_url: str, app_version: s
     }
 
 
-def fetch_update_info_from_atom_feed(releases_url: str, app_version: str, timeout: int = 10) -> dict:
+def fetch_update_info_from_atom_feed(
+    releases_url: str,
+    app_version: str,
+    timeout: int = UPDATE_CHECK_TIMEOUT_SECONDS,
+) -> dict:
     feed_url = releases_url.rstrip("/") + ".atom"
     request = urllib.request.Request(feed_url, headers={"User-Agent": f"NTE-Drive-Calc/{app_version}"})
     try:
@@ -183,7 +193,11 @@ def fetch_update_info_from_atom_feed(releases_url: str, app_version: str, timeou
     }
 
 
-def fetch_update_info_from_latest_page(releases_url: str, app_version: str, timeout: int = 10) -> dict:
+def fetch_update_info_from_latest_page(
+    releases_url: str,
+    app_version: str,
+    timeout: int = UPDATE_CHECK_TIMEOUT_SECONDS,
+) -> dict:
     latest_url = releases_url.rstrip("/") + "/latest"
     request = urllib.request.Request(latest_url, headers={"User-Agent": f"NTE-Drive-Calc/{app_version}"})
     try:

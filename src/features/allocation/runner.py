@@ -12,6 +12,7 @@ from src.app import runtime
 from src.app.facade import NTEAppFacade
 from src.app.theme import STYLE
 from src.app.workers import WorkerThread
+from src.optimizer.plan_diff import build_plan_diff
 from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
@@ -83,6 +84,8 @@ def _on_done(self,r):
         logger.info(f"_on_done 收到结果: type={type(r).__name__}, keys={list(r.keys()) if isinstance(r,dict) else 'N/A'}")
         self.final_plan=r; self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
         if r is None: QMessageBox.warning(self,"提示","计算失败，请检查库存文件是否存在。"); return
+        old_state=self.state_mgr.load_state() if hasattr(self.state_mgr,"load_state") else {}
+        self.allocation_plan_diff=build_plan_diff(old_state,r)
         self._allocation_dirty=True
         self._render_results(r)
         logger.info("_render_results 完成")

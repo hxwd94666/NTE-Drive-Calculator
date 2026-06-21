@@ -5,10 +5,8 @@ import os
 import shutil
 import time
 
-import cv2
 import mss
 import mss.tools
-import numpy as np
 
 from src.scanner.window_capture import capture_foreground_window
 from src.utils.logger import logger
@@ -32,9 +30,6 @@ def _format_vigem_error(exc: Exception) -> str:
 
 class GamepadScanner:
     MAX_INVENTORY_COUNT = 2000
-    SAME_FRAME_DIFF_THRESHOLD = 1.0
-    CAPTURE_CHANGE_ATTEMPTS = 6
-    MOVE_RETRY_LIMIT = 2
 
     def __init__(self, output_dir="scanned_images"):
         self.output_dir = output_dir
@@ -42,7 +37,6 @@ class GamepadScanner:
         os.makedirs(self.output_dir, exist_ok=True)
         self._stopped = False
         self.cols = 7
-        self._last_capture_fingerprint = None
 
         logger.info("正在连接虚拟 Xbox 360 手柄...")
         try:
@@ -93,48 +87,20 @@ class GamepadScanner:
         self.capture_dir = self.output_dir
         logger.success(f"全量扫描截图已写入根目录，共 {moved} 张。")
 
-    def _frame_fingerprint(self, screenshot):
-        frame = np.asarray(screenshot)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
-        return cv2.resize(gray, (96, 54), interpolation=cv2.INTER_AREA)
-
-    def _is_same_frame(self, previous, current) -> bool:
-        if previous is None or current is None:
-            return False
-        diff = cv2.absdiff(previous, current)
-        return float(np.mean(diff)) <= self.SAME_FRAME_DIFF_THRESHOLD
-
     def capture_panel(self, sct, counter):
-        screenshot = None
-        fingerprint = None
-        attempt = 1
-
-        for attempt in range(1, self.CAPTURE_CHANGE_ATTEMPTS + 1):
-            screenshot, _ = capture_foreground_window(sct)
-            fingerprint = self._frame_fingerprint(screenshot)
-            if not self._is_same_frame(self._last_capture_fingerprint, fingerprint):
-                break
-            time.sleep(0.08)
-        else:
-            logger.warning(f"[{counter:04d}] 画面未变化，跳过本次截图并重试移动")
-            return False
-
+        screenshot, _ = capture_foreground_window(sct)
         filename = os.path.join(self.capture_dir, f"raw_drive_{counter:04d}.png")
         mss.tools.to_png(screenshot.rgb, screenshot.size, output=filename)
-        self._last_capture_fingerprint = fingerprint
-        if attempt > 1:
-            logger.info(f"[{counter:04d}] 捕获成功（等待画面变化 {attempt - 1} 次）")
-        else:
-            logger.info(f"[{counter:04d}] 捕获成功")
+        logger.info(f"[{counter:04d}] 捕获成功")
         return True
 
     def push_left_joystick(self, x, y):
         self.gamepad.left_joystick_float(x_value_float=x, y_value_float=y)
         self.gamepad.update()
-        time.sleep(0.04)
+        time.sleep(0.10)
         self.gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
         self.gamepad.update()
-        time.sleep(0.25)
+        time.sleep(0.30)
 
     def _apply_moves(self, moves):
         for move in moves:
@@ -198,23 +164,11 @@ class GamepadScanner:
             for index, moves in enumerate(path_commands, 1):
                 if self._stopped:
                     break
-                captured = False
-                for retry in range(self.MOVE_RETRY_LIMIT + 1):
-                    if retry:
-                        logger.warning(f"[{index:04d}] 画面未变化，重新发送移动指令（{retry}/{self.MOVE_RETRY_LIMIT}）")
-                    self._apply_moves(moves)
-                    if self._stopped:
-                        break
-                    if self.capture_panel(sct, index):
-                        captured = True
-                        captured_count += 1
-                        break
+                self._apply_moves(moves)
                 if self._stopped:
                     break
-                if not captured:
-                    logger.error(f"[{index:04d}] 多次移动后画面仍未变化，已中止全量扫描。请确认游戏窗口聚焦、手柄输入有效、起点正确。")
-                    self._stopped = True
-                    break
+                self.capture_panel(sct, index)
+                captured_count += 1
 
         if self._stopped or captured_count != total_drives:
             logger.warning("全量扫描未完整结束，临时截图未替换当前根目录。")

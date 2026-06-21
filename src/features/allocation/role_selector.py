@@ -198,7 +198,7 @@ class RoleSelector(QWidget):
 
         self.priority_w = QWidget()
         self.priority_layout = QGridLayout(self.priority_w)
-        self.priority_layout.setContentsMargins(6, 6, 6, 6)
+        self.priority_layout.setContentsMargins(0, 6, 0, 6)
         self.priority_layout.setHorizontalSpacing(8)
         self.priority_layout.setVerticalSpacing(8)
         self.priority_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
@@ -249,9 +249,17 @@ class RoleSelector(QWidget):
         return names
 
     def _priority_role_frame_width(self, name):
-        metrics = self.fontMetrics()
-        name_width = max(54, metrics.horizontalAdvance(str(name)) + 18)
-        return name_width + 48 + 6 + 5 + 6
+        return self._priority_role_name_width() + 48 + 6 + 5 + 6
+
+    def _priority_role_name_width(self):
+        return max(54, self.fontMetrics().horizontalAdvance("MMMM") + 18)
+
+    def _priority_role_name_font_size(self, name):
+        available = self._priority_role_name_width() - 18
+        text_width = max(1, self.fontMetrics().horizontalAdvance(str(name)))
+        if text_width <= available:
+            return 12
+        return max(9, min(12, int(12 * available / text_width)))
 
     def _render_priority_row(self):
         if not hasattr(self, "priority_layout"):
@@ -291,11 +299,11 @@ class RoleSelector(QWidget):
             name_btn = PriorityRoleButton(self, name, index)
             name_btn.setObjectName("btnSm")
             name_btn.setToolTip("点击移出当前优先级；拖动可调整顺序")
-            name_width = max(54, name_btn.fontMetrics().horizontalAdvance(name) + 18)
-            name_btn.setFixedWidth(name_width)
+            name_btn.setFixedWidth(self._priority_role_name_width())
+            name_size = self._priority_role_name_font_size(name)
             name_btn.setStyleSheet(
                 "QPushButton{background:transparent;color:#c9d1d9;border:none;"
-                "padding:3px 5px;font-size:12px;font-weight:700;text-align:left}"
+                f"padding:3px 5px;font-size:{name_size}px;font-weight:700;text-align:left}}"
                 "QPushButton:hover{color:#fff}"
             )
             item_layout.addWidget(name_btn)
@@ -313,9 +321,16 @@ class RoleSelector(QWidget):
             unit_layout.addWidget(item)
 
             if index < len(self.selected) - 1 and (not query or index + 1 in visible_indexes):
-                link_btn = QPushButton(self.priority_links[index])
+                link_text = self.priority_links[index]
+                link_btn = QPushButton(link_text)
                 link_btn.setFixedWidth(42)
                 link_btn.setObjectName("btnAction")
+                if link_text == ">>":
+                    link_btn.setStyleSheet(
+                        "QPushButton{color:#ff7b72;border:1px solid #f85149;"
+                        "background:#2d1117;border-radius:6px;font-weight:700}"
+                        "QPushButton:hover{background:#3c151c;border-color:#ff7b72}"
+                    )
                 link_btn.setToolTip(">：严格优先；>>：批次边界；=：同批次平级。点击循环切换。")
                 link_btn.clicked.connect(lambda _checked=False, pos=index: self._cycle_priority_link(pos))
                 unit_layout.addWidget(link_btn)
