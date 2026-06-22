@@ -21,6 +21,7 @@ NAV_ITEMS = (
     NavItem("identify", "🔍  鉴定", "btn_identify", "_page_identify", "_refresh_identify_options"),
     NavItem("blueprint", "📐  图纸", "btn_blueprint", "_page_blueprint", "_refresh_blueprints"),
     NavItem("config", "⚙  配置", "btn_config", "_page_config", "_refresh_config_forms"),
+    NavItem("my_role", "👤  角色", "btn_my_role", "_page_my_role", "_refresh_my_role"),
     NavItem("settings", "🔧  设置", "btn_settings", "_page_settings"),
 )
 

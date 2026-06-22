@@ -112,6 +112,10 @@ def _refresh_equip(self):
         del_btn.setFixedSize(64,32)
         del_btn.clicked.connect(lambda _=False, rn=role_name: self._delete_role_equipment(rn))
         role_hdr.addWidget(del_btn)
+        import_btn = QPushButton("导入")
+        import_btn.setObjectName("btnPrimary")  # 蓝色主按钮样式
+        import_btn.clicked.connect(lambda _, rn=role_name: self._import_to_my_role(rn))
+        role_hdr.addWidget(import_btn)
         gl.addLayout(role_hdr); gl.addSpacing(6)
 
         bp=rd.get("blueprint_layout",[])

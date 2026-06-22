@@ -129,6 +129,7 @@ from src.utils.name_resolver import resolve_name
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.hotkeys import load_hotkey_config, save_hotkey_config
+from src.features.role.page import (_page_my_role, _refresh_my_role)
 from src.features.configuration.page import (
     add_role as config_add_role,
     add_set as config_add_set,
@@ -740,6 +741,7 @@ def _install_feature_methods():
     from src.features.inventory import page as inventory_page
     from src.features.blueprints import page as blueprints_page
     from src.features.allocation import runner as allocation_runner
+    from src.features.role import page as role_page
     from src.features.allocation import results_view as allocation_results_view
     from src.features.identification import controller as identification_controller
     from src.features.identification import dialogs as identification_dialogs
@@ -755,6 +757,7 @@ def _install_feature_methods():
         identification_controller,
         identification_dialogs,
         scanning_controller,
+        role_page
     ):
         module.install_methods(app_module, MainWindow)
 
