@@ -2,6 +2,17 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Upload installer to a GitHub Release'
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag, such as v1.1.2. Leave empty to use vAPP_VERSION.'
+        required: false
+        type: string
+        default: ''
   push:
     tags:
       - '*'
@@ -30,10 +41,12 @@ jobs:
         run: |
           $eventName = '${{ github.event_name }}'
           $appVersion = python -c "from src.app.constants import APP_VERSION; print(APP_VERSION)"
+          $publishRelease = 'false'
 
           if ($eventName -eq 'push') {
             $tag = '${{ github.ref_name }}'
             $version = $tag -replace '^v', ''
+            $publishRelease = 'true'
 
             if ($version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
               throw "Tag '$tag' does not look like a release version. Use tags like '1.1.2' or 'v1.1.2'."
@@ -43,17 +56,26 @@ jobs:
               throw "Tag version '$version' must match src.app.constants.APP_VERSION '$appVersion'."
             }
           } else {
-            $tag = ''
-            $version = $appVersion
+            $tag = '${{ github.event.inputs.release_tag }}'.Trim()
+            if ([string]::IsNullOrWhiteSpace($tag)) {
+              $tag = "v$appVersion"
+            }
+            $version = $tag -replace '^v', ''
+            $publishRelease = '${{ github.event.inputs.publish_release }}'.ToLowerInvariant()
 
             if ($version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
-              throw "src.app.constants.APP_VERSION '$version' does not look like a release version."
+              throw "Release tag '$tag' does not look like a release version. Use tags like '1.1.2' or 'v1.1.2'."
+            }
+
+            if ($appVersion -ne $version) {
+              throw "Release tag version '$version' must match src.app.constants.APP_VERSION '$appVersion'."
             }
           }
 
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
           "installer=NTE_Drive_Calc_Setup_$version.exe" >> $env:GITHUB_OUTPUT
+          "publish_release=$publishRelease" >> $env:GITHUB_OUTPUT
 
       - name: Install Python dependencies
         shell: pwsh
@@ -111,9 +133,10 @@ jobs:
           name: ${{ steps.version.outputs.installer }}
           path: installer/output/${{ steps.version.outputs.installer }}
           if-no-files-found: error
+          retention-days: 14
 
       - name: Create or update GitHub release
-        if: github.event_name == 'push'
+        if: steps.version.outputs.publish_release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -125,5 +148,5 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $installer --repo $env:GITHUB_REPOSITORY --clobber
           } else {
-            gh release create $tag $installer --repo $env:GITHUB_REPOSITORY --title $tag --generate-notes
+            gh release create $tag $installer --repo $env:GITHUB_REPOSITORY --title $tag --generate-notes --target $env:GITHUB_SHA
           }
