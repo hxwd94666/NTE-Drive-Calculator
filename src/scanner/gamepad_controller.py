@@ -10,6 +10,11 @@ import mss.tools
 
 from src.scanner.window_capture import capture_foreground_window
 from src.utils.logger import logger
+from src.utils.perf import log_perf
+
+
+def _save_png(screenshot, filename):
+    mss.tools.to_png(screenshot.rgb, screenshot.size, output=filename)
 
 
 class ViGEmDriverNotReadyError(RuntimeError):
@@ -88,11 +93,25 @@ class GamepadScanner:
         logger.success(f"全量扫描截图已写入根目录，共 {moved} 张。")
 
     def capture_panel(self, sct, counter):
+        total_start = time.perf_counter()
+        capture_start = time.perf_counter()
         screenshot, _ = capture_foreground_window(sct)
+        capture_ms = (time.perf_counter() - capture_start) * 1000.0
         filename = os.path.join(self.capture_dir, f"raw_drive_{counter:04d}.png")
-        mss.tools.to_png(screenshot.rgb, screenshot.size, output=filename)
+        write_start = time.perf_counter()
+        _save_png(screenshot, filename)
+        write_ms = (time.perf_counter() - write_start) * 1000.0
+        elapsed_ms = (time.perf_counter() - total_start) * 1000.0
+        log_perf(
+            logger,
+            "scan.capture",
+            elapsed_ms=elapsed_ms,
+            index=counter,
+            capture_ms=capture_ms,
+            write_ms=write_ms,
+        )
         logger.info(f"[{counter:04d}] 捕获成功")
-        return True
+        return filename
 
     def push_left_joystick(self, x, y):
         self.gamepad.left_joystick_float(x_value_float=x, y_value_float=y)
@@ -100,7 +119,7 @@ class GamepadScanner:
         time.sleep(0.10)
         self.gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
         self.gamepad.update()
-        time.sleep(0.30)
+        time.sleep(0.25)
 
     def _apply_moves(self, moves):
         for move in moves:
@@ -138,7 +157,8 @@ class GamepadScanner:
             commands.append(moves)
         return commands
 
-    def start_scan(self, total_drives=None):
+    def start_scan(self, total_drives=None, on_capture=None, commit_on_complete=True):
+        scan_start = time.perf_counter()
         logger.warning("\n" + "=" * 50)
         logger.warning("虚拟手柄已就位，将在 3 秒后接管控制，请切回游戏")
         logger.warning("请确保此时已选中第一排第一个驱动/卡带")
@@ -159,23 +179,49 @@ class GamepadScanner:
         self._prepare_temp_output()
         path_commands = self._generate_path(total_drives)
         captured_count = 0
+        move_ms_total = 0.0
 
         with mss.MSS() as sct:
             for index, moves in enumerate(path_commands, 1):
                 if self._stopped:
                     break
+                move_start = time.perf_counter()
                 self._apply_moves(moves)
+                move_ms_total += (time.perf_counter() - move_start) * 1000.0
                 if self._stopped:
                     break
-                self.capture_panel(sct, index)
+                captured_path = self.capture_panel(sct, index)
                 captured_count += 1
+                if on_capture is not None:
+                    on_capture(captured_path, index, total_drives)
 
+        elapsed_ms = (time.perf_counter() - scan_start) * 1000.0
         if self._stopped or captured_count != total_drives:
+            log_perf(
+                logger,
+                "scan.full",
+                elapsed_ms=elapsed_ms,
+                total=total_drives,
+                captured=captured_count,
+                move_ms=move_ms_total,
+                status="aborted",
+            )
             logger.warning("全量扫描未完整结束，临时截图未替换当前根目录。")
             return 0
 
-        self._commit_temp_output()
+        if commit_on_complete:
+            self._commit_temp_output()
 
+        log_perf(
+            logger,
+            "scan.full",
+            elapsed_ms=elapsed_ms,
+            total=total_drives,
+            captured=captured_count,
+            move_ms=move_ms_total,
+            avg_item_ms=(elapsed_ms / captured_count) if captured_count else 0.0,
+            status="ok",
+        )
         logger.success("\n" + "=" * 40)
         logger.success(f"扫描完成，共处理 {total_drives} 个装备。")
         logger.success("=" * 40)
