@@ -1856,6 +1856,29 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
 
             self.assertEqual(["wanted"], [tape.uid for tape in result["tapes"]["A"]])
 
+    def test_tape_main_filter_allows_zero_score_matching_tape(self):
+        from src.models.equipment import Tape
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            roles_path = config_dir / "roles.json"
+            roles = json.loads(roles_path.read_text(encoding="utf-8"))
+            roles["A"]["weights"] = {"Sub": 1.0}
+            roles_path.write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                [
+                    Tape(uid="wanted_zero", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={}),
+                    Tape(uid="other_high", quality="Gold", area=15, set_name="Set", main_stats="Other", sub_stats={"Sub": 1}),
+                ],
+                tape_top_k_per_set_per_role=3,
+                tape_main_filters={"A": ["Wanted"]},
+            )
+
+            self.assertEqual(["wanted_zero"], [tape.uid for tape in result["tapes"]["A"]])
+
     def test_stat_priority_is_applied_before_drive_top_limit(self):
         from src.models.equipment import Drive
         from src.optimizer.scoring import ScoringEngine
@@ -1894,6 +1917,156 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
             )
 
             self.assertIn("crit", [drive.uid for drive in result["drives"]])
+
+    def test_stat_priority_can_ignore_grade_limit_before_drive_top_limit(self):
+        from src.models.equipment import Drive
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            roles_path = config_dir / "roles.json"
+            roles = json.loads(roles_path.read_text(encoding="utf-8"))
+            roles["A"]["weights"] = {"H1": 10.0, "Crit": 1.0}
+            roles_path.write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
+
+            high_score = Drive(
+                uid="high_score",
+                quality="Gold",
+                area=1,
+                shape_id="S1",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                sub_stats={"H1": 1},
+            )
+            low_score_match = Drive(
+                uid="low_score_match",
+                quality="Gold",
+                area=1,
+                shape_id="S1",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                sub_stats={"Crit": 1},
+            )
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                [high_score, low_score_match],
+                top_k_per_shape_per_role=1,
+                crit_priority_modes={"A": {"stats": ["Crit"], "ignore_grade_limit": True}},
+            )
+
+            self.assertEqual(["low_score_match"], [drive.uid for drive in result["drives"]])
+
+    def test_strategy_rank_respects_ignore_grade_limit_for_low_score_drive(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import BaseDispatchStrategy
+
+        strategy = BaseDispatchStrategy({}, {}, {})
+        drive = Drive(
+            uid="low_score_match",
+            quality="Gold",
+            area=4,
+            shape_id="S1",
+            set_name="Set",
+            main_stats={"m1": 1, "m2": 1},
+            sub_stats={"Crit": 1},
+            role_scores={"A": 10.0},
+        )
+
+        self.assertEqual(
+            10.0,
+            strategy._rank_score_for_drive("A", drive, 10.0, {"stats": ["Crit"]}),
+        )
+        self.assertGreater(
+            strategy._rank_score_for_drive("A", drive, 10.0, {"stats": ["Crit"], "ignore_grade_limit": True}),
+            10.0,
+        )
+
+    def test_grouped_role_priority_assigns_zero_score_tapes_from_filtered_pool(self):
+        from src.models.equipment import Tape
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        strategy = RolePriorityStrategy(
+            roles_db={
+                "A": {"default_set": "Set"},
+                "B": {"default_set": "Set"},
+            },
+            sets_db={"Set": {"shapes": []}},
+            blueprints_db={},
+        )
+        tape_a = Tape(uid="tape_a", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={})
+        tape_b = Tape(uid="tape_b", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={})
+        tape_a.role_scores = {"A": 0.0, "B": 0.0}
+        tape_b.role_scores = {"A": 0.0, "B": 0.0}
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [["A", "B"]],
+            {},
+            {"A": [tape_a], "B": [tape_b]},
+            {},
+        )
+
+        self.assertEqual(
+            {"A": "tape_a", "B": "tape_b"},
+            {role: tape.uid if tape else None for role, tape in assigned.items()},
+        )
+
+    def test_grouped_role_priority_does_not_share_filtered_tapes_across_roles(self):
+        from src.models.equipment import Tape
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        strategy = RolePriorityStrategy(
+            roles_db={
+                "A": {"default_set": "Set"},
+                "B": {"default_set": "Set"},
+            },
+            sets_db={"Set": {"shapes": []}},
+            blueprints_db={},
+        )
+        tape_a = Tape(uid="tape_a", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={})
+        tape_a.role_scores = {"A": 0.0, "B": 0.0}
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [["A", "B"]],
+            {},
+            {"A": [tape_a], "B": []},
+            {},
+        )
+
+        self.assertEqual("tape_a", assigned["A"].uid)
+        self.assertIsNone(assigned["B"])
+
+    def test_role_preference_configs_are_rejected_for_score_based_modes(self):
+        from src.features.allocation.preference_modes import role_preference_mode_error
+
+        self.assertIsNone(role_preference_mode_error("role_priority", {"A": ["Wanted"]}, {}))
+        self.assertIsNone(role_preference_mode_error("update_mode", {}, {"A": {"stats": ["Crit"]}}))
+        self.assertIn("词条自选", role_preference_mode_error("drive_priority", {"A": ["Wanted"]}, {}))
+        self.assertIn("词条自选", role_preference_mode_error("global_optimal", {}, {"A": {"stats": ["Crit"]}}))
+
+    def test_dispatcher_drops_stat_priority_for_score_based_modes(self):
+        from src.optimizer.dispatcher import DispatcherEngine
+
+        class FakeStrategy:
+            def __init__(self):
+                self.received_config = None
+
+            def execute(self, _pool, _priority, _sets, crit_priority_modes):
+                self.received_config = crit_priority_modes
+                return None
+
+        strategy = FakeStrategy()
+        dispatcher = object.__new__(DispatcherEngine)
+        dispatcher.strategies = {"drive_priority": strategy}
+
+        dispatcher.execute_dispatch(
+            "drive_priority",
+            candidate_pool={},
+            priority_list=["A"],
+            crit_priority_modes={"A": {"stats": ["Crit"], "ignore_grade_limit": True}},
+        )
+
+        self.assertEqual({}, strategy.received_config)
 
     def test_orchestrator_reads_largest_priority_group_size(self):
         from src.solver.orchestrator import NTEPipelineOrchestrator
