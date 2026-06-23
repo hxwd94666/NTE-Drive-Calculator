@@ -7,9 +7,10 @@ NTE Drive Calc - PyInstaller 打包脚本
     python build_exe.py --onefile    # 单文件模式
 """
 
-import sys
+import importlib.util
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import PyInstaller.__main__
@@ -66,6 +67,14 @@ def _append_add_data(src: str | Path, dst: str):
 
 def _append_add_binary(src: str | Path, dst: str):
     args.append(f"--add-binary={Path(src)}{sep}{dst}")
+
+
+def _find_package_dir(package_name: str) -> Path | None:
+    spec = importlib.util.find_spec(package_name)
+    if spec is None or spec.origin is None:
+        return None
+    return Path(spec.origin).parent
+
 
 hidden_imports = [
     "cv2", "cv2.mat_wrapper",
@@ -166,14 +175,11 @@ except Exception:
     pass
 
 # ViGEmClient.dll（虚拟手柄）
-try:
-    import vgamepad
-    vg_path = Path(vgamepad.__file__).parent
+vg_path = _find_package_dir("vgamepad")
+if vg_path is not None:
     vigem_dll = vg_path / "win" / "vigem" / "client" / "x64" / "ViGEmClient.dll"
     if vigem_dll.exists():
         args.append(f"--add-binary={vigem_dll}{sep}vgamepad/win/vigem/client/x64")
-except ImportError:
-    pass
 
 # UPX 压缩（如果可用）
 args.append("--upx-dir=.")

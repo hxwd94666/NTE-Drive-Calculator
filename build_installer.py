@@ -1,5 +1,5 @@
 # 生成安装包脚本并同步应用版本信息。
-"""
+r"""
 Build the Windows installer for NTE Drive Calc.
 
 Requirements:
@@ -15,6 +15,7 @@ Typical usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -65,19 +66,24 @@ def _read_app_version() -> str:
     return APP_VERSION
 
 
+def _find_package_dir(package_name: str) -> Path | None:
+    spec = importlib.util.find_spec(package_name)
+    if spec is None or spec.origin is None:
+        return None
+    return Path(spec.origin).parent
+
+
 def _find_vigem_installer() -> tuple[Path, bool]:
     if VIGEM_BUNDLE_EXE.exists():
         return VIGEM_BUNDLE_EXE, True
 
-    try:
-        import vgamepad
-    except ImportError as exc:
+    pkg_dir = _find_package_dir("vgamepad")
+    if pkg_dir is None:
         raise RuntimeError(
             f"ViGEmBus installer not found: {VIGEM_BUNDLE_EXE}. "
             "vgamepad is also not installed, so no fallback MSI is available."
-        ) from exc
+        )
 
-    pkg_dir = Path(vgamepad.__file__).parent
     msi = pkg_dir / "win" / "vigem" / "install" / "x64" / "ViGEmBusSetup_x64.msi"
     if not msi.exists():
         raise RuntimeError(f"ViGEmBus driver MSI not found: {msi}")
