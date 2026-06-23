@@ -190,6 +190,9 @@ class NTEPipelineOrchestrator:
         crit_priority_modes = crit_priority_modes or {}
         set_effect_modes = set_effect_modes or {}
         priority_groups = priority_groups or None
+        if mode != "role_priority":
+            tape_main_filters = {}
+            crit_priority_modes = {}
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         total_t0 = time.perf_counter()
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
