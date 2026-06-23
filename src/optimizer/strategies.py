@@ -38,7 +38,11 @@ class BaseDispatchStrategy:
         stats = [str(s) for s in config.get("stats", []) if s]
         if not stats:
             return {}
-        return {"stats": stats, "equal_priority": bool(config.get("equal_priority", False))}
+        return {
+            "stats": stats,
+            "equal_priority": bool(config.get("equal_priority", False)),
+            "ignore_grade_limit": bool(config.get("ignore_grade_limit", False)),
+        }
 
     def _item_has_stat(self, item, stat_key: str) -> bool:
         target = str(stat_key or "").replace("%", "")
@@ -58,7 +62,7 @@ class BaseDispatchStrategy:
             return base_score
         cfg = self._stat_priority_config(config)
         stats = cfg.get("stats", [])
-        if not stats or not self._is_a_grade_item(role, item):
+        if not stats or (not cfg.get("ignore_grade_limit") and not self._is_a_grade_item(role, item)):
             return base_score
         if cfg.get("equal_priority"):
             covered = self._covered_stat_count(item, stats)
@@ -434,7 +438,9 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                 continue
 
             tapes_by_uid = {}
+            role_tape_uids = {}
             for role in group:
+                role_tape_uids[role] = {tape.uid for tape in tapes_pool.get(role, [])}
                 for tape in tapes_pool.get(role, []):
                     if tape.uid in used_tape_uids:
                         continue
@@ -452,16 +458,17 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             for r_idx, role in enumerate(group):
                 target_set = self._target_set(role, custom_sets)
                 for t_idx, tape in enumerate(real_tapes):
-                    if tape.set_name != target_set:
+                    if tape.uid not in role_tape_uids.get(role, set()) or tape.set_name != target_set:
                         profit_matrix[r_idx, t_idx] = -10000.0
                         continue
                     score = max(0.0, tape.role_scores.get(role, 0.0))
-                    profit_matrix[r_idx, t_idx] = self._rank_score_for_item(
+                    rank_score = self._rank_score_for_item(
                         role, tape, score, stat_priority_configs.get(role)
                     )
+                    profit_matrix[r_idx, t_idx] = rank_score if rank_score > 0 else 0.000001
             row_ind, col_ind = linear_sum_assignment(-profit_matrix)
             for r_idx, c_idx in zip(row_ind, col_ind):
-                if c_idx >= len(real_tapes) or profit_matrix[r_idx, c_idx] <= 0:
+                if c_idx >= len(real_tapes) or profit_matrix[r_idx, c_idx] < 0:
                     continue
                 tape = real_tapes[c_idx]
                 assigned_tapes[group[r_idx]] = tape
