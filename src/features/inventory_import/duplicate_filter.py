@@ -61,20 +61,13 @@ def are_named_neighbors(previous_filename: str | None, current_filename: str | N
 
 
 def has_meaningful_parse_data(item_data, valid_stats=None) -> bool:
-    item_type = getattr(item_data, "item_type", "")
     sub_stats = getattr(item_data, "sub_stats", {}) or {}
     if sub_stats:
         if valid_stats is None:
-            return True
+            return len(sub_stats) >= 4
         valid_stats = set(valid_stats)
-        if any(stat in valid_stats for stat in sub_stats.keys()):
+        if sum(1 for stat in sub_stats.keys() if stat in valid_stats) >= 4:
             return True
-    if item_type == "drive":
-        return False
-    if item_type == "tape":
-        set_name = str(getattr(item_data, "set_name", "") or "").strip()
-        main_stats = str(getattr(item_data, "main_stats", "") or "").strip()
-        return set_name not in ("", "未知套装") or main_stats not in ("", "未知主词条")
     return False
 
 
