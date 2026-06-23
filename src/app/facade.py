@@ -50,9 +50,13 @@ class NTEAppFacade:
         state_manager = StateManager(config_dir=self.user_config_dir)
         locked_uids = set()
         base_mode = mode
+        preferences_allowed = mode in ("role_priority", "update_mode")
         if mode == "update_mode":
             locked_uids = state_manager.get_locked_uids()
             base_mode = "role_priority"
+        if not preferences_allowed:
+            tape_main_filters = {}
+            crit_priority_modes = {}
         final_plan = orchestrator.run_full_allocation(
             inventory=inventory,
             priority_list=priority_list,
