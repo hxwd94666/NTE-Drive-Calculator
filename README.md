@@ -129,6 +129,16 @@ python main.py
 installer\output\NTE_Drive_Calc_Setup_x.x.x.exe
 ```
 
+## 发布
+
+推送版本标签会自动触发 GitHub Actions 构建 Windows 安装包并创建 GitHub Release。标签可以使用 `1.1.2` 或 `v1.1.2` 格式；生成的 Release 资产名会去掉可选的 `v` 前缀，例如：
+
+```text
+NTE_Drive_Calc_Setup_1.1.2.exe
+```
+
+发布前请先同步 `src/app/constants.py` 中的 `APP_VERSION`，工作流会校验标签版本与应用版本一致。
+
 ## 常见问题
 
 ### 全量扫描提示 VIGEM_ERROR_BUS_NOT_FOUND
