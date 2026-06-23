@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import traceback as tb
+import time
 
 from PySide6.QtCore import QThread, Signal
 
 from src.app import runtime
 from src.scanner.drone_scanner import DroneScanner
+from src.scanner.batch_processor import BatchProcessor
 from src.utils.logger import logger
+from src.utils.perf import log_perf
 
 
 class WorkerThread(QThread):
@@ -86,4 +89,74 @@ class GamepadScanWorkerThread(QThread):
             )
         except Exception as exc:
             logger.error(f"GamepadScanWorker 异常: {exc}")
+            self.error.emit(str(exc))
+
+
+class GamepadScanParseWorkerThread(QThread):
+    processing_done = Signal(dict)
+    error = Signal(str)
+    scanner_ready = Signal()
+    progress = Signal(int, int, str)
+
+    def __init__(self, total_drives, parent=None):
+        super().__init__(parent)
+        self.total_drives = total_drives
+        self.scanner = None
+
+    def run(self):
+        worker_start = time.perf_counter()
+        try:
+            from src.features.scanning.streaming_pipeline import run_streaming_scan_parse
+            from src.scanner.gamepad_controller import GamepadScanner
+
+            self.scanner = GamepadScanner(output_dir=str(runtime.SCREENSHOT_DIR))
+            self.scanner_ready.emit()
+            init_start = time.perf_counter()
+            processor = BatchProcessor(
+                input_dir=str(runtime.SCREENSHOT_DIR),
+                output_file=str(runtime.OUTPUT_FILE),
+                config_dir=str(runtime.CONFIG_DIR),
+                replace_output=True,
+            )
+            init_ms = (time.perf_counter() - init_start) * 1000.0
+            log_perf(
+                logger,
+                "vision.processor_init",
+                elapsed_ms=init_ms,
+                scope="full",
+                replace_output=1,
+                streaming=1,
+            )
+            stats = run_streaming_scan_parse(
+                self.scanner,
+                processor,
+                self.total_drives,
+                progress_callback=lambda current, total, filename: self.progress.emit(current, total, filename),
+                cancel_check=lambda: bool(getattr(self.scanner, "_stopped", False)),
+            )
+            if int(stats.get("total_count", 0) or 0) != int(self.total_drives):
+                raise RuntimeError("全量扫描未完整结束，流水线解析结果未写入库存。")
+            del processor
+            log_perf(
+                logger,
+                "vision.total",
+                elapsed_ms=(time.perf_counter() - worker_start) * 1000.0,
+                scope="full",
+                total=stats.get("total_count", 0),
+                success=stats.get("success_count", 0),
+                duplicate=stats.get("duplicate_count", 0),
+                failed=stats.get("failed_count", 0),
+                streaming=1,
+            )
+            self.processing_done.emit(stats)
+        except (FileNotFoundError, OSError) as exc:
+            logger.error(f"GamepadScanParseWorker DLL错误: {exc}")
+            self.error.emit(
+                "ViGEmClient.dll 加载失败，请确认:\n"
+                "1. 已安装 ViGEmBus 驱动 (https://github.com/nefarius/ViGEmBus/releases)\n"
+                f"2. 重启电脑后再试\n\n原始错误: {exc}"
+            )
+        except Exception as exc:
+            err_detail = f"{exc}\n\n{tb.format_exc()}"
+            logger.error(f"GamepadScanParseWorker 异常: {err_detail}")
             self.error.emit(str(exc))
