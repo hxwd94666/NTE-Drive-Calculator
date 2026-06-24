@@ -371,13 +371,17 @@ class RoleSelector(QWidget):
             self.tape_main_filters.pop(name, None)
         self.orderChanged.emit()
 
-    def _set_stat_priority_config(self, name, stats, equal_priority=False):
+    def _set_stat_priority_config(self, name, stats, equal_priority=False, ignore_grade_limit=False):
         clean = []
         for stat in stats or []:
             if stat and stat in self.drive_sub_stats and stat not in clean:
                 clean.append(stat)
         if clean:
-            self.stat_priority_configs[name] = {"stats": clean, "equal_priority": bool(equal_priority)}
+            self.stat_priority_configs[name] = {
+                "stats": clean,
+                "equal_priority": bool(equal_priority),
+                "ignore_grade_limit": bool(ignore_grade_limit),
+            }
         else:
             self.stat_priority_configs.pop(name, None)
         self.orderChanged.emit()
@@ -493,9 +497,16 @@ class RoleSelector(QWidget):
         stat_row.addWidget(help_btn)
         stat_layout.addLayout(stat_row)
 
+        stat_option_row = QHBoxLayout()
+        stat_option_row.setSpacing(12)
         stat_equal = QCheckBox("词条自选优先级一致")
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
-        stat_layout.addWidget(stat_equal)
+        ignore_grade_limit = QCheckBox("不限制评分等级")
+        ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
+        stat_option_row.addWidget(stat_equal)
+        stat_option_row.addWidget(ignore_grade_limit)
+        stat_option_row.addStretch(1)
+        stat_layout.addLayout(stat_option_row)
 
         stat_label = QLabel()
         stat_label.setWordWrap(True)
@@ -550,7 +561,12 @@ class RoleSelector(QWidget):
             resolved_set = resolve_priority_choice(self.all_sets, set_value, set_combo.currentData())
             self._set_custom_set(name, resolved_set)
             self._set_tape_main_filter(name, selected_main_stats)
-            self._set_stat_priority_config(name, selected_stats, stat_equal.isChecked())
+            self._set_stat_priority_config(
+                name,
+                selected_stats,
+                stat_equal.isChecked(),
+                ignore_grade_limit.isChecked(),
+            )
             self._set_set_effect_mode(name, effect_combo.currentData())
             self._render_grid(self.search.text())
 
@@ -709,6 +725,7 @@ class RoleSelector(QWidget):
                     self.stat_priority_configs[role] = {
                         "stats": stats,
                         "equal_priority": bool(cfg_item.get("equal_priority", False)),
+                        "ignore_grade_limit": bool(cfg_item.get("ignore_grade_limit", False)),
                     }
             self.set_effect_modes = {}
             for role, mode in data.get("set_effect_modes", {}).items():
@@ -729,10 +746,11 @@ PRIORITY_SAVE_HELP = (
 
 
 STAT_PRIORITY_HELP = (
-    "词条自选只影响该角色挑选驱动/卡带时的候选顺序，不改变词条权重，也不会额外增加最终评分。\n\n"
-    "关闭“词条自选优先级一致”时：按照添加顺序作为优先级，先从最高优先级词条的候选池中寻找，没有合适的再逐级向后找，最后回到全局池。\n\n"
-    "开启“词条自选优先级一致”时：不看添加顺序，优先使用覆盖所选词条数量更多的装备。\n\n"
-    "卡带会先满足卡带主词条筛选，再在满足主词条的池子里应用本规则。为了避免只因词条命中选到低质装备，命中优先只对至少 A 级评分的装备生效。"
+    "词条自选会让该角色优先挑选带有所选词条的驱动。\n\n"
+    "关闭“优先级一致”时，越靠前的词条优先级越高。\n"
+    "开启“优先级一致”时，优先选择命中词条数量更多的驱动。\n\n"
+    "默认只对评分达到 A 级的驱动生效，避免选到整体太差的装备。\n"
+    "勾选“不限制评分等级”后，只要命中自选词条，即使评分不到 A 也可以参与分配。"
 )
 
 

@@ -3,9 +3,20 @@
 
 from __future__ import annotations
 
+import time
+
 import cv2
+import numpy as np
 
 from src.utils.logger import logger
+from src.utils.perf import log_perf
+
+
+HIGH_CONFIDENCE_DRIVE_SHAPE = 0.95
+
+
+def _elapsed_ms(start: float) -> float:
+    return (time.perf_counter() - start) * 1000.0
 
 
 def locate_shape_in_image(shape_recognizer, img, region=None) -> dict:
@@ -39,6 +50,30 @@ def locate_shape_in_image(shape_recognizer, img, region=None) -> dict:
     return {"shape_id": best_shape, "confidence": round(float(best_score), 2)}
 
 
+def locate_selected_reward_shape(shape_recognizer, img) -> dict:
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV) if len(img.shape) == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if len(img.shape) != 3:
+        hsv = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, np.array([140, 80, 120]), np.array([179, 255, 255]))
+    contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = []
+    image_h, image_w = img.shape[:2]
+    min_area = max(300, int(image_w * image_h * 0.0001))
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if w * h >= min_area:
+            boxes.append((x, y, x + w, y + h))
+    if boxes:
+        x1 = max(0, min(box[0] for box in boxes) - int(image_w * 0.012))
+        y1 = max(0, min(box[1] for box in boxes) - int(image_h * 0.02))
+        x2 = min(image_w, max(box[2] for box in boxes) + int(image_w * 0.012))
+        y2 = min(image_h, max(box[3] for box in boxes) + int(image_h * 0.02))
+        selected = locate_shape_in_image(shape_recognizer, img, (x1, y1, x2, y2))
+        if selected["shape_id"] != "Unknown":
+            return selected
+    return locate_shape_in_image(shape_recognizer, img, None)
+
+
 def looks_like_drive_identity(text: str) -> bool:
     clean = (text or "").replace(" ", "")
     if "卡带" in clean:
@@ -67,17 +102,49 @@ def classify_item(processor, img, region_profiles):
     candidates = []
 
     for profile_name, regions in region_profiles:
+        profile_start = time.perf_counter()
         shape_box = regions["drive_shape_icon"]
         crop = img[shape_box[1]:shape_box[3], shape_box[0]:shape_box[2]]
         if crop.size == 0:
             continue
         shape_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        shape_start = time.perf_counter()
         shape_res = processor.shape_recognizer.recognize(shape_crop)
+        shape_ms = _elapsed_ms(shape_start)
+        if (
+            shape_res["shape_id"] != "Unknown"
+            and shape_res["confidence"] >= HIGH_CONFIDENCE_DRIVE_SHAPE
+        ):
+            shape_res = dict(shape_res)
+            shape_res["identity_skipped"] = True
+            log_perf(
+                logger,
+                "parse.classify_profile",
+                elapsed_ms=_elapsed_ms(profile_start),
+                profile=profile_name,
+                shape_ms=shape_ms,
+                identity_ocr_ms=0.0,
+                shape_id=shape_res["shape_id"],
+                shape_conf=shape_res["confidence"],
+                identity_len=0,
+                drive_text=1,
+                tape_text=0,
+                identity_skipped=1,
+            )
+            logger.debug(
+                f"候选坐标[{profile_name}] shape={shape_box} "
+                f"高置信形状={shape_res['shape_id']}({shape_res['confidence']})，跳过身份 OCR"
+            )
+            return "drive", profile_name, regions, shape_res, ""
 
         id_box = regions["identity_check"]
         id_crop = img[id_box[1]:id_box[3], id_box[0]:id_box[2]]
+        identity_start = time.perf_counter()
         raw_hub_texts = processor.ocr_engine.extract_text(id_crop)
+        identity_ocr_ms = _elapsed_ms(identity_start)
         hub_text = "".join(raw_hub_texts)
+        is_drive_text = looks_like_drive_identity(hub_text)
+        is_tape_text = looks_like_tape_identity(processor.parser, hub_text)
 
         candidates.append(
             {
@@ -85,9 +152,22 @@ def classify_item(processor, img, region_profiles):
                 "regions": regions,
                 "shape": shape_res,
                 "hub_text": hub_text,
-                "is_drive_text": looks_like_drive_identity(hub_text),
-                "is_tape_text": looks_like_tape_identity(processor.parser, hub_text),
+                "is_drive_text": is_drive_text,
+                "is_tape_text": is_tape_text,
             }
+        )
+        log_perf(
+            logger,
+            "parse.classify_profile",
+            elapsed_ms=_elapsed_ms(profile_start),
+            profile=profile_name,
+            shape_ms=shape_ms,
+            identity_ocr_ms=identity_ocr_ms,
+            shape_id=shape_res["shape_id"],
+            shape_conf=shape_res["confidence"],
+            identity_len=len(hub_text),
+            drive_text=int(is_drive_text),
+            tape_text=int(is_tape_text),
         )
         logger.debug(
             f"候选坐标[{profile_name}] identity={id_box} shape={shape_box} "

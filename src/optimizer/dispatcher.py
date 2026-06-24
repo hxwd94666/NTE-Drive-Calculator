@@ -45,4 +45,5 @@ class DispatcherEngine:
                 crit_priority_modes,
                 priority_groups=priority_groups,
             )
+        crit_priority_modes = {}
         return strategy.execute(candidate_pool, priority_list, custom_sets, crit_priority_modes)

@@ -9,12 +9,14 @@ the worker finishes successfully.
 from __future__ import annotations
 
 import os
+import time
 
 from PySide6.QtCore import QThread, Signal
 
 from src.scanner.batch_processor import BatchProcessor
 from src.features.scanning.file_lifecycle import is_allowed_filename
 from src.utils.logger import logger
+from src.utils.perf import log_perf
 
 
 class VisionWorkerThread(QThread):
@@ -49,12 +51,22 @@ class VisionWorkerThread(QThread):
         return is_allowed_filename(filename, self.parse_scope, self.skip_names)
 
     def run(self):
+        worker_start = time.perf_counter()
         try:
+            init_start = time.perf_counter()
             processor = BatchProcessor(
                 input_dir=self.input_dir,
                 output_file=self.output_file,
                 config_dir=str(self.config_dir),
                 replace_output=self.replace_output,
+            )
+            init_ms = (time.perf_counter() - init_start) * 1000.0
+            log_perf(
+                logger,
+                "vision.processor_init",
+                elapsed_ms=init_ms,
+                scope=self.parse_scope,
+                replace_output=int(bool(self.replace_output)),
             )
             if not os.path.exists(self.input_dir):
                 self.error.emit(f"找不到截图文件夹 {self.input_dir}")
@@ -76,23 +88,57 @@ class VisionWorkerThread(QThread):
             added_paths = []
             duplicate_paths = []
             failed_paths = []
+            parse_start = time.perf_counter()
             for idx, filename in enumerate(image_files, 1):
                 if self._cancel_requested:
                     break
                 self.progress.emit(idx, total, filename)
                 file_path = os.path.join(self.input_dir, filename)
+                item_start = time.perf_counter()
                 try:
                     _item_obj, added = processor.process_image_file(file_path, filename)
+                    item_ms = (time.perf_counter() - item_start) * 1000.0
+                    log_perf(
+                        logger,
+                        "vision.item",
+                        elapsed_ms=item_ms,
+                        index=idx,
+                        total=total,
+                        filename=filename,
+                        added=int(bool(added)),
+                    )
                     if not added:
                         duplicate_paths.append(file_path)
                         logger.info(f"相邻截图画面与解析数据均一致，按连拍重复过滤: {filename}")
                     else:
                         added_paths.append(file_path)
                 except Exception as exc:
+                    item_ms = (time.perf_counter() - item_start) * 1000.0
                     failed_paths.append(file_path)
+                    log_perf(
+                        logger,
+                        "vision.item",
+                        elapsed_ms=item_ms,
+                        index=idx,
+                        total=total,
+                        filename=filename,
+                        status="failed",
+                    )
                     logger.error(f"解析失败: {filename} | {exc}")
 
             processed_count = len(processor.inventory)
+            parse_ms = (time.perf_counter() - parse_start) * 1000.0
+            log_perf(
+                logger,
+                "vision.batch_parse",
+                elapsed_ms=parse_ms,
+                scope=self.parse_scope,
+                total=total,
+                success=len(added_paths),
+                duplicate=len(duplicate_paths),
+                failed=len(failed_paths),
+                avg_ms=(parse_ms / total) if total else 0.0,
+            )
             if self._cancel_requested:
                 logger.info("VisionWorkerThread: 解析已取消")
                 del processor
@@ -102,6 +148,16 @@ class VisionWorkerThread(QThread):
             if processor.inventory:
                 processor._export_to_json()
             del processor
+            log_perf(
+                logger,
+                "vision.total",
+                elapsed_ms=(time.perf_counter() - worker_start) * 1000.0,
+                scope=self.parse_scope,
+                total=total,
+                success=len(added_paths),
+                duplicate=len(duplicate_paths),
+                failed=len(failed_paths),
+            )
             logger.info("VisionWorkerThread: 即将发射 processing_done 信号")
             self.processing_done.emit(
                 {

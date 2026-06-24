@@ -15,8 +15,9 @@ from src.app import runtime
 from src.app.constants import DRONE_HELP, OFFLINE_HELP, SCAN_HELP
 from src.app.dialogs import show_help
 from src.app.theme import STYLE
-from src.app.workers import GamepadScanWorkerThread, ScanWorkerThread, WorkerThread
+from src.app.workers import GamepadScanParseWorkerThread, GamepadScanWorkerThread, ScanWorkerThread, WorkerThread
 from src.features.allocation.execute_page import build_execute_page
+from src.features.allocation.preference_modes import role_preference_mode_error
 from src.features.allocation.role_selector import RoleSelector
 from src.features.scanning.file_lifecycle import ScanFileLifecycle, is_scope_image
 from src.features.scanning.vision_worker import VisionWorkerThread
@@ -25,7 +26,7 @@ from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', 'vision_cancel_message', '_start_scan', '_start_gamepad_scan', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
+__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', 'vision_cancel_message', '_start_scan', '_start_gamepad_scan', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_pipeline_done', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
 
 
 def install_methods(app_module, window_cls):
@@ -105,15 +106,19 @@ def _do_exec(self):
         if pending_drone_mode=="auto" and not (runtime.SCREENSHOT_DIR/"raw_drive_0001.png").exists():
             QMessageBox.warning(self,"需要重新全量扫描","由于版本更新解析逻辑变动，需要重新进行全量扫描")
             return
-    if not parse_only and not self._confirm_unsaved_allocation_before_recompute():
-        return
-    self.btn_run.setEnabled(False); self.btn_run.setText("⏳  执行中..."); self.result_card.setVisible(False)
     strat=["role_priority","drive_priority","global_optimal","update_mode"][max(0,min(3,self.strategy_group.checkedId()))]
     cs=self.role_selector.get_custom_sets()
     tmf=self.role_selector.get_tape_main_filters()
     cpm=self.role_selector.get_crit_priority_modes()
     sem=self.role_selector.get_set_effect_modes()
     pg=self.role_selector.get_priority_groups() if hasattr(self.role_selector,"get_priority_groups") else None
+    preference_error = role_preference_mode_error(strat, tmf, cpm)
+    if preference_error:
+        QMessageBox.warning(self, "词条自选不可用", preference_error)
+        return
+    if not parse_only and not self._confirm_unsaved_allocation_before_recompute():
+        return
+    self.btn_run.setEnabled(False); self.btn_run.setText("\u23f3 \u6267\u884c\u4e2d..."); self.result_card.setVisible(False)
     self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
@@ -288,6 +293,9 @@ def _start_scan(self,drone_mode):
 def _start_gamepad_scan(self,total_drives):
     self._replace_inventory_on_next_parse=True
     self._pending_scan_mode="gamepad"
+    self._pending_parse_scope="full"
+    self._pending_delete_after_parse=[]
+    self._pending_probe_duplicate_count=0
     QMessageBox.information(
         self,
         "全量扫描准备",
@@ -296,11 +304,11 @@ def _start_gamepad_scan(self,total_drives):
         "程序会在短暂倒计时后接管虚拟手柄进行遍历截图。"
     )
     self.showMinimized()
-    self._gamepad_worker=GamepadScanWorkerThread(total_drives=total_drives,parent=self)
-    self._gamepad_worker.scan_done.connect(self._on_scan_done)
+    self._gamepad_worker=GamepadScanParseWorkerThread(total_drives=total_drives,parent=self)
+    self._gamepad_worker.processing_done.connect(self._on_gamepad_pipeline_done)
     self._gamepad_worker.error.connect(self._on_gamepad_error)
     self._register_scan_hotkeys("gamepad")
-    self.btn_run.setText("⏳  手柄扫描中... (F12 停止)")
+    self.btn_run.setText("⏳  手柄扫描/解析中... (F12 停止)")
     self._gamepad_worker.start()
 
 def _register_scan_hotkeys(self, mode):
@@ -413,7 +421,7 @@ def _unregister_scan_hotkeys(self):
             pass
 
 def _on_hk_stop(self):
-    w=getattr(self,'_scan_worker',None) or getattr(self,'_gamepad_worker',None)
+    w=getattr(self,'_scan_worker',None) or getattr(self,'_gamepad_worker',None) or getattr(self,'_gamepad_pipeline_worker',None)
     if w and w.scanner:
         w.scanner._stopped=True
         w.scanner._finish_flag=True
@@ -439,6 +447,13 @@ def _on_gamepad_error(self,err):
     self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
     self._pending_parse_only=False
     QMessageBox.critical(self,"手柄扫描失败",f"全量扫描出错:\n{err}")
+
+def _on_gamepad_pipeline_done(self,stats):
+    self._unregister_scan_hotkeys()
+    self.showNormal(); self.activateWindow()
+    self._replace_inventory_on_next_parse=False
+    self._pending_scan_mode=None
+    self._on_vision_done(stats)
 
 def _on_scan_done(self,count):
     self._unregister_scan_hotkeys()

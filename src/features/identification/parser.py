@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from src.scanner.config import ScannerConfig
 from src.features.inventory_import.equipment_classifier import locate_shape_in_image, looks_like_drive_identity, looks_like_tape_identity
@@ -28,6 +29,8 @@ def parse_identify_items(
     img = crop_window_border_from_image(img)
 
     items = []
+    effective_forced_set_name = forced_set_name
+    effective_forced_main_stat = forced_main_stat
     if forced_type is not None:
         try:
             item = process_identify_standard_forced(
@@ -41,6 +44,11 @@ def parse_identify_items(
             if is_valid_identify_item(item):
                 items.append(item)
                 return items
+            effective_forced_set_name, effective_forced_main_stat = _carry_tape_identity_defaults(
+                item,
+                forced_set_name=effective_forced_set_name,
+                forced_main_stat=effective_forced_main_stat,
+            )
         except Exception as exc:
             logger.debug(f"标准区域强制鉴定解析未命中，切换整图识别: {exc}")
     else:
@@ -53,6 +61,15 @@ def parse_identify_items(
 
     try:
         lines = processor.ocr_engine.extract_lines(img)
+        if forced_type is None and items and _looks_like_single_reward_scene(lines, img.shape[:2]):
+            return dedupe_identify_items(processor, items)
+        if forced_type == "tape":
+            effective_forced_set_name, effective_forced_main_stat = _detect_tape_identity_from_lines(
+                processor,
+                lines,
+                forced_set_name=effective_forced_set_name,
+                forced_main_stat=effective_forced_main_stat,
+            )
         for cluster in cluster_identify_lines(lines, img.shape[:2]):
             item = synthesize_identify_cluster(
                 processor,
@@ -60,8 +77,8 @@ def parse_identify_items(
                 cluster,
                 forced_type=forced_type,
                 forced_shape_id=forced_shape_id,
-                forced_set_name=forced_set_name,
-                forced_main_stat=forced_main_stat,
+                forced_set_name=effective_forced_set_name,
+                forced_main_stat=effective_forced_main_stat,
             )
             if is_valid_identify_item(item):
                 items.append(item)
@@ -74,13 +91,114 @@ def parse_identify_items(
 
 
 def is_valid_identify_item(item) -> bool:
-    if item is None or len(getattr(item, "sub_stats", {}) or {}) < 2:
+    if item is None or len(getattr(item, "sub_stats", {}) or {}) < 4:
         return False
     bad_keywords = ("附近", "最多", "持续", "每层", "每有", "受到", "造成", "装备者", "角色位于")
     for name in item.sub_stats.keys():
         if any(keyword in str(name) for keyword in bad_keywords):
             return False
     return True
+
+
+def _is_known_text(value, unknown_keyword: str) -> bool:
+    text = str(value or "").strip()
+    return bool(text) and unknown_keyword not in text
+
+
+def _carry_tape_identity_defaults(item, forced_set_name=None, forced_main_stat=None):
+    if item is None or getattr(item, "item_type", "") != "tape":
+        return forced_set_name, forced_main_stat
+    set_name = forced_set_name
+    main_stat = forced_main_stat
+    if not set_name and _is_known_text(getattr(item, "set_name", ""), "未知"):
+        set_name = getattr(item, "set_name", None)
+    return set_name, main_stat
+
+
+def _detect_tape_identity_from_lines(processor, lines: list[dict], forced_set_name=None, forced_main_stat=None):
+    set_name = forced_set_name
+    main_stat = forced_main_stat
+    ordered_lines = sorted(lines, key=lambda item: (item.get("box", (0, 0, 0, 0))[1], item.get("box", (0, 0, 0, 0))[0]))
+    if not set_name:
+        set_name = _find_set_name_from_lines(processor, ordered_lines)
+    if not main_stat:
+        main_stat = _find_tape_main_from_lines(processor, ordered_lines)
+    return set_name, main_stat
+
+
+def _find_set_name_from_lines(processor, lines: list[dict]) -> str | None:
+    for line in lines:
+        text = line.get("text", "")
+        direct_match = _match_known_text(text, getattr(processor.parser, "REAL_SETS_WHITE_LIST", []))
+        if direct_match:
+            return direct_match
+    for line in lines:
+        resolved = processor.parser._fuzzy_match_set_name(line.get("text", ""))
+        if resolved in getattr(processor.parser, "REAL_SETS_WHITE_LIST", []):
+            return resolved
+    return None
+
+
+def _find_tape_main_from_lines(processor, lines: list[dict]) -> str | None:
+    for index, line in enumerate(lines):
+        if "\u4e3b\u5c5e\u6027" not in _chinese_only(line.get("text", "")):
+            continue
+        for nearby in lines[index + 1:index + 8]:
+            matched = _match_tape_main_line(processor, nearby.get("text", ""), allow_fuzzy=True)
+            if matched:
+                return matched
+
+    for line in lines:
+        matched = _match_tape_main_line(processor, line.get("text", ""), allow_fuzzy=False)
+        if matched:
+            return matched
+    return None
+
+
+def _match_tape_main_line(processor, text: str, allow_fuzzy: bool = False) -> str | None:
+    clean_text = _chinese_only(text)
+    if "\u63d0\u5347" in clean_text or "\u589e\u52a0" in clean_text:
+        return None
+    direct_match = _match_known_text(text, getattr(processor.parser, "TAPE_MAIN_STATS_POOL", []))
+    if direct_match:
+        return direct_match
+    if not allow_fuzzy:
+        return None
+    resolved = processor.parser._fuzzy_match_tape_main(text)
+    if resolved in getattr(processor.parser, "TAPE_MAIN_STATS_POOL", []):
+        return resolved
+    return None
+
+
+def _match_known_text(text: str, choices: list[str]) -> str | None:
+    clean_text = _chinese_only(text)
+    if not clean_text:
+        return None
+    for choice in choices:
+        clean_choice = _chinese_only(choice)
+        if clean_choice and clean_choice in clean_text:
+            return choice
+    return None
+
+
+def _chinese_only(value: str) -> str:
+    return re.sub(r"[^\u4e00-\u9fa5]", "", str(value or ""))
+
+
+def _looks_like_single_reward_scene(lines: list[dict], image_shape: tuple[int, int]) -> bool:
+    height, width = image_shape
+    for line in lines:
+        text = str(line.get("text", "") or "").replace(" ", "")
+        if "倒带获得" in text:
+            return True
+        if "卡带" not in text:
+            continue
+        x1, y1, x2, y2 = line.get("box", (0, 0, 0, 0))
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+        if width * 0.35 <= cx <= width * 0.65 and cy <= height * 0.25:
+            return True
+    return False
 
 
 def process_identify_standard_forced(
@@ -103,23 +221,72 @@ def process_identify_standard_forced(
         return processor.parser.synthesize_drive(forced_shape_id, raw_sub_texts)
 
     if forced_type == "tape":
-        if not forced_set_name:
-            raise ValueError("未选择卡带套装")
         main_box = regions["tape_main_stat"]
         sub_box = regions["tape_sub_stats"]
         main_crop = img[main_box[1]:main_box[3], main_box[0]:main_box[2]]
         sub_crop = img[sub_box[1]:sub_box[3], sub_box[0]:sub_box[2]]
+        set_name = forced_set_name
+        if not set_name:
+            set_texts = []
+            for box in _tape_set_ocr_boxes(regions, width, height):
+                crop = img[box[1]:box[3], box[0]:box[2]]
+                set_texts.extend(processor.ocr_engine.extract_text(crop))
+                joined = "".join(set_texts)
+                set_name = processor.parser._fuzzy_match_set_name(joined)
+                if set_name and "未知" not in str(set_name):
+                    break
+            if not set_name:
+                set_name = "未知套装"
         raw_main_texts = processor.ocr_engine.extract_text(main_crop)
         raw_sub_texts = processor.ocr_engine.extract_text(sub_crop)
         if not raw_main_texts:
             raw_main_texts = [""]
         main_texts = [forced_main_stat] if forced_main_stat else raw_main_texts
-        item = processor.parser.synthesize_tape(forced_set_name, main_texts, raw_sub_texts)
+        item = processor.parser.synthesize_tape(set_name, main_texts, raw_sub_texts)
+        if forced_set_name:
+            item.set_name = forced_set_name
         if forced_main_stat:
             item.main_stats = forced_main_stat
         return item
 
     raise ValueError(f"未知鉴定类型: {forced_type}")
+
+
+def _tape_set_ocr_boxes(regions: dict, image_width: int, image_height: int) -> list[tuple[int, int, int, int]]:
+    boxes = []
+    explicit = regions.get("tape_set_name")
+    if explicit:
+        boxes.append(explicit)
+    identity = regions.get("identity_check")
+    if identity:
+        x1, y1, x2, _y2 = identity
+        width = max(1, x2 - x1)
+        boxes.append((
+            max(0, x1 - int(width * 1.25)),
+            max(0, y1 - int(image_height * 0.12)),
+            min(image_width, x2 + int(width * 0.20)),
+            max(0, y1 - int(image_height * 0.05)),
+        ))
+        boxes.append(identity)
+    main_box = regions.get("tape_main_stat")
+    if main_box:
+        x1, y1, x2, _y2 = main_box
+        width = max(1, x2 - x1)
+        height = max(1, _y2 - y1)
+        pad_x = int(width * 0.25)
+        box_height = max(int(height * 2.2), 48)
+        top_y2 = max(0, y1 - 6)
+        top_y1 = max(0, top_y2 - box_height)
+        boxes.append((max(0, x1 - pad_x), top_y1, min(image_width, x2 + pad_x), top_y2))
+    deduped = []
+    seen = set()
+    for box in boxes:
+        normalized = tuple(int(v) for v in box)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
 
 
 def cluster_identify_lines(lines: list[dict], image_shape: tuple[int, int]) -> list[list[dict]]:

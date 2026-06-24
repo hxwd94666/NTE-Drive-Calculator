@@ -102,7 +102,9 @@ class ScoringEngine:
         return any(target == name or target in name or name in target for name in names)
 
     def _priority_rank_for_item(self, role: str, item: BaseEquipment, config: dict | None) -> tuple[int, int]:
-        if not isinstance(config, dict) or not self._is_a_grade_item(role, item):
+        if not isinstance(config, dict):
+            return (0, 0)
+        if not config.get("ignore_grade_limit") and not self._is_a_grade_item(role, item):
             return (0, 0)
         stats = [str(stat) for stat in config.get("stats", []) if stat]
         if not stats:
@@ -167,11 +169,14 @@ class ScoringEngine:
                 if score > item.max_score:
                     item.max_score = score
 
-            if item.max_score > 0:
-                if isinstance(item, Drive):
+            if isinstance(item, Drive):
+                if item.max_score > 0:
                     valid_drives.append(item)
-                else:
-                    valid_tapes.append(item)
+            elif item.max_score > 0 or any(
+                self._tape_main_allowed(item, self._allowed_tape_main_names(values))
+                for values in tape_main_filters.values()
+            ):
+                valid_tapes.append(item)
 
         global_drive_uids = set()
         for role_name in self.roles_db.keys():
@@ -196,8 +201,12 @@ class ScoringEngine:
 
         optimal_tapes = {role: [] for role in self.roles_db.keys()}
         for role_name in self.roles_db.keys():
-            role_tapes = [t for t in valid_tapes if t.role_scores[role_name] > 0]
             allowed_mains = self._allowed_tape_main_names(tape_main_filters.get(role_name))
+            role_tapes = [
+                t
+                for t in valid_tapes
+                if t.role_scores[role_name] > 0 or (allowed_mains and self._tape_main_allowed(t, allowed_mains))
+            ]
             role_tapes = [t for t in role_tapes if self._tape_main_allowed(t, allowed_mains)]
             set_buckets = {}
             for t in role_tapes:
