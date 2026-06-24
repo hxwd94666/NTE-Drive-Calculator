@@ -1,6 +1,7 @@
 # 测试打包脚本的版本和编码输出。
 import codecs
 import unittest
+from pathlib import Path
 
 import build_installer
 from src.app.constants import APP_VERSION
@@ -29,6 +30,15 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn('DestDir: "{app}\\config"', text)
         self.assertIn("Tasks: replacecoreconfig", text)
         self.assertIn("BackupCoreConfigBeforeReplace", text)
+
+    def test_release_workflow_supports_manual_release_publish(self):
+        workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+        self.assertIn("publish_release:", workflow)
+        self.assertIn("release_tag:", workflow)
+        self.assertIn("github.event.inputs.publish_release", workflow)
+        self.assertIn("gh release create $tag", workflow)
+        self.assertIn("--target $env:GITHUB_SHA", workflow)
 
 
 if __name__ == "__main__":
