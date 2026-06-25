@@ -219,12 +219,65 @@ def _import_to_my_role(self, role_name: str):
 
     bp_layout = eq.get("blueprint_layout", [])
     drives = eq.get("equipped_drives", [])
+    equipped_tape = eq.get("equipped_tape", None)
 
-    if not bp_layout and not drives:
-        QMessageBox.information(self, "导入", f"[{role_name}] 当前配装中蓝图和驱动均为空，无需导入。")
+    if not bp_layout and not drives and not equipped_tape:
+        QMessageBox.information(self, "导入", f"[{role_name}] 当前配装中蓝图和驱动/空幕均为空，无需导入。")
         return
 
     my_roles_path = runtime.USER_CONFIG_DIR / "my_roles.json"
+
+    # 处理空幕数据
+    new_tape = None
+    if equipped_tape:
+        set_name = equipped_tape.get("set_name")
+        if set_name:
+            display_name = set_name
+            uid = equipped_tape.get("uid")
+            sub_stats = equipped_tape.get("sub_stats")
+            shape_id = "TAPE_15"
+            quality = equipped_tape.get("quality")
+
+            tapes_path = runtime.CONFIG_DIR / "tapes.json"
+            try:
+                with open(tapes_path, 'r', encoding='utf-8') as f:
+                    tapes_data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                QMessageBox.critical(self, "错误", f"读取 tapes.json 失败：{str(e)}")
+                return
+            template = tapes_data.get(set_name)
+            if template:
+                logger.debug("template")
+                skill = template.get("skill")
+                skill_2 = template.get("skill_2")
+                skill_cover = template.get("skill_cover")
+                stats_path = runtime.CONFIG_DIR / "stats.json"
+                try:
+                    with open(stats_path, 'r', encoding='utf-8') as f:
+                        stats_data = json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError) as e:
+                    QMessageBox.critical(self, "错误", f"读取 stats.json 失败：{str(e)}")
+                    return
+                tape_main_stat_values = stats_data.get("tape_main_stat_values", {})
+                stat_alias_mapping = stats_data.get("stat_alias_mapping", {})
+                main_stat_name = equipped_tape.get("main_stats")
+                if main_stat_name in stat_alias_mapping:
+                    main_stat_name = stat_alias_mapping[main_stat_name]
+                # 继续匹配
+                if main_stat_name in tape_main_stat_values:
+                    logger.debug("over")
+                    main_stat = {main_stat_name: tape_main_stat_values[main_stat_name]}
+                    new_tape = {
+                        "uid": uid,
+                        "display_name": display_name,
+                        "shape_id": shape_id,
+                        "quality": quality,
+                        "main_stats": main_stat,
+                        "sub_stats": sub_stats,
+                        "skill": skill,
+                        "skill_2": skill_2,
+                        "skill_cover": skill_cover,
+                    }
 
     try:
         # 1. 读取最新文件内容（避免覆盖他人的修改）
@@ -239,7 +292,6 @@ def _import_to_my_role(self, role_name: str):
             with open(my_roles_path, "r", encoding="utf-8") as f:
                 my_roles = json.load(f)
 
-        logger.debug(my_roles)
         # 2. 更新目标角色的 drive 字段（保留原有其他字段）
         role_entry = my_roles.setdefault(role_name, {})
         drive_data = role_entry.setdefault("drive", {})
@@ -255,6 +307,11 @@ def _import_to_my_role(self, role_name: str):
                     info[k] = info.get(k, 0.0) + float(v)
         drive_data["info"] = info
 
+        # 更新tape字段
+        if new_tape:
+            role_entry["tape"] = new_tape
+            logger.debug(f"已写入 tape 到角色 {role_name}")
+
         # 3. 写入文件
         with open(my_roles_path, "w", encoding="utf-8") as f:
             json.dump(my_roles, f, ensure_ascii=False, indent=4)
@@ -264,6 +321,8 @@ def _import_to_my_role(self, role_name: str):
             if role_name not in self._my_role_form_data:
                 self._my_role_form_data[role_name] = {}
             self._my_role_form_data[role_name]["drive"] = drive_data
+            if new_tape:
+                self._my_role_form_data[role_name]["tape"] = new_tape
 
         # 5. 提示成功
         QMessageBox.information(
