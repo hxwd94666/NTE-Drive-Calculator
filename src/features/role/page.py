@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 import re
 
 from PySide6.QtGui import QFont
@@ -27,12 +25,28 @@ from PySide6.QtWidgets import (
     QFrame
 )
 
-from PySide6.QtNetwork import QNetworkReply
 from PySide6.QtWidgets import QHeaderView
 from PySide6.QtCore import Qt
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox, match_pinyin
-from src.app import runtime
+
+from .paths import get_roles_img_path
+from .dao import (
+    load_my_roles,
+    save_my_roles,
+    load_role_order,
+    save_role_order,
+    load_stats,
+    load_weapons,
+    load_tapes,
+    load_real_inventory,
+)
+from .core import (
+    calc_drive_bonus_stats,
+    apply_margins_to_weights,
+)
+from .marginal_widget import MarginalBenefitPanel
+from .base_widget import BaseStatsWidget
 
 __all__ = ["_page_my_role", "_refresh_my_role", "install_methods"]
 
@@ -41,34 +55,6 @@ def install_methods(app_module, window_cls):
     """Install feature methods onto the main window class."""
     window_cls._page_my_role = _page_my_role
     window_cls._refresh_my_role = _refresh_my_role
-
-
-def _get_role_order_path(window) -> Path:
-    """返回 role_order.json 路径（与 my_roles.json 同目录）"""
-    config_dir = _get_user_account_config_dir()
-    return config_dir / "role_order.json"
-
-
-def _load_role_order(window) -> list:
-    """加载角色顺序列表，若文件不存在或格式错误返回空列表"""
-    path = _get_role_order_path(window)
-    if not path.exists():
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-    except Exception:
-        pass
-    return []
-
-
-def _save_role_order(window, order: list):
-    """保存角色顺序到 role_order.json（覆盖写入）"""
-    path = _get_role_order_path(window)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(order, f, ensure_ascii=False, indent=2)
 
 
 def _page_my_role(window) -> QWidget:
@@ -126,84 +112,19 @@ def _refresh_my_role(window):
     _render_my_roles(window)
 
 
-def _get_config_dir(window) -> Path:
-    """通过 settings_paths 获取当前账号的 config 目录。"""
-    return window._settings_paths()["config_dir"]
-
-
-def _get_user_account_config_dir() -> Path:
-    return runtime.USER_CONFIG_DIR
-
-
-def _get_my_roles_path() -> Path:
-    config_dir = _get_user_account_config_dir()
-    return config_dir / "my_roles.json"
-
-
-def _get_my_roles_model_path(window) -> Path:
-    config_dir = _get_config_dir(window)
-    return config_dir / "my_roles_model.json"
-
-
-def _get_roles_img_path(window, role_name) -> Path:
-    config_dir = _get_config_dir(window)
-    return config_dir / "templates" / "roles" / f"{role_name}.png"
-
-
-def _get_stats_path(window) -> Path:
-    config_dir = _get_config_dir(window)
-    return config_dir / "stats.json"
-
-
-def _get_weapon_path(window) -> Path:
-    config_dir = _get_config_dir(window)
-    return config_dir / "weapons.json"
-
-def _get_tape_path(window) -> Path:
-    config_dir = _get_config_dir(window)
-    return config_dir / "tapes.json"
-
-
-def _load_stats(window) -> dict:
-    """加载 stats.json（词条配置源）"""
-    filepath = _get_stats_path(window)
-
-    if not filepath.exists():
-        return {}
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return {}
-
-
-def _load_my_roles(window) -> dict:
-    """加载 my_roles.json 数据，若不存在则从模板复制."""
-    filepath = _get_my_roles_path()
-    model_path = _get_my_roles_model_path(window)
-    if not filepath.exists() and model_path.exists():
-        import shutil
-        shutil.copy(model_path, filepath)
-    if not filepath.exists():
-        return {}
-    with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
 def _save_my_roles(window):
     """保存当前编辑的数据到 my_roles.json，并刷新界面。"""
     data = getattr(window, "_my_role_form_data", None)
     if data is None:
         QMessageBox.information(window, "提示", "没有需要保存的数据。")
         return
-    filepath = _get_my_roles_path()
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-    window._my_role_dirty = False
-    QMessageBox.information(window, "保存", "my_roles.json 已保存")
-    # 刷新界面
-    _refresh_my_role(window)
+    if save_my_roles(data):
+        window._my_role_dirty = False
+        QMessageBox.information(window, "保存", "my_roles.json 已保存")
+        # 刷新界面
+        _refresh_my_role(window)
+    else:
+        QMessageBox.warning(window, "保存失败", "保存 my_roles.json 失败")
 
 
 def _save_my_roles_silent(window):
@@ -211,9 +132,7 @@ def _save_my_roles_silent(window):
     data = getattr(window, "_my_role_form_data", None)
     if data is None:
         return
-    filepath = _get_my_roles_path()
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    save_my_roles(data)
     window._my_role_dirty = False
 
 
@@ -233,7 +152,7 @@ def _render_my_roles(window):
         if item.widget():
             item.widget().deleteLater()
 
-    data = _load_my_roles(window)
+    data = load_my_roles()
     window._my_role_form_data = data
     window._my_role_dirty = False
 
@@ -242,11 +161,11 @@ def _render_my_roles(window):
         return
 
     # ----- 加载角色顺序（从独立文件） -----
-    order = _load_role_order(window)
+    order = load_role_order()
     valid_order = [name for name in order if name in data]
     missing = sorted(set(data.keys()) - set(valid_order))
     valid_order.extend(missing)
-    _save_role_order(window, valid_order)  # 确保文件同步
+    save_role_order(valid_order)  # 确保文件同步
     all_names = valid_order
 
     header = QHBoxLayout()
@@ -297,7 +216,7 @@ def _render_my_roles(window):
             parent_layout.addLayout(row)
 
     # 内部辅助：生成一个带有标签和数值输入框的单行
-    def add_single_value_row(parent_layout, label_text, path, window, role_name, default=0, is_float=True,
+    def add_single_value_row(parent_layout, label_text, path, window, role_name, default=0.0, is_float=True,
                              is_str=False):
         row = QHBoxLayout()
         row.addWidget(QLabel(label_text))
@@ -326,44 +245,17 @@ def _render_my_roles(window):
         """将边际收益的 gain 值覆盖到对应权重"""
         if rn not in data:
             return
-        stats_config = _load_stats(window)
+        stats_config = load_stats()
         alias_map = stats_config.get("benefit_alias_mapping", {})
         weights = data[rn].setdefault("weights", {})
 
-        # 建立反向映射：规范名 -> 所有权重键列表
-        reverse_map = {}
-        for wk in weights.keys():
-            canonical = alias_map.get(wk, wk)
-            reverse_map.setdefault(canonical, []).append(wk)
-
-        # 遍历边际收益表，更新匹配的权重键
-        updated = 0
-        for name, cur_val, unit_val, gain in margins:
-            if name in reverse_map:
-                for wk in reverse_map[name]:
-                    weights[wk] = round(gain, 4)  # 保留4位小数
-                    updated += 1
-            else:
-                # 若没有对应词条，可选择自动添加，这里先给出提示
-                pass
+        updated = apply_margins_to_weights(weights, margins, alias_map)
 
         if updated == 0:
             QMessageBox.information(window, "提示", "当前权重中没有与边际收益匹配的词条，未能更新。")
         else:
             _save_my_roles_silent(window)
             _refresh_my_role(window)
-
-    def _update_base_stat(role_name, key, value):
-        """单个基础属性变化时保存到 sub_stats"""
-        data = window._my_role_form_data
-        if not data:
-            return
-        role = data.get(role_name)
-        if not role:
-            return
-        sub_stats = role.setdefault("sub_stats", {})
-        sub_stats[key] = value
-        _mark_my_role_dirty(window)
 
     def populate_role_tab(role_name, tab_scroll):
         role_name = str(role_name)  # 确保是字符串
@@ -376,194 +268,42 @@ def _render_my_roles(window):
         form.setSpacing(15)
         form.setContentsMargins(15, 15, 15, 15)
 
-        role_data = data[role_name]
+        role_data = data[role_name]  # 从 data 获取
 
         # ---- 0. 边际收益 ----
-        total_stats = _get_character_total_stats(window, role_name)
-        base_damage, margins = _calc_marginal_benefits(window, total_stats)
+        # 创建边际收益面板
+        margin_panel = MarginalBenefitPanel(
+            parent_layout=form,
+            window=window,
+            role_name=role_name,
+            role_data=role_data
+        )
+        if not hasattr(window, "_margin_panels"):
+            window._margin_panels = {}
+        window._margin_panels[role_name] = margin_panel
 
-        # 根据权重过滤边际收益词条（只过滤表格数据，不影响伤害显示）
-        if margins:
-            stats_config = _load_stats(window)
-            alias_map = stats_config.get("benefit_alias_mapping", {})
-            weights = role_data.get("weights", {})
-            allowed_categories = set()
-            for weight_key in weights.keys():
-                canonical = alias_map.get(weight_key, weight_key)
-                allowed_categories.add(canonical)
-            margins = [m for m in margins if m[0] in allowed_categories]
-
-        # 无论是否有表格，都创建面板显示伤害
-        group_margin = QGroupBox("边际收益（按每单位收益排序）")
-        margin_layout = QVBoxLayout(group_margin)
-
-        # 显示总伤害（直伤评分）
-        damage_label = QLabel(f"直伤评分 : {base_damage:.2f}")
-        damage_label.setStyleSheet("font-weight: bold; color: #ffaa00; font-size: 14px;")
-        margin_layout.addWidget(damage_label)
-
-        if margins:
-            # 表格
-            table = QTableWidget()
-            table.setColumnCount(4)
-            table.setHorizontalHeaderLabels(["参数", "当前值", "1单位", "每单位提升"])
-            table.setRowCount(len(margins))
-            table.setEditTriggers(QTableWidget.NoEditTriggers)
-            table.setSelectionBehavior(QTableWidget.SelectRows)
-            table.verticalHeader().setVisible(False)
-
-            table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-            for i, (name, cur_val, unit_val, gain) in enumerate(margins):
-                table.setItem(i, 0, QTableWidgetItem(name))
-                table.setItem(i, 1, QTableWidgetItem(cur_val))
-                table.setItem(i, 2, QTableWidgetItem(unit_val))
-                gain_item = QTableWidgetItem(f"{gain:.4f}%")
-                table.setItem(i, 3, gain_item)
-
-            header = table.horizontalHeader()
-            for col in range(4):
-                header.setSectionResizeMode(col, QHeaderView.Stretch)
-
-            header_height = header.height()
-            row_height = table.verticalHeader().defaultSectionSize()
-            frame = table.frameWidth() * 2
-            total_height = header_height + row_height * len(margins) + frame
-            table.setFixedHeight(total_height)
-
-            margin_layout.addWidget(table)
-
-            # 添加“设为权重”按钮
-            set_weights_btn = QPushButton("设为权重")
-            set_weights_btn.setObjectName("btnAction")
-            set_weights_btn.clicked.connect(
-                lambda: _apply_margins_to_weights(role_name, margins)
-            )
-            margin_layout.addWidget(set_weights_btn)
-
-        form.addWidget(group_margin)
         # ---- 1. 基础加成 ----
-        group_base = QGroupBox("基础加成")
-        group_base.setStyleSheet("QGroupBox{font-weight:bold;}")
-        base_layout = QVBoxLayout(group_base)
-        base_layout.setSpacing(8)
+        def _refresh_margin_panel_for_role():
+            if hasattr(window, "_margin_panels"):
+                panel = window._margin_panels.get(role_name)
+                if panel:
+                    panel.refresh()
 
-        # ========== 顶部行：头像 + 等级（横向排列） ==========
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
-
-        # ---- 头像（左侧） ----
-        from PySide6.QtGui import QPixmap
-        avatar_path = _get_roles_img_path(window, role_name)
-
-        if avatar_path.exists():
-            pixmap = QPixmap(str(avatar_path))
-            if not pixmap.isNull():
-                avatar_label = QLabel()
-                avatar_label.setFixedSize(80, 80)
-                avatar_label.setScaledContents(True)
-                avatar_label.setPixmap(pixmap)
-                top_row.addWidget(avatar_label, alignment=Qt.AlignLeft)
-
-        # ---- 等级下拉（右侧，与头像同一行） ----
-        level_widget = QWidget()
-        level_widget.setFixedHeight(80)  # 与头像高度对齐
-        level_layout = QVBoxLayout(level_widget)
-        level_layout.setContentsMargins(0, 0, 0, 0)
-
-        level_label = QLabel("等级:")
-        level_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
-        level_layout.addWidget(level_label, alignment=Qt.AlignCenter)
-
-        # 获取 level_sub_stats
-        level_sub_stats = role_data.get("level_sub_stats", {})
-        available_levels = sorted(level_sub_stats.keys(), key=lambda x: int(x))
-        if not available_levels:
-            available_levels = ["1", "20", "30", "40", "50", "60", "70", "80"]
-
-        level_combo = QComboBox()
-        level_combo.addItems(available_levels)
-        current_level = str(role_data.get("level", 70))
-        if current_level in available_levels:
-            level_combo.setCurrentText(current_level)
-        else:
-            level_combo.setCurrentIndex(0)
-        level_combo.setFixedWidth(80)
-        level_combo.setStyleSheet("font-size:14px; padding:4px;")
-        level_layout.addWidget(level_combo, alignment=Qt.AlignCenter)
-
-        top_row.addWidget(level_widget)
-        top_row.addStretch()
-        base_layout.addLayout(top_row)
-
-        # ========== 分割线 ==========
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        line.setStyleSheet("background-color: #30363d; max-height: 1px;")
-        base_layout.addWidget(line)
-
-        # ========== 基础属性列表 ==========
-        BASE_KEYS = ["生命白值", "攻击力白值", "防御力白值", "暴击率%", "暴击伤害%"]
-
-        # 存储 spinbox 以便等级切换时更新
-        base_spins = {}
-
-        # 创建基础属性的 spinbox
-        for key in BASE_KEYS:
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            label = QLabel(key)
-            label.setFixedWidth(100)
-            row.addWidget(label)
-
-            spin = NoWheelDoubleSpinBox()
-            spin.setRange(-999999, 999999)
-            spin.setDecimals(2)
-            spin.setFixedWidth(120)
-            # 初始值：从 sub_stats 中取，若没有则从当前等级的 level_sub_stats 取
-            sub_stats = role_data.get("sub_stats", {})
-            val = sub_stats.get(key, 0.0)
-            if val == 0.0:
-                lv = level_combo.currentText()
-                lv_data = level_sub_stats.get(lv, {})
-                val = lv_data.get(key, 0.0)
-            spin.setValue(float(val))
-            spin.editingFinished.connect(
-                lambda k=key, s=spin: _update_base_stat(role_name, k, s.value())
-            )
-
-            row.addWidget(spin)
-            row.addStretch()
-            base_layout.addLayout(row)
-            base_spins[key] = spin
-
-        # 其他 sub_stats（排除基础属性）
-        other_sub = {k: v for k, v in role_data.get("sub_stats", {}).items() if k not in BASE_KEYS}
-        if other_sub:
-            # 添加一个分隔提示
-            other_label = QLabel("自定义属性")
-            other_label.setStyleSheet("color: #888; font-size: 12px; margin-top: 4px;")
-            base_layout.addWidget(other_label)
-            add_dict_rows(base_layout, other_sub, ["sub_stats"], window, role_name)
-
-        # ---- 等级切换事件 ----
-        def on_level_changed(lv):
-            lv_data = level_sub_stats.get(lv, {})
-            sub_stats = role_data.setdefault("sub_stats", {})
-            for key in BASE_KEYS:
-                val = lv_data.get(key, 0.0)
-                if key in base_spins:
-                    base_spins[key].setValue(float(val))
-                sub_stats[key] = val
-            role_data["level"] = int(lv) if lv.isdigit() else lv
+        def _on_base_data_changed():
             _mark_my_role_dirty(window)
-            _save_my_roles_silent(window)
+            _refresh_margin_panel_for_role()
 
-        level_combo.currentTextChanged.connect(on_level_changed)
-
-        form.addWidget(group_base)
+        base_widget = BaseStatsWidget(
+            parent_layout=form,
+            window=window,
+            role_name=role_name,
+            role_data=role_data,
+            on_data_changed_callback=_on_base_data_changed,
+            on_level_changed_callback=_refresh_margin_panel_for_role,
+        )
+        if not hasattr(window, "_base_widgets"):
+            window._base_widgets = {}
+        window._base_widgets[role_name] = base_widget
 
         # ---- 2. 驱动加成 ----
         # ---- 驱动加成 ----
@@ -579,7 +319,7 @@ def _render_my_roles(window):
         drive_layout.addWidget(cnt_label)
 
         # 3. 自动计算的 sub_stats 汇总（只读）
-        calc_rows = _calc_role_bonus_info(window, role_name)
+        calc_rows = calc_drive_bonus_stats(role_data)
         if calc_rows:
             info_group = QGroupBox("汇总属性（实时计算）")
             info_group.setStyleSheet(
@@ -618,7 +358,7 @@ def _render_my_roles(window):
             weapon_layout = QVBoxLayout(group_weapon)
             weapon_layout.setSpacing(8)
 
-            stats = _load_stats(window)
+            stats = load_stats()
             tape_pool = stats.get("tape_stat_values", {})
             tape_main_pool_value = stats.get("tape_main_stat_values", {})
 
@@ -647,18 +387,7 @@ def _render_my_roles(window):
             name_row.addWidget(name_edit)
 
             def load_weapon_data():
-                import os, json
-                weapon_path = _get_weapon_path(window)
-                if not os.path.exists(weapon_path):
-                    QMessageBox.warning(window, "错误", f"未找到 weapon.json 文件：{weapon_path}")
-                    return
-                try:
-                    with open(weapon_path, 'r', encoding='utf-8') as f:
-                        weapon_db = json.load(f)
-                except Exception as e:
-                    QMessageBox.warning(window, "错误", f"读取 weapon.json 失败：{e}")
-                    return
-
+                weapon_db = load_weapons()
                 names = list(weapon_db.keys())
                 if not names:
                     QMessageBox.information(window, "提示", "weapon.json 中没有弧盘数据")
@@ -1007,7 +736,7 @@ def _render_my_roles(window):
             tape_layout = QVBoxLayout(group_tape)
             tape_layout.setSpacing(8)
 
-            stats = _load_stats(window)
+            stats = load_stats()
             tape_pool = stats.get("tape_stat_values", {})
             tape_main_pool = stats.get("tape_main_stat_values", {})
 
@@ -1049,18 +778,7 @@ def _render_my_roles(window):
 
             # ---------- 选取空幕按钮 ----------
             def load_tape_data():
-                import os, json
-                tapes_path = _get_tape_path(window)
-                if not os.path.exists(tapes_path):
-                    QMessageBox.warning(window, "错误", f"未找到 tapes.json 文件：{tapes_path}")
-                    return
-                try:
-                    with open(tapes_path, 'r', encoding='utf-8') as f:
-                        tapes_db = json.load(f)
-                except Exception as e:
-                    QMessageBox.warning(window, "错误", f"读取 tapes.json 失败：{e}")
-                    return
-
+                tapes_db = load_tapes()
                 names = list(tapes_db.keys())
                 if not names:
                     QMessageBox.information(window, "提示", "tapes.json 中没有空幕数据")
@@ -1117,7 +835,6 @@ def _render_my_roles(window):
                     new_group = build_tape_group(window, role_name, role_data, form)
                     form.addWidget(new_group)
                     window._tape_group = new_group
-
 
             select_btn = QPushButton("选取空幕")
             select_btn.setObjectName("btnAction")
@@ -1368,7 +1085,7 @@ def _render_my_roles(window):
                 _refresh_my_role(window)  # 刷新界面
 
         def _add_weight():
-            stats = _load_stats(window)
+            stats = load_stats()
             pool = sorted(stats.get("weight_pool", []))
             existing = set(weights_dict.keys())
             available = [s for s in pool if s not in existing]
@@ -1410,7 +1127,7 @@ def _render_my_roles(window):
 
         def on_tab_moved(from_idx, to_idx):
             new_order = [tabs.tabText(i) for i in range(tabs.count())]
-            _save_role_order(window, new_order)
+            save_role_order(new_order)
 
         tabs.tabBar().tabMoved.connect(on_tab_moved)
 
@@ -1432,16 +1149,6 @@ def _render_my_roles(window):
     layout.addWidget(tabs)
 
 
-def compute_drive_info(drives: list) -> dict:
-    """汇总驱动中所有主副属性，返回累加字典"""
-    sub_stats = {}
-    for d in drives:
-        for stats in (d.get("main_stats", {}), d.get("sub_stats", {})):
-            for k, v in stats.items():
-                sub_stats[k] = sub_stats.get(k, 0.0) + float(v)
-    return sub_stats
-
-
 def _update_field(window, role_name, key, value):
     """更新角色顶层字段."""
     data = window._my_role_form_data
@@ -1449,36 +1156,6 @@ def _update_field(window, role_name, key, value):
         return
     data[role_name][key] = value
     _mark_my_role_dirty(window)
-
-
-def migrate_drive_data(role_data: dict):
-    """确保角色的 drive 字段包含 drives,  sub_stats，并计算 sub_stats"""
-    drive = role_data.get("drive", {})
-    if not isinstance(drive, dict):
-        drive = {}
-    # 检查是否有 drives 字段
-    if "drives" not in drive:
-        # sub_stats
-        drives = []
-        # 但如果没有 drives，则 sub_stats 应为空
-        blueprint_layout = drive.get("blueprint_layout", [])
-        new_drive = {
-            "blueprint_layout": blueprint_layout,
-            "drives": drives,
-            "sub_stats": compute_drive_info(drives)  # 空
-        }
-    else:
-        # 已有 drives，检查 sub_stats 是否需要更新
-        blueprint_layout = drive.get("blueprint_layout", [])
-        drives = drive.get("drives", [])
-        # 重新计算 sub_stats，覆盖旧的
-        new_drive = {
-            "blueprint_layout": blueprint_layout,
-            "drives": drives,
-            "sub_stats": compute_drive_info(drives)
-        }
-    role_data["drive"] = new_drive
-    return role_data
 
 
 def _update_info_field(window, role_name, key, value):
@@ -1621,203 +1298,12 @@ def _show_drive_details(window, role_name: str):
     window._drive_detail_dlg = None
 
 
-def _calc_role_bonus_info(window, role_name):
-    role_data = window._my_role_form_data.get(role_name, {})
-    drive = role_data.get("drive", {})
-    drives = drive.get("drives", [])
-
-    new_drives = []
-
-    for d in drives:
-        d = dict(d)  # 不污染原数据
-        shape_id = str(d.get("shape_id", ""))
-        # 提取数字
-        nums = re.findall(r"\d+", shape_id)
-        shape_num = int(nums[0]) if nums else 0
-        shape_attack = shape_num * 21
-        shape_hp = shape_num * 280
-        # 注入到 sub_stats
-        sub_stats = dict(d.get("sub_stats", {}))
-        sub_stats["攻击力"] = sub_stats.get("攻击力", 0) + shape_attack
-        sub_stats["生命值"] = sub_stats.get("生命值", 0) + shape_hp
-        d["sub_stats"] = sub_stats
-        new_drives.append(d)
-
-    return window._equipment_bonus_rows(role_name, None, new_drives)
-
-
-def _get_character_total_stats(window, role_name: str) -> dict:
-    data = window._my_role_form_data
-    if not data or role_name not in data:
-        return {}
-    role = data[role_name]
-
-    stats = _load_stats(window)
-    tape_main_pool = stats.get("tape_main_stat_values", {})  # 可保留，但未使用
-    benefit_map = stats.get("benefit_alias_mapping", {})
-    alias_map = stats.get("stat_alias_mapping", {})
-
-    total = {}
-
-    def add_stat(key, value):
-        if value is None:
-            return
-        try:
-            v = float(value)
-        except (ValueError, TypeError):
-            return
-        canonical = benefit_map.get(key)
-        if canonical is None:
-            canonical = alias_map.get(key, key)
-        total[canonical] = total.get(canonical, 0.0) + v
-
-    # 1. 基础 sub_stats
-    for k, v in role.get("sub_stats", {}).items():
-        add_stat(k, v)
-
-    # 2. 驱动汇总 sub_stats
-    calc_rows = _calc_role_bonus_info(window, role_name)
-    for k, v in calc_rows:
-        add_stat(k, v)
-
-    # 3. 武器
-    weapon = role.get("weapon", {})
-    for k, v in weapon.get("sub_stats", {}).items():
-        add_stat(k, v)
-    w_skill = weapon.get("skill", {})
-    for k, v in w_skill.get("sub_stats", {}).items():
-        add_stat(k, v)
-    w_cover = float(w_skill.get("skill_cover", 0.0))
-    w_skill_skill = w_skill.get("skill", {})
-    for k, v in w_skill_skill.items():
-        add_stat(k, float(v) * w_cover)
-
-    # 4. 空幕（修正缩进，与武器处理平级）
-    tape = role.get("tape", {})
-    t_cover = float(tape.get("skill_cover", 0.0))
-
-    # 主词条（对象）
-    for k, v in tape.get("main_stats", {}).items():
-        add_stat(k, float(v))
-
-    # 副属性（sub_stats）
-    for k, v in tape.get("sub_stats", {}).items():
-        add_stat(k, float(v))
-
-    # 技能1
-    for k, v in tape.get("skill", {}).items():
-        add_stat(k, float(v))
-
-    # 技能2（受 skill_cover 影响）
-    for k, v in tape.get("skill_2", {}).items():
-        add_stat(k, float(v) * t_cover)
-
-    return total
-
-
-def _calc_marginal_benefits(window, total_stats: dict) -> tuple:
-    """
-    返回: (base_damage, items)
-    items 列表每项: (参数名, 当前值字符串, 单位价值字符串, 收益百分比数值)
-    已按收益数值从大到小排序。
-    """
-    stats = _load_stats(window)
-    benefit_one = stats.get("benefit_one", {})
-
-    # 单位价值，缺失时默认1.0
-    unit_a_base = benefit_one.get("攻击力白值", 1.0) or 1.0
-    unit_a_pct = benefit_one.get("攻击力%", 1.25) or 1.25
-    unit_a_flat = benefit_one.get("攻击力", 1.0) or 1.0
-    unit_elem = benefit_one.get("元素伤害%", 1.25) or 1.25
-    unit_dmg = benefit_one.get("伤害增加%", 1.0) or 1.0
-    unit_cr = benefit_one.get("暴击率%", 1.0) or 1.0
-    unit_cd = benefit_one.get("暴击伤害%", 2.0) or 2.0
-
-    a_base = total_stats.get("攻击力白值", 0.0)
-    a_pct = total_stats.get("攻击力%", 0.0)
-    a_flat = total_stats.get("攻击力", 0.0)
-    elem = total_stats.get("元素伤害%", 0.0)
-    dmg = total_stats.get("伤害增加%", 0.0)
-    cr_raw = total_stats.get("暴击率%", 0.0)
-    cd_raw = total_stats.get("暴击伤害%", 0.0)
-
-    cr = min(cr_raw / 100.0, 1.0)
-    cd = cd_raw / 100.0
-
-    def damage(base, pct, flat, elem_val, dmg_val, crit_rate, crit_dmg):
-        return (base * (1 + pct / 100.0) + flat) * (1 + (elem_val + dmg_val) / 100.0) * (1 + crit_rate * crit_dmg)
-
-    base_damage = damage(a_base, a_pct, a_flat, elem, dmg, cr, cd)
-    if base_damage == 0:
-        return 0.0, []  # 返回伤害0和空列表
-
-    items = []
-
-    # 攻击力白值
-    step = unit_a_base
-    d = damage(a_base + step, a_pct, a_flat, elem, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("攻击力白值", f"{a_base:.0f}", f"{step:.0f}", gain))
-
-    # 攻击力%
-    step = unit_a_pct
-    d = damage(a_base, a_pct + step, a_flat, elem, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("攻击力%", f"{a_pct:.2f}%", f"{step:.2f}%", gain))
-
-    # 攻击力
-    step = unit_a_flat
-    d = damage(a_base, a_pct, a_flat + step, elem, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("攻击力", f"{a_flat:.0f}", f"{step:.0f}", gain))
-
-    # 元素伤害%
-    step = unit_elem
-    d = damage(a_base, a_pct, a_flat, elem + step, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("元素伤害%", f"{elem:.2f}%", f"{step:.2f}%", gain))
-
-    # 伤害增加%
-    step = unit_dmg
-    d = damage(a_base, a_pct, a_flat, elem, dmg + step, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("伤害增加%", f"{dmg:.2f}%", f"{step:.2f}%", gain))
-
-    # 暴击率%
-    step = unit_cr
-    cr_new = min((cr_raw + step) / 100.0, 1.0)
-    d = damage(a_base, a_pct, a_flat, elem, dmg, cr_new, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("暴击率%", f"{cr_raw:.2f}%", f"{step:.2f}%", gain))
-
-    # 暴击伤害%
-    step = unit_cd
-    cd_new = (cd_raw + step) / 100.0
-    d = damage(a_base, a_pct, a_flat, elem, dmg, cr, cd_new)
-    gain = (d / base_damage - 1) * 100
-    items.append(("暴击伤害%", f"{cd_raw:.2f}%", f"{step:.2f}%", gain))
-
-    # 按收益降序排序
-    items.sort(key=lambda x: x[3], reverse=True)
-    return base_damage, items
-
-
 def _show_drive_optimization(window, role_name, current_drive, weights):
     """驱动优化替换弹窗"""
-    inv_path = runtime.USER_CONFIG_DIR / "real_inventory.json"
-    if not inv_path.exists():
-        QMessageBox.warning(window, "错误", "real_inventory.json 不存在")
-        return
-
-    with open(inv_path, "r", encoding="utf-8") as f:
-        try:
-            all_drives = json.load(f)
-        except Exception:
-            QMessageBox.warning(window, "错误", "real_inventory.json 格式错误")
-            return
+    all_drives = load_real_inventory()
 
     # 加载 my_roles.json，构建其他角色已装备驱动的 uid -> 角色名列表 映射
-    my_roles_data = _load_my_roles(window)
+    my_roles_data = load_my_roles()
     user_map = {}
     for rn, rdata in my_roles_data.items():
         if rn == role_name:

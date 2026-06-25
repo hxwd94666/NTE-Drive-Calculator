@@ -2257,7 +2257,7 @@
     }
   },
   "主角": {
-    "role_name": "零",
+    "role_name": "主角",
     "atk_type": "光",
     "weapon_type": "固态",
     "level": 80,
