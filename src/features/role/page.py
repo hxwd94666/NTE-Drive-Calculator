@@ -49,6 +49,8 @@ from .marginal_widget import MarginalBenefitPanel
 from .base_widget import BaseStatsWidget
 from .drive_widget import build_drive_group, show_drive_details
 from .weapon_widget import build_weapon_group, refresh_weapon_group
+from .tape_widget import build_tape_group, refresh_tape_group
+from .weight_widget import build_weight_group, refresh_weight_group
 
 __all__ = ["_page_my_role", "_refresh_my_role", "install_methods"]
 
@@ -273,13 +275,17 @@ def _render_my_roles(window):
         role_data = data[role_name]  # 从 data 获取
 
         # ---- 0. 边际收益 ----
-        # 创建边际收益面板
+        def _refresh_weight_block():
+            refresh_weight_group(window, role_name)
+
         margin_panel = MarginalBenefitPanel(
             parent_layout=form,
             window=window,
             role_name=role_name,
-            role_data=role_data
+            role_data=role_data,
+            on_weight_changed_callback=_refresh_weight_block,
         )
+
         if not hasattr(window, "_margin_panels"):
             window._margin_panels = {}
         window._margin_panels[role_name] = margin_panel
@@ -363,377 +369,53 @@ def _render_my_roles(window):
         window._weapon_groups[role_name] = weapon_group
 
         # ---- 4. 空幕加成 ----
-        def build_tape_group(window, role_name, role_data, form):
-            group_tape = QGroupBox("空幕加成")
-            tape_layout = QVBoxLayout(group_tape)
-            tape_layout.setSpacing(8)
+        def _refresh_margin_panel_for_role():
+            if hasattr(window, "_margin_panels"):
+                panel = window._margin_panels.get(role_name)
+                if panel:
+                    panel.refresh()
 
-            stats = load_stats()
-            tape_pool = stats.get("tape_stat_values", {})
-            tape_main_pool = stats.get("tape_main_stat_values", {})
+        tape_group = build_tape_group(
+            parent_layout=form,
+            window=window,
+            role_name=role_name,
+            role_data=role_data,
+            on_save_callback=lambda: _save_my_roles_silent(window),
+            on_margin_refresh_callback=_refresh_margin_panel_for_role,
+            on_update_nested_field=_update_nested_field,
+        )
 
-            tape_data = role_data.get("tape")
-            if not isinstance(tape_data, dict):
-                tape_data = {}
-                role_data["tape"] = tape_data
-
-            # ---------- 固定/自动字段 ----------
-            tape_data["shape_id"] = "TAPE_15"
-            tape_data["quality"] = "Gold"
-            if not tape_data.get("uid"):
-                import time, random
-                tape_data["uid"] = f"tape_{int(time.time())}_{random.randint(1000, 9999)}"
-
-            tape_data.setdefault("display_name", "空幕")
-            tape_data.setdefault("sub_stats", {})
-            tape_data.setdefault("main_stats", {})
-            tape_data.setdefault("skill", {})
-            tape_data.setdefault("skill_2", {})
-            tape_data.setdefault("skill_cover", 0.8)
-
-            for k in ("main_stats", "skill", "skill_2", "sub_stats"):
-                if not isinstance(tape_data.get(k), dict):
-                    tape_data[k] = {}
-
-            # =========================
-            # 显示名 + 选取按钮
-            # =========================
-            name_row = QHBoxLayout()
-            name_row.addWidget(QLabel("显示名:"))
-
-            name_edit = QLineEdit()
-            name_edit.setText(tape_data.get("display_name", "空幕"))
-            name_edit.editingFinished.connect(
-                lambda: _update_nested_field(window, role_name, ["tape", "display_name"], name_edit.text())
-            )
-            name_row.addWidget(name_edit)
-
-            # ---------- 选取空幕按钮 ----------
-            def load_tape_data():
-                tapes_db = load_tapes()
-                names = list(tapes_db.keys())
-                if not names:
-                    QMessageBox.information(window, "提示", "tapes.json 中没有空幕数据")
-                    return
-
-                selected, ok = QInputDialog.getItem(window, "选择空幕", "请选择空幕：", names, 0, False)
-                if not ok or not selected:
-                    return
-
-                tape_info = tapes_db[selected]
-
-                # ---- 更新数据（保留 main_stats 和 sub_stats） ----
-                # 显示名：优先使用内部 display_name，否则用键名
-                new_display = tape_info.get("display_name", selected)
-                tape_data["display_name"] = new_display
-                name_edit.setText(new_display)
-
-                # 技能1（只取第一个键值对，如果存在多个则只保留第一个）
-                if "skill" in tape_info and isinstance(tape_info["skill"], dict) and tape_info["skill"]:
-                    first_key = next(iter(tape_info["skill"]))
-                    tape_data["skill"] = {first_key: tape_info["skill"][first_key]}
-                else:
-                    tape_data["skill"] = {}
-
-                # 技能2（同样只取第一个）
-                if "skill_2" in tape_info and isinstance(tape_info["skill_2"], dict) and tape_info["skill_2"]:
-                    first_key = next(iter(tape_info["skill_2"]))
-                    tape_data["skill_2"] = {first_key: tape_info["skill_2"][first_key]}
-                else:
-                    tape_data["skill_2"] = {}
-
-                # 覆盖率
-                tape_data["skill_cover"] = float(tape_info.get("skill_cover", 0.8))
-
-                # ---- 重绘 ----
-                layout = form.layout()
-                old_group = window._tape_group
-                if old_group:
-                    # 在布局中查找旧组的位置
-                    idx = layout.indexOf(old_group)  # 适用于 QFormLayout 或 QVBoxLayout
-                    if idx >= 0:
-                        layout.removeWidget(old_group)
-                        old_group.deleteLater()
-                        new_group = build_tape_group(window, role_name, role_data, form)
-                        layout.insertWidget(idx, new_group)
-                        window._tape_group = new_group
-                    else:
-                        # 如果找不到，直接删除并添加到最后
-                        old_group.deleteLater()
-                        new_group = build_tape_group(window, role_name, role_data, form)
-                        form.addWidget(new_group)
-                        window._tape_group = new_group
-                else:
-                    new_group = build_tape_group(window, role_name, role_data, form)
-                    form.addWidget(new_group)
-                    window._tape_group = new_group
-
-            select_btn = QPushButton("选取空幕")
-            select_btn.setObjectName("btnAction")
-            select_btn.clicked.connect(load_tape_data)
-            name_row.addWidget(select_btn)
-
-            tape_layout.addLayout(name_row)
-
-            # =========================
-            # 主词条
-            # =========================
-            # ... 原有的主词条 UI 代码保持不变 ...
-            main_label = QLabel("主词条（属性名 + 数值）：")
-            main_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
-            tape_layout.addWidget(main_label)
-
-            main_row = QHBoxLayout()
-            main_keys = list(tape_main_pool.keys()) if tape_main_pool else ["攻击力%"]
-            main_combo = SearchableComboBox()
-            main_combo.addItem("")
-            main_combo.addItems(main_keys)
-
-            main_spin = NoWheelDoubleSpinBox()
-            main_spin.setRange(-999999, 999999)
-            main_spin.setDecimals(2)
-
-            saved_main = tape_data.get("main_stats", {})
-            if saved_main and isinstance(saved_main, dict):
-                saved_key = next(iter(saved_main.keys()), "")
-                saved_val = saved_main.get(saved_key, 0.0)
-                if saved_key in main_keys:
-                    main_combo.setCurrentText(saved_key)
-                else:
-                    main_combo.setCurrentIndex(0)
-                main_spin.setValue(float(saved_val))
-            else:
-                main_combo.setCurrentIndex(0)
-                main_spin.setValue(0.0)
-
-            def commit_main():
-                key = main_combo.currentText().strip()
-                val = main_spin.value()
-                if key and key in main_keys:
-                    tape_data["main_stats"] = {key: val}
-                else:
-                    tape_data["main_stats"] = {}
-                _save_my_roles_silent(window)
-
-            main_combo.currentTextChanged.connect(lambda _: commit_main())
-            main_spin.editingFinished.connect(commit_main)
-
-            main_row.addWidget(main_combo)
-            main_row.addWidget(main_spin)
-            tape_layout.addLayout(main_row)
-
-            # =========================
-            # 副属性（最多4条）
-            # =========================
-            sub_label = QLabel("副属性（最多4条，留空表示未设置）：")
-            sub_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
-            tape_layout.addWidget(sub_label)
-
-            sub_entries = list(tape_data.get("sub_stats", {}).items())
-            while len(sub_entries) < 4:
-                sub_entries.append(("", 0.0))
-            sub_entries = sub_entries[:4]
-
-            tape_pool_items = [f"{k} ({v})" for k, v in tape_pool.items()]
-            sub_widgets = []
-
-            for idx, (key, val) in enumerate(sub_entries):
-                row = QHBoxLayout()
-                combo = SearchableComboBox()
-                combo.addItem("")
-                combo.addItems(tape_pool_items)
-                if key and key in tape_pool:
-                    combo.setCurrentText(f"{key} ({tape_pool[key]})")
-                else:
-                    combo.setCurrentIndex(0)
-
-                spin = NoWheelDoubleSpinBox()
-                spin.setRange(-999999, 999999)
-                spin.setDecimals(2)
-                spin.setValue(float(val))
-
-                def update_spin_from_combo(cb, sp):
-                    text = cb.currentText()
-                    if text:
-                        k = text.rsplit(" (", 1)[0]
-                        v = tape_pool.get(k, 0.0)
-                        sp.setValue(v)
-                    else:
-                        sp.setValue(0.0)
-
-                combo.currentTextChanged.connect(
-                    lambda _, c=combo, sp=spin: update_spin_from_combo(c, sp)
-                )
-
-                row.addWidget(combo)
-                row.addWidget(spin)
-                tape_layout.addLayout(row)
-                sub_widgets.append((combo, spin))
-
-            def commit_sub_stats():
-                new_sub = {}
-                for combo, spin in sub_widgets:
-                    text = combo.currentText().strip()
-                    if text:
-                        key = text.rsplit(" (", 1)[0]
-                        val = spin.value()
-                        new_sub[key] = val
-                tape_data["sub_stats"] = new_sub
-                _save_my_roles_silent(window)
-
-            for combo, spin in sub_widgets:
-                combo.currentTextChanged.connect(lambda _, c=combo, sp=spin: commit_sub_stats())
-                spin.editingFinished.connect(commit_sub_stats)
-
-            # =========================
-            # skill_cover
-            # =========================
-            add_single_value_row(
-                tape_layout,
-                "技能2覆盖率:",
-                ["tape", "skill_cover"],
-                window,
-                role_name,
-                default=float(tape_data.get("skill_cover", 0.8)),
-                is_float=True
-            )
-
-            # =========================
-            # 技能 skill 和 skill_2
-            # =========================
-            if not tape_pool:
-                tape_pool = {"攻击力%": 0}
-
-            tape_skill = tape_data["skill"]
-            tape_skill2 = tape_data["skill_2"]
-
-            def normalize_skill_dict(d, pool):
-                if not d:
-                    d[next(iter(pool.keys()))] = 0.0
-                    return
-                if len(d) > 1:
-                    k = next(iter(d))
-                    v = d[k]
-                    d.clear()
-                    d[k] = v
-                k = next(iter(d))
-                if k not in pool:
-                    pool[k] = 0.0
-
-            normalize_skill_dict(tape_skill, tape_pool)
-            normalize_skill_dict(tape_skill2, tape_pool)
-
-            def create_single_skill_row(skill_dict, label_text):
-                row_label = QLabel(label_text)
-                row_label.setStyleSheet("color:#aaa;")
-                tape_layout.addWidget(row_label)
-
-                row = QHBoxLayout()
-                key = next(iter(skill_dict.keys()))
-                val = float(skill_dict[key])
-
-                combo = SearchableComboBox()
-                combo.addItems(list(tape_pool.keys()))
-                combo.setCurrentText(key)
-
-                spin = NoWheelDoubleSpinBox()
-                spin.setRange(-999999, 999999)
-                spin.setDecimals(2)
-                spin.setValue(val)
-
-                def commit():
-                    k = combo.currentText()
-                    v = spin.value()
-                    skill_dict.clear()
-                    skill_dict[k] = v
-                    _save_my_roles_silent(window)
-
-                combo.currentTextChanged.connect(lambda _: commit())
-                spin.editingFinished.connect(commit)
-
-                row.addWidget(combo)
-                row.addWidget(spin)
-                tape_layout.addLayout(row)
-
-            create_single_skill_row(tape_skill, "技能1：")
-            create_single_skill_row(tape_skill2, "技能2：")
-
-            return group_tape
-
-        group_tape = build_tape_group(window, role_name, role_data, form)
-        form.addWidget(group_tape)
-        window._tape_group = group_tape
+        # 存储引用以便刷新
+        if not hasattr(window, "_tape_groups"):
+            window._tape_groups = {}
+        window._tape_groups[role_name] = tape_group
 
         # ---- 5. 词条权重 ----
-        group_weights = QGroupBox("词条权重")
-        weights_layout = QVBoxLayout(group_weights)
-        weights_layout.setSpacing(8)
+        def _refresh_margin_panel_for_role():
+            if hasattr(window, "_margin_panels"):
+                panel = window._margin_panels.get(role_name)
+                if panel:
+                    panel.refresh()
 
-        top_row = QHBoxLayout()
-        top_row.addWidget(QLabel("词条权重:"))
-        top_row.addStretch()
-        add_btn = QPushButton("+ 添加词条")
-        add_btn.setObjectName("btnAction")
-        top_row.addWidget(add_btn)
-        weights_layout.addLayout(top_row)
+        def _refresh_weight_block():
+            refresh_weight_group(window, role_name)
 
-        weights_container = QVBoxLayout()
-        weights_layout.addLayout(weights_container)
+        weight_group = build_weight_group(
+            parent_layout=form,
+            window=window,
+            role_name=role_name,
+            role_data=role_data,
+            on_save_callback=lambda: _save_my_roles_silent(window),
+            on_margin_refresh_callback=_refresh_margin_panel_for_role,
+        )
 
-        weights_dict = role_data.get("weights", {})
+        # 存储引用以便刷新
+        if not hasattr(window, "_weight_groups"):
+            window._weight_groups = {}
+        window._weight_groups[role_name] = weight_group
 
-        # 渲染权重行
-        for key in sorted(weights_dict.keys()):
-            val = weights_dict[key]
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            row.addWidget(QLabel(key))
-
-            spin = NoWheelDoubleSpinBox()
-            spin.setRange(0, 10)
-            spin.setSingleStep(0.05)
-            spin.setDecimals(3)
-            spin.setValue(float(val))
-            spin.setKeyboardTracking(False)
-            spin.valueChanged.connect(lambda v, k=key: _update_weight_value(k, v))
-            row.addWidget(spin)
-
-            del_btn = QPushButton("×")
-            del_btn.setObjectName("btnSm")
-            del_btn.setFixedSize(28, 28)
-            del_btn.clicked.connect(lambda checked=False, rn=role_name, k=key: _delete_weight(rn, k))
-            row.addWidget(del_btn)
-            weights_container.addLayout(row)
-
-        def _update_weight_value(k, v):
-            if role_name in data:
-                data[role_name].setdefault("weights", {})[k] = v
-                _mark_my_role_dirty(window)
-
-        def _delete_weight(rn, k):
-            if rn in data and k in data[rn].get("weights", {}):
-                del data[rn]["weights"][k]
-                _save_my_roles_silent(window)  # 静默保存，不弹窗
-                _refresh_my_role(window)  # 刷新界面
-
-        def _add_weight():
-            stats = load_stats()
-            pool = sorted(stats.get("weight_pool", []))
-            existing = set(weights_dict.keys())
-            available = [s for s in pool if s not in existing]
-            if not available:
-                QMessageBox.information(window, "提示", "所有词条已添加。")
-                return
-            wt, ok = QInputDialog.getItem(window, "添加词条", "选择词条:", available, 0, False)
-            if ok and wt.strip():
-                data[role_name].setdefault("weights", {})[wt.strip()] = 0.5
-                _save_my_roles_silent(window)
-                _refresh_my_role(window)
-
-        add_btn.clicked.connect(_add_weight)
-
-        form.addWidget(group_weights)
-
+        form.addSpacing(100)  # 添加100像素固定空白
+        form.addStretch()  # 添加弹性空间，使内容顶部对齐
         form.addStretch()
 
     # 构建标签页

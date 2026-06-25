@@ -5,11 +5,13 @@ from typing import TYPE_CHECKING, Optional
 from PySide6.QtWidgets import (
     QGroupBox,
     QVBoxLayout,
+    QHBoxLayout,
     QTableWidget,
     QTableWidgetItem,
     QPushButton,
     QLabel,
     QMessageBox,
+    QCheckBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHeaderView
@@ -23,29 +25,37 @@ from .core import (
 from .dao import load_stats, save_my_roles
 
 if TYPE_CHECKING:
-    # 避免循环导入，运行时不需要
     pass
 
 
 class MarginalBenefitPanel:
     """
     边际收益面板
-    包含直伤评分显示 + 边际收益表格 + "设为权重"按钮
+    包含直伤评分显示 + 边际收益表格 + 手动"设为权重"按钮 + 自动权重开关
     支持刷新
     """
 
-    def __init__(self, parent_layout, window, role_name: str, role_data: dict):
+    def __init__(
+        self,
+        parent_layout,
+        window,
+        role_name: str,
+        role_data: dict,
+        on_weight_changed_callback=None,  # 权重变化回调
+    ):
         """
         Args:
             parent_layout: 父布局，面板将添加到这个布局中
             window: 主窗口对象（用于 QMessageBox 和保存）
             role_name: 角色名称
             role_data: 角色数据字典
+            on_weight_changed_callback: 权重变化时的回调（用于刷新权重模块UI）
         """
         self.parent_layout = parent_layout
         self.window = window
         self.role_name = role_name
         self.role_data = role_data
+        self.on_weight_changed_callback = on_weight_changed_callback
 
         # 缓存计算结果
         self.base_damage = 0.0
@@ -54,6 +64,10 @@ class MarginalBenefitPanel:
         self.damage_label = None
         self.table = None
         self.set_weights_btn = None
+        self.auto_switch = None
+
+        # 自动设为权重开关（默认开启）
+        self.auto_apply_enabled = True
 
         # 构建面板
         self.build()
@@ -67,21 +81,52 @@ class MarginalBenefitPanel:
         self.group_box = QGroupBox("边际收益（按每单位收益排序）")
         layout = QVBoxLayout(self.group_box)
 
+        # ---- 标题行：直伤评分 + 自动开关 + 设为权重按钮 ----
+        header_row = QHBoxLayout()
+
         # 直伤评分
         self.damage_label = QLabel(f"直伤评分 : {self.base_damage:.2f}")
         self.damage_label.setStyleSheet("font-weight: bold; color: #ffaa00; font-size: 14px;")
-        layout.addWidget(self.damage_label)
+        header_row.addWidget(self.damage_label)
+
+        header_row.addStretch()
+
+        # 自动设为权重开关（默认开启）
+        self.auto_switch = QLabel("✓ 自动设为权重")
+        self.auto_switch.setToolTip("点击切换自动权重更新")
+        self.auto_switch.setStyleSheet("""
+            QLabel {
+                color: #333;
+                font-size: 13px;
+                padding: 4px 8px;
+                border-radius: 4px;
+                background: #e8f5e9;
+            }
+            QLabel:hover {
+                background: #c8e6c9;
+            }
+        """)
+        self.auto_switch.setAlignment(Qt.AlignCenter)
+        # 保存点击事件
+        self._auto_switch_click_handler = self._on_auto_switch_click
+        self.auto_switch.mousePressEvent = self._auto_switch_click_handler
+        self.auto_apply_enabled = True
+        header_row.addWidget(self.auto_switch)
+
+        # "设为权重"按钮（手动）
+        self.set_weights_btn = QPushButton("设为权重")
+        self.set_weights_btn.setObjectName("btnAction")
+        self.set_weights_btn.clicked.connect(self._on_apply_weights)
+        header_row.addWidget(self.set_weights_btn)
+
+        layout.addLayout(header_row)
 
         # 表格
         if self.margins:
             self.table = self._create_table()
             layout.addWidget(self.table)
 
-            # "设为权重"按钮
-            self.set_weights_btn = QPushButton("设为权重")
-            self.set_weights_btn.setObjectName("btnAction")
-            self.set_weights_btn.clicked.connect(self._on_apply_weights)
-            layout.addWidget(self.set_weights_btn)
+        layout.addStretch()
 
         # 添加到父布局
         self.parent_layout.addWidget(self.group_box)
@@ -128,12 +173,68 @@ class MarginalBenefitPanel:
 
         return table
 
-    def _on_apply_weights(self):
-        """"设为权重"按钮点击事件"""
+    def _on_auto_switch_click(self, event):
+        """点击标签切换自动权重状态"""
+        self.auto_apply_enabled = not self.auto_apply_enabled
+        if self.auto_apply_enabled:
+            self.auto_switch.setText("✓ 自动设为权重")
+            self.auto_switch.setStyleSheet("""
+                QLabel {
+                    color: #333;
+                    font-size: 13px;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    background: #e8f5e9;
+                }
+                QLabel:hover {
+                    background: #c8e6c9;
+                }
+            """)
+            # 开启时立即应用权重
+            self._apply_weights(silent=True)
+        else:
+            self.auto_switch.setText("☐ 自动设为权重")
+            self.auto_switch.setStyleSheet("""
+                QLabel {
+                    color: #999;
+                    font-size: 13px;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    background: #f5f5f5;
+                }
+                QLabel:hover {
+                    background: #e0e0e0;
+                }
+            """)
+
+    def _apply_weights(self, silent=False):
+        """应用权重（内部方法）"""
         stats_config = load_stats()
         alias_map = stats_config.get("benefit_alias_mapping", {})
 
-        # 获取当前角色的权重数据（从 role_data 中，因为 data 可能已变化）
+        weights = self.role_data.setdefault("weights", {})
+        updated = apply_margins_to_weights(weights, self.margins, alias_map)
+
+        if updated > 0:
+            data = getattr(self.window, "_my_role_form_data", None)
+            if data:
+                save_my_roles(data)
+
+                # 只触发权重变化回调（刷新权重模块UI）
+                if self.on_weight_changed_callback:
+                    self.on_weight_changed_callback()
+                if not silent:
+                    QMessageBox.information(
+                        self.window,
+                        "成功",
+                        f"已自动更新 {updated} 个词条的权重！"
+                    )
+
+    def _on_apply_weights(self):
+        """手动"设为权重"按钮点击事件"""
+        stats_config = load_stats()
+        alias_map = stats_config.get("benefit_alias_mapping", {})
+
         weights = self.role_data.setdefault("weights", {})
         updated = apply_margins_to_weights(weights, self.margins, alias_map)
 
@@ -144,22 +245,22 @@ class MarginalBenefitPanel:
                 "当前权重中没有与边际收益匹配的词条，未能更新。"
             )
         else:
-            # 保存并刷新整个页面
             data = getattr(self.window, "_my_role_form_data", None)
             if data:
                 save_my_roles(data)
                 QMessageBox.information(
                     self.window,
                     "成功",
-                    f"已更新 {updated} 个词条的权重！"
+                    f"已手动更新 {updated} 个词条的权重！"
                 )
 
+                # 触发权重变化回调，刷新权重模块UI
+                if self.on_weight_changed_callback:
+                    self.on_weight_changed_callback()
+
     def refresh(self):
-        """
-        刷新面板数据
-        当角色数据发生变化时调用此方法重新计算并更新UI
-        """
-        # 重新计算
+        """刷新面板数据（外部调用）"""
+        # 重新计算数据（不触发权重更新）
         self._calculate()
 
         # 更新直伤评分
@@ -168,19 +269,14 @@ class MarginalBenefitPanel:
 
         # 更新表格
         if self.table:
-            # 清除旧表格，重建
             self.table.deleteLater()
             if self.margins:
                 self.table = self._create_table()
-                # 插入到按钮之前
-                if self.set_weights_btn:
-                    layout = self.group_box.layout()
-                    layout.insertWidget(
-                        layout.indexOf(self.set_weights_btn),
-                        self.table
-                    )
+                layout = self.group_box.layout()
+                layout.insertWidget(1, self.table)
             else:
                 self.table = None
-                # 如果 margins 为空，隐藏表格，但保留按钮
-                if self.set_weights_btn:
-                    self.set_weights_btn.setVisible(False)
+
+        # 如果自动开关打开，应用权重（但不要再次调用 refresh）
+        if self.auto_apply_enabled and self.margins:
+            self._apply_weights(silent=True)

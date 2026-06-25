@@ -169,13 +169,12 @@ def calc_drive_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
     Returns:
         List[Tuple[str, float]]: 汇总属性列表
     """
-    drive = role_data.get("drive", [])
-    drives = drive.get("drives", {})
-    role_name = role_data.get("role_name", "")
+    drive = role_data.get("drive", {})
+    drives = drive.get("drives", [])
 
     enriched_drives = enrich_drives_with_shape_bonus(drives)
     result = aggregate_drive_stats(enriched_drives)
-    extra_buffs = calc_extra_buffs_from_role_data(enriched_drives, role_name)
+    extra_buffs = calc_extra_buffs_from_role_data(enriched_drives, role_data)
     for k, v in extra_buffs.items():
         result[k] = result.get(k, 0.0) + v
 
@@ -232,7 +231,7 @@ def aggregate_drive_stats(drives: list) -> dict:
     return result
 
 
-def calc_extra_buffs_from_role_data(drives: list, role_name: str) -> dict:
+def calc_extra_buffs_from_role_data(drives: list, role_data: dict) -> dict:
     """
     从角色数据中计算额外形状加成
 
@@ -243,7 +242,6 @@ def calc_extra_buffs_from_role_data(drives: list, role_name: str) -> dict:
     Returns:
         dict: 额外形状加成字典，如 {"攻击力%": 20.0}，若无加成则返回空字典
     """
-    role_data = load_role(role_name)
     extra_buffs = role_data.get("extra_shape_buffs", {})
     extra_shape_label = role_data.get("extra_shape_label", "")
 
