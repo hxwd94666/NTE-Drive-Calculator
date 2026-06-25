@@ -47,6 +47,7 @@ from .core import (
 )
 from .marginal_widget import MarginalBenefitPanel
 from .base_widget import BaseStatsWidget
+from .drive_widget import build_drive_group, show_drive_details
 
 __all__ = ["_page_my_role", "_refresh_my_role", "install_methods"]
 
@@ -306,47 +307,38 @@ def _render_my_roles(window):
         window._base_widgets[role_name] = base_widget
 
         # ---- 2. 驱动加成 ----
-        # ---- 驱动加成 ----
-        group_drive = QGroupBox("驱动加成")
-        drive_layout = QVBoxLayout(group_drive)
-        drive_layout.setSpacing(8)
+        def _refresh_margin_panel_for_role():
+            if hasattr(window, "_margin_panels"):
+                panel = window._margin_panels.get(role_name)
+                if panel:
+                    panel.refresh()
 
-        drive_data = role_data.get("drive", {})
+        def _refresh_drive_block():
+            from .drive_widget import refresh_drive_group
+            refresh_drive_group(window, role_name)
 
-        # 2. 显示驱动数量
-        drives = drive_data.get("drives", [])
-        cnt_label = QLabel(f"已装配驱动数量: {len(drives)}")
-        drive_layout.addWidget(cnt_label)
-
-        # 3. 自动计算的 sub_stats 汇总（只读）
-        calc_rows = calc_drive_bonus_stats(role_data)
-        if calc_rows:
-            info_group = QGroupBox("汇总属性（实时计算）")
-            info_group.setStyleSheet(
-                "QGroupBox{border:1px solid #30363d;border-radius:5px;padding:8px;}"
+        def _on_show_drive_details():
+            show_drive_details(
+                window,
+                role_name,
+                save_callback=lambda: _save_my_roles_silent(window),
+                refresh_callback=None,  # 不再需要完全刷新页面
+                refresh_margin_callback=_refresh_margin_panel_for_role,
+                refresh_drive_callback=_refresh_drive_block,
             )
-            info_layout = QVBoxLayout(info_group)
-            for stat, value in calc_rows:
-                row = QHBoxLayout()
-                row.addWidget(QLabel(stat))
-                val_label = QLabel(f"+{value:.2f}")
-                val_label.setStyleSheet("color:#58a6ff;font-weight:700;")
-                row.addStretch()
-                row.addWidget(val_label)
-                info_layout.addLayout(row)
-            drive_layout.addWidget(info_group)
-        else:
-            drive_layout.addWidget(QLabel("（暂无驱动/卡带，无法计算汇总属性）"))
 
-        # 4. “查看驱动详情”按钮
-        btn_detail = QPushButton("查看驱动详情")
-        btn_detail.setObjectName("btnSecondary")
-        btn_detail.clicked.connect(
-            lambda: _show_drive_details(window, role_name)
+        drive_group = build_drive_group(
+            parent_layout=form,
+            window=window,
+            role_name=role_name,
+            role_data=role_data,
+            on_details_callback=_on_show_drive_details,
         )
-        drive_layout.addWidget(btn_detail)
 
-        form.addWidget(group_drive)
+        # 存储驱动组引用以便刷新
+        if not hasattr(window, "_drive_groups"):
+            window._drive_groups = {}
+        window._drive_groups[role_name] = drive_group
 
         # ---- 3. 弧盘加成 ----
         def build_weapon_group(window, role_name, role_data, form):
@@ -1177,323 +1169,3 @@ def _update_nested_field(window, role_name, path, value):
         obj = obj.setdefault(key, {})
     obj[path[-1]] = value
     _mark_my_role_dirty(window)
-
-
-def _show_drive_details(window, role_name: str):
-    role_data = window._my_role_form_data.get(role_name)
-
-    if not role_data:
-        return
-
-    drive_data = role_data.get("drive", {})
-
-    bp = drive_data.get("blueprint_layout", [])
-    drives = drive_data.get("drives", [])
-
-    dlg = QDialog(window)
-    window._drive_detail_dlg = dlg
-    dlg.setWindowTitle(f"{role_name} - 驱动详情")
-    dlg.resize(1000, 700)
-
-    root = QVBoxLayout(dlg)
-
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-
-    content = QWidget()
-    layout = QVBoxLayout(content)
-
-    # 图谱
-    if bp:
-        group = QGroupBox("拼图图纸")
-        group_layout = QVBoxLayout(group)
-
-        row = QHBoxLayout()
-
-        row.addWidget(
-            PuzzleBoardWidget(bp),
-            0,
-            Qt.AlignTop
-        )
-
-        # 这里直接复用 Inventory 页
-        if hasattr(window, "_bonus_summary_widget"):
-            row.addWidget(
-                window._bonus_summary_widget(
-                    role_name,
-                    None,
-                    drives
-                ),
-                0,
-                Qt.AlignTop
-            )
-
-        row.addStretch()
-        group_layout.addLayout(row)
-        layout.addWidget(group)
-
-    # 驱动列表
-    if drives:
-        group = QGroupBox(f"驱动 ({len(drives)}个)")
-        group_layout = QVBoxLayout(group)
-        weights = role_data.get("weights", {})
-        for d in drives:
-            quality = d.get("quality", "Gold")
-            if hasattr(window, "_score_drive_dict"):
-                score = window._score_drive_dict(
-                    d.get("sub_stats", {}),
-                    d.get("shape_id", ""),
-                    weights,
-                    quality,
-                )
-                grade = window._calc_grade(
-                    score,
-                    window._shape_areas.get(
-                        d.get("shape_id", ""),
-                        3,
-                    ),
-                )
-            else:
-                score = 0
-                grade = "-"
-
-            # 创建卡片容器，包含驱动卡片和优化按钮
-            drive_container = QWidget()
-            drive_container_layout = QVBoxLayout(drive_container)
-            drive_container_layout.setContentsMargins(0, 0, 0, 0)
-            drive_container_layout.setSpacing(4)
-
-            # 驱动卡片（原有逻辑）
-            if hasattr(window, "_equip_card"):
-                card = window._equip_card(
-                    d.get("shape_id", ""),
-                    "",
-                    d.get("sub_stats", {}),
-                    d.get("shape_id", ""),
-                    d.get("uid", ""),
-                    weights,
-                    (score, grade),
-                    quality,
-                )
-                drive_container_layout.addWidget(card)
-
-            # 优化按钮
-            optimize_btn = QPushButton("优化")
-            optimize_btn.setObjectName("btnAction")
-            optimize_btn.setFixedWidth(60)
-            # 用默认参数捕获当前循环变量
-            optimize_btn.clicked.connect(
-                lambda checked=False, drive=d, rn=role_name, w=weights:
-                _show_drive_optimization(window, rn, drive, w)
-            )
-            drive_container_layout.addWidget(optimize_btn, alignment=Qt.AlignRight)
-
-            group_layout.addWidget(drive_container)
-
-        layout.addWidget(group)
-    layout.addStretch()
-    scroll.setWidget(content)
-    root.addWidget(scroll)
-    dlg.exec()
-    window._drive_detail_dlg = None
-
-
-def _show_drive_optimization(window, role_name, current_drive, weights):
-    """驱动优化替换弹窗"""
-    all_drives = load_real_inventory()
-
-    # 加载 my_roles.json，构建其他角色已装备驱动的 uid -> 角色名列表 映射
-    my_roles_data = load_my_roles()
-    user_map = {}
-    for rn, rdata in my_roles_data.items():
-        if rn == role_name:
-            continue
-        drives = rdata.get("drive", {}).get("drives", [])
-        for d in drives:
-            uid = d.get("uid")
-            if uid:
-                if uid not in user_map:
-                    user_map[uid] = []
-                user_map[uid].append(rn)
-
-    current_shape = current_drive.get("shape_id", "")
-    current_uid = current_drive.get("uid", "")
-
-    # 获取当前角色已装备的所有驱动 uid（用于过滤）
-    role_data = window._my_role_form_data.get(role_name, {})
-    equipped_drives = role_data.get("drive", {}).get("drives", [])
-    equipped_uids = {d.get("uid", "") for d in equipped_drives}
-
-    # 计算当前驱动分数
-    if hasattr(window, "_score_drive_dict"):
-        current_score = window._score_drive_dict(
-            current_drive.get("sub_stats", {}),
-            current_shape,
-            weights,
-            current_drive.get("quality", "Gold")
-        )
-    else:
-        current_score = 0
-
-    # 筛选：同形状，非自身，非已装备
-    candidates = []
-    for d in all_drives:
-        if d.get("shape_id") == current_shape and d.get("uid") not in equipped_uids and d.get("uid") != current_uid:
-            candidates.append(d)
-
-    if not candidates:
-        QMessageBox.information(window, "优化", "没有可替换的驱动")
-        return
-
-    # 计算候选分数
-    candidate_scores = []
-    for d in candidates:
-        score = window._score_drive_dict(
-            d.get("sub_stats", {}),
-            d.get("shape_id", ""),
-            weights,
-            d.get("quality", "Gold")
-        )
-        candidate_scores.append((score, d))
-
-    # 按分数降序
-    candidate_scores.sort(key=lambda x: x[0], reverse=True)
-
-    # 筛选规则：先取前20个，确保至少3个未被其他角色占用
-    final = list(candidate_scores[:20])
-    unassigned_count = sum(1 for _, d in final if d.get("uid", "") not in user_map)
-    if unassigned_count < 3:
-        for s, d in candidate_scores[20:]:
-            if d.get("uid", "") not in user_map:
-                final.append((s, d))
-                unassigned_count += 1
-                if unassigned_count >= 3:
-                    break
-
-    if not final:
-        QMessageBox.information(window, "优化", "没有更好的驱动（或符合条件）")
-        return
-
-    # ---------- 替换逻辑 ----------
-    def _replace_drive(new_drive):
-        """执行驱动替换并保存刷新"""
-        # 1. 在当前角色装备中替换
-        drives_list = role_data["drive"]["drives"]
-        # 找到当前驱动索引
-        idx = next((i for i, d in enumerate(drives_list) if d.get("uid") == current_uid), None)
-        if idx is not None:
-            # 构造新驱动数据（与 my_roles.json 格式一致）
-            new_entry = {
-                "uid": new_drive["uid"],
-                "shape_id": new_drive["shape_id"],
-                "sub_stats": new_drive["sub_stats"],
-                "quality": new_drive.get("quality", "Gold"),
-                "display_name": f"{new_drive['shape_id']}-" + "|".join(
-                    f"{k}_{v}" for k, v in new_drive["sub_stats"].items())
-            }
-            drives_list[idx] = new_entry
-
-            # 2. 如果新驱动被其他角色占用，用空属性驱动替换（不删除，保留占位）
-            new_uid = new_drive["uid"]
-            if new_uid in user_map:
-                for other_role in user_map[new_uid]:
-                    other_drives = window._my_role_form_data.get(other_role, {}).get("drive", {}).get("drives", [])
-                    for i, od in enumerate(other_drives):
-                        if od.get("uid") == new_uid:
-                            # 构造一个同形状的空驱动
-                            empty_drive = {
-                                "uid": f"empty_{new_uid}",
-                                "shape_id": od.get("shape_id", ""),
-                                "sub_stats": {},
-                                "quality": "Gold",
-                                "display_name": f"{od.get('shape_id', '')}-(空)"
-                            }
-                            other_drives[i] = empty_drive
-                            break
-        # 关闭驱动详情弹窗
-        if hasattr(window, '_drive_detail_dlg') and window._drive_detail_dlg:
-            window._drive_detail_dlg.accept()
-        # 3. 保存并刷新
-        _save_my_roles_silent(window)
-        dlg.accept()  # 关闭优化弹窗
-        _refresh_my_role(window)  # 刷新角色页面（驱动详情弹窗会关闭）
-
-    # ---------- 构建弹窗 ----------
-    dlg = QDialog(window)
-    dlg.setWindowTitle(f"优化替换 - {current_shape}")
-    dlg.resize(800, 600)
-    main_layout = QVBoxLayout(dlg)
-
-    # 当前驱动
-    cur_group = QGroupBox("当前驱动")
-    cur_layout = QVBoxLayout(cur_group)
-    if hasattr(window, "_equip_card"):
-        cur_card = window._equip_card(
-            current_shape,
-            "",
-            current_drive.get("sub_stats", {}),
-            current_shape,
-            current_uid,
-            weights,
-            (current_score,
-             window._calc_grade(current_score, window._shape_areas.get(current_shape, 3)) if hasattr(window,
-                                                                                                     "_calc_grade") else "-"),
-            current_drive.get("quality", "Gold")
-        )
-        cur_layout.addWidget(cur_card)
-    else:
-        cur_layout.addWidget(QLabel(f"UID: {current_uid} Score: {current_score:.2f}"))
-    main_layout.addWidget(cur_group)
-
-    # 候选驱动
-    cand_group = QGroupBox(f"可替换驱动 ({len(final)})")
-    cand_layout = QVBoxLayout(cand_group)
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll_widget = QWidget()
-    scroll_layout = QVBoxLayout(scroll_widget)
-
-    for score, d in final:
-        quality = d.get("quality", "Gold")
-        uid = d.get("uid", "")
-        grade = window._calc_grade(score, window._shape_areas.get(current_shape, 3)) if hasattr(window,
-                                                                                                "_calc_grade") else "-"
-        if hasattr(window, "_equip_card"):
-            card = window._equip_card(
-                d.get("shape_id", ""),
-                "",
-                d.get("sub_stats", {}),
-                d.get("shape_id", ""),
-                d.get("uid", ""),
-                weights,
-                (score, grade),
-                quality,
-            )
-            scroll_layout.addWidget(card)
-        else:
-            scroll_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
-
-        # 如果该驱动被其他角色使用，显示提示
-        if uid in user_map:
-            user_label = QLabel(f"使用者: {', '.join(user_map[uid])}")
-            user_label.setStyleSheet("color: #ff9800; font-size: 12px; margin-left: 10px;")
-            scroll_layout.addWidget(user_label)
-
-        # 替换按钮
-        replace_btn = QPushButton("替换")
-        replace_btn.setObjectName("btnAction")
-        # 捕获当前候选驱动
-        replace_btn.clicked.connect(lambda checked=False, nd=d: _replace_drive(nd))
-        scroll_layout.addWidget(replace_btn)
-
-    scroll_layout.addStretch()
-    scroll.setWidget(scroll_widget)
-    cand_layout.addWidget(scroll)
-    main_layout.addWidget(cand_group)
-
-    # 关闭按钮
-    btn_close = QPushButton("关闭")
-    btn_close.clicked.connect(dlg.accept)
-    main_layout.addWidget(btn_close)
-
-    dlg.exec()
