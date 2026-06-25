@@ -343,3 +343,24 @@ def get_character_total_stats(role_data: dict) -> dict:
         add_stat(k, float(v) * t_cover)
 
     return total
+
+def calc_base_damage(total_stats: dict) -> float:
+    """根据汇总属性计算直伤评分（伤害值）"""
+    stats = load_stats()
+    benefit_one = stats.get("benefit_one", {})
+
+    a_base = total_stats.get("攻击力白值", 0.0)
+    a_pct = total_stats.get("攻击力%", 0.0)
+    a_flat = total_stats.get("攻击力", 0.0)
+    elem = total_stats.get("元素伤害%", 0.0)
+    dmg = total_stats.get("伤害增加%", 0.0)
+    cr_raw = total_stats.get("暴击率%", 0.0)
+    cd_raw = total_stats.get("暴击伤害%", 0.0)
+
+    cr = min(cr_raw / 100.0, 1.0)
+    cd = cd_raw / 100.0
+
+    def damage(base, pct, flat, elem_val, dmg_val, crit_rate, crit_dmg):
+        return (base * (1 + pct / 100.0) + flat) * (1 + (elem_val + dmg_val) / 100.0) * (1 + crit_rate * crit_dmg)
+
+    return damage(a_base, a_pct, a_flat, elem, dmg, cr, cd)

@@ -17,15 +17,31 @@ from PySide6.QtWidgets import (
 
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
 from .dao import load_stats, load_weapons, save_my_roles
+from .core import get_character_total_stats, calc_base_damage
+
+
+def clear_layout(layout):
+    """递归清除布局中的所有子项，但不删除 layout 本身"""
+    if layout is None:
+        return
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
+        elif item.layout():
+            # 递归清除子布局的内容
+            clear_layout(item.layout())
+            # 子布局已空，可以删除
+            item.layout().deleteLater()
 
 
 def build_weapon_group(
-    parent_layout,
-    window,
-    role_name: str,
-    role_data: dict,
-    on_save_callback,
-    on_margin_refresh_callback=None,  # ✅ 新增：边际收益刷新回调
+        parent_layout,
+        window,
+        role_name: str,
+        role_data: dict,
+        on_save_callback,
+        on_margin_refresh_callback=None,
 ):
     """
     构建弧盘加成 QGroupBox 并添加到 parent_layout
@@ -62,14 +78,12 @@ def build_weapon_group(
 def _build_weapon_group_content(group_weapon):
     """构建弧盘组的内容（可被刷新复用）"""
     # 清除现有内容
+    clear_layout(group_weapon.layout())
+
+    # 重新获取布局引用（主布局仍然存在，只是被清空了）
     layout = group_weapon.layout()
-    while layout.count():
-        item = layout.takeAt(0)
-        if item.widget():
-            item.widget().deleteLater()
 
     window = group_weapon._window
-    role_name = group_weapon._role_name
     role_data = group_weapon._role_data
     on_save_callback = group_weapon._on_save_callback
     on_margin_refresh_callback = group_weapon._on_margin_refresh_callback
@@ -97,9 +111,37 @@ def _build_weapon_group_content(group_weapon):
         except:
             return 0.0
 
-    # ✅ 统一的数据变更处理函数
+    # ---- 定义更新边际收益标签的函数 ----
+    def _update_margin_label_ui():
+        try:
+            role_data = group_weapon._role_data
+            # 复制角色数据，移除 weapon 字段（得到“不含弧盘”的配置）
+            no_weapon_data = {k: v for k, v in role_data.items() if k != "weapon"}
+            stats_without = get_character_total_stats(no_weapon_data)
+            damage_without = calc_base_damage(stats_without)
+
+            stats_with = get_character_total_stats(role_data)
+            damage_with = calc_base_damage(stats_with)
+
+            if damage_without == 0:
+                gain = 0.0
+            else:
+                gain = (damage_with / damage_without - 1) * 100
+            margin_label.setText(f"直伤收益: {gain:+.2f}%")
+        except Exception as e:
+            margin_label.setText("直伤收益: 计算错误")
+            print(f"计算弧盘边际收益失败: {e}")
+
+    # 存储更新函数到 group_weapon，方便外部调用
+    group_weapon._update_margin_label_ui = _update_margin_label_ui
+
+    # 统一的数据变更处理函数
     def _on_data_changed():
         on_save_callback()
+        # 更新弧盘自身的边际收益标签
+        if hasattr(group_weapon, '_update_margin_label_ui'):
+            group_weapon._update_margin_label_ui()
+        # 刷新边际收益面板
         if on_margin_refresh_callback:
             on_margin_refresh_callback()
 
@@ -111,8 +153,16 @@ def _build_weapon_group_content(group_weapon):
 
     name_edit = QLineEdit()
     name_edit.setText(weapon_data.get("name", ""))
-    name_edit.textChanged.connect(_on_data_changed)  # ✅
+    name_edit.textChanged.connect(_on_data_changed)
     name_row.addWidget(name_edit)
+
+    # 弹性空间将后续内容推到右侧
+    name_row.addStretch()
+
+    # 边际收益标签
+    margin_label = QLabel("直伤收益: 0.00%")
+    margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px;")
+    name_row.addWidget(margin_label)
 
     def _load_weapon_data():
         weapon_db = load_weapons()
@@ -154,7 +204,7 @@ def _build_weapon_group_content(group_weapon):
 
         # 刷新整个组
         _refresh_weapon_group(group_weapon)
-        # ✅ 刷新边际收益
+        # 刷新边际收益
         if on_margin_refresh_callback:
             on_margin_refresh_callback()
 
@@ -409,7 +459,7 @@ def _build_weapon_group_content(group_weapon):
 
     def commit_cover():
         skill_obj["skill_cover"] = cover_spin.value()
-        _on_data_changed()  # ✅
+        _on_data_changed()
 
     cover_spin.editingFinished.connect(commit_cover)
 
@@ -417,6 +467,9 @@ def _build_weapon_group_content(group_weapon):
     row_cover.addWidget(QLabel("技能覆盖率"))
     row_cover.addWidget(cover_spin)
     layout.addLayout(row_cover)
+
+    # 初始更新边际收益标签
+    _update_margin_label_ui()
 
 
 def _refresh_weapon_group(group_weapon):

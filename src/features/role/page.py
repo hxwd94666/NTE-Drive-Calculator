@@ -40,6 +40,7 @@ from .dao import (
     load_weapons,
     load_tapes,
     load_real_inventory,
+    merge_new_roles_from_model,
 )
 from .core import (
     calc_drive_bonus_stats,
@@ -156,7 +157,8 @@ def _render_my_roles(window):
         if item.widget():
             item.widget().deleteLater()
 
-    data = load_my_roles()
+    # 加载数据并自动合并模型中的新角色
+    data = merge_new_roles_from_model()
     window._my_role_form_data = data
     window._my_role_dirty = False
 
@@ -313,7 +315,50 @@ def _render_my_roles(window):
             window._base_widgets = {}
         window._base_widgets[role_name] = base_widget
 
-        # ---- 2. 驱动加成 ----
+        # ---- 2. 弧盘加成 ----
+        def _refresh_margin_panel_for_role():
+            if hasattr(window, "_margin_panels"):
+                panel = window._margin_panels.get(role_name)
+                if panel:
+                    panel.refresh()
+
+        weapon_group = build_weapon_group(
+            parent_layout=form,
+            window=window,
+            role_name=role_name,
+            role_data=role_data,
+            on_save_callback=lambda: _save_my_roles_silent(window),
+            on_margin_refresh_callback=_refresh_margin_panel_for_role,
+        )
+
+        # 存储引用以便刷新
+        if not hasattr(window, "_weapon_groups"):
+            window._weapon_groups = {}
+        window._weapon_groups[role_name] = weapon_group
+
+        # ---- 3. 空幕加成 ----
+        def _refresh_margin_panel_for_role():
+            if hasattr(window, "_margin_panels"):
+                panel = window._margin_panels.get(role_name)
+                if panel:
+                    panel.refresh()
+
+        tape_group = build_tape_group(
+            parent_layout=form,
+            window=window,
+            role_name=role_name,
+            role_data=role_data,
+            on_save_callback=lambda: _save_my_roles_silent(window),
+            on_margin_refresh_callback=_refresh_margin_panel_for_role,
+            on_update_nested_field=_update_nested_field,
+        )
+
+        # 存储引用以便刷新
+        if not hasattr(window, "_tape_groups"):
+            window._tape_groups = {}
+        window._tape_groups[role_name] = tape_group
+
+        # ---- 4. 驱动加成 ----
         def _refresh_margin_panel_for_role():
             if hasattr(window, "_margin_panels"):
                 panel = window._margin_panels.get(role_name)
@@ -346,49 +391,6 @@ def _render_my_roles(window):
         if not hasattr(window, "_drive_groups"):
             window._drive_groups = {}
         window._drive_groups[role_name] = drive_group
-
-        # ---- 3. 弧盘加成 ----
-        def _refresh_margin_panel_for_role():
-            if hasattr(window, "_margin_panels"):
-                panel = window._margin_panels.get(role_name)
-                if panel:
-                    panel.refresh()
-
-        weapon_group = build_weapon_group(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_save_callback=lambda: _save_my_roles_silent(window),
-            on_margin_refresh_callback=_refresh_margin_panel_for_role,
-        )
-
-        # 存储引用以便刷新
-        if not hasattr(window, "_weapon_groups"):
-            window._weapon_groups = {}
-        window._weapon_groups[role_name] = weapon_group
-
-        # ---- 4. 空幕加成 ----
-        def _refresh_margin_panel_for_role():
-            if hasattr(window, "_margin_panels"):
-                panel = window._margin_panels.get(role_name)
-                if panel:
-                    panel.refresh()
-
-        tape_group = build_tape_group(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_save_callback=lambda: _save_my_roles_silent(window),
-            on_margin_refresh_callback=_refresh_margin_panel_for_role,
-            on_update_nested_field=_update_nested_field,
-        )
-
-        # 存储引用以便刷新
-        if not hasattr(window, "_tape_groups"):
-            window._tape_groups = {}
-        window._tape_groups[role_name] = tape_group
 
         # ---- 5. 词条权重 ----
         def _refresh_margin_panel_for_role():

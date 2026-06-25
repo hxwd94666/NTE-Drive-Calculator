@@ -17,6 +17,20 @@ from PySide6.QtWidgets import (
 
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
 from .dao import load_stats, load_tapes
+from .core import get_character_total_stats, calc_base_damage
+
+
+def clear_layout(layout):
+    """递归清除布局中的所有子项，但不删除 layout 本身"""
+    if layout is None:
+        return
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
+        elif item.layout():
+            clear_layout(item.layout())
+            item.layout().deleteLater()
 
 
 def build_tape_group(
@@ -30,18 +44,6 @@ def build_tape_group(
 ):
     """
     构建空幕加成 QGroupBox 并添加到 parent_layout
-
-    Args:
-        parent_layout: 父布局
-        window: 主窗口对象
-        role_name: 角色名
-        role_data: 角色数据
-        on_save_callback: 保存回调函数
-        on_margin_refresh_callback: 边际收益刷新回调函数（可选）
-        on_update_nested_field: 更新嵌套字段的回调函数（可选）
-
-    Returns:
-        QGroupBox: 创建的空幕组
     """
     group_tape = QGroupBox("空幕加成")
     tape_layout = QVBoxLayout(group_tape)
@@ -64,12 +66,9 @@ def build_tape_group(
 
 def _build_tape_group_content(group_tape):
     """构建空幕组的内容（可被刷新复用）"""
-    # 清除现有内容
+    # 使用 clear_layout 彻底清除所有内容（包括嵌套布局）
+    clear_layout(group_tape.layout())
     layout = group_tape.layout()
-    while layout.count():
-        item = layout.takeAt(0)
-        if item.widget():
-            item.widget().deleteLater()
 
     window = group_tape._window
     role_name = group_tape._role_name
@@ -110,9 +109,35 @@ def _build_tape_group_content(group_tape):
         except:
             return 0.0
 
-    # ✅ 统一的数据变更处理函数
+    # ---- 定义更新边际收益标签的函数 ----
+    def _update_margin_label_ui():
+        try:
+            # 复制角色数据，移除 tape 字段（得到“不含空幕”的配置）
+            no_tape_data = {k: v for k, v in role_data.items() if k != "tape"}
+            stats_without = get_character_total_stats(no_tape_data)
+            damage_without = calc_base_damage(stats_without)
+
+            stats_with = get_character_total_stats(role_data)
+            damage_with = calc_base_damage(stats_with)
+
+            if damage_without == 0:
+                gain = 0.0
+            else:
+                gain = (damage_with / damage_without - 1) * 100
+            margin_label.setText(f"直伤收益: {gain:+.2f}%")
+        except Exception as e:
+            margin_label.setText("直伤收益: 计算错误")
+            print(f"计算空幕边际收益失败: {e}")
+
+    group_tape._update_margin_label_ui = _update_margin_label_ui
+
+    # 统一的数据变更处理函数
     def _on_data_changed():
         on_save_callback()
+        # 更新空幕自身的边际收益标签
+        if hasattr(group_tape, '_update_margin_label_ui'):
+            group_tape._update_margin_label_ui()
+        # 刷新边际收益面板
         if on_margin_refresh_callback:
             on_margin_refresh_callback()
 
@@ -120,14 +145,13 @@ def _build_tape_group_content(group_tape):
         if on_update_nested_field:
             on_update_nested_field(window, role_name, path, value)
         else:
-            # fallback: 直接修改 role_data
             obj = role_data
             for key in path[:-1]:
                 obj = obj.setdefault(key, {})
             obj[path[-1]] = value
 
     # =========================
-    # 显示名 + 选取按钮
+    # 显示名 + 选取按钮 + 边际收益标签
     # =========================
     name_row = QHBoxLayout()
     name_row.addWidget(QLabel("显示名:"))
@@ -138,6 +162,14 @@ def _build_tape_group_content(group_tape):
         lambda: _update_nested_field(["tape", "display_name"], name_edit.text())
     )
     name_row.addWidget(name_edit)
+
+    # 弹性空间
+    name_row.addStretch()
+
+    # 边际收益标签
+    margin_label = QLabel("直伤收益: 0.00%")
+    margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px;")
+    name_row.addWidget(margin_label)
 
     # ---------- 选取空幕按钮 ----------
     def _load_tape_data():
@@ -153,26 +185,22 @@ def _build_tape_group_content(group_tape):
 
         tape_info = tapes_db[selected]
 
-        # 更新数据（保留 main_stats 和 sub_stats）
         new_display = tape_info.get("display_name", selected)
         tape_data["display_name"] = new_display
         name_edit.setText(new_display)
 
-        # 技能1（只取第一个键值对）
         if "skill" in tape_info and isinstance(tape_info["skill"], dict) and tape_info["skill"]:
             first_key = next(iter(tape_info["skill"]))
             tape_data["skill"] = {first_key: tape_info["skill"][first_key]}
         else:
             tape_data["skill"] = {}
 
-        # 技能2（同样只取第一个）
         if "skill_2" in tape_info and isinstance(tape_info["skill_2"], dict) and tape_info["skill_2"]:
             first_key = next(iter(tape_info["skill_2"]))
             tape_data["skill_2"] = {first_key: tape_info["skill_2"][first_key]}
         else:
             tape_data["skill_2"] = {}
 
-        # 覆盖率
         tape_data["skill_cover"] = float(tape_info.get("skill_cover", 0.8))
 
         # 刷新整个组
@@ -388,6 +416,9 @@ def _build_tape_group_content(group_tape):
 
     create_single_skill_row(tape_skill, "技能1：")
     create_single_skill_row(tape_skill2, "技能2：")
+
+    # 初始更新边际收益标签
+    _update_margin_label_ui()
 
 
 def _refresh_tape_group(group_tape):

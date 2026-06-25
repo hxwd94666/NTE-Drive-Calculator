@@ -147,3 +147,39 @@ def load_real_inventory() -> dict:
             return json.load(f)
     except (json.JSONDecodeError, IOError):
         return {}
+
+
+# ==================== 模型文件合并 ====================
+
+def merge_new_roles_from_model() -> dict:
+    """
+    从 my_roles_model.json 中读取并合并新角色到 my_roles.json
+    返回合并后的完整数据字典，如果没有新角色则返回原有数据
+    """
+    model_path = get_my_roles_model_path()
+    if not model_path.exists():
+        return load_my_roles()  # 直接返回现有数据
+
+    try:
+        with open(model_path, "r", encoding="utf-8") as f:
+            model_data = json.load(f)
+        if not isinstance(model_data, dict):
+            return load_my_roles()
+    except (json.JSONDecodeError, IOError):
+        return load_my_roles()
+
+    # 加载现有数据
+    current_data = load_my_roles()
+    existing_names = set(current_data.keys())
+
+    new_roles = {}
+    for name, role_data in model_data.items():
+        if name not in existing_names:
+            new_roles[name] = role_data
+            existing_names.add(name)
+
+    if new_roles:
+        current_data.update(new_roles)
+        save_my_roles(current_data)
+
+    return current_data

@@ -14,8 +14,21 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from src.ui.puzzle_board import PuzzleBoardWidget
 
-from .core import calc_drive_bonus_stats
+from .core import calc_drive_bonus_stats, get_character_total_stats, calc_base_damage
 from .dao import load_real_inventory, load_my_roles
+
+
+def clear_layout(layout):
+    """递归清除布局中的所有子项，但不删除 layout 本身"""
+    if layout is None:
+        return
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
+        elif item.layout():
+            clear_layout(item.layout())
+            item.layout().deleteLater()
 
 
 def build_drive_group(
@@ -48,12 +61,9 @@ def build_drive_group(
 
 def _build_drive_group_content(group_drive):
     """构建驱动块的内容（可被刷新复用）"""
-    # 清除现有内容（保留布局）
+    # 清除现有内容
+    clear_layout(group_drive.layout())
     layout = group_drive.layout()
-    while layout.count():
-        item = layout.takeAt(0)
-        if item.widget():
-            item.widget().deleteLater()
 
     window = group_drive._window
     role_name = group_drive._role_name
@@ -62,9 +72,47 @@ def _build_drive_group_content(group_drive):
 
     drive_data = role_data.get("drive", {})
     drives = drive_data.get("drives", [])
-    cnt_label = QLabel(f"已装配驱动数量: {len(drives)}")
-    layout.addWidget(cnt_label)
 
+    # ---- 顶部行：驱动数量 + 直伤收益 ----
+    top_row = QHBoxLayout()
+
+    cnt_label = QLabel(f"已装配驱动数量: {len(drives)}")
+    top_row.addWidget(cnt_label)
+
+    top_row.addStretch()
+
+    # 计算所有驱动的总直伤收益
+    margin_label = QLabel("直伤收益: 0.00%")
+    margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px;")
+    top_row.addWidget(margin_label)
+
+    layout.addLayout(top_row)
+
+    # ---- 更新直伤收益标签 ----
+    def _update_total_margin():
+        try:
+            # 计算不含驱动的伤害
+            no_drive_data = {k: v for k, v in role_data.items() if k != "drive"}
+            stats_without = get_character_total_stats(no_drive_data)
+            damage_without = calc_base_damage(stats_without)
+
+            # 计算包含驱动的伤害
+            stats_with = get_character_total_stats(role_data)
+            damage_with = calc_base_damage(stats_with)
+
+            if damage_without == 0:
+                gain = 0.0
+            else:
+                gain = (damage_with / damage_without - 1) * 100
+            margin_label.setText(f"直伤收益: {gain:+.2f}%")
+        except Exception as e:
+            margin_label.setText("直伤收益: 计算错误")
+            print(f"计算驱动总直伤收益失败: {e}")
+
+    # 存储更新函数
+    group_drive._update_margin = _update_total_margin
+
+    # 计算汇总属性
     calc_rows = calc_drive_bonus_stats(role_data)
     if calc_rows:
         info_group = QGroupBox("汇总属性（实时计算）")
@@ -89,20 +137,22 @@ def _build_drive_group_content(group_drive):
     btn_detail.clicked.connect(on_details_callback)
     layout.addWidget(btn_detail)
 
+    # 初始化更新
+    _update_total_margin()
+
 
 def refresh_drive_group(window, role_name: str):
-    """
-    刷新指定角色的驱动块内容（原地刷新，不重建页面）
-    """
+    """刷新指定角色的驱动块内容（原地刷新，不重建页面）"""
     if not hasattr(window, "_drive_groups"):
         return
     group_drive = window._drive_groups.get(role_name)
     if group_drive:
-        # 更新 role_data 引用
         role_data = window._my_role_form_data.get(role_name, {})
         group_drive._role_data = role_data
         _build_drive_group_content(group_drive)
 
+
+# ---------- 驱动详情弹窗 ----------
 
 def show_drive_details(
     window,
@@ -112,9 +162,7 @@ def show_drive_details(
     refresh_margin_callback=None,
     refresh_drive_callback=None,
 ):
-    """
-    显示驱动详情弹窗
-    """
+    """显示驱动详情弹窗"""
     role_data = window._my_role_form_data.get(role_name)
     if not role_data:
         return
@@ -161,6 +209,46 @@ def show_drive_details(
     window._drive_detail_state = None
 
 
+def _calc_single_drive_margin(role_data: dict, drive_to_exclude) -> float:
+    """
+    计算单个驱动在整体配置中的直伤收益
+    返回百分比值（如 5.23 表示 5.23%）
+    """
+    try:
+        # 复制角色数据，排除该驱动
+        drive_data = role_data.get("drive", {})
+        original_drives = drive_data.get("drives", [])
+
+        # 过滤掉要排除的驱动（通过 uid 或完整对象比较）
+        if drive_to_exclude:
+            exclude_uid = drive_to_exclude.get("uid")
+            if exclude_uid:
+                filtered_drives = [d for d in original_drives if d.get("uid") != exclude_uid]
+            else:
+                # 如果没有 uid，通过对象引用比较
+                filtered_drives = [d for d in original_drives if d is not drive_to_exclude]
+        else:
+            filtered_drives = original_drives
+
+        # 构造不含该驱动的角色数据
+        no_drive_data = {k: v for k, v in role_data.items() if k != "drive"}
+        no_drive_data["drive"] = {"drives": filtered_drives}
+
+        stats_without = get_character_total_stats(no_drive_data)
+        damage_without = calc_base_damage(stats_without)
+
+        # 包含该驱动的伤害（包含所有驱动）
+        stats_with = get_character_total_stats(role_data)
+        damage_with = calc_base_damage(stats_with)
+
+        if damage_without == 0:
+            return 0.0
+        return (damage_with / damage_without - 1) * 100
+    except Exception as e:
+        print(f"计算单个驱动直伤收益失败: {e}")
+        return 0.0
+
+
 def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data):
     """构建驱动详情弹窗的内容（可被刷新复用）"""
     while layout.count():
@@ -201,14 +289,11 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
         weights = role_data.get("weights", {})
 
         def _save_and_refresh():
-            # 保存数据
             state = window._drive_detail_state
             if state and state.get('save_callback'):
                 state['save_callback']()
-            # 刷新驱动块（不重建页面）
             if state and state.get('refresh_drive_callback'):
                 state['refresh_drive_callback']()
-            # 刷新边际收益
             if state and state.get('refresh_margin_callback'):
                 state['refresh_margin_callback']()
 
@@ -232,11 +317,16 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
                 score = 0
                 grade = "-"
 
+            # 计算该驱动的直伤收益
+            margin_gain = _calc_single_drive_margin(role_data, d)
+
+            # 创建卡片容器
             drive_container = QWidget()
             drive_container_layout = QVBoxLayout(drive_container)
             drive_container_layout.setContentsMargins(0, 0, 0, 0)
             drive_container_layout.setSpacing(4)
 
+            # 驱动卡片
             if hasattr(window, "_equip_card"):
                 card = window._equip_card(
                     d.get("shape_id", ""),
@@ -250,6 +340,16 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
                 )
                 drive_container_layout.addWidget(card)
 
+            # 底部的直伤收益标签 + 优化按钮行
+            bottom_row = QHBoxLayout()
+            bottom_row.addStretch()
+
+            # 直伤收益标签
+            margin_label = QLabel(f"直伤收益: {margin_gain:+.2f}%")
+            margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
+            bottom_row.addWidget(margin_label)
+
+            # 优化按钮
             optimize_btn = QPushButton("优化")
             optimize_btn.setObjectName("btnAction")
             optimize_btn.setFixedWidth(60)
@@ -257,7 +357,9 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
                 lambda checked=False, drive=d, rn=role_name, w=weights:
                 _show_drive_optimization(window, rn, drive, w, _save_and_refresh)
             )
-            drive_container_layout.addWidget(optimize_btn, alignment=Qt.AlignRight)
+            bottom_row.addWidget(optimize_btn)
+
+            drive_container_layout.addLayout(bottom_row)
 
             group_layout.addWidget(drive_container)
 
@@ -290,6 +392,8 @@ def refresh_drive_detail_content(window):
     layout = state['layout']
     _build_drive_detail_content(window, layout, role_name, bp, drives, role_data)
 
+
+# ---------- 优化替换弹窗 ----------
 
 def _show_drive_optimization(
     window,
@@ -333,6 +437,9 @@ def _show_drive_optimization(
         )
     else:
         current_score = 0
+
+    # 计算当前驱动的直伤收益
+    current_margin = _calc_single_drive_margin(role_data, current_drive)
 
     candidates = []
     for d in all_drives:
@@ -400,20 +507,17 @@ def _show_drive_optimization(
                             other_drives[i] = empty_drive
                             break
 
-        # 关闭优化弹窗
         dlg.accept()
-
-        # 执行保存并刷新回调（保存数据、刷新驱动块、刷新边际收益）
         on_save_refresh_callback()
-
-        # 刷新驱动详情弹窗内容
         refresh_drive_detail_content(window)
 
+    # ---------- 构建弹窗 ----------
     dlg = QDialog(window)
     dlg.setWindowTitle(f"优化替换 - {current_shape}")
-    dlg.resize(800, 600)
+    dlg.resize(850, 650)
     main_layout = QVBoxLayout(dlg)
 
+    # 当前驱动
     cur_group = QGroupBox("当前驱动")
     cur_layout = QVBoxLayout(cur_group)
     if hasattr(window, "_equip_card"):
@@ -431,8 +535,15 @@ def _show_drive_optimization(
         cur_layout.addWidget(cur_card)
     else:
         cur_layout.addWidget(QLabel(f"UID: {current_uid} Score: {current_score:.2f}"))
+
+    # 当前驱动的直伤收益
+    cur_margin_label = QLabel(f"直伤收益: {current_margin:+.2f}%")
+    cur_margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px; margin-top: 4px;")
+    cur_layout.addWidget(cur_margin_label)
+
     main_layout.addWidget(cur_group)
 
+    # 候选驱动
     cand_group = QGroupBox(f"可替换驱动 ({len(final)})")
     cand_layout = QVBoxLayout(cand_group)
     scroll = QScrollArea()
@@ -443,7 +554,45 @@ def _show_drive_optimization(
     for score, d in final:
         quality = d.get("quality", "Gold")
         uid = d.get("uid", "")
-        grade = window._calc_grade(score, window._shape_areas.get(current_shape, 3)) if hasattr(window, "_calc_grade") else "-"
+        grade = window._calc_grade(score, window._shape_areas.get(current_shape, 3)) if hasattr(window,
+                                                                                                "_calc_grade") else "-"
+
+        # ---- 计算该候选驱动的直伤收益 ----
+        # 1. 用新驱动替换当前驱动后的角色数据
+        sim_role_data = {k: v for k, v in role_data.items() if k != "drive"}
+        bp = role_data.get("drive", {}).get("blueprint_layout", [])
+        sim_drives = [drive for drive in equipped_drives if drive.get("uid") != current_uid]
+        # 添加候选驱动
+        sim_drives.append({
+            "uid": d["uid"],
+            "shape_id": d["shape_id"],
+            "sub_stats": d["sub_stats"],
+            "quality": d.get("quality", "Gold"),
+        })
+        sim_role_data["drive"] = {"drives": sim_drives, "blueprint_layout": bp}
+
+        # 2. 包含该候选驱动的伤害
+        stats_with = get_character_total_stats(sim_role_data)
+        damage_with = calc_base_damage(stats_with)
+
+        # 3. 排除该候选驱动后的伤害
+        exclude_drive_data = {k: v for k, v in sim_role_data.items() if k != "drive"}
+        candidate_uid = d["uid"]
+        exclude_drives = [drive for drive in sim_drives if drive.get("uid") != candidate_uid]
+        exclude_drive_data["drive"] = {"drives": exclude_drives, "blueprint_layout": bp}
+        stats_without = get_character_total_stats(exclude_drive_data)
+        damage_without = calc_base_damage(stats_without)
+
+        if damage_without == 0:
+            sim_margin = 0.0
+        else:
+            sim_margin = (damage_with / damage_without - 1) * 100
+
+        # 创建卡片容器...
+        card_container = QWidget()
+        card_layout = QVBoxLayout(card_container)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(4)
 
         if hasattr(window, "_equip_card"):
             card = window._equip_card(
@@ -456,19 +605,26 @@ def _show_drive_optimization(
                 (score, grade),
                 quality,
             )
-            scroll_layout.addWidget(card)
+            card_layout.addWidget(card)
         else:
-            scroll_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
+            card_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
+
+        # 直伤收益标签
+        margin_label = QLabel(f"直伤收益: {sim_margin:+.2f}%")
+        margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
+        card_layout.addWidget(margin_label)
 
         if uid in user_map:
             user_label = QLabel(f"使用者: {', '.join(user_map[uid])}")
-            user_label.setStyleSheet("color: #ff9800; font-size: 12px; margin-left: 10px;")
-            scroll_layout.addWidget(user_label)
+            user_label.setStyleSheet("color: #ff9800; font-size: 12px;")
+            card_layout.addWidget(user_label)
 
         replace_btn = QPushButton("替换")
         replace_btn.setObjectName("btnAction")
         replace_btn.clicked.connect(lambda checked=False, nd=d: _replace_drive(nd))
-        scroll_layout.addWidget(replace_btn)
+        card_layout.addWidget(replace_btn, alignment=Qt.AlignRight)
+
+        scroll_layout.addWidget(card_container)
 
     scroll_layout.addStretch()
     scroll.setWidget(scroll_widget)
