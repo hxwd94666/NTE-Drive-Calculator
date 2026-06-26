@@ -8,7 +8,8 @@ GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/hxwd94666/NTE-Drive-Ca
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
 QUARK_NETDISK_URL = "https://pan.quark.cn/s/42f0d8bed584"
 
-CORE_CONFIG_FILES = ("roles.json", "sets.json", "shapes.json", "stats.json")
+CORE_CONFIG_FILES = ("roles.json", "sets.json", "shapes.json", "stats.json",
+                     "my_roles_model.json", "tapes.json", "weapons.json")
 USER_DATA_FILES = ("equipped_state.json", "real_inventory.json")
 ACCOUNT_USER_FILES = (
     "equipped_state.json", "real_inventory.json", "priority_config.json",
