@@ -320,14 +320,23 @@ def get_character_total_stats(role_data: dict) -> dict:
 
     # 3. 武器
     weapon = role_data.get("weapon", {})
+    # 基础加成
     for k, v in weapon.get("sub_stats", {}).items():
         add_stat(k, v)
-    w_skill = weapon.get("skill", {})
-    for k, v in w_skill.get("sub_stats", {}).items():
-        add_stat(k, v)
-    w_cover = float(w_skill.get("skill_cover", 0.0))
-    for k, v in w_skill.get("skill", {}).items():
-        add_stat(k, float(v) * w_cover)
+
+    # 技能效果（新格式：数组）
+    skill_effects = weapon.get("skill", [])
+    for effect in skill_effects:
+        key = effect.get("key")
+        if not key:
+            continue
+        value = float(effect.get("value", 0.0))
+        cover = float(effect.get("cover", 0.8))
+        num = float(effect.get("num", 1))
+        effect_total = value * cover * num
+        if effect_total != 0:
+            add_stat(key, effect_total)
+
 
     # 4. 空幕
     tape = role_data.get("tape", {})
@@ -343,6 +352,7 @@ def get_character_total_stats(role_data: dict) -> dict:
         add_stat(k, float(v) * t_cover)
 
     return total
+
 
 def calc_base_damage(total_stats: dict) -> float:
     """根据汇总属性计算直伤评分（伤害值）"""
