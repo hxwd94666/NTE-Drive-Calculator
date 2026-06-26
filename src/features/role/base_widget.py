@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QWidget,
+    QPushButton,
+    QMessageBox,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QPixmap, QDesktopServices
 
 from .paths import get_roles_img_path
 from .dao import save_my_roles
@@ -71,13 +73,16 @@ class BaseStatsWidget:
 
         # ---- 等级下拉（右侧，与头像同一行） ----
         level_widget = QWidget()
-        level_widget.setFixedHeight(80)
+        level_widget.setFixedHeight(80)  # 与头像高度对齐
         level_layout = QVBoxLayout(level_widget)
         level_layout.setContentsMargins(0, 0, 0, 0)
 
+        # 等级行：标签 + 下拉框 + 问号按钮 + 攻略按钮（同一行）
+        level_row = QHBoxLayout()
+
         level_label = QLabel("等级:")
         level_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
-        level_layout.addWidget(level_label, alignment=Qt.AlignCenter)
+        level_row.addWidget(level_label)
 
         level_sub_stats = self.role_data.get("level_sub_stats", {})
         available_levels = sorted(level_sub_stats.keys(), key=lambda x: int(x))
@@ -93,7 +98,58 @@ class BaseStatsWidget:
             self.level_combo.setCurrentIndex(0)
         self.level_combo.setFixedWidth(80)
         self.level_combo.setStyleSheet("font-size:14px; padding:4px;")
-        level_layout.addWidget(self.level_combo, alignment=Qt.AlignCenter)
+        level_row.addWidget(self.level_combo)
+
+        # 问号按钮
+        help_btn = QPushButton("?")
+        help_btn.setObjectName("btnHelp")
+        help_btn.setFixedSize(20, 20)
+        help_btn.setStyleSheet("""
+            QPushButton#btnHelp {
+                background-color: #58a6ff;
+                color: white;
+                border-radius: 10px;
+                font-weight: bold;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton#btnHelp:hover {
+                background-color: #1f6feb;
+            }
+        """)
+        help_btn.setCursor(Qt.PointingHandCursor)
+        help_btn.clicked.connect(self._show_info_dialog)
+        level_row.addWidget(help_btn)
+
+        # 攻略按钮（根据 guide 字段条件显示）
+        guide_url = self.role_data.get("guide", "")
+        if guide_url:
+            guide_btn = QPushButton("攻略")
+            guide_btn.setObjectName("btnGuide")
+            guide_btn.setFixedHeight(24)
+            guide_btn.setStyleSheet("""
+                QPushButton#btnGuide {
+                    background-color: #ff6b6b;
+                    color: white;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 12px;
+                    padding: 2px 10px;
+                    border: none;
+                }
+                QPushButton#btnGuide:hover {
+                    background-color: #e03131;
+                }
+            """)
+            guide_btn.setCursor(Qt.PointingHandCursor)
+            guide_btn.clicked.connect(self._open_guide)
+            level_row.addWidget(guide_btn)
+
+        level_row.addStretch()
+        level_layout.addLayout(level_row)
+
+        # 垂直居中
+        level_layout.addStretch()
 
         top_row.addWidget(level_widget)
         top_row.addStretch()
@@ -218,3 +274,31 @@ class BaseStatsWidget:
                     lv_data = self.role_data.get("level_sub_stats", {}).get(lv, {})
                     val = lv_data.get(key, 0.0)
                 self.base_spins[key].setValue(float(val))
+
+    def _show_info_dialog(self):
+        """显示基础属性补充提示"""
+        msg = QMessageBox(self.window)
+        msg.setWindowTitle("关于基础属性")
+        msg.setText(
+            "部分角色的等级基础值（生命白值、攻击力白值、防御力白值）尚未完全获取。\n\n"
+            "如果您有准确的数据，欢迎在 GitHub Issues 中提交补充。\n\n"
+            "注意：角色攻击力白值需减去当前装备的弧盘的基础白值攻击力。"
+        )
+        msg.setIcon(QMessageBox.Information)
+        msg.exec()
+
+    def _open_guide(self):
+        """打开攻略链接或显示攻略文本"""
+        guide = self.role_data.get("guide", "")
+        if not guide:
+            return
+        # 判断是否为 URL（以 http 或 https 开头）
+        if guide.startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(guide))
+        else:
+            # 否则当作文本弹窗显示
+            msg = QMessageBox(self.window)
+            msg.setWindowTitle(f"{self.role_name} 攻略")
+            msg.setText(guide)
+            msg.setIcon(QMessageBox.Information)
+            msg.exec()

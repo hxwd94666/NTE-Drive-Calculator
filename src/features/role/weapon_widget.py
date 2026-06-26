@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QInputDialog,
     QMessageBox,
+    QComboBox,
 )
 
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
@@ -29,9 +30,7 @@ def clear_layout(layout):
         if item.widget():
             item.widget().deleteLater()
         elif item.layout():
-            # 递归清除子布局的内容
             clear_layout(item.layout())
-            # 子布局已空，可以删除
             item.layout().deleteLater()
 
 
@@ -45,17 +44,6 @@ def build_weapon_group(
 ):
     """
     构建弧盘加成 QGroupBox 并添加到 parent_layout
-
-    Args:
-        parent_layout: 父布局
-        window: 主窗口对象
-        role_name: 角色名
-        role_data: 角色数据
-        on_save_callback: 保存回调函数
-        on_margin_refresh_callback: 边际收益刷新回调函数（可选）
-
-    Returns:
-        QGroupBox: 创建的弧盘组
     """
     group_weapon = QGroupBox("弧盘加成")
     weapon_layout = QVBoxLayout(group_weapon)
@@ -66,7 +54,8 @@ def build_weapon_group(
     group_weapon._role_name = role_name
     group_weapon._role_data = role_data
     group_weapon._on_save_callback = on_save_callback
-    group_weapon._on_margin_refresh_callback = on_margin_refresh_callback  # ✅
+    group_weapon._on_margin_refresh_callback = on_margin_refresh_callback
+    group_weapon._current_weapon_info = None  # 存储当前武器模板信息
 
     # 构建内容
     _build_weapon_group_content(group_weapon)
@@ -77,10 +66,7 @@ def build_weapon_group(
 
 def _build_weapon_group_content(group_weapon):
     """构建弧盘组的内容（可被刷新复用）"""
-    # 清除现有内容
     clear_layout(group_weapon.layout())
-
-    # 重新获取布局引用（主布局仍然存在，只是被清空了）
     layout = group_weapon.layout()
 
     window = group_weapon._window
@@ -90,7 +76,7 @@ def _build_weapon_group_content(group_weapon):
 
     stats = load_stats()
     tape_pool = stats.get("tape_stat_values", {})
-    tape_main_pool_value = stats.get("tape_main_stat_values", {})
+    skill_pool = stats.get("skill_pool", [])  # 技能增幅类型池
 
     weapon_data = role_data.get("weapon")
     if not isinstance(weapon_data, dict):
@@ -99,11 +85,16 @@ def _build_weapon_group_content(group_weapon):
 
     weapon_data.setdefault("name", "")
     weapon_data.setdefault("sub_stats", {})
-    weapon_data.setdefault("skill", {})
-    skill_obj = weapon_data["skill"]
-    skill_obj.setdefault("sub_stats", {})
-    skill_obj.setdefault("skill", {})
-    skill_obj.setdefault("skill_cover", 0.8)
+    weapon_data.setdefault("skill", [])
+    # 等级和混频默认值
+    weapon_data.setdefault("level", 80)
+    weapon_data.setdefault("mix_level", 1)
+
+    # 如果当前有武器名称，但尚未加载武器信息，则自动加载
+    weapon_name = weapon_data.get("name")
+    if weapon_name and group_weapon._current_weapon_info is None:
+        weapon_db = load_weapons()
+        group_weapon._current_weapon_info = weapon_db.get(weapon_name)
 
     def safe_float(v):
         try:
@@ -115,7 +106,6 @@ def _build_weapon_group_content(group_weapon):
     def _update_margin_label_ui():
         try:
             role_data = group_weapon._role_data
-            # 复制角色数据，移除 weapon 字段（得到“不含弧盘”的配置）
             no_weapon_data = {k: v for k, v in role_data.items() if k != "weapon"}
             stats_without = get_character_total_stats(no_weapon_data)
             damage_without = calc_base_damage(stats_without)
@@ -132,21 +122,18 @@ def _build_weapon_group_content(group_weapon):
             margin_label.setText("直伤收益: 计算错误")
             print(f"计算弧盘边际收益失败: {e}")
 
-    # 存储更新函数到 group_weapon，方便外部调用
     group_weapon._update_margin_label_ui = _update_margin_label_ui
 
     # 统一的数据变更处理函数
     def _on_data_changed():
         on_save_callback()
-        # 更新弧盘自身的边际收益标签
         if hasattr(group_weapon, '_update_margin_label_ui'):
             group_weapon._update_margin_label_ui()
-        # 刷新边际收益面板
         if on_margin_refresh_callback:
             on_margin_refresh_callback()
 
     # =========================
-    # 1. 名称行（带选取按钮）
+    # 1. 名称行（带选取按钮 + 等级下拉 + 混频等级下拉）
     # =========================
     name_row = QHBoxLayout()
     name_row.addWidget(QLabel("名称:"))
@@ -156,8 +143,38 @@ def _build_weapon_group_content(group_weapon):
     name_edit.textChanged.connect(_on_data_changed)
     name_row.addWidget(name_edit)
 
-    # 弹性空间将后续内容推到右侧
+    # 弹性空间
     name_row.addStretch()
+
+    # 武器等级下拉（从当前武器模板的 level_sub_stats 获取可用等级）
+    weapon_info = group_weapon._current_weapon_info
+    available_levels = ["1", "20", "30", "40", "50", "60", "70", "80"]
+    if weapon_info and "level_sub_stats" in weapon_info:
+        levels = sorted(weapon_info["level_sub_stats"].keys(), key=lambda x: int(x))
+        if levels:
+            available_levels = levels
+
+    level_combo = QComboBox()
+    level_combo.addItems(available_levels)
+    current_level = str(weapon_data.get("level", 80))
+    if current_level in available_levels:
+        level_combo.setCurrentText(current_level)
+    else:
+        level_combo.setCurrentIndex(0)
+    level_combo.setFixedWidth(60)
+    level_combo.setStyleSheet("font-size:13px; padding:4px;")
+    name_row.addWidget(QLabel("等级:"))
+    name_row.addWidget(level_combo)
+
+    # 混频等级下拉
+    mix_combo = QComboBox()
+    mix_combo.addItems([str(i) for i in range(1, 6)])
+    current_mix = str(weapon_data.get("mix_level", 1))
+    mix_combo.setCurrentText(current_mix)
+    mix_combo.setFixedWidth(60)
+    mix_combo.setStyleSheet("font-size:13px; padding:4px;")
+    name_row.addWidget(QLabel("混频:"))
+    name_row.addWidget(mix_combo)
 
     # 边际收益标签
     margin_label = QLabel("直伤收益: 0.00%")
@@ -166,9 +183,12 @@ def _build_weapon_group_content(group_weapon):
 
     def _load_weapon_data():
         weapon_db = load_weapons()
+        weapon_type = role_data.get("weapon_type", "")
         names = list(weapon_db.keys())
+        if weapon_type:
+            names = [name for name in names if weapon_db[name].get("type") == weapon_type]
         if not names:
-            QMessageBox.information(window, "提示", "weapon.json 中没有弧盘数据")
+            QMessageBox.information(window, "提示", f"没有找到与武器类型 '{weapon_type}' 匹配的弧盘")
             return
 
         selected, ok = QInputDialog.getItem(window, "选择弧盘", "请选择弧盘：", names, 0, False)
@@ -177,30 +197,38 @@ def _build_weapon_group_content(group_weapon):
 
         weapon_info = weapon_db[selected]
 
+        # 保存当前武器模板
+        group_weapon._current_weapon_info = weapon_info
+
+        # 确定默认等级：优先取武器模板中的 level 字段，否则 80
+        default_level = weapon_info.get("level", 80)
+        weapon_data["level"] = default_level
+
+        # 确定默认混频等级：优先取武器模板中的 mix_level 字段，否则取第一个可用等级
+        default_mix = weapon_info.get("mix_level", 1)
         mix_levels = weapon_info.get("mix_level_sub_stats", {})
         if mix_levels:
-            level_keys = sorted(mix_levels.keys(), key=lambda x: int(x) if x.isdigit() else 0)
-            if level_keys:
-                level, ok = QInputDialog.getItem(window, "选择混频等级", "请选择混频等级（1~5）：", level_keys, 0, False)
-                if not ok or not level:
-                    return
-                selected_mix = mix_levels[level]
-            else:
-                selected_mix = {}
-        else:
-            selected_mix = {}
+            available_mix_levels = sorted(mix_levels.keys(), key=lambda x: int(x))
+            if str(default_mix) not in available_mix_levels:
+                default_mix = int(available_mix_levels[0]) if available_mix_levels else 1
+        weapon_data["mix_level"] = default_mix
 
+        # 更新名称
         weapon_data["name"] = selected
 
-        if "sub_stats" in weapon_info and isinstance(weapon_info["sub_stats"], dict):
-            weapon_data["sub_stats"] = weapon_info["sub_stats"].copy()
+        # 从 level_sub_stats 中获取对应等级的 sub_stats
+        level_sub_stats = weapon_info.get("level_sub_stats", {})
+        level_key = str(default_level)
+        if level_key in level_sub_stats:
+            weapon_data["sub_stats"] = level_sub_stats[level_key].copy()
         else:
-            weapon_data["sub_stats"] = {}
+            # 如果该等级不存在，取第一个可用等级
+            first_level = sorted(level_sub_stats.keys(), key=lambda x: int(x))[0] if level_sub_stats else "80"
+            weapon_data["sub_stats"] = level_sub_stats.get(first_level, {}).copy()
 
-        skill_obj = weapon_data["skill"]
-        skill_obj["sub_stats"] = selected_mix.get("sub_stats", {}).copy()
-        skill_obj["skill"] = selected_mix.get("skill", {}).copy()
-        skill_obj["skill_cover"] = float(selected_mix.get("skill_cover", 0.8))
+        # 从 mix_level_sub_stats 中获取对应等级的 skill
+        selected_mix = mix_levels.get(str(default_mix), {})
+        weapon_data["skill"] = selected_mix.get("skill", []).copy()
 
         # 刷新整个组
         _refresh_weapon_group(group_weapon)
@@ -208,12 +236,62 @@ def _build_weapon_group_content(group_weapon):
         if on_margin_refresh_callback:
             on_margin_refresh_callback()
 
+    def _on_level_changed(level_str):
+        """等级改变时更新 sub_stats"""
+        try:
+            new_level = int(level_str)
+        except ValueError:
+            return
+        weapon_data["level"] = new_level
+
+        weapon_info = group_weapon._current_weapon_info
+        if not weapon_info:
+            return
+        level_sub_stats = weapon_info.get("level_sub_stats", {})
+        level_key = str(new_level)
+        if level_key in level_sub_stats:
+            weapon_data["sub_stats"] = level_sub_stats[level_key].copy()
+        else:
+            # 如果该等级不存在，尝试取最近的等级
+            available = sorted(level_sub_stats.keys(), key=lambda x: int(x))
+            if available:
+                closest = min(available, key=lambda x: abs(int(x) - new_level))
+                weapon_data["sub_stats"] = level_sub_stats[closest].copy()
+            else:
+                weapon_data["sub_stats"] = {}
+        # 刷新组
+        _refresh_weapon_group(group_weapon)
+        _on_data_changed()
+
+    def _on_mix_level_changed(mix_str):
+        """混频等级改变时更新 skill"""
+        try:
+            new_mix = int(mix_str)
+        except ValueError:
+            return
+        weapon_data["mix_level"] = new_mix
+
+        weapon_info = group_weapon._current_weapon_info
+        if not weapon_info:
+            return
+        mix_levels = weapon_info.get("mix_level_sub_stats", {})
+        mix_key = str(new_mix)
+        selected_mix = mix_levels.get(mix_key, {})
+        weapon_data["skill"] = selected_mix.get("skill", []).copy()
+        # 刷新组
+        _refresh_weapon_group(group_weapon)
+        _on_data_changed()
+
     select_btn = QPushButton("选取弧盘")
     select_btn.setObjectName("btnAction")
     select_btn.clicked.connect(_load_weapon_data)
     name_row.addWidget(select_btn)
 
     layout.addLayout(name_row)
+
+    # 连接信号
+    level_combo.currentTextChanged.connect(_on_level_changed)
+    mix_combo.currentTextChanged.connect(_on_mix_level_changed)
 
     # =========================
     # 2. 基础加成
@@ -228,7 +306,6 @@ def _build_weapon_group_content(group_weapon):
     existing_keys = [k for k in base_info.keys() if k != "攻击力白值"]
     second_key = existing_keys[0] if len(existing_keys) >= 1 else None
 
-    # 攻击力白值
     white_spin = NoWheelDoubleSpinBox()
     white_spin.setRange(-999999, 999999)
     white_spin.setValue(float(base_info.get("攻击力白值", 300.0)))
@@ -237,7 +314,6 @@ def _build_weapon_group_content(group_weapon):
     row1.addWidget(white_spin)
     layout.addLayout(row1)
 
-    # 第二个属性
     combo2 = SearchableComboBox()
     combo2.addItem("")
     combo2.addItems(list(tape_pool.keys()))
@@ -261,7 +337,7 @@ def _build_weapon_group_content(group_weapon):
         if k2 and k2 in tape_pool:
             new_base[k2] = spin2.value()
         weapon_data["sub_stats"] = new_base
-        _on_data_changed()  # ✅
+        _on_data_changed()
 
     white_spin.editingFinished.connect(commit_base)
     combo2.currentTextChanged.connect(lambda _: commit_base())
@@ -274,100 +350,10 @@ def _build_weapon_group_content(group_weapon):
     skill_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
     layout.addWidget(skill_label)
 
-    # ---------- 3.1 技能基础加成 ----------
-    sb_label = QLabel("技能基础加成：")
-    sb_label.setStyleSheet("font-weight:bold; color:#8bc34a;")
-    layout.addWidget(sb_label)
-
-    sb_container = QWidget()
-    sb_layout = QVBoxLayout(sb_container)
-    sb_layout.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(sb_container)
-
-    sb_rows = []
-
-    def add_sb_row(key="", value=0.0):
-        row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-
-        combo = SearchableComboBox()
-        combo.addItem("")
-        combo.addItems(list(tape_main_pool_value.keys()))
-        if key and key in tape_main_pool_value:
-            combo.setCurrentText(key)
-        else:
-            combo.setCurrentIndex(0)
-
-        spin = NoWheelDoubleSpinBox()
-        spin.setRange(-999999, 999999)
-        spin.setDecimals(2)
-        spin.setValue(safe_float(value))
-
-        del_btn = QPushButton("✕")
-        del_btn.setFixedSize(28, 28)
-        del_btn.setStyleSheet("""
-            QPushButton {
-                color: red;
-                font-weight: bold;
-                font-size: 20px;
-                min-width: 28px;
-                min-height: 28px;
-                border: none;
-                background: transparent;
-            }
-            QPushButton:hover {
-                background: #ffcccc;
-                border-radius: 4px;
-            }
-        """)
-        del_btn.setFont(QFont("Arial", 14))
-
-        row_layout.addWidget(QLabel("属性"))
-        row_layout.addWidget(combo)
-        row_layout.addWidget(spin)
-        row_layout.addWidget(del_btn)
-
-        sb_layout.addWidget(row_widget)
-        sb_rows.append((combo, spin, row_widget))
-
-        def remove_row():
-            if (combo, spin, row_widget) in sb_rows:
-                sb_layout.removeWidget(row_widget)
-                row_widget.deleteLater()
-                sb_rows.remove((combo, spin, row_widget))
-                commit_sb_all()
-
-        del_btn.clicked.connect(remove_row)
-
-        def commit_sb_one():
-            commit_sb_all()
-
-        combo.currentTextChanged.connect(lambda _: commit_sb_one())
-        spin.editingFinished.connect(commit_sb_one)
-
-        return row_widget
-
-    def commit_sb_all():
-        new_dict = {}
-        for combo, spin, _ in sb_rows:
-            k = combo.currentText().strip()
-            if k and k in tape_pool:
-                new_dict[k] = spin.value()
-        skill_obj["sub_stats"] = new_dict
-        _on_data_changed()  # ✅
-
-    for k, v in skill_obj["sub_stats"].items():
-        add_sb_row(k, v)
-
-    sb_add_btn = QPushButton("+ 添加技能基础加成")
-    sb_add_btn.clicked.connect(lambda: add_sb_row())
-    layout.addWidget(sb_add_btn)
-
-    # ---------- 3.2 技能具体加成 ----------
-    ss_label = QLabel("技能具体加成：")
-    ss_label.setStyleSheet("font-weight:bold; color:#8bc34a;")
-    layout.addWidget(ss_label)
+    skill_effects = weapon_data.get("skill", [])
+    if not isinstance(skill_effects, list):
+        skill_effects = []
+        weapon_data["skill"] = skill_effects
 
     ss_container = QWidget()
     ss_layout = QVBoxLayout(ss_container)
@@ -376,19 +362,45 @@ def _build_weapon_group_content(group_weapon):
 
     ss_rows = []
 
-    def add_ss_row(key="", value=0.0):
+    def add_ss_row(effect=None):
+        if effect is None:
+            effect = {"key": "", "value": 0.0, "cover": 0.8}
+
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(0, 0, 0, 0)
 
-        line_edit = QLineEdit()
-        line_edit.setText(key)
-        line_edit.setPlaceholderText("输入属性名")
+        key_combo = SearchableComboBox()
+        key_combo.addItems(skill_pool)
+        key_combo.setEditable(True)
+        key_combo.setCurrentText(effect.get("key", ""))
+        key_combo.setMinimumWidth(250)
+        key_combo.setPlaceholderText("选择或输入属性名")
+        row_layout.addWidget(QLabel("属性"))
+        row_layout.addWidget(key_combo)
 
-        spin = NoWheelDoubleSpinBox()
-        spin.setRange(-999999, 999999)
-        spin.setDecimals(2)
-        spin.setValue(safe_float(value))
+        value_spin = NoWheelDoubleSpinBox()
+        value_spin.setRange(-999999, 999999)
+        value_spin.setDecimals(2)
+        value_spin.setValue(safe_float(effect.get("value", 0.0)))
+        row_layout.addWidget(QLabel("数值"))
+        row_layout.addWidget(value_spin)
+
+        cover_spin = NoWheelDoubleSpinBox()
+        cover_spin.setRange(0, 1.0)
+        cover_spin.setSingleStep(0.05)
+        cover_spin.setDecimals(2)
+        cover_spin.setValue(float(effect.get("cover", 0.8)))
+        row_layout.addWidget(QLabel("覆盖率"))
+        row_layout.addWidget(cover_spin)
+
+        num_spin = NoWheelDoubleSpinBox()
+        num_spin.setRange(0, 999)
+        num_spin.setDecimals(0)
+        num_spin.setValue(int(effect.get("num", 0)) if effect.get("num") else 0)
+        num_spin.setFixedWidth(60)
+        row_layout.addWidget(QLabel("层数"))
+        row_layout.addWidget(num_spin)
 
         del_btn = QPushButton("✕")
         del_btn.setFixedSize(28, 28)
@@ -408,20 +420,23 @@ def _build_weapon_group_content(group_weapon):
             }
         """)
         del_btn.setFont(QFont("Arial", 14))
-
-        row_layout.addWidget(QLabel("属性"))
-        row_layout.addWidget(line_edit)
-        row_layout.addWidget(spin)
         row_layout.addWidget(del_btn)
 
         ss_layout.addWidget(row_widget)
-        ss_rows.append((line_edit, spin, row_widget))
+        row_data = {
+            "key_combo": key_combo,
+            "value_spin": value_spin,
+            "cover_spin": cover_spin,
+            "num_spin": num_spin,
+            "row_widget": row_widget
+        }
+        ss_rows.append(row_data)
 
         def remove_row():
-            if (line_edit, spin, row_widget) in ss_rows:
+            if row_data in ss_rows:
                 ss_layout.removeWidget(row_widget)
                 row_widget.deleteLater()
-                ss_rows.remove((line_edit, spin, row_widget))
+                ss_rows.remove(row_data)
                 commit_ss_all()
 
         del_btn.clicked.connect(remove_row)
@@ -429,44 +444,37 @@ def _build_weapon_group_content(group_weapon):
         def commit_ss_one():
             commit_ss_all()
 
-        line_edit.textChanged.connect(lambda _: commit_ss_one())
-        spin.editingFinished.connect(commit_ss_one)
+        key_combo.currentTextChanged.connect(lambda _: commit_ss_one())
+        value_spin.editingFinished.connect(commit_ss_one)
+        cover_spin.editingFinished.connect(commit_ss_one)
+        num_spin.editingFinished.connect(commit_ss_one)
 
         return row_widget
 
     def commit_ss_all():
-        new_dict = {}
-        for line_edit, spin, _ in ss_rows:
-            k = line_edit.text().strip()
-            if k:
-                new_dict[k] = spin.value()
-        skill_obj["skill"] = new_dict
-        _on_data_changed()  # ✅
-
-    for k, v in skill_obj["skill"].items():
-        add_ss_row(k, v)
-
-    ss_add_btn = QPushButton("+ 添加技能具体加成")
-    ss_add_btn.clicked.connect(lambda: add_ss_row())
-    layout.addWidget(ss_add_btn)
-
-    # ---------- 3.3 技能覆盖率 ----------
-    cover_spin = NoWheelDoubleSpinBox()
-    cover_spin.setRange(0, 1.0)
-    cover_spin.setSingleStep(0.05)
-    cover_spin.setDecimals(2)
-    cover_spin.setValue(float(skill_obj.get("skill_cover", 0.8)))
-
-    def commit_cover():
-        skill_obj["skill_cover"] = cover_spin.value()
+        new_list = []
+        for row_data in ss_rows:
+            key = row_data["key_combo"].currentText().strip()
+            if not key:
+                continue
+            effect = {
+                "key": key,
+                "value": row_data["value_spin"].value(),
+                "cover": row_data["cover_spin"].value(),
+            }
+            num = int(row_data["num_spin"].value())
+            if num > 0:
+                effect["num"] = num
+            new_list.append(effect)
+        weapon_data["skill"] = new_list
         _on_data_changed()
 
-    cover_spin.editingFinished.connect(commit_cover)
+    for effect in skill_effects:
+        add_ss_row(effect)
 
-    row_cover = QHBoxLayout()
-    row_cover.addWidget(QLabel("技能覆盖率"))
-    row_cover.addWidget(cover_spin)
-    layout.addLayout(row_cover)
+    ss_add_btn = QPushButton("+ 添加技能效果")
+    ss_add_btn.clicked.connect(lambda: add_ss_row())
+    layout.addWidget(ss_add_btn)
 
     # 初始更新边际收益标签
     _update_margin_label_ui()
