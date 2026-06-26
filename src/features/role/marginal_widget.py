@@ -21,6 +21,7 @@ from .core import (
     calc_marginal_benefits,
     filter_margins_by_weights,
     apply_margins_to_weights,
+    get_valid_drives,
 )
 from .dao import load_stats, save_my_roles
 
@@ -36,12 +37,12 @@ class MarginalBenefitPanel:
     """
 
     def __init__(
-        self,
-        parent_layout,
-        window,
-        role_name: str,
-        role_data: dict,
-        on_weight_changed_callback=None,  # 权重变化回调
+            self,
+            parent_layout,
+            window,
+            role_name: str,
+            role_data: dict,
+            on_weight_changed_callback=None,  # 权重变化回调
     ):
         """
         Args:
@@ -132,11 +133,18 @@ class MarginalBenefitPanel:
         self.parent_layout.addWidget(self.group_box)
 
     def _calculate(self):
-        """计算边际收益数据"""
-        total_stats = get_character_total_stats(self.role_data)
-        self.base_damage, margins = calc_marginal_benefits(total_stats)
+        # 构建用于计算的 role_data，不改变原始对象
+        calc_role_data = self.role_data.copy()
+        if "drive" in calc_role_data:
+            # 复制 drive 字典，避免修改原始数据
+            calc_role_data["drive"] = calc_role_data["drive"].copy()
+            drives = calc_role_data["drive"].get("drives", [])
+            valid_drives = get_valid_drives(drives)
+            # 只在计算副本中替换为有效驱动
+            calc_role_data["drive"]["drives"] = valid_drives
 
-        # 根据权重过滤
+        total_stats = get_character_total_stats(calc_role_data)
+        self.base_damage, margins = calc_marginal_benefits(total_stats)
         weights = self.role_data.get("weights", {})
         self.margins = filter_margins_by_weights(margins, weights)
 

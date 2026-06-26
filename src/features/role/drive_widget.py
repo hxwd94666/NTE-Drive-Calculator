@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from src.ui.puzzle_board import PuzzleBoardWidget
 
-from .core import calc_drive_bonus_stats, get_character_total_stats, calc_base_damage
+from .core import calc_drive_bonus_stats, get_character_total_stats, calc_base_damage, get_valid_drives, is_empty_drive
 from .dao import load_real_inventory, load_my_roles
 
 
@@ -32,27 +32,21 @@ def clear_layout(layout):
 
 
 def build_drive_group(
-    parent_layout,
-    window,
-    role_name: str,
-    role_data: dict,
-    on_details_callback,
+        parent_layout,
+        window,
+        role_name: str,
+        role_data: dict,
+        on_details_callback,
 ):
-    """
-    构建驱动加成 QGroupBox 并添加到 parent_layout
-    返回创建的 QGroupBox 引用，用于后续刷新
-    """
     group_drive = QGroupBox("驱动加成")
     drive_layout = QVBoxLayout(group_drive)
     drive_layout.setSpacing(8)
 
-    # 存储必要信息以便刷新
     group_drive._window = window
     group_drive._role_name = role_name
     group_drive._role_data = role_data
     group_drive._on_details_callback = on_details_callback
 
-    # 构建内容
     _build_drive_group_content(group_drive)
 
     parent_layout.addWidget(group_drive)
@@ -60,8 +54,7 @@ def build_drive_group(
 
 
 def _build_drive_group_content(group_drive):
-    """构建驱动块的内容（可被刷新复用）"""
-    # 清除现有内容
+
     clear_layout(group_drive.layout())
     layout = group_drive.layout()
 
@@ -71,33 +64,38 @@ def _build_drive_group_content(group_drive):
     on_details_callback = group_drive._on_details_callback
 
     drive_data = role_data.get("drive", {})
-    drives = drive_data.get("drives", [])
+    all_drives = drive_data.get("drives", [])
+    valid_drives = get_valid_drives(all_drives)
+    total_drives = len(all_drives)
+    valid_count = len(valid_drives)
 
     # ---- 顶部行：驱动数量 + 直伤收益 ----
     top_row = QHBoxLayout()
-
-    cnt_label = QLabel(f"已装配驱动数量: {len(drives)}")
+    cnt_label = QLabel(f"已装配驱动数量: {valid_count}/{total_drives}")
     top_row.addWidget(cnt_label)
-
     top_row.addStretch()
-
-    # 计算所有驱动的总直伤收益
     margin_label = QLabel("直伤收益: 0.00%")
     margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px;")
     top_row.addWidget(margin_label)
-
     layout.addLayout(top_row)
 
-    # ---- 更新直伤收益标签 ----
     def _update_total_margin():
+        if valid_count == 0:
+            margin_label.setText("直伤收益: 0.00%")
+            return
         try:
-            # 计算不含驱动的伤害
+            # 不含驱动
             no_drive_data = {k: v for k, v in role_data.items() if k != "drive"}
             stats_without = get_character_total_stats(no_drive_data)
             damage_without = calc_base_damage(stats_without)
 
-            # 计算包含驱动的伤害
-            stats_with = get_character_total_stats(role_data)
+            # 只含有效驱动
+            valid_role_data = role_data.copy()
+            valid_role_data["drive"] = {
+                "drives": valid_drives,
+                "blueprint_layout": drive_data.get("blueprint_layout", [])
+            }
+            stats_with = get_character_total_stats(valid_role_data)
             damage_with = calc_base_damage(stats_with)
 
             if damage_without == 0:
@@ -109,11 +107,16 @@ def _build_drive_group_content(group_drive):
             margin_label.setText("直伤收益: 计算错误")
             print(f"计算驱动总直伤收益失败: {e}")
 
-    # 存储更新函数
     group_drive._update_margin = _update_total_margin
+    _update_total_margin()
 
-    # 计算汇总属性
-    calc_rows = calc_drive_bonus_stats(role_data)
+    # 汇总属性只基于有效驱动
+    valid_role_data = role_data.copy()
+    valid_role_data["drive"] = {
+        "drives": valid_drives,
+        "blueprint_layout": drive_data.get("blueprint_layout", [])
+    }
+    calc_rows = calc_drive_bonus_stats(valid_role_data)
     if calc_rows:
         info_group = QGroupBox("汇总属性（实时计算）")
         info_group.setStyleSheet(
@@ -130,19 +133,17 @@ def _build_drive_group_content(group_drive):
             info_layout.addLayout(row)
         layout.addWidget(info_group)
     else:
-        layout.addWidget(QLabel("（暂无驱动/卡带，无法计算汇总属性）"))
+        layout.addWidget(QLabel("（暂无驱动/卡带，首次使用需要执行计算后在 配装 页面点击 导入 对应角色）"))
 
     btn_detail = QPushButton("查看驱动详情")
     btn_detail.setObjectName("btnSecondary")
     btn_detail.clicked.connect(on_details_callback)
     layout.addWidget(btn_detail)
 
-    # 初始化更新
     _update_total_margin()
 
 
 def refresh_drive_group(window, role_name: str):
-    """刷新指定角色的驱动块内容（原地刷新，不重建页面）"""
     if not hasattr(window, "_drive_groups"):
         return
     group_drive = window._drive_groups.get(role_name)
@@ -155,12 +156,12 @@ def refresh_drive_group(window, role_name: str):
 # ---------- 驱动详情弹窗 ----------
 
 def show_drive_details(
-    window,
-    role_name: str,
-    save_callback,
-    refresh_callback,
-    refresh_margin_callback=None,
-    refresh_drive_callback=None,
+        window,
+        role_name: str,
+        save_callback,
+        refresh_callback,
+        refresh_margin_callback=None,
+        refresh_drive_callback=None,
 ):
     """显示驱动详情弹窗"""
     role_data = window._my_role_form_data.get(role_name)
@@ -169,7 +170,8 @@ def show_drive_details(
 
     drive_data = role_data.get("drive", {})
     bp = drive_data.get("blueprint_layout", [])
-    drives = drive_data.get("drives", [])
+    all_drives = drive_data.get("drives", [])
+    valid_drives = get_valid_drives(all_drives)
 
     dlg = QDialog(window)
     window._drive_detail_dlg = dlg
@@ -191,7 +193,8 @@ def show_drive_details(
         'layout': layout,
         'role_name': role_name,
         'bp': bp,
-        'drives': drives,
+        'drives': all_drives,
+        'valid_drives': valid_drives,
         'role_data': role_data,
         'save_callback': save_callback,
         'refresh_callback': refresh_callback,
@@ -199,7 +202,7 @@ def show_drive_details(
         'refresh_drive_callback': refresh_drive_callback,
     }
 
-    _build_drive_detail_content(window, layout, role_name, bp, drives, role_data)
+    _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid_drives, role_data)
 
     layout.addStretch()
     scroll.setWidget(content)
@@ -214,21 +217,25 @@ def _calc_single_drive_margin(role_data: dict, drive_to_exclude) -> float:
     计算单个驱动在整体配置中的直伤收益
     返回百分比值（如 5.23 表示 5.23%）
     """
+    # 如果驱动为空，直接返回0
+    if is_empty_drive(drive_to_exclude):
+        return 0.0
+
     try:
-        # 复制角色数据，排除该驱动
         drive_data = role_data.get("drive", {})
         original_drives = drive_data.get("drives", [])
+        # 获取有效驱动（排除空驱动）
+        valid_drives = get_valid_drives(original_drives)
 
-        # 过滤掉要排除的驱动（通过 uid 或完整对象比较）
+        # 过滤掉要排除的驱动（仅在有效驱动中排除）
         if drive_to_exclude:
             exclude_uid = drive_to_exclude.get("uid")
             if exclude_uid:
-                filtered_drives = [d for d in original_drives if d.get("uid") != exclude_uid]
+                filtered_drives = [d for d in valid_drives if d.get("uid") != exclude_uid]
             else:
-                # 如果没有 uid，通过对象引用比较
-                filtered_drives = [d for d in original_drives if d is not drive_to_exclude]
+                filtered_drives = [d for d in valid_drives if d is not drive_to_exclude]
         else:
-            filtered_drives = original_drives
+            filtered_drives = valid_drives
 
         # 构造不含该驱动的角色数据
         no_drive_data = {k: v for k, v in role_data.items() if k != "drive"}
@@ -237,7 +244,8 @@ def _calc_single_drive_margin(role_data: dict, drive_to_exclude) -> float:
         stats_without = get_character_total_stats(no_drive_data)
         damage_without = calc_base_damage(stats_without)
 
-        # 包含该驱动的伤害（包含所有驱动）
+        # 包含该驱动的伤害（包含所有有效驱动）
+        # 注意：这里要包含该驱动（因为它是有效驱动），所以使用全部有效驱动
         stats_with = get_character_total_stats(role_data)
         damage_with = calc_base_damage(stats_with)
 
@@ -249,7 +257,7 @@ def _calc_single_drive_margin(role_data: dict, drive_to_exclude) -> float:
         return 0.0
 
 
-def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data):
+def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid_drives, role_data):
     """构建驱动详情弹窗的内容（可被刷新复用）"""
     while layout.count():
         item = layout.takeAt(0)
@@ -261,30 +269,27 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
         group_layout = QVBoxLayout(group)
 
         row = QHBoxLayout()
-
         row.addWidget(
             PuzzleBoardWidget(bp),
             0,
             Qt.AlignTop
         )
-
         if hasattr(window, "_bonus_summary_widget"):
             row.addWidget(
                 window._bonus_summary_widget(
                     role_name,
                     None,
-                    drives
+                    valid_drives
                 ),
                 0,
                 Qt.AlignTop
             )
-
         row.addStretch()
         group_layout.addLayout(row)
         layout.addWidget(group)
 
-    if drives:
-        group = QGroupBox(f"驱动 ({len(drives)}个)")
+    if all_drives:
+        group = QGroupBox(f"驱动 ({len(all_drives)}个)")
         group_layout = QVBoxLayout(group)
         weights = role_data.get("weights", {})
 
@@ -297,8 +302,9 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
             if state and state.get('refresh_margin_callback'):
                 state['refresh_margin_callback']()
 
-        for d in drives:
+        for d in all_drives:
             quality = d.get("quality", "Gold")
+            # 计算评分（空驱动 sub_stats 为空，得分应为0或能正常处理）
             if hasattr(window, "_score_drive_dict"):
                 score = window._score_drive_dict(
                     d.get("sub_stats", {}),
@@ -317,7 +323,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
                 score = 0
                 grade = "-"
 
-            # 计算该驱动的直伤收益
+            # 计算直伤收益（空驱动返回0）
             margin_gain = _calc_single_drive_margin(role_data, d)
 
             # 创建卡片容器
@@ -326,12 +332,12 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
             drive_container_layout.setContentsMargins(0, 0, 0, 0)
             drive_container_layout.setSpacing(4)
 
-            # 驱动卡片
+            # ---------- 统一卡片渲染（不再区分是否为空驱动） ----------
             if hasattr(window, "_equip_card"):
                 card = window._equip_card(
                     d.get("shape_id", ""),
                     "",
-                    d.get("sub_stats", {}),
+                    d.get("sub_stats", {}),   # 空驱动就是 {}
                     d.get("shape_id", ""),
                     d.get("uid", ""),
                     weights,
@@ -340,16 +346,15 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
                 )
                 drive_container_layout.addWidget(card)
 
-            # 底部的直伤收益标签 + 优化按钮行
+            # 底部行：直伤收益 + 优化按钮（始终显示）
             bottom_row = QHBoxLayout()
             bottom_row.addStretch()
 
-            # 直伤收益标签
             margin_label = QLabel(f"直伤收益: {margin_gain:+.2f}%")
             margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
             bottom_row.addWidget(margin_label)
 
-            # 优化按钮
+            # 优化按钮：无论是否空驱动都显示
             optimize_btn = QPushButton("优化")
             optimize_btn.setObjectName("btnAction")
             optimize_btn.setFixedWidth(60)
@@ -360,7 +365,6 @@ def _build_drive_detail_content(window, layout, role_name, bp, drives, role_data
             bottom_row.addWidget(optimize_btn)
 
             drive_container_layout.addLayout(bottom_row)
-
             group_layout.addWidget(drive_container)
 
         layout.addWidget(group)
@@ -383,24 +387,26 @@ def refresh_drive_detail_content(window):
 
     drive_data = role_data.get("drive", {})
     bp = drive_data.get("blueprint_layout", [])
-    drives = drive_data.get("drives", [])
+    all_drives = drive_data.get("drives", [])
+    valid_drives = get_valid_drives(all_drives)
 
     state['bp'] = bp
-    state['drives'] = drives
+    state['drives'] = all_drives
+    state['valid_drives'] = valid_drives
     state['role_data'] = role_data
 
     layout = state['layout']
-    _build_drive_detail_content(window, layout, role_name, bp, drives, role_data)
+    _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid_drives, role_data)
 
 
 # ---------- 优化替换弹窗 ----------
 
 def _show_drive_optimization(
-    window,
-    role_name,
-    current_drive,
-    weights,
-    on_save_refresh_callback,
+        window,
+        role_name,
+        current_drive,
+        weights,
+        on_save_refresh_callback,
 ):
     """驱动优化替换弹窗"""
     all_drives = load_real_inventory()
@@ -529,7 +535,8 @@ def _show_drive_optimization(
             current_uid,
             weights,
             (current_score,
-             window._calc_grade(current_score, window._shape_areas.get(current_shape, 3)) if hasattr(window, "_calc_grade") else "-"),
+             window._calc_grade(current_score, window._shape_areas.get(current_shape, 3)) if hasattr(window,
+                                                                                                     "_calc_grade") else "-"),
             current_drive.get("quality", "Gold")
         )
         cur_layout.addWidget(cur_card)
@@ -558,11 +565,14 @@ def _show_drive_optimization(
                                                                                                 "_calc_grade") else "-"
 
         # ---- 计算该候选驱动的直伤收益 ----
-        # 1. 用新驱动替换当前驱动后的角色数据
+        # 1. 用新驱动替换当前驱动后的角色数据（只使用有效驱动）
         sim_role_data = {k: v for k, v in role_data.items() if k != "drive"}
         bp = role_data.get("drive", {}).get("blueprint_layout", [])
-        sim_drives = [drive for drive in equipped_drives if drive.get("uid") != current_uid]
-        # 添加候选驱动
+        # 获取当前有效驱动（排除空驱动）
+        current_valid_drives = get_valid_drives(equipped_drives)
+        # 移除当前驱动（如果当前驱动有效）
+        sim_drives = [drive for drive in current_valid_drives if drive.get("uid") != current_uid]
+        # 添加候选驱动（候选驱动肯定不是空驱动）
         sim_drives.append({
             "uid": d["uid"],
             "shape_id": d["shape_id"],

@@ -1669,7 +1669,7 @@
       "shape_id": "TAPE_15",
       "quality": "Gold",
       "main_stats": {
-        "生命值": 37.5
+        "生命值%": 37.5
       },
       "skill": {
         "生命值%": 10.0

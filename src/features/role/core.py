@@ -9,6 +9,23 @@ from src.utils.logger import logger
 from .dao import load_stats, load_role
 
 
+def is_empty_drive(drive: dict) -> bool:
+    """判断驱动是否为空驱动（无有效属性）"""
+    if drive.get("uid", "").startswith("empty_"):
+        return True
+    if not drive.get("sub_stats") or len(drive.get("sub_stats", {})) == 0:
+        return True
+    if not drive.get("shape_id"):
+        return True
+    return False
+
+
+def get_valid_drives(drives: list) -> list:
+    """获取有效驱动列表（排除空驱动）"""
+    filtered = [d for d in drives if not is_empty_drive(d)]
+    return filtered
+
+
 # ---------------------  边际收益  ---------------------
 def calc_marginal_benefits(total_stats: dict) -> tuple:
     """
@@ -336,7 +353,6 @@ def get_character_total_stats(role_data: dict) -> dict:
         effect_total = value * cover * num
         if effect_total != 0:
             add_stat(key, effect_total)
-
 
     # 4. 空幕
     tape = role_data.get("tape", {})
