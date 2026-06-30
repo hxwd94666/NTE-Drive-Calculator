@@ -1,3 +1,4 @@
+# 构建角色驱动和卡带本体的空幕加成界面。
 """驱动相关 UI 组件：驱动加成面板、驱动详情弹窗、优化替换弹窗"""
 
 from PySide6.QtWidgets import (
@@ -14,8 +15,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from src.ui.puzzle_board import PuzzleBoardWidget
 
-from .core import calc_drive_bonus_stats, get_character_total_stats, calc_base_damage, get_valid_drives, is_empty_drive
+from .core import calc_equipment_bonus_stats, get_character_total_stats, calc_base_damage, get_valid_drives, is_empty_drive
 from .dao import load_real_inventory, load_my_roles
+from .equipment_import import set_bonus_from_tape_source, tape_equipment_from_source
 
 
 def clear_layout(layout):
@@ -38,7 +40,7 @@ def build_drive_group(
         role_data: dict,
         on_details_callback,
 ):
-    group_drive = QGroupBox("驱动加成")
+    group_drive = QGroupBox("空幕加成")
     drive_layout = QVBoxLayout(group_drive)
     drive_layout.setSpacing(8)
 
@@ -69,9 +71,12 @@ def _build_drive_group_content(group_drive):
     total_drives = len(all_drives)
     valid_count = len(valid_drives)
 
-    # ---- 顶部行：驱动数量 + 直伤收益 ----
+    tape_data = role_data.get("tape", {})
+    has_tape = isinstance(tape_data, dict) and bool(tape_data.get("uid")) and not str(tape_data.get("uid")).startswith("empty_")
+
+    # ---- 顶部行：装备数量 + 直伤收益 ----
     top_row = QHBoxLayout()
-    cnt_label = QLabel(f"已装配驱动数量: {valid_count}/{total_drives}")
+    cnt_label = QLabel(f"已装配驱动: {valid_count}/{total_drives}    卡带: {'已装配' if has_tape else '未装配'}")
     top_row.addWidget(cnt_label)
     top_row.addStretch()
     margin_label = QLabel("直伤收益: 0.00%")
@@ -84,9 +89,9 @@ def _build_drive_group_content(group_drive):
             margin_label.setText("直伤收益: 0.00%")
             return
         try:
-            # 不含驱动
-            no_drive_data = {k: v for k, v in role_data.items() if k != "drive"}
-            stats_without = get_character_total_stats(no_drive_data)
+            # 不含驱动和卡带本体
+            no_equipment_data = {k: v for k, v in role_data.items() if k not in ("drive", "tape")}
+            stats_without = get_character_total_stats(no_equipment_data)
             damage_without = calc_base_damage(stats_without)
 
             # 只含有效驱动
@@ -116,7 +121,8 @@ def _build_drive_group_content(group_drive):
         "drives": valid_drives,
         "blueprint_layout": drive_data.get("blueprint_layout", [])
     }
-    calc_rows = calc_drive_bonus_stats(valid_role_data)
+    valid_role_data["tape"] = tape_data if has_tape else {}
+    calc_rows = calc_equipment_bonus_stats(valid_role_data)
     if calc_rows:
         info_group = QGroupBox("汇总属性（实时计算）")
         info_group.setStyleSheet(
@@ -257,12 +263,71 @@ def _calc_single_drive_margin(role_data: dict, drive_to_exclude) -> float:
         return 0.0
 
 
+def _main_stat_label(tape: dict) -> str:
+    main_stats = tape.get("main_stats", {})
+    if isinstance(main_stats, dict):
+        return next(iter(main_stats.keys()), "")
+    return str(main_stats or "")
+
+
+def _calc_tape_margin(role_data: dict) -> float:
+    tape = role_data.get("tape", {})
+    if not isinstance(tape, dict) or not tape.get("uid") or str(tape.get("uid")).startswith("empty_"):
+        return 0.0
+    try:
+        no_tape_data = {k: v for k, v in role_data.items() if k != "tape"}
+        stats_without = get_character_total_stats(no_tape_data)
+        damage_without = calc_base_damage(stats_without)
+        stats_with = get_character_total_stats(role_data)
+        damage_with = calc_base_damage(stats_with)
+        if damage_without == 0:
+            return 0.0
+        return (damage_with / damage_without - 1) * 100
+    except Exception as e:
+        print(f"计算卡带直伤收益失败: {e}")
+        return 0.0
+
+
+def _calc_tape_replacement_margin(role_data: dict, candidate_tape: dict) -> float:
+    """计算候选卡带在模拟替换后的直伤收益。"""
+    try:
+        sim_role_data = dict(role_data)
+        sim_role_data["tape"] = candidate_tape
+        sim_role_data["set_bonus"] = set_bonus_from_tape_source(candidate_tape)
+        return _calc_tape_margin(sim_role_data)
+    except Exception as e:
+        print(f"计算候选卡带直伤收益失败: {e}")
+        return 0.0
+
+
+def _score_tape(window, role_name: str, tape: dict, weights: dict) -> tuple[float, str]:
+    score = 0.0
+    if hasattr(window, "_score_tape_dict"):
+        score = window._score_tape_dict(
+            _main_stat_label(tape),
+            tape.get("sub_stats", {}) or {},
+            weights,
+            tape.get("quality", "Gold"),
+        )
+    grade = window._calc_grade(score, 15) if hasattr(window, "_calc_grade") else "D"
+    return score, grade
+
+
 def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid_drives, role_data):
     """构建驱动详情弹窗的内容（可被刷新复用）"""
     while layout.count():
         item = layout.takeAt(0)
         if item.widget():
             item.widget().deleteLater()
+
+    def _save_and_refresh():
+        state = window._drive_detail_state
+        if state and state.get('save_callback'):
+            state['save_callback']()
+        if state and state.get('refresh_drive_callback'):
+            state['refresh_drive_callback']()
+        if state and state.get('refresh_margin_callback'):
+            state['refresh_margin_callback']()
 
     if bp:
         group = QGroupBox("拼图图纸")
@@ -288,19 +353,48 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
         group_layout.addLayout(row)
         layout.addWidget(group)
 
+    tape_data = role_data.get("tape", {})
+    if isinstance(tape_data, dict) and tape_data.get("uid"):
+        group = QGroupBox("卡带")
+        group_layout = QVBoxLayout(group)
+        weights = role_data.get("weights", {})
+        score, grade = _score_tape(window, role_name, tape_data, weights)
+        tape_margin = _calc_tape_margin(role_data)
+
+        if hasattr(window, "_equip_card"):
+            card = window._equip_card(
+                tape_data.get("set_name") or tape_data.get("display_name", "卡带"),
+                _main_stat_label(tape_data),
+                tape_data.get("sub_stats", {}) or {},
+                None,
+                tape_data.get("uid", ""),
+                weights,
+                (score, grade),
+                tape_data.get("quality", "Gold"),
+                is_changed=bool(tape_data.get("is_changed")),
+            )
+            group_layout.addWidget(card)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.addStretch()
+        margin_label = QLabel(f"直伤收益: {tape_margin:+.2f}%")
+        margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
+        bottom_row.addWidget(margin_label)
+        optimize_btn = QPushButton("替换")
+        optimize_btn.setObjectName("btnAction")
+        optimize_btn.setFixedWidth(60)
+        optimize_btn.clicked.connect(
+            lambda checked=False, tape=tape_data, rn=role_name, w=weights:
+            _show_tape_optimization(window, rn, tape, w, _save_and_refresh)
+        )
+        bottom_row.addWidget(optimize_btn)
+        group_layout.addLayout(bottom_row)
+        layout.addWidget(group)
+
     if all_drives:
         group = QGroupBox(f"驱动 ({len(all_drives)}个)")
         group_layout = QVBoxLayout(group)
         weights = role_data.get("weights", {})
-
-        def _save_and_refresh():
-            state = window._drive_detail_state
-            if state and state.get('save_callback'):
-                state['save_callback']()
-            if state and state.get('refresh_drive_callback'):
-                state['refresh_drive_callback']()
-            if state and state.get('refresh_margin_callback'):
-                state['refresh_margin_callback']()
 
         for d in all_drives:
             quality = d.get("quality", "Gold")
@@ -343,6 +437,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
                     weights,
                     (score, grade),
                     quality,
+                    is_changed=bool(d.get("is_changed")),
                 )
                 drive_container_layout.addWidget(card)
 
@@ -397,6 +492,172 @@ def refresh_drive_detail_content(window):
 
     layout = state['layout']
     _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid_drives, role_data)
+
+
+def _show_tape_optimization(
+        window,
+        role_name,
+        current_tape,
+        weights,
+        on_save_refresh_callback,
+):
+    """卡带替换弹窗。"""
+    all_items = load_real_inventory()
+    if not all_items:
+        QMessageBox.warning(window, "错误", "real_inventory.json 不存在或格式错误")
+        return
+
+    my_roles_data = load_my_roles()
+    user_map = {}
+    for rn, rdata in my_roles_data.items():
+        if rn == role_name:
+            continue
+        tape = rdata.get("tape", {}) if isinstance(rdata, dict) else {}
+        uid = tape.get("uid") if isinstance(tape, dict) else ""
+        if uid:
+            user_map.setdefault(uid, []).append(rn)
+
+    role_data = window._my_role_form_data.get(role_name, {})
+    current_uid = current_tape.get("uid", "")
+    current_set = current_tape.get("set_name", "")
+    equipped_uids = {
+        str(role_data.get("tape", {}).get("uid", "") or ""),
+        *[str(d.get("uid", "") or "") for d in role_data.get("drive", {}).get("drives", []) or []],
+    }
+
+    candidates = []
+    for item in all_items:
+        if item.get("item_type") != "tape" and item.get("shape_id") != "TAPE_15":
+            continue
+        if current_set and item.get("set_name") != current_set:
+            continue
+        uid = item.get("uid", "")
+        if not uid or uid == current_uid or uid in equipped_uids:
+            continue
+        tape_entry = tape_equipment_from_source(item)
+        if tape_entry:
+            score, _grade = _score_tape(window, role_name, tape_entry, weights)
+            candidates.append((score, tape_entry, item))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    final = list(candidates[:20])
+    unassigned_count = sum(1 for _, tape, _raw in final if tape.get("uid", "") not in user_map)
+    if unassigned_count < 3:
+        for entry in candidates[20:]:
+            if entry[1].get("uid", "") not in user_map:
+                final.append(entry)
+                unassigned_count += 1
+                if unassigned_count >= 3:
+                    break
+
+    if not final:
+        QMessageBox.information(window, "替换", "没有可替换的同套装卡带")
+        return
+
+    dlg = QDialog(window)
+    dlg.setWindowTitle(f"替换卡带 - {current_set or '全部套装'}")
+    dlg.resize(850, 650)
+    main_layout = QVBoxLayout(dlg)
+
+    current_group = QGroupBox("当前卡带")
+    current_layout = QVBoxLayout(current_group)
+    current_score, current_grade = _score_tape(window, role_name, current_tape, weights)
+    if hasattr(window, "_equip_card"):
+        current_layout.addWidget(
+            window._equip_card(
+                current_tape.get("set_name") or current_tape.get("display_name", "卡带"),
+                _main_stat_label(current_tape),
+                current_tape.get("sub_stats", {}) or {},
+                None,
+                current_uid,
+                weights,
+                (current_score, current_grade),
+                current_tape.get("quality", "Gold"),
+            )
+        )
+    main_layout.addWidget(current_group)
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll_widget = QWidget()
+    scroll_layout = QVBoxLayout(scroll_widget)
+
+    def _replace_tape(new_tape, raw_item):
+        new_tape["is_changed"] = True
+        role_data["tape"] = new_tape
+        role_data["set_bonus"] = set_bonus_from_tape_source(new_tape)
+        dirty_equipment_roles = {role_name}
+        new_uid = new_tape.get("uid", "")
+
+        if new_uid in user_map:
+            for other_role in user_map[new_uid]:
+                other_role_data = window._my_role_form_data.get(other_role, {})
+                old_tape = other_role_data.get("tape", {})
+                if isinstance(old_tape, dict) and old_tape.get("uid") == new_uid:
+                    other_role_data["tape"] = {
+                        "uid": f"empty_{new_uid}",
+                        "display_name": "空卡带",
+                        "shape_id": "TAPE_15",
+                        "set_name": old_tape.get("set_name", ""),
+                        "quality": "Gold",
+                        "main_stats": {},
+                        "sub_stats": {},
+                        "is_changed": True,
+                    }
+                    other_role_data["set_bonus"] = {"display_name": "", "skill": {}, "skill_2": {}, "skill_cover": 0.8}
+                    dirty_equipment_roles.add(other_role)
+
+        if not hasattr(window, "_my_role_equipment_dirty_roles"):
+            window._my_role_equipment_dirty_roles = set()
+        window._my_role_equipment_dirty_roles.update(dirty_equipment_roles)
+
+        dlg.accept()
+        on_save_refresh_callback()
+        refresh_drive_detail_content(window)
+
+    for score, tape, raw_item in final:
+        grade = window._calc_grade(score, 15) if hasattr(window, "_calc_grade") else "-"
+        tape_margin = _calc_tape_replacement_margin(role_data, tape)
+        card_container = QWidget()
+        card_layout = QVBoxLayout(card_container)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(4)
+        if hasattr(window, "_equip_card"):
+            card_layout.addWidget(
+                window._equip_card(
+                    tape.get("set_name") or tape.get("display_name", "卡带"),
+                    _main_stat_label(tape),
+                    tape.get("sub_stats", {}) or {},
+                    None,
+                    tape.get("uid", ""),
+                    weights,
+                    (score, grade),
+                    tape.get("quality", "Gold"),
+                )
+            )
+        replace_btn = QPushButton("替换")
+        replace_btn.setObjectName("btnAction")
+        replace_btn.clicked.connect(lambda checked=False, t=tape, r=raw_item: _replace_tape(t, r))
+        action_row = QHBoxLayout()
+        margin_label = QLabel(f"直伤收益: {tape_margin:+.2f}%")
+        margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
+        action_row.addWidget(margin_label)
+        action_row.addStretch()
+        action_row.addWidget(replace_btn)
+        card_layout.addLayout(action_row)
+        if tape.get("uid", "") in user_map:
+            user_label = QLabel(f"使用者: {', '.join(user_map[tape.get('uid', '')])}")
+            user_label.setStyleSheet("color: #ff9800; font-size: 12px;")
+            card_layout.addWidget(user_label)
+        scroll_layout.addWidget(card_container)
+
+    scroll_layout.addStretch()
+    scroll.setWidget(scroll_widget)
+    main_layout.addWidget(scroll)
+    close_btn = QPushButton("关闭")
+    close_btn.clicked.connect(dlg.accept)
+    main_layout.addWidget(close_btn)
+    dlg.exec()
 
 
 # ---------- 优化替换弹窗 ----------
@@ -485,33 +746,42 @@ def _show_drive_optimization(
     def _replace_drive(new_drive):
         drives_list = role_data["drive"]["drives"]
         idx = next((i for i, d in enumerate(drives_list) if d.get("uid") == current_uid), None)
-        if idx is not None:
-            new_entry = {
-                "uid": new_drive["uid"],
-                "shape_id": new_drive["shape_id"],
-                "sub_stats": new_drive["sub_stats"],
-                "quality": new_drive.get("quality", "Gold"),
-                "display_name": f"{new_drive['shape_id']}-" + "|".join(
-                    f"{k}_{v}" for k, v in new_drive["sub_stats"].items()
-                )
-            }
-            drives_list[idx] = new_entry
+        if idx is None:
+            QMessageBox.warning(window, "替换失败", "当前驱动已不存在，请刷新后重试。")
+            return
+        dirty_equipment_roles = {role_name}
+        new_entry = {
+            "uid": new_drive["uid"],
+            "shape_id": new_drive["shape_id"],
+            "sub_stats": new_drive["sub_stats"],
+            "quality": new_drive.get("quality", "Gold"),
+            "is_changed": True,
+            "display_name": f"{new_drive['shape_id']}-" + "|".join(
+                f"{k}_{v}" for k, v in new_drive["sub_stats"].items()
+            )
+        }
+        drives_list[idx] = new_entry
 
-            new_uid = new_drive["uid"]
-            if new_uid in user_map:
-                for other_role in user_map[new_uid]:
-                    other_drives = window._my_role_form_data.get(other_role, {}).get("drive", {}).get("drives", [])
-                    for i, od in enumerate(other_drives):
-                        if od.get("uid") == new_uid:
-                            empty_drive = {
-                                "uid": f"empty_{new_uid}",
-                                "shape_id": od.get("shape_id", ""),
-                                "sub_stats": {},
-                                "quality": "Gold",
-                                "display_name": f"{od.get('shape_id', '')}-(空)"
-                            }
-                            other_drives[i] = empty_drive
-                            break
+        new_uid = new_drive["uid"]
+        if new_uid in user_map:
+            for other_role in user_map[new_uid]:
+                other_drives = window._my_role_form_data.get(other_role, {}).get("drive", {}).get("drives", [])
+                for i, od in enumerate(other_drives):
+                    if od.get("uid") == new_uid:
+                        empty_drive = {
+                            "uid": f"empty_{new_uid}",
+                            "shape_id": od.get("shape_id", ""),
+                            "sub_stats": {},
+                            "quality": "Gold",
+                            "is_changed": True,
+                            "display_name": f"{od.get('shape_id', '')}-(空)"
+                        }
+                        other_drives[i] = empty_drive
+                        dirty_equipment_roles.add(other_role)
+                        break
+        if not hasattr(window, "_my_role_equipment_dirty_roles"):
+            window._my_role_equipment_dirty_roles = set()
+        window._my_role_equipment_dirty_roles.update(dirty_equipment_roles)
 
         dlg.accept()
         on_save_refresh_callback()
@@ -619,20 +889,21 @@ def _show_drive_optimization(
         else:
             card_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
 
-        # 直伤收益标签
+        replace_btn = QPushButton("替换")
+        replace_btn.setObjectName("btnAction")
+        replace_btn.clicked.connect(lambda checked=False, nd=d: _replace_drive(nd))
+        action_row = QHBoxLayout()
         margin_label = QLabel(f"直伤收益: {sim_margin:+.2f}%")
         margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
-        card_layout.addWidget(margin_label)
+        action_row.addWidget(margin_label)
+        action_row.addStretch()
+        action_row.addWidget(replace_btn)
+        card_layout.addLayout(action_row)
 
         if uid in user_map:
             user_label = QLabel(f"使用者: {', '.join(user_map[uid])}")
             user_label.setStyleSheet("color: #ff9800; font-size: 12px;")
             card_layout.addWidget(user_label)
-
-        replace_btn = QPushButton("替换")
-        replace_btn.setObjectName("btnAction")
-        replace_btn.clicked.connect(lambda checked=False, nd=d: _replace_drive(nd))
-        card_layout.addWidget(replace_btn, alignment=Qt.AlignRight)
 
         scroll_layout.addWidget(card_container)
 
