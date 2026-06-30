@@ -1,0 +1,620 @@
+# 覆盖用户工作流相关的回归测试。
+import json
+import os
+import tempfile
+import unittest
+import urllib.error
+import zipfile
+from pathlib import Path
+from types import SimpleNamespace
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+class ScoringScreeningWorkflowTests(unittest.TestCase):
+    def _write_scoring_config(self, config_dir: Path):
+        roles = {
+            "A": {
+                "default_set": "Set",
+                "extra_shape_label": "X",
+                "board_matrix": [[1]],
+                "weights": {
+                    "Wanted": 1.0,
+                    "Other": 2.0,
+                    "Sub": 1.0,
+                    "H1": 10.0,
+                    "H2": 10.0,
+                    "Crit": 16.0,
+                },
+            }
+        }
+        stats = {
+            "gold_base_values": {"Sub": 1.0, "H1": 1.0, "H2": 1.0, "Crit": 1.0},
+            "tape_main_stats_pool": ["Wanted", "Other"],
+            "tape_main_stat_values": {"Wanted": 1.0, "Other": 1.0},
+            "tape_stat_values": {},
+            "main_only_keywords": [],
+            "stat_alias_mapping": {},
+            "benefit_one": {},
+            "benefit_alias_mapping": {},
+            "weight_pool": [],
+        }
+        (config_dir / "roles.json").write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
+        (config_dir / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
+
+    def test_tape_main_filter_is_applied_before_tape_top_limit(self):
+        from src.models.equipment import Tape
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            tapes = [
+                Tape(uid=f"other_{idx}", quality="Gold", area=15, set_name="Set", main_stats="Other", sub_stats={})
+                for idx in range(4)
+            ]
+            tapes.append(
+                Tape(uid="wanted", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={"Sub": 1})
+            )
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                tapes,
+                tape_top_k_per_set_per_role=3,
+                tape_main_filters={"A": ["Wanted"]},
+            )
+
+            self.assertEqual(["wanted"], [tape.uid for tape in result["tapes"]["A"]])
+
+    def test_tape_main_filter_allows_zero_score_matching_tape(self):
+        from src.models.equipment import Tape
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            roles_path = config_dir / "roles.json"
+            roles = json.loads(roles_path.read_text(encoding="utf-8"))
+            roles["A"]["weights"] = {"Sub": 1.0}
+            roles_path.write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                [
+                    Tape(uid="wanted_zero", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={}),
+                    Tape(uid="other_high", quality="Gold", area=15, set_name="Set", main_stats="Other", sub_stats={"Sub": 1}),
+                ],
+                tape_top_k_per_set_per_role=3,
+                tape_main_filters={"A": ["Wanted"]},
+            )
+
+            self.assertEqual(["wanted_zero"], [tape.uid for tape in result["tapes"]["A"]])
+
+    def test_stat_priority_is_applied_before_drive_top_limit(self):
+        from src.models.equipment import Drive
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            drives = [
+                Drive(
+                    uid=f"high_{idx}",
+                    quality="Gold",
+                    area=1,
+                    shape_id="S1",
+                    set_name="Set",
+                    main_stats={"m1": 1, "m2": 1},
+                    sub_stats={"H1": 1, "H2": 1},
+                )
+                for idx in range(3)
+            ]
+            drives.append(
+                Drive(
+                    uid="crit",
+                    quality="Gold",
+                    area=1,
+                    shape_id="S1",
+                    set_name="Set",
+                    main_stats={"m1": 1, "m2": 1},
+                    sub_stats={"Crit": 1},
+                )
+            )
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                drives,
+                top_k_per_shape_per_role=3,
+                crit_priority_modes={"A": {"stats": ["Crit"], "equal_priority": False}},
+            )
+
+            self.assertIn("crit", [drive.uid for drive in result["drives"]])
+
+    def test_stat_priority_can_ignore_grade_limit_before_drive_top_limit(self):
+        from src.models.equipment import Drive
+        from src.optimizer.scoring import ScoringEngine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            self._write_scoring_config(config_dir)
+            roles_path = config_dir / "roles.json"
+            roles = json.loads(roles_path.read_text(encoding="utf-8"))
+            roles["A"]["weights"] = {"H1": 10.0, "Crit": 1.0}
+            roles_path.write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
+
+            high_score = Drive(
+                uid="high_score",
+                quality="Gold",
+                area=1,
+                shape_id="S1",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                sub_stats={"H1": 1},
+            )
+            low_score_match = Drive(
+                uid="low_score_match",
+                quality="Gold",
+                area=1,
+                shape_id="S1",
+                set_name="Set",
+                main_stats={"m1": 1, "m2": 1},
+                sub_stats={"Crit": 1},
+            )
+
+            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+                [high_score, low_score_match],
+                top_k_per_shape_per_role=1,
+                crit_priority_modes={"A": {"stats": ["Crit"], "ignore_grade_limit": True}},
+            )
+
+            self.assertEqual(["low_score_match"], [drive.uid for drive in result["drives"]])
+
+    def test_strategy_rank_respects_ignore_grade_limit_for_low_score_drive(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import BaseDispatchStrategy
+
+        strategy = BaseDispatchStrategy({}, {}, {})
+        drive = Drive(
+            uid="low_score_match",
+            quality="Gold",
+            area=4,
+            shape_id="S1",
+            set_name="Set",
+            main_stats={"m1": 1, "m2": 1},
+            sub_stats={"Crit": 1},
+            role_scores={"A": 10.0},
+        )
+
+        self.assertEqual(
+            10.0,
+            strategy._rank_score_for_drive("A", drive, 10.0, {"stats": ["Crit"]}),
+        )
+        self.assertGreater(
+            strategy._rank_score_for_drive("A", drive, 10.0, {"stats": ["Crit"], "ignore_grade_limit": True}),
+            10.0,
+        )
+
+    def test_grouped_role_priority_assigns_zero_score_tapes_from_filtered_pool(self):
+        from src.models.equipment import Tape
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        strategy = RolePriorityStrategy(
+            roles_db={
+                "A": {"default_set": "Set"},
+                "B": {"default_set": "Set"},
+            },
+            sets_db={"Set": {"shapes": []}},
+            blueprints_db={},
+        )
+        tape_a = Tape(uid="tape_a", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={})
+        tape_b = Tape(uid="tape_b", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={})
+        tape_a.role_scores = {"A": 0.0, "B": 0.0}
+        tape_b.role_scores = {"A": 0.0, "B": 0.0}
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [["A", "B"]],
+            {},
+            {"A": [tape_a], "B": [tape_b]},
+            {},
+        )
+
+        self.assertEqual(
+            {"A": "tape_a", "B": "tape_b"},
+            {role: tape.uid if tape else None for role, tape in assigned.items()},
+        )
+
+    def test_grouped_role_priority_does_not_share_filtered_tapes_across_roles(self):
+        from src.models.equipment import Tape
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        strategy = RolePriorityStrategy(
+            roles_db={
+                "A": {"default_set": "Set"},
+                "B": {"default_set": "Set"},
+            },
+            sets_db={"Set": {"shapes": []}},
+            blueprints_db={},
+        )
+        tape_a = Tape(uid="tape_a", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={})
+        tape_a.role_scores = {"A": 0.0, "B": 0.0}
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [["A", "B"]],
+            {},
+            {"A": [tape_a], "B": []},
+            {},
+        )
+
+        self.assertEqual("tape_a", assigned["A"].uid)
+        self.assertIsNone(assigned["B"])
+
+    def test_role_preference_configs_are_rejected_for_score_based_modes(self):
+        from src.features.allocation.preference_modes import role_preference_mode_error
+
+        self.assertIsNone(role_preference_mode_error("role_priority", {"A": ["Wanted"]}, {}))
+        self.assertIsNone(role_preference_mode_error("update_mode", {}, {"A": {"stats": ["Crit"]}}))
+        self.assertIn("词条自选", role_preference_mode_error("drive_priority", {"A": ["Wanted"]}, {}))
+        self.assertIn("词条自选", role_preference_mode_error("global_optimal", {}, {"A": {"stats": ["Crit"]}}))
+
+    def test_role_preference_configs_reject_crit_rate_caps_for_score_based_modes(self):
+        from src.features.allocation.preference_modes import role_preference_mode_error
+
+        self.assertIsNone(role_preference_mode_error("role_priority", {}, {}, {"A": 76.0}))
+        self.assertIsNone(role_preference_mode_error("update_mode", {}, {}, {"A": 76.0}))
+        self.assertIn("暴击率上限", role_preference_mode_error("drive_priority", {}, {}, {"A": 76.0}))
+        self.assertIn("暴击率上限", role_preference_mode_error("global_optimal", {}, {}, {"A": 76.0}))
+
+    def test_role_priority_respects_crit_rate_cap_when_selecting_drives(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        strategy = RolePriorityStrategy(
+            roles_db={"A": {"default_set": "Set", "weights": {"攻击力": 1.0, "暴击率%": 1.0}}},
+            sets_db={"Set": {"shapes": []}},
+            blueprints_db={"A": [{"set_pieces": [], "extra_pieces": ["H_2"], "board": [[1]]}]},
+        )
+        high = Drive(
+            uid="high_crit",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            set_name="Set",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"暴击率%": 20.0},
+            role_scores={"A": 20.0},
+        )
+        safe = Drive(
+            uid="safe",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            set_name="Set",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"攻击力": 1.0},
+            role_scores={"A": 5.0},
+        )
+
+        result = strategy.execute(
+            {"drives": [high, safe], "tapes": {"A": []}},
+            ["A"],
+            {},
+            crit_priority_modes={},
+            crit_rate_caps={"A": 10.0},
+        )
+
+        self.assertTrue(result["A"]["valid"])
+        self.assertEqual("safe", result["A"]["assigned_extra_drives"][0].uid)
+
+    def test_role_priority_counts_extra_shape_crit_buff_in_crit_rate_cap(self):
+        from src.models.equipment import Drive
+        from src.optimizer.strategies import RolePriorityStrategy
+
+        strategy = RolePriorityStrategy(
+            roles_db={
+                "A": {
+                    "default_set": "Set",
+                    "weights": {"攻击力": 1.0, "暴击率%": 1.0},
+                    "extra_shape_label": "2型",
+                    "extra_shape_buffs": {"暴击率%": 15.0},
+                }
+            },
+            sets_db={"Set": {"shapes": []}},
+            blueprints_db={"A": [{"set_pieces": [], "extra_pieces": ["H_2"], "board": [[1]]}]},
+        )
+        buffed = Drive(
+            uid="buffed",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            set_name="Set",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={},
+            role_scores={"A": 20.0},
+        )
+        fallback = Drive(
+            uid="fallback",
+            quality="Gold",
+            area=3,
+            shape_id="H_2",
+            set_name="Set",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={},
+            role_scores={"A": 5.0},
+        )
+
+        result = strategy.execute(
+            {"drives": [buffed, fallback], "tapes": {"A": []}},
+            ["A"],
+            {},
+            crit_priority_modes={},
+            crit_rate_caps={"A": 10.0},
+        )
+
+        self.assertTrue(result["A"]["valid"])
+        self.assertEqual("fallback", result["A"]["assigned_extra_drives"][0].uid)
+
+    def test_dispatcher_drops_stat_priority_for_score_based_modes(self):
+        from src.optimizer.dispatcher import DispatcherEngine
+
+        class FakeStrategy:
+            def __init__(self):
+                self.received_config = None
+
+            def execute(self, _pool, _priority, _sets, crit_priority_modes):
+                self.received_config = crit_priority_modes
+                return None
+
+        strategy = FakeStrategy()
+        dispatcher = object.__new__(DispatcherEngine)
+        dispatcher.strategies = {"drive_priority": strategy}
+
+        dispatcher.execute_dispatch(
+            "drive_priority",
+            candidate_pool={},
+            priority_list=["A"],
+            crit_priority_modes={"A": {"stats": ["Crit"], "ignore_grade_limit": True}},
+        )
+
+        self.assertEqual({}, strategy.received_config)
+
+    def test_orchestrator_reads_largest_priority_group_size(self):
+        from src.solver.orchestrator import NTEPipelineOrchestrator
+
+        orchestrator = object.__new__(NTEPipelineOrchestrator)
+
+        self.assertEqual(1, orchestrator._max_priority_group_size(["A", "B"], None))
+        self.assertEqual(
+            3,
+            orchestrator._max_priority_group_size(
+                ["A", "B", "C", "D"],
+                [["A", "B", "C"], ["D"]],
+            ),
+        )
+
+
+class OfflineParseWorkflowTests(unittest.TestCase):
+    def test_all_offline_scope_replaces_inventory(self):
+        from src.features.scanning.controller import offline_scope_replaces_inventory
+
+        self.assertTrue(offline_scope_replaces_inventory("all"))
+        self.assertTrue(offline_scope_replaces_inventory("full"))
+        self.assertFalse(offline_scope_replaces_inventory("incremental"))
+
+
+class ConfigDraftWorkflowTests(unittest.TestCase):
+    def test_config_form_changes_are_draft_until_save_button(self):
+        from src.features.configuration import page as config_page
+
+        class Window:
+            _current_config_name = "roles.json"
+
+            def __init__(self):
+                self.loaded = False
+
+            def _load_data(self):
+                self.loaded = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            path = config_dir / "roles.json"
+            path.write_text(json.dumps({"Old": {"weights": {}}}, ensure_ascii=False), encoding="utf-8")
+            window = Window()
+
+            config_page.save_config_data(window, {"New": {"weights": {}}}, config_dir)
+            self.assertEqual({"Old": {"weights": {}}}, json.loads(path.read_text(encoding="utf-8")))
+            self.assertTrue(window._config_dirty)
+
+            original_information = config_page.QMessageBox.information
+            config_page.QMessageBox.information = lambda *_args, **_kwargs: None
+            try:
+                config_page.save_config_form(window, config_dir, None)
+            finally:
+                config_page.QMessageBox.information = original_information
+            self.assertEqual({"New": {"weights": {}}}, json.loads(path.read_text(encoding="utf-8")))
+            self.assertFalse(window._config_dirty)
+            self.assertTrue(window.loaded)
+
+    def test_config_loader_reads_file_every_time_when_not_dirty(self):
+        from src.features.configuration.page import load_config_data
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            path = config_dir / "roles.json"
+            path.write_text(json.dumps({"A": {}}, ensure_ascii=False), encoding="utf-8")
+            self.assertEqual({"A": {}}, load_config_data("roles.json", config_dir))
+
+            path.write_text(json.dumps({"B": {}}, ensure_ascii=False), encoding="utf-8")
+            self.assertEqual({"B": {}}, load_config_data("roles.json", config_dir))
+
+    def test_roles_form_lazily_builds_role_tabs(self):
+        from PySide6.QtWidgets import QApplication, QTabWidget, QVBoxLayout, QWidget
+
+        from src.features.configuration import page as config_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            all_set_names = ["套装A"]
+
+            def __init__(self):
+                self.container = QWidget()
+                self.config_form_layout = QVBoxLayout(self.container)
+
+            def _stat_choice_pool(self):
+                return ["攻击力"]
+
+            def _save_role_field(self, *_args):
+                pass
+
+            def _save_single_extra_shape_buff(self, *_args):
+                pass
+
+            def _save_role_weight_value(self, *_args):
+                pass
+
+            def _del_role(self, *_args):
+                pass
+
+            def _add_weight(self, *_args):
+                pass
+
+            def _del_weight(self, *_args):
+                pass
+
+        data = {
+            "A": {"default_set": "套装A", "extra_shape_buffs": {}, "board_matrix": [[0] * 5 for _ in range(5)], "weights": {}},
+            "B": {"default_set": "套装A", "extra_shape_buffs": {}, "board_matrix": [[0] * 5 for _ in range(5)], "weights": {}},
+        }
+        window = Window()
+        config_page.render_roles_form(window, data)
+        tabs = window.container.findChild(QTabWidget)
+
+        self.assertIsNotNone(tabs)
+        self.assertTrue(tabs.widget(0).property("loaded"))
+        self.assertFalse(tabs.widget(1).property("loaded"))
+
+        tabs.setCurrentIndex(1)
+        app.processEvents()
+
+        self.assertTrue(tabs.widget(1).property("loaded"))
+
+    def test_roles_form_can_open_newly_added_role_tab(self):
+        from PySide6.QtWidgets import QApplication, QTabWidget, QVBoxLayout, QWidget
+
+        from src.features.configuration import page as config_page
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            all_set_names = ["套装A"]
+
+            def __init__(self):
+                self.container = QWidget()
+                self.config_form_layout = QVBoxLayout(self.container)
+
+            def _stat_choice_pool(self):
+                return ["攻击力"]
+
+            def _save_role_field(self, *_args):
+                pass
+
+            def _save_single_extra_shape_buff(self, *_args):
+                pass
+
+            def _save_role_weight_value(self, *_args):
+                pass
+
+            def _del_role(self, *_args):
+                pass
+
+            def _add_weight(self, *_args):
+                pass
+
+            def _del_weight(self, *_args):
+                pass
+
+        data = {
+            "A": {"default_set": "套装A", "extra_shape_buffs": {}, "board_matrix": [[0] * 5 for _ in range(5)], "weights": {}},
+            "新角色": {"default_set": "套装A", "extra_shape_buffs": {}, "board_matrix": [[0] * 5 for _ in range(5)], "weights": {}},
+        }
+        window = Window()
+        config_page.render_roles_form(window, data, active_role="新角色")
+        tabs = window.container.findChild(QTabWidget)
+
+        self.assertEqual("新角色", tabs.tabText(tabs.currentIndex()))
+        app.processEvents()
+
+    def test_confirm_pending_config_changes_can_cancel_navigation(self):
+        from src.features.configuration import page as config_page
+
+        class Window:
+            _current_config_name = "roles.json"
+            _config_dirty = True
+
+        original_question = config_page.QMessageBox.question
+        config_page.QMessageBox.question = lambda *_args, **_kwargs: config_page.QMessageBox.Cancel
+        try:
+            self.assertFalse(config_page.confirm_pending_config_changes(Window(), Path(".")))
+        finally:
+            config_page.QMessageBox.question = original_question
+
+
+class AccountTransferWorkflowTests(unittest.TestCase):
+    def _make_manager(self, root: Path):
+        from src.features.accounts.manager import AccountManager
+
+        return AccountManager(
+            data_root=root,
+            bundled_config_dir=root / "bundled",
+            iter_image_files=lambda path: [p for p in path.rglob("*") if p.is_file()],
+            core_config_files=("roles.json", "sets.json", "stats.json", "shapes.json"),
+            account_user_files=("equipped_state.json", "real_inventory.json", "priority_config.json"),
+        )
+
+    def test_export_current_account_includes_only_baseline_screenshot(self):
+        from src.features.accounts.manager import export_account_data
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manager = self._make_manager(root)
+            account_id = manager.create_account("Main")
+            account_root = manager.account_dir(account_id)
+            (account_root / "config" / "real_inventory.json").write_text("[1]", encoding="utf-8")
+            (account_root / "scanned_images" / "raw_drive_0001.png").write_bytes(b"baseline")
+            (account_root / "scanned_images" / "raw_drive_0002.png").write_bytes(b"extra")
+
+            zip_path = root / "main-export.zip"
+            export_account_data(manager, account_id, zip_path)
+
+            with zipfile.ZipFile(zip_path) as zf:
+                names = set(zf.namelist())
+            self.assertIn("manifest.json", names)
+            self.assertIn("account/config/real_inventory.json", names)
+            self.assertIn("account/scanned_images/raw_drive_0001.png", names)
+            self.assertNotIn("account/scanned_images/raw_drive_0002.png", names)
+
+    def test_import_account_with_same_name_replaces_existing_account(self):
+        from src.features.accounts.manager import export_account_data, import_account_data
+
+        with tempfile.TemporaryDirectory() as src_tmp, tempfile.TemporaryDirectory() as dst_tmp:
+            src_root = Path(src_tmp)
+            src_manager = self._make_manager(src_root)
+            src_id = src_manager.create_account("Main")
+            (src_manager.account_dir(src_id) / "config" / "real_inventory.json").write_text(
+                "[{\"uid\":\"new\"}]", encoding="utf-8"
+            )
+            export_path = src_root / "main.zip"
+            export_account_data(src_manager, src_id, export_path)
+
+            dst_root = Path(dst_tmp)
+            dst_manager = self._make_manager(dst_root)
+            dst_id = dst_manager.create_account("Main")
+            (dst_manager.account_dir(dst_id) / "config" / "real_inventory.json").write_text(
+                "[{\"uid\":\"old\"}]", encoding="utf-8"
+            )
+
+            imported_id = import_account_data(dst_manager, export_path)
+            imported_inventory = json.loads(
+                (dst_manager.account_dir(imported_id) / "config" / "real_inventory.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(dst_id, imported_id)
+            self.assertEqual([{"uid": "new"}], imported_inventory)
+
+
