@@ -22,6 +22,16 @@ from PySide6.QtWidgets import (
     QKeySequenceEdit,
 )
 
+from src.app.constants import NETDISK_DOWNLOAD_LINKS
+
+
+def _normalize_netdisk_links(netdisk_links=None):
+    if netdisk_links is None:
+        return tuple(NETDISK_DOWNLOAD_LINKS)
+    if isinstance(netdisk_links, str):
+        return (("夸克网盘", netdisk_links),) if netdisk_links else tuple()
+    return tuple((str(name), str(url)) for name, url in netdisk_links if name and url)
+
 
 def _move_card_title_to_row(card, title, button):
     layout = card.layout()
@@ -44,7 +54,7 @@ def _move_card_title_to_row(card, title, button):
     layout.insertLayout(0, title_row)
 
 
-def build_settings_page(window, app_version, get_paths, iter_image_files, netdisk_url=""):
+def build_settings_page(window, app_version, get_paths, iter_image_files, netdisk_links=None):
     page = QWidget()
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
@@ -115,7 +125,12 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     home_btn = QPushButton("GitHub 主页")
     home_btn.clicked.connect(window._open_update_homepage)
     netdisk_btn = QPushButton("网盘下载")
-    netdisk_btn.clicked.connect(lambda: window._open_url(netdisk_url) if netdisk_url else None)
+    netdisk_options = _normalize_netdisk_links(netdisk_links)
+    netdisk_btn.clicked.connect(
+        lambda: window._show_netdisk_download_dialog(netdisk_options)
+        if hasattr(window, "_show_netdisk_download_dialog") and netdisk_options
+        else None
+    )
     update_row.addWidget(window._check_update_btn)
     update_row.addWidget(netdisk_btn)
     update_row.addWidget(home_btn)
