@@ -1,3 +1,4 @@
+# 构建角色弧盘加成编辑组件。
 """弧盘（武器）相关 UI 组件"""
 
 import time
@@ -13,11 +14,10 @@ from PySide6.QtWidgets import (
     QWidget,
     QInputDialog,
     QMessageBox,
-    QComboBox,
 )
 
-from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
-from .dao import load_stats, load_weapons, save_my_roles
+from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, SearchableComboBox
+from .dao import load_stats, load_weapons
 from .core import get_character_total_stats, calc_base_damage
 
 
@@ -154,7 +154,7 @@ def _build_weapon_group_content(group_weapon):
         if levels:
             available_levels = levels
 
-    level_combo = QComboBox()
+    level_combo = NoWheelComboBox()
     level_combo.addItems(available_levels)
     current_level = str(weapon_data.get("level", 80))
     if current_level in available_levels:
@@ -167,7 +167,7 @@ def _build_weapon_group_content(group_weapon):
     name_row.addWidget(level_combo)
 
     # 混频等级下拉
-    mix_combo = QComboBox()
+    mix_combo = NoWheelComboBox()
     mix_combo.addItems([str(i) for i in range(1, 6)])
     current_mix = str(weapon_data.get("mix_level", 1))
     mix_combo.setCurrentText(current_mix)
@@ -399,7 +399,10 @@ def _build_weapon_group_content(group_weapon):
         num_spin.setDecimals(0)
         num_spin.setValue(int(effect.get("num", 0)) if effect.get("num") else 0)
         num_spin.setFixedWidth(60)
-        row_layout.addWidget(QLabel("层数"))
+        num_label = QLabel("层数(0=默认)")
+        num_label.setToolTip("0 表示不额外设置层数，计算时按 1 次生效；大于 0 时按 数值 × 覆盖率 × 层数 计算。")
+        num_spin.setToolTip(num_label.toolTip())
+        row_layout.addWidget(num_label)
         row_layout.addWidget(num_spin)
 
         del_btn = QPushButton("✕")
