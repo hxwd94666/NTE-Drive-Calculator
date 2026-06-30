@@ -49,19 +49,7 @@ def _refresh_blueprints(self):
 def _compute_blueprints(self):
     o=NTEPipelineOrchestrator(config_dir=str(runtime.CONFIG_DIR))
     all_roles=list(self.roles_db.keys())
-    raw=o.solve_blueprints(all_roles)
-    deduped={}
-    for role_name,blueprints in raw.items():
-        extra_label=self.roles_db[role_name].get("extra_shape_label","")
-        seen=set()
-        unique=[]
-        for bp in blueprints:
-            extra_set=frozenset(sid for sid in bp["extra_pieces"] if o.shapes_db[sid].label==extra_label)
-            if extra_set not in seen:
-                seen.add(extra_set)
-                unique.append(bp)
-        deduped[role_name]=unique
-    return deduped
+    return o.solve_blueprints(all_roles)
 
 def _render_blueprints(self,data):
     self._bp_data=data or {}
