@@ -23,6 +23,7 @@ def run_streaming_scan_parse(
     total_drives: int,
     progress_callback: Callable[[int, int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    scan_done_callback: Callable[[int, int], None] | None = None,
 ) -> dict:
     """Run gamepad scanning while parsing captured screenshots in a consumer thread."""
 
@@ -48,7 +49,11 @@ def run_streaming_scan_parse(
                     progress_callback(index, total, filename)
                 item_start = time.perf_counter()
                 try:
-                    _item_obj, added = processor.process_image_file(temp_path, filename)
+                    _item_obj, added = processor.process_image_file(
+                        temp_path,
+                        filename,
+                        filter_adjacent_duplicates=False,
+                    )
                     item_ms = (time.perf_counter() - item_start) * 1000.0
                     log_perf(
                         logger,
@@ -98,6 +103,8 @@ def run_streaming_scan_parse(
             on_capture=on_capture,
             commit_on_complete=False,
         )
+        if scan_done_callback is not None:
+            scan_done_callback(captured_count, total_drives)
     finally:
         captured_queue.put(_STOP)
         captured_queue.join()
