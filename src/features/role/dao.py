@@ -1,3 +1,4 @@
+# 读取和保存角色功能所需的配置文件。
 """角色功能模块 - 数据访问层 (DAO)
 负责所有与文件相关的读写操作，不包含业务逻辑。
 """
@@ -6,6 +7,8 @@ import json
 import shutil
 from pathlib import Path
 from typing import Any
+
+from src.utils.name_resolver import resolve_name
 
 from .paths import (
     get_my_roles_path,
@@ -18,8 +21,92 @@ from .paths import (
     get_roles_path,
 )
 
+EMPTY_SET_NAMES = {"", "未设置", "未指定", "未知套装", "卡带"}
+
 
 # ==================== my_roles.json ====================
+
+def _is_empty_set_name(value: Any) -> bool:
+    return str(value or "").strip() in EMPTY_SET_NAMES
+
+
+def _resolve_tape_template(set_name: str, tapes_data: dict) -> tuple[str, dict] | tuple[None, None]:
+    if not set_name or not tapes_data:
+        return None, None
+    if set_name in tapes_data:
+        return set_name, tapes_data[set_name] or {}
+
+    display_to_key = {
+        str(template.get("display_name", "") or key): key
+        for key, template in tapes_data.items()
+        if isinstance(template, dict)
+    }
+    if set_name in display_to_key:
+        key = display_to_key[set_name]
+        return key, tapes_data[key] or {}
+
+    resolved_key = resolve_name(set_name, list(tapes_data.keys()), cutoff=0.78)
+    if resolved_key:
+        return resolved_key, tapes_data[resolved_key] or {}
+
+    resolved_display = resolve_name(set_name, list(display_to_key.keys()), cutoff=0.78)
+    if resolved_display:
+        key = display_to_key[resolved_display]
+        return key, tapes_data[key] or {}
+    return None, None
+
+
+def _candidate_set_names(role_data: dict, set_bonus: dict) -> list[str]:
+    tape = role_data.get("tape", {})
+    if not isinstance(tape, dict):
+        tape = {}
+    candidates = [
+        set_bonus.get("display_name"),
+        set_bonus.get("set_name"),
+        tape.get("set_name"),
+        tape.get("display_name"),
+    ]
+    return [str(name).strip() for name in candidates if not _is_empty_set_name(name)]
+
+
+def _repair_set_bonus_data(data: dict) -> tuple[dict, bool]:
+    if not isinstance(data, dict):
+        return data, False
+    tapes_data = load_tapes()
+    changed = False
+    for role_data in data.values():
+        if not isinstance(role_data, dict):
+            continue
+        set_bonus = role_data.get("set_bonus")
+        if not isinstance(set_bonus, dict):
+            set_bonus = {"display_name": "", "skill": {}, "skill_2": {}, "skill_cover": 0.8}
+            role_data["set_bonus"] = set_bonus
+            changed = True
+
+        selected_name = next(iter(_candidate_set_names(role_data, set_bonus)), "")
+        resolved_name, template = _resolve_tape_template(selected_name, tapes_data)
+        template = template or {}
+        display_name = template.get("display_name") or resolved_name or selected_name
+
+        if display_name and _is_empty_set_name(set_bonus.get("display_name")):
+            set_bonus["display_name"] = display_name
+            changed = True
+        if resolved_name and not set_bonus.get("set_name"):
+            set_bonus["set_name"] = resolved_name
+            changed = True
+
+        for key in ("skill", "skill_2"):
+            if not isinstance(set_bonus.get(key), dict):
+                set_bonus[key] = {}
+                changed = True
+            if not set_bonus[key] and isinstance(template.get(key), dict) and template.get(key):
+                set_bonus[key] = dict(template[key])
+                changed = True
+
+        if "skill_cover" not in set_bonus:
+            set_bonus["skill_cover"] = float(template.get("skill_cover", 0.8))
+            changed = True
+    return data, changed
 
 def load_my_roles() -> dict:
     """
@@ -37,7 +124,11 @@ def load_my_roles() -> dict:
 
     try:
         with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        data, changed = _repair_set_bonus_data(data)
+        if changed:
+            save_my_roles(data)
+        return data
     except (json.JSONDecodeError, IOError):
         return {}
 
