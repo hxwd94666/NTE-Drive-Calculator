@@ -101,6 +101,38 @@ class StateManager:
             "removed": [item for uid, item in old_items.items() if uid in removed_uids],
         }
 
+    def _changed_uids(self, role_data: dict) -> set[str]:
+        if not isinstance(role_data, dict):
+            return set()
+        changed = set()
+        tape = role_data.get("equipped_tape")
+        if isinstance(tape, dict) and tape.get("uid") and tape.get("is_changed"):
+            changed.add(str(tape["uid"]))
+        for drive in role_data.get("equipped_drives", []) or []:
+            if isinstance(drive, dict) and drive.get("uid") and drive.get("is_changed"):
+                changed.add(str(drive["uid"]))
+        return changed
+
+    def _merge_changed_kept_diff(self, role_diff: dict, old_data: dict, new_data: dict) -> dict:
+        old_items = self._item_map(old_data)
+        new_items = self._item_map(new_data)
+        changed_kept = self._changed_uids(old_data) & set(new_items)
+        if not changed_kept:
+            return role_diff
+        added_uids = set(role_diff.get("added_uids", []) or [])
+        role_diff["changed"] = True
+        role_diff["added_uids"] = list(added_uids | changed_kept)
+        existing_added = {item.get("uid") for item in role_diff.get("added", []) if isinstance(item, dict)}
+        existing_removed = {item.get("uid") for item in role_diff.get("removed", []) if isinstance(item, dict)}
+        role_diff.setdefault("added", [])
+        role_diff.setdefault("removed", [])
+        for uid in changed_kept:
+            if uid in new_items and uid not in existing_added:
+                role_diff["added"].append(new_items[uid])
+            if uid in old_items and uid not in existing_removed:
+                role_diff["removed"].append(old_items[uid])
+        return role_diff
+
     def save_allocation(self, final_plan: dict, mode: str = ""):
         old_state = self.load_state()
 
@@ -169,6 +201,7 @@ class StateManager:
                 })
 
             role_diff = self._build_role_diff(old_state.get(role), role_data)
+            role_diff = self._merge_changed_kept_diff(role_diff, old_state.get(role), role_data)
             if role_diff["changed"]:
                 added_uids = set(role_diff["added_uids"])
                 if role_data.get("equipped_tape") and role_data["equipped_tape"]["uid"] in added_uids:
