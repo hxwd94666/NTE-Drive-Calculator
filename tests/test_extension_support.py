@@ -11,8 +11,11 @@ class NavigationSupportTests(unittest.TestCase):
 
         keys = [item.key for item in NAV_ITEMS]
 
-        self.assertEqual(["execute", "equipment", "identify", "blueprint", "config", "settings"], keys)
-        self.assertEqual({"execute": 0, "equipment": 1, "identify": 2, "blueprint": 3, "config": 4, "settings": 5}, nav_index_map())
+        self.assertEqual(["execute", "equipment", "my_role", "identify", "blueprint", "config", "settings"], keys)
+        self.assertEqual(
+            {"execute": 0, "equipment": 1, "my_role": 2, "identify": 3, "blueprint": 4, "config": 5, "settings": 6},
+            nav_index_map(),
+        )
         self.assertEqual("⚙  配置", nav_title_map()["config"])
 
 
@@ -245,6 +248,24 @@ class SetEffectModeSupportTests(unittest.TestCase):
 
 
 class MatrixStrategyBlueprintSelectionTests(unittest.TestCase):
+    def test_blueprint_signature_dedupes_layouts_but_keeps_exact_shape_counts(self):
+        from src.solver.blueprint_utils import (
+            blueprint_piece_signature,
+            dedupe_blueprints_by_piece_signature,
+        )
+
+        same_combo_a = {"set_pieces": ["S1", "S2"], "extra_pieces": ["E1", "E2"], "board": [["layout-a"]]}
+        same_combo_b = {"set_pieces": ["S2", "S1"], "extra_pieces": ["E2", "E1"], "board": [["layout-b"]]}
+        different_combo = {"set_pieces": ["S1", "S2"], "extra_pieces": ["E1", "E1"], "board": [["layout-c"]]}
+
+        self.assertEqual(blueprint_piece_signature(same_combo_a), blueprint_piece_signature(same_combo_b))
+        self.assertNotEqual(blueprint_piece_signature(same_combo_a), blueprint_piece_signature(different_combo))
+
+        deduped = dedupe_blueprints_by_piece_signature([same_combo_a, same_combo_b, different_combo])
+
+        self.assertEqual([["layout-a"]], deduped[0]["board"])
+        self.assertEqual([["layout-c"]], deduped[1]["board"])
+
     def test_blueprints_are_deduped_by_complete_extra_shape_combination(self):
         from src.optimizer.strategies import MatrixBaseStrategy
 
@@ -306,6 +327,185 @@ class MatrixStrategyBlueprintSelectionTests(unittest.TestCase):
         self.assertEqual(500, len(combos))
         self.assertEqual("A24", combos[0][0]["extra_pieces"][0])
         self.assertTrue(any(combo[0]["extra_pieces"] == ["A24"] for combo in combos))
+
+
+class BlueprintGenerationSupportTests(unittest.TestCase):
+    def test_blueprint_generation_can_include_layout_variants_without_affecting_allocation_default(self):
+        from src.solver.orchestrator import NTEPipelineOrchestrator
+
+        orchestrator = NTEPipelineOrchestrator(config_dir="config")
+        role_name = next(name for name in orchestrator.roles_db if name == "娜娜莉")
+
+        allocation_blueprints = orchestrator.solve_blueprints([role_name])
+        display_blueprints = orchestrator.solve_blueprints([role_name], include_layout_variants=True)
+
+        self.assertEqual(4, len(allocation_blueprints[role_name]))
+        self.assertEqual(15, len(display_blueprints[role_name]))
+
+
+class RoleEquipmentImportSupportTests(unittest.TestCase):
+    def test_load_my_roles_repairs_missing_set_bonus_from_equipped_tape(self):
+        from types import SimpleNamespace
+        from src.features.role import dao, paths
+
+        original_paths_runtime = paths.runtime
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config_dir = root / "config"
+                user_dir = root / "user"
+                config_dir.mkdir()
+                user_dir.mkdir()
+                (config_dir / "tapes.json").write_text(
+                    json.dumps(
+                        {
+                            "森林萤火之心": {
+                                "display_name": "森林萤火之心",
+                                "skill": {"灵属性异能伤害增强%": 10.0},
+                                "skill_2": {"暴击伤害%": 48.0},
+                                "skill_cover": 0.8,
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                (user_dir / "my_roles.json").write_text(
+                    json.dumps(
+                        {
+                            "娜娜莉": {
+                                "tape": {"set_name": "森林萤火之心"},
+                                "set_bonus": {"display_name": "", "skill": {}, "skill_2": {}, "skill_cover": 0.8},
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                paths.runtime = SimpleNamespace(CONFIG_DIR=config_dir, USER_CONFIG_DIR=user_dir)
+
+                loaded = dao.load_my_roles()
+
+                set_bonus = loaded["娜娜莉"]["set_bonus"]
+                self.assertEqual("森林萤火之心", set_bonus["display_name"])
+                self.assertEqual({"灵属性异能伤害增强%": 10.0}, set_bonus["skill"])
+                self.assertEqual({"暴击伤害%": 48.0}, set_bonus["skill_2"])
+        finally:
+            paths.runtime = original_paths_runtime
+
+    def test_load_my_roles_keeps_custom_set_bonus_values_when_repairing_name(self):
+        from types import SimpleNamespace
+        from src.features.role import dao, paths
+
+        original_paths_runtime = paths.runtime
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config_dir = root / "config"
+                user_dir = root / "user"
+                config_dir.mkdir()
+                user_dir.mkdir()
+                (config_dir / "tapes.json").write_text(
+                    json.dumps(
+                        {
+                            "森林萤火之心": {
+                                "display_name": "森林萤火之心",
+                                "skill": {"灵属性异能伤害增强%": 10.0},
+                                "skill_2": {"暴击伤害%": 48.0},
+                                "skill_cover": 0.8,
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                (user_dir / "my_roles.json").write_text(
+                    json.dumps(
+                        {
+                            "娜娜莉": {
+                                "tape": {"set_name": "森林萤火之心"},
+                                "set_bonus": {
+                                    "display_name": "",
+                                    "skill": {"自定义加成%": 12.0},
+                                    "skill_2": {"自定义四件%": 34.0},
+                                    "skill_cover": 0.5,
+                                },
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                paths.runtime = SimpleNamespace(CONFIG_DIR=config_dir, USER_CONFIG_DIR=user_dir)
+
+                loaded = dao.load_my_roles()
+
+                set_bonus = loaded["娜娜莉"]["set_bonus"]
+                self.assertEqual("森林萤火之心", set_bonus["display_name"])
+                self.assertEqual({"自定义加成%": 12.0}, set_bonus["skill"])
+                self.assertEqual({"自定义四件%": 34.0}, set_bonus["skill_2"])
+                self.assertEqual(0.5, set_bonus["skill_cover"])
+        finally:
+            paths.runtime = original_paths_runtime
+
+    def test_import_role_equipment_splits_tape_equipment_and_set_bonus(self):
+        from types import SimpleNamespace
+        from src.features.role import equipment_import
+
+        original_runtime = equipment_import.runtime
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config_dir = root / "config"
+                user_dir = root / "user"
+                config_dir.mkdir()
+                user_dir.mkdir()
+                (config_dir / "stats.json").write_text(
+                    json.dumps(
+                        {
+                            "tape_main_stat_values": {"攻击力%": 37.5},
+                            "stat_alias_mapping": {"攻击力百分比": "攻击力%"},
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                (config_dir / "tapes.json").write_text(
+                    json.dumps(
+                        {
+                            "森林萤火之心": {
+                                "display_name": "森林萤火之心",
+                                "skill": {"灵属性异能伤害增强%": 10.0},
+                                "skill_2": {"暴击伤害%": 48.0},
+                                "skill_cover": 0.8,
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                equipment_import.runtime = SimpleNamespace(CONFIG_DIR=config_dir, USER_CONFIG_DIR=user_dir)
+
+                equipment_import.import_role_equipment(
+                    "娜娜莉",
+                    [],
+                    [],
+                    {
+                        "uid": "tape_1",
+                        "set_name": "森林萤火之心",
+                        "main_stats": "攻击力百分比",
+                        "sub_stats": {"暴击率%": 10.0},
+                        "quality": "Gold",
+                    },
+                )
+
+                saved = json.loads((user_dir / "my_roles.json").read_text(encoding="utf-8"))
+                role = saved["娜娜莉"]
+                self.assertEqual({"攻击力%": 37.5}, role["tape"]["main_stats"])
+                self.assertNotIn("skill", role["tape"])
+                self.assertEqual({"灵属性异能伤害增强%": 10.0}, role["set_bonus"]["skill"])
+        finally:
+            equipment_import.runtime = original_runtime
 
 
 class ScanNamingSupportTests(unittest.TestCase):

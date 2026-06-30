@@ -43,7 +43,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
                 self.inventory = []
                 self.exported = False
 
-            def process_image_file(self, image_path, filename):
+            def process_image_file(self, image_path, filename, **_kwargs):
                 events.append(f"parse:{filename}")
                 self.inventory.append({"filename": filename})
                 return SimpleNamespace(item_type="drive"), True
