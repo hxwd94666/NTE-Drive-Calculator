@@ -34,10 +34,10 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     scan_card = window._card("第一步 · 扫描模式")
     window.scan_group = QButtonGroup()
     scan_options = [
-        ("4", "直接读取库存 — 跳过扫描（最快，推荐）"),
-        ("3", "离线解析 — 读取 scanned_images/ → 分配"),
-        ("2", "增量扫描 — 自动/半自动截图 → 解析"),
-        ("1", "全量扫描 — 手柄遍历截图 → 解析"),
+        ("4", "直接读取库存 — 不扫描，直接重新配装"),
+        ("3", "离线解析 — 解析已有截图并生成库存"),
+        ("2", "增量扫描 — 只录入新获得的装备"),
+        ("1", "全量扫描 — 重扫背包并重建库存"),
     ]
     for value, text in scan_options:
         row = QHBoxLayout()
@@ -122,10 +122,10 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     strategy_card = window._card("第三步 · 分配策略")
     window.strategy_group = QButtonGroup()
     strategy_options = [
-        "角色优先 — 保证主C极品，副C次之",
-        "驱动优先 — 极品贪心反选，让好装备都有归宿",
-        "全局最优 — 匈牙利算法，追求全队总分最大化",
-        "增量更新 — 锁定已穿戴，仅用闲置装备配装",
+        "角色优先 — 按角色顺序配装，优先照顾前排角色",
+        "驱动优先 — 先处理高分装备，让好装备尽量有人用",
+        "全局最优 — 追求全队总分最高，适合整体重排",
+        "增量更新 — 保留已穿戴装备，只用闲置装备补配",
     ]
     for index, text in enumerate(strategy_options):
         rb = QRadioButton(text)
