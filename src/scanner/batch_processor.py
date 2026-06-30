@@ -73,7 +73,7 @@ class BatchProcessor:
         self._last_parsed_image_fingerprint = None
         self._existing_inventory_signatures = None
 
-    def process_all(self):
+    def process_all(self, filter_adjacent_duplicates: bool = False):
         if not os.path.exists(self.input_dir):
             raise InventoryEmptyError(f"找不到截图文件夹 {self.input_dir}，请先执行扫描！")
 
@@ -98,13 +98,17 @@ class BatchProcessor:
             file_path = os.path.join(self.input_dir, filename)
             try:
                 t1 = time.time()
-                item_obj, added = self.process_image_file(file_path, filename)
+                item_obj, added = self.process_image_file(
+                    file_path,
+                    filename,
+                    filter_adjacent_duplicates=filter_adjacent_duplicates,
+                )
                 cost = time.time() - t1
 
                 logger.info(f"[{idx:04d}/{total_files:04d}] 解析: {cost:.2f}s | {filename}")
                 if not added:
                     duplicate_count += 1
-                    logger.info("      > 相邻截图画面与解析数据均一致，按连拍重复过滤\n")
+                    logger.info("      > 增量重复截图已过滤\n")
                     continue
 
                 if item_obj.item_type == "drive":
@@ -127,7 +131,10 @@ class BatchProcessor:
         cost_time = time.time() - start_time
         avg_time = cost_time / total_files if total_files else 0
         logger.success("=" * 60)
-        logger.success(f"解析完成。本次入库 {success_count} 个装备，过滤疑似连拍重复 {duplicate_count} 个。")
+        if filter_adjacent_duplicates:
+            logger.success(f"解析完成。本次入库 {success_count} 个装备，过滤疑似连拍重复 {duplicate_count} 个。")
+        else:
+            logger.success(f"解析完成。本次入库 {success_count} 个装备。")
         logger.success(f"总耗时: {cost_time:.2f} 秒 (平均 {avg_time:.2f} 秒/张)")
         logger.success("=" * 60)
 
@@ -160,8 +167,19 @@ class BatchProcessor:
     def _is_same_capture(self, previous, current) -> bool:
         return is_same_capture(previous, current)
 
-    def process_image_file(self, image_path: str, filename: str | None = None):
-        return process_image_file_helper(self, image_path, filename)
+    def process_image_file(
+        self,
+        image_path: str,
+        filename: str | None = None,
+        *,
+        filter_adjacent_duplicates: bool = True,
+    ):
+        return process_image_file_helper(
+            self,
+            image_path,
+            filename,
+            filter_adjacent_duplicates=filter_adjacent_duplicates,
+        )
 
     def parse_identify_items(
         self,
