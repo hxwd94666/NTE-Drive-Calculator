@@ -855,6 +855,8 @@ class UpdateWorkflowTests(unittest.TestCase):
             ["检查更新", "网盘下载", "GitHub 主页"],
             [text for text in button_texts if text in {"检查更新", "网盘下载", "GitHub 主页"}],
         )
+        self.assertNotIn("刷新统计", button_texts)
+        self.assertIn("清理所有截图", button_texts)
         app.processEvents()
 
     def test_settings_netdisk_button_opens_choice_dialog_with_quark_and_baidu(self):
