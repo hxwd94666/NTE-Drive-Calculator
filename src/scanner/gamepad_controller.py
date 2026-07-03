@@ -17,6 +17,13 @@ MOVE_HOLD_SECONDS = 0.10
 MOVE_SETTLE_SECONDS = 0.25
 ROW_DOWN_HOLD_SECONDS = 0.15
 ROW_DOWN_SETTLE_SECONDS = 0.30
+TAB_REFRESH_SETTLE_SECONDS = 1.00
+EQUIPMENT_SWITCH_SETTLE_SECONDS = 0.10
+LOCK_DISCARD_CONFIRM_SECONDS = 0.60
+ACTION_MENU_SETTLE_SECONDS = 0.30
+ACTION_APPLY_SETTLE_SECONDS = 0.30
+MENU_AFTER_EQUIPMENT_MOVE_SECONDS = 0.15
+ACTION_OPTION_MOVE_SETTLE_SECONDS = 0.15
 
 
 def _save_png(screenshot, filename):
@@ -139,8 +146,25 @@ class GamepadScanner:
     def _press_a(self):
         self._press_button(self._buttons.XUSB_GAMEPAD_A)
 
+    def _press_b(self):
+        self._press_button(self._buttons.XUSB_GAMEPAD_B)
+
     def _press_menu(self):
         self._press_button(self._buttons.XUSB_GAMEPAD_START)
+
+    def _press_lb(self):
+        self._press_button(self._buttons.XUSB_GAMEPAD_LEFT_SHOULDER)
+
+    def _press_rb(self):
+        self._press_button(self._buttons.XUSB_GAMEPAD_RIGHT_SHOULDER)
+
+    def _toggle_action_menu(self):
+        self._press_menu()
+        time.sleep(ACTION_MENU_SETTLE_SECONDS)
+
+    def _confirm_action(self):
+        self._press_a()
+        time.sleep(ACTION_APPLY_SETTLE_SECONDS)
 
     def _apply_moves(self, moves):
         for move in moves:
@@ -162,6 +186,15 @@ class GamepadScanner:
                     hold_seconds=ROW_DOWN_HOLD_SECONDS,
                     settle_seconds=ROW_DOWN_SETTLE_SECONDS,
                 )
+
+    def _move_between_equipment(self, moves):
+        self._apply_moves(moves)
+        if moves:
+            time.sleep(EQUIPMENT_SWITCH_SETTLE_SECONDS)
+
+    def _settle_before_action_menu(self, moved: bool):
+        if moved:
+            time.sleep(MENU_AFTER_EQUIPMENT_MOVE_SECONDS)
 
     def _scan_positions(self, total_drives: int) -> list[tuple[int, int]]:
         scan_order = []
@@ -236,21 +269,112 @@ class GamepadScanner:
         for index in targets:
             if self._stopped:
                 break
-            self._apply_moves(moves_to(index))
+            moves = moves_to(index)
+            self._move_between_equipment(moves)
+            self._settle_before_action_menu(bool(moves))
             if index in locked_targets:
-                self._press_menu()
-                self._apply_moves(["R"])
+                self._toggle_action_menu()
                 self._press_a()
-                self._apply_moves(["L"])
+                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
                 self._press_a()
-                self._press_menu()
+                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+                self._toggle_action_menu()
             else:
-                self._press_menu()
-                self._press_a()
-                self._press_menu()
+                self._toggle_action_menu()
+                self._confirm_action()
+                self._toggle_action_menu()
             marked += 1
             logger.info(f"已标记弃置: raw_drive_{index:04d}")
         return marked
+
+    def _refresh_to_first_item(self):
+        self._press_lb()
+        time.sleep(TAB_REFRESH_SETTLE_SECONDS)
+        self._press_rb()
+        time.sleep(TAB_REFRESH_SETTLE_SECONDS)
+
+    def _sync_selected_equipment_state(self, current_state: str, target_state: str) -> bool:
+        current_state = current_state if current_state in {"normal", "locked", "discarded"} else "normal"
+        target_state = target_state if target_state in {"normal", "locked", "discarded"} else "normal"
+        if current_state == target_state:
+            return False
+        self._toggle_action_menu()
+        if target_state == "discarded":
+            self._press_a()
+            if current_state == "locked":
+                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+                self._press_a()
+                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+            else:
+                time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+        elif target_state == "locked":
+            self._apply_moves(["R"])
+            time.sleep(ACTION_OPTION_MOVE_SETTLE_SECONDS)
+            self._confirm_action()
+        elif current_state == "discarded":
+            self._confirm_action()
+        elif current_state == "locked":
+            self._apply_moves(["R"])
+            time.sleep(ACTION_OPTION_MOVE_SETTLE_SECONDS)
+            self._confirm_action()
+        self._toggle_action_menu()
+        return True
+
+    def sync_equipment_states(self, total_drives: int, state_changes: list[dict]) -> int:
+        changes = sorted(
+            (
+                change
+                for change in state_changes
+                if 1 <= int(change.get("index", 0) or 0) <= int(total_drives)
+                and change.get("current_state") != change.get("target_state")
+            ),
+            key=lambda change: int(change["index"]),
+        )
+        if not changes:
+            return 0
+
+        self._refresh_to_first_item()
+        positions = self._scan_positions(int(total_drives))
+        curr_row, curr_col = 0, 0
+        applied = 0
+
+        def moves_to(index: int) -> list[str]:
+            nonlocal curr_row, curr_col
+            target_row, target_col = positions[index - 1]
+            moves = []
+            while curr_row > target_row:
+                moves.append("U")
+                curr_row -= 1
+            while curr_row < target_row:
+                moves.append("D")
+                curr_row += 1
+            while curr_col < target_col:
+                moves.append("R")
+                curr_col += 1
+            while curr_col > target_col:
+                moves.append("L")
+                curr_col -= 1
+            return moves
+
+        logger.warning(f"准备同步 {len(changes)} 个装备状态，请保持游戏背包界面不动。")
+        for change in changes:
+            if self._stopped:
+                break
+            index = int(change["index"])
+            moves = moves_to(index)
+            self._move_between_equipment(moves)
+            self._settle_before_action_menu(bool(moves))
+            logger.info(
+                f"准备同步状态: raw_drive_{index:04d} "
+                f"{change.get('current_state')} -> {change.get('target_state')}"
+            )
+            if self._sync_selected_equipment_state(change.get("current_state"), change.get("target_state")):
+                applied += 1
+                logger.info(
+                    f"已同步状态: raw_drive_{index:04d} "
+                    f"{change.get('current_state')} -> {change.get('target_state')}"
+                )
+        return applied
 
     def start_scan(self, total_drives=None, on_capture=None, commit_on_complete=True):
         scan_start = time.perf_counter()
