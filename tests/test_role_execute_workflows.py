@@ -46,6 +46,74 @@ class UsageGuideWorkflowTests(unittest.TestCase):
         app.processEvents()
 
 
+class IdentifyTempFileWorkflowTests(unittest.TestCase):
+    def test_identify_clipboard_cleanup_removes_only_generated_account_root_files(self):
+        from src.features.identification.temp_files import (
+            cleanup_identify_clipboard_files,
+            iter_identify_clipboard_files,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            generated = root / "identify_clipboard_123.png"
+            other_png = root / "other.png"
+            nested = root / "nested"
+            nested.mkdir()
+            nested_generated = nested / "identify_clipboard_456.png"
+            for path in (generated, other_png, nested_generated):
+                path.write_bytes(b"png")
+
+            self.assertEqual([generated], iter_identify_clipboard_files(root))
+            removed = cleanup_identify_clipboard_files([generated, other_png, nested_generated], root)
+
+            self.assertEqual(1, removed)
+            self.assertFalse(generated.exists())
+            self.assertTrue(other_png.exists())
+            self.assertTrue(nested_generated.exists())
+
+    def test_identify_finished_cleans_pending_clipboard_paths_from_input(self):
+        from src.app import runtime
+        from src.features.identification import controller
+
+        class PathEdit:
+            def __init__(self, text):
+                self.value = text
+
+            def setText(self, text):
+                self.value = text
+
+            def text(self):
+                return self.value
+
+        class Window:
+            def __init__(self, text):
+                self.ident_path_edit = PathEdit(text)
+                self._pending_identify_clipboard_cleanup = []
+
+            def _identify_paths_from_text(self):
+                return controller.parse_identify_paths(self.ident_path_edit.text())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old_root = getattr(runtime, "ACCOUNT_DATA_ROOT", None)
+            root = Path(tmp)
+            runtime.ACCOUNT_DATA_ROOT = root
+            generated = root / "identify_clipboard_123.png"
+            selected = root / "manual.png"
+            generated.write_bytes(b"png")
+            selected.write_bytes(b"png")
+            window = Window(f"{generated};{selected}")
+            window._pending_identify_clipboard_cleanup = [generated]
+            try:
+                controller._cleanup_pending_identify_clipboard_files(window)
+            finally:
+                if old_root is not None:
+                    runtime.ACCOUNT_DATA_ROOT = old_root
+
+            self.assertFalse(generated.exists())
+            self.assertTrue(selected.exists())
+            self.assertEqual(str(selected), window.ident_path_edit.text())
+
+
 class RolePriorityWorkflowTests(unittest.TestCase):
     def test_stat_choice_resolution_prefers_exact_current_data(self):
         from src.features.allocation.role_selector import resolve_priority_choice
