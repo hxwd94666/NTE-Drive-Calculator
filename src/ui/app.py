@@ -121,6 +121,7 @@ from PySide6.QtGui import QColor, QTextCursor, QIcon
 from src.features.scanning.file_lifecycle import (
     iter_image_files as _iter_image_files,
 )
+from src.features.identification.temp_files import iter_identify_clipboard_files
 from src.optimizer.state_manager import StateManager
 from src.optimizer.scoring import ScoringEngine
 from src.domain.stat_catalog import StatCatalog
@@ -754,27 +755,31 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self,"保存","快捷键已保存！\n全局截图: "+self._hk_capture+"\n截图完成: "+self._hk_finish+"\n停止: "+self._hk_stop)
 
     def _refresh_ss(self):
-        files=_iter_image_files(SCREENSHOT_DIR)
+        files=_iter_image_files(SCREENSHOT_DIR)+iter_identify_clipboard_files(ACCOUNT_DATA_ROOT)
         c=len(files)
         s=sum(f.stat().st_size for f in files)/(1024*1024) if files else 0
         self._ss_info.setText(f"当前截图: {c} 个 · {s:.1f} MB")
     def _clear_ss(self):
-        if not SCREENSHOT_DIR.exists(): return
         files=_iter_image_files(SCREENSHOT_DIR)
-        count=len(files)
+        temp_files=iter_identify_clipboard_files(ACCOUNT_DATA_ROOT)
+        count=len(files)+len(temp_files)
         if count==0: QMessageBox.information(self,"清理","没有需要清理的文件。"); return
         baseline=SCREENSHOT_DIR/"raw_drive_0001.png"
         has_baseline=baseline.exists()
         delete_files=[f for f in files if f.resolve()!=baseline.resolve()]
-        prompt=f"由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n将删除 {len(delete_files)} 个其它截图，不可恢复。"
-        if not has_baseline:
+        baseline_warning=bool(files) and not has_baseline
+        prompt=(
+            "由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n"
+            f"将删除 {len(delete_files)} 个其它扫描截图、{len(temp_files)} 个临时鉴定粘贴截图，不可恢复。"
+        )
+        if baseline_warning:
             prompt+="\n\n注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"
         if QMessageBox.question(self,"确认清理",prompt,QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes:
-            for f in delete_files:
+            for f in delete_files+temp_files:
                 try: f.unlink()
                 except: pass
-            self._refresh_ss(); logger.success(f"已清理 {len(delete_files)} 个截图")
-            if not has_baseline:
+            self._refresh_ss(); logger.success(f"已清理 {len(delete_files)+len(temp_files)} 个截图")
+            if baseline_warning:
                 QMessageBox.warning(self,"清理完成","注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。")
 
 def _install_feature_methods():

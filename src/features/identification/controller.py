@@ -16,6 +16,7 @@ from src.app import runtime
 from src.app.theme import STYLE
 from src.app.workers import WorkerThread
 from src.features.identification.page import build_identify_page, build_identify_result_row, parse_identify_paths, refresh_identify_previews, render_identify_result_page, show_identify_preview_image
+from src.features.identification.temp_files import cleanup_identify_clipboard_files, is_identify_clipboard_file
 from src.models.equipment import Drive, Tape
 from src.optimizer.scoring import ScoringEngine
 from src.scanner.batch_processor import BatchProcessor
@@ -241,6 +242,10 @@ def _identify_from_image_path(self):
         if options is None:
             return
         image_jobs.append((path,options))
+    self._pending_identify_clipboard_cleanup=[
+        path for path,_options in image_jobs
+        if is_identify_clipboard_file(path,runtime.ACCOUNT_DATA_ROOT)
+    ]
     self._set_identify_busy(True,"正在解析图片...")
     self._identify_parse_worker=WorkerThread(target=lambda:self._parse_identify_images(image_jobs),parent=self)
     self._identify_parse_worker.result_ready.connect(self._on_identify_items_loaded)
@@ -262,6 +267,7 @@ def _parse_identify_images(self,image_jobs:list[tuple[Path,dict]]):
 
 def _on_identify_items_loaded(self,items):
     self._set_identify_busy(False)
+    _cleanup_pending_identify_clipboard_files(self)
     if not items:
         QMessageBox.warning(self,"鉴定","未从图片中识别到可鉴定的驱动或卡带。")
         return
@@ -471,4 +477,14 @@ def _identify_result_row(self,rank,row):
 
 def _on_identify_error(self,err):
     self._set_identify_busy(False)
+    _cleanup_pending_identify_clipboard_files(self)
     QMessageBox.critical(self,"鉴定失败",str(err))
+
+def _cleanup_pending_identify_clipboard_files(self):
+    paths=list(getattr(self,"_pending_identify_clipboard_cleanup",[]) or [])
+    self._pending_identify_clipboard_cleanup=[]
+    if not paths:
+        return
+    cleanup_identify_clipboard_files(paths,runtime.ACCOUNT_DATA_ROOT)
+    remaining=[p for p in self._identify_paths_from_text() if p not in paths and p.exists()]
+    self.ident_path_edit.setText(";".join(str(p) for p in remaining))
