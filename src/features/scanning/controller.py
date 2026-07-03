@@ -20,13 +20,15 @@ from src.features.allocation.execute_page import build_execute_page
 from src.features.allocation.preference_modes import role_preference_mode_error
 from src.features.allocation.role_selector import RoleSelector
 from src.features.scanning.file_lifecycle import ScanFileLifecycle, is_scope_image
+from src.features.scanning.post_action_dialog import load_scan_post_action_config, show_scan_post_action_dialog
+from src.features.scanning.post_actions import post_actions_enabled, validate_post_action_config
 from src.features.scanning.vision_worker import VisionWorkerThread
 from src.scanner.batch_processor import BatchProcessor
 from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', 'vision_cancel_message', '_start_scan', '_start_gamepad_scan', '_on_gamepad_scan_done', '_on_gamepad_parse_progress', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_pipeline_done', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
+__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_open_scan_post_action_manager', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', 'vision_cancel_message', '_start_scan', '_start_gamepad_scan', '_on_gamepad_scan_done', '_on_gamepad_parse_progress', '_on_gamepad_parse_done', '_on_gamepad_post_actions_ready', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_pipeline_done', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
 
 
 def install_methods(app_module, window_cls):
@@ -63,12 +65,14 @@ def _on_scan_change(self,id):
     if hasattr(self,"offline_frame"):
         self.offline_frame.setVisible(id==3)
     self.total_count_frame.setVisible(id==1)
-    if hasattr(self,"auto_discard_frame"):
-        self.auto_discard_frame.setVisible(id==1)
     self.drone_frame.setVisible(id==2)
 
 def _on_priority_changed(self):
     pass
+
+def _open_scan_post_action_manager(self):
+    selected = self.role_selector.get_selected() if hasattr(self, "role_selector") else []
+    show_scan_post_action_dialog(self, runtime.USER_CONFIG_DIR, selected)
 
 def _do_exec(self):
     sel=self.role_selector.get_selected()
@@ -121,19 +125,17 @@ def _do_exec(self):
         return
     if not parse_only and not self._confirm_unsaved_allocation_before_recompute():
         return
+    post_actions_config = None
+    if sm == "1":
+        post_actions_config = load_scan_post_action_config(runtime.USER_CONFIG_DIR)
+        post_action_error = validate_post_action_config(post_actions_config, sel)
+        if post_action_error:
+            QMessageBox.warning(self, "扫描后管理配置无效", post_action_error)
+            return
     self.btn_run.setEnabled(False); self.btn_run.setText("\u23f3 \u6267\u884c\u4e2d..."); self.result_card.setVisible(False)
     self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_crit_rate_caps=crc; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
-    auto_discard_grade=None
-    auto_discard_lock_action="skip"
-    if sm=="1" and getattr(self,"auto_discard_checkbox",None) and self.auto_discard_checkbox.isChecked():
-        auto_discard_grade=self.auto_discard_grade_combo.currentText() if hasattr(self,"auto_discard_grade_combo") else "A"
-        auto_discard_lock_action=(
-            self.auto_discard_lock_action_combo.currentData()
-            if hasattr(self,"auto_discard_lock_action_combo")
-            else "skip"
-        )
 
     if sm=="3":
         scope={"full":"full","incremental":"incremental","all":"all"}.get(offline_scope,"incremental")
@@ -144,8 +146,8 @@ def _do_exec(self):
     elif sm=="1":
         self._start_gamepad_scan(
             total_drives,
-            auto_discard_grade=auto_discard_grade,
-            auto_discard_lock_action=auto_discard_lock_action,
+            post_actions_config=post_actions_config,
+            selected_roles=sel,
         )
     else:
         self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg,crc),parent=self)
@@ -259,6 +261,16 @@ def _on_vision_done(self,stats):
     summary=f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
     if stats.get("auto_discard_grade"):
         summary += f"\n低于 {stats['auto_discard_grade']} 的驱动：目标 {int(stats.get('discard_target_count',0) or 0)} 个，已标记 {int(stats.get('discard_marked_count',0) or 0)} 个。"
+    if stats.get("post_actions_enabled"):
+        summary += (
+            "\n扫描后管理："
+            f"目标变更 {int(stats.get('post_action_target_count',0) or 0)} 个，"
+            f"已处理 {int(stats.get('post_action_applied_count',0) or 0)} 个。"
+            f"\n弃置 {int(stats.get('discard_set_count',0) or 0)} 个，"
+            f"取消弃置 {int(stats.get('discard_clear_count',0) or 0)} 个；"
+            f"锁定 {int(stats.get('lock_set_count',0) or 0)} 个，"
+            f"取消锁定 {int(stats.get('lock_clear_count',0) or 0)} 个。"
+        )
     details=[]
     if post.get("moved_failed"):
         details.append(f"失败截图已移动到 failed 文件夹 {post['moved_failed']} 张。")
@@ -308,7 +320,7 @@ def _start_scan(self,drone_mode):
     self.btn_run.setText("⏳  扫描中... (F12 停止)")
     self._scan_worker.start()
 
-def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard_lock_action="skip"):
+def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard_lock_action="skip", post_actions_config=None, selected_roles=None):
     self._replace_inventory_on_next_parse=True
     self._pending_scan_mode="gamepad"
     self._pending_parse_scope="full"
@@ -316,10 +328,10 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
     self._pending_probe_duplicate_count=0
     self._gamepad_parse_progress=(0,total_drives,"")
     self._gamepad_pipeline_finished=False
-    discard_hint = ""
-    if auto_discard_grade:
-        discard_hint = (
-            f"\n\n已启用自动标记弃置：扫描解析后会标记最高评分低于 {auto_discard_grade} 的驱动。"
+    action_hint = ""
+    if post_actions_enabled(post_actions_config) or auto_discard_grade:
+        action_hint = (
+            "\n\n已启用扫描后管理：扫描解析后会继续计算并同步弃置/锁定状态。"
             "\n扫描开始后不要切换排序、筛选、滚动或手动操作背包。"
         )
     QMessageBox.information(
@@ -328,7 +340,7 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
         "点击 OK 后程序会最小化并准备开始全量扫描。\n\n"
         "请切换至游戏的驱动仓库页面，并确保当前选中第一排第一个驱动。\n"
         "程序会在短暂倒计时后接管虚拟手柄进行遍历截图。"
-        + discard_hint
+        + action_hint
     )
     self.showMinimized()
     self._gamepad_worker=GamepadScanParseWorkerThread(
@@ -336,9 +348,13 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
         parent=self,
         auto_discard_grade=auto_discard_grade,
         auto_discard_lock_action=auto_discard_lock_action,
+        post_actions_config=post_actions_config,
+        selected_roles=selected_roles,
     )
     self._gamepad_worker.scan_done.connect(self._on_gamepad_scan_done)
     self._gamepad_worker.progress.connect(self._on_gamepad_parse_progress)
+    self._gamepad_worker.parse_done.connect(self._on_gamepad_parse_done)
+    self._gamepad_worker.post_actions_ready.connect(self._on_gamepad_post_actions_ready)
     self._gamepad_worker.processing_done.connect(self._on_gamepad_pipeline_done)
     self._gamepad_worker.error.connect(self._on_gamepad_error)
     self._register_scan_hotkeys("gamepad")
@@ -351,6 +367,10 @@ def _on_gamepad_scan_done(self,captured,total):
     self.showNormal(); self.activateWindow()
     current, progress_total, filename = getattr(self,"_gamepad_parse_progress",(0,total,""))
     progress_total=max(int(progress_total or 0),int(total or 0),int(captured or 0),1)
+    dlg=getattr(self,"_progress_dlg",None)
+    if dlg and dlg.isVisible():
+        self._on_gamepad_parse_progress(current,progress_total,filename)
+        return
     self._progress_dlg=QProgressDialog("扫描完成，正在解析截图...","",0,progress_total,self)
     self._progress_dlg.setWindowTitle("全量解析进度")
     self._progress_dlg.setMinimumWidth(420)
@@ -371,6 +391,16 @@ def _on_gamepad_parse_progress(self,current,total,filename):
         dlg.setLabelText(f"扫描完成，正在解析 ({current}/{total}): {filename}")
     else:
         dlg.setLabelText(f"扫描完成，正在等待解析进度... ({current}/{total})")
+
+def _on_gamepad_parse_done(self):
+    dlg=getattr(self,"_progress_dlg",None)
+    if dlg:
+        dlg.close()
+        self._progress_dlg=None
+
+def _on_gamepad_post_actions_ready(self):
+    self._on_gamepad_parse_done()
+    self.showMinimized()
 
 def _register_scan_hotkeys(self, mode):
     """启动热键监听线程"""

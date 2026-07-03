@@ -11,7 +11,6 @@ from __future__ import annotations
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -89,55 +88,14 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     window.total_count_edit.setValidator(QIntValidator(1, 2000, window.total_count_edit))
     window.total_count_edit.setMaximumWidth(180)
     total_count_layout.addWidget(window.total_count_edit)
+    window.scan_post_action_btn = QPushButton("管理")
+    window.scan_post_action_btn.setObjectName("btnPrimary")
+    window.scan_post_action_btn.setMaximumWidth(82)
+    if hasattr(window, "_open_scan_post_action_manager"):
+        window.scan_post_action_btn.clicked.connect(window._open_scan_post_action_manager)
+    total_count_layout.addWidget(window.scan_post_action_btn)
     total_count_layout.addStretch()
     scan_card.layout().addWidget(window.total_count_frame)
-
-    window.auto_discard_frame = QWidget()
-    window.auto_discard_frame.setVisible(False)
-    auto_discard_layout = QVBoxLayout(window.auto_discard_frame)
-    auto_discard_layout.setContentsMargins(28, 0, 0, 4)
-    auto_discard_layout.setSpacing(4)
-    auto_discard_row = QHBoxLayout()
-    auto_discard_row.setSpacing(8)
-    window.auto_discard_checkbox = QCheckBox("扫描后顺便标记弃置")
-    window.auto_discard_checkbox.setObjectName("autoDiscardToggle")
-    auto_discard_row.addWidget(window.auto_discard_checkbox)
-    auto_discard_row.addWidget(QLabel("最高评分低于:"))
-    window.auto_discard_grade_combo = QComboBox()
-    for grade in ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]:
-        window.auto_discard_grade_combo.addItem(grade, grade)
-    window.auto_discard_grade_combo.setCurrentText("A")
-    window.auto_discard_grade_combo.setMaximumWidth(90)
-    auto_discard_row.addWidget(window.auto_discard_grade_combo)
-    window.auto_discard_grade_help = QPushButton("?")
-    window.auto_discard_grade_help.setObjectName("btnHelp")
-    window.auto_discard_grade_help.clicked.connect(
-        lambda _checked=False: show_help(
-            window,
-            "自动弃置评分说明",
-            "扫描完库存后，会使用【所有角色权重】（不仅是第二步选择要配装的角色）计算每个驱动的最高评分等级。\n\n"
-            "评分等级低于你选择等级的驱动会被打上弃置；等于所选等级的驱动不会被弃置。\n\n"
-            "例如:\n"
-            "- 选 A: 只标 B/C/D\n"
-            "- 选 S: 只标 A/B/C/D\n"
-            "- 选 SS: 只标 S/A/B/C/D",
-        )
-    )
-    auto_discard_row.addWidget(window.auto_discard_grade_help)
-    auto_discard_row.addStretch()
-    auto_discard_layout.addLayout(auto_discard_row)
-
-    auto_discard_lock_row = QHBoxLayout()
-    auto_discard_lock_row.setSpacing(8)
-    auto_discard_lock_row.addWidget(QLabel("遇到锁定驱动:"))
-    window.auto_discard_lock_action_combo = QComboBox()
-    window.auto_discard_lock_action_combo.addItem("跳过", "skip")
-    window.auto_discard_lock_action_combo.addItem("自动解锁并弃置", "unlock")
-    window.auto_discard_lock_action_combo.setMaximumWidth(150)
-    auto_discard_lock_row.addWidget(window.auto_discard_lock_action_combo)
-    auto_discard_lock_row.addStretch()
-    auto_discard_layout.addLayout(auto_discard_lock_row)
-    scan_card.layout().addWidget(window.auto_discard_frame)
 
     window.drone_frame = QWidget()
     window.drone_frame.setVisible(False)
