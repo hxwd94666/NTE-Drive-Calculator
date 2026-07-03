@@ -1,3 +1,4 @@
+# 计算角色属性汇总、边际收益和装备加成。
 """角色功能模块 - 边际收益与属性计算
 纯函数，不依赖 Qt UI，可在其他地方复用。
 """
@@ -7,6 +8,12 @@ from typing import List, Tuple, Dict, Any, Optional
 from src.utils.logger import logger
 
 from .dao import load_stats, load_role
+from .damage_model import (
+    ABILITY_DAMAGE_STAT,
+    LEGACY_ABILITY_DAMAGE_STAT,
+    calc_direct_damage,
+    calc_direct_marginal_benefits,
+)
 
 
 def is_empty_drive(drive: dict) -> bool:
@@ -42,83 +49,7 @@ def calc_marginal_benefits(total_stats: dict) -> tuple:
     """
     stats = load_stats()
     benefit_one = stats.get("benefit_one", {})
-
-    # 单位价值，缺失时默认值
-    unit_a_base = benefit_one.get("攻击力白值", 1.0) or 1.0
-    unit_a_pct = benefit_one.get("攻击力%", 1.25) or 1.25
-    unit_a_flat = benefit_one.get("攻击力", 1.0) or 1.0
-    unit_elem = benefit_one.get("元素伤害%", 1.25) or 1.25
-    unit_dmg = benefit_one.get("伤害增加%", 1.0) or 1.0
-    unit_cr = benefit_one.get("暴击率%", 1.0) or 1.0
-    unit_cd = benefit_one.get("暴击伤害%", 2.0) or 2.0
-
-    a_base = total_stats.get("攻击力白值", 0.0)
-    a_pct = total_stats.get("攻击力%", 0.0)
-    a_flat = total_stats.get("攻击力", 0.0)
-    elem = total_stats.get("元素伤害%", 0.0)
-    dmg = total_stats.get("伤害增加%", 0.0)
-    cr_raw = total_stats.get("暴击率%", 0.0)
-    cd_raw = total_stats.get("暴击伤害%", 0.0)
-
-    cr = min(cr_raw / 100.0, 1.0)
-    cd = cd_raw / 100.0
-
-    def damage(base, pct, flat, elem_val, dmg_val, crit_rate, crit_dmg):
-        return (base * (1 + pct / 100.0) + flat) * (1 + (elem_val + dmg_val) / 100.0) * (1 + crit_rate * crit_dmg)
-
-    base_damage = damage(a_base, a_pct, a_flat, elem, dmg, cr, cd)
-    if base_damage == 0:
-        return 0.0, []
-
-    items = []
-
-    # 攻击力白值
-    step = unit_a_base
-    d = damage(a_base + step, a_pct, a_flat, elem, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("攻击力白值", f"{a_base:.0f}", f"{step:.0f}", gain))
-
-    # 攻击力%
-    step = unit_a_pct
-    d = damage(a_base, a_pct + step, a_flat, elem, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("攻击力%", f"{a_pct:.2f}%", f"{step:.2f}%", gain))
-
-    # 攻击力
-    step = unit_a_flat
-    d = damage(a_base, a_pct, a_flat + step, elem, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("攻击力", f"{a_flat:.0f}", f"{step:.0f}", gain))
-
-    # 元素伤害%
-    step = unit_elem
-    d = damage(a_base, a_pct, a_flat, elem + step, dmg, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("元素伤害%", f"{elem:.2f}%", f"{step:.2f}%", gain))
-
-    # 伤害增加%
-    step = unit_dmg
-    d = damage(a_base, a_pct, a_flat, elem, dmg + step, cr, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("伤害增加%", f"{dmg:.2f}%", f"{step:.2f}%", gain))
-
-    # 暴击率%
-    step = unit_cr
-    cr_new = min((cr_raw + step) / 100.0, 1.0)
-    d = damage(a_base, a_pct, a_flat, elem, dmg, cr_new, cd)
-    gain = (d / base_damage - 1) * 100
-    items.append(("暴击率%", f"{cr_raw:.2f}%", f"{step:.2f}%", gain))
-
-    # 暴击伤害%
-    step = unit_cd
-    cd_new = (cd_raw + step) / 100.0
-    d = damage(a_base, a_pct, a_flat, elem, dmg, cr, cd_new)
-    gain = (d / base_damage - 1) * 100
-    items.append(("暴击伤害%", f"{cd_raw:.2f}%", f"{step:.2f}%", gain))
-
-    # 按收益降序排序
-    items.sort(key=lambda x: x[3], reverse=True)
-    return base_damage, items
+    return calc_direct_marginal_benefits(total_stats, benefit_one)
 
 
 def filter_margins_by_weights(margins: list, weights: dict) -> list:
@@ -187,7 +118,7 @@ def calc_drive_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
         List[Tuple[str, float]]: 汇总属性列表
     """
     drive = role_data.get("drive", {})
-    drives = drive.get("drives", [])
+    drives = get_valid_drives(drive.get("drives", []))
 
     enriched_drives = enrich_drives_with_shape_bonus(drives)
     result = aggregate_drive_stats(enriched_drives)
@@ -195,6 +126,28 @@ def calc_drive_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
     for k, v in extra_buffs.items():
         result[k] = result.get(k, 0.0) + v
 
+    return sorted(result.items(), key=lambda x: x[0])
+
+
+def calc_tape_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
+    """计算卡带本体的主词条和副词条加成。"""
+    tape = role_data.get("tape", {})
+    if not isinstance(tape, dict):
+        return []
+    result = {}
+    for stats in (tape.get("main_stats", {}), tape.get("sub_stats", {})):
+        if not isinstance(stats, dict):
+            continue
+        for k, v in stats.items():
+            result[k] = result.get(k, 0.0) + float(v)
+    return sorted(result.items(), key=lambda x: x[0])
+
+
+def calc_equipment_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
+    """计算驱动和卡带本体的汇总属性，不包含套装技能。"""
+    result = {}
+    for stat, value in calc_drive_bonus_stats(role_data) + calc_tape_bonus_stats(role_data):
+        result[stat] = result.get(stat, 0.0) + float(value)
     return sorted(result.items(), key=lambda x: x[0])
 
 
@@ -335,7 +288,11 @@ def get_character_total_stats(role_data: dict) -> dict:
     for k, v in drive_rows:
         add_stat(k, v)
 
-    # 3. 武器
+    # 3. 卡带本体
+    for k, v in calc_tape_bonus_stats(role_data):
+        add_stat(k, v)
+
+    # 4. 武器
     weapon = role_data.get("weapon", {})
     # 基础加成
     for k, v in weapon.get("sub_stats", {}).items():
@@ -354,17 +311,12 @@ def get_character_total_stats(role_data: dict) -> dict:
         if effect_total != 0:
             add_stat(key, effect_total)
 
-    # 4. 空幕
-    tape = role_data.get("tape", {})
-    t_cover = float(tape.get("skill_cover", 0.0))
-
-    for k, v in tape.get("main_stats", {}).items():
+    # 5. 套装技能
+    set_bonus = role_data.get("set_bonus", {})
+    t_cover = float(set_bonus.get("skill_cover", 0.0))
+    for k, v in set_bonus.get("skill", {}).items():
         add_stat(k, float(v))
-    for k, v in tape.get("sub_stats", {}).items():
-        add_stat(k, float(v))
-    for k, v in tape.get("skill", {}).items():
-        add_stat(k, float(v))
-    for k, v in tape.get("skill_2", {}).items():
+    for k, v in set_bonus.get("skill_2", {}).items():
         add_stat(k, float(v) * t_cover)
 
     return total
@@ -372,21 +324,4 @@ def get_character_total_stats(role_data: dict) -> dict:
 
 def calc_base_damage(total_stats: dict) -> float:
     """根据汇总属性计算直伤评分（伤害值）"""
-    stats = load_stats()
-    benefit_one = stats.get("benefit_one", {})
-
-    a_base = total_stats.get("攻击力白值", 0.0)
-    a_pct = total_stats.get("攻击力%", 0.0)
-    a_flat = total_stats.get("攻击力", 0.0)
-    elem = total_stats.get("元素伤害%", 0.0)
-    dmg = total_stats.get("伤害增加%", 0.0)
-    cr_raw = total_stats.get("暴击率%", 0.0)
-    cd_raw = total_stats.get("暴击伤害%", 0.0)
-
-    cr = min(cr_raw / 100.0, 1.0)
-    cd = cd_raw / 100.0
-
-    def damage(base, pct, flat, elem_val, dmg_val, crit_rate, crit_dmg):
-        return (base * (1 + pct / 100.0) + flat) * (1 + (elem_val + dmg_val) / 100.0) * (1 + crit_rate * crit_dmg)
-
-    return damage(a_base, a_pct, a_flat, elem, dmg, cr, cd)
+    return calc_direct_damage(total_stats)

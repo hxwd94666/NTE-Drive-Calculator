@@ -40,6 +40,7 @@ class NTEAppFacade:
         crit_priority_modes=None,
         set_effect_modes=None,
         priority_groups=None,
+        crit_rate_caps=None,
     ):
         if not os.path.exists(inventory_file):
             logger.error(f"找不到 {inventory_file}！")
@@ -57,6 +58,7 @@ class NTEAppFacade:
         if not preferences_allowed:
             tape_main_filters = {}
             crit_priority_modes = {}
+            crit_rate_caps = {}
         final_plan = orchestrator.run_full_allocation(
             inventory=inventory,
             priority_list=priority_list,
@@ -67,5 +69,6 @@ class NTEAppFacade:
             crit_priority_modes=crit_priority_modes or {},
             set_effect_modes=set_effect_modes or {},
             priority_groups=priority_groups,
+            crit_rate_caps=crit_rate_caps or {},
         )
         return final_plan, state_manager

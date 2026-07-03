@@ -19,6 +19,9 @@ from src.utils.logger import logger
 from src.utils.perf import log_perf
 
 
+INCREMENTAL_PARSE_SCOPES = {"incremental", "incremental_auto", "incremental_semi"}
+
+
 class VisionWorkerThread(QThread):
     processing_done = Signal(dict)
     canceled = Signal(int)
@@ -88,6 +91,7 @@ class VisionWorkerThread(QThread):
             added_paths = []
             duplicate_paths = []
             failed_paths = []
+            filter_adjacent_duplicates = self.parse_scope in INCREMENTAL_PARSE_SCOPES
             parse_start = time.perf_counter()
             for idx, filename in enumerate(image_files, 1):
                 if self._cancel_requested:
@@ -96,7 +100,11 @@ class VisionWorkerThread(QThread):
                 file_path = os.path.join(self.input_dir, filename)
                 item_start = time.perf_counter()
                 try:
-                    _item_obj, added = processor.process_image_file(file_path, filename)
+                    _item_obj, added = processor.process_image_file(
+                        file_path,
+                        filename,
+                        filter_adjacent_duplicates=filter_adjacent_duplicates,
+                    )
                     item_ms = (time.perf_counter() - item_start) * 1000.0
                     log_perf(
                         logger,
@@ -109,7 +117,7 @@ class VisionWorkerThread(QThread):
                     )
                     if not added:
                         duplicate_paths.append(file_path)
-                        logger.info(f"相邻截图画面与解析数据均一致，按连拍重复过滤: {filename}")
+                        logger.info(f"增量重复截图已过滤: {filename}")
                     else:
                         added_paths.append(file_path)
                 except Exception as exc:

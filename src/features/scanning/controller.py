@@ -26,7 +26,7 @@ from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', 'vision_cancel_message', '_start_scan', '_start_gamepad_scan', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_pipeline_done', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
+__all__ = ['_page_execute', '_on_scan_change', '_on_priority_changed', '_do_exec', '_scan_lifecycle', '_is_scope_image', '_prepare_incremental_parse', '_matching_scope_files', '_unique_path', '_move_to_failed', '_delete_paths', '_next_full_scan_index', '_rename_incremental_successes', '_move_first_full_scan_to_tail', '_postprocess_vision_files', '_start_vision_processing', '_on_vision_progress', '_on_vision_done', '_on_vision_error', '_on_vision_cancel', '_on_vision_canceled', 'vision_cancel_message', '_start_scan', '_start_gamepad_scan', '_on_gamepad_scan_done', '_on_gamepad_parse_progress', '_register_scan_hotkeys', '_hotkey_to_vk', '_win_hotkey_loop', '_hotkey_poll_loop', '_unregister_scan_hotkeys', '_on_hk_stop', '_on_hk_capture', '_on_hk_finish', '_on_gamepad_pipeline_done', '_on_gamepad_error', '_on_scan_done', '_on_scan_error']
 
 
 def install_methods(app_module, window_cls):
@@ -110,16 +110,17 @@ def _do_exec(self):
     cs=self.role_selector.get_custom_sets()
     tmf=self.role_selector.get_tape_main_filters()
     cpm=self.role_selector.get_crit_priority_modes()
+    crc=self.role_selector.get_crit_rate_caps()
     sem=self.role_selector.get_set_effect_modes()
     pg=self.role_selector.get_priority_groups() if hasattr(self.role_selector,"get_priority_groups") else None
-    preference_error = role_preference_mode_error(strat, tmf, cpm)
+    preference_error = role_preference_mode_error(strat, tmf, cpm, crc)
     if preference_error:
         QMessageBox.warning(self, "词条自选不可用", preference_error)
         return
     if not parse_only and not self._confirm_unsaved_allocation_before_recompute():
         return
     self.btn_run.setEnabled(False); self.btn_run.setText("\u23f3 \u6267\u884c\u4e2d..."); self.result_card.setVisible(False)
-    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
+    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_crit_rate_caps=crc; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
 
@@ -132,7 +133,7 @@ def _do_exec(self):
     elif sm=="1":
         self._start_gamepad_scan(total_drives)
     else:
-        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg),parent=self)
+        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg,crc),parent=self)
         self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
 
 def _scan_lifecycle(self):
@@ -296,6 +297,8 @@ def _start_gamepad_scan(self,total_drives):
     self._pending_parse_scope="full"
     self._pending_delete_after_parse=[]
     self._pending_probe_duplicate_count=0
+    self._gamepad_parse_progress=(0,total_drives,"")
+    self._gamepad_pipeline_finished=False
     QMessageBox.information(
         self,
         "全量扫描准备",
@@ -305,11 +308,40 @@ def _start_gamepad_scan(self,total_drives):
     )
     self.showMinimized()
     self._gamepad_worker=GamepadScanParseWorkerThread(total_drives=total_drives,parent=self)
+    self._gamepad_worker.scan_done.connect(self._on_gamepad_scan_done)
+    self._gamepad_worker.progress.connect(self._on_gamepad_parse_progress)
     self._gamepad_worker.processing_done.connect(self._on_gamepad_pipeline_done)
     self._gamepad_worker.error.connect(self._on_gamepad_error)
     self._register_scan_hotkeys("gamepad")
     self.btn_run.setText("⏳  手柄扫描/解析中... (F12 停止)")
     self._gamepad_worker.start()
+
+def _on_gamepad_scan_done(self,captured,total):
+    if getattr(self,"_gamepad_pipeline_finished",False):
+        return
+    self.showNormal(); self.activateWindow()
+    current, progress_total, filename = getattr(self,"_gamepad_parse_progress",(0,total,""))
+    progress_total=max(int(progress_total or 0),int(total or 0),int(captured or 0),1)
+    self._progress_dlg=QProgressDialog("扫描完成，正在解析截图...","",0,progress_total,self)
+    self._progress_dlg.setWindowTitle("全量解析进度")
+    self._progress_dlg.setMinimumWidth(420)
+    self._progress_dlg.setAutoClose(False)
+    self._progress_dlg.setAutoReset(False)
+    self._progress_dlg.setCancelButton(None)
+    self._progress_dlg.show()
+    self._on_gamepad_parse_progress(current,progress_total,filename)
+
+def _on_gamepad_parse_progress(self,current,total,filename):
+    self._gamepad_parse_progress=(current,total,filename)
+    dlg=getattr(self,"_progress_dlg",None)
+    if not dlg:
+        return
+    dlg.setMaximum(max(int(total or 0),1))
+    dlg.setValue(int(current or 0))
+    if filename:
+        dlg.setLabelText(f"扫描完成，正在解析 ({current}/{total}): {filename}")
+    else:
+        dlg.setLabelText(f"扫描完成，正在等待解析进度... ({current}/{total})")
 
 def _register_scan_hotkeys(self, mode):
     """启动热键监听线程"""
@@ -442,14 +474,18 @@ def _on_hk_finish(self):
 
 def _on_gamepad_error(self,err):
     self._unregister_scan_hotkeys()
+    self._gamepad_pipeline_finished=True
     self._replace_inventory_on_next_parse=False
     self.showNormal(); self.activateWindow()
+    if hasattr(self,'_progress_dlg') and self._progress_dlg:
+        self._progress_dlg.close()
     self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
     self._pending_parse_only=False
     QMessageBox.critical(self,"手柄扫描失败",f"全量扫描出错:\n{err}")
 
 def _on_gamepad_pipeline_done(self,stats):
     self._unregister_scan_hotkeys()
+    self._gamepad_pipeline_finished=True
     self.showNormal(); self.activateWindow()
     self._replace_inventory_on_next_parse=False
     self._pending_scan_mode=None

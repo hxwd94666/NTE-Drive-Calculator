@@ -120,6 +120,52 @@ class DuplicateFilterTests(unittest.TestCase):
         self.assertEqual([], processor.inventory)
         self.assertEqual(["raw_drive_probe_0001.png"], processor.successful_image_paths)
 
+    def test_adjacent_duplicate_filter_can_be_disabled_for_full_parse(self):
+        original_fingerprint = duplicate_filter.image_fingerprint
+        duplicate_filter.image_fingerprint = lambda _path: np.zeros((4, 4), dtype=np.uint8)
+        try:
+            processor = _FakeProcessor()
+            _item, first_added = duplicate_filter.process_image_file(
+                processor,
+                "raw_drive_0001.png",
+                "raw_drive_0001.png",
+                filter_adjacent_duplicates=False,
+            )
+            _item, second_added = duplicate_filter.process_image_file(
+                processor,
+                "raw_drive_0002.png",
+                "raw_drive_0002.png",
+                filter_adjacent_duplicates=False,
+            )
+        finally:
+            duplicate_filter.image_fingerprint = original_fingerprint
+
+        self.assertTrue(first_added)
+        self.assertTrue(second_added)
+        self.assertEqual(2, len(processor.inventory))
+
+    def test_adjacent_duplicate_filter_still_blocks_incremental_duplicates(self):
+        original_fingerprint = duplicate_filter.image_fingerprint
+        duplicate_filter.image_fingerprint = lambda _path: np.zeros((4, 4), dtype=np.uint8)
+        try:
+            processor = _FakeProcessor()
+            _item, first_added = duplicate_filter.process_image_file(
+                processor,
+                "raw_drive_new_0001.png",
+                "raw_drive_new_0001.png",
+            )
+            _item, second_added = duplicate_filter.process_image_file(
+                processor,
+                "raw_drive_new_0002.png",
+                "raw_drive_new_0002.png",
+            )
+        finally:
+            duplicate_filter.image_fingerprint = original_fingerprint
+
+        self.assertTrue(first_added)
+        self.assertFalse(second_added)
+        self.assertEqual(1, len(processor.inventory))
+
     def test_placeholder_tape_without_ocr_data_is_parse_failure(self):
         processor = _InvalidParseProcessor()
 
@@ -777,6 +823,25 @@ class GamepadScannerTests(unittest.TestCase):
             ],
             updates,
         )
+
+    def test_apply_moves_uses_more_stable_timing_for_row_transition_down(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        updates = []
+        sleeps = []
+        scanner.gamepad = SimpleNamespace(
+            left_joystick_float=lambda **kwargs: updates.append(kwargs),
+            update=lambda: updates.append("update"),
+        )
+        original_sleep = gamepad_controller.time.sleep
+        gamepad_controller.time.sleep = lambda seconds, *_args, **_kwargs: sleeps.append(seconds)
+        try:
+            scanner._apply_moves(["R", "D"])
+        finally:
+            gamepad_controller.time.sleep = original_sleep
+
+        self.assertEqual([0.10, 0.25, 0.15, 0.30], sleeps)
 
     def test_capture_panel_saves_single_current_frame_without_waiting_for_change(self):
         from src.scanner import gamepad_controller

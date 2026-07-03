@@ -21,6 +21,7 @@ from src.app.constants import (
     GITHUB_HOME_URL,
     GITHUB_LATEST_RELEASE_API,
     GITHUB_RELEASES_URL,
+    NETDISK_DOWNLOAD_LINKS,
     QUARK_NETDISK_URL,
 )
 from src.app.theme import STYLE, apply_dark_palette
@@ -129,7 +130,7 @@ from src.utils.name_resolver import resolve_name
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.hotkeys import load_hotkey_config, save_hotkey_config
-from src.features.role.page import (_page_my_role, _refresh_my_role)
+from src.features.role.page import (_page_my_role, _refresh_my_role, confirm_pending_my_role_changes)
 from src.features.configuration.page import (
     add_role as config_add_role,
     add_set as config_add_set,
@@ -143,6 +144,7 @@ from src.features.configuration.page import (
     refresh_config_forms as config_refresh_config_forms,
     render_roles_form,
     render_sets_form,
+    reset_config_form as config_reset_config_form,
     save_config_data as config_save_config_data,
     save_config_form as config_save_config_form,
     save_role_board_cell as config_save_role_board_cell,
@@ -300,6 +302,9 @@ class MainWindow(QMainWindow):
         if getattr(self,"_config_dirty",False) and not self._confirm_leave_config_page():
             e.ignore()
             return
+        if getattr(self,"_my_role_dirty",False) and not self._confirm_leave_my_role_page():
+            e.ignore()
+            return
         if hasattr(self,"role_selector"):
             try:
                 self.role_selector.save_temporary_priority_config()
@@ -372,6 +377,8 @@ class MainWindow(QMainWindow):
         indexes=nav_index_map()
         if self._nav_key_for_index(self.stack.currentIndex())=="config" and item.key!="config" and not self._confirm_leave_config_page():
             return
+        if self._nav_key_for_index(self.stack.currentIndex())=="my_role" and item.key!="my_role" and not self._confirm_leave_my_role_page():
+            return
         self.stack.setCurrentIndex(indexes.get(item.key,0))
         self.topbar_title.setText(item.label)
         for btn in self._nav_buttons.values(): btn.setChecked(False)
@@ -391,12 +398,17 @@ class MainWindow(QMainWindow):
             return
         account_id=self.account_combo.itemData(index)
         if account_id and account_id!=ACTIVE_ACCOUNT_ID:
-            self._switch_account(account_id)
+            if not self._switch_account(account_id):
+                self._refresh_account_combo()
 
     def _switch_account(self,account_id):
+        if getattr(self,"_my_role_dirty",False) and not self._confirm_leave_my_role_page():
+            return False
+        if getattr(self,"_config_dirty",False) and not self._confirm_leave_config_page():
+            return False
         data=ACCOUNT_MANAGER.read_index()
         if not any(a.get("id")==account_id for a in data.get("accounts",[])):
-            return
+            return False
         ACCOUNT_MANAGER.set_active_account_id(account_id)
         _set_active_account(account_id)
         set_log_dir(LOG_DIR)
@@ -413,6 +425,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,"_ss_info"):
             self._refresh_ss()
         logger.info(f"已切换账号: {ACTIVE_ACCOUNT_NAME}")
+        return True
 
     def _manage_accounts(self):
         show_account_manager_dialog(
@@ -459,6 +472,7 @@ class MainWindow(QMainWindow):
             }
             self.tape_main_stats=catalog.tape_main_stats
             self.drive_sub_stats=list(catalog.gold_base_values.keys())
+            self.weapons_db=read_json(CONFIG_DIR/"weapons.json", default={}) or {}
             self._canonicalize_loaded_role_sets()
             self._shape_areas={s["shape_id"]:s["area"] for s in (read_json(CONFIG_DIR/"shapes.json", default={}) or {}).get("shapes",[])}
             sf=USER_CONFIG_DIR/"equipped_state.json"
@@ -466,7 +480,7 @@ class MainWindow(QMainWindow):
             self.scoring_engine=ScoringEngine(str(CONFIG_DIR))
             logger.info(f"加载完成：{len(self.roles_db)} 角色，{len(self.sets_db)} 套装")
             self._update_inventory_status()
-            self.role_selector.load_roles(self.roles_db,self.all_set_names,self.tape_main_stats,self.drive_sub_stats)
+            self.role_selector.load_roles(self.roles_db,self.all_set_names,self.tape_main_stats,self.drive_sub_stats,weapons_db=self.weapons_db)
             if reload_priority:
                 self.role_selector.load_startup_priority_config()
             self._identify_blueprint_cache=None
@@ -524,6 +538,9 @@ class MainWindow(QMainWindow):
 
     def _confirm_leave_config_page(self):
         return config_confirm_pending_config_changes(self,CONFIG_DIR)
+
+    def _confirm_leave_my_role_page(self):
+        return confirm_pending_my_role_changes(self)
 
     def _switch_config_form(self,name):
         return config_switch_config_form(self,name,CONFIG_DIR)
@@ -589,6 +606,9 @@ class MainWindow(QMainWindow):
     def _save_config_form(self):
         return config_save_config_form(self,CONFIG_DIR,None)
 
+    def _reset_config_form(self):
+        return config_reset_config_form(self,CONFIG_DIR,BUNDLED_CONFIG_DIR)
+
     def _save_config_data(self,data):
         return config_save_config_data(self,data,CONFIG_DIR)
 
@@ -602,7 +622,7 @@ class MainWindow(QMainWindow):
         }
 
     def _page_settings(self):
-        return build_settings_page(self,APP_VERSION,self._settings_paths,_iter_image_files,QUARK_NETDISK_URL)
+        return build_settings_page(self,APP_VERSION,self._settings_paths,_iter_image_files,NETDISK_DOWNLOAD_LINKS)
 
     def _maybe_check_updates_on_startup(self):
         if self._update_config.get("never_remind"):
@@ -693,6 +713,28 @@ class MainWindow(QMainWindow):
 
     def _open_update_homepage(self):
         self._open_url(GITHUB_HOME_URL)
+
+    def _show_netdisk_download_dialog(self, links):
+        links=tuple((str(name),str(url)) for name,url in links if name and url)
+        if not links:
+            return
+        box=QMessageBox(self)
+        box.setWindowTitle("网盘下载")
+        box.setText("请选择下载网盘")
+        box.setInformativeText("\n\n".join(f"{name}：\n{url}" for name,url in links))
+        box.setMinimumSize(620, 300)
+        box.setStyleSheet(box.styleSheet()+"\nQLabel{min-width:560px;}")
+        buttons=[]
+        for name,url in links:
+            button=box.addButton(f"打开{name}", QMessageBox.AcceptRole)
+            buttons.append((button,url))
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.exec()
+        clicked=box.clickedButton()
+        for button,url in buttons:
+            if clicked is button:
+                self._open_url(url)
+                break
 
     def _open_url(self,url):
         try:

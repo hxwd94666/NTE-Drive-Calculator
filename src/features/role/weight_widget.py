@@ -1,4 +1,4 @@
-"""词条权重相关 UI 组件"""
+# 构建角色词条权重编辑组件。
 
 from PySide6.QtWidgets import (
     QGroupBox,

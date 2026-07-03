@@ -1,12 +1,17 @@
 # 集中定义应用版本、链接和说明文案常量。
 """Application constants shared by UI and feature modules."""
 
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.2.0"
 ALLOCATION_TOTAL_SCORE_AREA = 35
 GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/hxwd94666/NTE-Drive-Calc/releases/latest"
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
-QUARK_NETDISK_URL = "https://pan.quark.cn/s/42f0d8bed584"
+QUARK_NETDISK_URL = "https://pan.quark.cn/s/82f16b845aec"
+BAIDU_NETDISK_URL = "https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke"
+NETDISK_DOWNLOAD_LINKS = (
+    ("夸克网盘", QUARK_NETDISK_URL),
+    ("百度网盘", BAIDU_NETDISK_URL),
+)
 
 CORE_CONFIG_FILES = ("roles.json", "sets.json", "shapes.json", "stats.json",
                      "my_roles_model.json", "tapes.json", "weapons.json")
@@ -18,10 +23,10 @@ ACCOUNT_USER_FILES = (
 )
 
 SCAN_HELP = {
-    "4": "直接读取库存\n\n跳过扫描步骤，直接读取已有的\nreal_inventory.json 进行分配计算。\n\n适合：已有库存数据，只想重跑分配。",
-    "3": "离线解析\n\n读取 scanned_images/ 文件夹中的截图，\n用 OCR + 模板匹配提取属性，\n生成 real_inventory.json 后分配。\n\n适合：已有截图，需要解析后分配。",
-    "2": "增量扫描\n\n自动探测 NEW 标记，\n截取新装备 → 解析 → 分配。\n\n适合：日常更新，只抓取新装备。",
-    "1": "全量扫描\n\n虚拟手柄自动遍历背包，\n全量截图所有驱动 → 解析 → 分配。\n\n适合：首次使用。",
+    "4": "直接读取库存\n\n不截图、不解析，直接使用当前库存文件重新配装。\n适合：库存已经整理好，只想重新计算。",
+    "3": "离线解析\n\n读取截图文件夹中的图片，解析后生成库存并配装。\n适合：已经有截图，或之前扫描后还没解析。",
+    "2": "增量扫描\n\n只扫描带 NEW 标记的新装备，解析后追加到库存。\n适合：日常补录新获得的装备。",
+    "1": "全量扫描\n\n用虚拟手柄遍历背包并重新生成库存。\n适合：首次使用，或库存数据需要彻底重建。",
 }
 
 DRONE_HELP = {

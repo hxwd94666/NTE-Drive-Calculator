@@ -12,6 +12,7 @@ from src.domain.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
 from src.solver.dfs_puzzle import DFSPuzzleSolver
+from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 from src.solver.set_effects import normalize_set_effect_mode, set_piece_options_for_mode
 from src.optimizer.scoring import ScoringEngine
 from src.optimizer.dispatcher import DispatcherEngine
@@ -66,7 +67,8 @@ class NTEPipelineOrchestrator:
         return resolved_sets
 
     def solve_blueprints(self, target_roles: List[str], custom_sets: Dict[str, str] = None,
-                         set_effect_modes: Dict[str, str] = None) -> Dict[str, List[Dict]]:
+                         set_effect_modes: Dict[str, str] = None,
+                         include_layout_variants: bool = False) -> Dict[str, List[Dict]]:
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         set_effect_modes = set_effect_modes or {}
         logger.info(f"\n[阶段 2] 求解 {target_roles} 的合法底盘图纸...")
@@ -90,6 +92,7 @@ class NTEPipelineOrchestrator:
                 extra_label,
                 board_matrix,
                 set_effect_mode,
+                include_layout_variants,
             )
 
             logger.info(f"  -> [{role_name}] 套装: {set_name} | 套装效果: {set_effect_mode} | 求解中...")
@@ -108,16 +111,23 @@ class NTEPipelineOrchestrator:
                     pieces_to_place = set_pieces + combo
                     board_copy = [row[:] for row in board_matrix]
                     results = []
-                    dfs_solver.solve(board_copy, pieces_to_place, results, max_solutions=1)
+                    dfs_solver.solve(
+                        board_copy,
+                        pieces_to_place,
+                        results,
+                        max_solutions=0 if include_layout_variants else 1,
+                    )
 
-                    if results:
+                    for result_board in results:
                         role_blueprints.append({
                             "set_pieces": list(set_pieces),
                             "extra_pieces": combo,
                             "set_effect_mode": set_effect_mode,
-                            "board": results[0]
+                            "board": result_board,
                         })
 
+            if not include_layout_variants:
+                role_blueprints = dedupe_blueprints_by_piece_signature(role_blueprints)
             real_blueprints_db[role_name] = role_blueprints
             self._remember_blueprint_cache(cache_key, role_blueprints)
             logger.success(f"  [{role_name}] 图纸求解完成，共 {len(role_blueprints)} 套合法方案。(总耗时 {time.perf_counter()-_t0:.2f}s)")
@@ -132,6 +142,7 @@ class NTEPipelineOrchestrator:
         extra_label: str,
         board_matrix: List[List[int]],
         set_effect_mode: str,
+        include_layout_variants: bool,
     ) -> str:
         shape_payload = {
             shape_id: {"area": shape.area, "label": shape.label}
@@ -144,6 +155,7 @@ class NTEPipelineOrchestrator:
             "extra_label": extra_label,
             "board_matrix": board_matrix,
             "set_effect_mode": set_effect_mode,
+            "include_layout_variants": include_layout_variants,
             "shapes": shape_payload,
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -184,15 +196,17 @@ class NTEPipelineOrchestrator:
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
                             crit_priority_modes: Dict[str, str] = None, set_effect_modes: Dict[str, str] = None,
-                            priority_groups: List[List[str]] = None):
+                            priority_groups: List[List[str]] = None, crit_rate_caps: Dict[str, float] = None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
+        crit_rate_caps = crit_rate_caps or {}
         set_effect_modes = set_effect_modes or {}
         priority_groups = priority_groups or None
         if mode != "role_priority":
             tape_main_filters = {}
             crit_priority_modes = {}
+            crit_rate_caps = {}
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         total_t0 = time.perf_counter()
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
@@ -257,6 +271,7 @@ class NTEPipelineOrchestrator:
             custom_sets=custom_sets,
             crit_priority_modes=crit_priority_modes,
             priority_groups=priority_groups,
+            crit_rate_caps=crit_rate_caps,
         )
         logger.info(f"[计时] 调度阶段: {time.perf_counter() - stage_t0:.2f}s")
 

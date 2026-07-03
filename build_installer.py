@@ -63,7 +63,7 @@ def _read_app_version() -> str:
     try:
         from src.app.constants import APP_VERSION
     except Exception as exc:
-        raise RuntimeError("APP_VERSION not found in src.app.constants") from exc
+        raise RuntimeError("APP_VERSION not found in src.app.constants ") from exc
     return APP_VERSION
 
 
