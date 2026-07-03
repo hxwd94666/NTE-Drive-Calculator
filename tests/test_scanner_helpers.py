@@ -1025,19 +1025,97 @@ class GamepadScannerTests(unittest.TestCase):
         scanner._press_menu = lambda: presses.append("menu")
         scanner._press_a = lambda: presses.append("a")
 
-        marked = scanner.mark_discard_by_indexes(14, [2], locked_indexes=[2])
+        original_sleep = gamepad_controller.time.sleep
+        pauses = []
+        gamepad_controller.time.sleep = lambda seconds: pauses.append(seconds)
+        try:
+            marked = scanner.mark_discard_by_indexes(14, [2], locked_indexes=[2])
+        finally:
+            gamepad_controller.time.sleep = original_sleep
 
         self.assertEqual(1, marked)
         self.assertEqual(
             [
                 ["U", "U", "L", "L", "L", "L", "L", "L"],
                 ["R"],
-                ["R"],
-                ["L"],
             ],
             moves,
         )
         self.assertEqual(["menu", "a", "a", "menu"], presses)
+        self.assertEqual([0.1, 0.15, 0.3, 0.6, 0.6, 0.3], pauses)
+
+    def test_sync_equipment_state_menu_sequences(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.cols = 7
+        scanner._stopped = False
+        moves = []
+        presses = []
+        scanner._apply_moves = lambda batch: moves.append(batch)
+        scanner._press_menu = lambda: presses.append("menu")
+        scanner._press_a = lambda: presses.append("a")
+
+        cases = [
+            ("normal", "discarded", ["menu", "a", "menu"], [], [0.3, 0.3, 0.3]),
+            ("locked", "discarded", ["menu", "a", "a", "menu"], [], [0.3, 0.6, 0.6, 0.3]),
+            ("discarded", "locked", ["menu", "a", "menu"], [["R"]], [0.3, 0.15, 0.3, 0.3]),
+            ("normal", "locked", ["menu", "a", "menu"], [["R"]], [0.3, 0.15, 0.3, 0.3]),
+            ("locked", "normal", ["menu", "a", "menu"], [["R"]], [0.3, 0.15, 0.3, 0.3]),
+            ("discarded", "normal", ["menu", "a", "menu"], [], [0.3, 0.3, 0.3]),
+        ]
+
+        original_sleep = gamepad_controller.time.sleep
+        pauses = []
+        gamepad_controller.time.sleep = lambda seconds: pauses.append(seconds)
+        try:
+            for current, target, expected_presses, expected_moves, expected_pauses in cases:
+                presses.clear()
+                moves.clear()
+                pauses.clear()
+                changed = scanner._sync_selected_equipment_state(current, target)
+                self.assertTrue(changed)
+                self.assertEqual(expected_presses, presses)
+                self.assertEqual(expected_moves, moves)
+                self.assertEqual(expected_pauses, pauses)
+        finally:
+            gamepad_controller.time.sleep = original_sleep
+
+    def test_sync_equipment_states_refreshes_with_lb_rb_then_moves_by_scan_order(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.cols = 7
+        scanner._stopped = False
+        moves = []
+        presses = []
+        scanner._apply_moves = lambda batch: moves.append(batch)
+        scanner._press_lb = lambda: presses.append("lb")
+        scanner._press_rb = lambda: presses.append("rb")
+        scanner._press_menu = lambda: presses.append("menu")
+        scanner._press_a = lambda: presses.append("a")
+
+        original_sleep = gamepad_controller.time.sleep
+        pauses = []
+        gamepad_controller.time.sleep = lambda seconds: pauses.append(seconds)
+        try:
+            applied = scanner.sync_equipment_states(
+                14,
+                [
+                    {"index": 8, "current_state": "normal", "target_state": "locked"},
+                    {"index": 2, "current_state": "discarded", "target_state": "normal"},
+                ],
+            )
+        finally:
+            gamepad_controller.time.sleep = original_sleep
+
+        self.assertEqual(2, applied)
+        self.assertEqual(["lb", "rb", "menu", "a", "menu", "menu", "a", "menu"], presses)
+        self.assertEqual([["R"], ["D", "R", "R", "R", "R", "R"], ["R"]], moves)
+        self.assertEqual(
+            [1.0, 1.0, 0.1, 0.15, 0.3, 0.3, 0.3, 0.1, 0.15, 0.3, 0.15, 0.3, 0.3],
+            pauses,
+        )
 
 
 if __name__ == "__main__":
