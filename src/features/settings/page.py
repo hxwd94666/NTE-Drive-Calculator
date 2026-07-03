@@ -150,7 +150,6 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     screenshot_row = QHBoxLayout()
     screenshot_row.setSpacing(10)
     actions = [
-        ("刷新统计", window._refresh_ss),
         ("清理所有截图", window._clear_ss),
         ("打开文件夹", lambda: os.startfile(str(get_paths()["screenshot_dir"])) if get_paths()["screenshot_dir"].exists() else None),
     ]
