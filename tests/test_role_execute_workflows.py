@@ -356,6 +356,134 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertIsNotNone(scroll)
         app.processEvents()
 
+    def test_execute_page_shows_auto_discard_controls_only_for_full_scan(self):
+        from PySide6.QtCore import Signal
+        from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout, QWidget
+
+        from src.features.allocation.execute_page import build_execute_page
+        from src.features.scanning.controller import _on_scan_change
+
+        app = QApplication.instance() or QApplication([])
+
+        class FakeRoleSelector(QWidget):
+            orderChanged = Signal()
+
+        class Window(QWidget):
+            def _card(self, _title):
+                card = QFrame()
+                QVBoxLayout(card)
+                return card
+
+            def _on_scan_change(self, scan_id):
+                _on_scan_change(self, scan_id)
+
+            def _on_priority_changed(self, *_args):
+                pass
+
+            def _do_exec(self):
+                pass
+
+            def _save_alloc(self, show_message=True):
+                return True
+
+        window = Window()
+        help_calls = []
+        scroll = build_execute_page(window, FakeRoleSelector, {}, {}, {}, lambda *args: help_calls.append(args))
+
+        self.assertTrue(window.auto_discard_frame.isHidden())
+        self.assertTrue(window.auto_discard_grade_combo.isEnabled())
+        self.assertTrue(window.auto_discard_lock_action_combo.isEnabled())
+
+        window._on_scan_change(1)
+        self.assertFalse(window.auto_discard_frame.isHidden())
+        self.assertTrue(window.auto_discard_grade_combo.isEnabled())
+        self.assertTrue(window.auto_discard_lock_action_combo.isEnabled())
+        window.auto_discard_checkbox.setChecked(True)
+        self.assertTrue(window.auto_discard_grade_combo.isEnabled())
+        self.assertTrue(window.auto_discard_lock_action_combo.isEnabled())
+        window.auto_discard_grade_help.click()
+        self.assertEqual("自动弃置评分说明", help_calls[-1][1])
+        self.assertIn("所有角色权重", help_calls[-1][2])
+        self.assertIn("第二步", help_calls[-1][2])
+        self.assertIn("- 选 SS: 只标 S/A/B/C/D", help_calls[-1][2])
+
+        window._on_scan_change(4)
+        self.assertTrue(window.auto_discard_frame.isHidden())
+        app.processEvents()
+
+    def test_auto_discard_checkbox_passes_grade_to_full_scan(self):
+        from src.features.scanning import controller
+
+        original_information = controller.QMessageBox.information
+        controller.QMessageBox.information = lambda *_args, **_kwargs: None
+        try:
+            class RoleSelector:
+                def get_selected(self):
+                    return []
+
+                def get_custom_sets(self):
+                    return {}
+
+                def get_tape_main_filters(self):
+                    return {}
+
+                def get_crit_priority_modes(self):
+                    return {}
+
+                def get_crit_rate_caps(self):
+                    return {}
+
+                def get_set_effect_modes(self):
+                    return {}
+
+                def get_priority_groups(self):
+                    return None
+
+            class ScanGroup:
+                def checkedId(self):
+                    return 1
+
+            class CountEdit:
+                def text(self):
+                    return "10"
+
+            class Checkbox:
+                def isChecked(self):
+                    return True
+
+            class Combo:
+                def currentText(self):
+                    return "S"
+
+                def currentData(self):
+                    return "unlock"
+
+            class Window:
+                def __init__(self):
+                    self.role_selector = RoleSelector()
+                    self.scan_group = ScanGroup()
+                    self.total_count_edit = CountEdit()
+                    self.auto_discard_checkbox = Checkbox()
+                    self.auto_discard_grade_combo = Combo()
+                    self.auto_discard_lock_action_combo = Combo()
+                    self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
+                    self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
+                    self.result_card = SimpleNamespace(setVisible=lambda _value: None)
+                    self.scan_args = []
+
+                def _start_gamepad_scan(self, total_drives, auto_discard_grade=None, auto_discard_lock_action="skip"):
+                    self.scan_args.append((total_drives, auto_discard_grade, auto_discard_lock_action))
+
+                def _confirm_unsaved_allocation_before_recompute(self):
+                    return True
+
+            window = Window()
+            controller._do_exec(window)
+        finally:
+            controller.QMessageBox.information = original_information
+
+        self.assertEqual([(10, "S", "unlock")], window.scan_args)
+
     def test_result_header_grade_uses_full_350_score_even_without_tape(self):
         from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout
 
@@ -2491,5 +2619,3 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         self.assertIn((150.8, 35), captured)
         self.assertNotIn((150.8, 20), captured)
-
-
