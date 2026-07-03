@@ -1,7 +1,7 @@
 # 集中定义应用版本、链接和说明文案常量。
 """Application constants shared by UI and feature modules."""
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 ALLOCATION_TOTAL_SCORE_AREA = 35
 GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/hxwd94666/NTE-Drive-Calc/releases/latest"
@@ -19,7 +19,7 @@ USER_DATA_FILES = ("equipped_state.json", "real_inventory.json")
 ACCOUNT_USER_FILES = (
     "equipped_state.json", "real_inventory.json", "priority_config.json",
     "hotkeys.json", "update_config.json", "quick_start_seen.json", "guide_seen.json",
-    "ui_preferences.json",
+    "ui_preferences.json", "scan_post_actions.json",
 )
 
 SCAN_HELP = {

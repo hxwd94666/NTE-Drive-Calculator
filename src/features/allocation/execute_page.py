@@ -11,6 +11,7 @@ from __future__ import annotations
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -87,6 +88,12 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     window.total_count_edit.setValidator(QIntValidator(1, 2000, window.total_count_edit))
     window.total_count_edit.setMaximumWidth(180)
     total_count_layout.addWidget(window.total_count_edit)
+    window.scan_post_action_btn = QPushButton("管理")
+    window.scan_post_action_btn.setObjectName("btnPrimary")
+    window.scan_post_action_btn.setMaximumWidth(82)
+    if hasattr(window, "_open_scan_post_action_manager"):
+        window.scan_post_action_btn.clicked.connect(window._open_scan_post_action_manager)
+    total_count_layout.addWidget(window.scan_post_action_btn)
     total_count_layout.addStretch()
     scan_card.layout().addWidget(window.total_count_frame)
 
