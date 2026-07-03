@@ -988,6 +988,57 @@ class GamepadScannerTests(unittest.TestCase):
         )
         self.assertEqual([], commits)
 
+    def test_mark_discard_resets_to_top_then_marks_in_scan_order(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.cols = 7
+        scanner._stopped = False
+        moves = []
+        presses = []
+        scanner._apply_moves = lambda batch: moves.append(batch)
+        scanner._press_menu = lambda: presses.append("menu")
+        scanner._press_a = lambda: presses.append("a")
+
+        marked = scanner.mark_discard_by_indexes(14, [8, 2])
+
+        self.assertEqual(2, marked)
+        self.assertEqual(
+            [
+                ["U", "U", "L", "L", "L", "L", "L", "L"],
+                ["R"],
+                ["D", "R", "R", "R", "R", "R"],
+            ],
+            moves,
+        )
+        self.assertEqual(["menu", "a", "menu", "menu", "a", "menu"], presses)
+
+    def test_mark_discard_unlocks_locked_target_with_confirmation_sequence(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.cols = 7
+        scanner._stopped = False
+        moves = []
+        presses = []
+        scanner._apply_moves = lambda batch: moves.append(batch)
+        scanner._press_menu = lambda: presses.append("menu")
+        scanner._press_a = lambda: presses.append("a")
+
+        marked = scanner.mark_discard_by_indexes(14, [2], locked_indexes=[2])
+
+        self.assertEqual(1, marked)
+        self.assertEqual(
+            [
+                ["U", "U", "L", "L", "L", "L", "L", "L"],
+                ["R"],
+                ["R"],
+                ["L"],
+            ],
+            moves,
+        )
+        self.assertEqual(["menu", "a", "a", "menu"], presses)
+
 
 if __name__ == "__main__":
     unittest.main()

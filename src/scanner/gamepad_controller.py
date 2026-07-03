@@ -54,6 +54,7 @@ class GamepadScanner:
             import vgamepad as vg
 
             self.gamepad = vg.VX360Gamepad()
+            self._buttons = vg.XUSB_BUTTON
         except Exception as exc:
             text = str(exc).upper()
             if "VIGEM" in text or "BUS_NOT_FOUND" in text or "VI_GEM" in text:
@@ -127,12 +128,33 @@ class GamepadScanner:
         self.gamepad.update()
         time.sleep(settle_seconds)
 
+    def _press_button(self, button, hold_seconds=0.08, settle_seconds=0.12):
+        self.gamepad.press_button(button=button)
+        self.gamepad.update()
+        time.sleep(hold_seconds)
+        self.gamepad.release_button(button=button)
+        self.gamepad.update()
+        time.sleep(settle_seconds)
+
+    def _press_a(self):
+        self._press_button(self._buttons.XUSB_GAMEPAD_A)
+
+    def _press_menu(self):
+        self._press_button(self._buttons.XUSB_GAMEPAD_START)
+
     def _apply_moves(self, moves):
         for move in moves:
             if move == "R":
                 self.push_left_joystick(1.0, 0.0)
             elif move == "L":
                 self.push_left_joystick(-1.0, 0.0)
+            elif move == "U":
+                self.push_left_joystick(
+                    0.0,
+                    1.0,
+                    hold_seconds=ROW_DOWN_HOLD_SECONDS,
+                    settle_seconds=ROW_DOWN_SETTLE_SECONDS,
+                )
             elif move == "D":
                 self.push_left_joystick(
                     0.0,
@@ -141,7 +163,7 @@ class GamepadScanner:
                     settle_seconds=ROW_DOWN_SETTLE_SECONDS,
                 )
 
-    def _generate_path(self, total_drives: int) -> list:
+    def _scan_positions(self, total_drives: int) -> list[tuple[int, int]]:
         scan_order = []
         for row in range((total_drives + self.cols - 1) // self.cols):
             cols_in_row = min(self.cols, total_drives - row * self.cols)
@@ -151,6 +173,10 @@ class GamepadScanner:
             else:
                 for col in range(cols_in_row - 1, -1, -1):
                     scan_order.append((row, col))
+        return scan_order
+
+    def _generate_path(self, total_drives: int) -> list:
+        scan_order = self._scan_positions(total_drives)
 
         commands = []
         curr_row, curr_col = 0, 0
@@ -167,6 +193,64 @@ class GamepadScanner:
                 curr_row += 1
             commands.append(moves)
         return commands
+
+    def mark_discard_by_indexes(
+        self,
+        total_drives: int,
+        target_indexes: list[int],
+        locked_indexes: list[int] | set[int] | None = None,
+    ) -> int:
+        targets = sorted(
+            {int(index) for index in target_indexes if 1 <= int(index) <= int(total_drives)},
+        )
+        if not targets:
+            return 0
+        locked_targets = {int(index) for index in (locked_indexes or [])}
+
+        row_count = (int(total_drives) + self.cols - 1) // self.cols
+        self._apply_moves(["U"] * row_count + ["L"] * (self.cols - 1))
+
+        positions = self._scan_positions(int(total_drives))
+        curr_row, curr_col = 0, 0
+        marked = 0
+
+        def moves_to(index: int) -> list[str]:
+            nonlocal curr_row, curr_col
+            target_row, target_col = positions[index - 1]
+            moves = []
+            while curr_row > target_row:
+                moves.append("U")
+                curr_row -= 1
+            while curr_row < target_row:
+                moves.append("D")
+                curr_row += 1
+            while curr_col < target_col:
+                moves.append("R")
+                curr_col += 1
+            while curr_col > target_col:
+                moves.append("L")
+                curr_col -= 1
+            return moves
+
+        logger.warning(f"准备标记弃置 {len(targets)} 个低分驱动，请保持游戏背包界面不动。")
+        for index in targets:
+            if self._stopped:
+                break
+            self._apply_moves(moves_to(index))
+            if index in locked_targets:
+                self._press_menu()
+                self._apply_moves(["R"])
+                self._press_a()
+                self._apply_moves(["L"])
+                self._press_a()
+                self._press_menu()
+            else:
+                self._press_menu()
+                self._press_a()
+                self._press_menu()
+            marked += 1
+            logger.info(f"已标记弃置: raw_drive_{index:04d}")
+        return marked
 
     def start_scan(self, total_drives=None, on_capture=None, commit_on_complete=True):
         scan_start = time.perf_counter()
