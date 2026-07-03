@@ -356,7 +356,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertIsNotNone(scroll)
         app.processEvents()
 
-    def test_execute_page_shows_auto_discard_controls_only_for_full_scan(self):
+    def test_execute_page_shows_post_action_manager_only_for_full_scan(self):
         from PySide6.QtCore import Signal
         from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout, QWidget
 
@@ -390,29 +390,75 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         help_calls = []
         scroll = build_execute_page(window, FakeRoleSelector, {}, {}, {}, lambda *args: help_calls.append(args))
 
-        self.assertTrue(window.auto_discard_frame.isHidden())
-        self.assertTrue(window.auto_discard_grade_combo.isEnabled())
-        self.assertTrue(window.auto_discard_lock_action_combo.isEnabled())
+        self.assertEqual("管理", window.scan_post_action_btn.text())
+        self.assertTrue(window.total_count_frame.isHidden())
 
         window._on_scan_change(1)
-        self.assertFalse(window.auto_discard_frame.isHidden())
-        self.assertTrue(window.auto_discard_grade_combo.isEnabled())
-        self.assertTrue(window.auto_discard_lock_action_combo.isEnabled())
-        window.auto_discard_checkbox.setChecked(True)
-        self.assertTrue(window.auto_discard_grade_combo.isEnabled())
-        self.assertTrue(window.auto_discard_lock_action_combo.isEnabled())
-        window.auto_discard_grade_help.click()
-        self.assertEqual("自动弃置评分说明", help_calls[-1][1])
-        self.assertIn("所有角色权重", help_calls[-1][2])
-        self.assertIn("第二步", help_calls[-1][2])
-        self.assertIn("- 选 SS: 只标 S/A/B/C/D", help_calls[-1][2])
+        self.assertFalse(window.total_count_frame.isHidden())
+        self.assertTrue(window.scan_post_action_btn.isEnabled())
 
         window._on_scan_change(4)
-        self.assertTrue(window.auto_discard_frame.isHidden())
+        self.assertTrue(window.total_count_frame.isHidden())
+        self.assertIsNotNone(scroll)
+        self.assertEqual([], help_calls)
         app.processEvents()
 
-    def test_auto_discard_checkbox_passes_grade_to_full_scan(self):
+    def test_scan_post_action_defaults_match_plan(self):
+        from src.features.scanning.post_action_dialog import load_scan_post_action_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_scan_post_action_config(Path(tmp))
+
+        self.assertFalse(config["discard"]["enabled"])
+        self.assertEqual("S", config["discard"]["grade"])
+        self.assertEqual("all", config["discard"]["role_scope"])
+        self.assertEqual("gold_purple", config["discard"]["quality_scope"])
+        self.assertEqual("all", config["discard"]["type_scope"])
+        self.assertIsNone(config["discard"]["shape_ids"])
+        self.assertIsNone(config["discard"]["set_names"])
+        self.assertEqual("skip", config["discard"]["on_locked"])
+        self.assertEqual("normal", config["discard"]["on_discarded"])
+        self.assertFalse(config["lock"]["enabled"])
+        self.assertEqual("SSS", config["lock"]["grade"])
+        self.assertEqual("all", config["lock"]["role_scope"])
+        self.assertEqual("gold_purple", config["lock"]["quality_scope"])
+        self.assertEqual("all", config["lock"]["type_scope"])
+        self.assertIsNone(config["lock"]["shape_ids"])
+        self.assertIsNone(config["lock"]["set_names"])
+        self.assertEqual("skip", config["lock"]["on_locked"])
+        self.assertEqual("normal", config["lock"]["on_discarded"])
+
+    def test_scan_post_action_dialog_uses_side_by_side_toggle_buttons_and_help(self):
+        from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QPushButton
+
+        from src.features.scanning.post_action_dialog import ScanPostActionDialog
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as tmp:
+            dialog = ScanPostActionDialog(None, Path(tmp))
+
+            group_titles = [group.title() for group in dialog.findChildren(QGroupBox)]
+            self.assertEqual([], group_titles)
+            help_buttons = [button for button in dialog.findChildren(QPushButton) if button.text() == "?"]
+            self.assertEqual(2, len(help_buttons))
+            buttons = [button for button in dialog.findChildren(QPushButton) if button.isCheckable()]
+            self.assertEqual(["关闭", "关闭"], [button.text() for button in buttons])
+            self.assertIn("da3633", buttons[0].styleSheet())
+
+            buttons[0].setChecked(True)
+
+            self.assertEqual("开启", buttons[0].text())
+            self.assertIn("238636", buttons[0].styleSheet())
+            self.assertEqual(
+                ["驱动 10/12，卡带 11/12", "驱动 10/12，卡带 11/12"],
+                [label.text() for label in dialog.findChildren(QLabel) if label.text().startswith("驱动 ")],
+            )
+        app.processEvents()
+
+    def test_scan_post_action_config_passes_to_full_scan(self):
         from src.features.scanning import controller
+        from src.storage.json_store import write_json
+        from src.app import runtime
 
         original_information = controller.QMessageBox.information
         controller.QMessageBox.information = lambda *_args, **_kwargs: None
@@ -447,42 +493,50 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 def text(self):
                     return "10"
 
-            class Checkbox:
-                def isChecked(self):
-                    return True
-
-            class Combo:
-                def currentText(self):
-                    return "S"
-
-                def currentData(self):
-                    return "unlock"
-
             class Window:
                 def __init__(self):
                     self.role_selector = RoleSelector()
                     self.scan_group = ScanGroup()
                     self.total_count_edit = CountEdit()
-                    self.auto_discard_checkbox = Checkbox()
-                    self.auto_discard_grade_combo = Combo()
-                    self.auto_discard_lock_action_combo = Combo()
                     self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
                     self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
                     self.result_card = SimpleNamespace(setVisible=lambda _value: None)
                     self.scan_args = []
 
-                def _start_gamepad_scan(self, total_drives, auto_discard_grade=None, auto_discard_lock_action="skip"):
-                    self.scan_args.append((total_drives, auto_discard_grade, auto_discard_lock_action))
+                def _start_gamepad_scan(
+                    self,
+                    total_drives,
+                    auto_discard_grade=None,
+                    auto_discard_lock_action="skip",
+                    post_actions_config=None,
+                    selected_roles=None,
+                ):
+                    self.scan_args.append((total_drives, post_actions_config, selected_roles))
 
                 def _confirm_unsaved_allocation_before_recompute(self):
                     return True
 
-            window = Window()
-            controller._do_exec(window)
+            with tempfile.TemporaryDirectory() as tmp:
+                runtime.USER_CONFIG_DIR = Path(tmp)
+                write_json(
+                    Path(tmp) / "scan_post_actions.json",
+                    {
+                        "discard": {"enabled": True, "grade": "SS"},
+                        "lock": {"enabled": True, "grade": "SSS"},
+                    },
+                )
+                window = Window()
+                controller._do_exec(window)
         finally:
             controller.QMessageBox.information = original_information
 
-        self.assertEqual([(10, "S", "unlock")], window.scan_args)
+        total, config, selected_roles = window.scan_args[0]
+        self.assertEqual(10, total)
+        self.assertTrue(config["discard"]["enabled"])
+        self.assertEqual("SS", config["discard"]["grade"])
+        self.assertTrue(config["lock"]["enabled"])
+        self.assertEqual("SSS", config["lock"]["grade"])
+        self.assertEqual([], selected_roles)
 
     def test_result_header_grade_uses_full_350_score_even_without_tape(self):
         from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout
