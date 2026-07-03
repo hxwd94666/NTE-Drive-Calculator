@@ -54,6 +54,10 @@ QRadioButton::indicator:hover{border:2px solid #58a6ff}
 QCheckBox{spacing:8px}
 QCheckBox::indicator{width:18px;height:18px;border-radius:4px;border:2px solid #30363d;background:#0d1117}
 QCheckBox::indicator:checked{background:#238636;border-color:#2ea043}
+QCheckBox#autoDiscardToggle{spacing:10px;padding:6px 0}
+QCheckBox#autoDiscardToggle::indicator{width:22px;height:22px;border-radius:11px;border:2px solid #30363d;background:#0d1117}
+QCheckBox#autoDiscardToggle::indicator:checked{border:2px solid #58a6ff;background:qradialgradient(cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 #58a6ff,stop:0.45 #1f6feb,stop:0.5 #0d1117,stop:1 #0d1117)}
+QCheckBox#autoDiscardToggle::indicator:hover{border:2px solid #58a6ff}
 
 QScrollArea{border:none;background:transparent}
 QScrollBar:vertical{background:#0d1117;width:8px;border-radius:4px}
@@ -92,4 +96,3 @@ def apply_dark_palette(app: QApplication) -> None:
     palette.setColor(QPalette.Highlight, QColor("#1f6feb"))
     palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
     app.setPalette(palette)
-

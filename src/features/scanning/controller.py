@@ -63,6 +63,8 @@ def _on_scan_change(self,id):
     if hasattr(self,"offline_frame"):
         self.offline_frame.setVisible(id==3)
     self.total_count_frame.setVisible(id==1)
+    if hasattr(self,"auto_discard_frame"):
+        self.auto_discard_frame.setVisible(id==1)
     self.drone_frame.setVisible(id==2)
 
 def _on_priority_changed(self):
@@ -123,6 +125,15 @@ def _do_exec(self):
     self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_crit_rate_caps=crc; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
+    auto_discard_grade=None
+    auto_discard_lock_action="skip"
+    if sm=="1" and getattr(self,"auto_discard_checkbox",None) and self.auto_discard_checkbox.isChecked():
+        auto_discard_grade=self.auto_discard_grade_combo.currentText() if hasattr(self,"auto_discard_grade_combo") else "A"
+        auto_discard_lock_action=(
+            self.auto_discard_lock_action_combo.currentData()
+            if hasattr(self,"auto_discard_lock_action_combo")
+            else "skip"
+        )
 
     if sm=="3":
         scope={"full":"full","incremental":"incremental","all":"all"}.get(offline_scope,"incremental")
@@ -131,7 +142,11 @@ def _do_exec(self):
         drone_mode=pending_drone_mode or ("auto" if self.drone_group.checkedId()==1 else "semi")
         self._start_scan(drone_mode)
     elif sm=="1":
-        self._start_gamepad_scan(total_drives)
+        self._start_gamepad_scan(
+            total_drives,
+            auto_discard_grade=auto_discard_grade,
+            auto_discard_lock_action=auto_discard_lock_action,
+        )
     else:
         self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg,crc),parent=self)
         self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
@@ -242,6 +257,8 @@ def _on_vision_done(self,stats):
     failed_count=int(stats.get("failed_count",0) or 0)
     duplicate_count=int(stats.get("duplicate_count",0) or 0)+int(post.get("probe_duplicates",0) or 0)
     summary=f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
+    if stats.get("auto_discard_grade"):
+        summary += f"\n低于 {stats['auto_discard_grade']} 的驱动：目标 {int(stats.get('discard_target_count',0) or 0)} 个，已标记 {int(stats.get('discard_marked_count',0) or 0)} 个。"
     details=[]
     if post.get("moved_failed"):
         details.append(f"失败截图已移动到 failed 文件夹 {post['moved_failed']} 张。")
@@ -291,7 +308,7 @@ def _start_scan(self,drone_mode):
     self.btn_run.setText("⏳  扫描中... (F12 停止)")
     self._scan_worker.start()
 
-def _start_gamepad_scan(self,total_drives):
+def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard_lock_action="skip"):
     self._replace_inventory_on_next_parse=True
     self._pending_scan_mode="gamepad"
     self._pending_parse_scope="full"
@@ -299,15 +316,27 @@ def _start_gamepad_scan(self,total_drives):
     self._pending_probe_duplicate_count=0
     self._gamepad_parse_progress=(0,total_drives,"")
     self._gamepad_pipeline_finished=False
+    discard_hint = ""
+    if auto_discard_grade:
+        discard_hint = (
+            f"\n\n已启用自动标记弃置：扫描解析后会标记最高评分低于 {auto_discard_grade} 的驱动。"
+            "\n扫描开始后不要切换排序、筛选、滚动或手动操作背包。"
+        )
     QMessageBox.information(
         self,
         "全量扫描准备",
         "点击 OK 后程序会最小化并准备开始全量扫描。\n\n"
         "请切换至游戏的驱动仓库页面，并确保当前选中第一排第一个驱动。\n"
         "程序会在短暂倒计时后接管虚拟手柄进行遍历截图。"
+        + discard_hint
     )
     self.showMinimized()
-    self._gamepad_worker=GamepadScanParseWorkerThread(total_drives=total_drives,parent=self)
+    self._gamepad_worker=GamepadScanParseWorkerThread(
+        total_drives=total_drives,
+        parent=self,
+        auto_discard_grade=auto_discard_grade,
+        auto_discard_lock_action=auto_discard_lock_action,
+    )
     self._gamepad_worker.scan_done.connect(self._on_gamepad_scan_done)
     self._gamepad_worker.progress.connect(self._on_gamepad_parse_progress)
     self._gamepad_worker.processing_done.connect(self._on_gamepad_pipeline_done)

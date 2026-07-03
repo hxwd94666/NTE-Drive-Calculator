@@ -99,9 +99,11 @@ class GamepadScanParseWorkerThread(QThread):
     scan_done = Signal(int, int)
     progress = Signal(int, int, str)
 
-    def __init__(self, total_drives, parent=None):
+    def __init__(self, total_drives, parent=None, auto_discard_grade=None, auto_discard_lock_action="skip"):
         super().__init__(parent)
         self.total_drives = total_drives
+        self.auto_discard_grade = auto_discard_grade
+        self.auto_discard_lock_action = auto_discard_lock_action
         self.scanner = None
 
     def run(self):
@@ -135,6 +137,9 @@ class GamepadScanParseWorkerThread(QThread):
                 progress_callback=lambda current, total, filename: self.progress.emit(current, total, filename),
                 cancel_check=lambda: bool(getattr(self.scanner, "_stopped", False)),
                 scan_done_callback=lambda captured, total: self.scan_done.emit(captured, total),
+                auto_discard_grade=self.auto_discard_grade,
+                auto_discard_lock_action=self.auto_discard_lock_action,
+                config_dir=str(runtime.CONFIG_DIR),
             )
             if int(stats.get("total_count", 0) or 0) != int(self.total_drives):
                 raise RuntimeError("全量扫描未完整结束，流水线解析结果未写入库存。")
