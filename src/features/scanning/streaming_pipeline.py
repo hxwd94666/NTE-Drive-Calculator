@@ -10,11 +10,115 @@ import time
 from pathlib import Path
 from typing import Callable
 
+import cv2
+import numpy as np
+
+from src.models.equipment import Drive
+from src.optimizer.scoring import ScoringEngine
+from src.features.scanning.post_actions import (
+    build_state_changes,
+    merge_post_action_config,
+    post_actions_enabled,
+    summarize_state_changes,
+)
+from src.scanner.window_capture import crop_window_border_from_image
+from src.utils.image_io import imread_unicode
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
 
 _STOP = object()
+GRADE_ORDER = ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]
+TRASH_BUTTON_CENTER = (0.89375, 0.21944)
+LOCK_BUTTON_CENTER = (0.93047, 0.21944)
+STATE_BUTTON_SIZE_RATIO = 0.025
+
+
+def _state_button_is_active(img: np.ndarray, center: tuple[float, float]) -> bool:
+    height, width = img.shape[:2]
+    if height < 100 or width < 100:
+        return False
+    cx = int(round(width * center[0]))
+    cy = int(round(height * center[1]))
+    size = max(18, int(round(min(width, height) * STATE_BUTTON_SIZE_RATIO)))
+    half = max(1, size // 2)
+    roi = img[max(0, cy - half) : min(height, cy + half), max(0, cx - half) : min(width, cx + half)]
+    if roi.size == 0:
+        return False
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    bright_fraction = float((gray > 95).mean())
+    high_value = float(np.percentile(hsv[:, :, 2], 95))
+    return bool(bright_fraction > 0.12 and high_value > 130.0)
+
+
+def _right_panel_button_state_from_image(img: np.ndarray) -> str:
+    trash_active = _state_button_is_active(img, TRASH_BUTTON_CENTER)
+    lock_active = _state_button_is_active(img, LOCK_BUTTON_CENTER)
+    if lock_active:
+        return "locked"
+    if trash_active:
+        return "discarded"
+    return "normal"
+
+
+def _equipment_screenshot_state(image_path: str) -> str:
+    try:
+        img = imread_unicode(image_path)
+        if img is None:
+            return "normal"
+        img = crop_window_border_from_image(img)
+        return _right_panel_button_state_from_image(img)
+    except Exception as exc:
+        logger.debug(f"装备状态图标检测失败，按普通处理: {image_path} | {exc}")
+        return "normal"
+
+
+def _drive_screenshot_is_locked(image_path: str) -> bool:
+    return _equipment_screenshot_state(image_path) == "locked"
+
+
+def _discard_target_indexes(
+    processor,
+    parsed_items: list[tuple[int, object, bool]],
+    grade: str,
+    config_dir,
+    lock_action: str = "skip",
+) -> list[int]:
+    if not grade or grade not in GRADE_ORDER or not getattr(processor, "inventory", None):
+        return []
+    scoring = ScoringEngine(str(config_dir or "config"))
+    if not scoring.roles_db:
+        return []
+    scoring.evaluate_global_inventory(processor.inventory)
+    threshold_rank = GRADE_ORDER.index(grade)
+    targets = []
+    for index, item, locked in parsed_items:
+        if locked and lock_action != "unlock":
+            continue
+        if not isinstance(item, Drive):
+            continue
+        item_grade = scoring.get_grade_tag(getattr(item, "max_score", 0.0), getattr(item, "area", 1))
+        if item_grade in GRADE_ORDER and GRADE_ORDER.index(item_grade) > threshold_rank:
+            targets.append(index)
+    return targets
+
+
+def _legacy_discard_config(grade: str | None, lock_action: str) -> dict | None:
+    if not grade:
+        return None
+    return {
+        "discard": {
+            "enabled": True,
+            "grade": grade,
+            "role_scope": "all",
+            "quality_scope": "all",
+            "type_scope": "drive",
+            "on_locked": "normal" if lock_action == "unlock" else "skip",
+            "on_discarded": "normal",
+        },
+        "lock": {"enabled": False},
+    }
 
 
 def run_streaming_scan_parse(
@@ -24,6 +128,13 @@ def run_streaming_scan_parse(
     progress_callback: Callable[[int, int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     scan_done_callback: Callable[[int, int], None] | None = None,
+    parse_done_callback: Callable[[], None] | None = None,
+    post_action_ready_callback: Callable[[], None] | None = None,
+    auto_discard_grade: str | None = None,
+    auto_discard_lock_action: str = "skip",
+    post_actions_config: dict | None = None,
+    selected_roles: list[str] | None = None,
+    config_dir=None,
 ) -> dict:
     """Run gamepad scanning while parsing captured screenshots in a consumer thread."""
 
@@ -31,8 +142,22 @@ def run_streaming_scan_parse(
     added_paths: list[str] = []
     duplicate_paths: list[str] = []
     failed_paths: list[str] = []
+    parsed_items: list[tuple[int, object, str]] = []
     parse_error: list[BaseException] = []
     parse_start = time.perf_counter()
+    scan_done_emitted = False
+
+    def emit_scan_done(captured: int) -> None:
+        nonlocal scan_done_emitted
+        if scan_done_callback is not None and not scan_done_emitted:
+            scan_done_callback(captured, total_drives)
+            scan_done_emitted = True
+
+    def notify_post_action_ready() -> None:
+        if post_action_ready_callback is None:
+            return
+        post_action_ready_callback()
+        time.sleep(0.35)
 
     def final_path_for(filename: str) -> str:
         return str(Path(scanner.output_dir) / filename)
@@ -67,6 +192,13 @@ def run_streaming_scan_parse(
                     )
                     if added:
                         added_paths.append(final_path_for(filename))
+                        if auto_discard_grade and post_actions_config is None:
+                            state = "locked" if _drive_screenshot_is_locked(temp_path) else "normal"
+                        else:
+                            state = _equipment_screenshot_state(temp_path)
+                        if state != "normal":
+                            logger.info(f"识别到装备状态: {filename} -> {state}")
+                        parsed_items.append((index, _item_obj, state))
                     else:
                         duplicate_paths.append(final_path_for(filename))
                         logger.info(f"相邻截图画面与解析数据均一致，按连拍重复过滤: {filename}")
@@ -103,8 +235,8 @@ def run_streaming_scan_parse(
             on_capture=on_capture,
             commit_on_complete=False,
         )
-        if scan_done_callback is not None:
-            scan_done_callback(captured_count, total_drives)
+        if not auto_discard_grade:
+            emit_scan_done(captured_count)
     finally:
         captured_queue.put(_STOP)
         captured_queue.join()
@@ -126,15 +258,103 @@ def run_streaming_scan_parse(
         avg_ms=(parse_ms / captured_count) if captured_count else 0.0,
         streaming=1,
     )
+    if parse_done_callback is not None:
+        parse_done_callback()
 
+    discard_targets = []
+    discard_marked = 0
+    discard_locked_targets = []
+    state_changes = []
+    post_action_summary = summarize_state_changes([])
+    effective_post_config = post_actions_config or _legacy_discard_config(auto_discard_grade, auto_discard_lock_action)
+    effective_post_config = merge_post_action_config(effective_post_config) if effective_post_config else None
     if cancel_check is not None and cancel_check():
         logger.warning("流水线扫描已取消，解析结果不会写入库存。")
     elif captured_count == int(total_drives):
+        scoring = None
+        if effective_post_config and post_actions_enabled(effective_post_config):
+            scoring = ScoringEngine(str(config_dir or "config"))
+            if scoring.roles_db:
+                scoring.evaluate_global_inventory(processor.inventory)
+                state_changes = build_state_changes(
+                    parsed_items,
+                    effective_post_config,
+                    scoring,
+                    selected_roles,
+                )
+                logger.info(
+                    f"扫描后管理评估完成: 捕获 {captured_count} 件，"
+                    f"成功解析 {len(parsed_items)} 件，目标变更 {len(state_changes)} 件。"
+                )
+                for change in state_changes:
+                    logger.info(
+                        f"扫描后管理目标: raw_drive_{int(change.get('index', 0)):04d} "
+                        f"{change.get('current_state')} -> {change.get('target_state')} "
+                        f"quality={change.get('quality')} type={change.get('item_type')}"
+                    )
+        elif auto_discard_grade:
+            discard_targets = _discard_target_indexes(
+                processor,
+                [(index, item, state == "locked") for index, item, state in parsed_items],
+                auto_discard_grade,
+                config_dir,
+                auto_discard_lock_action,
+            )
+            locked_indexes = {index for index, _item, state in parsed_items if state == "locked"}
+            discard_locked_targets = [index for index in discard_targets if index in locked_indexes]
         if getattr(processor, "inventory", None):
             processor._export_to_json()
         scanner._commit_temp_output()
+        if state_changes and hasattr(scanner, "sync_equipment_states"):
+            notify_post_action_ready()
+            applied_count = scanner.sync_equipment_states(total_drives, state_changes)
+            post_action_summary = summarize_state_changes(state_changes, applied_count)
+            if auto_discard_grade:
+                discard_targets = [
+                    change["index"] for change in state_changes if change.get("target_state") == "discarded"
+                ]
+                discard_marked = int(post_action_summary.get("discard_set_count", 0))
+                discard_locked_targets = [
+                    change["index"]
+                    for change in state_changes
+                    if change.get("target_state") == "discarded" and change.get("current_state") == "locked"
+                ]
+        elif state_changes:
+            discard_targets = [change["index"] for change in state_changes if change.get("target_state") == "discarded"]
+            locked_indexes = {
+                change["index"]
+                for change in state_changes
+                if change.get("current_state") == "locked" and change.get("target_state") == "discarded"
+            }
+            discard_locked_targets = sorted(locked_indexes)
+            if discard_targets:
+                notify_post_action_ready()
+                try:
+                    discard_marked = scanner.mark_discard_by_indexes(
+                        total_drives,
+                        discard_targets,
+                        locked_indexes=locked_indexes,
+                    )
+                except TypeError:
+                    discard_marked = scanner.mark_discard_by_indexes(total_drives, discard_targets)
+            post_action_summary = summarize_state_changes(state_changes, discard_marked)
+        elif auto_discard_grade:
+            emit_scan_done(captured_count)
+            if discard_targets:
+                notify_post_action_ready()
+            if discard_locked_targets:
+                try:
+                    discard_marked = scanner.mark_discard_by_indexes(
+                        total_drives,
+                        discard_targets,
+                        locked_indexes=discard_locked_targets,
+                    )
+                except TypeError:
+                    discard_marked = scanner.mark_discard_by_indexes(total_drives, discard_targets)
+            else:
+                discard_marked = scanner.mark_discard_by_indexes(total_drives, discard_targets)
 
-    return {
+    stats = {
         "added_paths": added_paths,
         "duplicate_paths": duplicate_paths,
         "failed_paths": failed_paths,
@@ -143,4 +363,12 @@ def run_streaming_scan_parse(
         "failed_count": len(failed_paths),
         "total_count": captured_count,
         "parse_scope": "full",
+        "auto_discard_grade": auto_discard_grade,
+        "discard_target_count": len(discard_targets),
+        "discard_marked_count": discard_marked,
+        "discard_locked_target_count": len(discard_locked_targets),
     }
+    if effective_post_config and post_actions_enabled(effective_post_config):
+        stats["post_actions_enabled"] = True
+        stats.update(post_action_summary)
+    return stats
