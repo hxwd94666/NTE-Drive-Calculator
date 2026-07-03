@@ -1,3 +1,4 @@
+# 构建角色边际收益分析面板。
 """边际收益面板组件 - 可独立刷新"""
 
 from typing import TYPE_CHECKING, Optional
@@ -23,7 +24,7 @@ from .core import (
     apply_margins_to_weights,
     get_valid_drives,
 )
-from .dao import load_stats, save_my_roles
+from .dao import load_stats
 
 if TYPE_CHECKING:
     pass
@@ -93,24 +94,12 @@ class MarginalBenefitPanel:
         header_row.addStretch()
 
         # 自动设为权重开关（默认开启）
-        self.auto_switch = QLabel("✓ 自动设为权重")
+        self.auto_switch = QPushButton("自动设为权重")
         self.auto_switch.setToolTip("点击切换自动权重更新")
-        self.auto_switch.setStyleSheet("""
-            QLabel {
-                color: #333;
-                font-size: 13px;
-                padding: 4px 8px;
-                border-radius: 4px;
-                background: #e8f5e9;
-            }
-            QLabel:hover {
-                background: #c8e6c9;
-            }
-        """)
-        self.auto_switch.setAlignment(Qt.AlignCenter)
-        # 保存点击事件
-        self._auto_switch_click_handler = self._on_auto_switch_click
-        self.auto_switch.mousePressEvent = self._auto_switch_click_handler
+        self.auto_switch.setObjectName("btnPrimary")
+        self.auto_switch.setCheckable(True)
+        self.auto_switch.setChecked(True)
+        self.auto_switch.clicked.connect(self._on_auto_switch_click)
         self.auto_apply_enabled = True
         header_row.addWidget(self.auto_switch)
 
@@ -181,39 +170,21 @@ class MarginalBenefitPanel:
 
         return table
 
-    def _on_auto_switch_click(self, event):
+    def _on_auto_switch_click(self, checked=None):
         """点击标签切换自动权重状态"""
-        self.auto_apply_enabled = not self.auto_apply_enabled
+        self.auto_apply_enabled = bool(checked)
         if self.auto_apply_enabled:
-            self.auto_switch.setText("✓ 自动设为权重")
-            self.auto_switch.setStyleSheet("""
-                QLabel {
-                    color: #333;
-                    font-size: 13px;
-                    padding: 4px 8px;
-                    border-radius: 4px;
-                    background: #e8f5e9;
-                }
-                QLabel:hover {
-                    background: #c8e6c9;
-                }
-            """)
+            self.auto_switch.setText("自动设为权重")
+            self.auto_switch.setObjectName("btnPrimary")
+            self.auto_switch.style().unpolish(self.auto_switch)
+            self.auto_switch.style().polish(self.auto_switch)
             # 开启时立即应用权重
             self._apply_weights(silent=True)
         else:
-            self.auto_switch.setText("☐ 自动设为权重")
-            self.auto_switch.setStyleSheet("""
-                QLabel {
-                    color: #999;
-                    font-size: 13px;
-                    padding: 4px 8px;
-                    border-radius: 4px;
-                    background: #f5f5f5;
-                }
-                QLabel:hover {
-                    background: #e0e0e0;
-                }
-            """)
+            self.auto_switch.setText("手动设为权重")
+            self.auto_switch.setObjectName("btnAction")
+            self.auto_switch.style().unpolish(self.auto_switch)
+            self.auto_switch.style().polish(self.auto_switch)
 
     def _apply_weights(self, silent=False):
         """应用权重（内部方法）"""
@@ -224,19 +195,17 @@ class MarginalBenefitPanel:
         updated = apply_margins_to_weights(weights, self.margins, alias_map)
 
         if updated > 0:
-            data = getattr(self.window, "_my_role_form_data", None)
-            if data:
-                save_my_roles(data)
+            self.window._my_role_dirty = True
 
-                # 只触发权重变化回调（刷新权重模块UI）
-                if self.on_weight_changed_callback:
-                    self.on_weight_changed_callback()
-                if not silent:
-                    QMessageBox.information(
-                        self.window,
-                        "成功",
-                        f"已自动更新 {updated} 个词条的权重！"
-                    )
+            # 只触发权重变化回调（刷新权重模块UI）
+            if self.on_weight_changed_callback:
+                self.on_weight_changed_callback()
+            if not silent:
+                QMessageBox.information(
+                    self.window,
+                    "成功",
+                    f"已更新 {updated} 个词条的权重，请点击右上角保存写入文件。"
+                )
 
     def _on_apply_weights(self):
         """手动"设为权重"按钮点击事件"""
@@ -253,18 +222,16 @@ class MarginalBenefitPanel:
                 "当前权重中没有与边际收益匹配的词条，未能更新。"
             )
         else:
-            data = getattr(self.window, "_my_role_form_data", None)
-            if data:
-                save_my_roles(data)
-                QMessageBox.information(
-                    self.window,
-                    "成功",
-                    f"已手动更新 {updated} 个词条的权重！"
-                )
+            self.window._my_role_dirty = True
+            QMessageBox.information(
+                self.window,
+                "成功",
+                f"已手动更新 {updated} 个词条的权重，请点击右上角保存写入文件。"
+            )
 
-                # 触发权重变化回调，刷新权重模块UI
-                if self.on_weight_changed_callback:
-                    self.on_weight_changed_callback()
+            # 触发权重变化回调，刷新权重模块UI
+            if self.on_weight_changed_callback:
+                self.on_weight_changed_callback()
 
     def refresh(self):
         """刷新面板数据（外部调用）"""
@@ -275,15 +242,14 @@ class MarginalBenefitPanel:
         if self.damage_label:
             self.damage_label.setText(f"直伤评分 : {self.base_damage:.2f}")
 
-        # 更新表格
+        # 更新表格：初始为空、后续出现数据时也要能创建表格。
         if self.table:
             self.table.deleteLater()
-            if self.margins:
-                self.table = self._create_table()
-                layout = self.group_box.layout()
-                layout.insertWidget(1, self.table)
-            else:
-                self.table = None
+            self.table = None
+        if self.margins and self.group_box:
+            layout = self.group_box.layout()
+            self.table = self._create_table()
+            layout.insertWidget(1, self.table)
 
         # 如果自动开关打开，应用权重（但不要再次调用 refresh）
         if self.auto_apply_enabled and self.margins:

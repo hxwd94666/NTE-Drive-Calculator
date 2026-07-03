@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QSize, Qt, QRectF
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -51,6 +53,11 @@ def build_config_page(window):
     window.config_add_btn.clicked.connect(window._config_add_item)
     top_row.addWidget(window.config_add_btn)
     top_row.addStretch()
+
+    reset_btn = QPushButton("重置")
+    reset_btn.setObjectName("btnDanger")
+    reset_btn.clicked.connect(window._reset_config_form)
+    top_row.addWidget(reset_btn)
 
     save_btn = QPushButton("保存")
     save_btn.setObjectName("btnPrimary")
@@ -173,6 +180,27 @@ def _field(label, widget, layout):
     layout.addLayout(row)
 
 
+def _board_lock_icon(locked: bool) -> QIcon:
+    pixmap = QPixmap(22, 22)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    color = QColor("#6e7681" if locked else "#58a6ff")
+    painter.setPen(QPen(color, 2))
+    painter.setBrush(color)
+    painter.drawRoundedRect(QRectF(5, 10, 12, 8), 2, 2)
+    painter.setBrush(Qt.NoBrush)
+    if locked:
+        painter.drawArc(QRectF(7, 4, 8, 10), 0, 180 * 16)
+        painter.drawLine(7, 9, 7, 12)
+        painter.drawLine(15, 9, 15, 12)
+    else:
+        painter.drawArc(QRectF(8, 4, 8, 10), 40 * 16, 180 * 16)
+        painter.drawLine(8, 10, 8, 12)
+    painter.end()
+    return QIcon(pixmap)
+
+
 def render_roles_form(window, data, active_role=None):
     header = QHBoxLayout()
     role_search = QLineEdit()
@@ -182,12 +210,17 @@ def render_roles_form(window, data, active_role=None):
     header.addStretch()
     window.config_form_layout.addLayout(header)
 
-    all_names = sorted(data.keys())
+    all_names = list(data.keys())
     roles_tabs = QTabWidget()
     tab_indices = {}
 
     def filter_tabs(filter_text=""):
         keyword = filter_text.strip()
+        tab_indices.clear()
+        for index in range(roles_tabs.count()):
+            tab = roles_tabs.widget(index)
+            if tab:
+                tab_indices[tab.property("role_name")] = index
         for role_name, index in tab_indices.items():
             visible = match_pinyin(role_name, keyword) if keyword else True
             roles_tabs.setTabVisible(index, visible)
@@ -283,11 +316,26 @@ def render_roles_form(window, data, active_role=None):
         buff_row.addWidget(buff_value)
         form_layout.addLayout(buff_row)
 
-        form_layout.addWidget(QLabel("底盘矩阵 (0=空格, -1=锁定):"))
+        board_header = QHBoxLayout()
+        board_header.addWidget(QLabel("底盘矩阵 (0=空格, -1=锁定):"))
+        board_header.addStretch()
+        board_lock_btn = QPushButton()
+        board_lock_btn.setObjectName("btnBoardLock")
+        board_lock_btn.setStyleSheet("QPushButton#btnBoardLock{padding:4px;border-radius:6px}")
+        board_lock_btn.setCheckable(True)
+        board_lock_btn.setChecked(True)
+        board_lock_btn.setText("")
+        board_lock_btn.setIcon(_board_lock_icon(True))
+        board_lock_btn.setIconSize(QSize(18, 18))
+        board_lock_btn.setFixedSize(34, 30)
+        board_lock_btn.setToolTip("默认锁定，点击后才可修改底盘矩阵。")
+        board_header.addWidget(board_lock_btn)
+        form_layout.addLayout(board_header)
         board_matrix = role_data.get("board_matrix", [[0] * 5 for _ in range(5)])
         board_widget = QWidget()
         board_grid = QGridLayout(board_widget)
         board_grid.setSpacing(2)
+        board_combos = []
         for row in range(5):
             for col in range(5):
                 value = str(board_matrix[row][col]) if row < len(board_matrix) and col < len(board_matrix[row]) else "0"
@@ -295,10 +343,23 @@ def render_roles_form(window, data, active_role=None):
                 combo.addItems(["-1", "0"])
                 combo.setCurrentText(value)
                 combo.setFixedWidth(76)
+                combo.setEnabled(False)
                 combo.currentTextChanged.connect(
                     lambda text, rn=role_name, r=row, c=col: window._save_role_board_cell(rn, r, c, text, data)
                 )
+                board_combos.append(combo)
                 board_grid.addWidget(combo, row, col)
+
+        def set_board_locked(locked):
+            for item in board_combos:
+                item.setEnabled(not locked)
+            board_lock_btn.setIcon(_board_lock_icon(locked))
+            board_lock_btn.setToolTip(
+                "底盘矩阵已锁定，点击后才可修改。" if locked else "底盘矩阵可修改，点击重新锁定。"
+            )
+
+        board_lock_btn.toggled.connect(set_board_locked)
+        set_board_locked(True)
         form_layout.addWidget(board_widget)
 
         weights_header = QHBoxLayout()
@@ -356,7 +417,7 @@ def render_roles_form(window, data, active_role=None):
             if tab:
                 tab.deleteLater()
         tab_indices.clear()
-        all_names = sorted(data.keys())
+        all_names = list(data.keys())
 
         for role_name in all_names:
             tab_scroll = QScrollArea()
@@ -374,6 +435,32 @@ def render_roles_form(window, data, active_role=None):
     rebuild_all_tabs(active_role)
     role_search.textChanged.connect(filter_tabs)
     roles_tabs.currentChanged.connect(lambda _index: load_current_tab())
+    roles_tabs.setMovable(True)
+
+    def on_tab_moved(_from_idx, _to_idx):
+        ordered_names = []
+        for index in range(roles_tabs.count()):
+            tab = roles_tabs.widget(index)
+            role_name = tab.property("role_name") if tab else ""
+            if role_name in data:
+                ordered_names.append(role_name)
+        if not ordered_names:
+            return
+        reordered = {name: data[name] for name in ordered_names}
+        for name, value in data.items():
+            if name not in reordered:
+                reordered[name] = value
+        data.clear()
+        data.update(reordered)
+        tab_indices.clear()
+        for index in range(roles_tabs.count()):
+            tab = roles_tabs.widget(index)
+            if tab:
+                tab_indices[tab.property("role_name")] = index
+        window._config_form_data = data
+        window._config_dirty = True
+
+    roles_tabs.tabBar().tabMoved.connect(on_tab_moved)
     window.config_form_layout.addWidget(roles_tabs)
 
 
@@ -614,6 +701,33 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     window._config_dirty = False
     window._load_data()
     QMessageBox.information(window, "保存", f"{name} 已保存")
+
+
+def reset_config_form(window, config_dir, bundled_config_dir):
+    name = getattr(window, "_current_config_name", None)
+    if name not in {"roles.json", "sets.json"}:
+        return
+    source_path = bundled_config_dir / name
+    if not source_path.exists():
+        QMessageBox.warning(window, "无法重置", f"找不到默认配置文件：{source_path}")
+        return
+    ret = QMessageBox.warning(
+        window,
+        "确认重置配置",
+        f"将把当前 {name} 恢复为程序默认配置。\n\n"
+        "这会覆盖当前账号中的同名配置文件，未保存的修改也会丢失。确定继续吗？",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+    if ret != QMessageBox.Yes:
+        return
+    data = read_json(source_path, default={})
+    write_json_atomic(config_dir / name, data, indent=4)
+    window._config_form_data = data
+    window._config_dirty = False
+    window._load_data()
+    switch_config_form(window, name, config_dir)
+    QMessageBox.information(window, "重置完成", f"{name} 已恢复为默认配置。")
 
 
 def save_config_data(window, data, config_dir):

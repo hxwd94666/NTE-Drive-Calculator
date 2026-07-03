@@ -13,6 +13,12 @@ from src.utils.logger import logger
 from src.utils.perf import log_perf
 
 
+MOVE_HOLD_SECONDS = 0.10
+MOVE_SETTLE_SECONDS = 0.25
+ROW_DOWN_HOLD_SECONDS = 0.15
+ROW_DOWN_SETTLE_SECONDS = 0.30
+
+
 def _save_png(screenshot, filename):
     mss.tools.to_png(screenshot.rgb, screenshot.size, output=filename)
 
@@ -113,13 +119,13 @@ class GamepadScanner:
         logger.info(f"[{counter:04d}] 捕获成功")
         return filename
 
-    def push_left_joystick(self, x, y):
+    def push_left_joystick(self, x, y, hold_seconds=MOVE_HOLD_SECONDS, settle_seconds=MOVE_SETTLE_SECONDS):
         self.gamepad.left_joystick_float(x_value_float=x, y_value_float=y)
         self.gamepad.update()
-        time.sleep(0.10)
+        time.sleep(hold_seconds)
         self.gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
         self.gamepad.update()
-        time.sleep(0.25)
+        time.sleep(settle_seconds)
 
     def _apply_moves(self, moves):
         for move in moves:
@@ -128,7 +134,12 @@ class GamepadScanner:
             elif move == "L":
                 self.push_left_joystick(-1.0, 0.0)
             elif move == "D":
-                self.push_left_joystick(0.0, -1.0)
+                self.push_left_joystick(
+                    0.0,
+                    -1.0,
+                    hold_seconds=ROW_DOWN_HOLD_SECONDS,
+                    settle_seconds=ROW_DOWN_SETTLE_SECONDS,
+                )
 
     def _generate_path(self, total_drives: int) -> list:
         scan_order = []

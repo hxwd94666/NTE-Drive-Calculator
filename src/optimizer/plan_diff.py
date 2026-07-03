@@ -56,7 +56,7 @@ def _plan_item_snapshot(item: Any, item_type: str, role_name: str) -> dict:
     quality = _value(item, "quality", "Gold")
     area = int(_value(item, "area", 15 if item_type == "tape" else 0) or 0)
     role_scores = _value(item, "role_scores", {}) or {}
-    score = round(float(role_scores.get(role_name, 0.0) or 0.0), 2)
+    score = round(float(role_scores.get(role_name, _value(item, "score", 0.0)) or 0.0), 2)
     if item_type == "tape":
         set_name = _value(item, "set_name", "")
         main_stats = _value(item, "main_stats", "")

@@ -1,11 +1,12 @@
+# 构建角色基础属性、头像和等级编辑组件。
 """基础加成组件 - 包含头像、等级、基础属性和自定义属性"""
 
 from PySide6.QtWidgets import (
     QGroupBox,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QLabel,
-    QComboBox,
     QFrame,
     QWidget,
     QPushButton,
@@ -15,8 +16,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QPixmap, QDesktopServices
 
 from .paths import get_roles_img_path
-from .dao import save_my_roles
-from src.ui.widgets import NoWheelDoubleSpinBox
+from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
 
 
 class BaseStatsWidget:
@@ -56,11 +56,16 @@ class BaseStatsWidget:
         base_layout = QVBoxLayout(self.group_base)
         base_layout.setSpacing(8)
 
-        # ========== 顶部行：头像 + 等级（横向排列） ==========
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
+        content_row = QHBoxLayout()
+        content_row.setSpacing(16)
 
-        # ---- 头像（左侧） ----
+        left_panel = QWidget()
+        left_panel.setFixedWidth(150)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
+        left_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+
         avatar_path = get_roles_img_path(self.role_name)
         if avatar_path.exists():
             pixmap = QPixmap(str(avatar_path))
@@ -69,16 +74,10 @@ class BaseStatsWidget:
                 avatar_label.setFixedSize(80, 80)
                 avatar_label.setScaledContents(True)
                 avatar_label.setPixmap(pixmap)
-                top_row.addWidget(avatar_label, alignment=Qt.AlignLeft)
+                left_layout.addWidget(avatar_label, alignment=Qt.AlignHCenter)
 
-        # ---- 等级下拉（右侧，与头像同一行） ----
-        level_widget = QWidget()
-        level_widget.setFixedHeight(80)  # 与头像高度对齐
-        level_layout = QVBoxLayout(level_widget)
-        level_layout.setContentsMargins(0, 0, 0, 0)
-
-        # 等级行：标签 + 下拉框 + 问号按钮 + 攻略按钮（同一行）
         level_row = QHBoxLayout()
+        level_row.setSpacing(6)
 
         level_label = QLabel("等级:")
         level_label.setStyleSheet("font-weight:bold; color:#58a6ff;")
@@ -89,7 +88,7 @@ class BaseStatsWidget:
         if not available_levels:
             available_levels = ["1", "20", "30", "40", "50", "60", "70", "80"]
 
-        self.level_combo = QComboBox()
+        self.level_combo = NoWheelComboBox()
         self.level_combo.addItems(available_levels)
         current_level = str(self.role_data.get("level", 70))
         if current_level in available_levels:
@@ -103,15 +102,16 @@ class BaseStatsWidget:
         # 问号按钮
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
-        help_btn.setFixedSize(20, 20)
+        help_btn.setFixedSize(16, 16)
         help_btn.setStyleSheet("""
             QPushButton#btnHelp {
                 background-color: #58a6ff;
                 color: white;
-                border-radius: 10px;
+                border-radius: 8px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 10px;
                 border: none;
+                padding: 0;
             }
             QPushButton#btnHelp:hover {
                 background-color: #1f6feb;
@@ -120,6 +120,7 @@ class BaseStatsWidget:
         help_btn.setCursor(Qt.PointingHandCursor)
         help_btn.clicked.connect(self._show_info_dialog)
         level_row.addWidget(help_btn)
+        left_layout.addLayout(level_row)
 
         # 攻略按钮（根据 guide 字段条件显示）
         guide_url = self.role_data.get("guide", "")
@@ -143,40 +144,37 @@ class BaseStatsWidget:
             """)
             guide_btn.setCursor(Qt.PointingHandCursor)
             guide_btn.clicked.connect(self._open_guide)
-            level_row.addWidget(guide_btn)
+            left_layout.addWidget(guide_btn, alignment=Qt.AlignHCenter)
 
-        level_row.addStretch()
-        level_layout.addLayout(level_row)
+        left_layout.addStretch()
+        content_row.addWidget(left_panel)
 
-        # 垂直居中
-        level_layout.addStretch()
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
 
-        top_row.addWidget(level_widget)
-        top_row.addStretch()
-        base_layout.addLayout(top_row)
-
-        # ========== 分割线 ==========
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        line.setStyleSheet("background-color: #30363d; max-height: 1px;")
-        base_layout.addWidget(line)
+        stats_grid = QGridLayout()
+        stats_grid.setHorizontalSpacing(14)
+        stats_grid.setVerticalSpacing(8)
+        right_layout.addLayout(stats_grid)
+        content_row.addWidget(right_panel, 1)
+        base_layout.addLayout(content_row)
 
         # ========== 基础属性列表 ==========
         sub_stats = self.role_data.get("sub_stats", {})
         self.base_spins = {}
 
-        for key in self.BASE_KEYS:
-            row = QHBoxLayout()
-            row.setSpacing(8)
+        for index, key in enumerate(self.BASE_KEYS):
+            grid_row = index // 2
+            grid_col = (index % 2) * 2
             label = QLabel(key)
             label.setFixedWidth(100)
-            row.addWidget(label)
 
             spin = NoWheelDoubleSpinBox()
             spin.setRange(-999999, 999999)
             spin.setDecimals(2)
-            spin.setFixedWidth(120)
+            spin.setMinimumWidth(110)
 
             # 初始值
             val = sub_stats.get(key, 0.0)
@@ -189,10 +187,18 @@ class BaseStatsWidget:
                 lambda k=key, s=spin: self._update_base_stat(k, s.value())
             )
 
-            row.addWidget(spin)
-            row.addStretch()
-            base_layout.addLayout(row)
+            stats_grid.addWidget(label, grid_row, grid_col)
+            stats_grid.addWidget(spin, grid_row, grid_col + 1)
             self.base_spins[key] = spin
+        stats_grid.setColumnStretch(1, 1)
+        stats_grid.setColumnStretch(3, 1)
+
+        # ========== 分割线 ==========
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        line.setStyleSheet("background-color: #30363d; max-height: 1px;")
+        base_layout.addWidget(line)
 
         # 其他 sub_stats（排除基础属性）
         other_sub = {k: v for k, v in sub_stats.items() if k not in self.BASE_KEYS}
@@ -256,10 +262,7 @@ class BaseStatsWidget:
             self.on_level_changed_callback()
 
     def _save_and_notify(self):
-        """保存数据并触发回调"""
-        data = getattr(self.window, "_my_role_form_data", None)
-        if data:
-            save_my_roles(data)
+        """标记未保存并触发回调。"""
         if self.on_data_changed_callback:
             self.on_data_changed_callback()
 

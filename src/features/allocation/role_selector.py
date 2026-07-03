@@ -52,6 +52,18 @@ def temporary_priority_config_path(path: Path) -> Path:
     return path.with_name(f"{path.stem}.temp{path.suffix}")
 
 
+def normalize_weapons_db(weapons_db) -> dict:
+    if not isinstance(weapons_db, dict):
+        return {}
+    normalized = {}
+    for key, info in weapons_db.items():
+        if isinstance(info, dict):
+            name = str(info.get("name") or key or "").strip()
+            if name:
+                normalized[name] = info
+    return normalized
+
+
 class PriorityRoleButton(QPushButton):
     """Role chip button that can be clicked to remove or dragged to reorder."""
 
@@ -129,11 +141,14 @@ class RoleSelector(QWidget):
         self._help_callback = help_callback
         self.all_roles: dict = {}
         self.all_sets: list[str] = []
+        self.weapons_db: dict = {}
         self.tape_main_stats: list[str] = []
         self.drive_sub_stats: list[str] = []
         self.selected: list[str] = []
         self.priority_links: list[str] = []
         self.custom_sets: dict[str, str] = {}
+        self.custom_weapons: dict[str, str] = {}
+        self.crit_rate_caps: dict[str, float] = {}
         self.tape_main_filters: dict[str, list[str]] = {}
         self.stat_priority_configs: dict[str, dict] = {}
         self.set_effect_modes: dict[str, str] = {}
@@ -217,9 +232,10 @@ class RoleSelector(QWidget):
     _CARD_SEL = "QFrame{background:#1f6feb22;border:2px solid #58a6ff;border-radius:8px}QFrame:hover{border-color:#79c0ff}"
     _CARD_OFF = "QFrame{background:#161b22;border:1px solid #21262d;border-radius:8px}QFrame:hover{border-color:#30363d}"
 
-    def load_roles(self, roles_db, all_sets, tape_main_stats=None, drive_sub_stats=None):
+    def load_roles(self, roles_db, all_sets, tape_main_stats=None, drive_sub_stats=None, weapons_db=None):
         self.all_roles = roles_db
         self.all_sets = all_sets
+        self.weapons_db = normalize_weapons_db(weapons_db)
         self.tape_main_stats = list(tape_main_stats or [])
         self.drive_sub_stats = list(drive_sub_stats or [])
         self._render_grid(self.search.text() if hasattr(self, "search") else "")
@@ -361,8 +377,56 @@ class RoleSelector(QWidget):
         self._render_grid(text)
 
     def _set_custom_set(self, name, text):
-        self.custom_sets[name] = text
+        set_name = str(text or "").strip()
+        default_set = str((self.all_roles.get(name, {}) or {}).get("default_set", "") or "").strip()
+        if set_name and set_name != default_set:
+            self.custom_sets[name] = set_name
+        else:
+            self.custom_sets.pop(name, None)
         self.orderChanged.emit()
+
+    def _set_custom_weapon(self, name, text):
+        weapon = str(text or "").strip()
+        if weapon:
+            self.custom_weapons[name] = weapon
+            cap = self._weapon_crit_rate_cap(weapon)
+            if cap is not None:
+                self.crit_rate_caps[name] = cap
+        else:
+            self.custom_weapons.pop(name, None)
+        self.orderChanged.emit()
+
+    def _set_crit_rate_cap(self, name, value):
+        try:
+            cap = float(value)
+        except (TypeError, ValueError):
+            self.crit_rate_caps.pop(name, None)
+            self.orderChanged.emit()
+            return
+        if cap < 0:
+            self.crit_rate_caps.pop(name, None)
+        else:
+            self.crit_rate_caps[name] = round(min(cap, 100.0), 4)
+        self.orderChanged.emit()
+
+    def _weapon_crit_rate_cap(self, weapon_name):
+        info = self.weapons_db.get(weapon_name)
+        if not isinstance(info, dict):
+            return None
+        stats = {}
+        level_stats = info.get("level_sub_stats")
+        if isinstance(level_stats, dict) and level_stats:
+            stats = level_stats.get("80") or level_stats.get(80) or next(iter(level_stats.values()), {})
+        if not isinstance(stats, dict) or not stats:
+            stats = info.get("sub_stats", {}) if isinstance(info.get("sub_stats", {}), dict) else {}
+        for key, value in stats.items():
+            normalized = str(key or "").replace("%", "")
+            if "暴击率" in normalized or "鏆村嚮鐜" in normalized:
+                try:
+                    return round(max(0.0, 100.0 - float(value)), 4)
+                except (TypeError, ValueError):
+                    return None
+        return None
 
     def _set_tape_main_filter(self, name, values):
         if values:
@@ -413,28 +477,48 @@ class RoleSelector(QWidget):
     def _manage_role_preferences(self, name):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{name} · 管理")
-        dlg.setMinimumSize(480, 360)
+        dlg.setMinimumSize(480, 320)
         if self._style_sheet:
             dlg.setStyleSheet(self._style_sheet)
         layout = QVBoxLayout(dlg)
-        layout.setSpacing(12)
+        layout.setSpacing(8)
 
         role_data = self.all_roles.get(name, {})
         current_set = self.custom_sets.get(name) or role_data.get("default_set", self.all_sets[0] if self.all_sets else "")
-        set_box = QGroupBox("套装配置")
-        set_layout = QHBoxLayout(set_box)
-        set_layout.setSpacing(8)
+        set_box = QGroupBox("角色配置")
+        set_layout = QVBoxLayout(set_box)
+        set_layout.setContentsMargins(8, 8, 8, 8)
+        set_layout.setSpacing(5)
+        set_row = QHBoxLayout()
+        set_row.setSpacing(8)
+        set_row.addWidget(QLabel("套装："))
         set_combo = SearchableComboBox()
         self._fill_search_combo(set_combo, self.all_sets, current_set)
-        set_layout.addWidget(set_combo, 1)
+        set_row.addWidget(set_combo, 1)
+        set_layout.addLayout(set_row)
+        weapon_row = QHBoxLayout()
+        weapon_row.setSpacing(8)
+        weapon_row.addWidget(QLabel("弧盘："))
+        weapon_combo = SearchableComboBox()
+        weapon_names = sorted(self.weapons_db.keys())
+        self._fill_search_combo(weapon_combo, weapon_names, self.custom_weapons.get(name, ""))
+        weapon_row.addWidget(weapon_combo, 1)
+        set_layout.addLayout(weapon_row)
         layout.addWidget(set_box)
 
+        template_box = QGroupBox("自选配置")
+        template_layout = QVBoxLayout(template_box)
+        template_layout.setContentsMargins(8, 6, 8, 6)
+        template_layout.setSpacing(5)
+
         selected_main_stats = list(self.tape_main_filters.get(name, []))
-        main_box = QGroupBox("卡带主词条选项")
+        main_box = QWidget()
         main_layout = QVBoxLayout(main_box)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(3)
         main_row = QHBoxLayout()
-        main_row.setSpacing(8)
+        main_row.setSpacing(6)
+        main_row.addWidget(QLabel("卡带主词条："))
         main_combo = SearchableComboBox()
         self._fill_search_combo(main_combo, self.tape_main_stats)
         main_row.addWidget(main_combo, 1)
@@ -444,14 +528,15 @@ class RoleSelector(QWidget):
         clear_main_btn.setObjectName("btnDanger")
         main_row.addWidget(add_main_btn)
         main_row.addWidget(clear_main_btn)
-        main_layout.addLayout(main_row)
         main_label = QLabel()
-        main_label.setWordWrap(True)
-        main_label.setMinimumHeight(32)
+        main_label.setWordWrap(False)
+        main_label.setFixedHeight(32)
+        main_label.setMinimumWidth(150)
         main_label.setStyleSheet(
             "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
-            "background:#0f3d2e;padding:7px 9px"
+            "background:#0f3d2e;padding:4px 7px"
         )
+        main_layout.addLayout(main_row)
         main_layout.addWidget(main_label)
 
         def refresh_main_label():
@@ -469,7 +554,7 @@ class RoleSelector(QWidget):
         add_main_btn.clicked.connect(add_main_stat)
         clear_main_btn.clicked.connect(lambda: (selected_main_stats.clear(), refresh_main_label()))
         refresh_main_label()
-        layout.addWidget(main_box)
+        template_layout.addWidget(main_box)
 
         current_stat_cfg = (
             self.stat_priority_configs.get(name, {})
@@ -477,11 +562,13 @@ class RoleSelector(QWidget):
             else {}
         )
         selected_stats = [s for s in list(current_stat_cfg.get("stats", []) or []) if s in self.drive_sub_stats]
-        stat_box = QGroupBox("词条自选")
+        stat_box = QWidget()
         stat_layout = QVBoxLayout(stat_box)
-        stat_layout.setSpacing(8)
+        stat_layout.setContentsMargins(0, 0, 0, 0)
+        stat_layout.setSpacing(3)
         stat_row = QHBoxLayout()
-        stat_row.setSpacing(8)
+        stat_row.setSpacing(6)
+        stat_row.addWidget(QLabel("卡带/驱动副词条："))
         stat_combo = SearchableComboBox()
         self._fill_search_combo(stat_combo, self.drive_sub_stats)
         stat_row.addWidget(stat_combo, 1)
@@ -494,31 +581,34 @@ class RoleSelector(QWidget):
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
         help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
-        stat_row.addWidget(help_btn)
+
+        stat_label = QLabel()
+        stat_label.setWordWrap(False)
+        stat_label.setFixedHeight(32)
+        stat_label.setMinimumWidth(150)
+        stat_label.setStyleSheet(
+            "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
+            "background:#0f3d2e;padding:4px 7px"
+        )
         stat_layout.addLayout(stat_row)
+        stat_layout.addWidget(stat_label)
 
         stat_option_row = QHBoxLayout()
-        stat_option_row.setSpacing(12)
+        stat_option_row.setSpacing(8)
         stat_equal = QCheckBox("词条自选优先级一致")
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
         ignore_grade_limit = QCheckBox("不限制评分等级")
         ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
         stat_option_row.addWidget(stat_equal)
         stat_option_row.addWidget(ignore_grade_limit)
+        stat_option_row.addWidget(help_btn)
         stat_option_row.addStretch(1)
         stat_layout.addLayout(stat_option_row)
 
-        stat_label = QLabel()
-        stat_label.setWordWrap(True)
-        stat_label.setMinimumHeight(32)
-        stat_label.setStyleSheet(
-            "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
-            "background:#0f3d2e;padding:7px 9px"
-        )
-        stat_layout.addWidget(stat_label)
-
         def refresh_stat_label():
-            stat_label.setText("Default" if not selected_stats else " > ".join(selected_stats))
+            text = "Default" if not selected_stats else " > ".join(selected_stats)
+            stat_label.setText(text)
+            stat_label.setToolTip(text)
 
         def add_stat_priority():
             value = stat_combo.currentText().strip()
@@ -532,11 +622,16 @@ class RoleSelector(QWidget):
         add_stat_btn.clicked.connect(add_stat_priority)
         clear_stat_btn.clicked.connect(lambda: (selected_stats.clear(), refresh_stat_label()))
         refresh_stat_label()
-        layout.addWidget(stat_box)
+        template_layout.addWidget(stat_box)
+        layout.addWidget(template_box)
 
-        effect_box = QGroupBox("套装效果")
-        effect_layout = QHBoxLayout(effect_box)
-        effect_layout.setSpacing(8)
+        effect_box = QGroupBox("其他配置")
+        effect_layout = QVBoxLayout(effect_box)
+        effect_layout.setContentsMargins(8, 8, 8, 8)
+        effect_layout.setSpacing(5)
+        effect_row = QHBoxLayout()
+        effect_row.setSpacing(8)
+        effect_row.addWidget(QLabel("套装效果："))
         effect_combo = QComboBox()
         effect_combo.addItem("四件套", FOUR_PIECE)
         effect_combo.addItem("二件套", TWO_PIECE)
@@ -544,11 +639,31 @@ class RoleSelector(QWidget):
         current_effect = normalize_set_effect_mode(self.set_effect_modes.get(name))
         effect_index = effect_combo.findData(current_effect)
         effect_combo.setCurrentIndex(effect_index if effect_index >= 0 else 0)
-        effect_layout.addWidget(effect_combo, 1)
+        effect_row.addWidget(effect_combo, 1)
         effect_help_btn = QPushButton("?")
         effect_help_btn.setObjectName("btnHelp")
         effect_help_btn.clicked.connect(lambda: self._show_help("套装效果说明", SET_EFFECT_HELP))
-        effect_layout.addWidget(effect_help_btn)
+        effect_row.addWidget(effect_help_btn)
+        effect_layout.addLayout(effect_row)
+        cap_row = QHBoxLayout()
+        cap_row.setSpacing(8)
+        cap_row.addWidget(QLabel("暴击率上限："))
+        crit_cap_edit = QLineEdit()
+        current_cap = self.crit_rate_caps.get(name)
+        if current_cap is not None:
+            crit_cap_edit.setText(f"{float(current_cap):g}")
+        crit_cap_edit.setPlaceholderText("留空不限制")
+
+        def apply_weapon_cap(text):
+            resolved = resolve_priority_choice(weapon_names, str(text or "").strip(), None)
+            cap = self._weapon_crit_rate_cap(resolved) if resolved in weapon_names else None
+            if cap is not None:
+                crit_cap_edit.setText(f"{float(cap):g}")
+
+        weapon_combo.currentTextChanged.connect(apply_weapon_cap)
+        cap_row.addWidget(crit_cap_edit, 1)
+        cap_row.addWidget(QLabel("%"))
+        effect_layout.addLayout(cap_row)
         layout.addWidget(effect_box)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -560,6 +675,10 @@ class RoleSelector(QWidget):
             set_value = set_combo.currentText().strip()
             resolved_set = resolve_priority_choice(self.all_sets, set_value, set_combo.currentData())
             self._set_custom_set(name, resolved_set)
+            weapon_value = weapon_combo.currentText().strip()
+            resolved_weapon = resolve_priority_choice(weapon_names, weapon_value, None)
+            selected_weapon = resolved_weapon if resolved_weapon in weapon_names else ""
+            self._set_custom_weapon(name, selected_weapon)
             self._set_tape_main_filter(name, selected_main_stats)
             self._set_stat_priority_config(
                 name,
@@ -567,6 +686,9 @@ class RoleSelector(QWidget):
                 stat_equal.isChecked(),
                 ignore_grade_limit.isChecked(),
             )
+            cap_text = crit_cap_edit.text().strip()
+            if cap_text or not selected_weapon:
+                self._set_crit_rate_cap(name, cap_text)
             self._set_set_effect_mode(name, effect_combo.currentData())
             self._render_grid(self.search.text())
 
@@ -575,6 +697,8 @@ class RoleSelector(QWidget):
         self.selected.clear()
         self.priority_links.clear()
         self.custom_sets.clear()
+        self.custom_weapons.clear()
+        self.crit_rate_caps.clear()
         self.tape_main_filters.clear()
         self.stat_priority_configs.clear()
         self.set_effect_modes.clear()
@@ -629,17 +753,31 @@ class RoleSelector(QWidget):
         return links_to_priority_groups(self.selected, self.priority_links)
 
     def get_custom_sets(self):
-        result = {}
-        for name in self.selected:
-            role_data = self.all_roles.get(name, {})
-            result[name] = self.custom_sets.get(name) or role_data.get("default_set", "")
-        return result
+        return {
+            name: self.custom_sets.get(name)
+            for name in self.selected
+            if self.custom_sets.get(name)
+        }
 
     def get_tape_main_filters(self):
         return {
             name: list(self.tape_main_filters.get(name, []))
             for name in self.selected
             if self.tape_main_filters.get(name)
+        }
+
+    def get_custom_weapons(self):
+        return {
+            name: self.custom_weapons.get(name)
+            for name in self.selected
+            if self.custom_weapons.get(name)
+        }
+
+    def get_crit_rate_caps(self):
+        return {
+            name: float(self.crit_rate_caps.get(name))
+            for name in self.selected
+            if name in self.crit_rate_caps
         }
 
     def get_crit_priority_modes(self):
@@ -671,6 +809,9 @@ class RoleSelector(QWidget):
             "priority_groups": self.get_priority_groups(),
             "priority_links": normalize_priority_links(self.selected, self.priority_links),
             "custom_sets": self.get_custom_sets(),
+            "custom_set_overrides": self.get_custom_sets(),
+            "custom_weapons": self.get_custom_weapons(),
+            "crit_rate_caps": self.get_crit_rate_caps(),
             "tape_main_filters": self.get_tape_main_filters(),
             "stat_priority_configs": self.get_crit_priority_modes(),
             "set_effect_modes": self.get_set_effect_modes(),
@@ -695,6 +836,8 @@ class RoleSelector(QWidget):
         self.selected.clear()
         self.priority_links.clear()
         self.custom_sets.clear()
+        self.custom_weapons.clear()
+        self.crit_rate_caps.clear()
         self.tape_main_filters.clear()
         self.stat_priority_configs.clear()
         self.set_effect_modes.clear()
@@ -705,11 +848,20 @@ class RoleSelector(QWidget):
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.selected, self.priority_links = load_priority_selection(data, self.all_roles)
-            self.custom_sets = {
-                role: set_name
-                for role, set_name in data.get("custom_sets", {}).items()
-                if role in self.all_roles and set_name
+            self.custom_sets = self._load_custom_set_overrides(data)
+            self.custom_weapons = {
+                role: weapon
+                for role, weapon in data.get("custom_weapons", {}).items()
+                if role in self.all_roles and weapon and (not self.weapons_db or weapon in self.weapons_db)
             }
+            self.crit_rate_caps = {}
+            for role, value in data.get("crit_rate_caps", {}).items():
+                if role not in self.all_roles:
+                    continue
+                try:
+                    self.crit_rate_caps[role] = round(min(max(float(value), 0.0), 100.0), 4)
+                except (TypeError, ValueError):
+                    continue
             raw_filters = data.get("tape_main_filters", {})
             self.tape_main_filters = {
                 role: [value for value in values if value in self.tape_main_stats]
@@ -735,6 +887,28 @@ class RoleSelector(QWidget):
             self._render_grid(self.search.text())
         except Exception as exc:
             QMessageBox.warning(self, "恢复优先级", f"读取优先级配置失败：{exc}")
+
+    def _load_custom_set_overrides(self, data: dict) -> dict[str, str]:
+        if isinstance(data.get("custom_set_overrides"), dict):
+            source = data.get("custom_set_overrides", {})
+            return {
+                role: set_name
+                for role, set_name in source.items()
+                if role in self.all_roles and set_name
+            }
+
+        legacy = data.get("custom_sets", {})
+        if not isinstance(legacy, dict):
+            return {}
+        selected = set(self.selected)
+        legacy_roles = {role for role, set_name in legacy.items() if role in self.all_roles and set_name}
+        if selected and selected.issubset(legacy_roles):
+            return {}
+        return {
+            role: set_name
+            for role, set_name in legacy.items()
+            if role in self.all_roles and set_name
+        }
 
 
 PRIORITY_SAVE_HELP = (

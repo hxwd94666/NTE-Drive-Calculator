@@ -1,3 +1,4 @@
+# 提供角色功能相关配置文件路径。
 from pathlib import Path
 from src.app import runtime
 

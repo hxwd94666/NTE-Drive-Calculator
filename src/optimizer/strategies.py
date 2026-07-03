@@ -4,6 +4,7 @@
 import copy
 import heapq
 import itertools
+import re
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import List, Dict, Any
@@ -12,6 +13,7 @@ from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
+from src.solver.blueprint_utils import blueprint_piece_signature, dedupe_blueprints_by_piece_signature
 
 class BaseDispatchStrategy:
     MAX_COMBO_LIMIT = 500
@@ -74,6 +76,86 @@ class BaseDispatchStrategy:
 
     def _rank_score_for_drive(self, role: str, drive: Drive, base_score: float, config) -> float:
         return self._rank_score_for_item(role, drive, base_score, config)
+
+    def _crit_rate_cap(self, role: str, crit_rate_caps: Dict[str, float] | None):
+        if not crit_rate_caps or role not in crit_rate_caps:
+            return None
+        try:
+            return float(crit_rate_caps[role])
+        except (TypeError, ValueError):
+            return None
+
+    def _is_crit_rate_key(self, key: str) -> bool:
+        normalized = str(key or "").replace("%", "")
+        return "暴击率" in normalized or "鏆村嚮鐜" in normalized
+
+    def _crit_rate_from_stats(self, stats) -> float:
+        if not isinstance(stats, dict):
+            return 0.0
+        total = 0.0
+        for key, value in stats.items():
+            if not self._is_crit_rate_key(key):
+                continue
+            try:
+                total += float(value)
+            except (TypeError, ValueError):
+                continue
+        return total
+
+    def _item_crit_rate(self, item) -> float:
+        total = self._crit_rate_from_stats(getattr(item, "sub_stats", {}) or {})
+        main_stats = getattr(item, "main_stats", {}) or {}
+        total += self._crit_rate_from_stats(main_stats)
+        if isinstance(main_stats, str) and self._is_crit_rate_key(main_stats):
+            total += 30.0
+        return total
+
+    def _items_crit_rate(self, items) -> float:
+        return sum(self._item_crit_rate(item) for item in items or [] if item)
+
+    def _extra_shape_area_for_role(self, role: str):
+        label = str(self.roles_db.get(role, {}).get("extra_shape_label", "") or "")
+        match = re.search(r"(\d+)", label)
+        if not match:
+            return None
+        return int(match.group(1))
+
+    def _extra_shape_crit_rate(self, role: str, items) -> float:
+        role_data = self.roles_db.get(role, {}) or {}
+        extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
+        if not isinstance(extra_buffs, dict) or not extra_buffs:
+            return 0.0
+        target_area = self._extra_shape_area_for_role(role)
+        if not target_area:
+            return 0.0
+        crit_bonus = 0.0
+        for stat, value in extra_buffs.items():
+            if not self._is_crit_rate_key(stat):
+                continue
+            try:
+                crit_bonus += float(value)
+            except (TypeError, ValueError):
+                continue
+        if crit_bonus <= 0:
+            return 0.0
+        matched_count = 0
+        for item in items or []:
+            if not isinstance(item, Drive):
+                continue
+            area = getattr(item, "area", None)
+            if area is None:
+                numbers = re.findall(r"\d+", str(getattr(item, "shape_id", "") or ""))
+                area = int(numbers[0]) if numbers else 0
+            if int(area or 0) == target_area:
+                matched_count += 1
+        return crit_bonus * matched_count
+
+    def _within_crit_rate_cap(self, role: str, items, crit_rate_caps: Dict[str, float] | None) -> bool:
+        cap = self._crit_rate_cap(role, crit_rate_caps)
+        if cap is None:
+            return True
+        total = self._items_crit_rate(items) + self._extra_shape_crit_rate(role, items)
+        return total <= cap + 1e-9
 
     def _set_pieces_for_blueprint(self, blueprint: Dict, target_set: str) -> list[str]:
         if "set_pieces" in blueprint:
@@ -164,20 +246,10 @@ class BaseDispatchStrategy:
         return assigned_tapes
 
     def _blueprint_extra_key(self, blueprint):
-        set_key = tuple(sorted(str(shape_id) for shape_id in blueprint.get("set_pieces", [])))
-        extra_key = tuple(sorted(str(shape_id) for shape_id in blueprint.get("extra_pieces", [])))
-        return set_key, extra_key
+        return blueprint_piece_signature(blueprint)
 
     def _dedupe_blueprints_by_extra_pieces(self, blueprints):
-        seen = set()
-        unique = []
-        for bp in blueprints:
-            key = self._blueprint_extra_key(bp)
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(bp)
-        return unique
+        return dedupe_blueprints_by_piece_signature(blueprints)
 
     def _shape_score_buckets(self, role, drives_pool, crit_config=None):
         buckets = {}
@@ -322,7 +394,8 @@ class BaseDispatchStrategy:
 
     def execute(self, candidate_pool: CandidatePool, priority_list: List[str], custom_sets: CustomSetMap,
                 crit_priority_modes: StatPriorityConfigMap = None,
-                priority_groups: list[list[str]] | None = None) -> AllocationResult:
+                priority_groups: list[list[str]] | None = None,
+                crit_rate_caps: Dict[str, float] | None = None) -> AllocationResult:
         raise NotImplementedError
 
 class RolePriorityStrategy(BaseDispatchStrategy):
@@ -348,7 +421,8 @@ class RolePriorityStrategy(BaseDispatchStrategy):
         return buckets
 
     def _find_best_fit(self, role_name: str, blueprint: Dict, available_pool: List[Drive], target_set: str,
-                       crit_mode: str | None = None) -> Dict:
+                       crit_mode: str | None = None, assigned_tape: Tape | None = None,
+                       crit_rate_caps: Dict[str, float] | None = None) -> Dict:
         set_shapes = self._set_pieces_for_blueprint(blueprint, target_set)
         extra_shapes = blueprint["extra_pieces"]
         drive_buckets = self._drive_buckets(available_pool)
@@ -360,6 +434,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             candidates = [
                 (idx, drive) for idx, drive in drive_buckets.get(req_shape, [])
                 if idx not in used_indices
+                and self._within_crit_rate_cap(role_name, [assigned_tape, *assigned_set, *assigned_extra, drive], crit_rate_caps)
             ]
             picked = self._pick_best_drive(role_name, candidates, crit_mode)
             if picked:
@@ -374,6 +449,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             candidates = [
                 (idx, drive) for idx, drive in drive_buckets.get(req_shape, [])
                 if idx not in used_indices
+                and self._within_crit_rate_cap(role_name, [assigned_tape, *assigned_set, *assigned_extra, drive], crit_rate_caps)
             ]
             picked = self._pick_best_drive(role_name, candidates, crit_mode)
             if picked:
@@ -476,18 +552,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
         return assigned_tapes
 
     def _dedupe_blueprints_for_role_priority(self, blueprints: list[dict]) -> list[dict]:
-        seen = set()
-        unique = []
-        for blueprint in blueprints:
-            key = (
-                tuple(sorted(str(shape) for shape in blueprint.get("set_pieces", []))),
-                tuple(sorted(str(shape) for shape in blueprint.get("extra_pieces", []))),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(blueprint)
-        return unique
+        return dedupe_blueprints_by_piece_signature(blueprints)
 
     def _build_group_profit_matrix(
         self,
@@ -543,6 +608,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
         custom_sets: Dict[str, str],
         assigned_tapes: Dict[str, Tape],
         crit_priority_modes: Dict[str, dict],
+        crit_rate_caps: Dict[str, float] | None = None,
     ) -> AllocationResult:
         valid_group = []
         role_blueprints = []
@@ -587,6 +653,17 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                     temp_alloc[role]["assigned_extra_drives"].append(drive)
                 temp_alloc[role]["score"] += profit
                 team_score += profit
+            if is_valid:
+                for role in valid_group:
+                    plan = temp_alloc.get(role, {})
+                    items = [
+                        plan.get("assigned_tape"),
+                        *(plan.get("assigned_set_drives", []) or []),
+                        *(plan.get("assigned_extra_drives", []) or []),
+                    ]
+                    if not self._within_crit_rate_cap(role, items, crit_rate_caps):
+                        is_valid = False
+                        break
             if is_valid and team_score > best_score:
                 best_score = team_score
                 best_allocation = temp_alloc
@@ -597,12 +674,14 @@ class RolePriorityStrategy(BaseDispatchStrategy):
 
     def execute(self, candidate_pool: CandidatePool, priority_list: List[str], custom_sets: CustomSetMap,
                 crit_priority_modes: StatPriorityConfigMap = None,
-                priority_groups: list[list[str]] | None = None) -> AllocationResult:
+                priority_groups: list[list[str]] | None = None,
+                crit_rate_caps: Dict[str, float] | None = None) -> AllocationResult:
         logger.info("启动分配模式: 角色优先")
 
         drives_pool = list(candidate_pool.get("drives", []))
         tapes_pool = candidate_pool.get("tapes", {})
         crit_priority_modes = crit_priority_modes or {}
+        crit_rate_caps = crit_rate_caps or {}
         priority_groups = self._normalize_priority_groups(priority_list, priority_groups)
         assigned_tapes = self._pre_allocate_tapes_for_groups(priority_groups, custom_sets, tapes_pool, crit_priority_modes)
         final_allocation = {}
@@ -615,6 +694,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                     custom_sets,
                     assigned_tapes,
                     crit_priority_modes,
+                    crit_rate_caps,
                 )
                 final_allocation.update(group_allocation)
                 used_uids = set()
@@ -640,7 +720,24 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             best_plan = {"valid": False, "score": -1.0}
 
             for bp in blueprints:
-                plan = self._find_best_fit(role_name, bp, role_drives_pool, target_set, crit_priority_modes.get(role_name))
+                if crit_rate_caps:
+                    plan = self._find_best_fit(
+                        role_name,
+                        bp,
+                        role_drives_pool,
+                        target_set,
+                        crit_priority_modes.get(role_name),
+                        role_tape,
+                        crit_rate_caps,
+                    )
+                else:
+                    plan = self._find_best_fit(
+                        role_name,
+                        bp,
+                        role_drives_pool,
+                        target_set,
+                        crit_priority_modes.get(role_name),
+                    )
                 if plan["valid"]:
                     total_score = plan["score"] + tape_score
                     if total_score > best_plan["score"]:

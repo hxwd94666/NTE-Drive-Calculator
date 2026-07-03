@@ -71,7 +71,13 @@ def has_meaningful_parse_data(item_data, valid_stats=None) -> bool:
     return False
 
 
-def process_image_file(processor, image_path: str, filename: str | None = None):
+def process_image_file(
+    processor,
+    image_path: str,
+    filename: str | None = None,
+    *,
+    filter_adjacent_duplicates: bool = True,
+):
     item_data = processor._process_single_image(image_path)
     valid_stats = getattr(getattr(processor, "parser", None), "GOLD_BASE_VALUES", {}) or {}
     if not has_meaningful_parse_data(item_data, valid_stats.keys()):
@@ -84,6 +90,8 @@ def process_image_file(processor, image_path: str, filename: str | None = None):
         and current_signature in processor._load_existing_inventory_signatures()
     )
     is_adjacent_duplicate = (
+        filter_adjacent_duplicates
+        and
         processor._last_parsed_signature == current_signature
         and are_named_neighbors(processor._last_parsed_filename, current_name)
         and is_same_capture(processor._last_parsed_image_fingerprint, current_fingerprint)

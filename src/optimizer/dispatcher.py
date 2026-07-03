@@ -29,9 +29,11 @@ class DispatcherEngine:
         custom_sets: CustomSetMap = None,
         crit_priority_modes: StatPriorityConfigMap = None,
         priority_groups: list[list[str]] | None = None,
+        crit_rate_caps: dict[str, float] | None = None,
     ) -> AllocationResult:
         custom_sets = custom_sets or {}
         crit_priority_modes = crit_priority_modes or {}
+        crit_rate_caps = crit_rate_caps or {}
         strategy = self.strategies.get(mode)
 
         if not strategy:
@@ -44,6 +46,7 @@ class DispatcherEngine:
                 custom_sets,
                 crit_priority_modes,
                 priority_groups=priority_groups,
+                crit_rate_caps=crit_rate_caps,
             )
         crit_priority_modes = {}
         return strategy.execute(candidate_pool, priority_list, custom_sets, crit_priority_modes)
