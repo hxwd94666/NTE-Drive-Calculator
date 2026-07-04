@@ -3,6 +3,7 @@ import unittest
 import ast
 import builtins
 import importlib
+import json
 import symtable
 import sys
 import tempfile
@@ -61,6 +62,15 @@ class EncodingGuardTests(unittest.TestCase):
     def test_python_sources_are_valid_utf8_without_mojibake(self):
         issues = find_text_encoding_issues(["src", "main.py", "build_exe.py", "build_installer.py"])
         self.assertEqual([], issues)
+
+    def test_config_json_files_are_valid(self):
+        failures = []
+        for path in sorted((ROOT / "config").glob("*.json")):
+            try:
+                json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                failures.append(f"{path.relative_to(ROOT).as_posix()}: {exc}")
+        self.assertEqual([], failures)
 
     def test_question_mark_mojibake_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
