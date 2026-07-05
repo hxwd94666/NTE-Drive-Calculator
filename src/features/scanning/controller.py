@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtWidgets import QMessageBox, QProgressDialog
+from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
 from src.app import runtime
 from src.app.constants import DRONE_HELP, OFFLINE_HELP, SCAN_HELP
@@ -401,6 +401,10 @@ def _on_gamepad_parse_done(self):
 def _on_gamepad_post_actions_ready(self):
     self._on_gamepad_parse_done()
     self.showMinimized()
+    QApplication.processEvents()
+    worker = getattr(self, "_gamepad_worker", None)
+    if worker is not None and hasattr(worker, "acknowledge_post_actions_ready"):
+        worker.acknowledge_post_actions_ready()
 
 def _register_scan_hotkeys(self, mode):
     """启动热键监听线程"""

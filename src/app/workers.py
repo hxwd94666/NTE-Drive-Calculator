@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import traceback as tb
+import threading
 import time
 
 from PySide6.QtCore import QThread, Signal
@@ -117,6 +118,17 @@ class GamepadScanParseWorkerThread(QThread):
         self.post_actions_config = post_actions_config
         self.selected_roles = list(selected_roles or [])
         self.scanner = None
+        self._post_actions_ready_event = threading.Event()
+
+    def acknowledge_post_actions_ready(self):
+        self._post_actions_ready_event.set()
+
+    def _notify_post_actions_ready(self):
+        self._post_actions_ready_event.clear()
+        self.post_actions_ready.emit()
+        if not self._post_actions_ready_event.wait(timeout=5.0):
+            logger.warning("等待扫描后管理前台切换确认超时，将继续执行状态同步。")
+        time.sleep(1.0)
 
     def run(self):
         worker_start = time.perf_counter()
@@ -150,7 +162,7 @@ class GamepadScanParseWorkerThread(QThread):
                 cancel_check=lambda: bool(getattr(self.scanner, "_stopped", False)),
                 scan_done_callback=lambda captured, total: self.scan_done.emit(captured, total),
                 parse_done_callback=lambda: self.parse_done.emit(),
-                post_action_ready_callback=lambda: self.post_actions_ready.emit(),
+                post_action_ready_callback=self._notify_post_actions_ready,
                 auto_discard_grade=self.auto_discard_grade,
                 auto_discard_lock_action=self.auto_discard_lock_action,
                 post_actions_config=self.post_actions_config,
