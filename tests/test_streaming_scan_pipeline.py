@@ -10,6 +10,28 @@ import numpy as np
 
 
 class StreamingScanPipelineTests(unittest.TestCase):
+    def test_gamepad_worker_waits_for_post_action_focus_ack(self):
+        from src.app import workers
+
+        worker = workers.GamepadScanParseWorkerThread(total_drives=1)
+        events = []
+        sleeps = []
+        original_sleep = workers.time.sleep
+
+        def on_ready():
+            events.append("ready")
+            worker.acknowledge_post_actions_ready()
+
+        worker.post_actions_ready.connect(on_ready)
+        workers.time.sleep = lambda seconds: sleeps.append(seconds)
+        try:
+            worker._notify_post_actions_ready()
+        finally:
+            workers.time.sleep = original_sleep
+
+        self.assertEqual(["ready"], events)
+        self.assertEqual([1.0], sleeps)
+
     def _state_button_image(self, active=None):
         from src.features.scanning import streaming_pipeline
 
