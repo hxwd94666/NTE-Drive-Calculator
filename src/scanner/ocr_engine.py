@@ -118,26 +118,49 @@ def _available_ort_providers() -> list[str]:
         return []
 
 
-def _ocr_backend_preference() -> str:
+def _ocr_backend_preference(value: str | None = None) -> str:
     """Return user-selected OCR backend preference.
 
     Default is OpenVINO because it is reliable on Intel iGPU/hybrid laptops.
     DirectML is opt-in: broken dGPUs and non-direct-display laptops can expose
     NVIDIA/AMD adapters but still run DirectML slowly or unstably.
     """
-    value = os.environ.get("NTE_OCR_BACKEND", "openvino").strip().lower()
+    source = "参数" if value is not None else "NTE_OCR_BACKEND"
+    value = (value if value is not None else os.environ.get("NTE_OCR_BACKEND", "openvino")).strip().lower()
     aliases = {
         "ov": "openvino",
         "intel": "openvino",
         "gpu": "directml",
         "dml": "directml",
         "auto-safe": "auto",
+        "amd": "amd_compat",
+        "amd-compat": "amd_compat",
+        "amd_compatibility": "amd_compat",
     }
     value = aliases.get(value, value)
-    if value not in {"openvino", "directml", "auto", "cpu"}:
-        logger.warning(f"未知 OCR 后端配置 NTE_OCR_BACKEND={value!r}，已使用 openvino。")
+    if value not in {"openvino", "directml", "auto", "cpu", "amd_compat"}:
+        logger.warning(f"未知 OCR 后端配置 {source}={value!r}，已使用 openvino。")
         return "openvino"
     return value
+
+
+def _apply_low_load_runtime_limits() -> None:
+    """Reduce native OCR/OpenCV thread pressure for unstable AMD systems."""
+
+    for key in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "OV_CPU_THREADS_NUM",
+        "OPENVINO_CPU_THREADS_NUM",
+    ):
+        os.environ[key] = "1"
+    try:
+        cv2.setNumThreads(1)
+    except Exception as exc:
+        logger.debug(f"OpenCV 线程限制失败: {exc}")
 
 
 def _warmup(ocr):
@@ -183,21 +206,32 @@ def _create_onnx_cpu_ocr():
     return None, ""
 
 
-def _create_ocr_engine():
+def _create_ocr_engine(backend_preference: str | None = None):
     """Create OCR engine with safe defaults.
 
     OpenVINO is the default. DirectML is only used when explicitly requested by
-    NTE_OCR_BACKEND=directml/auto and a discrete adapter is detected.
+    a caller or NTE_OCR_BACKEND=directml/auto and a discrete adapter is detected.
     """
     adapter_names = _get_video_adapter_names()
     has_discrete_gpu = _has_discrete_gpu(adapter_names)
-    backend_pref = _ocr_backend_preference()
+    backend_pref = _ocr_backend_preference(backend_preference)
     if adapter_names:
         logger.info(f"检测到显卡: {'; '.join(adapter_names)}")
     else:
         logger.info("未读取到显卡信息，按无独显策略优先使用 OpenVINO。")
 
     providers = _available_ort_providers()
+    if backend_pref == "amd_compat":
+        logger.warning("已启用 AMD实验性兼容：禁用 DirectML，限制 OCR/图像处理线程，并使用低负载 OCR 初始化。")
+        _apply_low_load_runtime_limits()
+        ocr, engine_type = _create_openvino_ocr()
+        if ocr is not None:
+            return ocr, f"{engine_type} / AMD实验性兼容"
+        ocr, engine_type = _create_onnx_cpu_ocr()
+        if ocr is not None:
+            return ocr, f"{engine_type} / AMD实验性兼容"
+        raise ImportError("AMD实验性兼容模式下未检测到任何可用的 RapidOCR 推理引擎")
+
     if backend_pref in {"directml", "auto"} and has_discrete_gpu:
         logger.info(f"OCR 后端配置为 {backend_pref}，检测到独立显卡后尝试 DirectML GPU 加速。")
         ocr, engine_type = _create_directml_ocr(providers)
@@ -206,7 +240,7 @@ def _create_ocr_engine():
     elif backend_pref in {"directml", "auto"}:
         logger.info("OCR 后端允许 GPU，但未检测到独立显卡，改用 OpenVINO。")
     elif has_discrete_gpu:
-        logger.info("检测到独立显卡，但默认安全策略仍优先使用 OpenVINO；如需强制 GPU，可设置 NTE_OCR_BACKEND=directml。")
+        logger.info("检测到独立显卡，但默认安全策略仍优先使用 OpenVINO；如需尝试 GPU，可在全量扫描中开启“独显加速”。")
     else:
         logger.info("未检测到独立显卡，优先使用 OpenVINO 加速。")
 
@@ -225,9 +259,9 @@ def _create_ocr_engine():
 class OCREngine:
     """支持硬件自适应的 OCR 引擎，带运行时兜底"""
 
-    def __init__(self):
+    def __init__(self, backend_preference: str | None = None):
         logger.info("正在初始化 OCR 引擎...")
-        self.ocr, engine_type = _create_ocr_engine()
+        self.ocr, engine_type = _create_ocr_engine(backend_preference)
         logger.success(f"OCR 引擎就绪 [后端: {engine_type}]")
 
     def extract_text(self, image_input: np.ndarray) -> list:
