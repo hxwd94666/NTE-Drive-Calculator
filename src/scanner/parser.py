@@ -5,6 +5,7 @@ import os
 import json
 import re
 import difflib
+import unicodedata
 from typing import Dict, List
 import hashlib
 from src.domain.stat_catalog import StatCatalog
@@ -16,6 +17,16 @@ from src.models.equipment import Drive, Tape
 
 class DriveDataParser:
     """数据清洗与推理引擎：OCR 原文解析、品质逆推、词条提取"""
+    ATTRIBUTE_MAIN_STATS = {
+        "光": "光属性异能伤害增强",
+        "灵": "灵属性异能伤害增强",
+        "咒": "咒属性异能伤害增强",
+        "暗": "暗属性异能伤害增强",
+        "魂": "魂属性异能伤害增强",
+        "相": "相属性异能伤害增强",
+        "心灵": "心灵伤害增强",
+    }
+
     def __init__(self, config_dir: str = "config"):
         self.config_dir = config_dir
         self.stat_pattern = re.compile(r"([\u4e00-\u9fa5A-Za-z%]+?)(?:增加|提升)?\s*[+：:= ]*\s*([-+]?\d+(?:\.\d+)?)\s*(%?)")
@@ -57,9 +68,17 @@ class DriveDataParser:
     def _resolve_stat_name(self, raw_name: str, is_percent: bool) -> str | None:
         return self.stat_catalog.normalize_stat_name(raw_name, is_percent=is_percent)
 
+    def _normalize_ocr_text(self, text: str) -> str:
+        normalized = unicodedata.normalize("NFKC", str(text or ""))
+        normalized = normalized.replace("％", "%")
+        normalized = re.sub(r"(?<=\d)[,，、·・](?=\d)", ".", normalized)
+        normalized = re.sub(r"(?<=\d)[oO](?=\d|\.|%|\s|$)", "0", normalized)
+        normalized = re.sub(r"(?<=\.)[oO](?=\d|%|\s|$)", "0", normalized)
+        return normalized
+
     def _clean_stats(self, raw_texts: List[str]) -> Dict[str, float]:
         clean_stats = {}
-        candidates = [str(text or "").strip() for text in raw_texts if str(text or "").strip()]
+        candidates = [self._normalize_ocr_text(text).strip() for text in raw_texts if str(text or "").strip()]
         compact_joined = "".join(candidates).replace(" ", "")
         if compact_joined:
             candidates.append(compact_joined)
@@ -91,11 +110,42 @@ class DriveDataParser:
 
     def _fuzzy_match_tape_main(self, raw_text: str) -> str:
         clean_text = re.sub(r'[^\u4e00-\u9fa5]', '', raw_text)
+        protected = self._match_attribute_main_stat(clean_text)
+        if protected:
+            return protected
+        if self._looks_like_attribute_main_stat(clean_text):
+            return "未知主词条"
         matches = difflib.get_close_matches(clean_text, self.TAPE_MAIN_STATS_POOL, n=1, cutoff=0.4)
         if matches:
             return matches[0]
         else:
             return "未知主词条"
+
+    def _match_attribute_main_stat(self, clean_text: str) -> str | None:
+        if not clean_text:
+            return None
+        if "心灵" in clean_text:
+            return self.ATTRIBUTE_MAIN_STATS["心灵"]
+        matched = []
+        for key, stat_name in self.ATTRIBUTE_MAIN_STATS.items():
+            if key == "心灵":
+                continue
+            if key in clean_text:
+                matched.append(stat_name)
+        unique = list(dict.fromkeys(matched))
+        if len(unique) == 1:
+            return unique[0]
+        return None
+
+    def _looks_like_attribute_main_stat(self, clean_text: str) -> bool:
+        if not clean_text:
+            return False
+        return (
+            "属性" in clean_text
+            or "异能伤害" in clean_text
+            or "伤害增强" in clean_text
+            or "心灵伤害" in clean_text
+        )
 
     # ==========================================
     # 通过副词条数值逆推品质
