@@ -13,6 +13,28 @@ from src.scanner.window_capture import crop_window_border_from_image
 from src.utils.image_io import imread_unicode
 
 
+class RecoverableParseError(ValueError):
+    """Raised when OCR found a credible item but one sub stat needs user input."""
+
+    def __init__(self, message: str, item_data, recognized_count: int, required_count: int = 4):
+        super().__init__(message)
+        self.item_data = item_data
+        self.recognized_count = int(recognized_count or 0)
+        self.required_count = int(required_count or 4)
+
+    def to_record(self, image_path: str, filename: str | None = None) -> dict:
+        item = self.item_data
+        data = item.model_dump() if hasattr(item, "model_dump") else dict(getattr(item, "__dict__", {}) or {})
+        return {
+            "image_path": image_path,
+            "filename": filename or os.path.basename(image_path),
+            "item": data,
+            "item_type": data.get("item_type"),
+            "recognized_count": self.recognized_count,
+            "missing_count": max(0, self.required_count - self.recognized_count),
+        }
+
+
 def image_fingerprint(image_path: str):
     img = imread_unicode(image_path)
     if img is None:
@@ -71,6 +93,16 @@ def has_meaningful_parse_data(item_data, valid_stats=None) -> bool:
     return False
 
 
+def recognized_sub_stat_count(item_data, valid_stats=None) -> int:
+    sub_stats = getattr(item_data, "sub_stats", {}) or {}
+    if not sub_stats:
+        return 0
+    if valid_stats is None:
+        return len(sub_stats)
+    valid_stats = set(valid_stats)
+    return sum(1 for stat in sub_stats.keys() if stat in valid_stats)
+
+
 def process_image_file(
     processor,
     image_path: str,
@@ -80,7 +112,10 @@ def process_image_file(
 ):
     item_data = processor._process_single_image(image_path)
     valid_stats = getattr(getattr(processor, "parser", None), "GOLD_BASE_VALUES", {}) or {}
-    if not has_meaningful_parse_data(item_data, valid_stats.keys()):
+    recognized_count = recognized_sub_stat_count(item_data, valid_stats.keys())
+    if recognized_count < 4:
+        if recognized_count == 3:
+            raise RecoverableParseError("识别到 3 条有效副词条，等待用户补录 1 条", item_data, recognized_count)
         raise ValueError("未识别到有效装备数据")
     current_name = filename or os.path.basename(image_path)
     current_signature = processor._item_signature(item_data)
