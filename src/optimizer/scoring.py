@@ -97,9 +97,16 @@ class ScoringEngine:
         return score >= area * 10.0 * 0.4
 
     def _item_has_stat(self, item: BaseEquipment, stat_key: str) -> bool:
-        target = str(stat_key or "").replace("%", "")
-        names = [str(name).replace("%", "") for name in (getattr(item, "sub_stats", {}) or {}).keys()]
-        return any(target == name or target in name or name in target for name in names)
+        target_raw = str(stat_key or "").strip()
+        if not target_raw:
+            return False
+        target = self.stat_catalog.normalize_stat_name(target_raw, is_percent="%" in target_raw) or target_raw
+        for name in (getattr(item, "sub_stats", {}) or {}).keys():
+            raw_name = str(name or "").strip()
+            normalized = self.stat_catalog.normalize_stat_name(raw_name, is_percent="%" in raw_name) or raw_name
+            if normalized == target:
+                return True
+        return False
 
     def _priority_rank_for_item(self, role: str, item: BaseEquipment, config: dict | None) -> tuple[int, int]:
         if not isinstance(config, dict):
@@ -116,6 +123,9 @@ class ScoringEngine:
             if self._item_has_stat(item, stat):
                 return (len(stats) - tier, 0)
         return (0, 0)
+
+    def _has_stat_priority_for_any_role(self, item: BaseEquipment, configs: Dict[str, dict]) -> bool:
+        return any(self._priority_rank_for_item(role_name, item, config) > (0, 0) for role_name, config in configs.items())
 
     def _allowed_tape_main_names(self, allowed_mains: List[str] | None) -> set[str]:
         allowed = set()
@@ -147,6 +157,12 @@ class ScoringEngine:
         if not self.roles_db: return {"drives": [], "tapes": {}}
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
+        has_unlimited_stat_priority = any(
+            isinstance(config, dict)
+            and bool(config.get("ignore_grade_limit"))
+            and bool(config.get("stats"))
+            for config in crit_priority_modes.values()
+        )
         logger.info(f"  评分引擎: 开始评估 {len(inventory)} 件装备 × {len(self.roles_db)} 角色...")
 
         valid_drives: List[Drive] = []
@@ -170,7 +186,11 @@ class ScoringEngine:
                     item.max_score = score
 
             if isinstance(item, Drive):
-                if item.max_score > 0:
+                if (
+                    has_unlimited_stat_priority
+                    or item.max_score > 0
+                    or self._has_stat_priority_for_any_role(item, crit_priority_modes)
+                ):
                     valid_drives.append(item)
             elif item.max_score > 0 or any(
                 self._tape_main_allowed(item, self._allowed_tape_main_names(values))
@@ -180,15 +200,26 @@ class ScoringEngine:
 
         global_drive_uids = set()
         for role_name in self.roles_db.keys():
+            role_priority_config = crit_priority_modes.get(role_name)
+            role_unlimited_stat_priority = (
+                isinstance(role_priority_config, dict)
+                and bool(role_priority_config.get("ignore_grade_limit"))
+                and bool(role_priority_config.get("stats"))
+            )
             buckets: Dict[str, List[Drive]] = {}
             for d in valid_drives:
-                if d.role_scores[role_name] > 0:
+                priority_rank = self._priority_rank_for_item(role_name, d, role_priority_config)
+                if role_unlimited_stat_priority or d.role_scores[role_name] > 0 or priority_rank > (0, 0):
                     buckets.setdefault(d.shape_id, []).append(d)
 
             for shape, drives_in_bucket in buckets.items():
+                if role_unlimited_stat_priority:
+                    for d in drives_in_bucket:
+                        global_drive_uids.add(d.uid)
+                    continue
                 drives_in_bucket.sort(
                     key=lambda x: (
-                        self._priority_rank_for_item(role_name, x, crit_priority_modes.get(role_name)),
+                        self._priority_rank_for_item(role_name, x, role_priority_config),
                         x.role_scores[role_name],
                     ),
                     reverse=True,
