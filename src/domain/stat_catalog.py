@@ -14,6 +14,16 @@ from src.utils.name_resolver import resolve_name
 
 @dataclass(frozen=True)
 class StatCatalog:
+    ATTRIBUTE_SUB_STAT_ALIASES = {
+        "光": "光属性异能伤害增强%",
+        "灵": "灵属性异能伤害增强%",
+        "咒": "咒属性异能伤害增强%",
+        "暗": "暗属性异能伤害增强%",
+        "魂": "魂属性异能伤害增强%",
+        "相": "相属性异能伤害增强%",
+        "心灵": "心灵伤害增强%",
+    }
+
     gold_base_values: dict[str, float] = field(default_factory=dict)
     tape_main_stats: list[str] = field(default_factory=list)
     tape_main_values: dict[str, float] = field(default_factory=dict)
@@ -68,6 +78,12 @@ class StatCatalog:
             if candidate in valid_stats:
                 return candidate
 
+        protected = self._match_attribute_sub_stat(candidates)
+        if protected:
+            return protected
+        if any(self._looks_like_attribute_sub_stat(candidate) for candidate in candidates):
+            return None
+
         pool = sorted(valid_stats | set(aliases.keys()) | set(aliases.values()))
         for candidate in candidates:
             match = resolve_name(candidate, pool, cutoff=cutoff)
@@ -80,6 +96,31 @@ class StatCatalog:
             if resolved in valid_stats:
                 return resolved
         return None
+
+    def _match_attribute_sub_stat(self, candidates: list[str]) -> str | None:
+        matched = []
+        valid_stats = self.valid_sub_stats
+        for candidate in candidates:
+            if "心灵" in candidate and self.ATTRIBUTE_SUB_STAT_ALIASES["心灵"] in valid_stats:
+                matched.append(self.ATTRIBUTE_SUB_STAT_ALIASES["心灵"])
+                continue
+            for key, stat_name in self.ATTRIBUTE_SUB_STAT_ALIASES.items():
+                if key == "心灵":
+                    continue
+                if key in candidate and stat_name in valid_stats:
+                    matched.append(stat_name)
+        unique = list(dict.fromkeys(matched))
+        if len(unique) == 1:
+            return unique[0]
+        return None
+
+    def _looks_like_attribute_sub_stat(self, candidate: str) -> bool:
+        return (
+            "属性" in candidate
+            or "异能伤害" in candidate
+            or "伤害增强" in candidate
+            or "心灵伤害" in candidate
+        )
 
     def normalize_tape_main_stat(self, raw_name: Any, cutoff: float = 0.4) -> str:
         clean_name = str(raw_name or "").strip()
