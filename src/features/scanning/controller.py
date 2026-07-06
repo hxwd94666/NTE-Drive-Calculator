@@ -20,6 +20,7 @@ from src.features.allocation.execute_page import build_execute_page
 from src.features.allocation.preference_modes import role_preference_mode_error
 from src.features.allocation.role_selector import RoleSelector
 from src.features.scanning.file_lifecycle import ScanFileLifecycle, is_scope_image
+from src.features.scanning.manual_recovery import complete_pending_manual_items
 from src.features.scanning.post_action_dialog import load_scan_post_action_config, show_scan_post_action_dialog
 from src.features.scanning.post_actions import post_actions_enabled, validate_post_action_config
 from src.features.scanning.vision_worker import VisionWorkerThread
@@ -65,6 +66,8 @@ def _on_scan_change(self,id):
     if hasattr(self,"offline_frame"):
         self.offline_frame.setVisible(id==3)
     self.total_count_frame.setVisible(id==1)
+    if hasattr(self,"scan_dual_thread_frame"):
+        self.scan_dual_thread_frame.setVisible(id==1)
     self.drone_frame.setVisible(id==2)
 
 def _on_priority_changed(self):
@@ -144,10 +147,25 @@ def _do_exec(self):
         drone_mode=pending_drone_mode or ("auto" if self.drone_group.checkedId()==1 else "semi")
         self._start_scan(drone_mode)
     elif sm=="1":
+        parse_during_scan = True
+        if hasattr(self, "scan_dual_thread_check"):
+            parse_during_scan = bool(self.scan_dual_thread_check.isChecked())
+        discrete_gpu_acceleration = False
+        if hasattr(self, "scan_discrete_gpu_check"):
+            discrete_gpu_acceleration = bool(self.scan_discrete_gpu_check.isChecked())
+        amd_compatibility = False
+        if hasattr(self, "scan_amd_compat_check"):
+            amd_compatibility = bool(self.scan_amd_compat_check.isChecked())
+        if amd_compatibility:
+            parse_during_scan = False
+            discrete_gpu_acceleration = False
         self._start_gamepad_scan(
             total_drives,
             post_actions_config=post_actions_config,
             selected_roles=sel,
+            parse_during_scan=parse_during_scan,
+            discrete_gpu_acceleration=discrete_gpu_acceleration,
+            amd_compatibility=amd_compatibility,
         )
     else:
         self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg,crc),parent=self)
@@ -255,15 +273,26 @@ def _on_vision_done(self,stats):
     if hasattr(self,'_vision_worker') and self._vision_worker.isRunning():
         self._vision_worker.wait(5000)
     post=self._postprocess_vision_files(stats)
+    manual_added=0
+    pending_manual_count=int(stats.get("pending_manual_count",0) or 0)
+    if pending_manual_count:
+        try:
+            manual_added=complete_pending_manual_items(self, stats, runtime.OUTPUT_FILE, runtime.CONFIG_DIR)
+        except Exception as exc:
+            logger.error(f"补录待识别装备失败: {exc}")
+            QMessageBox.warning(self, "补录失败", f"待补录装备未写入库存：{exc}")
     success_count=int(stats.get("success_count",0) or 0)
     failed_count=int(stats.get("failed_count",0) or 0)
     duplicate_count=int(stats.get("duplicate_count",0) or 0)+int(post.get("probe_duplicates",0) or 0)
     summary=f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
+    if pending_manual_count:
+        summary += f"\n待补录 {pending_manual_count} 件，已补录入库 {manual_added} 件。"
     if stats.get("auto_discard_grade"):
         summary += f"\n低于 {stats['auto_discard_grade']} 的驱动：目标 {int(stats.get('discard_target_count',0) or 0)} 个，已标记 {int(stats.get('discard_marked_count',0) or 0)} 个。"
     if stats.get("post_actions_enabled"):
         summary += (
             "\n扫描后管理："
+            f"参与计算 {int(stats.get('post_action_candidate_count', 0) or 0)} 件，"
             f"目标变更 {int(stats.get('post_action_target_count',0) or 0)} 个，"
             f"已处理 {int(stats.get('post_action_applied_count',0) or 0)} 个。"
             f"\n弃置 {int(stats.get('discard_set_count',0) or 0)} 个，"
@@ -271,6 +300,15 @@ def _on_vision_done(self,stats):
             f"锁定 {int(stats.get('lock_set_count',0) or 0)} 个，"
             f"取消锁定 {int(stats.get('lock_clear_count',0) or 0)} 个。"
         )
+        filtered_parts = []
+        if int(stats.get('post_action_quality_filtered_count', 0) or 0):
+            filtered_parts.append(f"品质范围过滤 {int(stats.get('post_action_quality_filtered_count', 0) or 0)} 件")
+        if int(stats.get('post_action_type_filtered_count', 0) or 0):
+            filtered_parts.append(f"处理类别过滤 {int(stats.get('post_action_type_filtered_count', 0) or 0)} 件")
+        if int(stats.get('post_action_type_range_filtered_count', 0) or 0):
+            filtered_parts.append(f"类型范围过滤 {int(stats.get('post_action_type_range_filtered_count', 0) or 0)} 件")
+        if filtered_parts:
+            summary += "\n" + "，".join(filtered_parts) + "。"
     details=[]
     if post.get("moved_failed"):
         details.append(f"失败截图已移动到 failed 文件夹 {post['moved_failed']} 张。")
@@ -320,7 +358,7 @@ def _start_scan(self,drone_mode):
     self.btn_run.setText("⏳  扫描中... (F12 停止)")
     self._scan_worker.start()
 
-def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard_lock_action="skip", post_actions_config=None, selected_roles=None):
+def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard_lock_action="skip", post_actions_config=None, selected_roles=None, parse_during_scan=True, discrete_gpu_acceleration=False, amd_compatibility=False):
     self._replace_inventory_on_next_parse=True
     self._pending_scan_mode="gamepad"
     self._pending_parse_scope="full"
@@ -328,20 +366,31 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
     self._pending_probe_duplicate_count=0
     self._gamepad_parse_progress=(0,total_drives,"")
     self._gamepad_pipeline_finished=False
+    self._gamepad_post_actions_enabled=bool(post_actions_enabled(post_actions_config) or auto_discard_grade)
+    self._gamepad_suppress_parse_ui=False
     action_hint = ""
-    if post_actions_enabled(post_actions_config) or auto_discard_grade:
+    if self._gamepad_post_actions_enabled:
         action_hint = (
             "\n\n已启用扫描后管理：扫描解析后会继续计算并同步弃置/锁定状态。"
             "\n扫描开始后不要切换排序、筛选、滚动或手动操作背包。"
         )
-    QMessageBox.information(
+    ret = QMessageBox.question(
         self,
         "全量扫描准备",
-        "点击 OK 后程序会最小化并准备开始全量扫描。\n\n"
+        "点击“确定”后程序会最小化并准备开始全量扫描。\n\n"
         "请切换至游戏的驱动仓库页面，并确保当前选中第一排第一个驱动。\n"
         "程序会在短暂倒计时后接管虚拟手柄进行遍历截图。"
-        + action_hint
+        + action_hint,
+        QMessageBox.Ok | QMessageBox.Cancel,
+        QMessageBox.Cancel,
     )
+    if ret != QMessageBox.Ok:
+        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self._replace_inventory_on_next_parse=False
+        self._pending_scan_mode=None
+        self._gamepad_post_actions_enabled=False
+        self._gamepad_suppress_parse_ui=False
+        return
     self.showMinimized()
     self._gamepad_worker=GamepadScanParseWorkerThread(
         total_drives=total_drives,
@@ -350,6 +399,9 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
         auto_discard_lock_action=auto_discard_lock_action,
         post_actions_config=post_actions_config,
         selected_roles=selected_roles,
+        parse_during_scan=parse_during_scan,
+        discrete_gpu_acceleration=discrete_gpu_acceleration,
+        amd_compatibility=amd_compatibility,
     )
     self._gamepad_worker.scan_done.connect(self._on_gamepad_scan_done)
     self._gamepad_worker.progress.connect(self._on_gamepad_parse_progress)
@@ -363,6 +415,8 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
 
 def _on_gamepad_scan_done(self,captured,total):
     if getattr(self,"_gamepad_pipeline_finished",False):
+        return
+    if getattr(self,"_gamepad_suppress_parse_ui",False):
         return
     self.showNormal(); self.activateWindow()
     current, progress_total, filename = getattr(self,"_gamepad_parse_progress",(0,total,""))
@@ -382,6 +436,8 @@ def _on_gamepad_scan_done(self,captured,total):
 
 def _on_gamepad_parse_progress(self,current,total,filename):
     self._gamepad_parse_progress=(current,total,filename)
+    if getattr(self,"_gamepad_suppress_parse_ui",False):
+        return
     dlg=getattr(self,"_progress_dlg",None)
     if not dlg:
         return
@@ -399,6 +455,7 @@ def _on_gamepad_parse_done(self):
         self._progress_dlg=None
 
 def _on_gamepad_post_actions_ready(self):
+    self._gamepad_suppress_parse_ui=True
     self._on_gamepad_parse_done()
     self.showMinimized()
     QApplication.processEvents()
@@ -518,8 +575,14 @@ def _unregister_scan_hotkeys(self):
 def _on_hk_stop(self):
     w=getattr(self,'_scan_worker',None) or getattr(self,'_gamepad_worker',None) or getattr(self,'_gamepad_pipeline_worker',None)
     if w and w.scanner:
-        w.scanner._stopped=True
+        logger.warning(f"收到停止热键 {self._hk_stop}，准备停止当前扫描/状态同步任务。")
+        if hasattr(w.scanner, "emergency_stop"):
+            w.scanner.emergency_stop()
+        else:
+            w.scanner._stopped=True
         w.scanner._finish_flag=True
+    else:
+        logger.warning(f"收到停止热键 {self._hk_stop}，但当前没有可停止的扫描器。")
 
 def _on_hk_capture(self):
     if getattr(self,"_hk_mode",None)=="identify":
@@ -538,6 +601,8 @@ def _on_hk_finish(self):
 def _on_gamepad_error(self,err):
     self._unregister_scan_hotkeys()
     self._gamepad_pipeline_finished=True
+    self._gamepad_suppress_parse_ui=False
+    self._gamepad_post_actions_enabled=False
     self._replace_inventory_on_next_parse=False
     self.showNormal(); self.activateWindow()
     if hasattr(self,'_progress_dlg') and self._progress_dlg:
@@ -549,6 +614,8 @@ def _on_gamepad_error(self,err):
 def _on_gamepad_pipeline_done(self,stats):
     self._unregister_scan_hotkeys()
     self._gamepad_pipeline_finished=True
+    self._gamepad_suppress_parse_ui=False
+    self._gamepad_post_actions_enabled=False
     self.showNormal(); self.activateWindow()
     self._replace_inventory_on_next_parse=False
     self._pending_scan_mode=None
