@@ -13,14 +13,15 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from src.models.equipment import Drive
 from src.optimizer.scoring import ScoringEngine
 from src.features.scanning.post_actions import (
     build_state_changes,
     merge_post_action_config,
     post_actions_enabled,
+    summarize_post_action_filtering,
     summarize_state_changes,
 )
+from src.features.inventory_import.duplicate_filter import RecoverableParseError
 from src.scanner.window_capture import crop_window_border_from_image
 from src.utils.image_io import imread_unicode
 from src.utils.logger import logger
@@ -28,6 +29,11 @@ from src.utils.perf import log_perf
 
 
 _STOP = object()
+
+
+def _parse_during_scan_enabled() -> bool:
+    value = os.environ.get("NTE_STREAMING_SCAN_PARSE", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 GRADE_ORDER = ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]
 TRASH_BUTTON_CENTER = (0.89375, 0.21944)
 LOCK_BUTTON_CENTER = (0.93047, 0.21944)
@@ -78,32 +84,6 @@ def _drive_screenshot_is_locked(image_path: str) -> bool:
     return _equipment_screenshot_state(image_path) == "locked"
 
 
-def _discard_target_indexes(
-    processor,
-    parsed_items: list[tuple[int, object, bool]],
-    grade: str,
-    config_dir,
-    lock_action: str = "skip",
-) -> list[int]:
-    if not grade or grade not in GRADE_ORDER or not getattr(processor, "inventory", None):
-        return []
-    scoring = ScoringEngine(str(config_dir or "config"))
-    if not scoring.roles_db:
-        return []
-    scoring.evaluate_global_inventory(processor.inventory)
-    threshold_rank = GRADE_ORDER.index(grade)
-    targets = []
-    for index, item, locked in parsed_items:
-        if locked and lock_action != "unlock":
-            continue
-        if not isinstance(item, Drive):
-            continue
-        item_grade = scoring.get_grade_tag(getattr(item, "max_score", 0.0), getattr(item, "area", 1))
-        if item_grade in GRADE_ORDER and GRADE_ORDER.index(item_grade) > threshold_rank:
-            targets.append(index)
-    return targets
-
-
 def _legacy_discard_config(grade: str | None, lock_action: str) -> dict | None:
     if not grade:
         return None
@@ -135,13 +115,22 @@ def run_streaming_scan_parse(
     post_actions_config: dict | None = None,
     selected_roles: list[str] | None = None,
     config_dir=None,
+    parse_during_scan: bool | None = None,
+    low_load_mode: bool = False,
 ) -> dict:
     """Run gamepad scanning while parsing captured screenshots in a consumer thread."""
 
-    captured_queue: queue.Queue = queue.Queue()
+    if parse_during_scan is None:
+        parse_during_scan = _parse_during_scan_enabled()
+    if low_load_mode:
+        parse_during_scan = False
+
+    captured_queue: queue.Queue | None = queue.Queue() if parse_during_scan else None
+    captured_payloads: list[tuple[str, int, int]] = []
     added_paths: list[str] = []
     duplicate_paths: list[str] = []
     failed_paths: list[str] = []
+    pending_manual_items: list[dict] = []
     parsed_items: list[tuple[int, object, str]] = []
     parse_error: list[BaseException] = []
     parse_start = time.perf_counter()
@@ -162,71 +151,100 @@ def run_streaming_scan_parse(
     def final_path_for(filename: str) -> str:
         return str(Path(scanner.output_dir) / filename)
 
+    def process_payload(payload: tuple[str, int, int]) -> None:
+        temp_path, index, total = payload
+        filename = os.path.basename(temp_path)
+        if progress_callback is not None:
+            progress_callback(index, total, filename)
+        item_start = time.perf_counter()
+        try:
+            _item_obj, added = processor.process_image_file(
+                temp_path,
+                filename,
+                filter_adjacent_duplicates=False,
+            )
+            item_ms = (time.perf_counter() - item_start) * 1000.0
+            log_perf(
+                logger,
+                "vision.item",
+                elapsed_ms=item_ms,
+                index=index,
+                total=total,
+                filename=filename,
+                added=int(bool(added)),
+                streaming=int(bool(parse_during_scan)),
+            )
+            if added:
+                added_paths.append(final_path_for(filename))
+                if auto_discard_grade and post_actions_config is None:
+                    state = "locked" if _drive_screenshot_is_locked(temp_path) else "normal"
+                else:
+                    state = _equipment_screenshot_state(temp_path)
+                if state != "normal":
+                    logger.info(f"识别到装备状态: {filename} -> {state}")
+                parsed_items.append((index, _item_obj, state))
+            else:
+                duplicate_paths.append(final_path_for(filename))
+                logger.info(f"相邻截图画面与解析数据均一致，按连拍重复过滤: {filename}")
+        except RecoverableParseError as exc:
+            item_ms = (time.perf_counter() - item_start) * 1000.0
+            pending_manual_items.append(exc.to_record(final_path_for(filename), filename))
+            log_perf(
+                logger,
+                "vision.item",
+                elapsed_ms=item_ms,
+                index=index,
+                total=total,
+                filename=filename,
+                status="pending_manual",
+                streaming=int(bool(parse_during_scan)),
+            )
+            logger.warning(f"解析待补录: {filename} | {exc}")
+        except Exception as exc:
+            item_ms = (time.perf_counter() - item_start) * 1000.0
+            failed_paths.append(final_path_for(filename))
+            log_perf(
+                logger,
+                "vision.item",
+                elapsed_ms=item_ms,
+                index=index,
+                total=total,
+                filename=filename,
+                status="failed",
+                streaming=int(bool(parse_during_scan)),
+            )
+            logger.error(f"解析失败: {filename} | {exc}")
+
     def parse_worker() -> None:
+        assert captured_queue is not None
         while True:
             payload = captured_queue.get()
             try:
                 if payload is _STOP:
                     return
-                temp_path, index, total = payload
-                filename = os.path.basename(temp_path)
-                if progress_callback is not None:
-                    progress_callback(index, total, filename)
-                item_start = time.perf_counter()
-                try:
-                    _item_obj, added = processor.process_image_file(
-                        temp_path,
-                        filename,
-                        filter_adjacent_duplicates=False,
-                    )
-                    item_ms = (time.perf_counter() - item_start) * 1000.0
-                    log_perf(
-                        logger,
-                        "vision.item",
-                        elapsed_ms=item_ms,
-                        index=index,
-                        total=total,
-                        filename=filename,
-                        added=int(bool(added)),
-                        streaming=1,
-                    )
-                    if added:
-                        added_paths.append(final_path_for(filename))
-                        if auto_discard_grade and post_actions_config is None:
-                            state = "locked" if _drive_screenshot_is_locked(temp_path) else "normal"
-                        else:
-                            state = _equipment_screenshot_state(temp_path)
-                        if state != "normal":
-                            logger.info(f"识别到装备状态: {filename} -> {state}")
-                        parsed_items.append((index, _item_obj, state))
-                    else:
-                        duplicate_paths.append(final_path_for(filename))
-                        logger.info(f"相邻截图画面与解析数据均一致，按连拍重复过滤: {filename}")
-                except Exception as exc:
-                    item_ms = (time.perf_counter() - item_start) * 1000.0
-                    failed_paths.append(final_path_for(filename))
-                    log_perf(
-                        logger,
-                        "vision.item",
-                        elapsed_ms=item_ms,
-                        index=index,
-                        total=total,
-                        filename=filename,
-                        status="failed",
-                        streaming=1,
-                    )
-                    logger.error(f"解析失败: {filename} | {exc}")
+                process_payload(payload)
             except BaseException as exc:
                 parse_error.append(exc)
                 return
             finally:
                 captured_queue.task_done()
 
-    consumer = threading.Thread(target=parse_worker, name="NTEStreamingParse", daemon=True)
-    consumer.start()
+    consumer = None
+    if parse_during_scan:
+        logger.info("全量扫描解析模式: 边扫边解析。")
+        consumer = threading.Thread(target=parse_worker, name="NTEStreamingParse", daemon=True)
+        consumer.start()
+    elif low_load_mode:
+        logger.info("全量扫描解析模式: AMD实验性兼容，扫描完成后低负载解析截图。")
+    else:
+        logger.info("全量扫描解析模式: 低负载，扫描完成后再解析截图。")
 
     def on_capture(path: str, index: int, total: int) -> None:
-        captured_queue.put((path, index, total))
+        payload = (path, index, total)
+        if captured_queue is not None:
+            captured_queue.put(payload)
+        else:
+            captured_payloads.append(payload)
 
     captured_count = 0
     try:
@@ -235,12 +253,19 @@ def run_streaming_scan_parse(
             on_capture=on_capture,
             commit_on_complete=False,
         )
-        if not auto_discard_grade:
-            emit_scan_done(captured_count)
+        emit_scan_done(captured_count)
     finally:
-        captured_queue.put(_STOP)
-        captured_queue.join()
-        consumer.join()
+        if captured_queue is not None:
+            captured_queue.put(_STOP)
+            captured_queue.join()
+        if consumer is not None:
+            consumer.join()
+
+    if not parse_during_scan and captured_count == int(total_drives):
+        for payload in captured_payloads:
+            process_payload(payload)
+            if low_load_mode:
+                time.sleep(0.12)
 
     if parse_error:
         raise RuntimeError(f"流水线解析线程异常: {parse_error[0]}") from parse_error[0]
@@ -255,8 +280,10 @@ def run_streaming_scan_parse(
         success=len(added_paths),
         duplicate=len(duplicate_paths),
         failed=len(failed_paths),
+        pending=len(pending_manual_items),
         avg_ms=(parse_ms / captured_count) if captured_count else 0.0,
-        streaming=1,
+        streaming=int(bool(parse_during_scan)),
+        low_load=int(bool(low_load_mode)),
     )
     if parse_done_callback is not None:
         parse_done_callback()
@@ -266,6 +293,7 @@ def run_streaming_scan_parse(
     discard_locked_targets = []
     state_changes = []
     post_action_summary = summarize_state_changes([])
+    post_action_filter_summary = {}
     effective_post_config = post_actions_config or _legacy_discard_config(auto_discard_grade, auto_discard_lock_action)
     effective_post_config = merge_post_action_config(effective_post_config) if effective_post_config else None
     if cancel_check is not None and cancel_check():
@@ -276,6 +304,10 @@ def run_streaming_scan_parse(
             scoring = ScoringEngine(str(config_dir or "config"))
             if scoring.roles_db:
                 scoring.evaluate_global_inventory(processor.inventory)
+                post_action_filter_summary = summarize_post_action_filtering(
+                    parsed_items,
+                    effective_post_config,
+                )
                 state_changes = build_state_changes(
                     parsed_items,
                     effective_post_config,
@@ -284,7 +316,15 @@ def run_streaming_scan_parse(
                 )
                 logger.info(
                     f"扫描后管理评估完成: 捕获 {captured_count} 件，"
-                    f"成功解析 {len(parsed_items)} 件，目标变更 {len(state_changes)} 件。"
+                    f"成功解析 {len(parsed_items)} 件，"
+                    f"参与计算 {post_action_filter_summary.get('post_action_candidate_count', 0)} 件，"
+                    f"目标变更 {len(state_changes)} 件。"
+                )
+                logger.info(
+                    "扫描后管理过滤统计: "
+                    f"品质范围 {post_action_filter_summary.get('post_action_quality_filtered_count', 0)} 件，"
+                    f"处理类别 {post_action_filter_summary.get('post_action_type_filtered_count', 0)} 件，"
+                    f"类型范围 {post_action_filter_summary.get('post_action_type_range_filtered_count', 0)} 件。"
                 )
                 for change in state_changes:
                     logger.info(
@@ -292,75 +332,38 @@ def run_streaming_scan_parse(
                         f"{change.get('current_state')} -> {change.get('target_state')} "
                         f"quality={change.get('quality')} type={change.get('item_type')}"
                     )
-        elif auto_discard_grade:
-            discard_targets = _discard_target_indexes(
-                processor,
-                [(index, item, state == "locked") for index, item, state in parsed_items],
-                auto_discard_grade,
-                config_dir,
-                auto_discard_lock_action,
-            )
-            locked_indexes = {index for index, _item, state in parsed_items if state == "locked"}
-            discard_locked_targets = [index for index in discard_targets if index in locked_indexes]
         if getattr(processor, "inventory", None):
             processor._export_to_json()
         scanner._commit_temp_output()
-        if state_changes and hasattr(scanner, "sync_equipment_states"):
-            notify_post_action_ready()
-            applied_count = scanner.sync_equipment_states(total_drives, state_changes)
-            post_action_summary = summarize_state_changes(state_changes, applied_count)
-            if auto_discard_grade:
-                discard_targets = [
-                    change["index"] for change in state_changes if change.get("target_state") == "discarded"
-                ]
-                discard_marked = int(post_action_summary.get("discard_set_count", 0))
-                discard_locked_targets = [
-                    change["index"]
-                    for change in state_changes
-                    if change.get("target_state") == "discarded" and change.get("current_state") == "locked"
-                ]
-        elif state_changes:
-            discard_targets = [change["index"] for change in state_changes if change.get("target_state") == "discarded"]
-            locked_indexes = {
+        if state_changes:
+            discard_targets = [
+                change["index"] for change in state_changes if change.get("target_state") == "discarded"
+            ]
+            discard_locked_targets = [
                 change["index"]
                 for change in state_changes
-                if change.get("current_state") == "locked" and change.get("target_state") == "discarded"
-            }
-            discard_locked_targets = sorted(locked_indexes)
-            if discard_targets:
-                notify_post_action_ready()
-                try:
-                    discard_marked = scanner.mark_discard_by_indexes(
-                        total_drives,
-                        discard_targets,
-                        locked_indexes=locked_indexes,
-                    )
-                except TypeError:
-                    discard_marked = scanner.mark_discard_by_indexes(total_drives, discard_targets)
-            post_action_summary = summarize_state_changes(state_changes, discard_marked)
-        elif auto_discard_grade:
-            emit_scan_done(captured_count)
-            if discard_targets:
-                notify_post_action_ready()
-            if discard_locked_targets:
-                try:
-                    discard_marked = scanner.mark_discard_by_indexes(
-                        total_drives,
-                        discard_targets,
-                        locked_indexes=discard_locked_targets,
-                    )
-                except TypeError:
-                    discard_marked = scanner.mark_discard_by_indexes(total_drives, discard_targets)
-            else:
-                discard_marked = scanner.mark_discard_by_indexes(total_drives, discard_targets)
+                if change.get("target_state") == "discarded" and change.get("current_state") == "locked"
+            ]
+        if state_changes and hasattr(scanner, "sync_equipment_states"):
+            notify_post_action_ready()
+            action_mode = "hmt" if effective_post_config.get("server_region") == "hmt" else "default"
+            applied_count = scanner.sync_equipment_states(total_drives, state_changes, action_mode=action_mode)
+            post_action_summary = summarize_state_changes(state_changes, applied_count)
+            if auto_discard_grade:
+                discard_marked = int(post_action_summary.get("discard_set_count", 0))
+        elif state_changes:
+            logger.warning("扫描后管理目标已生成，但当前扫描器不支持状态同步，已跳过游戏内处理。")
+            post_action_summary = summarize_state_changes(state_changes, 0)
 
     stats = {
         "added_paths": added_paths,
         "duplicate_paths": duplicate_paths,
         "failed_paths": failed_paths,
+        "pending_manual_items": pending_manual_items,
         "success_count": len(added_paths),
         "duplicate_count": len(duplicate_paths),
         "failed_count": len(failed_paths),
+        "pending_manual_count": len(pending_manual_items),
         "total_count": captured_count,
         "parse_scope": "full",
         "auto_discard_grade": auto_discard_grade,
@@ -370,5 +373,6 @@ def run_streaming_scan_parse(
     }
     if effective_post_config and post_actions_enabled(effective_post_config):
         stats["post_actions_enabled"] = True
+        stats.update(post_action_filter_summary)
         stats.update(post_action_summary)
     return stats
