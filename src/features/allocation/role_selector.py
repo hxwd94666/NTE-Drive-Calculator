@@ -477,7 +477,7 @@ class RoleSelector(QWidget):
     def _manage_role_preferences(self, name):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{name} · 管理")
-        dlg.setMinimumSize(480, 320)
+        dlg.setMinimumSize(560, 320)
         if self._style_sheet:
             dlg.setStyleSheet(self._style_sheet)
         layout = QVBoxLayout(dlg)
@@ -529,8 +529,8 @@ class RoleSelector(QWidget):
         main_row.addWidget(add_main_btn)
         main_row.addWidget(clear_main_btn)
         main_label = QLabel()
-        main_label.setWordWrap(False)
-        main_label.setFixedHeight(32)
+        main_label.setWordWrap(True)
+        main_label.setMinimumHeight(32)
         main_label.setMinimumWidth(150)
         main_label.setStyleSheet(
             "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
@@ -583,8 +583,8 @@ class RoleSelector(QWidget):
         help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
 
         stat_label = QLabel()
-        stat_label.setWordWrap(False)
-        stat_label.setFixedHeight(32)
+        stat_label.setWordWrap(True)
+        stat_label.setMinimumHeight(32)
         stat_label.setMinimumWidth(150)
         stat_label.setStyleSheet(
             "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
@@ -594,10 +594,12 @@ class RoleSelector(QWidget):
         stat_layout.addWidget(stat_label)
 
         stat_option_row = QHBoxLayout()
-        stat_option_row.setSpacing(8)
+        stat_option_row.setSpacing(14)
         stat_equal = QCheckBox("词条自选优先级一致")
+        stat_equal.setMinimumWidth(160)
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
         ignore_grade_limit = QCheckBox("不限制评分等级")
+        ignore_grade_limit.setMinimumWidth(130)
         ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
         stat_option_row.addWidget(stat_equal)
         stat_option_row.addWidget(ignore_grade_limit)
@@ -920,11 +922,12 @@ PRIORITY_SAVE_HELP = (
 
 
 STAT_PRIORITY_HELP = (
-    "词条自选会让该角色优先挑选带有所选词条的驱动。\n\n"
-    "关闭“优先级一致”时，越靠前的词条优先级越高。\n"
-    "开启“优先级一致”时，优先选择命中词条数量更多的驱动。\n\n"
-    "默认只对评分达到 A 级的驱动生效，避免选到整体太差的装备。\n"
-    "勾选“不限制评分等级”后，只要命中自选词条，即使评分不到 A 也可以参与分配。"
+    "卡带主词条：只允许装配已选择的主词条；没有匹配卡带时不装卡带。\n\n"
+    "卡带/驱动副词条：让该角色优先使用带有所选副词条的驱动。\n"
+    "关闭“优先级一致”时，按选择顺序逐层优先，例如 A > B > C 会优先使用同时含 A+B+C、再含 A+B、再含 A 的驱动。\n"
+    "开启“优先级一致”时，优先使用命中副词条数量更多的驱动。\n\n"
+    "默认只对评分达到 A 级的驱动生效。\n"
+    "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。"
 )
 
 
