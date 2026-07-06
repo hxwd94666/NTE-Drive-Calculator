@@ -14,6 +14,7 @@ import time
 from PySide6.QtCore import QThread, Signal
 
 from src.scanner.batch_processor import BatchProcessor
+from src.features.inventory_import.duplicate_filter import RecoverableParseError
 from src.features.scanning.file_lifecycle import is_allowed_filename
 from src.utils.logger import logger
 from src.utils.perf import log_perf
@@ -91,6 +92,7 @@ class VisionWorkerThread(QThread):
             added_paths = []
             duplicate_paths = []
             failed_paths = []
+            pending_manual_items = []
             filter_adjacent_duplicates = self.parse_scope in INCREMENTAL_PARSE_SCOPES
             parse_start = time.perf_counter()
             for idx, filename in enumerate(image_files, 1):
@@ -120,6 +122,19 @@ class VisionWorkerThread(QThread):
                         logger.info(f"增量重复截图已过滤: {filename}")
                     else:
                         added_paths.append(file_path)
+                except RecoverableParseError as exc:
+                    item_ms = (time.perf_counter() - item_start) * 1000.0
+                    pending_manual_items.append(exc.to_record(file_path, filename))
+                    log_perf(
+                        logger,
+                        "vision.item",
+                        elapsed_ms=item_ms,
+                        index=idx,
+                        total=total,
+                        filename=filename,
+                        status="pending_manual",
+                    )
+                    logger.warning(f"解析待补录: {filename} | {exc}")
                 except Exception as exc:
                     item_ms = (time.perf_counter() - item_start) * 1000.0
                     failed_paths.append(file_path)
@@ -145,6 +160,7 @@ class VisionWorkerThread(QThread):
                 success=len(added_paths),
                 duplicate=len(duplicate_paths),
                 failed=len(failed_paths),
+                pending=len(pending_manual_items),
                 avg_ms=(parse_ms / total) if total else 0.0,
             )
             if self._cancel_requested:
@@ -165,6 +181,7 @@ class VisionWorkerThread(QThread):
                 success=len(added_paths),
                 duplicate=len(duplicate_paths),
                 failed=len(failed_paths),
+                pending=len(pending_manual_items),
             )
             logger.info("VisionWorkerThread: 即将发射 processing_done 信号")
             self.processing_done.emit(
@@ -172,9 +189,11 @@ class VisionWorkerThread(QThread):
                     "added_paths": added_paths,
                     "duplicate_paths": duplicate_paths,
                     "failed_paths": failed_paths,
+                    "pending_manual_items": pending_manual_items,
                     "success_count": len(added_paths),
                     "duplicate_count": len(duplicate_paths),
                     "failed_count": len(failed_paths),
+                    "pending_manual_count": len(pending_manual_items),
                     "total_count": total,
                     "parse_scope": self.parse_scope,
                 }
