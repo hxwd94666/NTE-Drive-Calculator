@@ -15,8 +15,16 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from src.ui.puzzle_board import PuzzleBoardWidget
 
-from .core import calc_equipment_bonus_stats, get_character_total_stats, calc_base_damage, get_valid_drives, is_empty_drive
-from .dao import load_real_inventory, load_my_roles
+from .core import (
+    calc_equipment_bonus_stats,
+    get_character_total_stats,
+    calc_base_damage,
+    calc_marginal_benefits,
+    apply_margins_to_weights,
+    get_valid_drives,
+    is_empty_drive,
+)
+from .dao import load_real_inventory, load_my_roles, load_stats
 from .equipment_import import set_bonus_from_tape_source, tape_equipment_from_source
 
 
@@ -313,6 +321,29 @@ def _score_tape(window, role_name: str, tape: dict, weights: dict) -> tuple[floa
     return score, grade
 
 
+def _role_scoring_weights(window, role_name: str, role_data: dict | None = None) -> dict:
+    roles_db = getattr(window, "roles_db", {}) or {}
+    role_config = roles_db.get(role_name, {}) if isinstance(roles_db, dict) else {}
+    role_weights = role_config.get("weights") if isinstance(role_config, dict) else None
+    base_weights = dict(role_weights) if isinstance(role_weights, dict) else {}
+
+    if isinstance(role_data, dict) and base_weights:
+        try:
+            _base_damage, margins = calc_marginal_benefits(get_character_total_stats(role_data))
+            if margins:
+                dynamic_weights = dict(base_weights)
+                stats_config = load_stats()
+                alias_map = stats_config.get("benefit_alias_mapping", {})
+                apply_margins_to_weights(dynamic_weights, margins, alias_map)
+                return dynamic_weights
+        except Exception:
+            pass
+
+    if base_weights:
+        return base_weights
+    return {}
+
+
 def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid_drives, role_data):
     """构建驱动详情弹窗的内容（可被刷新复用）"""
     while layout.count():
@@ -357,7 +388,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
     if isinstance(tape_data, dict) and tape_data.get("uid"):
         group = QGroupBox("卡带")
         group_layout = QVBoxLayout(group)
-        weights = role_data.get("weights", {})
+        weights = _role_scoring_weights(window, role_name, role_data)
         score, grade = _score_tape(window, role_name, tape_data, weights)
         tape_margin = _calc_tape_margin(role_data)
 
@@ -394,7 +425,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
     if all_drives:
         group = QGroupBox(f"驱动 ({len(all_drives)}个)")
         group_layout = QVBoxLayout(group)
-        weights = role_data.get("weights", {})
+        weights = _role_scoring_weights(window, role_name, role_data)
 
         for d in all_drives:
             quality = d.get("quality", "Gold")
