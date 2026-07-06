@@ -24,7 +24,7 @@ from src.app.constants import (
     NETDISK_DOWNLOAD_LINKS,
     QUARK_NETDISK_URL,
 )
-from src.app.theme import STYLE, apply_dark_palette
+from src.app.theme import STYLE, apply_dark_palette, install_dialog_defaults
 
 BUNDLED_CONFIG_DIR = ROOT / "config"
 ASSET_DIR = ROOT / "assets"
@@ -216,12 +216,18 @@ class MainWindow(QMainWindow):
     log_signal=Signal(str); identify_capture_signal=Signal(str); identify_capture_done_signal=Signal(); W,H=1260,860
 
     def __init__(self):
-        super().__init__(); self.setWindowTitle("NTE Drive Calc"); self.resize(self.W,self.H); self.setMinimumSize(1000,700)
+        super().__init__(); self.setWindowTitle("NTE Drive Calc")
+        screen_geo=QApplication.primaryScreen().availableGeometry()
+        initial_w=min(self.W,max(640,screen_geo.width()-80))
+        initial_h=min(self.H,max(480,screen_geo.height()-80))
+        min_w=min(1000,max(640,screen_geo.width()-120))
+        min_h=min(700,max(480,screen_geo.height()-120))
+        self.resize(initial_w,initial_h); self.setMinimumSize(min_w,min_h)
         if APP_ICON_PATH.exists():
             self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.setWindowFlags(Qt.FramelessWindowHint); self.setAttribute(Qt.WA_TranslucentBackground,False)
         self._drag_pos:Optional[QPoint]=None; self._resize_margin=8
-        screen=QApplication.primaryScreen().geometry(); self.move((screen.width()-self.W)//2,(screen.height()-self.H)//2)
+        self.move(screen_geo.x()+(screen_geo.width()-initial_w)//2,screen_geo.y()+(screen_geo.height()-initial_h)//2)
         self.roles_db:dict={}; self.sets_db:dict={}; self.all_set_names:list[str]=[]; self.tape_main_stats:list[str]=[]; self.stats_config:dict={}
         self.equipped_state:dict={}; self.final_plan=None; self._allocation_dirty=False; self._shape_areas:dict={}
         self.scoring_engine=None
@@ -262,13 +268,30 @@ class MainWindow(QMainWindow):
 
     def _load_ui_preferences(self):
         path=USER_CONFIG_DIR/"ui_preferences.json"
-        default={"skip_unsaved_allocation_prompt":False}
+        default={
+            "skip_unsaved_allocation_prompt":False,
+            "full_scan_dual_thread_processing":True,
+            "full_scan_discrete_gpu_acceleration":False,
+            "full_scan_amd_compatibility":False,
+        }
         try:
             data=read_json(path, default={}) or {}
             if isinstance(data,dict):
                 default["skip_unsaved_allocation_prompt"]=bool(data.get("skip_unsaved_allocation_prompt",False))
+                default["full_scan_dual_thread_processing"]=bool(
+                    data.get("full_scan_dual_thread_processing",True)
+                )
+                default["full_scan_discrete_gpu_acceleration"]=bool(
+                    data.get("full_scan_discrete_gpu_acceleration",False)
+                )
+                default["full_scan_amd_compatibility"]=bool(
+                    data.get("full_scan_amd_compatibility",False)
+                )
         except Exception:
             pass
+        if default.get("full_scan_amd_compatibility"):
+            default["full_scan_dual_thread_processing"]=False
+            default["full_scan_discrete_gpu_acceleration"]=False
         return default
 
     def _save_ui_preferences(self):
@@ -837,6 +860,7 @@ def run_gui():
         QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
     app=QApplication(sys.argv); app.setStyle("Fusion"); app.setStyleSheet(STYLE)
     apply_dark_palette(app)
+    install_dialog_defaults(app)
     if APP_ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     w=MainWindow(); w.show(); sys.exit(app.exec())
