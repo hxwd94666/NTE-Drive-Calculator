@@ -1,6 +1,7 @@
 # 使用虚拟手柄执行自动背包扫描。
 """Full inventory scanner driven by the virtual gamepad controller."""
 
+import gc
 import os
 import shutil
 import time
@@ -17,7 +18,9 @@ MOVE_HOLD_SECONDS = 0.10
 MOVE_SETTLE_SECONDS = 0.25
 ROW_DOWN_HOLD_SECONDS = 0.15
 ROW_DOWN_SETTLE_SECONDS = 0.30
-TAB_REFRESH_SETTLE_SECONDS = 1.00
+DETAIL_REFRESH_MOVE_SETTLE_SECONDS = 0.30
+DETAIL_REFRESH_ENTER_SETTLE_SECONDS = 3.00
+DETAIL_REFRESH_RETURN_SETTLE_SECONDS = 2.00
 EQUIPMENT_SWITCH_SETTLE_SECONDS = 0.10
 LOCK_DISCARD_CONFIRM_SECONDS = 0.60
 ACTION_MENU_SETTLE_SECONDS = 0.30
@@ -55,6 +58,7 @@ class GamepadScanner:
         os.makedirs(self.output_dir, exist_ok=True)
         self._stopped = False
         self.cols = 7
+        self._closed = False
 
         logger.info("正在连接虚拟 Xbox 360 手柄...")
         try:
@@ -69,6 +73,26 @@ class GamepadScanner:
             raise
         time.sleep(2)
         logger.success("虚拟手柄连接完成")
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        gamepad = getattr(self, "gamepad", None)
+        if gamepad is None:
+            return
+        try:
+            try:
+                gamepad.reset()
+                gamepad.update()
+            except Exception as exc:
+                logger.debug(f"虚拟手柄归零失败，继续释放: {exc}")
+        finally:
+            self.gamepad = None
+            self._buttons = None
+            del gamepad
+            gc.collect()
+            logger.info("虚拟 Xbox 360 手柄已释放")
 
     def emergency_stop(self):
         logger.error("\n" + "!" * 50)
@@ -149,14 +173,27 @@ class GamepadScanner:
     def _press_b(self):
         self._press_button(self._buttons.XUSB_GAMEPAD_B)
 
+    def _press_y(self):
+        self._press_button(self._buttons.XUSB_GAMEPAD_Y)
+
     def _press_menu(self):
         self._press_button(self._buttons.XUSB_GAMEPAD_START)
 
     def _press_lb(self):
+        logger.info("发送手柄键: LB")
         self._press_button(self._buttons.XUSB_GAMEPAD_LEFT_SHOULDER)
 
     def _press_rb(self):
+        logger.info("发送手柄键: RB")
         self._press_button(self._buttons.XUSB_GAMEPAD_RIGHT_SHOULDER)
+
+    def _press_dpad_left(self):
+        logger.info("发送手柄键: 十字左")
+        self._press_button(self._buttons.XUSB_GAMEPAD_DPAD_LEFT)
+
+    def _press_dpad_right(self):
+        logger.info("发送手柄键: 十字右")
+        self._press_button(self._buttons.XUSB_GAMEPAD_DPAD_RIGHT)
 
     def _toggle_action_menu(self):
         self._press_menu()
@@ -227,71 +264,14 @@ class GamepadScanner:
             commands.append(moves)
         return commands
 
-    def mark_discard_by_indexes(
-        self,
-        total_drives: int,
-        target_indexes: list[int],
-        locked_indexes: list[int] | set[int] | None = None,
-    ) -> int:
-        targets = sorted(
-            {int(index) for index in target_indexes if 1 <= int(index) <= int(total_drives)},
-        )
-        if not targets:
-            return 0
-        locked_targets = {int(index) for index in (locked_indexes or [])}
-
-        row_count = (int(total_drives) + self.cols - 1) // self.cols
-        self._apply_moves(["U"] * row_count + ["L"] * (self.cols - 1))
-
-        positions = self._scan_positions(int(total_drives))
-        curr_row, curr_col = 0, 0
-        marked = 0
-
-        def moves_to(index: int) -> list[str]:
-            nonlocal curr_row, curr_col
-            target_row, target_col = positions[index - 1]
-            moves = []
-            while curr_row > target_row:
-                moves.append("U")
-                curr_row -= 1
-            while curr_row < target_row:
-                moves.append("D")
-                curr_row += 1
-            while curr_col < target_col:
-                moves.append("R")
-                curr_col += 1
-            while curr_col > target_col:
-                moves.append("L")
-                curr_col -= 1
-            return moves
-
-        logger.warning(f"准备标记弃置 {len(targets)} 个低分驱动，请保持游戏背包界面不动。")
-        for index in targets:
-            if self._stopped:
-                break
-            moves = moves_to(index)
-            self._move_between_equipment(moves)
-            self._settle_before_action_menu(bool(moves))
-            if index in locked_targets:
-                self._toggle_action_menu()
-                self._press_a()
-                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
-                self._press_a()
-                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
-                self._toggle_action_menu()
-            else:
-                self._toggle_action_menu()
-                self._confirm_action()
-                self._toggle_action_menu()
-            marked += 1
-            logger.info(f"已标记弃置: raw_drive_{index:04d}")
-        return marked
-
     def _refresh_to_first_item(self):
-        self._press_lb()
-        time.sleep(TAB_REFRESH_SETTLE_SECONDS)
-        self._press_rb()
-        time.sleep(TAB_REFRESH_SETTLE_SECONDS)
+        logger.info("发送详情页回跳定位: D -> Y -> B")
+        self._apply_moves(["D"])
+        time.sleep(DETAIL_REFRESH_MOVE_SETTLE_SECONDS)
+        self._press_y()
+        time.sleep(DETAIL_REFRESH_ENTER_SETTLE_SECONDS)
+        self._press_b()
+        time.sleep(DETAIL_REFRESH_RETURN_SETTLE_SECONDS)
 
     def _sync_selected_equipment_state(self, current_state: str, target_state: str) -> bool:
         current_state = current_state if current_state in {"normal", "locked", "discarded"} else "normal"
@@ -320,7 +300,35 @@ class GamepadScanner:
         self._toggle_action_menu()
         return True
 
-    def sync_equipment_states(self, total_drives: int, state_changes: list[dict]) -> int:
+    def _sync_selected_equipment_state_hmt(self, current_state: str, target_state: str) -> bool:
+        current_state = current_state if current_state in {"normal", "locked", "discarded"} else "normal"
+        target_state = target_state if target_state in {"normal", "locked", "discarded"} else "normal"
+        if current_state == target_state:
+            return False
+        if target_state == "discarded":
+            self._press_dpad_left()
+            if current_state == "locked" and target_state == "discarded":
+                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+                self._press_a()
+                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+            else:
+                time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+            return True
+        if target_state == "locked":
+            self._press_dpad_right()
+            time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+            return True
+        if current_state == "discarded":
+            self._press_dpad_left()
+            time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+            return True
+        if current_state == "locked":
+            self._press_dpad_right()
+            time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+            return True
+        return False
+
+    def sync_equipment_states(self, total_drives: int, state_changes: list[dict], action_mode: str = "default") -> int:
         changes = sorted(
             (
                 change
@@ -359,6 +367,7 @@ class GamepadScanner:
         logger.warning(f"准备同步 {len(changes)} 个装备状态，请保持游戏背包界面不动。")
         for change in changes:
             if self._stopped:
+                logger.warning(f"状态同步已停止，本次已处理 {applied}/{len(changes)} 个目标。")
                 break
             index = int(change["index"])
             moves = moves_to(index)
@@ -368,7 +377,11 @@ class GamepadScanner:
                 f"准备同步状态: raw_drive_{index:04d} "
                 f"{change.get('current_state')} -> {change.get('target_state')}"
             )
-            if self._sync_selected_equipment_state(change.get("current_state"), change.get("target_state")):
+            if action_mode == "hmt":
+                changed = self._sync_selected_equipment_state_hmt(change.get("current_state"), change.get("target_state"))
+            else:
+                changed = self._sync_selected_equipment_state(change.get("current_state"), change.get("target_state"))
+            if changed:
                 applied += 1
                 logger.info(
                     f"已同步状态: raw_drive_{index:04d} "
