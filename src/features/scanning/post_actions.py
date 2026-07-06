@@ -16,6 +16,7 @@ DEFAULT_EXCLUDED_SHAPE_IDS = {"H_2", "V_2"}
 DEFAULT_EXCLUDED_SET_NAMES = {"音速蓝刺猬", "音速索尼克"}
 
 DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
+    "server_region": "default",
     "discard": {
         "enabled": False,
         "grade": "S",
@@ -49,6 +50,8 @@ def merge_post_action_config(raw: dict | None) -> dict[str, Any]:
     config = default_post_action_config()
     if not isinstance(raw, dict):
         return config
+    if raw.get("server_region") in {"default", "hmt"}:
+        config["server_region"] = raw["server_region"]
     for module_name in ("discard", "lock"):
         module = raw.get(module_name)
         if isinstance(module, dict):
@@ -57,8 +60,11 @@ def merge_post_action_config(raw: dict | None) -> dict[str, Any]:
 
 
 def normalize_post_action_config(config: dict[str, Any]) -> dict[str, Any]:
-    config = merge_post_action_config(config) if set(config.keys()) != {"discard", "lock"} else copy.deepcopy(config)
-    for module_name, default_module in DEFAULT_POST_ACTION_CONFIG.items():
+    config = merge_post_action_config(config) if not {"discard", "lock"}.issubset(set(config.keys())) else copy.deepcopy(config)
+    if config.get("server_region") not in {"default", "hmt"}:
+        config["server_region"] = "default"
+    for module_name in ("discard", "lock"):
+        default_module = DEFAULT_POST_ACTION_CONFIG[module_name]
         module = config.setdefault(module_name, copy.deepcopy(default_module))
         module["enabled"] = bool(module.get("enabled", False))
         if module.get("grade") not in GRADE_ORDER:
@@ -155,6 +161,48 @@ def _module_matches_item(item: BaseEquipment, module_config: dict) -> bool:
         )
         and _type_range_matches(item, module_config)
     )
+
+
+def summarize_post_action_filtering(
+    parsed_items: list[tuple[int, BaseEquipment, str]],
+    config: dict[str, Any],
+) -> dict[str, int]:
+    config = merge_post_action_config(config)
+    enabled_modules = [
+        module for module in (config["discard"], config["lock"])
+        if module.get("enabled")
+    ]
+    summary = {
+        "post_action_parsed_count": len(parsed_items),
+        "post_action_candidate_count": 0,
+        "post_action_quality_filtered_count": 0,
+        "post_action_type_filtered_count": 0,
+        "post_action_type_range_filtered_count": 0,
+    }
+    if not enabled_modules:
+        return summary
+
+    for _index, item, _current_state in parsed_items:
+        if any(_module_matches_item(item, module) for module in enabled_modules):
+            summary["post_action_candidate_count"] += 1
+            continue
+        if any(
+            _quality_matches(item, module.get("quality_scope", "all"))
+            and _type_matches(item, module.get("type_scope", "all"))
+            and not _type_range_matches(item, module)
+            for module in enabled_modules
+        ):
+            summary["post_action_type_range_filtered_count"] += 1
+            continue
+        if any(
+            _quality_matches(item, module.get("quality_scope", "all"))
+            and not _type_matches(item, module.get("type_scope", "all"))
+            for module in enabled_modules
+        ):
+            summary["post_action_type_filtered_count"] += 1
+            continue
+        summary["post_action_quality_filtered_count"] += 1
+    return summary
 
 
 def _state_action_allowed(current_state: str, module_config: dict) -> bool:
