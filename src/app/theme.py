@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+import ctypes
+import sys
+
+from PySide6.QtCore import QObject, QEvent
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMessageBox
 
 GRADE_COLORS = {"ACE": "#ffa726", "SSS": "#ffa726", "SS": "#f0883e", "S": "#f0883e", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
 GRADE_BGS = {"ACE": "#ffa72630", "SSS": "#ffa72620", "SS": "#f0883e18", "S": "#f0883e18", "A": "#7ec8e318", "B": "#5b9bd515", "C": "#4a7fb512", "D": "#3d5a8010"}
@@ -96,3 +100,72 @@ def apply_dark_palette(app: QApplication) -> None:
     palette.setColor(QPalette.Highlight, QColor("#1f6feb"))
     palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
     app.setPalette(palette)
+
+
+def _standard_button_value(button) -> int:
+    return int(getattr(button, "value", button))
+
+
+STANDARD_BUTTON_TEXT = {
+    _standard_button_value(QDialogButtonBox.Ok): "确定",
+    _standard_button_value(QDialogButtonBox.Cancel): "取消",
+    _standard_button_value(QDialogButtonBox.Save): "保存",
+    _standard_button_value(QDialogButtonBox.Close): "关闭",
+    _standard_button_value(QDialogButtonBox.Yes): "是",
+    _standard_button_value(QDialogButtonBox.No): "否",
+    _standard_button_value(QDialogButtonBox.Discard): "放弃",
+    _standard_button_value(QDialogButtonBox.Apply): "应用",
+    _standard_button_value(QDialogButtonBox.Reset): "重置",
+    _standard_button_value(QDialogButtonBox.Open): "打开",
+}
+
+
+def apply_dark_title_bar(widget) -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        hwnd = int(widget.winId())
+        value = ctypes.c_int(1)
+        dwm = ctypes.windll.dwmapi
+        # Windows 11 uses 20; older Windows 10 builds use 19.
+        for attribute in (20, 19):
+            if dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+                break
+    except Exception:
+        return
+
+
+def localize_standard_buttons(widget) -> None:
+    for box in widget.findChildren(QDialogButtonBox):
+        for button in box.buttons():
+            text = STANDARD_BUTTON_TEXT.get(_standard_button_value(box.standardButton(button)))
+            if text:
+                button.setText(text)
+    if isinstance(widget, QMessageBox):
+        for button in widget.buttons():
+            try:
+                standard = widget.standardButton(button)
+            except Exception:
+                continue
+            text = STANDARD_BUTTON_TEXT.get(_standard_button_value(standard))
+            if text:
+                button.setText(text)
+
+
+class _DialogPolishFilter(QObject):
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Show and isinstance(obj, QDialog):
+            if not obj.property("_nte_dialog_style_applied"):
+                obj.setProperty("_nte_dialog_style_applied", True)
+                obj.setStyleSheet(STYLE + "\n" + obj.styleSheet())
+            localize_standard_buttons(obj)
+            apply_dark_title_bar(obj)
+        return False
+
+
+def install_dialog_defaults(app: QApplication) -> None:
+    if getattr(app, "_nte_dialog_defaults_installed", False):
+        return
+    app._nte_dialog_defaults_installed = True
+    app._nte_dialog_polish_filter = _DialogPolishFilter(app)
+    app.installEventFilter(app._nte_dialog_polish_filter)
