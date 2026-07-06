@@ -16,6 +16,15 @@ from src.utils.logger import logger
 from src.utils.perf import log_perf
 
 
+def _close_scanner(scanner):
+    if scanner is None or not hasattr(scanner, "close"):
+        return
+    try:
+        scanner.close()
+    except Exception as exc:
+        logger.warning(f"释放虚拟手柄失败: {exc}")
+
+
 class WorkerThread(QThread):
     result_ready = Signal(object)
     error = Signal(str)
@@ -91,6 +100,8 @@ class GamepadScanWorkerThread(QThread):
         except Exception as exc:
             logger.error(f"GamepadScanWorker 异常: {exc}")
             self.error.emit(str(exc))
+        finally:
+            _close_scanner(self.scanner)
 
 
 class GamepadScanParseWorkerThread(QThread):
@@ -110,6 +121,9 @@ class GamepadScanParseWorkerThread(QThread):
         auto_discard_lock_action="skip",
         post_actions_config=None,
         selected_roles=None,
+        parse_during_scan=True,
+        discrete_gpu_acceleration=False,
+        amd_compatibility=False,
     ):
         super().__init__(parent)
         self.total_drives = total_drives
@@ -117,6 +131,9 @@ class GamepadScanParseWorkerThread(QThread):
         self.auto_discard_lock_action = auto_discard_lock_action
         self.post_actions_config = post_actions_config
         self.selected_roles = list(selected_roles or [])
+        self.amd_compatibility = bool(amd_compatibility)
+        self.parse_during_scan = bool(parse_during_scan) and not self.amd_compatibility
+        self.discrete_gpu_acceleration = bool(discrete_gpu_acceleration) and not self.amd_compatibility
         self.scanner = None
         self._post_actions_ready_event = threading.Event()
 
@@ -128,7 +145,7 @@ class GamepadScanParseWorkerThread(QThread):
         self.post_actions_ready.emit()
         if not self._post_actions_ready_event.wait(timeout=5.0):
             logger.warning("等待扫描后管理前台切换确认超时，将继续执行状态同步。")
-        time.sleep(1.0)
+        time.sleep(2.0)
 
     def run(self):
         worker_start = time.perf_counter()
@@ -144,6 +161,11 @@ class GamepadScanParseWorkerThread(QThread):
                 output_file=str(runtime.OUTPUT_FILE),
                 config_dir=str(runtime.CONFIG_DIR),
                 replace_output=True,
+                ocr_backend_preference=(
+                    "amd_compat"
+                    if self.amd_compatibility
+                    else ("directml" if self.discrete_gpu_acceleration else "openvino")
+                ),
             )
             init_ms = (time.perf_counter() - init_start) * 1000.0
             log_perf(
@@ -152,7 +174,9 @@ class GamepadScanParseWorkerThread(QThread):
                 elapsed_ms=init_ms,
                 scope="full",
                 replace_output=1,
-                streaming=1,
+                streaming=int(self.parse_during_scan),
+                discrete_gpu=int(self.discrete_gpu_acceleration),
+                amd_compat=int(self.amd_compatibility),
             )
             stats = run_streaming_scan_parse(
                 self.scanner,
@@ -168,6 +192,8 @@ class GamepadScanParseWorkerThread(QThread):
                 post_actions_config=self.post_actions_config,
                 selected_roles=self.selected_roles,
                 config_dir=str(runtime.CONFIG_DIR),
+                parse_during_scan=self.parse_during_scan,
+                low_load_mode=self.amd_compatibility,
             )
             if int(stats.get("total_count", 0) or 0) != int(self.total_drives):
                 raise RuntimeError("全量扫描未完整结束，流水线解析结果未写入库存。")
@@ -181,7 +207,9 @@ class GamepadScanParseWorkerThread(QThread):
                 success=stats.get("success_count", 0),
                 duplicate=stats.get("duplicate_count", 0),
                 failed=stats.get("failed_count", 0),
-                streaming=1,
+                streaming=int(self.parse_during_scan),
+                discrete_gpu=int(self.discrete_gpu_acceleration),
+                amd_compat=int(self.amd_compatibility),
             )
             self.processing_done.emit(stats)
         except (FileNotFoundError, OSError) as exc:
@@ -195,3 +223,5 @@ class GamepadScanParseWorkerThread(QThread):
             err_detail = f"{exc}\n\n{tb.format_exc()}"
             logger.error(f"GamepadScanParseWorker 异常: {err_detail}")
             self.error.emit(str(exc))
+        finally:
+            _close_scanner(self.scanner)

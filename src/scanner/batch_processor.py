@@ -50,7 +50,14 @@ class BatchProcessor:
     """全自动离线批处理管线，支持增量归档"""
     DRIVE_TYPE_CONFIDENCE = 0.86
 
-    def __init__(self, input_dir: str = "scanned_images", output_file: str = "config/real_inventory.json", config_dir: str = "config", replace_output: bool = False):
+    def __init__(
+        self,
+        input_dir: str = "scanned_images",
+        output_file: str = "config/real_inventory.json",
+        config_dir: str = "config",
+        replace_output: bool = False,
+        ocr_backend_preference: str | None = None,
+    ):
         self.input_dir = input_dir
         self.output_file = output_file
         self.replace_output = replace_output
@@ -64,7 +71,7 @@ class BatchProcessor:
         logger.info("=" * 60)
 
         self.shape_recognizer = ShapeRecognizer(template_dir=os.path.join(config_dir, "templates"))
-        self.ocr_engine = OCREngine()
+        self.ocr_engine = OCREngine(backend_preference=ocr_backend_preference)
         self.parser = DriveDataParser(config_dir=config_dir)
         self.inventory = []
         self.successful_image_paths = []
