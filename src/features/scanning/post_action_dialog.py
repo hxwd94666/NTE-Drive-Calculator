@@ -257,6 +257,14 @@ class ScanPostActionDialog(QDialog):
         modules.addWidget(self._build_module_panel("lock", "锁定模块", "最高评分高于等于"), 1)
         root.addLayout(modules)
 
+        footer = QHBoxLayout()
+        self.hmt_region_check = QCheckBox("港澳台服")
+        self.hmt_region_check.setChecked(self.config.get("server_region") == "hmt")
+        self.hmt_region_check.setToolTip("开启后，扫描后弃置/锁定使用港澳台服的十字键左右直控方式。")
+        footer.addWidget(self.hmt_region_check)
+        footer.addStretch()
+        root.addLayout(footer)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
@@ -388,6 +396,7 @@ class ScanPostActionDialog(QDialog):
 
     def _collect_config(self) -> dict:
         config = default_post_action_config()
+        config["server_region"] = "hmt" if self.hmt_region_check.isChecked() else "default"
         for key, widgets in self._widgets.items():
             module = config[key]
             module["enabled"] = widgets["enabled"].isChecked()
