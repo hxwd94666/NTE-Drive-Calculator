@@ -362,42 +362,55 @@ def render_roles_form(window, data, active_role=None):
         set_board_locked(True)
         form_layout.addWidget(board_widget)
 
-        weights_header = QHBoxLayout()
-        weights_header.addWidget(QLabel("词条权重:"))
-        weights_header.addStretch()
-        add_weight_btn = QPushButton("+ 添加词条")
-        add_weight_btn.setObjectName("btnAction")
-        add_weight_btn.clicked.connect(
-            lambda checked=False, rn=role_name: window._add_weight(rn, data, lambda active=rn: rebuild_all_tabs(active))
-        )
-        weights_header.addWidget(add_weight_btn)
-        form_layout.addLayout(weights_header)
-
-        weights = role_data.get("weights", {})
-        for weight_key in sorted(weights.keys()):
-            weight_row = QHBoxLayout()
-            weight_row.setSpacing(6)
-            weight_row.addWidget(QLabel(weight_key))
-            spin = NoWheelDoubleSpinBox()
-            spin.setRange(0, 10)
-            spin.setSingleStep(0.05)
-            spin.setValue(float(weights[weight_key]))
-            spin.setDecimals(3)
-            spin.setKeyboardTracking(False)
-            spin.editingFinished.connect(
-                lambda rn=role_name, k=weight_key, s=spin: window._save_role_weight_value(rn, k, s.value(), data)
-            )
-            weight_row.addWidget(spin)
-            del_weight_btn = QPushButton("×")
-            del_weight_btn.setObjectName("btnSm")
-            del_weight_btn.setFixedSize(28, 28)
-            del_weight_btn.clicked.connect(
-                lambda checked=False, rn=role_name, k=weight_key: window._del_weight(
-                    rn, k, data, lambda active=rn: rebuild_all_tabs(active)
+        def add_weight_group(title, field_name, add_label):
+            weights_header = QHBoxLayout()
+            weights_header.addWidget(QLabel(f"{title}:"))
+            weights_header.addStretch()
+            add_weight_btn = QPushButton(add_label)
+            add_weight_btn.setObjectName("btnAction")
+            add_weight_btn.clicked.connect(
+                lambda checked=False, rn=role_name, field=field_name: window._add_weight(
+                    rn, data, lambda active=rn: rebuild_all_tabs(active), field
                 )
             )
-            weight_row.addWidget(del_weight_btn)
-            form_layout.addLayout(weight_row)
+            weights_header.addWidget(add_weight_btn)
+            form_layout.addLayout(weights_header)
+
+            weights = role_data.get(field_name, {}) or {}
+            if not weights:
+                empty_label = QLabel("暂无配置")
+                empty_label.setStyleSheet("color:#8b949e;font-size:12px")
+                form_layout.addWidget(empty_label)
+                return
+            for weight_key in sorted(weights.keys()):
+                weight_row = QHBoxLayout()
+                weight_row.setSpacing(6)
+                weight_row.addWidget(QLabel(weight_key))
+                spin = NoWheelDoubleSpinBox()
+                spin.setRange(0, 10)
+                spin.setSingleStep(0.05)
+                spin.setValue(float(weights[weight_key]))
+                spin.setDecimals(3)
+                spin.setKeyboardTracking(False)
+                spin.editingFinished.connect(
+                    lambda rn=role_name, k=weight_key, s=spin, field=field_name: window._save_role_weight_value(
+                        rn, k, s.value(), data, field
+                    )
+                )
+                weight_row.addWidget(spin)
+                del_weight_btn = QPushButton("×")
+                del_weight_btn.setObjectName("btnSm")
+                del_weight_btn.setFixedSize(28, 28)
+                del_weight_btn.clicked.connect(
+                    lambda checked=False, rn=role_name, k=weight_key, field=field_name: window._del_weight(
+                        rn, k, data, lambda active=rn: rebuild_all_tabs(active), field
+                    )
+                )
+                weight_row.addWidget(del_weight_btn)
+                form_layout.addLayout(weight_row)
+
+        add_weight_group("副词条权重", "weights", "+ 添加副词条")
+        add_weight_group("卡带主词条权重", "main_weights", "+ 添加主词条")
         form_layout.addStretch()
 
     def load_current_tab():
@@ -540,19 +553,32 @@ def config_add_item(window, config_dir):
         add_set(window, data, config_dir)
 
 
-def add_weight(window, rn, data, cb, config_dir):
+def _main_weight_choice_pool(config_dir):
+    stats_path = config_dir / "stats.json"
+    if not stats_path.exists():
+        return []
+    catalog = StatCatalog.from_config_dir(config_dir)
+    pool = list(catalog.tape_main_stats or [])
+    pool.extend((catalog.tape_main_values or {}).keys())
+    return sorted(s for s in dict.fromkeys(str(stat).strip() for stat in pool if str(stat).strip()))
+
+
+def add_weight(window, rn, data, cb, config_dir, weight_field="weights"):
     stats_path = config_dir / "stats.json"
     pool = []
     if stats_path.exists():
-        pool = StatCatalog.from_config_dir(config_dir).weight_choice_pool()
-    existing = set(data[rn].get("weights", {}).keys())
+        if weight_field == "main_weights":
+            pool = _main_weight_choice_pool(config_dir)
+        else:
+            pool = StatCatalog.from_config_dir(config_dir).weight_choice_pool()
+    existing = set(data[rn].get(weight_field, {}).keys())
     available = [s for s in pool if s not in existing]
     if not available:
         QMessageBox.information(window, "提示", "所有词条已添加。")
         return
     name, ok = QInputDialog.getItem(window, "添加词条", "选择词条:", available, 0, False)
     if ok and name.strip():
-        data[rn].setdefault("weights", {})[name.strip()] = 0.5
+        data[rn].setdefault(weight_field, {})[name.strip()] = 0.5
         save_config_data(window, data, config_dir)
         cb()
 
@@ -585,9 +611,9 @@ def save_single_extra_shape_buff(window, rn, raw_stat, value, data, config_dir):
     save_config_data(window, data, config_dir)
 
 
-def save_role_weight_value(window, rn, key, value, data, config_dir):
-    if rn in data and key in data[rn].get("weights", {}):
-        data[rn]["weights"][key] = round(float(value), 3)
+def save_role_weight_value(window, rn, key, value, data, config_dir, weight_field="weights"):
+    if rn in data and key in data[rn].get(weight_field, {}):
+        data[rn][weight_field][key] = round(float(value), 3)
         save_config_data(window, data, config_dir)
 
 
@@ -631,9 +657,9 @@ def save_role_field(window, rn, key, value, data, config_dir):
     save_config_data(window, data, config_dir)
 
 
-def del_weight(window, rn, key, data, cb, config_dir):
-    if rn in data and key in data[rn].get("weights", {}):
-        del data[rn]["weights"][key]
+def del_weight(window, rn, key, data, cb, config_dir, weight_field="weights"):
+    if rn in data and key in data[rn].get(weight_field, {}):
+        del data[rn][weight_field][key]
         save_config_data(window, data, config_dir)
         cb()
 
@@ -649,6 +675,7 @@ def add_role(window, data, config_dir):
             "extra_shape_buffs": {},
             "board_matrix": [[0] * 5 for _ in range(5)],
             "weights": {},
+            "main_weights": {},
         }
         save_config_data(window, data, config_dir)
         switch_config_form(window, "roles.json", config_dir, use_draft=True, active_role=role_name)
