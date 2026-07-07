@@ -586,8 +586,8 @@ class MainWindow(QMainWindow):
     def _config_add_item(self):
         return config_add_config_item(self,CONFIG_DIR)
 
-    def _add_weight(self,rn,data,cb):
-        return config_add_weight(self,rn,data,cb,CONFIG_DIR)
+    def _add_weight(self,rn,data,cb,weight_field="weights"):
+        return config_add_weight(self,rn,data,cb,CONFIG_DIR,weight_field)
 
     def _stat_choice_pool(self):
         return config_stat_choice_pool(self)
@@ -608,8 +608,8 @@ class MainWindow(QMainWindow):
             self._save_config_data(data)
             cb()
 
-    def _save_role_weight_value(self,rn,key,value,data):
-        return config_save_role_weight_value(self,rn,key,value,data,CONFIG_DIR)
+    def _save_role_weight_value(self,rn,key,value,data,weight_field="weights"):
+        return config_save_role_weight_value(self,rn,key,value,data,CONFIG_DIR,weight_field)
 
     def _save_role_board_cell(self,rn,row,col,value,data):
         return config_save_role_board_cell(self,rn,row,col,value,data,CONFIG_DIR)
@@ -617,8 +617,8 @@ class MainWindow(QMainWindow):
     def _save_role_field(self,rn,key,value,data):
         return config_save_role_field(self,rn,key,value,data,CONFIG_DIR)
 
-    def _del_weight(self,rn,key,data,cb):
-        return config_del_weight(self,rn,key,data,cb,CONFIG_DIR)
+    def _del_weight(self,rn,key,data,cb,weight_field="weights"):
+        return config_del_weight(self,rn,key,data,cb,CONFIG_DIR,weight_field)
 
     def _add_role(self,data):
         return config_add_role(self,data,CONFIG_DIR)
