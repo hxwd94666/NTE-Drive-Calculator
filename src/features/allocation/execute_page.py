@@ -157,7 +157,7 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
         lambda _checked=False: show_help(
             window,
             "独显加速说明",
-            "有独立显卡可选，但不保证加速有效。",
+            "高端显卡可选，加速效果不定，可能还会负提升。",
         )
     )
     dual_thread_layout.addWidget(gpu_help_btn)
