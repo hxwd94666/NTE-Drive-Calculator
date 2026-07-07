@@ -23,6 +23,10 @@ class StatCatalog:
         "相": "相属性异能伤害增强%",
         "心灵": "心灵伤害增强%",
     }
+    WEIGHT_NAME_ALIASES = {
+        "通用伤害增强": "伤害增加%",
+        "通用伤害增强%": "伤害增加%",
+    }
 
     gold_base_values: dict[str, float] = field(default_factory=dict)
     tape_main_stats: list[str] = field(default_factory=list)
@@ -53,6 +57,11 @@ class StatCatalog:
     def valid_sub_stats(self) -> set[str]:
         return set(self.gold_base_values.keys())
 
+    def _weight_aliases(self) -> dict[str, str]:
+        aliases = dict(self.WEIGHT_NAME_ALIASES)
+        aliases.update(self.stat_alias_mapping or {})
+        return aliases
+
     def normalize_stat_name(self, raw_name: Any, is_percent: bool = False, cutoff: float = 0.72) -> str | None:
         name = str(raw_name or "").strip()
         if not name:
@@ -70,7 +79,7 @@ class StatCatalog:
         candidates = [candidate for candidate in dict.fromkeys(expanded_candidates) if candidate]
 
         valid_stats = self.valid_sub_stats
-        aliases = self.stat_alias_mapping or {}
+        aliases = self._weight_aliases()
         for candidate in candidates:
             resolved = aliases.get(candidate, candidate)
             if resolved in valid_stats:
@@ -150,4 +159,4 @@ class StatCatalog:
         return sorted(stat for stat in pool if stat)
 
     def flexible_weight_name(self, stat_name: str) -> str:
-        return self.stat_alias_mapping.get(stat_name, stat_name)
+        return self._weight_aliases().get(stat_name, stat_name)

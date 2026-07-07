@@ -84,7 +84,9 @@ def _render_results(self,plan):
         gl.addLayout(role_hdr); gl.addSpacing(6)
 
         board=p.get("blueprint",{}).get("board",[])
-        wts=self.roles_db.get(role,{}).get("weights",{})
+        role_cfg=self.roles_db.get(role,{})
+        wts=role_cfg.get("weights",{})
+        main_wts=role_cfg.get("main_weights")
 
         tape=p.get("assigned_tape")
         drives=p.get("assigned_set_drives",[])+p.get("assigned_extra_drives",[])
@@ -102,7 +104,7 @@ def _render_results(self,plan):
             tape_uid=str(_diff_value(tape,"uid","") or "")
             tape_changed=bool(_diff_value(tape,"is_changed",False) or tape_uid in changed_uids)
             gl.addWidget(self._section_label("卡带:"))
-            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed))
+            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,main_weights=main_wts))
 
         if drives:
             gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
@@ -315,7 +317,9 @@ def _hydrate_diff_item(self, role_name, item):
 
 def _diff_item_card(self, role_name, item, is_new=False):
     item=_hydrate_diff_item(self, role_name, item)
-    weights=self.roles_db.get(role_name,{}).get("weights",{})
+    role_cfg=self.roles_db.get(role_name,{})
+    weights=role_cfg.get("weights",{})
+    main_weights=role_cfg.get("main_weights")
     score_info=getattr(self, "_diff_item_score_info", None) or (lambda diff_item: _diff_item_score_info(self, diff_item))
     item_type=item.get("type","drive")
     if item_type=="tape":
@@ -336,6 +340,7 @@ def _diff_item_card(self, role_name, item, is_new=False):
         score_info(item),
         item.get("quality","Gold"),
         is_new=is_new,
+        main_weights=main_weights,
     )
 
 def _build_plan_diff_dialog(self, role_name, diff):
@@ -495,7 +500,9 @@ def _sync_role_drive_replacement(self, role_name, old_uid, new_drive):
 
 
 def _sync_role_tape_replacement(self, role_name, old_uid, new_tape):
-    weights=(getattr(self,"roles_db",{}) or {}).get(role_name,{}).get("weights",{})
+    role_cfg=(getattr(self,"roles_db",{}) or {}).get(role_name,{})
+    weights=role_cfg.get("weights",{})
+    main_weights=role_cfg.get("main_weights")
     new_uid=str(new_tape.get("uid","") or "")
     if not new_uid:
         return False
@@ -504,7 +511,7 @@ def _sync_role_tape_replacement(self, role_name, old_uid, new_tape):
     main_stat=next(iter(main_stats.keys()),"") if isinstance(main_stats,dict) else str(main_stats or "")
     sub_stats=new_tape.get("sub_stats",{}) or {}
     quality=new_tape.get("quality","Gold")
-    new_score=self._score_tape_dict(main_stat,sub_stats,weights,quality)
+    new_score=self._score_tape_dict(main_stat,sub_stats,weights,quality,main_weights)
 
     old_state=copy.deepcopy(getattr(self,"equipped_state",{}) or {})
     saved_changed=_sync_saved_tape_replacement(self,role_name,new_tape,new_score)
@@ -719,18 +726,19 @@ def _score_drive_dict(self, sub_stats, shape_id, weights, quality="Gold"):
     quality_coef=se.quality_map.get(quality, 1.0)
     return round((10.0/max_w)*actual_w*area*quality_coef, 2)
 
-def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold"):
+def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_weights=None):
     if not self.scoring_engine: return 0.0
     se=self.scoring_engine
     max_w=se._get_max_theoretical_weight(weights)
     quality_coef=se.quality_map.get(quality, 1.0)
-    main_w=se._get_flexible_weight(main_stats, weights) if main_stats else 0
+    main_weight_source=main_weights if isinstance(main_weights, dict) else weights
+    main_w=se._get_flexible_weight(main_stats, main_weight_source) if main_stats else 0
     main_score=main_w*50.0*quality_coef
     sub_w=sum(se._get_flexible_weight(sn, weights) for sn in sub_stats.keys())
     sub_score=(10.0/max_w)*sub_w*10.0*quality_coef if max_w>0 else 0
     return round(main_score+sub_score, 2)
 
-def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False):
+def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,main_weights=None):
     QUALITY_COLORS={"Gold":"#ffd700","Purple":"#ffe082","Blue":"#58a6ff"}
     QUALITY_LABELS={"Gold":"金","Purple":"紫","Blue":"蓝"}
     QUALITY_BGS={"Gold":"#332600","Purple":"#6f2dbd","Blue":"#0d2748"}
@@ -777,7 +785,8 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
         hdr.addWidget(q_lbl)
     # Main stat as colored block (same style as sub stats)
     if main_stat:
-        mw=self._stat_w(main_stat,weights); mc=self._stat_c(mw); qc=QColor(mc)
+        main_weight_source=main_weights if isinstance(main_weights, dict) else weights
+        mw=self._stat_w(main_stat,main_weight_source); mc=self._stat_c(mw); qc=QColor(mc)
         ms_block=QLabel(main_stat); ms_block.setStyleSheet(
             f"border:1px solid {mc};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);"
             f"border-radius:6px;padding:4px 12px;font-size:13px;color:{mc};font-weight:700"

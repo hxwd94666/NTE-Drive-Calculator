@@ -59,6 +59,10 @@ class ScoringEngine:
             w = weights.get(name, 0.0)
             if w > 0:
                 return w
+        for target_name in dict.fromkeys(n for n in names if n):
+            for raw_name, weight in weights.items():
+                if weight > 0 and self.stat_catalog.flexible_weight_name(raw_name) == target_name:
+                    return weight
 
         flat_names = {"攻击力", "防御力", "生命值"}
         for name in dict.fromkeys(n for n in names if n):
@@ -77,13 +81,14 @@ class ScoringEngine:
         score = (10.0 / max_weight) * actual_weight * drive.area * quality_coef
         return round(score, 2)
 
-    def calculate_cartridge_score(self, tape: Tape, weights: dict, max_weight: float) -> float:
+    def calculate_cartridge_score(self, tape: Tape, weights: dict, max_weight: float, main_weights: dict | None = None) -> float:
         if max_weight <= 0: return 0.0
 
         quality_coef = self.quality_map.get(tape.quality, 1.0)
 
         main_stat_name = tape.main_stats
-        main_weight = self._get_flexible_weight(main_stat_name, weights)
+        main_weight_source = main_weights if isinstance(main_weights, dict) else weights
+        main_weight = self._get_flexible_weight(main_stat_name, main_weight_source)
         main_score = main_weight * 50.0 * quality_coef
 
         sub_weight = sum(self._get_flexible_weight(stat_name, weights) for stat_name in tape.sub_stats.keys())
@@ -179,7 +184,8 @@ class ScoringEngine:
                 if isinstance(item, Drive):
                     score = self.calculate_drive_score(item, weights, max_weight)
                 else:
-                    score = self.calculate_cartridge_score(item, weights, max_weight)
+                    main_weights = role_data["main_weights"] if "main_weights" in role_data else None
+                    score = self.calculate_cartridge_score(item, weights, max_weight, main_weights)
 
                 item.role_scores[role_name] = score
                 if score > item.max_score:
