@@ -8,17 +8,21 @@ __pycache__/
 .venv/
 venv/
 env/
+other/
 
 # IDE and OS files
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
+.env
+.env.*
 
 # Build outputs
 build/
 dist/
 *.spec
+docs/
 
 # Installer generated files with local absolute paths
 installer/*.iss
