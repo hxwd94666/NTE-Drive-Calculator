@@ -24,6 +24,10 @@ class BaseDispatchStrategy:
         self.sets_db = sets_db
         self.blueprints_db = blueprints_db
         self.stat_catalog = StatCatalog.from_config_dir()
+        self._role_stat_weight_cache = {}
+        self._max_single_weight_cache = {}
+        self._extra_shape_factor_cache = {}
+        self._extra_shape_hidden_bonus_cache = {}
 
     def _resolve_set_name(self, set_name: str) -> str:
         resolved = resolve_name(set_name, self.sets_db.keys(), cutoff=0.78)
@@ -62,6 +66,129 @@ class BaseDispatchStrategy:
 
     def _covered_stat_count(self, item, stats: list[str]) -> int:
         return sum(1 for stat_key in stats if self._item_has_stat(item, stat_key))
+
+    def _role_stat_weight(self, role: str, stat_name: str) -> float:
+        cache_key = (role, str(stat_name or "").strip())
+        if cache_key in self._role_stat_weight_cache:
+            return self._role_stat_weight_cache[cache_key]
+        weights = (self.roles_db.get(role, {}) or {}).get("weights", {}) or {}
+        names = [str(stat_name or "").strip()]
+        normalized = self.stat_catalog.normalize_stat_name(names[0], is_percent="%" in names[0])
+        if normalized:
+            names.append(normalized)
+        mapped_name = self.stat_catalog.flexible_weight_name(names[0])
+        if mapped_name:
+            names.append(mapped_name)
+
+        for name in dict.fromkeys(n for n in names if n):
+            try:
+                weight = float(weights.get(name, 0.0) or 0.0)
+            except (TypeError, ValueError):
+                weight = 0.0
+            if weight > 0:
+                self._role_stat_weight_cache[cache_key] = weight
+                return weight
+
+        flat_names = {"攻击力", "防御力", "生命值"}
+        for name in dict.fromkeys(n for n in names if n):
+            if name in flat_names:
+                continue
+            try:
+                weight = float(weights.get(f"{name}%", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                weight = 0.0
+            if weight > 0:
+                self._role_stat_weight_cache[cache_key] = weight
+                return weight
+        self._role_stat_weight_cache[cache_key] = 0.0
+        return 0.0
+
+    def _max_single_sub_stat_weight(self, role: str) -> float:
+        if role in self._max_single_weight_cache:
+            return self._max_single_weight_cache[role]
+        weights = (self.roles_db.get(role, {}) or {}).get("weights", {}) or {}
+        values = []
+        for name, value in weights.items():
+            if any(keyword in str(name) for keyword in self.stat_catalog.main_only_keywords):
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            if numeric > 0:
+                values.append(numeric)
+        result = max(values) if values else 1.0
+        self._max_single_weight_cache[role] = result
+        return result
+
+    def _drive_area(self, drive: Drive) -> int:
+        area = getattr(drive, "area", None)
+        if area is None:
+            numbers = re.findall(r"\d+", str(getattr(drive, "shape_id", "") or ""))
+            area = int(numbers[0]) if numbers else 0
+        return int(area or 0)
+
+    def _extra_shape_bonus_factor(self, role: str) -> float:
+        if role in self._extra_shape_factor_cache:
+            return self._extra_shape_factor_cache[role]
+        role_data = self.roles_db.get(role, {}) or {}
+        extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
+        if not isinstance(extra_buffs, dict) or not extra_buffs:
+            self._extra_shape_factor_cache[role] = 0.0
+            return 0.0
+
+        max_single_weight = self._max_single_sub_stat_weight(role)
+        if max_single_weight <= 0:
+            self._extra_shape_factor_cache[role] = 0.0
+            return 0.0
+
+        factor = 0.0
+        for stat, raw_value in extra_buffs.items():
+            normalized = self.stat_catalog.normalize_stat_name(str(stat or ""), is_percent="%" in str(stat or ""))
+            stat_key = normalized or str(stat or "").strip()
+            try:
+                buff_value = float(raw_value)
+                base_value = float(self.stat_catalog.gold_base_values.get(stat_key, 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if buff_value <= 0 or base_value <= 0:
+                continue
+            stat_weight = self._role_stat_weight(role, stat_key)
+            if stat_weight <= 0:
+                continue
+            equivalent_grids = buff_value / base_value
+            factor += (10.0 / max_single_weight) * stat_weight * equivalent_grids
+        self._extra_shape_factor_cache[role] = factor
+        return factor
+
+    def _extra_shape_hidden_bonus(self, role: str, drive: Drive) -> float:
+        cache_key = (role, getattr(drive, "uid", id(drive)))
+        if cache_key in self._extra_shape_hidden_bonus_cache:
+            return self._extra_shape_hidden_bonus_cache[cache_key]
+        target_area = self._extra_shape_area_for_role(role)
+        drive_area = self._drive_area(drive)
+        if not target_area or drive_area <= 0 or drive_area != target_area:
+            self._extra_shape_hidden_bonus_cache[cache_key] = 0.0
+            return 0.0
+
+        bonus = self._extra_shape_bonus_factor(role) / drive_area
+        self._extra_shape_hidden_bonus_cache[cache_key] = bonus
+        return bonus
+
+    def _drive_ranking_score(
+        self,
+        role: str,
+        drive: Drive,
+        base_score: float,
+        *,
+        include_extra_shape_bonus: bool = True,
+    ) -> float:
+        if base_score < 0:
+            return base_score
+        score = float(base_score or 0.0)
+        if include_extra_shape_bonus:
+            score += self._extra_shape_hidden_bonus(role, drive)
+        return score
 
     def _stat_priority_enabled(self, config) -> bool:
         cfg = self._stat_priority_config(config)
@@ -102,10 +229,23 @@ class BaseDispatchStrategy:
     def _stat_priority_total_hits(self, role: str, items, config) -> int:
         return sum(self._stat_priority_depth(role, item, config) for item in items or [])
 
-    def _drive_pick_key(self, role: str, drive, base_score: float, config) -> tuple:
+    def _drive_pick_key(
+        self,
+        role: str,
+        drive,
+        base_score: float,
+        config,
+        include_extra_shape_bonus: bool = True,
+    ) -> tuple:
+        rank_score = self._drive_ranking_score(
+            role,
+            drive,
+            base_score,
+            include_extra_shape_bonus=include_extra_shape_bonus,
+        )
         if self._stat_priority_enabled(config):
-            return (self._stat_priority_depth(role, drive, config), base_score)
-        return (base_score,)
+            return (self._stat_priority_depth(role, drive, config), rank_score)
+        return (rank_score,)
 
     def _matches_stat_priority_pool(self, item, config) -> bool:
         cfg = self._stat_priority_config(config)
@@ -141,8 +281,22 @@ class BaseDispatchStrategy:
                 return base_score + (len(stats) - tier) * 100000.0
         return base_score
 
-    def _rank_score_for_drive(self, role: str, drive: Drive, base_score: float, config) -> float:
-        return self._rank_score_for_item(role, drive, base_score, config)
+    def _rank_score_for_drive(
+        self,
+        role: str,
+        drive: Drive,
+        base_score: float,
+        config,
+        *,
+        include_extra_shape_bonus: bool = True,
+    ) -> float:
+        rank_score = self._drive_ranking_score(
+            role,
+            drive,
+            base_score,
+            include_extra_shape_bonus=include_extra_shape_bonus,
+        )
+        return self._rank_score_for_item(role, drive, rank_score, config)
 
     def _crit_rate_cap(self, role: str, crit_rate_caps: Dict[str, float] | None):
         if not crit_rate_caps or role not in crit_rate_caps:
@@ -209,11 +363,7 @@ class BaseDispatchStrategy:
         for item in items or []:
             if not isinstance(item, Drive):
                 continue
-            area = getattr(item, "area", None)
-            if area is None:
-                numbers = re.findall(r"\d+", str(getattr(item, "shape_id", "") or ""))
-                area = int(numbers[0]) if numbers else 0
-            if int(area or 0) == target_area:
+            if self._drive_area(item) == target_area:
                 matched_count += 1
         return crit_bonus * matched_count
 
@@ -229,19 +379,44 @@ class BaseDispatchStrategy:
             return list(blueprint.get("set_pieces") or [])
         return list(self.sets_db[target_set]["shapes"])
 
-    def _pick_best_drive(self, role: str, candidates: list[tuple[int, Drive]], config=None) -> tuple[int, Drive, float] | None:
+    def _slot_uses_extra_shape_bonus(self, slot_type: str, blueprint: Dict | None, include_extra_shape_bonus: bool = True) -> bool:
+        if not include_extra_shape_bonus:
+            return False
+        if slot_type != "set":
+            return False
+        return (blueprint or {}).get("set_effect_mode") == "two_piece"
+
+    def _pick_best_drive(
+        self,
+        role: str,
+        candidates: list[tuple[int, Drive]],
+        config=None,
+        include_extra_shape_bonus: bool = True,
+    ) -> tuple[int, Drive, float, float] | None:
         if not candidates:
             return None
         ranked = [
             (
-                self._drive_pick_key(role, drive, drive.role_scores.get(role, 0.0), config),
+                self._drive_pick_key(
+                    role,
+                    drive,
+                    drive.role_scores.get(role, 0.0),
+                    config,
+                    include_extra_shape_bonus=include_extra_shape_bonus,
+                ),
                 idx,
                 drive,
+                self._drive_ranking_score(
+                    role,
+                    drive,
+                    drive.role_scores.get(role, 0.0),
+                    include_extra_shape_bonus=include_extra_shape_bonus,
+                ),
             )
             for idx, drive in candidates
         ]
-        _rank_score, idx, drive = max(ranked, key=lambda item: item[0])
-        return idx, drive, drive.role_scores.get(role, 0.0)
+        _rank_key, idx, drive, rank_score = max(ranked, key=lambda item: item[0])
+        return idx, drive, drive.role_scores.get(role, 0.0), rank_score
 
     def _pre_allocate_tapes(self, priority_list: List[str], custom_sets: Dict[str, str],
                             tapes_pool: Dict[str, List[Tape]], stat_priority_configs: Dict[str, dict] = None) -> Dict[str, Tape]:
@@ -322,32 +497,72 @@ class BaseDispatchStrategy:
     def _dedupe_blueprints_by_extra_pieces(self, blueprints):
         return dedupe_blueprints_by_piece_signature(blueprints)
 
-    def _shape_score_buckets(self, role, drives_pool, crit_config=None):
+    def _shape_score_buckets(self, role, drives_pool, crit_config=None, include_extra_shape_bonus: bool = True):
         buckets = {}
         for drive in drives_pool or []:
             base_score = drive.role_scores.get(role, 0.0)
-            rank_score = self._rank_score_for_drive(role, drive, base_score, crit_config)
+            rank_score = self._rank_score_for_drive(
+                role,
+                drive,
+                base_score,
+                crit_config,
+                include_extra_shape_bonus=include_extra_shape_bonus,
+            )
             buckets.setdefault(drive.shape_id, []).append(rank_score)
         for scores in buckets.values():
             scores.sort(reverse=True)
         return buckets
 
-    def _blueprint_theoretical_score(self, role, blueprint, drives_pool, custom_sets, crit_config=None):
+    def _blueprint_theoretical_score(
+        self,
+        role,
+        blueprint,
+        drives_pool,
+        custom_sets,
+        crit_config=None,
+        include_extra_shape_bonus: bool = True,
+    ):
         target_set = self._target_set(role, custom_sets)
-        required_shapes = self._set_pieces_for_blueprint(blueprint, target_set) + list(blueprint.get("extra_pieces", []))
-        buckets = self._shape_score_buckets(role, drives_pool, crit_config)
+        set_uses_bonus = self._slot_uses_extra_shape_bonus("set", blueprint, include_extra_shape_bonus)
+        set_buckets = self._shape_score_buckets(
+            role,
+            drives_pool,
+            crit_config,
+            include_extra_shape_bonus=set_uses_bonus,
+        )
+        extra_buckets = self._shape_score_buckets(
+            role,
+            drives_pool,
+            crit_config,
+            include_extra_shape_bonus=False,
+        )
         used_counts = {}
         total = 0.0
-        for shape in required_shapes:
-            used = used_counts.get(shape, 0)
+        required_slots = [
+            ("set", shape) for shape in self._set_pieces_for_blueprint(blueprint, target_set)
+        ] + [
+            ("extra", shape) for shape in list(blueprint.get("extra_pieces", []))
+        ]
+        for slot_type, shape in required_slots:
+            bucket_key = (slot_type, shape)
+            buckets = set_buckets if slot_type == "set" else extra_buckets
+            used = used_counts.get(bucket_key, 0)
             scores = buckets.get(shape, [])
             if used >= len(scores):
                 return -10000.0
             total += scores[used]
-            used_counts[shape] = used + 1
+            used_counts[bucket_key] = used + 1
         return total
 
-    def _rank_role_blueprints(self, role_bps_list, valid_roles, drives_pool, custom_sets, crit_priority_modes=None):
+    def _rank_role_blueprints(
+        self,
+        role_bps_list,
+        valid_roles,
+        drives_pool,
+        custom_sets,
+        crit_priority_modes=None,
+        include_extra_shape_bonus: bool = True,
+    ):
         crit_priority_modes = crit_priority_modes or {}
         ranked = []
         for role, bps in zip(valid_roles, role_bps_list):
@@ -359,6 +574,7 @@ class BaseDispatchStrategy:
                         drives_pool,
                         custom_sets,
                         crit_priority_modes.get(role),
+                        include_extra_shape_bonus=include_extra_shape_bonus,
                     ),
                     index,
                     bp,
@@ -398,7 +614,15 @@ class BaseDispatchStrategy:
                 seen.add(next_indexes)
                 heapq.heappush(heap, (-score_for(next_indexes), next_indexes))
 
-    def _iter_bp_combos(self, role_bps_list, valid_roles=None, drives_pool=None, custom_sets=None, crit_priority_modes=None):
+    def _iter_bp_combos(
+        self,
+        role_bps_list,
+        valid_roles=None,
+        drives_pool=None,
+        custom_sets=None,
+        crit_priority_modes=None,
+        include_extra_shape_bonus: bool = True,
+    ):
         total = 1
         for bps in role_bps_list:
             total *= len(bps)
@@ -421,10 +645,19 @@ class BaseDispatchStrategy:
                 drives_pool,
                 custom_sets or {},
                 crit_priority_modes,
+                include_extra_shape_bonus=include_extra_shape_bonus,
             )
             yield from self._iter_ranked_bp_combos(ranked_role_bps)
 
-    def _build_profit_matrix(self, bp_combo, valid_roles, drives_pool, custom_sets, crit_priority_modes=None):
+    def _build_profit_matrix(
+        self,
+        bp_combo,
+        valid_roles,
+        drives_pool,
+        custom_sets,
+        crit_priority_modes=None,
+        include_extra_shape_bonus: bool = True,
+    ):
         crit_priority_modes = crit_priority_modes or {}
         slots = []
         for role_idx, role in enumerate(valid_roles):
@@ -447,8 +680,17 @@ class BaseDispatchStrategy:
                 else:
                     score = drive.role_scores.get(slot["role"], 0.0)
                     profit_matrix[i, j] = score
+                    slot_uses_bonus = self._slot_uses_extra_shape_bonus(
+                        slot["type"],
+                        slot.get("bp"),
+                        include_extra_shape_bonus,
+                    )
                     ranking_matrix[i, j] = self._rank_score_for_drive(
-                        slot["role"], drive, score, crit_priority_modes.get(slot["role"])
+                        slot["role"],
+                        drive,
+                        score,
+                        crit_priority_modes.get(slot["role"]),
+                        include_extra_shape_bonus=slot_uses_bonus,
                     )
 
         return slots, profit_matrix, ranking_matrix
@@ -499,19 +741,26 @@ class RolePriorityStrategy(BaseDispatchStrategy):
         drive_buckets = self._drive_buckets(available_pool)
 
         used_indices = set()
-        assigned_set, assigned_extra, total_score = [], [], 0.0
+        assigned_set, assigned_extra, total_score, total_rank_score = [], [], 0.0, 0.0
 
+        set_uses_bonus = self._slot_uses_extra_shape_bonus("set", blueprint)
         for req_shape in set_shapes:
             candidates = [
                 (idx, drive) for idx, drive in drive_buckets.get(req_shape, [])
                 if idx not in used_indices
                 and self._within_crit_rate_cap(role_name, [assigned_tape, *assigned_set, *assigned_extra, drive], crit_rate_caps)
             ]
-            picked = self._pick_best_drive(role_name, candidates, crit_mode)
+            picked = self._pick_best_drive(
+                role_name,
+                candidates,
+                crit_mode,
+                include_extra_shape_bonus=set_uses_bonus,
+            )
             if picked:
-                best_idx, best_drive, highest_score = picked
+                best_idx, best_drive, highest_score, rank_score = picked
                 assigned_set.append(best_drive)
                 total_score += highest_score
+                total_rank_score += rank_score
                 used_indices.add(best_idx)
             else:
                 return {"valid": False, "score": 0.0}
@@ -522,11 +771,17 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                 if idx not in used_indices
                 and self._within_crit_rate_cap(role_name, [assigned_tape, *assigned_set, *assigned_extra, drive], crit_rate_caps)
             ]
-            picked = self._pick_best_drive(role_name, candidates, crit_mode)
+            picked = self._pick_best_drive(
+                role_name,
+                candidates,
+                crit_mode,
+                include_extra_shape_bonus=False,
+            )
             if picked:
-                best_idx, best_drive, highest_score = picked
+                best_idx, best_drive, highest_score, rank_score = picked
                 assigned_extra.append(best_drive)
                 total_score += highest_score
+                total_rank_score += rank_score
                 used_indices.add(best_idx)
             else:
                 return {"valid": False, "score": 0.0}
@@ -534,6 +789,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
         assigned_drives = assigned_set + assigned_extra
         return {"valid": True, "blueprint": blueprint, "assigned_set_drives": assigned_set,
                 "assigned_extra_drives": assigned_extra, "score": round(total_score, 2),
+                "rank_score": round(total_rank_score, 2),
                 "stat_priority_hits": self._stat_priority_total_hits(role_name, assigned_drives, crit_mode),
                 "stat_priority_key": self._stat_priority_key_for_items(role_name, assigned_drives, crit_mode)}
 
@@ -657,8 +913,13 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                     continue
                 score = drive.role_scores.get(slot["role"], 0.0)
                 profit_matrix[slot_idx, drive_idx] = score
+                slot_uses_bonus = self._slot_uses_extra_shape_bonus(slot["type"], slot.get("bp"))
                 ranking_matrix[slot_idx, drive_idx] = self._rank_score_for_drive(
-                    slot["role"], drive, score, crit_priority_modes.get(slot["role"])
+                    slot["role"],
+                    drive,
+                    score,
+                    crit_priority_modes.get(slot["role"]),
+                    include_extra_shape_bonus=slot_uses_bonus,
                 )
         return slots, profit_matrix, ranking_matrix
 
@@ -705,6 +966,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             for role in group
         }
         score = 0.0
+        rank_score = 0.0
         for assignment in assignments:
             slot = assignment["slot"]
             role = slot["role"]
@@ -713,13 +975,15 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                 assignment["drive"]
             )
             score += assignment["profit"]
-        return (self._group_stat_priority_key(allocation, group, crit_priority_modes), score)
+            rank_score += assignment.get("rank_profit", assignment["profit"])
+        return (self._group_stat_priority_key(allocation, group, crit_priority_modes), rank_score, score)
 
     def _rebalance_group_assignments(
         self,
         assignments: list[dict],
         drives_pool: list[Drive],
         profit_matrix,
+        ranking_matrix,
         crit_priority_modes: Dict[str, dict],
         group: list[str],
     ) -> list[dict]:
@@ -744,6 +1008,8 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                         continue
                     left_new_profit = profit_matrix[current[left]["slot_idx"], current[right]["drive_idx"]]
                     right_new_profit = profit_matrix[current[right]["slot_idx"], current[left]["drive_idx"]]
+                    left_new_rank_profit = ranking_matrix[current[left]["slot_idx"], current[right]["drive_idx"]]
+                    right_new_rank_profit = ranking_matrix[current[right]["slot_idx"], current[left]["drive_idx"]]
                     if left_new_profit < 0 or right_new_profit < 0:
                         continue
                     candidate = [dict(item) for item in current]
@@ -755,6 +1021,8 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                     candidate[right]["drive"] = drives_pool[candidate[right]["drive_idx"]]
                     candidate[left]["profit"] = left_new_profit
                     candidate[right]["profit"] = right_new_profit
+                    candidate[left]["rank_profit"] = left_new_rank_profit
+                    candidate[right]["rank_profit"] = right_new_rank_profit
                     candidate_key = self._group_assignment_key(candidate, group, crit_priority_modes)
                     if candidate_key > best_key:
                         best_key = candidate_key
@@ -784,6 +1052,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             return {role: {"valid": False} for role in group}
 
         best_score = -1.0
+        best_rank_score = -1.0
         best_priority_key = ()
         best_allocation = {}
         for bp_combo in self._iter_bp_combos(
@@ -816,6 +1085,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                         "slot": slot,
                         "drive": drive,
                         "profit": profit,
+                        "rank_profit": ranking_matrix[slot_idx, drive_idx],
                     }
                 )
             if not is_valid:
@@ -825,14 +1095,17 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                 assignments,
                 drives_pool,
                 profit_matrix,
+                ranking_matrix,
                 crit_priority_modes,
                 valid_group,
             )
             team_score = sum(item["score"] for item in temp_alloc.values())
+            team_rank_score = team_score
             for assignment in assignments:
                 slot = assignment["slot"]
                 drive = assignment["drive"]
                 profit = assignment["profit"]
+                rank_profit = assignment.get("rank_profit", profit)
                 role = slot["role"]
                 temp_alloc[role]["blueprint"] = slot["bp"]
                 if slot["type"] == "set":
@@ -841,6 +1114,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                     temp_alloc[role]["assigned_extra_drives"].append(drive)
                 temp_alloc[role]["score"] += profit
                 team_score += profit
+                team_rank_score += rank_profit
             if is_valid:
                 for role in valid_group:
                     plan = temp_alloc.get(role, {})
@@ -853,8 +1127,9 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                         is_valid = False
                         break
             priority_key = self._group_stat_priority_key(temp_alloc, valid_group, crit_priority_modes)
-            if is_valid and (priority_key, team_score) > (best_priority_key, best_score):
+            if is_valid and (priority_key, team_rank_score, team_score) > (best_priority_key, best_rank_score, best_score):
                 best_priority_key = priority_key
+                best_rank_score = team_rank_score
                 best_score = team_score
                 best_allocation = temp_alloc
 
@@ -907,7 +1182,7 @@ class RolePriorityStrategy(BaseDispatchStrategy):
             role_tape = assigned_tapes.get(role_name)
             tape_score = role_tape.role_scores.get(role_name, 0.0) if role_tape else 0.0
 
-            best_plan = {"valid": False, "score": -1.0, "stat_priority_key": ()}
+            best_plan = {"valid": False, "score": -1.0, "rank_score": -1.0, "stat_priority_key": ()}
 
             for bp in blueprints:
                 if crit_rate_caps:
@@ -930,14 +1205,21 @@ class RolePriorityStrategy(BaseDispatchStrategy):
                     )
                 if plan["valid"]:
                     total_score = plan["score"] + tape_score
+                    total_rank_score = plan.get("rank_score", plan["score"]) + tape_score
                     priority_key = tuple(plan.get("stat_priority_key", ()) or ())
                     best_priority_key = tuple(best_plan.get("stat_priority_key", ()) or ())
-                    if (priority_key, total_score) > (best_priority_key, best_plan["score"]):
+                    if (priority_key, total_rank_score, total_score) > (
+                        best_priority_key,
+                        best_plan.get("rank_score", best_plan["score"]),
+                        best_plan["score"],
+                    ):
                         plan["score"] = total_score
+                        plan["rank_score"] = total_rank_score
                         plan["assigned_tape"] = role_tape
                         best_plan = plan
 
             if best_plan["valid"]:
+                best_plan.pop("rank_score", None)
                 final_allocation[role_name] = best_plan
                 used_uids = set(d.uid for d in best_plan["assigned_set_drives"]) | set(d.uid for d in best_plan["assigned_extra_drives"])
                 drives_pool = [d for d in drives_pool if d.uid not in used_uids]
@@ -973,7 +1255,7 @@ class DrivePriorityStrategy(MatrixBaseStrategy):
         role_bps_list, valid_roles = self._build_matrix_environment(priority_list)
         if not valid_roles: return {}
 
-        best_team_score, best_allocation = -1.0, {}
+        best_team_score, best_team_rank_score, best_allocation = -1.0, -1.0, {}
         best_priority_hits = -1
         combo_count = 0
 
@@ -991,6 +1273,7 @@ class DrivePriorityStrategy(MatrixBaseStrategy):
             is_valid = True
             temp_alloc = self._init_temp_alloc(valid_roles, assigned_tapes)
             team_score = sum(alloc["score"] for alloc in temp_alloc.values())
+            team_rank_score = team_score
             priority_hits = 0
             pick_order = 1
 
@@ -1004,6 +1287,7 @@ class DrivePriorityStrategy(MatrixBaseStrategy):
                 slot, drive = slots[r_idx], copy.deepcopy(drives_pool[c_idx])
                 role = slot["role"]
                 real_score = profit_matrix[r_idx, c_idx]
+                rank_score = ranking_matrix[r_idx, c_idx]
 
                 drive.is_mvp = True
                 drive.pick_order = pick_order
@@ -1015,14 +1299,20 @@ class DrivePriorityStrategy(MatrixBaseStrategy):
 
                 temp_alloc[role]["score"] += real_score
                 team_score += real_score
+                team_rank_score += rank_score
                 priority_hits += self._stat_priority_hit_count(
                     role, drive, crit_priority_modes.get(role)
                 )
                 work_matrix[r_idx, :] = -10000.0
                 work_matrix[:, c_idx] = -10000.0
 
-            if is_valid and (priority_hits, team_score) > (best_priority_hits, best_team_score):
+            if is_valid and (priority_hits, team_rank_score, team_score) > (
+                best_priority_hits,
+                best_team_rank_score,
+                best_team_score,
+            ):
                 best_priority_hits = priority_hits
+                best_team_rank_score = team_rank_score
                 best_team_score, best_allocation = team_score, temp_alloc
 
         logger.info(f"  驱动优先: 评估完毕，共 {combo_count} 组。")
@@ -1042,13 +1332,25 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
         best_priority_hits = -1
         combo_count = 0
 
-        for bp_combo in self._iter_bp_combos(role_bps_list, valid_roles, drives_pool, custom_sets, crit_priority_modes):
+        for bp_combo in self._iter_bp_combos(
+            role_bps_list,
+            valid_roles,
+            drives_pool,
+            custom_sets,
+            crit_priority_modes,
+            include_extra_shape_bonus=False,
+        ):
             combo_count += 1
             if combo_count % 50 == 0:
                 logger.info(f"  全局最优: 已评估 {combo_count} 组图纸组合...")
 
             slots, profit_matrix, ranking_matrix = self._build_profit_matrix(
-                bp_combo, valid_roles, drives_pool, custom_sets, crit_priority_modes
+                bp_combo,
+                valid_roles,
+                drives_pool,
+                custom_sets,
+                crit_priority_modes,
+                include_extra_shape_bonus=False,
             )
             if slots is None: continue
 
