@@ -8,7 +8,6 @@ folders. MainWindow still owns all callbacks.
 from __future__ import annotations
 
 import os
-
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -178,6 +177,26 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     quick_row.addStretch()
     quick_card.layout().addLayout(quick_row)
     layout.addWidget(quick_card)
+
+    thanks_card = window._card("致谢")
+    thanks_card.layout().setSpacing(12)
+    thanks_row = QHBoxLayout()
+    thanks_row.setSpacing(8)
+    thanks_name = QLabel("异环工坊")
+    thanks_name.setStyleSheet(
+        "color:#58a6ff;font-weight:700;background:#0d1f35;"
+        "border:1px solid #1f6feb;border-radius:6px;padding:5px 10px"
+    )
+    thanks_desc = QLabel("提供角色评分标准与词条权重参考")
+    thanks_desc.setStyleSheet(
+        "color:#c9d1d9;background:#161b22;"
+        "border:1px solid #30363d;border-radius:6px;padding:5px 10px"
+    )
+    thanks_row.addWidget(thanks_name)
+    thanks_row.addWidget(thanks_desc)
+    thanks_row.addStretch()
+    thanks_card.layout().addLayout(thanks_row)
+    layout.addWidget(thanks_card)
 
     layout.addStretch()
     return scroll
