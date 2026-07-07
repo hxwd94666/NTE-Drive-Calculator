@@ -422,11 +422,12 @@ def _run_identify_item(self,item):
             continue
         target_set=orchestrator._resolve_set_name(role_data.get("default_set",""))
         weights=role_data.get("weights",{})
+        main_weights=role_data.get("main_weights") if isinstance(role_data,dict) else None
         max_weight=scoring._get_max_theoretical_weight(weights)
         if isinstance(item,Tape):
             if item.set_name!=target_set:
                 continue
-            score=scoring.calculate_cartridge_score(item,weights,max_weight)
+            score=scoring.calculate_cartridge_score(item,weights,max_weight,main_weights)
             match_desc="套装匹配"
             area=15
         else:
@@ -448,6 +449,7 @@ def _run_identify_item(self,item):
             "percent":round(score/max_score*100,1) if max_score else 0,
             "match":match_desc,
             "weights":weights,
+            "main_weights":main_weights,
         })
     rows.sort(key=lambda r:r["score"],reverse=True)
     return {"item":item,"rows":rows}
