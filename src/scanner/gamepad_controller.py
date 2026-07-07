@@ -8,6 +8,7 @@ import time
 
 import mss
 import mss.tools
+import numpy as np
 
 from src.scanner.window_capture import capture_foreground_window
 from src.utils.logger import logger
@@ -19,13 +20,16 @@ MOVE_SETTLE_SECONDS = 0.25
 ROW_DOWN_HOLD_SECONDS = 0.15
 ROW_DOWN_SETTLE_SECONDS = 0.30
 DETAIL_REFRESH_MOVE_SETTLE_SECONDS = 0.30
-DETAIL_REFRESH_ENTER_SETTLE_SECONDS = 3.00
-DETAIL_REFRESH_RETURN_SETTLE_SECONDS = 2.00
-EQUIPMENT_SWITCH_SETTLE_SECONDS = 0.10
+DETAIL_PAGE_WAIT_TIMEOUT_SECONDS = 8.00
+INVENTORY_PAGE_WAIT_TIMEOUT_SECONDS = 8.00
+PAGE_STATE_POLL_SECONDS = 0.20
+PAGE_STATE_STABLE_FRAMES = 2
+PAGE_STATE_DETECTED_SETTLE_SECONDS = 0.50
+EQUIPMENT_SWITCH_SETTLE_SECONDS = 0.20
 LOCK_DISCARD_CONFIRM_SECONDS = 0.60
 ACTION_MENU_SETTLE_SECONDS = 0.30
 ACTION_APPLY_SETTLE_SECONDS = 0.30
-MENU_AFTER_EQUIPMENT_MOVE_SECONDS = 0.15
+MENU_AFTER_EQUIPMENT_MOVE_SECONDS = 0.20
 ACTION_OPTION_MOVE_SETTLE_SECONDS = 0.15
 
 
@@ -264,14 +268,111 @@ class GamepadScanner:
             commands.append(moves)
         return commands
 
+    def _screenshot_to_bgr(self, screenshot) -> np.ndarray | None:
+        try:
+            image = np.array(screenshot)
+        except Exception:
+            return None
+        if image.ndim != 3 or image.shape[2] < 3:
+            return None
+        return image[:, :, :3]
+
+    def _relative_roi(self, image: np.ndarray, x1: float, y1: float, x2: float, y2: float) -> np.ndarray:
+        height, width = image.shape[:2]
+        left = max(0, min(width, int(round(width * x1))))
+        top = max(0, min(height, int(round(height * y1))))
+        right = max(left + 1, min(width, int(round(width * x2))))
+        bottom = max(top + 1, min(height, int(round(height * y2))))
+        return image[top:bottom, left:right]
+
+    def _white_fraction(self, roi: np.ndarray, threshold: int = 185) -> float:
+        if roi.size == 0:
+            return 0.0
+        return float(((roi[:, :, 0] > threshold) & (roi[:, :, 1] > threshold) & (roi[:, :, 2] > threshold)).mean())
+
+    def _gray_fraction(self, roi: np.ndarray) -> float:
+        if roi.size == 0:
+            return 0.0
+        b = roi[:, :, 0].astype(np.int16)
+        g = roi[:, :, 1].astype(np.int16)
+        r = roi[:, :, 2].astype(np.int16)
+        brightness = (b + g + r) / 3.0
+        channel_spread = np.maximum.reduce([b, g, r]) - np.minimum.reduce([b, g, r])
+        return float(((brightness > 35) & (brightness < 145) & (channel_spread < 38)).mean())
+
+    def _pink_fraction(self, roi: np.ndarray) -> float:
+        if roi.size == 0:
+            return 0.0
+        b = roi[:, :, 0].astype(np.int16)
+        g = roi[:, :, 1].astype(np.int16)
+        r = roi[:, :, 2].astype(np.int16)
+        return float(((r > 150) & (b > 105) & (g < 125) & ((r - g) > 55) & ((b - g) > 25)).mean())
+
+    def _looks_like_detail_page(self, image: np.ndarray) -> bool:
+        strengthen_button = self._relative_roi(image, 0.69, 0.88, 0.98, 0.985)
+        add_slots = self._relative_roi(image, 0.68, 0.70, 0.99, 0.88)
+        right_panel = self._relative_roi(image, 0.68, 0.40, 0.97, 0.90)
+        return (
+            self._white_fraction(strengthen_button) > 0.16
+            and self._gray_fraction(add_slots) > 0.22
+            and self._white_fraction(add_slots, threshold=185) < 0.25
+            and self._white_fraction(right_panel, threshold=185) < 0.20
+        )
+
+    def _looks_like_inventory_first_item(self, image: np.ndarray) -> bool:
+        first_slot = self._relative_roi(image, 0.04, 0.135, 0.155, 0.34)
+        right_panel = self._relative_roi(image, 0.68, 0.40, 0.97, 0.90)
+        top_nav = self._relative_roi(image, 0.15, 0.025, 0.58, 0.105)
+        return (
+            self._pink_fraction(first_slot) > 0.008
+            and self._white_fraction(right_panel, threshold=165) > 0.12
+            and self._gray_fraction(top_nav) > 0.08
+        )
+
+    def _wait_for_page_state(self, predicate, timeout_seconds: float, label: str) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        stable = 0
+        with mss.MSS() as sct:
+            while time.monotonic() < deadline and not self._stopped:
+                screenshot, _ = capture_foreground_window(sct)
+                image = self._screenshot_to_bgr(screenshot)
+                if image is not None and predicate(image):
+                    stable += 1
+                    if stable >= PAGE_STATE_STABLE_FRAMES:
+                        logger.info(f"页面识别成功: {label}")
+                        return True
+                else:
+                    stable = 0
+                time.sleep(PAGE_STATE_POLL_SECONDS)
+        logger.warning(f"页面识别超时: {label}")
+        return False
+
+    def _wait_for_detail_page(self) -> bool:
+        return self._wait_for_page_state(
+            self._looks_like_detail_page,
+            DETAIL_PAGE_WAIT_TIMEOUT_SECONDS,
+            "强化详情页",
+        )
+
+    def _wait_for_inventory_first_item(self) -> bool:
+        return self._wait_for_page_state(
+            self._looks_like_inventory_first_item,
+            INVENTORY_PAGE_WAIT_TIMEOUT_SECONDS,
+            "背包第一页第一格",
+        )
+
     def _refresh_to_first_item(self):
-        logger.info("发送详情页回跳定位: D -> Y -> B")
+        logger.info("发送详情页回跳定位: D -> Y -> 等待详情页 -> B -> 等待背包第一页第一格")
         self._apply_moves(["D"])
         time.sleep(DETAIL_REFRESH_MOVE_SETTLE_SECONDS)
         self._press_y()
-        time.sleep(DETAIL_REFRESH_ENTER_SETTLE_SECONDS)
+        if not self._wait_for_detail_page():
+            raise RuntimeError("按 Y 后未检测到强化详情页，已停止扫描后管理以避免误操作。")
+        time.sleep(PAGE_STATE_DETECTED_SETTLE_SECONDS)
         self._press_b()
-        time.sleep(DETAIL_REFRESH_RETURN_SETTLE_SECONDS)
+        if not self._wait_for_inventory_first_item():
+            raise RuntimeError("按 B 返回后未检测到背包第一页第一格，已停止扫描后管理以避免误操作。")
+        time.sleep(PAGE_STATE_DETECTED_SETTLE_SECONDS)
 
     def _sync_selected_equipment_state(self, current_state: str, target_state: str) -> bool:
         current_state = current_state if current_state in {"normal", "locked", "discarded"} else "normal"
