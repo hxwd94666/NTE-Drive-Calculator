@@ -235,9 +235,10 @@ def render_identify_result_page(window, pages: list[dict]):
     window.ident_summary.setText(f"{item_name}鉴定完成{page_text}：{len(rows)} 名角色可使用")
 
     preview_weights = rows[0]["weights"] if rows else {}
+    preview_main_weights = rows[0].get("main_weights") if rows else None
     if isinstance(item, Tape):
         preview = window._equip_card(
-            item.set_name, item.main_stats, item.sub_stats, None, item.uid, preview_weights, None, item.quality
+            item.set_name, item.main_stats, item.sub_stats, None, item.uid, preview_weights, None, item.quality, main_weights=preview_main_weights
         )
     else:
         preview = window._equip_card(
