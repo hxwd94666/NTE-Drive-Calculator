@@ -308,15 +308,26 @@ def _calc_tape_replacement_margin(role_data: dict, candidate_tape: dict) -> floa
         return 0.0
 
 
+def _role_main_weights(window, role_name: str) -> dict:
+    roles_db = getattr(window, "roles_db", {}) or {}
+    role_config = roles_db.get(role_name, {}) if isinstance(roles_db, dict) else {}
+    main_weights = role_config.get("main_weights") if isinstance(role_config, dict) else None
+    return dict(main_weights) if isinstance(main_weights, dict) else {}
+
+
 def _score_tape(window, role_name: str, tape: dict, weights: dict) -> tuple[float, str]:
     score = 0.0
     if hasattr(window, "_score_tape_dict"):
-        score = window._score_tape_dict(
+        args = (
             _main_stat_label(tape),
             tape.get("sub_stats", {}) or {},
             weights,
             tape.get("quality", "Gold"),
         )
+        try:
+            score = window._score_tape_dict(*args, _role_main_weights(window, role_name))
+        except TypeError:
+            score = window._score_tape_dict(*args)
     grade = window._calc_grade(score, 15) if hasattr(window, "_calc_grade") else "D"
     return score, grade
 
@@ -389,6 +400,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
         group = QGroupBox("卡带")
         group_layout = QVBoxLayout(group)
         weights = _role_scoring_weights(window, role_name, role_data)
+        main_weights = _role_main_weights(window, role_name)
         score, grade = _score_tape(window, role_name, tape_data, weights)
         tape_margin = _calc_tape_margin(role_data)
 
@@ -403,6 +415,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
                 (score, grade),
                 tape_data.get("quality", "Gold"),
                 is_changed=bool(tape_data.get("is_changed")),
+                main_weights=main_weights,
             )
             group_layout.addWidget(card)
 
@@ -593,6 +606,7 @@ def _show_tape_optimization(
     current_group = QGroupBox("当前卡带")
     current_layout = QVBoxLayout(current_group)
     current_score, current_grade = _score_tape(window, role_name, current_tape, weights)
+    main_weights = _role_main_weights(window, role_name)
     if hasattr(window, "_equip_card"):
         current_layout.addWidget(
             window._equip_card(
@@ -604,6 +618,7 @@ def _show_tape_optimization(
                 weights,
                 (current_score, current_grade),
                 current_tape.get("quality", "Gold"),
+                main_weights=main_weights,
             )
         )
     main_layout.addWidget(current_group)
@@ -664,6 +679,7 @@ def _show_tape_optimization(
                     weights,
                     (score, grade),
                     tape.get("quality", "Gold"),
+                    main_weights=main_weights,
                 )
             )
         replace_btn = QPushButton("替换")
