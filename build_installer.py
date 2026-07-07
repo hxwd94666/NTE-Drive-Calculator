@@ -45,6 +45,30 @@ def _run(cmd: list[str], cwd: Path = ROOT) -> None:
     subprocess.run(cmd, cwd=str(cwd), check=True)
 
 
+def _running_in_automation() -> bool:
+    if os.environ.get("CI") or os.environ.get("PYTEST_CURRENT_TEST"):
+        return True
+    return os.environ.get("NTE_BUILD_NONINTERACTIVE") == "1"
+
+
+def _choose_workshop_sync_mode(skip_workshop_sync: bool, require_workshop_sync: bool) -> tuple[bool, bool]:
+    if skip_workshop_sync or require_workshop_sync:
+        return skip_workshop_sync, require_workshop_sync
+    if _running_in_automation():
+        return True, False
+
+    print("\n请选择打包模式：")
+    print("1. 普通模式")
+    print("2. 开发者模式")
+    try:
+        choice = input("请输入 1 或 2，直接回车默认为 1: ").strip()
+    except EOFError:
+        choice = "1"
+    if choice != "2":
+        return True, False
+    return False, True
+
+
 def _find_iscc() -> Path | None:
     candidates = [
         os.environ.get("INNO_SETUP_ISCC"),
@@ -106,8 +130,10 @@ def _app_process_running() -> bool:
     return APP_EXE_NAME.lower() in result.stdout.lower()
 
 
-def _ensure_app_bundle(skip_app_build: bool) -> None:
+def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False, require_workshop_sync: bool = False) -> None:
     if skip_app_build:
+        if require_workshop_sync:
+            raise RuntimeError("--require-workshop-sync cannot be used with --skip-app-build because the existing app bundle cannot be refreshed.")
         if not APP_EXE.exists() or not APP_INTERNAL.exists():
             raise RuntimeError(
                 "dist/NTE_Drive_Calc is missing. Run build_exe.py first or omit --skip-app-build."
@@ -120,7 +146,12 @@ def _ensure_app_bundle(skip_app_build: bool) -> None:
             "or use --skip-app-build to package the existing app bundle."
         )
 
-    _run([sys.executable, str(ROOT / "build_exe.py")])
+    build_cmd = [sys.executable, str(ROOT / "build_exe.py")]
+    if skip_workshop_sync:
+        build_cmd.append("--skip-workshop-sync")
+    if require_workshop_sync:
+        build_cmd.append("--require-workshop-sync")
+    _run(build_cmd)
     if not APP_EXE.exists() or not APP_INTERNAL.exists():
         raise RuntimeError("PyInstaller build finished, but dist/NTE_Drive_Calc is incomplete.")
 
@@ -366,10 +397,20 @@ def main() -> int:
     parser.add_argument("--version", default=os.environ.get("APP_VERSION") or _read_app_version())
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
+    parser.add_argument("--skip-workshop-sync", action="store_true", help="Do not sync workshop weights before building the app bundle.")
+    parser.add_argument("--require-workshop-sync", action="store_true", help="Fail release packaging if workshop weight sync cannot run.")
     args = parser.parse_args()
 
     try:
-        _ensure_app_bundle(skip_app_build=args.skip_app_build)
+        skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode(
+            args.skip_workshop_sync,
+            args.require_workshop_sync,
+        )
+        _ensure_app_bundle(
+            skip_app_build=args.skip_app_build,
+            skip_workshop_sync=skip_workshop_sync,
+            require_workshop_sync=require_workshop_sync,
+        )
         vigem_installer, vigem_is_exe = _find_vigem_installer()
         _write_iss(version=args.version, vigem_installer=vigem_installer, vigem_is_exe=vigem_is_exe)
 

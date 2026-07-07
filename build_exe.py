@@ -10,6 +10,7 @@ NTE Drive Calc - PyInstaller 打包脚本
 import importlib.util
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,6 +26,51 @@ ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 SPEC = ROOT / "NTE_Drive_Calc.spec"
+
+EXPLICIT_WORKSHOP_ARGS = {"--skip-workshop-sync", "--require-workshop-sync", "--prompt-workshop-key"}
+
+
+def _running_in_automation() -> bool:
+    if os.environ.get("CI") or os.environ.get("PYTEST_CURRENT_TEST"):
+        return True
+    return os.environ.get("NTE_BUILD_NONINTERACTIVE") == "1"
+
+
+def _choose_workshop_sync_mode() -> tuple[bool, bool]:
+    if any(arg in sys.argv for arg in EXPLICIT_WORKSHOP_ARGS):
+        return "--skip-workshop-sync" in sys.argv, "--require-workshop-sync" in sys.argv
+    if _running_in_automation():
+        return True, False
+
+    print("\n请选择打包模式：")
+    print("1. 普通模式")
+    print("2. 开发者模式")
+    try:
+        choice = input("请输入 1 或 2，直接回车默认为 1: ").strip()
+    except EOFError:
+        choice = "1"
+    if choice != "2":
+        return True, False
+    return False, True
+
+
+skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode()
+
+
+def _sync_workshop_weights_before_build() -> None:
+    if skip_workshop_sync:
+        print("[SKIP] 普通模式：不更新异环工坊权重")
+        return
+    cmd = [sys.executable, str(ROOT / "tools" / "sync_workshop_weights.py")]
+    if require_workshop_sync:
+        cmd.extend(["--prompt-key", "--fallback-normal"])
+    else:
+        cmd.append("--optional")
+    print("[RUN]", " ".join(cmd))
+    subprocess.run(cmd, cwd=str(ROOT), check=True)
+
+
+_sync_workshop_weights_before_build()
 
 for path in (DIST, BUILD):
     if path.exists():
