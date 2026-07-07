@@ -116,7 +116,9 @@ def _render_equip_batch(self, token, batch_size=None):
         self._equip_render_stretch_added=True
 
 def _render_equip_role(self, role_name, rd):
-    wts=self.roles_db.get(role_name,{}).get("weights",{})
+    role_cfg=self.roles_db.get(role_name,{})
+    wts=role_cfg.get("weights",{})
+    main_wts=role_cfg.get("main_weights")
 
     total_score=0.0
     tape_data=rd.get("equipped_tape")
@@ -126,7 +128,7 @@ def _render_equip_role(self, role_name, rd):
     else:
         if tape_data:
             t_q=tape_data.get("quality","Gold")
-            t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
+            t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q,main_wts)
             total_score+=t_s
         for d in rd.get("equipped_drives",[]):
             d_q=d.get("quality","Gold")
@@ -191,11 +193,11 @@ def _render_equip_role(self, role_name, rd):
             t_s=float(tape_data.get("score",0.0) or 0.0)
             t_g=str(tape_data.get("grade") or "D")
         else:
-            t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
+            t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q,main_wts)
             t_g=self._calc_grade(t_s,15)
         gl.addWidget(self._section_label("卡带:"))
         tape_changed=bool(tape_data.get("is_changed"))
-        gl.addWidget(self._equip_card(tape_data.get("set_name",""),tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),None,tape_data.get("uid",""),wts,(t_s,t_g),t_q,is_new=bool(tape_data.get("is_new")) and not tape_changed,is_changed=tape_changed))
+        gl.addWidget(self._equip_card(tape_data.get("set_name",""),tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),None,tape_data.get("uid",""),wts,(t_s,t_g),t_q,is_new=bool(tape_data.get("is_new")) and not tape_changed,is_changed=tape_changed,main_weights=main_wts))
     if drives:
         gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
         for d in drives:
