@@ -244,7 +244,11 @@ def _role_drive_state(window, role_name, role_data, old_role_state):
             quality = tape.get("quality", "Gold")
             score = 0.0
             if hasattr(window, "_score_tape_dict"):
-                score = window._score_tape_dict(main_stat_name, sub_stats, weights, quality)
+                role_cfg = getattr(window, "roles_db", {}).get(role_name, {})
+                try:
+                    score = window._score_tape_dict(main_stat_name, sub_stats, weights, quality, role_cfg.get("main_weights"))
+                except TypeError:
+                    score = window._score_tape_dict(main_stat_name, sub_stats, weights, quality)
             grade = window._calc_grade(score, 15) if hasattr(window, "_calc_grade") else "D"
             equipped_tape = {
                 "uid": uid,
