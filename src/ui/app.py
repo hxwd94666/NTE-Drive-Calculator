@@ -368,7 +368,13 @@ class MainWindow(QMainWindow):
 
         right=QWidget(); rr=QVBoxLayout(right); rr.setContentsMargins(0,0,0,0); rr.setSpacing(0)
         tbar=QWidget(); tbar.setObjectName("topbar"); tbh=QHBoxLayout(tbar); tbh.setContentsMargins(20,10,20,10)
-        self.topbar_title=QLabel(NAV_ITEMS[0].label); tbh.addWidget(self.topbar_title); tbh.addStretch()
+        self.topbar_title=QLabel(NAV_ITEMS[0].label); tbh.addWidget(self.topbar_title)
+        self.topbar_source_label=QLabel("评分标准来源于微信小程序“异环工坊”")
+        self.topbar_source_label.setStyleSheet("color:#8b949e;font-size:12px;margin-left:12px")
+        self.topbar_source_label.setWordWrap(False)
+        self.topbar_source_label.setVisible(False)
+        tbh.addWidget(self.topbar_source_label)
+        tbh.addStretch()
         self.account_combo=QComboBox(); self.account_combo.setFixedWidth(150)
         self.account_combo.currentIndexChanged.connect(self._on_account_combo_changed)
         tbh.addWidget(self.account_combo)
@@ -405,6 +411,8 @@ class MainWindow(QMainWindow):
             return
         self.stack.setCurrentIndex(indexes.get(item.key,0))
         self.topbar_title.setText(item.label)
+        if hasattr(self,"topbar_source_label"):
+            self.topbar_source_label.setVisible(item.key in {"equipment","identify","config"})
         for btn in self._nav_buttons.values(): btn.setChecked(False)
         self._nav_buttons[item.key].setChecked(True)
         if item.refresh_method:
