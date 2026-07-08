@@ -28,10 +28,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.models.equipment import Tape
+from src.app.theme import theme_rgba, themed_style
 from src.ui.widgets import SearchableComboBox
 
 GRADE_COLORS = {"ACE": "#ffa726", "SSS": "#ffa726", "SS": "#f0883e", "S": "#f0883e", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
-GRADE_BGS = {"ACE": "#ffa72630", "SSS": "#ffa72620", "SS": "#f0883e18", "S": "#f0883e18", "A": "#7ec8e318", "B": "#5b9bd515", "C": "#4a7fb512", "D": "#3d5a8010"}
 
 
 def build_identify_page(window, text_edit_cls):
@@ -138,7 +138,7 @@ def build_identify_page(window, text_edit_cls):
 
     result_card = window._card("鉴定结果")
     window.ident_summary = QLabel("等待输入装备数据")
-    window.ident_summary.setStyleSheet("color:#8b949e")
+    window.ident_summary.setStyleSheet(themed_style("color:#8b949e"))
     result_card.layout().addWidget(window.ident_summary)
     window.ident_result_widget = QWidget()
     window.ident_result_layout = QVBoxLayout(window.ident_result_widget)
@@ -174,7 +174,7 @@ def refresh_identify_previews(window, paths: list[Path], max_count: int = 12):
     for path in existing_paths[:max_count]:
         frame = QFrame()
         frame.setFixedSize(98, 98)
-        frame.setStyleSheet("QFrame{background:#0d1117;border:1px solid #30363d;border-radius:6px}")
+        frame.setStyleSheet(themed_style("QFrame{background:#0d1117;border:1px solid #30363d;border-radius:6px}"))
         grid = QGridLayout(frame)
         grid.setContentsMargins(2, 2, 2, 2)
         grid.setSpacing(0)
@@ -262,7 +262,7 @@ def render_identify_result_page(window, pages: list[dict]):
     if not rows:
         empty = QLabel("没有找到图纸可使用该装备的角色。")
         empty.setAlignment(Qt.AlignCenter)
-        empty.setStyleSheet("color:#6e7681;padding:20px")
+        empty.setStyleSheet(themed_style("color:#6e7681;padding:20px"))
         window.ident_result_layout.addWidget(empty)
         return
 
@@ -274,9 +274,9 @@ def render_identify_result_page(window, pages: list[dict]):
 def build_identify_result_row(rank: int, row: dict):
     grade = row["grade"]
     grade_color = GRADE_COLORS.get(grade, "#58a6ff")
-    grade_bg = GRADE_BGS.get(grade, f"{grade_color}15")
+    grade_bg = theme_rgba(grade_color, 0.10)
     frame = QFrame()
-    frame.setStyleSheet("QFrame{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:8px}")
+    frame.setStyleSheet(themed_style("QFrame{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:8px}"))
     layout = QHBoxLayout(frame)
     layout.setSpacing(10)
     layout.setContentsMargins(8, 4, 8, 4)
@@ -284,15 +284,15 @@ def build_identify_result_row(rank: int, row: dict):
     rank_label = QLabel(str(rank))
     rank_label.setFixedSize(28, 28)
     rank_label.setAlignment(Qt.AlignCenter)
-    rank_label.setStyleSheet("background:#21262d;color:#c9d1d9;border-radius:14px;font-weight:700")
+    rank_label.setStyleSheet(themed_style("background:#21262d;color:#c9d1d9;border-radius:14px;font-weight:700"))
     layout.addWidget(rank_label)
 
     info = QVBoxLayout()
     info.setSpacing(2)
     role = QLabel(row["role"])
-    role.setStyleSheet("font-size:14px;font-weight:700;color:#c9d1d9;border:none")
+    role.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#c9d1d9;border:none"))
     meta = QLabel(f"{row['set']} · {row['match']} · 占比 {row['percent']:.1f}%")
-    meta.setStyleSheet("color:#8b949e;font-size:11px;border:none")
+    meta.setStyleSheet(themed_style("color:#8b949e;font-size:11px;border:none"))
     info.addWidget(role)
     info.addWidget(meta)
     layout.addLayout(info, 1)
