@@ -22,6 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools import build_cli
+
 
 ROOT = Path(__file__).parent.resolve()
 DIST_APP = ROOT / "dist" / "NTE_Drive_Calc"
@@ -41,32 +43,21 @@ CORE_CONFIG_FILES = ("roles.json", "sets.json", "stats.json", "shapes.json",
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> None:
-    print("[RUN]", " ".join(cmd))
-    subprocess.run(cmd, cwd=str(cwd), check=True)
+    build_cli.run(cmd, cwd)
 
 
 def _running_in_automation() -> bool:
-    if os.environ.get("CI") or os.environ.get("PYTEST_CURRENT_TEST"):
-        return True
-    return os.environ.get("NTE_BUILD_NONINTERACTIVE") == "1"
+    return build_cli.running_in_automation()
 
 
 def _choose_workshop_sync_mode(skip_workshop_sync: bool, require_workshop_sync: bool) -> tuple[bool, bool]:
     if skip_workshop_sync or require_workshop_sync:
-        return skip_workshop_sync, require_workshop_sync
-    if _running_in_automation():
-        return True, False
-
-    print("\n请选择打包模式：")
-    print("1. 普通模式")
-    print("2. 开发者模式")
-    try:
-        choice = input("请输入 1 或 2，直接回车默认为 1: ").strip()
-    except EOFError:
-        choice = "1"
-    if choice != "2":
-        return True, False
-    return False, True
+        return build_cli.choose_build_mode(
+            skip_workshop_sync=skip_workshop_sync,
+            require_workshop_sync=require_workshop_sync,
+            has_explicit_choice=True,
+        )
+    return build_cli.choose_build_mode()
 
 
 def _find_iscc() -> Path | None:
@@ -389,7 +380,7 @@ end;
 {chinese_custom_messages}
 """
     ISS_PATH.write_text(content, encoding="utf-8-sig")
-    print(f"[OK] Wrote installer script: {ISS_PATH}")
+    build_cli.ok(f"Wrote installer script: {ISS_PATH}")
 
 
 def main() -> int:
@@ -415,27 +406,27 @@ def main() -> int:
         _write_iss(version=args.version, vigem_installer=vigem_installer, vigem_is_exe=vigem_is_exe)
 
         if args.generate_only:
-            print("[OK] Generate-only mode complete.")
+            build_cli.ok("Generate-only mode complete.")
             return 0
 
         iscc = _find_iscc()
         if not iscc:
-            print("[WARN] Inno Setup compiler was not found.")
-            print("[WARN] Install Inno Setup 6, or set INNO_SETUP_ISCC to ISCC.exe.")
-            print("[WARN] Then run: .\\.venv\\Scripts\\python.exe build_installer.py --skip-app-build")
+            build_cli.warn("Inno Setup compiler was not found.")
+            build_cli.warn("Install Inno Setup 6, or set INNO_SETUP_ISCC to ISCC.exe.")
+            build_cli.warn("Then run: .\\.venv\\Scripts\\python.exe build_installer.py --skip-app-build")
             return 2
 
         _run([str(iscc), str(ISS_PATH)])
         setup = OUTPUT_DIR / f"NTE_Drive_Calc_Setup_{args.version}.exe"
         if not setup.exists():
             raise RuntimeError(f"Installer build finished, but output was not found: {setup}")
-        print(f"[OK] Installer complete: {setup}")
+        build_cli.ok(f"Installer complete: {setup}")
         return 0
     except subprocess.CalledProcessError as exc:
-        print(f"[FAIL] Command failed with exit code {exc.returncode}")
+        build_cli.fail(f"Command failed with exit code {exc.returncode}")
         return exc.returncode
     except Exception as exc:
-        print(f"[FAIL] {exc}")
+        build_cli.fail(str(exc))
         return 1
 
 

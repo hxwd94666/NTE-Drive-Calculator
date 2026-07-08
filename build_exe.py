@@ -22,6 +22,8 @@ from PyInstaller.utils.hooks import (
     copy_metadata,
 )
 
+from tools import build_cli
+
 ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
@@ -31,27 +33,17 @@ EXPLICIT_WORKSHOP_ARGS = {"--skip-workshop-sync", "--require-workshop-sync", "--
 
 
 def _running_in_automation() -> bool:
-    if os.environ.get("CI") or os.environ.get("PYTEST_CURRENT_TEST"):
-        return True
-    return os.environ.get("NTE_BUILD_NONINTERACTIVE") == "1"
+    return build_cli.running_in_automation()
 
 
 def _choose_workshop_sync_mode() -> tuple[bool, bool]:
     if any(arg in sys.argv for arg in EXPLICIT_WORKSHOP_ARGS):
-        return "--skip-workshop-sync" in sys.argv, "--require-workshop-sync" in sys.argv
-    if _running_in_automation():
-        return True, False
-
-    print("\n请选择打包模式：")
-    print("1. 普通模式")
-    print("2. 开发者模式")
-    try:
-        choice = input("请输入 1 或 2，直接回车默认为 1: ").strip()
-    except EOFError:
-        choice = "1"
-    if choice != "2":
-        return True, False
-    return False, True
+        return build_cli.choose_build_mode(
+            skip_workshop_sync="--skip-workshop-sync" in sys.argv,
+            require_workshop_sync="--require-workshop-sync" in sys.argv,
+            has_explicit_choice=True,
+        )
+    return build_cli.choose_build_mode()
 
 
 skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode()
@@ -59,15 +51,14 @@ skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode()
 
 def _sync_workshop_weights_before_build() -> None:
     if skip_workshop_sync:
-        print("[SKIP] 普通模式：不更新异环工坊权重")
+        build_cli.skip("普通模式：不更新异环工坊权重")
         return
     cmd = [sys.executable, str(ROOT / "tools" / "sync_workshop_weights.py")]
     if require_workshop_sync:
         cmd.extend(["--prompt-key", "--fallback-normal"])
     else:
         cmd.append("--optional")
-    print("[RUN]", " ".join(cmd))
-    subprocess.run(cmd, cwd=str(ROOT), check=True)
+    build_cli.run(cmd, ROOT)
 
 
 _sync_workshop_weights_before_build()
@@ -139,8 +130,8 @@ hidden_imports = [
 for pkg_name in ("rapidocr_openvino", "rapidocr_onnxruntime"):
     try:
         hidden_imports.extend(collect_submodules(pkg_name))
-    except Exception:
-        pass
+    except Exception as exc:
+        build_cli.warn(f"收集 {pkg_name} hidden imports 失败，按基础 hook 继续: {exc}")
 
 for imp in hidden_imports:
     args.append(f"--hidden-import={imp}")
@@ -193,7 +184,7 @@ for ocr_pkg_name in ("rapidocr_openvino", "rapidocr_onnxruntime"):
         for src, dst in copy_metadata(ocr_pkg_name):
             _append_add_data(src, dst)
     except Exception:
-        pass
+        build_cli.warn(f"收集 {ocr_pkg_name} 数据文件失败，OCR 包可能未安装，继续打包: {ocr_pkg_name}")
 
 # OpenVINO runtime: complete libs, cache.json, and package metadata.
 # A hand-written DLL list is fragile and can miss plugin/data files.
@@ -205,7 +196,7 @@ try:
     for src, dst in copy_metadata("openvino"):
         _append_add_data(src, dst)
 except Exception:
-    pass
+    build_cli.warn("收集 OpenVINO runtime 文件失败，继续打包；若运行 OCR 异常请检查依赖安装")
 
 # ONNX Runtime / DirectML runtime: required when a discrete GPU is available.
 try:
@@ -216,9 +207,9 @@ try:
             for src, dst in copy_metadata(package_name):
                 _append_add_data(src, dst)
         except Exception:
-            pass
+            build_cli.warn(f"收集 {package_name} metadata 失败，继续打包")
 except Exception:
-    pass
+    build_cli.warn("收集 ONNX Runtime / DirectML 文件失败，继续打包；独显加速可能不可用")
 
 # ViGEmClient.dll（虚拟手柄）
 vg_path = _find_package_dir("vgamepad")
@@ -230,7 +221,7 @@ if vg_path is not None:
 # UPX 压缩（如果可用）
 args.append("--upx-dir=.")
 
-print(f"[BUILD] Mode: {'Single File' if onefile else 'Single Dir'}")
+build_cli.info(f"[BUILD] Mode: {'Single File' if onefile else 'Single Dir'}")
 PyInstaller.__main__.run(args)
 
 output = DIST / "NTE_Drive_Calc"
@@ -241,8 +232,8 @@ if output.exists():
     size_mb = sum(
         f.stat().st_size for f in output.rglob("*") if f.is_file()
     ) / (1024 * 1024)
-    print(f"\n[OK] Build complete: {output}")
-    print(f"[SIZE] {size_mb:.1f} MB")
+    build_cli.ok(f"Build complete: {output}")
+    build_cli.info(f"[SIZE] {size_mb:.1f} MB")
 else:
-    print("\n[FAIL] Build failed.")
+    build_cli.fail("Build failed.")
     sys.exit(1)
