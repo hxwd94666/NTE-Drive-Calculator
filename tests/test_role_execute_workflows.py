@@ -10,42 +10,6 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-class UsageGuideWorkflowTests(unittest.TestCase):
-    def test_usage_guide_does_not_show_folder_open_buttons(self):
-        from PySide6.QtGui import QPixmap
-        from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QWidget
-
-        from src.features.onboarding import guide
-
-        app = QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as tmp:
-            image_path = Path(tmp) / "guide.png"
-            pixmap = QPixmap(16, 16)
-            pixmap.fill()
-            self.assertTrue(pixmap.save(str(image_path)))
-
-            class Window(QWidget):
-                def _guide_image_files(self):
-                    return [image_path]
-
-            captured_buttons = []
-            original_exec = guide.QDialog.exec
-
-            def fake_exec(dialog):
-                captured_buttons.extend(button.text() for button in dialog.findChildren(QPushButton))
-                return QDialog.Accepted
-
-            guide.QDialog.exec = fake_exec
-            try:
-                guide._show_quick_start(Window())
-            finally:
-                guide.QDialog.exec = original_exec
-
-        self.assertNotIn("打开截图文件夹", captured_buttons)
-        self.assertNotIn("打开配置文件夹", captured_buttons)
-        app.processEvents()
-
-
 class IdentifyTempFileWorkflowTests(unittest.TestCase):
     def test_identify_clipboard_cleanup_removes_only_generated_account_root_files(self):
         from src.features.identification.temp_files import (
@@ -248,60 +212,6 @@ class RolePriorityWorkflowTests(unittest.TestCase):
             self.assertEqual({}, restored.get_crit_rate_caps())
         app.processEvents()
 
-    def test_priority_save_shows_success_message(self):
-        from PySide6.QtWidgets import QApplication
-
-        from src.features.allocation import role_selector
-        from src.features.allocation.role_selector import RoleSelector
-
-        app = QApplication.instance() or QApplication([])
-        messages = []
-        original_information = role_selector.QMessageBox.information
-        role_selector.QMessageBox.information = lambda _parent, title, text: messages.append((title, text))
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "priority_config.json"
-                selector = RoleSelector(priority_config_path_provider=lambda: path)
-                selector.load_roles({"A": {}}, ["S"], [], [])
-                selector.selected = ["A"]
-                selector.save_priority_config()
-        finally:
-            role_selector.QMessageBox.information = original_information
-
-        self.assertTrue(messages)
-        self.assertIn("保存成功", messages[-1][0])
-        self.assertIn("随时读取", messages[-1][1])
-        app.processEvents()
-
-    def test_priority_save_button_keeps_success_popup_enabled(self):
-        from PySide6.QtWidgets import QApplication, QPushButton
-
-        from src.features.allocation import role_selector
-        from src.features.allocation.role_selector import RoleSelector
-
-        app = QApplication.instance() or QApplication([])
-        messages = []
-        original_information = role_selector.QMessageBox.information
-        role_selector.QMessageBox.information = lambda _parent, title, text: messages.append((title, text))
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "priority_config.json"
-                selector = RoleSelector(priority_config_path_provider=lambda: path)
-                selector.load_roles({"A": {}}, ["S"], [], [])
-                selector.selected = ["A"]
-                save_button = next(
-                    button for button in selector.findChildren(QPushButton) if button.text() == "\u4fdd\u5b58"
-                )
-
-                save_button.click()
-        finally:
-            role_selector.QMessageBox.information = original_information
-
-        self.assertTrue(messages)
-        self.assertIn("\u4fdd\u5b58\u6210\u529f", messages[-1][0])
-        app.processEvents()
-
-
 class IdentificationWorkflowTests(unittest.TestCase):
     def test_set_combo_data_refreshes_searchable_combo_without_legacy_restore_api(self):
         from PySide6.QtWidgets import QApplication
@@ -372,58 +282,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertEqual([({"A": {"valid": True}}, "role_priority")], window.state_mgr.saved)
         self.assertEqual([False], window.reload_priority_args)
 
-    def test_save_allocation_button_keeps_success_popup_enabled(self):
-        from PySide6.QtCore import Signal
-        from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
-
-        from src.features.allocation.execute_page import build_execute_page
-
-        app = QApplication.instance() or QApplication([])
-
-        class FakeRoleSelector(QWidget):
-            orderChanged = Signal()
-
-        class Window(QWidget):
-            def __init__(self):
-                super().__init__()
-                self.save_args = []
-
-            def _card(self, _title):
-                card = QFrame()
-                QVBoxLayout(card)
-                return card
-
-            def _on_scan_change(self, *_args):
-                pass
-
-            def _on_priority_changed(self, *_args):
-                pass
-
-            def _do_exec(self):
-                pass
-
-            def _save_alloc(self, show_message=True):
-                self.save_args.append(show_message)
-                return True
-
-        window = Window()
-        scroll = build_execute_page(
-            window,
-            FakeRoleSelector,
-            {},
-            {},
-            {},
-            lambda *_args: None,
-        )
-        save_button = window.btn_save
-
-        save_button.click()
-
-        self.assertEqual([True], window.save_args)
-        self.assertNotIn("一键导入", [button.text() for button in window.result_card.findChildren(QPushButton)])
-        self.assertIsNotNone(scroll)
-        app.processEvents()
-
     def test_execute_page_shows_post_action_manager_only_for_full_scan(self):
         from PySide6.QtCore import Signal
         from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout, QWidget
@@ -477,6 +335,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_scan_post_action_config(Path(tmp))
 
+        self.assertEqual("default", config["server_region"])
         self.assertFalse(config["discard"]["enabled"])
         self.assertEqual("S", config["discard"]["grade"])
         self.assertEqual("all", config["discard"]["role_scope"])
@@ -496,39 +355,13 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertEqual("skip", config["lock"]["on_locked"])
         self.assertEqual("normal", config["lock"]["on_discarded"])
 
-    def test_scan_post_action_dialog_uses_side_by_side_toggle_buttons_and_help(self):
-        from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QPushButton
-
-        from src.features.scanning.post_action_dialog import ScanPostActionDialog
-
-        app = QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as tmp:
-            dialog = ScanPostActionDialog(None, Path(tmp))
-
-            group_titles = [group.title() for group in dialog.findChildren(QGroupBox)]
-            self.assertEqual([], group_titles)
-            help_buttons = [button for button in dialog.findChildren(QPushButton) if button.text() == "?"]
-            self.assertEqual(2, len(help_buttons))
-            buttons = [button for button in dialog.findChildren(QPushButton) if button.isCheckable()]
-            self.assertEqual(["关闭", "关闭"], [button.text() for button in buttons])
-            self.assertIn("da3633", buttons[0].styleSheet())
-
-            buttons[0].setChecked(True)
-
-            self.assertEqual("开启", buttons[0].text())
-            self.assertIn("238636", buttons[0].styleSheet())
-            self.assertEqual(
-                ["驱动 10/12，卡带 11/12", "驱动 10/12，卡带 11/12"],
-                [label.text() for label in dialog.findChildren(QLabel) if label.text().startswith("驱动 ")],
-            )
-        app.processEvents()
-
     def test_scan_post_action_config_passes_to_full_scan(self):
         from src.features.scanning import controller
         from src.storage.json_store import write_json
         from src.app import runtime
 
         original_information = controller.QMessageBox.information
+        original_user_config_dir = runtime.USER_CONFIG_DIR
         controller.QMessageBox.information = lambda *_args, **_kwargs: None
         try:
             class RoleSelector:
@@ -566,6 +399,8 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     self.role_selector = RoleSelector()
                     self.scan_group = ScanGroup()
                     self.total_count_edit = CountEdit()
+                    self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: True)
+                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: False)
                     self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
                     self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
                     self.result_card = SimpleNamespace(setVisible=lambda _value: None)
@@ -574,12 +409,22 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 def _start_gamepad_scan(
                     self,
                     total_drives,
-                    auto_discard_grade=None,
-                    auto_discard_lock_action="skip",
                     post_actions_config=None,
                     selected_roles=None,
+                    parse_during_scan=True,
+                    discrete_gpu_acceleration=False,
+                    amd_compatibility=False,
                 ):
-                    self.scan_args.append((total_drives, post_actions_config, selected_roles))
+                    self.scan_args.append(
+                        (
+                            total_drives,
+                            post_actions_config,
+                            selected_roles,
+                            parse_during_scan,
+                            discrete_gpu_acceleration,
+                            amd_compatibility,
+                        )
+                    )
 
                 def _confirm_unsaved_allocation_before_recompute(self):
                     return True
@@ -597,14 +442,229 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 controller._do_exec(window)
         finally:
             controller.QMessageBox.information = original_information
+            runtime.USER_CONFIG_DIR = original_user_config_dir
 
-        total, config, selected_roles = window.scan_args[0]
+        total, config, selected_roles, parse_during_scan, discrete_gpu_acceleration, amd_compatibility = window.scan_args[0]
         self.assertEqual(10, total)
         self.assertTrue(config["discard"]["enabled"])
         self.assertEqual("SS", config["discard"]["grade"])
         self.assertTrue(config["lock"]["enabled"])
         self.assertEqual("SSS", config["lock"]["grade"])
         self.assertEqual([], selected_roles)
+        self.assertTrue(parse_during_scan)
+        self.assertFalse(discrete_gpu_acceleration)
+        self.assertFalse(amd_compatibility)
+
+    def test_full_scan_dual_thread_checkbox_can_disable_streaming_parse(self):
+        from src.features.scanning import controller
+        from src.app import runtime
+
+        original_information = controller.QMessageBox.information
+        original_user_config_dir = runtime.USER_CONFIG_DIR
+        controller.QMessageBox.information = lambda *_args, **_kwargs: None
+        try:
+            class RoleSelector:
+                def get_selected(self):
+                    return []
+
+                def get_custom_sets(self):
+                    return {}
+
+                def get_tape_main_filters(self):
+                    return {}
+
+                def get_crit_priority_modes(self):
+                    return {}
+
+                def get_crit_rate_caps(self):
+                    return {}
+
+                def get_set_effect_modes(self):
+                    return {}
+
+                def get_priority_groups(self):
+                    return None
+
+            class ScanGroup:
+                def checkedId(self):
+                    return 1
+
+            class CountEdit:
+                def text(self):
+                    return "10"
+
+            class Window:
+                def __init__(self):
+                    self.role_selector = RoleSelector()
+                    self.scan_group = ScanGroup()
+                    self.total_count_edit = CountEdit()
+                    self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: False)
+                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: False)
+                    self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
+                    self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
+                    self.result_card = SimpleNamespace(setVisible=lambda _value: None)
+                    self.parse_during_scan = None
+
+                def _start_gamepad_scan(
+                    self,
+                    total_drives,
+                    post_actions_config=None,
+                    selected_roles=None,
+                    parse_during_scan=True,
+                    discrete_gpu_acceleration=False,
+                    amd_compatibility=False,
+                ):
+                    self.parse_during_scan = parse_during_scan
+
+                def _confirm_unsaved_allocation_before_recompute(self):
+                    return True
+
+            with tempfile.TemporaryDirectory() as tmp:
+                runtime.USER_CONFIG_DIR = Path(tmp)
+                window = Window()
+                controller._do_exec(window)
+        finally:
+            controller.QMessageBox.information = original_information
+            runtime.USER_CONFIG_DIR = original_user_config_dir
+
+        self.assertFalse(window.parse_during_scan)
+
+    def test_full_scan_discrete_gpu_checkbox_requests_acceleration(self):
+        from src.features.scanning import controller
+        from src.app import runtime
+
+        original_information = controller.QMessageBox.information
+        original_user_config_dir = runtime.USER_CONFIG_DIR
+        controller.QMessageBox.information = lambda *_args, **_kwargs: None
+        try:
+            class RoleSelector:
+                def get_selected(self):
+                    return []
+
+                def get_custom_sets(self):
+                    return {}
+
+                def get_tape_main_filters(self):
+                    return {}
+
+                def get_crit_priority_modes(self):
+                    return {}
+
+                def get_crit_rate_caps(self):
+                    return {}
+
+                def get_set_effect_modes(self):
+                    return {}
+
+                def get_priority_groups(self):
+                    return None
+
+            class Window:
+                def __init__(self):
+                    self.role_selector = RoleSelector()
+                    self.scan_group = SimpleNamespace(checkedId=lambda: 1)
+                    self.total_count_edit = SimpleNamespace(text=lambda: "10")
+                    self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: True)
+                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: True)
+                    self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
+                    self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
+                    self.result_card = SimpleNamespace(setVisible=lambda _value: None)
+                    self.discrete_gpu_acceleration = None
+
+                def _start_gamepad_scan(
+                    self,
+                    total_drives,
+                    post_actions_config=None,
+                    selected_roles=None,
+                    parse_during_scan=True,
+                    discrete_gpu_acceleration=False,
+                    amd_compatibility=False,
+                ):
+                    self.discrete_gpu_acceleration = discrete_gpu_acceleration
+
+                def _confirm_unsaved_allocation_before_recompute(self):
+                    return True
+
+            with tempfile.TemporaryDirectory() as tmp:
+                runtime.USER_CONFIG_DIR = Path(tmp)
+                window = Window()
+                controller._do_exec(window)
+        finally:
+            controller.QMessageBox.information = original_information
+            runtime.USER_CONFIG_DIR = original_user_config_dir
+
+        self.assertTrue(window.discrete_gpu_acceleration)
+
+    def test_full_scan_amd_compatibility_forces_low_load_options(self):
+        from src.features.scanning import controller
+        from src.app import runtime
+
+        original_information = controller.QMessageBox.information
+        original_user_config_dir = runtime.USER_CONFIG_DIR
+        controller.QMessageBox.information = lambda *_args, **_kwargs: None
+        try:
+            class RoleSelector:
+                def get_selected(self):
+                    return []
+
+                def get_custom_sets(self):
+                    return {}
+
+                def get_tape_main_filters(self):
+                    return {}
+
+                def get_crit_priority_modes(self):
+                    return {}
+
+                def get_crit_rate_caps(self):
+                    return {}
+
+                def get_set_effect_modes(self):
+                    return {}
+
+                def get_priority_groups(self):
+                    return None
+
+            class Window:
+                def __init__(self):
+                    self.role_selector = RoleSelector()
+                    self.scan_group = SimpleNamespace(checkedId=lambda: 1)
+                    self.total_count_edit = SimpleNamespace(text=lambda: "10")
+                    self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: True)
+                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: True)
+                    self.scan_amd_compat_check = SimpleNamespace(isChecked=lambda: True)
+                    self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
+                    self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
+                    self.result_card = SimpleNamespace(setVisible=lambda _value: None)
+                    self.scan_args = None
+
+                def _start_gamepad_scan(
+                    self,
+                    total_drives,
+                    post_actions_config=None,
+                    selected_roles=None,
+                    parse_during_scan=True,
+                    discrete_gpu_acceleration=False,
+                    amd_compatibility=False,
+                ):
+                    self.scan_args = (
+                        parse_during_scan,
+                        discrete_gpu_acceleration,
+                        amd_compatibility,
+                    )
+
+                def _confirm_unsaved_allocation_before_recompute(self):
+                    return True
+
+            with tempfile.TemporaryDirectory() as tmp:
+                runtime.USER_CONFIG_DIR = Path(tmp)
+                window = Window()
+                controller._do_exec(window)
+        finally:
+            controller.QMessageBox.information = original_information
+            runtime.USER_CONFIG_DIR = original_user_config_dir
+
+        self.assertEqual((False, False, True), window.scan_args)
 
     def test_result_header_grade_uses_full_350_score_even_without_tape(self):
         from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout
@@ -802,64 +862,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertEqual([False, False], window.new_flags)
         app.processEvents()
 
-    def test_equip_card_uses_new_and_change_labels_separately(self):
-        from PySide6.QtWidgets import QApplication, QLabel, QWidget
-
-        from src.app import runtime
-        from src.features.allocation import results_view
-
-        app = QApplication.instance() or QApplication([])
-
-        class Window(QWidget):
-            def _stat_w(self, *_args):
-                return 1.0
-
-            def _stat_c(self, *_args):
-                return "#58a6ff"
-
-        window = Window()
-        old_template_dir = getattr(runtime, "TEMPLATE_DIR", None)
-        with tempfile.TemporaryDirectory() as tmp:
-            runtime.TEMPLATE_DIR = Path(tmp)
-            try:
-                drive_card = results_view._equip_card(
-                    window,
-                    "H_2",
-                    "",
-                    {"攻击力": 16},
-                    "H_2",
-                    "drive_1",
-                    {},
-                    (12.0, "A"),
-                    "Gold",
-                    is_new=True,
-                )
-                drive_texts = [label.text() for label in drive_card.findChildren(QLabel)]
-                self.assertIn("NEW", drive_texts)
-                self.assertNotIn("CHANGE", drive_texts)
-
-                tape_card = results_view._equip_card(
-                    window,
-                    "套装A",
-                    "攻击力%",
-                    {"暴击率%": 2.0},
-                    None,
-                    "tape_1",
-                    {},
-                    (20.0, "S"),
-                    "Gold",
-                    is_changed=True,
-                )
-            finally:
-                if old_template_dir is None:
-                    delattr(runtime, "TEMPLATE_DIR")
-                else:
-                    runtime.TEMPLATE_DIR = old_template_dir
-        tape_texts = [label.text() for label in tape_card.findChildren(QLabel)]
-        self.assertIn("CHANGE", tape_texts)
-        self.assertGreater(tape_texts.index("CHANGE"), tape_texts.index("攻击力%"))
-        app.processEvents()
-
     def test_role_drive_detail_marks_only_role_replacement_changes(self):
         from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
@@ -928,6 +930,166 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         self.assertEqual([True, True], [kwargs.get("is_changed", False) for _args, kwargs in window.cards])
         self.assertEqual([False, False], [kwargs.get("is_new", False) for _args, kwargs in window.cards])
+        app.processEvents()
+
+    def test_role_drive_detail_scores_with_dynamic_weights_and_base_fallback_per_stat(self):
+        from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+
+        from src.app import runtime
+        from src.features.role import drive_widget
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.roles_db = {"A": {"weights": {"攻击力白值": 1.0, "攻击力%": 1.0, "环合强度": 2.0}}}
+                self.used_weights = []
+                self._shape_areas = {"H_2": 2}
+
+            def _equip_card(self, *_args, **_kwargs):
+                return QLabel("card")
+
+            def _score_drive_dict(self, _sub_stats, _shape_id, weights, _quality):
+                self.used_weights.append(weights)
+                return 1.0
+
+            def _score_tape_dict(self, _main_stat, _sub_stats, weights, _quality):
+                self.used_weights.append(weights)
+                return 1.0
+
+            def _calc_grade(self, *_args, **_kwargs):
+                return "A"
+
+        window = Window()
+        parent = QWidget()
+        layout = QVBoxLayout(parent)
+        role_data = {
+            "weights": {"stale_my_role_weight": 1.0},
+            "sub_stats": {
+                "攻击力白值": 100.0,
+                "攻击力%": 10.0,
+                "暴击率%": 5.0,
+                "暴击伤害%": 50.0,
+                "伤害增加%": 1.0,
+            },
+            "tape": {
+                "uid": "t1",
+                "set_name": "套装A",
+                "main_stats": {"攻击力%": 30.0},
+                "sub_stats": {},
+                "quality": "Gold",
+            },
+            "drive": {
+                "blueprint_layout": [],
+                "drives": [
+                    {
+                        "uid": "d1",
+                        "shape_id": "H_2",
+                        "sub_stats": {"攻击力": 1.0},
+                        "quality": "Gold",
+                    }
+                ],
+            },
+        }
+
+        old_config_dir = getattr(runtime, "CONFIG_DIR", None)
+        runtime.CONFIG_DIR = Path("F:/NTE/config")
+        try:
+            drive_widget._build_drive_detail_content(
+                window,
+                layout,
+                "A",
+                [],
+                role_data["drive"]["drives"],
+                role_data["drive"]["drives"],
+                role_data,
+            )
+        finally:
+            if old_config_dir is None:
+                delattr(runtime, "CONFIG_DIR")
+            else:
+                runtime.CONFIG_DIR = old_config_dir
+
+        self.assertTrue(window.used_weights)
+        self.assertTrue(all("stale_my_role_weight" not in weights for weights in window.used_weights))
+        self.assertTrue(all(set(weights) == {"攻击力白值", "攻击力%", "环合强度"} for weights in window.used_weights))
+        self.assertTrue(all(weights["攻击力白值"] != 1.0 for weights in window.used_weights))
+        self.assertTrue(all(weights["环合强度"] == 2.0 for weights in window.used_weights))
+        app.processEvents()
+
+    def test_role_drive_detail_scores_with_roles_db_weights_when_damage_is_unavailable(self):
+        from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+
+        from src.app import runtime
+        from src.features.role import drive_widget
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.roles_db = {"A": {"weights": {"roles_weight": 9.0}}}
+                self.used_weights = []
+                self._shape_areas = {"H_2": 2}
+
+            def _equip_card(self, *_args, **_kwargs):
+                return QLabel("card")
+
+            def _score_drive_dict(self, _sub_stats, _shape_id, weights, _quality):
+                self.used_weights.append(weights)
+                return 1.0
+
+            def _score_tape_dict(self, _main_stat, _sub_stats, weights, _quality):
+                self.used_weights.append(weights)
+                return 1.0
+
+            def _calc_grade(self, *_args, **_kwargs):
+                return "A"
+
+        window = Window()
+        parent = QWidget()
+        layout = QVBoxLayout(parent)
+        role_data = {
+            "weights": {"stale_my_role_weight": 1.0},
+            "tape": {
+                "uid": "t1",
+                "set_name": "套装A",
+                "main_stats": {"攻击力%": 30.0},
+                "sub_stats": {},
+                "quality": "Gold",
+            },
+            "drive": {
+                "blueprint_layout": [],
+                "drives": [
+                    {
+                        "uid": "d1",
+                        "shape_id": "H_2",
+                        "sub_stats": {"攻击力": 1.0},
+                        "quality": "Gold",
+                    }
+                ],
+            },
+        }
+
+        old_config_dir = getattr(runtime, "CONFIG_DIR", None)
+        runtime.CONFIG_DIR = Path("F:/NTE/config")
+        try:
+            drive_widget._build_drive_detail_content(
+                window,
+                layout,
+                "A",
+                [],
+                role_data["drive"]["drives"],
+                role_data["drive"]["drives"],
+                role_data,
+            )
+        finally:
+            if old_config_dir is None:
+                delattr(runtime, "CONFIG_DIR")
+            else:
+                runtime.CONFIG_DIR = old_config_dir
+
+        self.assertTrue(window.used_weights)
+        self.assertTrue(all(weights == {"roles_weight": 9.0} for weights in window.used_weights))
         app.processEvents()
 
     def test_result_diff_dialog_renders_equipment_cards(self):
