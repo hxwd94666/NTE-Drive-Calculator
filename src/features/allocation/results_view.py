@@ -13,8 +13,42 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFrame, QGroupBox, QHBo
 
 from src.app import runtime
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
-from src.app.theme import GRADE_BGS, GRADE_COLORS, STYLE
+from src.app.theme import GRADE_COLORS, current_style_sheet, current_theme_name, theme_color, theme_rgba, themed_style
+from src.optimizer.contracts import (
+    DIFF_ADDED,
+    DIFF_ADDED_UIDS,
+    DIFF_CHANGED,
+    DIFF_REMOVED,
+    EQUIP_AREA,
+    EQUIP_DISPLAY_NAME,
+    EQUIP_GRADE,
+    EQUIP_IS_CHANGED,
+    EQUIP_IS_NEW,
+    EQUIP_ITEM_TYPE,
+    EQUIP_MAIN_STATS,
+    EQUIP_QUALITY,
+    EQUIP_SCORE,
+    EQUIP_SCORE_AREA,
+    EQUIP_SET_NAME,
+    EQUIP_SHAPE_ID,
+    EQUIP_SUB_STATS,
+    EQUIP_TYPE,
+    EQUIP_UID,
+    PLAN_ASSIGNED_TAPE,
+    PLAN_BLUEPRINT,
+    PLAN_CHANGED_UIDS,
+    PLAN_SCORE,
+    PLAN_VALID,
+    ROLE_EQUIPPED_DRIVES,
+    ROLE_EQUIPPED_TAPE,
+    ROLE_LAST_DIFF,
+    ROLE_SCORE_AREA,
+    ROLE_TOTAL_GRADE,
+    ROLE_TOTAL_SCORE,
+    plan_drives,
+)
 from src.ui.puzzle_board import PuzzleBoardWidget, get_shape_pixmap as _get_shape_pixmap
+from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
@@ -28,7 +62,7 @@ def install_methods(app_module, window_cls):
 
 def _section_label(self,text):
     label=QLabel(text)
-    label.setStyleSheet("font-size:14px;font-weight:700;color:#c9d1d9;border:none;background:transparent;padding:2px 0")
+    label.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#c9d1d9;border:none;background:transparent;padding:2px 0"))
     return label
 
 def _render_results(self,plan):
@@ -41,30 +75,31 @@ def _render_results(self,plan):
     mode_name=mode_labels.get(getattr(self,'_pending_strat',''),'')
     plan_diffs=getattr(self,"allocation_plan_diff",{}) or {}
     for role,p in plan.items():
-        if not p or not p.get("valid"):
+        if not p or not p.get(PLAN_VALID):
             self.result_content_layout.addWidget(QLabel(f"❌ {role}: 无有效配装方案")); continue
         role_diff=plan_diffs.get(role,{}) or {}
-        added_uids=set(role_diff.get("added_uids",set()) or set())
-        changed_uids=set(p.get("changed_uids",set()) or set()) if isinstance(p,dict) else set()
-        total_score=p.get('score',0); total_grade=self._calc_grade(total_score,ALLOCATION_TOTAL_SCORE_AREA)
-        gc=GRADE_COLORS.get(total_grade,"#58a6ff"); gbg=GRADE_BGS.get(total_grade,f"{gc}15")
+        added_uids=set(role_diff.get(DIFF_ADDED_UIDS,set()) or set())
+        changed_uids=set(p.get(PLAN_CHANGED_UIDS,set()) or set()) if isinstance(p,dict) else set()
+        total_score=p.get(PLAN_SCORE,0); total_grade=self._calc_grade(total_score,ALLOCATION_TOTAL_SCORE_AREA)
+        gc=GRADE_COLORS.get(total_grade,"#58a6ff")
+        gbg=theme_rgba(gc, 0.10)
 
-        grp=QGroupBox(""); grp.setStyleSheet("QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:12px;padding:18px}")
+        grp=QGroupBox(""); grp.setStyleSheet(themed_style("QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:12px;padding:18px}"))
         gl=QVBoxLayout(grp); gl.setSpacing(10)
         # Role header: name + score + grade side by side, compact
         role_hdr=QHBoxLayout(); role_hdr.setSpacing(8)
         # Role name with different color from stat blocks - use teal/cyan tone
         rnl=QLabel(role)
-        rnl.setStyleSheet("font-size:15px;font-weight:800;color:#4dd0e1;border:1px solid #4dd0e1;border-radius:7px;padding:4px 14px;background:#4dd0e122")
+        rnl.setStyleSheet(f"font-size:15px;font-weight:800;color:{theme_color('#4dd0e1')};border:1px solid {theme_color('#4dd0e1')};border-radius:7px;padding:4px 14px;background:{theme_rgba('#4dd0e1', 0.10)}")
         role_hdr.addWidget(rnl)
-        if role_diff.get("changed"):
+        if role_diff.get(DIFF_CHANGED):
             diff_btn=QPushButton("变动")
             diff_btn.setFixedSize(76,32)
-            diff_btn.setStyleSheet("QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;border-radius:6px;font-size:13px;font-weight:700;padding:0;min-width:76px;min-height:32px}QPushButton:hover{background:#388bfd}")
+            diff_btn.setStyleSheet(themed_style("QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;border-radius:6px;font-size:13px;font-weight:700;padding:0;min-width:76px;min-height:32px}QPushButton:hover{background:#388bfd}"))
             diff_btn.clicked.connect(lambda _checked=False,rn=role,d=role_diff: self._show_plan_diff_dialog(rn,d))
             role_hdr.addWidget(diff_btn)
         if mode_name:
-            ml=QLabel(mode_name); ml.setStyleSheet("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px")
+            ml=QLabel(mode_name); ml.setStyleSheet(themed_style("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px"))
             role_hdr.addWidget(ml)
         role_hdr.addStretch()
         # Score badge (separate)
@@ -83,13 +118,13 @@ def _render_results(self,plan):
         role_hdr.addWidget(gf)
         gl.addLayout(role_hdr); gl.addSpacing(6)
 
-        board=p.get("blueprint",{}).get("board",[])
+        board=p.get(PLAN_BLUEPRINT,{}).get("board",[])
         role_cfg=self.roles_db.get(role,{})
         wts=role_cfg.get("weights",{})
         main_wts=role_cfg.get("main_weights")
 
-        tape=p.get("assigned_tape")
-        drives=p.get("assigned_set_drives",[])+p.get("assigned_extra_drives",[])
+        tape=p.get(PLAN_ASSIGNED_TAPE)
+        drives=plan_drives(p)
         if board:
             gl.addWidget(self._section_label("拼图图纸:"))
             bp_row=QHBoxLayout(); bp_row.setSpacing(44)
@@ -132,26 +167,26 @@ def _calc_grade(self, score, area):
     return "D"
 
 def _plan_diff_text(self, role_name, diff):
-    removed=diff.get("removed",[]) or []
-    added=diff.get("added",[]) or []
+    removed=diff.get(DIFF_REMOVED,[]) or []
+    added=diff.get(DIFF_ADDED,[]) or []
     if not removed and not added:
         return "本次配装与已保存方案没有装备变动。"
     lines=[f"{role_name} 配装变动："]
     if removed:
         lines.append("\n卸下：")
-        lines.extend(f"- {item.get('display_name') or item.get('uid')}" for item in removed)
+        lines.extend(f"- {item.get(EQUIP_DISPLAY_NAME) or item.get(EQUIP_UID)}" for item in removed)
     if added:
         lines.append("\n换上：")
-        lines.extend(f"+ {item.get('display_name') or item.get('uid')}" for item in added)
+        lines.extend(f"+ {item.get(EQUIP_DISPLAY_NAME) or item.get(EQUIP_UID)}" for item in added)
     return "\n".join(lines)
 
 def _diff_item_score_info(self, item):
-    if "score" not in item:
+    if EQUIP_SCORE not in item:
         return None
-    score=float(item.get("score",0.0) or 0.0)
-    grade=item.get("grade")
+    score=float(item.get(EQUIP_SCORE,0.0) or 0.0)
+    grade=item.get(EQUIP_GRADE)
     if not grade:
-        area=int(item.get("score_area") or item.get("area") or (15 if item.get("type")=="tape" else 0) or 0)
+        area=int(item.get(EQUIP_SCORE_AREA) or item.get(EQUIP_AREA) or (15 if item.get(EQUIP_TYPE)=="tape" else 0) or 0)
         grade=self._calc_grade(score,area) if area else "D"
     return score,str(grade)
 
@@ -161,12 +196,12 @@ def _diff_value(item, key, default=None):
     return getattr(item, key, default)
 
 def _diff_item_type(item):
-    explicit=_diff_value(item,"type") or _diff_value(item,"item_type")
+    explicit=_diff_value(item,EQUIP_TYPE) or _diff_value(item,EQUIP_ITEM_TYPE)
     if explicit:
         return str(explicit)
-    if _diff_value(item,"shape_id")=="TAPE_15":
+    if _diff_value(item,EQUIP_SHAPE_ID)=="TAPE_15":
         return "tape"
-    main_stats=_diff_value(item,"main_stats")
+    main_stats=_diff_value(item,EQUIP_MAIN_STATS)
     return "tape" if isinstance(main_stats,str) and main_stats else "drive"
 
 def _diff_grade(self, score, area):
@@ -176,42 +211,42 @@ def _diff_grade(self, score, area):
     return _calc_grade(self, score, area)
 
 def _diff_snapshot_from_source(self, role_name, source):
-    uid=str(_diff_value(source,"uid","") or "")
+    uid=str(_diff_value(source,EQUIP_UID,"") or "")
     if not uid:
         return {}
     item_type=_diff_item_type(source)
-    sub_stats=_diff_value(source,"sub_stats",{}) or {}
-    quality=_diff_value(source,"quality","Gold")
-    area=int(_diff_value(source,"score_area") or _diff_value(source,"area") or (15 if item_type=="tape" else 0) or 0)
+    sub_stats=_diff_value(source,EQUIP_SUB_STATS,{}) or {}
+    quality=_diff_value(source,EQUIP_QUALITY,"Gold")
+    area=int(_diff_value(source,EQUIP_SCORE_AREA) or _diff_value(source,EQUIP_AREA) or (15 if item_type=="tape" else 0) or 0)
     role_scores=_diff_value(source,"role_scores",{}) or {}
-    score=_diff_value(source,"score")
+    score=_diff_value(source,EQUIP_SCORE)
     if score is None and isinstance(role_scores,dict):
         score=role_scores.get(role_name)
     score_value=None if score is None else round(float(score or 0.0),2)
-    grade=_diff_value(source,"grade")
+    grade=_diff_value(source,EQUIP_GRADE)
     if grade is None and score_value is not None and area:
         grade=_diff_grade(self, score_value, area)
 
     snapshot={
-        "uid": uid,
-        "type": item_type,
-        "display_name": str(_diff_value(source,"display_name","") or uid),
-        "sub_stats": sub_stats,
-        "quality": quality,
+        EQUIP_UID: uid,
+        EQUIP_TYPE: item_type,
+        EQUIP_DISPLAY_NAME: str(_diff_value(source,EQUIP_DISPLAY_NAME,"") or uid),
+        EQUIP_SUB_STATS: sub_stats,
+        EQUIP_QUALITY: quality,
     }
     if item_type=="tape":
-        snapshot["set_name"]=_diff_value(source,"set_name","") or "卡带"
-        snapshot["main_stats"]=_diff_value(source,"main_stats","")
-        snapshot["shape_id"]="TAPE_15"
+        snapshot[EQUIP_SET_NAME]=_diff_value(source,EQUIP_SET_NAME,"") or "卡带"
+        snapshot[EQUIP_MAIN_STATS]=_diff_value(source,EQUIP_MAIN_STATS,"")
+        snapshot[EQUIP_SHAPE_ID]="TAPE_15"
     else:
-        snapshot["shape_id"]=_diff_value(source,"shape_id","") or ""
+        snapshot[EQUIP_SHAPE_ID]=_diff_value(source,EQUIP_SHAPE_ID,"") or ""
     if area:
-        snapshot["area"]=area
-        snapshot["score_area"]=area
+        snapshot[EQUIP_AREA]=area
+        snapshot[EQUIP_SCORE_AREA]=area
     if score_value is not None:
-        snapshot["score"]=score_value
+        snapshot[EQUIP_SCORE]=score_value
     if grade is not None:
-        snapshot["grade"]=str(grade)
+        snapshot[EQUIP_GRADE]=str(grade)
     return snapshot
 
 def _merge_diff_item(base, source):
@@ -226,10 +261,10 @@ def _diff_saved_sources(self, role_name):
     if not isinstance(role_data,dict):
         return []
     items=[]
-    tape=role_data.get("equipped_tape")
+    tape=role_data.get(ROLE_EQUIPPED_TAPE)
     if isinstance(tape,dict):
         items.append(tape)
-    items.extend([item for item in role_data.get("equipped_drives",[]) or [] if isinstance(item,dict)])
+    items.extend([item for item in role_data.get(ROLE_EQUIPPED_DRIVES,[]) or [] if isinstance(item,dict)])
     return items
 
 def _diff_plan_sources(self, role_name):
@@ -237,9 +272,8 @@ def _diff_plan_sources(self, role_name):
     if not isinstance(plan,dict):
         return []
     return (
-        ([plan.get("assigned_tape")] if plan.get("assigned_tape") else [])
-        + list(plan.get("assigned_set_drives",[]) or [])
-        + list(plan.get("assigned_extra_drives",[]) or [])
+        ([plan.get(PLAN_ASSIGNED_TAPE)] if plan.get(PLAN_ASSIGNED_TAPE) else [])
+        + plan_drives(plan)
     )
 
 def _diff_inventory_sources(self):
@@ -263,7 +297,7 @@ def _diff_inventory_sources(self):
     return index
 
 def _parse_diff_display_name(item):
-    display=str(item.get("display_name") or "")
+    display=str(item.get(EQUIP_DISPLAY_NAME) or "")
     if not display or "-" not in display:
         return {}
     shape_id, raw_stats=display.split("-",1)
@@ -284,35 +318,35 @@ def _parse_diff_display_name(item):
 
 def _hydrate_diff_item(self, role_name, item):
     hydrated=dict(item or {})
-    uid=str(hydrated.get("uid","") or "")
+    uid=str(hydrated.get(EQUIP_UID,"") or "")
     if uid:
         for source in _diff_saved_sources(self, role_name):
-            if str(source.get("uid",""))==uid:
+            if str(source.get(EQUIP_UID,""))==uid:
                 hydrated=_merge_diff_item(hydrated,_diff_snapshot_from_source(self,role_name,source))
                 break
-        if not hydrated.get("shape_id") or not hydrated.get("sub_stats") or "score" not in hydrated:
+        if not hydrated.get(EQUIP_SHAPE_ID) or not hydrated.get(EQUIP_SUB_STATS) or EQUIP_SCORE not in hydrated:
             for source in _diff_plan_sources(self, role_name):
-                if str(_diff_value(source,"uid",""))==uid:
+                if str(_diff_value(source,EQUIP_UID,""))==uid:
                     hydrated=_merge_diff_item(hydrated,_diff_snapshot_from_source(self,role_name,source))
                     break
-        if not hydrated.get("shape_id") or not hydrated.get("sub_stats") or "score" not in hydrated:
+        if not hydrated.get(EQUIP_SHAPE_ID) or not hydrated.get(EQUIP_SUB_STATS) or EQUIP_SCORE not in hydrated:
             source=_diff_inventory_sources(self).get(uid)
             if source:
                 hydrated=_merge_diff_item(hydrated,_diff_snapshot_from_source(self,role_name,source))
-    if not hydrated.get("shape_id") or not hydrated.get("sub_stats"):
+    if not hydrated.get(EQUIP_SHAPE_ID) or not hydrated.get(EQUIP_SUB_STATS):
         hydrated=_merge_diff_item(hydrated,_parse_diff_display_name(hydrated))
-    item_type=hydrated.get("type") or hydrated.get("item_type")
+    item_type=hydrated.get(EQUIP_TYPE) or hydrated.get(EQUIP_ITEM_TYPE)
     if item_type:
-        hydrated["type"]=item_type
-    elif hydrated.get("shape_id")=="TAPE_15":
-        hydrated["type"]="tape"
+        hydrated[EQUIP_TYPE]=item_type
+    elif hydrated.get(EQUIP_SHAPE_ID)=="TAPE_15":
+        hydrated[EQUIP_TYPE]="tape"
     else:
-        hydrated["type"]="drive"
-    if "score" in hydrated and "grade" not in hydrated:
-        area=int(hydrated.get("score_area") or hydrated.get("area") or (15 if hydrated.get("type")=="tape" else 0) or 0)
+        hydrated[EQUIP_TYPE]="drive"
+    if EQUIP_SCORE in hydrated and EQUIP_GRADE not in hydrated:
+        area=int(hydrated.get(EQUIP_SCORE_AREA) or hydrated.get(EQUIP_AREA) or (15 if hydrated.get(EQUIP_TYPE)=="tape" else 0) or 0)
         if area:
-            hydrated["grade"]=_diff_grade(self,float(hydrated.get("score") or 0.0),area)
-            hydrated["score_area"]=area
+            hydrated[EQUIP_GRADE]=_diff_grade(self,float(hydrated.get(EQUIP_SCORE) or 0.0),area)
+            hydrated[EQUIP_SCORE_AREA]=area
     return hydrated
 
 def _diff_item_card(self, role_name, item, is_new=False):
@@ -321,24 +355,24 @@ def _diff_item_card(self, role_name, item, is_new=False):
     weights=role_cfg.get("weights",{})
     main_weights=role_cfg.get("main_weights")
     score_info=getattr(self, "_diff_item_score_info", None) or (lambda diff_item: _diff_item_score_info(self, diff_item))
-    item_type=item.get("type","drive")
+    item_type=item.get(EQUIP_TYPE,"drive")
     if item_type=="tape":
-        label=item.get("set_name") or "卡带"
-        main_stat=item.get("main_stats","")
+        label=item.get(EQUIP_SET_NAME) or "卡带"
+        main_stat=item.get(EQUIP_MAIN_STATS,"")
         shape_id=None
     else:
-        label=item.get("shape_id") or item.get("display_name") or item.get("uid","")
+        label=item.get(EQUIP_SHAPE_ID) or item.get(EQUIP_DISPLAY_NAME) or item.get(EQUIP_UID,"")
         main_stat=""
-        shape_id=item.get("shape_id") or ""
+        shape_id=item.get(EQUIP_SHAPE_ID) or ""
     return self._equip_card(
         label,
         main_stat,
-        item.get("sub_stats",{}) or {},
+        item.get(EQUIP_SUB_STATS,{}) or {},
         shape_id,
-        item.get("uid",""),
+        item.get(EQUIP_UID,""),
         weights,
         score_info(item),
-        item.get("quality","Gold"),
+        item.get(EQUIP_QUALITY,"Gold"),
         is_new=is_new,
         main_weights=main_weights,
     )
@@ -347,14 +381,14 @@ def _build_plan_diff_dialog(self, role_name, diff):
     dlg=QDialog(self if isinstance(self, QWidget) else None)
     dlg.setWindowTitle(f"{role_name} - 配装变动")
     dlg.setMinimumSize(760,520)
-    dlg.setStyleSheet(STYLE)
+    dlg.setStyleSheet(current_style_sheet())
     layout=QVBoxLayout(dlg); layout.setContentsMargins(14,14,14,14); layout.setSpacing(10)
     scroll=QScrollArea(); scroll.setWidgetResizable(True)
     body=QWidget(); body_layout=QVBoxLayout(body); body_layout.setContentsMargins(0,0,0,0); body_layout.setSpacing(8)
     section_label=getattr(self, "_section_label", None) or (lambda text: _section_label(self, text))
     diff_item_card=getattr(self, "_diff_item_card", None) or (lambda role, item, is_new=False: _diff_item_card(self, role, item, is_new))
-    removed=diff.get("removed",[]) or []
-    added=diff.get("added",[]) or []
+    removed=diff.get(DIFF_REMOVED,[]) or []
+    added=diff.get(DIFF_ADDED,[]) or []
     if removed:
         body_layout.addWidget(section_label("卸下装备"))
         for item in removed:
@@ -375,7 +409,7 @@ def _show_plan_diff_dialog(self, role_name, diff):
 def _apply_saved_role_equipment_diff(self, role_name):
     last_diffs=getattr(self,"_my_role_equipment_last_diffs",{}) or {}
     role_diff=copy.deepcopy(last_diffs.get(role_name) or {})
-    if not role_diff.get("changed"):
+    if not role_diff.get(DIFF_CHANGED):
         return False
     plan_diffs=dict(getattr(self,"allocation_plan_diff",{}) or {})
     plan_diffs[role_name]=role_diff
@@ -389,15 +423,15 @@ def _saved_equipment_main_stat_text(main_stats):
 
 def _saved_equipment_score_total(self, role_name, role_state):
     total=0.0
-    tape=role_state.get("equipped_tape")
+    tape=role_state.get(ROLE_EQUIPPED_TAPE)
     if isinstance(tape,dict):
-        total+=float(tape.get("score",0.0) or 0.0)
-    for drive in role_state.get("equipped_drives",[]) or []:
+        total+=float(tape.get(EQUIP_SCORE,0.0) or 0.0)
+    for drive in role_state.get(ROLE_EQUIPPED_DRIVES,[]) or []:
         if isinstance(drive,dict):
-            total+=float(drive.get("score",0.0) or 0.0)
-    role_state["total_score"]=round(total,2)
-    role_state["total_grade"]=self._calc_grade(total,ALLOCATION_TOTAL_SCORE_AREA)
-    role_state["score_area"]=ALLOCATION_TOTAL_SCORE_AREA
+            total+=float(drive.get(EQUIP_SCORE,0.0) or 0.0)
+    role_state[ROLE_TOTAL_SCORE]=round(total,2)
+    role_state[ROLE_TOTAL_GRADE]=self._calc_grade(total,ALLOCATION_TOTAL_SCORE_AREA)
+    role_state[ROLE_SCORE_AREA]=ALLOCATION_TOTAL_SCORE_AREA
 
 def _persist_saved_equipment_sync(self):
     save=getattr(self,"_save_eq",None)
@@ -407,35 +441,35 @@ def _persist_saved_equipment_sync(self):
     if callable(refresh):
         try:
             refresh()
-        except AttributeError:
-            pass
+        except AttributeError as exc:
+            logger.debug(f"刷新配装页面时缺少可选 UI 状态，已忽略: {exc}")
 
 def _sync_saved_drive_replacement(self, role_name, old_uid, new_drive, new_score, new_area):
     state=getattr(self,"equipped_state",{}) or {}
     role_state=state.get(role_name)
     if not isinstance(role_state,dict):
         return False
-    drives=role_state.get("equipped_drives",[]) or []
-    new_uid=str(new_drive.get("uid","") or "")
+    drives=role_state.get(ROLE_EQUIPPED_DRIVES,[]) or []
+    new_uid=str(new_drive.get(EQUIP_UID,"") or "")
     changed=False
     for drive in drives:
-        if not isinstance(drive,dict) or str(drive.get("uid",""))!=str(old_uid):
+        if not isinstance(drive,dict) or str(drive.get(EQUIP_UID,""))!=str(old_uid):
             continue
         drive.update({
-            "uid": new_uid,
-            "shape_id": new_drive.get("shape_id",""),
-            "sub_stats": new_drive.get("sub_stats",{}) or {},
-            "quality": new_drive.get("quality","Gold"),
-            "area": new_area,
-            "display_name": new_drive.get("display_name",""),
-            "score": new_score,
-            "grade": self._calc_grade(new_score,new_area),
-            "score_area": new_area,
-            "is_changed": True,
+            EQUIP_UID: new_uid,
+            EQUIP_SHAPE_ID: new_drive.get(EQUIP_SHAPE_ID,""),
+            EQUIP_SUB_STATS: new_drive.get(EQUIP_SUB_STATS,{}) or {},
+            EQUIP_QUALITY: new_drive.get(EQUIP_QUALITY,"Gold"),
+            EQUIP_AREA: new_area,
+            EQUIP_DISPLAY_NAME: new_drive.get(EQUIP_DISPLAY_NAME,""),
+            EQUIP_SCORE: new_score,
+            EQUIP_GRADE: self._calc_grade(new_score,new_area),
+            EQUIP_SCORE_AREA: new_area,
+            EQUIP_IS_CHANGED: True,
         })
-        if new_drive.get("main_stats"):
-            drive["main_stats"]=new_drive.get("main_stats")
-        drive.pop("is_new",None)
+        if new_drive.get(EQUIP_MAIN_STATS):
+            drive[EQUIP_MAIN_STATS]=new_drive.get(EQUIP_MAIN_STATS)
+        drive.pop(EQUIP_IS_NEW,None)
         changed=True
         break
     if changed:
@@ -447,48 +481,48 @@ def _sync_saved_tape_replacement(self, role_name, new_tape, new_score):
     role_state=state.get(role_name)
     if not isinstance(role_state,dict):
         return False
-    main_stat=_saved_equipment_main_stat_text(new_tape.get("main_stats",{}) or {})
-    role_state["equipped_tape"]={
-        "uid": str(new_tape.get("uid","") or ""),
-        "set_name": new_tape.get("set_name",""),
-        "display_name": new_tape.get("display_name",""),
-        "main_stats": main_stat,
-        "sub_stats": new_tape.get("sub_stats",{}) or {},
-        "quality": new_tape.get("quality","Gold"),
-        "score": new_score,
-        "grade": self._calc_grade(new_score,15),
-        "score_area": 15,
-        "is_changed": True,
+    main_stat=_saved_equipment_main_stat_text(new_tape.get(EQUIP_MAIN_STATS,{}) or {})
+    role_state[ROLE_EQUIPPED_TAPE]={
+        EQUIP_UID: str(new_tape.get(EQUIP_UID,"") or ""),
+        EQUIP_SET_NAME: new_tape.get(EQUIP_SET_NAME,""),
+        EQUIP_DISPLAY_NAME: new_tape.get(EQUIP_DISPLAY_NAME,""),
+        EQUIP_MAIN_STATS: main_stat,
+        EQUIP_SUB_STATS: new_tape.get(EQUIP_SUB_STATS,{}) or {},
+        EQUIP_QUALITY: new_tape.get(EQUIP_QUALITY,"Gold"),
+        EQUIP_SCORE: new_score,
+        EQUIP_GRADE: self._calc_grade(new_score,15),
+        EQUIP_SCORE_AREA: 15,
+        EQUIP_IS_CHANGED: True,
     }
     _saved_equipment_score_total(self,role_name,role_state)
     return True
 
 def _sync_role_drive_replacement(self, role_name, old_uid, new_drive):
     weights=(getattr(self,"roles_db",{}) or {}).get(role_name,{}).get("weights",{})
-    new_uid=str(new_drive.get("uid","") or "")
+    new_uid=str(new_drive.get(EQUIP_UID,"") or "")
     if not old_uid or not new_uid:
         return False
 
-    new_shape=new_drive.get("shape_id","")
-    new_sub_stats=new_drive.get("sub_stats",{}) or {}
-    new_quality=new_drive.get("quality","Gold")
+    new_shape=new_drive.get(EQUIP_SHAPE_ID,"")
+    new_sub_stats=new_drive.get(EQUIP_SUB_STATS,{}) or {}
+    new_quality=new_drive.get(EQUIP_QUALITY,"Gold")
     new_score=self._score_drive_dict(new_sub_stats,new_shape,weights,new_quality)
-    new_area=int(new_drive.get("area") or getattr(self,"_shape_areas",{}).get(new_shape,3) or 3)
+    new_area=int(new_drive.get(EQUIP_AREA) or getattr(self,"_shape_areas",{}).get(new_shape,3) or 3)
 
     old_state=copy.deepcopy(getattr(self,"equipped_state",{}) or {})
     saved_changed=_sync_saved_drive_replacement(self,role_name,old_uid,new_drive,new_score,new_area)
     state=getattr(self,"equipped_state",{}) or {}
     role_state=state.get(role_name,{}) if isinstance(state,dict) else {}
-    existing_diff=role_state.get("last_diff",{}) if isinstance(role_state,dict) else {}
-    if not saved_changed and not existing_diff.get("changed"):
+    existing_diff=role_state.get(ROLE_LAST_DIFF,{}) if isinstance(role_state,dict) else {}
+    if not saved_changed and not existing_diff.get(DIFF_CHANGED):
         return False
 
     if saved_changed:
         state_mgr=getattr(self,"state_mgr",None)
         if state_mgr is not None and hasattr(state_mgr,"_build_role_diff") and isinstance(role_state,dict):
             role_diff=state_mgr._build_role_diff(old_state.get(role_name),role_state)
-            if role_diff.get("changed"):
-                role_state["last_diff"]=role_diff
+            if role_diff.get(DIFF_CHANGED):
+                role_state[ROLE_LAST_DIFF]=role_diff
                 last_diffs=dict(getattr(self,"_my_role_equipment_last_diffs",{}) or {})
                 last_diffs[role_name]=role_diff
                 self._my_role_equipment_last_diffs=last_diffs
@@ -503,29 +537,29 @@ def _sync_role_tape_replacement(self, role_name, old_uid, new_tape):
     role_cfg=(getattr(self,"roles_db",{}) or {}).get(role_name,{})
     weights=role_cfg.get("weights",{})
     main_weights=role_cfg.get("main_weights")
-    new_uid=str(new_tape.get("uid","") or "")
+    new_uid=str(new_tape.get(EQUIP_UID,"") or "")
     if not new_uid:
         return False
 
-    main_stats=new_tape.get("main_stats",{}) or {}
+    main_stats=new_tape.get(EQUIP_MAIN_STATS,{}) or {}
     main_stat=next(iter(main_stats.keys()),"") if isinstance(main_stats,dict) else str(main_stats or "")
-    sub_stats=new_tape.get("sub_stats",{}) or {}
-    quality=new_tape.get("quality","Gold")
+    sub_stats=new_tape.get(EQUIP_SUB_STATS,{}) or {}
+    quality=new_tape.get(EQUIP_QUALITY,"Gold")
     new_score=self._score_tape_dict(main_stat,sub_stats,weights,quality,main_weights)
 
     old_state=copy.deepcopy(getattr(self,"equipped_state",{}) or {})
     saved_changed=_sync_saved_tape_replacement(self,role_name,new_tape,new_score)
     state=getattr(self,"equipped_state",{}) or {}
     role_state=state.get(role_name,{}) if isinstance(state,dict) else {}
-    existing_diff=role_state.get("last_diff",{}) if isinstance(role_state,dict) else {}
-    if not saved_changed and not existing_diff.get("changed"):
+    existing_diff=role_state.get(ROLE_LAST_DIFF,{}) if isinstance(role_state,dict) else {}
+    if not saved_changed and not existing_diff.get(DIFF_CHANGED):
         return False
     if saved_changed:
         state_mgr=getattr(self,"state_mgr",None)
         if state_mgr is not None and hasattr(state_mgr,"_build_role_diff") and isinstance(role_state,dict):
             role_diff=state_mgr._build_role_diff(old_state.get(role_name),role_state)
-            if role_diff.get("changed"):
-                role_state["last_diff"]=role_diff
+            if role_diff.get(DIFF_CHANGED):
+                role_state[ROLE_LAST_DIFF]=role_diff
                 last_diffs=dict(getattr(self,"_my_role_equipment_last_diffs",{}) or {})
                 last_diffs[role_name]=role_diff
                 self._my_role_equipment_last_diffs=last_diffs
@@ -555,7 +589,7 @@ def _stat_w(self, sn, wts):
 
 def _stat_c(self,w):
     w=max(0.0,min(1.0,w))
-    if w<0.3: return "#8b949e"
+    if w<0.3: return theme_color("#8b949e")
     if w<0.5: return "#58a6ff"
     if w<0.7: return "#56d364"
     if w<0.85: return "#d2991d"
@@ -630,16 +664,16 @@ def _extra_shape_area(self, role_name):
 def _equipment_bonus_rows(self, role_name, tape, drives):
     totals={}
     if tape:
-        main_stat=self._item_value(tape,"main_stats","")
+        main_stat=self._item_value(tape,EQUIP_MAIN_STATS,"")
         main_value=self._item_value(tape,"main_value",None)
         if main_value is None:
-            main_value=self._fallback_tape_main_value(main_stat,self._item_value(tape,"quality","Gold"))
+            main_value=self._fallback_tape_main_value(main_stat,self._item_value(tape,EQUIP_QUALITY,"Gold"))
         self._add_stat_total(totals,main_stat,main_value)
-        for stat,value in (self._item_value(tape,"sub_stats",{}) or {}).items():
+        for stat,value in (self._item_value(tape,EQUIP_SUB_STATS,{}) or {}).items():
             self._add_stat_total(totals,stat,value)
     drives=list(drives or [])
     for drive in drives:
-        for stat,value in (self._item_value(drive,"sub_stats",{}) or {}).items():
+        for stat,value in (self._item_value(drive,EQUIP_SUB_STATS,{}) or {}).items():
             self._add_stat_total(totals,stat,value)
     role_data=self.roles_db.get(role_name,{})
     extra_buffs=role_data.get("extra_shape_buffs",{}) or {}
@@ -650,7 +684,7 @@ def _equipment_bonus_rows(self, role_name, tape, drives):
     matched_count=0
     if target_area:
         for drive in drives:
-            area=self._item_value(drive,"area",None)
+            area=self._item_value(drive,EQUIP_AREA,None)
             if area is None:
                 area=self._shape_areas.get(self._item_value(drive,"shape_id",""),0)
             if int(area or 0)==target_area:
@@ -670,15 +704,15 @@ def _bonus_summary_widget(self, role_name, tape, drives):
     rows=self._equipment_bonus_rows(role_name,tape,drives)
     box=QFrame()
     box.setFixedWidth(240)
-    box.setStyleSheet("QFrame{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px}")
+    box.setStyleSheet(themed_style("QFrame{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px}"))
     layout=QVBoxLayout(box); layout.setContentsMargins(7,5,7,5); layout.setSpacing(4)
     title=QLabel("属性汇总")
-    title.setStyleSheet("font-size:11px;font-weight:800;color:#8b949e;border:none;background:transparent")
+    title.setStyleSheet(themed_style("font-size:11px;font-weight:800;color:#8b949e;border:none;background:transparent"))
     layout.addWidget(title)
     visible=rows[:4]
     if not visible:
         empty=QLabel("暂无可汇总属性")
-        empty.setStyleSheet("color:#6e7681;border:none;background:transparent")
+        empty.setStyleSheet(themed_style("color:#6e7681;border:none;background:transparent"))
         layout.addWidget(empty)
     for stat,value in visible:
         layout.addWidget(self._bonus_row_widget(stat,value))
@@ -687,7 +721,7 @@ def _bonus_summary_widget(self, role_name, tape, drives):
         more.setObjectName("btnSm")
         more.setFixedSize(54,22)
         more.setCursor(Qt.PointingHandCursor)
-        more.setStyleSheet("QPushButton{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;font-size:13px;font-weight:800;padding:0}QPushButton:hover{border-color:#58a6ff;color:#58a6ff}")
+        more.setStyleSheet(themed_style("QPushButton{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;font-size:13px;font-weight:800;padding:0}QPushButton:hover{border-color:#58a6ff;color:#58a6ff}"))
         more.clicked.connect(lambda checked=False,r=rows,role=role_name: self._show_bonus_summary_dialog(role,r))
         layout.addWidget(more,0,Qt.AlignCenter)
     layout.addStretch()
@@ -695,11 +729,11 @@ def _bonus_summary_widget(self, role_name, tape, drives):
 
 def _bonus_row_widget(self, stat, value):
     row=QFrame()
-    row.setStyleSheet("QFrame{background:#161b22;border:1px solid #21262d;border-radius:5px;padding:2px 6px}")
+    row.setStyleSheet(themed_style("QFrame{background:#161b22;border:1px solid #21262d;border-radius:5px;padding:2px 6px}"))
     rl=QHBoxLayout(row); rl.setContentsMargins(6,1,6,1); rl.setSpacing(6)
-    name=QLabel(stat); name.setStyleSheet("font-size:10px;font-weight:700;color:#c9d1d9;border:none;background:transparent")
+    name=QLabel(stat); name.setStyleSheet(themed_style("font-size:10px;font-weight:700;color:#c9d1d9;border:none;background:transparent"))
     val=QLabel(self._format_bonus_value(stat,value)); val.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
-    val.setStyleSheet("font-size:10px;font-weight:800;color:#f0f6fc;border:none;background:transparent")
+    val.setStyleSheet(themed_style("font-size:10px;font-weight:800;color:#f0f6fc;border:none;background:transparent"))
     rl.addWidget(name,1); rl.addWidget(val)
     return row
 
@@ -707,7 +741,7 @@ def _show_bonus_summary_dialog(self, role_name, rows):
     dlg=QDialog(self)
     dlg.setWindowTitle(f"{role_name} 属性汇总")
     dlg.setMinimumSize(360,420)
-    dlg.setStyleSheet(STYLE)
+    dlg.setStyleSheet(current_style_sheet())
     layout=QVBoxLayout(dlg); layout.setContentsMargins(14,14,14,14); layout.setSpacing(8)
     for stat,value in rows:
         layout.addWidget(self._bonus_row_widget(stat,value))
@@ -739,10 +773,12 @@ def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_
     return round(main_score+sub_score, 2)
 
 def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,main_weights=None):
-    QUALITY_COLORS={"Gold":"#ffd700","Purple":"#ffe082","Blue":"#58a6ff"}
+    if current_theme_name() == "light":
+        QUALITY_COLORS={"Gold":"#9a6700","Purple":"#8250df","Blue":"#0969da"}
+    else:
+        QUALITY_COLORS={"Gold":"#ffd700","Purple":"#ffe082","Blue":"#58a6ff"}
     QUALITY_LABELS={"Gold":"金","Purple":"紫","Blue":"蓝"}
-    QUALITY_BGS={"Gold":"#332600","Purple":"#6f2dbd","Blue":"#0d2748"}
-    w=QWidget(); w.setStyleSheet("QWidget{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:9px 13px;margin:3px 0}")
+    w=QWidget(); w.setStyleSheet(themed_style("QWidget{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:9px 13px;margin:3px 0}"))
     outer=QHBoxLayout(w); outer.setSpacing(12); outer.setContentsMargins(2,2,2,2)
 
     # Shape image (compact)
@@ -750,14 +786,14 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
         pm=_get_shape_pixmap(shape_id,64,quality)
         if not pm.isNull():
             img_lbl=QLabel(); img_lbl.setPixmap(pm); img_lbl.setFixedSize(68,68); img_lbl.setScaledContents(True)
-            img_lbl.setStyleSheet("border:1px solid #30363d;border-radius:6px;background:#161b22"); outer.addWidget(img_lbl)
+            img_lbl.setStyleSheet(themed_style("border:1px solid #30363d;border-radius:6px;background:#161b22")); outer.addWidget(img_lbl)
 
     inner=QVBoxLayout(); inner.setSpacing(5); inner.setContentsMargins(0,3,0,3)
 
     # Header: shape name + quality + main stat block + score|grade
     hdr=QHBoxLayout(); hdr.setSpacing(8)
-    label_color = "#4dd0e1"
-    label_bg = "#4dd0e122" if not shape_id else f"{label_color}15"
+    label_color = theme_color("#4dd0e1")
+    label_bg = theme_rgba("#4dd0e1", 0.10)
     label_border = label_color
     name_lbl = QLabel(f"<b>{label}</b>")
     name_size = 12 if shape_id else 13
@@ -767,19 +803,19 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
     status_labels = []
     if is_new:
         new_lbl=QLabel("NEW")
-        new_lbl.setStyleSheet("font-size:10px;font-weight:800;color:#58a6ff;border:1px solid #58a6ff;border-radius:5px;padding:2px 6px;background:#1f6feb22")
+        new_lbl.setStyleSheet(f"font-size:10px;font-weight:800;color:{theme_color('#58a6ff')};border:1px solid {theme_color('#58a6ff')};border-radius:5px;padding:2px 6px;background:{theme_rgba('#58a6ff', 0.10)}")
         status_labels.append(new_lbl)
     if is_changed:
         change_lbl=QLabel("CHANGE")
-        change_lbl.setStyleSheet("font-size:10px;font-weight:800;color:#7ee787;border:1px solid #2ea043;border-radius:5px;padding:2px 6px;background:#23863622")
+        change_lbl.setStyleSheet(f"font-size:10px;font-weight:800;color:{theme_color('#7ee787')};border:1px solid {theme_color('#2ea043')};border-radius:5px;padding:2px 6px;background:{theme_rgba('#238636', 0.10)}")
         status_labels.append(change_lbl)
     if status_labels and shape_id:
         for status_label in status_labels:
             hdr.addWidget(status_label)
     # Quality badge: only tapes show text; drive quality is represented by the icon.
     if quality and not shape_id:
-        qcolor=QUALITY_COLORS.get(quality,"#8b949e"); qlabel=QUALITY_LABELS.get(quality,quality)
-        qbg=QUALITY_BGS.get(quality,f"{qcolor}15")
+        qcolor=QUALITY_COLORS.get(quality,theme_color("#8b949e")); qlabel=QUALITY_LABELS.get(quality,quality)
+        qbg=theme_rgba(qcolor, 0.10)
         q_lbl=QLabel(qlabel)
         q_lbl.setStyleSheet(f"font-size:11px;font-weight:700;color:{qcolor};border:1px solid {qcolor};border-radius:5px;padding:2px 7px;background:{qbg}")
         hdr.addWidget(q_lbl)
@@ -801,12 +837,12 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
     if score_info is not None:
         score,grade=score_info; gc=GRADE_COLORS.get(grade,"#58a6ff")
         sf=QFrame()
-        sf.setStyleSheet(f"QFrame{{background:{gc}15;border:1px solid {gc};border-radius:6px;padding:2px 10px}}")
+        sf.setStyleSheet(f"QFrame{{background:{theme_rgba(gc, 0.10)};border:1px solid {gc};border-radius:6px;padding:2px 10px}}")
         sf_layout=QHBoxLayout(sf); sf_layout.setSpacing(5); sf_layout.setContentsMargins(4,1,4,1)
         sl=QLabel(f"{score:.1f}"); sl.setStyleSheet(f"font-size:13px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(sl)
         gl=QLabel(grade); gl.setStyleSheet(f"font-size:11px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(gl)
         hdr.addWidget(sf)
-    uid_lbl=QLabel(f"<span style='color:#6e7681;font-size:10px;'>{uid}</span>"); hdr.addWidget(uid_lbl)
+    uid_lbl=QLabel(f"<span style='color:{theme_color('#6e7681')};font-size:10px;'>{uid}</span>"); hdr.addWidget(uid_lbl)
     inner.addLayout(hdr)
 
     # Stat blocks row
