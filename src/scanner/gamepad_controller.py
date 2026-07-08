@@ -5,6 +5,8 @@ import gc
 import os
 import shutil
 import time
+from dataclasses import dataclass
+from typing import Literal
 
 import mss
 import mss.tools
@@ -15,22 +17,102 @@ from src.utils.logger import logger
 from src.utils.perf import log_perf
 
 
-MOVE_HOLD_SECONDS = 0.10
-MOVE_SETTLE_SECONDS = 0.25
-ROW_DOWN_HOLD_SECONDS = 0.15
-ROW_DOWN_SETTLE_SECONDS = 0.30
-DETAIL_REFRESH_MOVE_SETTLE_SECONDS = 0.30
-DETAIL_PAGE_WAIT_TIMEOUT_SECONDS = 8.00
-INVENTORY_PAGE_WAIT_TIMEOUT_SECONDS = 8.00
-PAGE_STATE_POLL_SECONDS = 0.20
-PAGE_STATE_STABLE_FRAMES = 2
-PAGE_STATE_DETECTED_SETTLE_SECONDS = 0.50
-EQUIPMENT_SWITCH_SETTLE_SECONDS = 0.20
-LOCK_DISCARD_CONFIRM_SECONDS = 0.60
-ACTION_MENU_SETTLE_SECONDS = 0.30
-ACTION_APPLY_SETTLE_SECONDS = 0.30
-MENU_AFTER_EQUIPMENT_MOVE_SECONDS = 0.20
-ACTION_OPTION_MOVE_SETTLE_SECONDS = 0.15
+Roi = tuple[float, float, float, float]
+VisionMetric = Literal["white", "gray", "pink"]
+VisionOperator = Literal["gt", "lt"]
+
+
+@dataclass(frozen=True)
+class GamepadVisionRule:
+    name: str
+    roi: Roi
+    metric: VisionMetric
+    operator: VisionOperator
+    threshold: float
+    pixel_threshold: int = 185
+
+
+@dataclass(frozen=True)
+class GamepadVisionProfile:
+    region: str = "cn"
+    detail_page_rules: tuple[GamepadVisionRule, ...] = (
+        GamepadVisionRule("强化按钮白色占比", (0.69, 0.88, 0.98, 0.985), "white", "gt", 0.16, 185),
+        GamepadVisionRule("快捷添加槽灰色占比", (0.68, 0.70, 0.99, 0.88), "gray", "gt", 0.22),
+        GamepadVisionRule("快捷添加槽非高亮", (0.68, 0.70, 0.99, 0.88), "white", "lt", 0.25, 185),
+        GamepadVisionRule("详情右栏非背包白底", (0.68, 0.40, 0.97, 0.90), "white", "lt", 0.20, 185),
+    )
+    inventory_first_item_rules: tuple[GamepadVisionRule, ...] = (
+        GamepadVisionRule("第一格粉色选框", (0.04, 0.135, 0.155, 0.34), "pink", "gt", 0.008),
+        GamepadVisionRule("右侧属性白底", (0.68, 0.40, 0.97, 0.90), "white", "gt", 0.12, 165),
+        GamepadVisionRule("顶部导航灰色占比", (0.15, 0.025, 0.58, 0.105), "gray", "gt", 0.08),
+    )
+
+    @classmethod
+    def for_region(cls, region: str = "cn") -> "GamepadVisionProfile":
+        if region == "hmt":
+            return cls(region="hmt")
+        return cls(region="cn")
+
+
+@dataclass(frozen=True)
+class GamepadActionProfile:
+    region: str = "cn"
+    context: str = "scan"
+    operation_style: str = "menu"
+    move_hold_seconds: float = 0.10
+    move_settle_seconds: float = 0.25
+    row_move_hold_seconds: float = 0.15
+    row_move_settle_seconds: float = 0.30
+    equipment_switch_settle_seconds: float = 0.20
+    detail_refresh_move_settle_seconds: float = 0.30
+    page_state_poll_seconds: float = 0.20
+    page_state_stable_frames: int = 2
+    page_state_detected_settle_seconds: float = 0.50
+    detail_page_wait_timeout_seconds: float = 8.00
+    inventory_page_wait_timeout_seconds: float = 8.00
+    action_menu_settle_seconds: float = 0.30
+    action_apply_settle_seconds: float = 0.30
+    popup_confirm_seconds: float = 0.60
+    menu_after_equipment_move_seconds: float = 0.20
+    action_option_move_settle_seconds: float = 0.15
+    button_hold_seconds: float = 0.08
+    button_settle_seconds: float = 0.12
+    virtual_gamepad_connect_settle_seconds: float = 2.00
+    takeover_countdown_seconds: float = 3.00
+    wall_wake_settle_seconds: float = 0.50
+    vision: GamepadVisionProfile = GamepadVisionProfile.for_region("cn")
+
+    @classmethod
+    def scan(cls) -> "GamepadActionProfile":
+        return cls(context="scan")
+
+    @classmethod
+    def state_management(cls, region: str = "cn") -> "GamepadActionProfile":
+        if region == "hmt":
+            return cls(region="hmt", context="state_management", operation_style="dpad", vision=GamepadVisionProfile.for_region("hmt"))
+        return cls(region="cn", context="state_management", operation_style="menu", vision=GamepadVisionProfile.for_region("cn"))
+
+
+DEFAULT_SCAN_PROFILE = GamepadActionProfile.scan()
+DEFAULT_STATE_PROFILE = GamepadActionProfile.state_management("cn")
+HMT_STATE_PROFILE = GamepadActionProfile.state_management("hmt")
+
+MOVE_HOLD_SECONDS = DEFAULT_SCAN_PROFILE.move_hold_seconds
+MOVE_SETTLE_SECONDS = DEFAULT_SCAN_PROFILE.move_settle_seconds
+ROW_DOWN_HOLD_SECONDS = DEFAULT_SCAN_PROFILE.row_move_hold_seconds
+ROW_DOWN_SETTLE_SECONDS = DEFAULT_SCAN_PROFILE.row_move_settle_seconds
+DETAIL_REFRESH_MOVE_SETTLE_SECONDS = DEFAULT_STATE_PROFILE.detail_refresh_move_settle_seconds
+DETAIL_PAGE_WAIT_TIMEOUT_SECONDS = DEFAULT_STATE_PROFILE.detail_page_wait_timeout_seconds
+INVENTORY_PAGE_WAIT_TIMEOUT_SECONDS = DEFAULT_STATE_PROFILE.inventory_page_wait_timeout_seconds
+PAGE_STATE_POLL_SECONDS = DEFAULT_STATE_PROFILE.page_state_poll_seconds
+PAGE_STATE_STABLE_FRAMES = DEFAULT_STATE_PROFILE.page_state_stable_frames
+PAGE_STATE_DETECTED_SETTLE_SECONDS = DEFAULT_STATE_PROFILE.page_state_detected_settle_seconds
+EQUIPMENT_SWITCH_SETTLE_SECONDS = DEFAULT_STATE_PROFILE.equipment_switch_settle_seconds
+LOCK_DISCARD_CONFIRM_SECONDS = DEFAULT_STATE_PROFILE.popup_confirm_seconds
+ACTION_MENU_SETTLE_SECONDS = DEFAULT_STATE_PROFILE.action_menu_settle_seconds
+ACTION_APPLY_SETTLE_SECONDS = DEFAULT_STATE_PROFILE.action_apply_settle_seconds
+MENU_AFTER_EQUIPMENT_MOVE_SECONDS = DEFAULT_STATE_PROFILE.menu_after_equipment_move_seconds
+ACTION_OPTION_MOVE_SETTLE_SECONDS = DEFAULT_STATE_PROFILE.action_option_move_settle_seconds
 
 
 def _save_png(screenshot, filename):
@@ -63,6 +145,7 @@ class GamepadScanner:
         self._stopped = False
         self.cols = 7
         self._closed = False
+        self.action_profile = DEFAULT_SCAN_PROFILE
 
         logger.info("正在连接虚拟 Xbox 360 手柄...")
         try:
@@ -75,7 +158,7 @@ class GamepadScanner:
             if "VIGEM" in text or "BUS_NOT_FOUND" in text or "VI_GEM" in text:
                 raise ViGEmDriverNotReadyError(_format_vigem_error(exc)) from exc
             raise
-        time.sleep(2)
+        time.sleep(self.action_profile.virtual_gamepad_connect_settle_seconds)
         logger.success("虚拟手柄连接完成")
 
     def close(self):
@@ -155,7 +238,15 @@ class GamepadScanner:
         logger.info(f"[{counter:04d}] 捕获成功")
         return filename
 
-    def push_left_joystick(self, x, y, hold_seconds=MOVE_HOLD_SECONDS, settle_seconds=MOVE_SETTLE_SECONDS):
+    def _profile(self) -> GamepadActionProfile:
+        return getattr(self, "action_profile", DEFAULT_SCAN_PROFILE)
+
+    def push_left_joystick(self, x, y, hold_seconds=None, settle_seconds=None):
+        profile = self._profile()
+        if hold_seconds is None:
+            hold_seconds = profile.move_hold_seconds
+        if settle_seconds is None:
+            settle_seconds = profile.move_settle_seconds
         self.gamepad.left_joystick_float(x_value_float=x, y_value_float=y)
         self.gamepad.update()
         time.sleep(hold_seconds)
@@ -163,7 +254,12 @@ class GamepadScanner:
         self.gamepad.update()
         time.sleep(settle_seconds)
 
-    def _press_button(self, button, hold_seconds=0.08, settle_seconds=0.12):
+    def _press_button(self, button, hold_seconds=None, settle_seconds=None):
+        profile = self._profile()
+        if hold_seconds is None:
+            hold_seconds = profile.button_hold_seconds
+        if settle_seconds is None:
+            settle_seconds = profile.button_settle_seconds
         self.gamepad.press_button(button=button)
         self.gamepad.update()
         time.sleep(hold_seconds)
@@ -201,11 +297,11 @@ class GamepadScanner:
 
     def _toggle_action_menu(self):
         self._press_menu()
-        time.sleep(ACTION_MENU_SETTLE_SECONDS)
+        time.sleep(self._profile().action_menu_settle_seconds)
 
     def _confirm_action(self):
         self._press_a()
-        time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+        time.sleep(self._profile().action_apply_settle_seconds)
 
     def _apply_moves(self, moves):
         for move in moves:
@@ -217,25 +313,25 @@ class GamepadScanner:
                 self.push_left_joystick(
                     0.0,
                     1.0,
-                    hold_seconds=ROW_DOWN_HOLD_SECONDS,
-                    settle_seconds=ROW_DOWN_SETTLE_SECONDS,
+                    hold_seconds=self._profile().row_move_hold_seconds,
+                    settle_seconds=self._profile().row_move_settle_seconds,
                 )
             elif move == "D":
                 self.push_left_joystick(
                     0.0,
                     -1.0,
-                    hold_seconds=ROW_DOWN_HOLD_SECONDS,
-                    settle_seconds=ROW_DOWN_SETTLE_SECONDS,
+                    hold_seconds=self._profile().row_move_hold_seconds,
+                    settle_seconds=self._profile().row_move_settle_seconds,
                 )
 
     def _move_between_equipment(self, moves):
         self._apply_moves(moves)
         if moves:
-            time.sleep(EQUIPMENT_SWITCH_SETTLE_SECONDS)
+            time.sleep(self._profile().equipment_switch_settle_seconds)
 
     def _settle_before_action_menu(self, moved: bool):
         if moved:
-            time.sleep(MENU_AFTER_EQUIPMENT_MOVE_SECONDS)
+            time.sleep(self._profile().menu_after_equipment_move_seconds)
 
     def _scan_positions(self, total_drives: int) -> list[tuple[int, int]]:
         scan_order = []
@@ -308,100 +404,149 @@ class GamepadScanner:
         r = roi[:, :, 2].astype(np.int16)
         return float(((r > 150) & (b > 105) & (g < 125) & ((r - g) > 55) & ((b - g) > 25)).mean())
 
-    def _looks_like_detail_page(self, image: np.ndarray) -> bool:
-        strengthen_button = self._relative_roi(image, 0.69, 0.88, 0.98, 0.985)
-        add_slots = self._relative_roi(image, 0.68, 0.70, 0.99, 0.88)
-        right_panel = self._relative_roi(image, 0.68, 0.40, 0.97, 0.90)
-        return (
-            self._white_fraction(strengthen_button) > 0.16
-            and self._gray_fraction(add_slots) > 0.22
-            and self._white_fraction(add_slots, threshold=185) < 0.25
-            and self._white_fraction(right_panel, threshold=185) < 0.20
-        )
+    def _vision_metric_value(self, image: np.ndarray, rule: GamepadVisionRule) -> float:
+        roi = self._relative_roi(image, *rule.roi)
+        if rule.metric == "white":
+            return self._white_fraction(roi, threshold=rule.pixel_threshold)
+        if rule.metric == "gray":
+            return self._gray_fraction(roi)
+        if rule.metric == "pink":
+            return self._pink_fraction(roi)
+        return 0.0
 
-    def _looks_like_inventory_first_item(self, image: np.ndarray) -> bool:
-        first_slot = self._relative_roi(image, 0.04, 0.135, 0.155, 0.34)
-        right_panel = self._relative_roi(image, 0.68, 0.40, 0.97, 0.90)
-        top_nav = self._relative_roi(image, 0.15, 0.025, 0.58, 0.105)
-        return (
-            self._pink_fraction(first_slot) > 0.008
-            and self._white_fraction(right_panel, threshold=165) > 0.12
-            and self._gray_fraction(top_nav) > 0.08
-        )
+    def _evaluate_vision_rules(self, image: np.ndarray, rules: tuple[GamepadVisionRule, ...]) -> tuple[bool, str]:
+        values = []
+        for rule in rules:
+            value = self._vision_metric_value(image, rule)
+            passed = value > rule.threshold if rule.operator == "gt" else value < rule.threshold
+            values.append(f"{rule.name}={value:.3f}{rule.operator}{rule.threshold:.3f}:{'ok' if passed else 'fail'}")
+            if not passed:
+                return False, "; ".join(values)
+        return True, "; ".join(values)
+
+    def _looks_like_detail_page(self, image: np.ndarray) -> tuple[bool, str]:
+        return self._evaluate_vision_rules(image, self._profile().vision.detail_page_rules)
+
+    def _looks_like_inventory_first_item(self, image: np.ndarray) -> tuple[bool, str]:
+        return self._evaluate_vision_rules(image, self._profile().vision.inventory_first_item_rules)
 
     def _wait_for_page_state(self, predicate, timeout_seconds: float, label: str) -> bool:
+        profile = self._profile()
         deadline = time.monotonic() + timeout_seconds
         stable = 0
+        last_reason = "未获取到有效截图"
         with mss.MSS() as sct:
             while time.monotonic() < deadline and not self._stopped:
                 screenshot, _ = capture_foreground_window(sct)
                 image = self._screenshot_to_bgr(screenshot)
-                if image is not None and predicate(image):
+                matched = False
+                if image is not None:
+                    matched, last_reason = predicate(image)
+                if matched:
                     stable += 1
-                    if stable >= PAGE_STATE_STABLE_FRAMES:
-                        logger.info(f"页面识别成功: {label}")
+                    if stable >= profile.page_state_stable_frames:
+                        logger.info(f"页面识别成功: {label} | {last_reason}")
                         return True
                 else:
                     stable = 0
-                time.sleep(PAGE_STATE_POLL_SECONDS)
-        logger.warning(f"页面识别超时: {label}")
+                time.sleep(profile.page_state_poll_seconds)
+        logger.warning(f"页面识别超时: {label} | {last_reason}")
         return False
 
     def _wait_for_detail_page(self) -> bool:
         return self._wait_for_page_state(
             self._looks_like_detail_page,
-            DETAIL_PAGE_WAIT_TIMEOUT_SECONDS,
+            self._profile().detail_page_wait_timeout_seconds,
             "强化详情页",
         )
 
     def _wait_for_inventory_first_item(self) -> bool:
         return self._wait_for_page_state(
             self._looks_like_inventory_first_item,
-            INVENTORY_PAGE_WAIT_TIMEOUT_SECONDS,
+            self._profile().inventory_page_wait_timeout_seconds,
             "背包第一页第一格",
         )
 
     def _refresh_to_first_item(self):
         logger.info("发送详情页回跳定位: D -> Y -> 等待详情页 -> B -> 等待背包第一页第一格")
         self._apply_moves(["D"])
-        time.sleep(DETAIL_REFRESH_MOVE_SETTLE_SECONDS)
+        time.sleep(self._profile().detail_refresh_move_settle_seconds)
         self._press_y()
         if not self._wait_for_detail_page():
             raise RuntimeError("按 Y 后未检测到强化详情页，已停止扫描后管理以避免误操作。")
-        time.sleep(PAGE_STATE_DETECTED_SETTLE_SECONDS)
+        time.sleep(self._profile().page_state_detected_settle_seconds)
         self._press_b()
         if not self._wait_for_inventory_first_item():
             raise RuntimeError("按 B 返回后未检测到背包第一页第一格，已停止扫描后管理以避免误操作。")
-        time.sleep(PAGE_STATE_DETECTED_SETTLE_SECONDS)
+        time.sleep(self._profile().page_state_detected_settle_seconds)
 
     def _sync_selected_equipment_state(self, current_state: str, target_state: str) -> bool:
+        return self._sync_selected_equipment_state_with_profile(
+            current_state,
+            target_state,
+            DEFAULT_STATE_PROFILE,
+        )
+
+    def _sync_selected_equipment_state_with_profile(
+        self,
+        current_state: str,
+        target_state: str,
+        profile: GamepadActionProfile,
+    ) -> bool:
         current_state = current_state if current_state in {"normal", "locked", "discarded"} else "normal"
         target_state = target_state if target_state in {"normal", "locked", "discarded"} else "normal"
         if current_state == target_state:
             return False
+        previous_profile = getattr(self, "action_profile", DEFAULT_SCAN_PROFILE)
+        self.action_profile = profile
+        try:
+            if profile.operation_style == "dpad":
+                return self._sync_selected_equipment_state_dpad(current_state, target_state, profile)
+            return self._sync_selected_equipment_state_menu(current_state, target_state, profile)
+        finally:
+            self.action_profile = previous_profile
+
+    def _sync_selected_equipment_state_menu(
+        self,
+        current_state: str,
+        target_state: str,
+        profile: GamepadActionProfile,
+    ) -> bool:
         self._toggle_action_menu()
         if target_state == "discarded":
             self._press_a()
             if current_state == "locked":
-                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+                time.sleep(profile.popup_confirm_seconds)
                 self._press_a()
-                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+                time.sleep(profile.popup_confirm_seconds)
             else:
-                time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+                time.sleep(profile.action_apply_settle_seconds)
         elif target_state == "locked":
             self._apply_moves(["R"])
-            time.sleep(ACTION_OPTION_MOVE_SETTLE_SECONDS)
+            time.sleep(profile.action_option_move_settle_seconds)
             self._confirm_action()
         elif current_state == "discarded":
             self._confirm_action()
         elif current_state == "locked":
             self._apply_moves(["R"])
-            time.sleep(ACTION_OPTION_MOVE_SETTLE_SECONDS)
+            time.sleep(profile.action_option_move_settle_seconds)
             self._confirm_action()
         self._toggle_action_menu()
         return True
 
     def _sync_selected_equipment_state_hmt(self, current_state: str, target_state: str) -> bool:
+        return self._sync_selected_equipment_state_with_profile(
+            current_state,
+            target_state,
+            HMT_STATE_PROFILE,
+        )
+
+    def _sync_selected_equipment_state_dpad(
+        self,
+        current_state: str,
+        target_state: str,
+        profile: GamepadActionProfile,
+    ) -> bool:
         current_state = current_state if current_state in {"normal", "locked", "discarded"} else "normal"
         target_state = target_state if target_state in {"normal", "locked", "discarded"} else "normal"
         if current_state == target_state:
@@ -409,27 +554,28 @@ class GamepadScanner:
         if target_state == "discarded":
             self._press_dpad_left()
             if current_state == "locked" and target_state == "discarded":
-                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+                time.sleep(profile.popup_confirm_seconds)
                 self._press_a()
-                time.sleep(LOCK_DISCARD_CONFIRM_SECONDS)
+                time.sleep(profile.popup_confirm_seconds)
             else:
-                time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+                time.sleep(profile.action_apply_settle_seconds)
             return True
         if target_state == "locked":
             self._press_dpad_right()
-            time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+            time.sleep(profile.action_apply_settle_seconds)
             return True
         if current_state == "discarded":
             self._press_dpad_left()
-            time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+            time.sleep(profile.action_apply_settle_seconds)
             return True
         if current_state == "locked":
             self._press_dpad_right()
-            time.sleep(ACTION_APPLY_SETTLE_SECONDS)
+            time.sleep(profile.action_apply_settle_seconds)
             return True
         return False
 
     def sync_equipment_states(self, total_drives: int, state_changes: list[dict], action_mode: str = "default") -> int:
+        profile = GamepadActionProfile.state_management("hmt" if action_mode == "hmt" else "cn")
         changes = sorted(
             (
                 change
@@ -442,61 +588,68 @@ class GamepadScanner:
         if not changes:
             return 0
 
-        self._refresh_to_first_item()
-        positions = self._scan_positions(int(total_drives))
-        curr_row, curr_col = 0, 0
-        applied = 0
+        previous_profile = getattr(self, "action_profile", DEFAULT_SCAN_PROFILE)
+        self.action_profile = profile
+        try:
+            self._refresh_to_first_item()
+            positions = self._scan_positions(int(total_drives))
+            curr_row, curr_col = 0, 0
+            applied = 0
 
-        def moves_to(index: int) -> list[str]:
-            nonlocal curr_row, curr_col
-            target_row, target_col = positions[index - 1]
-            moves = []
-            while curr_row > target_row:
-                moves.append("U")
-                curr_row -= 1
-            while curr_row < target_row:
-                moves.append("D")
-                curr_row += 1
-            while curr_col < target_col:
-                moves.append("R")
-                curr_col += 1
-            while curr_col > target_col:
-                moves.append("L")
-                curr_col -= 1
-            return moves
+            def moves_to(index: int) -> list[str]:
+                nonlocal curr_row, curr_col
+                target_row, target_col = positions[index - 1]
+                moves = []
+                while curr_row > target_row:
+                    moves.append("U")
+                    curr_row -= 1
+                while curr_row < target_row:
+                    moves.append("D")
+                    curr_row += 1
+                while curr_col < target_col:
+                    moves.append("R")
+                    curr_col += 1
+                while curr_col > target_col:
+                    moves.append("L")
+                    curr_col -= 1
+                return moves
 
-        logger.warning(f"准备同步 {len(changes)} 个装备状态，请保持游戏背包界面不动。")
-        for change in changes:
-            if self._stopped:
-                logger.warning(f"状态同步已停止，本次已处理 {applied}/{len(changes)} 个目标。")
-                break
-            index = int(change["index"])
-            moves = moves_to(index)
-            self._move_between_equipment(moves)
-            self._settle_before_action_menu(bool(moves))
-            logger.info(
-                f"准备同步状态: raw_drive_{index:04d} "
-                f"{change.get('current_state')} -> {change.get('target_state')}"
-            )
-            if action_mode == "hmt":
-                changed = self._sync_selected_equipment_state_hmt(change.get("current_state"), change.get("target_state"))
-            else:
-                changed = self._sync_selected_equipment_state(change.get("current_state"), change.get("target_state"))
-            if changed:
-                applied += 1
+            logger.warning(f"准备同步 {len(changes)} 个装备状态，请保持游戏背包界面不动。")
+            for change in changes:
+                if self._stopped:
+                    logger.warning(f"状态同步已停止，本次已处理 {applied}/{len(changes)} 个目标。")
+                    break
+                index = int(change["index"])
+                moves = moves_to(index)
+                self._move_between_equipment(moves)
+                self._settle_before_action_menu(bool(moves))
                 logger.info(
-                    f"已同步状态: raw_drive_{index:04d} "
+                    f"准备同步状态: raw_drive_{index:04d} "
                     f"{change.get('current_state')} -> {change.get('target_state')}"
                 )
-        return applied
+                changed = self._sync_selected_equipment_state_with_profile(
+                    change.get("current_state"),
+                    change.get("target_state"),
+                    profile,
+                )
+                if changed:
+                    applied += 1
+                    logger.info(
+                        f"已同步状态: raw_drive_{index:04d} "
+                        f"{change.get('current_state')} -> {change.get('target_state')}"
+                    )
+            return applied
+        finally:
+            self.action_profile = previous_profile
 
     def start_scan(self, total_drives=None, on_capture=None, commit_on_complete=True):
         scan_start = time.perf_counter()
+        profile = self._profile()
         logger.warning("\n" + "=" * 50)
-        logger.warning("虚拟手柄已就位，将在 3 秒后接管控制，请切回游戏")
+        logger.warning(f"虚拟手柄已就位，将在 {profile.takeover_countdown_seconds:g} 秒后接管控制，请切回游戏")
         logger.warning("请确保此时已选中第一排第一个驱动/卡带")
         logger.warning("=" * 50)
-        time.sleep(3)
+        time.sleep(profile.takeover_countdown_seconds)
 
         if total_drives is None:
             raise ValueError("全量扫描需要先填写库存数量。")
@@ -506,7 +659,7 @@ class GamepadScanner:
 
         logger.info("\n====== 发送撞墙唤醒信号 ======")
         self.push_left_joystick(-1.0, 0.0)
-        time.sleep(0.5)
+        time.sleep(profile.wall_wake_settle_seconds)
 
         logger.info(f"\n====== S 形遍历启动（总目标 {total_drives} 个）======")
         self._prepare_temp_output()
