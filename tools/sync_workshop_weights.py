@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tools import build_cli
 from src.features.settings.workshop_weights import sync_workshop_weights
 
 
@@ -61,11 +62,7 @@ def resolve_api_key(
         return api_key, ".env"
     if prompt_when_missing:
         if allow_normal_fallback:
-            print("\n未在 .env 或环境变量中找到 WORKSHOP_API_KEY。")
-            print("1. 手动输入")
-            print("2. 进入普通模式（跳过权重同步）")
-            choice = input("请输入 1 或 2，直接回车默认为 2: ").strip()
-            if choice != "1":
+            if build_cli.choose_missing_api_key_action() != "manual":
                 return "", "normal"
         api_key = getpass.getpass("请输入 WORKSHOP_API_KEY（输入内容不会显示）: ").strip()
         if api_key:
@@ -89,26 +86,26 @@ def main() -> int:
     )
     if not api_key:
         if source == "normal":
-            print("[SKIP] 已进入普通模式：不更新异环工坊权重。")
+            build_cli.skip("已进入普通模式：不更新异环工坊权重。")
             return 0
         message = (
             "WORKSHOP_API_KEY is missing. Add it to .env before release packaging, "
             "choose manual input, or pass --optional for local builds."
         )
         if args.optional:
-            print(f"[WARN] {message}")
+            build_cli.warn(message)
             return 0
-        print(f"[FAIL] {message}")
+        build_cli.fail(message)
         return 2
 
     try:
         summary = sync_workshop_weights(Path(args.config_dir), api_key)
     except Exception as exc:
-        print(f"[FAIL] Workshop weight sync failed: {exc}")
+        build_cli.fail(f"Workshop weight sync failed: {exc}")
         return 1
 
-    print(
-        f"[OK] Workshop weights synced via {source}: "
+    build_cli.ok(
+        f"Workshop weights synced via {source}: "
         f"api_roles={summary.get('api_role_count', 0)}, "
         f"updated={summary.get('updated_count', 0)}, "
         f"unchanged={summary.get('unchanged_count', 0)}, "
@@ -116,7 +113,7 @@ def main() -> int:
     )
     skipped = summary.get("skipped_roles") or []
     if skipped:
-        print("[WARN] Skipped unknown local roles: " + ", ".join(map(str, skipped)))
+        build_cli.warn("Skipped unknown local roles: " + ", ".join(map(str, skipped)))
     return 0
 
 
