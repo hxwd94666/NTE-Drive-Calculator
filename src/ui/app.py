@@ -136,7 +136,7 @@ from src.optimizer.state_manager import StateManager
 from src.optimizer.scoring import ScoringEngine
 from src.domain.stat_catalog import StatCatalog
 from src.storage.json_store import read_json, write_json
-from src.utils.logger import logger, set_log_dir
+from src.utils.logger import disable_session_log, enable_session_log, logger, set_log_dir
 from src.utils.name_resolver import resolve_name
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
@@ -412,6 +412,10 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
                 self.role_selector.save_temporary_priority_config()
             except Exception as exc:
                 logger.warning(f"保存临时优先级失败: {exc}")
+        if self._log_enabled:
+            logger.info("运行日志已随程序退出而停止")
+            disable_session_log()
+            self._log_enabled=False
         super().closeEvent(e)
     def _tb_press(self,e):
         if e.button()==Qt.LeftButton: self._drag_pos=e.globalPosition().toPoint()
@@ -558,9 +562,29 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self.log_view.moveCursor(QTextCursor.End); self.log_view.setTextColor(QColor(c)); self.log_view.insertPlainText(msg+"\n"); self.log_view.moveCursor(QTextCursor.End)
     def _clear_log(self): self.log_view.clear()
     def _toggle_log(self,enabled):
-        self._log_enabled=enabled; self.log_frame.setVisible(enabled)
-        if enabled: self._on_log("运行日志已开启")
-        else: self.log_view.clear(); self.log_view.insertPlainText("(日志已关闭)\n")
+        if enabled:
+            try:
+                log_path=enable_session_log()
+            except Exception as exc:
+                logger.error(f"创建运行日志文件失败: {exc}")
+                toggle=getattr(self,"_log_toggle",None)
+                if toggle is not None:
+                    toggle.blockSignals(True)
+                    toggle.setChecked(False)
+                    toggle.blockSignals(False)
+                QMessageBox.warning(self,"运行日志","无法创建运行日志文件，请检查日志目录是否可写")
+                return
+            self._log_enabled=True
+            self.log_frame.setVisible(True)
+            logger.info(f"运行日志已开启: {log_path.name}")
+            return
+        if self._log_enabled:
+            logger.info("运行日志已关闭")
+        disable_session_log()
+        self._log_enabled=False
+        self.log_frame.setVisible(False)
+        self.log_view.clear()
+        self.log_view.insertPlainText("(日志已关闭)\n")
 
     # ── Data
     def _load_data(self, reload_priority=True):
