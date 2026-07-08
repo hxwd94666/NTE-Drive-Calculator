@@ -5,14 +5,14 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout
 
-from src.app.theme import STYLE
+from src.app.theme import current_style_sheet
 
 
 def show_help(parent, title, text):
     dlg = QDialog(parent)
     dlg.setWindowTitle(title)
     dlg.setMinimumSize(380, 220)
-    dlg.setStyleSheet(STYLE)
+    dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
     layout.setSpacing(12)
     label = QLabel(text)
