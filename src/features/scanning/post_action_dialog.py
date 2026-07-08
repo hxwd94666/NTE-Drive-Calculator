@@ -33,6 +33,7 @@ from src.features.scanning.post_actions import (
     validate_post_action_config,
 )
 from src.storage.json_store import read_json, write_json
+from src.app.theme import themed_style
 
 
 ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
@@ -94,8 +95,8 @@ def _load_set_name_options() -> list[str]:
 
 def _button_style(checked: bool) -> str:
     if checked:
-        return "QPushButton{border:2px solid #2f81f7;background:#10243f;color:#f0f6fc;border-radius:6px;padding:4px}"
-    return "QPushButton{border:1px solid #30363d;background:#161b22;color:#c9d1d9;border-radius:6px;padding:4px}"
+        return themed_style("QPushButton{border:2px solid #2f81f7;background:#10243f;color:#f0f6fc;border-radius:6px;padding:4px}")
+    return themed_style("QPushButton{border:1px solid #30363d;background:#161b22;color:#c9d1d9;border-radius:6px;padding:4px}")
 
 
 class TypeRangeDialog(QDialog):
@@ -295,7 +296,7 @@ class ScanPostActionDialog(QDialog):
         panel = QWidget()
         panel.setObjectName("postActionPanel")
         panel.setStyleSheet(
-            "QWidget#postActionPanel{background:#161b22;border:1px solid #30363d;border-radius:8px;}"
+            themed_style("QWidget#postActionPanel{background:#161b22;border:1px solid #30363d;border-radius:8px;}")
         )
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(14, 12, 14, 14)
