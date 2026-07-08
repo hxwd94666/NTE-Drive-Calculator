@@ -157,6 +157,36 @@ class StreamingScanPipelineTests(unittest.TestCase):
             ),
         )
 
+    def test_post_action_scores_only_usable_roles_when_context_is_strict(self):
+        from src.features.scanning.post_actions import (
+            PostActionScoreContext,
+            default_post_action_config,
+            target_state_for_item,
+        )
+        from src.models.equipment import Drive
+
+        class FakeScoring:
+            roles_db = {"usable": {}, "unusable": {}}
+
+            def get_grade_tag(self, score, _area):
+                return "SSS" if float(score) >= 2.0 else "D"
+
+        item = Drive(
+            uid="strict-drive",
+            quality="Gold",
+            area=3,
+            shape_id="S1",
+            main_stats={"m1": 1.0, "m2": 1.0},
+            sub_stats={"Good": 1.0},
+            role_scores={"usable": 1.0, "unusable": 2.0},
+        )
+        config = default_post_action_config()
+        config["lock"]["enabled"] = True
+        config["lock"]["grade"] = "SSS"
+        context = PostActionScoreContext(strict=True, drive_roles_by_shape={"S1": {"usable"}})
+
+        self.assertEqual("normal", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
+
     def test_parser_consumes_first_capture_before_scan_finishes(self):
         from src.features.scanning.streaming_pipeline import run_streaming_scan_parse
 
