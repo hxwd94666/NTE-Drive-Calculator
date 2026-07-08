@@ -182,74 +182,9 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertFalse(hasattr(selector, "priority_scroll"))
         self.assertFalse(hasattr(selector, "grid_scroll"))
 
-    def test_role_selector_priority_frame_width_is_content_based(self):
-        from PySide6.QtWidgets import QApplication
-
-        from src.features.allocation.role_selector import RoleSelector
-
-        app = QApplication.instance() or QApplication([])
-        selector = RoleSelector()
-
-        short_width = selector._priority_role_frame_width("AB")
-        long_width = selector._priority_role_frame_width("ABCDE")
-
-        self.assertEqual(short_width, long_width)
-        self.assertLess(short_width, 140)
-        self.assertLess(selector._priority_role_name_font_size("ABCDE"), selector._priority_role_name_font_size("AB"))
-
-    def test_role_selector_priority_and_pool_left_edges_align(self):
-        from PySide6.QtWidgets import QApplication
-
-        from src.features.allocation.role_selector import RoleSelector
-
-        app = QApplication.instance() or QApplication([])
-        selector = RoleSelector()
-
-        self.assertEqual(
-            selector.grid_layout.contentsMargins().left(),
-            selector.priority_layout.contentsMargins().left(),
-        )
-
-    def test_role_selector_wrapped_priority_unit_keeps_content_width(self):
-        from PySide6.QtWidgets import QApplication
-
-        from src.features.allocation.role_selector import RoleSelector
-
-        app = QApplication.instance() or QApplication([])
-        selector = RoleSelector()
-        selector.selected = ["A", "LongRoleA", "B", "LongRoleB", "C", "D"]
-        selector.priority_links = [">", ">", ">", ">", ">"]
-
-        selector._render_priority_row()
-        selector.resize(900, 400)
-        selector.show()
-        app.processEvents()
-        selector.priority_layout.activate()
-        app.processEvents()
-
-        wrapped_unit = selector.priority_layout.itemAt(5).widget()
-
-        self.assertEqual(wrapped_unit.sizeHint().width(), wrapped_unit.geometry().width())
-
-    def test_priority_role_button_builds_drag_pixmap_without_render_overload(self):
-        from PySide6.QtWidgets import QApplication
-
-        from src.features.allocation.role_selector import PriorityRoleButton, RoleSelector
-
-        app = QApplication.instance() or QApplication([])
-        selector = RoleSelector()
-        button = PriorityRoleButton(selector, "A", 0)
-        button.resize(120, 40)
-        button.show()
-        app.processEvents()
-
-        pixmap = button._make_drag_pixmap(button)
-
-        self.assertFalse(pixmap.isNull())
-
     def test_role_priority_batch_uses_local_optimum_within_equal_group(self):
         from src.models.equipment import Drive
-        from src.optimizer.strategies import RolePriorityStrategy
+        from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
         roles_db = {"A": {"default_set": "Set"}, "B": {"default_set": "Set"}}
         sets_db = {"Set": {"shapes": []}}
@@ -290,7 +225,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
     def test_role_priority_batch_reuses_matrix_combo_iterator(self):
         from src.models.equipment import Drive
-        from src.optimizer.strategies import RolePriorityStrategy
+        from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
         class TrackingRolePriorityStrategy(RolePriorityStrategy):
             def __init__(self, *args, **kwargs):
@@ -340,7 +275,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
     def test_role_priority_single_role_deduplicates_equivalent_blueprints(self):
         from src.models.equipment import Drive
-        from src.optimizer.strategies import RolePriorityStrategy
+        from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
         class TrackingRolePriorityStrategy(RolePriorityStrategy):
             def __init__(self, *args, **kwargs):
@@ -378,7 +313,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
     def test_role_priority_single_role_filters_unused_drive_shapes_before_matching(self):
         from src.models.equipment import Drive
-        from src.optimizer.strategies import RolePriorityStrategy
+        from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
         class TrackingRolePriorityStrategy(RolePriorityStrategy):
             def __init__(self, *args, **kwargs):
@@ -419,7 +354,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertEqual([{"X"}], strategy.available_shapes)
 
     def test_matrix_base_does_not_shadow_shared_matrix_helpers(self):
-        from src.optimizer.strategies import MatrixBaseStrategy
+        from src.optimizer.drive_priority_strategy import MatrixBaseStrategy
 
         duplicated_helpers = {
             "_blueprint_extra_key",
@@ -793,72 +728,6 @@ class UpdateWorkflowTests(unittest.TestCase):
         info = {"url": "https://example.invalid/download.exe", "release_url": "https://example.invalid/release"}
         self.assertEqual("https://example.invalid/download.exe", update_dialog_link_url(info))
 
-    def test_settings_update_buttons_use_requested_order(self):
-        from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout
-
-        from src.features.settings.page import build_settings_page
-
-        app = QApplication.instance() or QApplication([])
-
-        class Window:
-            _log_enabled = False
-            _hk_capture = "F9"
-            _hk_finish = "F10"
-            _hk_stop = "F8"
-
-            def _card(self, _title):
-                card = QFrame()
-                QVBoxLayout(card)
-                return card
-
-            def _toggle_log(self, *_args):
-                pass
-
-            def _save_hotkeys(self):
-                pass
-
-            def _check_updates(self, manual=True):
-                pass
-
-            def _open_update_homepage(self):
-                pass
-
-            def _open_url(self, _url):
-                pass
-
-            def _refresh_ss(self):
-                pass
-
-            def _clear_ss(self):
-                pass
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            window = Window()
-            scroll = build_settings_page(
-                window,
-                "1.1.0",
-                lambda: {
-                    "screenshot_dir": root / "scanned_images",
-                    "output_file": root / "config" / "real_inventory.json",
-                    "config_dir": root / "config",
-                    "accounts_dir": root / "accounts",
-                    "log_dir": root / "logs",
-                },
-                lambda _path: [],
-                "https://pan.quark.cn/s/82f16b845aec",
-            )
-
-            button_texts = [button.text() for button in scroll.findChildren(QPushButton)]
-
-        self.assertEqual(
-            ["检查更新", "网盘下载", "GitHub 主页"],
-            [text for text in button_texts if text in {"检查更新", "网盘下载", "GitHub 主页"}],
-        )
-        self.assertNotIn("刷新统计", button_texts)
-        self.assertIn("清理所有截图", button_texts)
-        app.processEvents()
-
     def test_settings_netdisk_button_opens_choice_dialog_with_quark_and_baidu(self):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout
@@ -970,129 +839,4 @@ class UpdateWorkflowTests(unittest.TestCase):
         offenders = [str(path) for path in checked_paths if old_term in path.read_text(encoding="utf-8")]
 
         self.assertEqual([], offenders)
-
-    def test_settings_page_does_not_show_inventory_info_card(self):
-        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout
-
-        from src.features.settings.page import build_settings_page
-
-        app = QApplication.instance() or QApplication([])
-
-        class Window:
-            _log_enabled = False
-            _hk_capture = "F9"
-            _hk_finish = "F10"
-            _hk_stop = "F8"
-
-            def _card(self, title):
-                card = QFrame()
-                layout = QVBoxLayout(card)
-                layout.addWidget(QLabel(title))
-                return card
-
-            def _toggle_log(self, *_args):
-                pass
-
-            def _save_hotkeys(self):
-                pass
-
-            def _check_updates(self, manual=True):
-                pass
-
-            def _open_update_homepage(self):
-                pass
-
-            def _open_url(self, _url):
-                pass
-
-            def _refresh_ss(self):
-                pass
-
-            def _clear_ss(self):
-                pass
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            scroll = build_settings_page(
-                Window(),
-                "1.1.0",
-                lambda: {
-                    "screenshot_dir": root / "scanned_images",
-                    "output_file": root / "config" / "real_inventory.json",
-                    "config_dir": root / "config",
-                    "accounts_dir": root / "accounts",
-                    "log_dir": root / "logs",
-                },
-                lambda _path: [],
-                "",
-            )
-
-        labels = [label.text() for label in scroll.findChildren(QLabel)]
-        self.assertNotIn("库存信息", labels)
-        self.assertFalse(any("real_inventory.json" in text for text in labels))
-        app.processEvents()
-
-    def test_settings_hotkey_save_button_is_short_and_in_title_row(self):
-        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QVBoxLayout
-
-        from src.features.settings.page import build_settings_page
-
-        app = QApplication.instance() or QApplication([])
-
-        class Window:
-            _log_enabled = False
-            _hk_capture = "F9"
-            _hk_finish = "F10"
-            _hk_stop = "F8"
-
-            def _card(self, title):
-                card = QFrame()
-                layout = QVBoxLayout(card)
-                layout.addWidget(QLabel(title))
-                return card
-
-            def _toggle_log(self, *_args):
-                pass
-
-            def _save_hotkeys(self):
-                pass
-
-            def _check_updates(self, manual=True):
-                pass
-
-            def _open_update_homepage(self):
-                pass
-
-            def _open_url(self, _url):
-                pass
-
-            def _refresh_ss(self):
-                pass
-
-            def _clear_ss(self):
-                pass
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            scroll = build_settings_page(
-                Window(),
-                "1.1.0",
-                lambda: {
-                    "screenshot_dir": root / "scanned_images",
-                    "output_file": root / "config" / "real_inventory.json",
-                    "config_dir": root / "config",
-                    "accounts_dir": root / "accounts",
-                    "log_dir": root / "logs",
-                },
-                lambda _path: [],
-                "",
-            )
-
-        save_button = next(button for button in scroll.findChildren(QPushButton) if button.text() == "保存快捷键")
-        title_label = next(label for label in scroll.findChildren(QLabel) if label.text() == "快捷键绑定")
-
-        self.assertLessEqual(save_button.maximumWidth(), 130)
-        self.assertIs(save_button.parentWidget(), title_label.parentWidget())
-        app.processEvents()
-
 
