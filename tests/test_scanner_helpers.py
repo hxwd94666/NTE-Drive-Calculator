@@ -1256,6 +1256,19 @@ class GamepadScannerTests(unittest.TestCase):
         self.assertFalse(matched)
         self.assertIn("全黑区域白色占比=0.000gt0.500:fail", reason)
 
+    def test_detail_page_detection_accepts_common_max_level_layout(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.action_profile = gamepad_controller.GamepadActionProfile.state_management("cn")
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        image[20:55, 68:98] = 80
+
+        matched, reason = scanner._looks_like_detail_page(image)
+
+        self.assertTrue(matched)
+        self.assertIn("详情规则组2", reason)
+
 
 if __name__ == "__main__":
     unittest.main()
