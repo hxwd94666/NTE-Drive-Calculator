@@ -78,6 +78,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     log_toggle = QCheckBox("启用运行日志")
     log_toggle.setChecked(window._log_enabled)
     log_toggle.toggled.connect(window._toggle_log)
+    window._log_toggle = log_toggle
     log_row.addWidget(log_toggle)
     log_row.addStretch()
     log_card.layout().addLayout(log_row)
