@@ -8,7 +8,12 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 
-from src.features.scanning.file_lifecycle import ScanFileLifecycle
+from src.features.scanning.file_lifecycle import (
+    ScanFileLifecycle,
+    build_screenshot_cleanup_plan,
+    execute_screenshot_cleanup,
+    managed_screenshot_usage,
+)
 from src.features.inventory_import import duplicate_filter
 from src.features.identification import parser as identify_parser
 from src.optimizer.scoring import ScoringEngine
@@ -100,6 +105,37 @@ class _InvalidNoiseParseProcessor(_FakeProcessor):
 
     def _process_single_image(self, image_path):
         return _InvalidNoiseTapeItem()
+
+
+class _PartialDriveItem:
+    item_type = "drive"
+    quality = "Gold"
+    area = 2
+    shape_id = "H_2"
+    set_name = "未知套装"
+    main_stats = {"攻击力": 42.0, "生命值": 560.0}
+    sub_stats = {"攻击力%": 2.5, "暴击率%": 2.0, "攻击力": 16.0}
+
+    def model_dump(self):
+        return {
+            "uid": "partial_drive",
+            "item_type": self.item_type,
+            "quality": self.quality,
+            "area": self.area,
+            "shape_id": self.shape_id,
+            "set_name": self.set_name,
+            "main_stats": self.main_stats,
+            "sub_stats": self.sub_stats,
+        }
+
+
+class _PartialDriveParseProcessor(_FakeProcessor):
+    def __init__(self):
+        super().__init__()
+        self.parser = type("Parser", (), {"GOLD_BASE_VALUES": dict(_PartialDriveItem.sub_stats)})()
+
+    def _process_single_image(self, image_path):
+        return _PartialDriveItem()
 
 
 class DuplicateFilterTests(unittest.TestCase):
@@ -205,6 +241,18 @@ class DuplicateFilterTests(unittest.TestCase):
         )
 
         self.assertFalse(duplicate_filter.has_meaningful_parse_data(item, item.sub_stats.keys()))
+
+    def test_three_valid_sub_stats_become_recoverable_parse_error(self):
+        processor = _PartialDriveParseProcessor()
+
+        with self.assertRaises(duplicate_filter.RecoverableParseError) as ctx:
+            duplicate_filter.process_image_file(processor, "desktop.png", "raw_drive_0001.png")
+
+        record = ctx.exception.to_record("desktop.png", "raw_drive_0001.png")
+        self.assertEqual(3, record["recognized_count"])
+        self.assertEqual(1, record["missing_count"])
+        self.assertEqual("drive", record["item_type"])
+        self.assertEqual([], processor.inventory)
 
 
 class _FakeIdentifyItem:
@@ -456,6 +504,25 @@ class StatParserTests(unittest.TestCase):
         parsed = parser._clean_stats(["\u4f24\u5bb3 1.0%", "\u4f24\u5bb3\u589e\u52a0 1.0%"])
 
         self.assertEqual(1.0, parsed["\u4f24\u5bb3\u589e\u52a0%"])
+
+    def test_clean_stats_accepts_fullwidth_percent_and_decimal_ocr_noise(self):
+        parser = DriveDataParser(config_dir="config")
+
+        parsed = parser._clean_stats(["攻击力提升2，50％", "暴击伤害提升4·80%"])
+
+        self.assertEqual(2.5, parsed["攻击力%"])
+        self.assertEqual(4.8, parsed["暴击伤害%"])
+
+    def test_attribute_tape_main_requires_clear_attribute(self):
+        parser = DriveDataParser(config_dir="config")
+
+        self.assertEqual("咒属性异能伤害增强", parser._fuzzy_match_tape_main("咒属性异能伤害增强"))
+        self.assertEqual("未知主词条", parser._fuzzy_match_tape_main("属性异能伤害增强"))
+
+    def test_attribute_sub_stat_does_not_fuzzy_guess_missing_attribute(self):
+        parser = DriveDataParser(config_dir="config")
+
+        self.assertEqual({}, parser._clean_stats(["属性异能伤害增强 37.5%"]))
 
     def test_fuzzy_match_set_name_ignores_surrounding_ui_text(self):
         parser = DriveDataParser(config_dir="config")
@@ -725,6 +792,51 @@ class EquipmentClassifierTests(unittest.TestCase):
 
 
 class IncrementalBaselineTests(unittest.TestCase):
+    def test_screenshot_cleanup_policy_preserves_incremental_baseline_and_cleans_temp_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            account_root = Path(tmp)
+            screenshot_dir = account_root / "scanned_images"
+            screenshot_dir.mkdir()
+            baseline = screenshot_dir / "raw_drive_0001.png"
+            extra = screenshot_dir / "raw_drive_0002.png"
+            nested = screenshot_dir / "failed" / "raw_drive_bad.png"
+            temp = account_root / "identify_clipboard_123.png"
+            other_account_file = account_root / "manual.png"
+            nested.parent.mkdir()
+            baseline.write_bytes(b"baseline")
+            extra.write_bytes(b"extra")
+            nested.write_bytes(b"nested")
+            temp.write_bytes(b"temp")
+            other_account_file.write_bytes(b"manual")
+
+            usage = managed_screenshot_usage(screenshot_dir, account_root)
+            plan = build_screenshot_cleanup_plan(screenshot_dir, account_root)
+            result = execute_screenshot_cleanup(plan)
+
+            self.assertEqual(4, usage.count)
+            self.assertEqual(3, plan.total_count)
+            self.assertEqual(2, plan.scan_delete_count)
+            self.assertEqual(1, plan.temp_delete_count)
+            self.assertFalse(plan.baseline_missing)
+            self.assertEqual(3, result.deleted)
+            self.assertTrue(baseline.exists())
+            self.assertTrue(other_account_file.exists())
+            self.assertFalse(extra.exists())
+            self.assertFalse(nested.exists())
+            self.assertFalse(temp.exists())
+
+    def test_screenshot_cleanup_policy_warns_when_scan_images_exist_without_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            account_root = Path(tmp)
+            screenshot_dir = account_root / "scanned_images"
+            screenshot_dir.mkdir()
+            (screenshot_dir / "raw_drive_0002.png").write_bytes(b"extra")
+
+            plan = build_screenshot_cleanup_plan(screenshot_dir, account_root)
+
+            self.assertTrue(plan.baseline_missing)
+            self.assertIn("丢失用于对比的截图", plan.confirmation_text())
+
     def test_corrupt_raw_drive_0001_marks_incremental_baseline_unusable(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -775,6 +887,30 @@ class IncrementalBaselineTests(unittest.TestCase):
 
 
 class GamepadScannerTests(unittest.TestCase):
+    def test_close_resets_and_releases_virtual_gamepad_reference(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        calls = []
+        scanner._closed = False
+        scanner.gamepad = SimpleNamespace(
+            reset=lambda: calls.append("reset"),
+            update=lambda: calls.append("update"),
+        )
+        scanner._buttons = object()
+        original_collect = gamepad_controller.gc.collect
+        gamepad_controller.gc.collect = lambda: calls.append("gc")
+        try:
+            scanner.close()
+            scanner.close()
+        finally:
+            gamepad_controller.gc.collect = original_collect
+
+        self.assertEqual(["reset", "update", "gc"], calls)
+        self.assertIsNone(scanner.gamepad)
+        self.assertIsNone(scanner._buttons)
+        self.assertTrue(scanner._closed)
+
     def test_capture_panel_uses_mss_png_writer(self):
         from src.scanner import gamepad_controller
 
@@ -988,62 +1124,6 @@ class GamepadScannerTests(unittest.TestCase):
         )
         self.assertEqual([], commits)
 
-    def test_mark_discard_resets_to_top_then_marks_in_scan_order(self):
-        from src.scanner import gamepad_controller
-
-        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
-        scanner.cols = 7
-        scanner._stopped = False
-        moves = []
-        presses = []
-        scanner._apply_moves = lambda batch: moves.append(batch)
-        scanner._press_menu = lambda: presses.append("menu")
-        scanner._press_a = lambda: presses.append("a")
-
-        marked = scanner.mark_discard_by_indexes(14, [8, 2])
-
-        self.assertEqual(2, marked)
-        self.assertEqual(
-            [
-                ["U", "U", "L", "L", "L", "L", "L", "L"],
-                ["R"],
-                ["D", "R", "R", "R", "R", "R"],
-            ],
-            moves,
-        )
-        self.assertEqual(["menu", "a", "menu", "menu", "a", "menu"], presses)
-
-    def test_mark_discard_unlocks_locked_target_with_confirmation_sequence(self):
-        from src.scanner import gamepad_controller
-
-        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
-        scanner.cols = 7
-        scanner._stopped = False
-        moves = []
-        presses = []
-        scanner._apply_moves = lambda batch: moves.append(batch)
-        scanner._press_menu = lambda: presses.append("menu")
-        scanner._press_a = lambda: presses.append("a")
-
-        original_sleep = gamepad_controller.time.sleep
-        pauses = []
-        gamepad_controller.time.sleep = lambda seconds: pauses.append(seconds)
-        try:
-            marked = scanner.mark_discard_by_indexes(14, [2], locked_indexes=[2])
-        finally:
-            gamepad_controller.time.sleep = original_sleep
-
-        self.assertEqual(1, marked)
-        self.assertEqual(
-            [
-                ["U", "U", "L", "L", "L", "L", "L", "L"],
-                ["R"],
-            ],
-            moves,
-        )
-        self.assertEqual(["menu", "a", "a", "menu"], presses)
-        self.assertEqual([0.1, 0.15, 0.3, 0.6, 0.6, 0.3], pauses)
-
     def test_sync_equipment_state_menu_sequences(self):
         from src.scanner import gamepad_controller
 
@@ -1081,7 +1161,39 @@ class GamepadScannerTests(unittest.TestCase):
         finally:
             gamepad_controller.time.sleep = original_sleep
 
-    def test_sync_equipment_states_refreshes_with_lb_rb_then_moves_by_scan_order(self):
+    def test_sync_equipment_state_hmt_uses_dpad_without_menu(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        presses = []
+        scanner._press_dpad_left = lambda: presses.append("dpad_left")
+        scanner._press_dpad_right = lambda: presses.append("dpad_right")
+        scanner._press_a = lambda: presses.append("a")
+
+        cases = [
+            ("normal", "discarded", ["dpad_left"], [0.3]),
+            ("discarded", "normal", ["dpad_left"], [0.3]),
+            ("normal", "locked", ["dpad_right"], [0.3]),
+            ("locked", "normal", ["dpad_right"], [0.3]),
+            ("discarded", "locked", ["dpad_right"], [0.3]),
+            ("locked", "discarded", ["dpad_left", "a"], [0.6, 0.6]),
+        ]
+
+        original_sleep = gamepad_controller.time.sleep
+        pauses = []
+        gamepad_controller.time.sleep = lambda seconds: pauses.append(seconds)
+        try:
+            for current, target, expected_presses, expected_pauses in cases:
+                presses.clear()
+                pauses.clear()
+                changed = scanner._sync_selected_equipment_state_hmt(current, target)
+                self.assertTrue(changed)
+                self.assertEqual(expected_presses, presses)
+                self.assertEqual(expected_pauses, pauses)
+        finally:
+            gamepad_controller.time.sleep = original_sleep
+
+    def test_sync_equipment_states_uses_detail_return_then_moves_by_scan_order(self):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
@@ -1090,10 +1202,12 @@ class GamepadScannerTests(unittest.TestCase):
         moves = []
         presses = []
         scanner._apply_moves = lambda batch: moves.append(batch)
-        scanner._press_lb = lambda: presses.append("lb")
-        scanner._press_rb = lambda: presses.append("rb")
+        scanner._press_y = lambda: presses.append("y")
+        scanner._press_b = lambda: presses.append("b")
         scanner._press_menu = lambda: presses.append("menu")
         scanner._press_a = lambda: presses.append("a")
+        scanner._wait_for_detail_page = lambda: True
+        scanner._wait_for_inventory_first_item = lambda: True
 
         original_sleep = gamepad_controller.time.sleep
         pauses = []
@@ -1110,12 +1224,37 @@ class GamepadScannerTests(unittest.TestCase):
             gamepad_controller.time.sleep = original_sleep
 
         self.assertEqual(2, applied)
-        self.assertEqual(["lb", "rb", "menu", "a", "menu", "menu", "a", "menu"], presses)
-        self.assertEqual([["R"], ["D", "R", "R", "R", "R", "R"], ["R"]], moves)
+        self.assertEqual(["y", "b", "menu", "a", "menu", "menu", "a", "menu"], presses)
+        self.assertEqual([["D"], ["R"], ["D", "R", "R", "R", "R", "R"], ["R"]], moves)
         self.assertEqual(
-            [1.0, 1.0, 0.1, 0.15, 0.3, 0.3, 0.3, 0.1, 0.15, 0.3, 0.15, 0.3, 0.3],
+            [0.3, 0.5, 0.5, 0.2, 0.2, 0.3, 0.3, 0.3, 0.2, 0.2, 0.3, 0.15, 0.3, 0.3],
             pauses,
         )
+
+    def test_gamepad_vision_profile_is_bound_to_action_profile(self):
+        from src.scanner.gamepad_controller import GamepadActionProfile
+
+        cn_profile = GamepadActionProfile.state_management("cn")
+        hmt_profile = GamepadActionProfile.state_management("hmt")
+
+        self.assertEqual("cn", cn_profile.vision.region)
+        self.assertEqual("hmt", hmt_profile.vision.region)
+        self.assertTrue(cn_profile.vision.detail_page_rules)
+        self.assertTrue(hmt_profile.vision.inventory_first_item_rules)
+
+    def test_gamepad_vision_rule_debug_reason_reports_failed_rule(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        image = np.zeros((10, 10, 3), dtype=np.uint8)
+        rules = (
+            gamepad_controller.GamepadVisionRule("全黑区域白色占比", (0.0, 0.0, 1.0, 1.0), "white", "gt", 0.5),
+        )
+
+        matched, reason = scanner._evaluate_vision_rules(image, rules)
+
+        self.assertFalse(matched)
+        self.assertIn("全黑区域白色占比=0.000gt0.500:fail", reason)
 
 
 if __name__ == "__main__":
