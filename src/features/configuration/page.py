@@ -16,12 +16,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, SearchableComboBox, match_pinyin
+from src.app.theme import theme_color, themed_style
 from src.domain.stat_catalog import StatCatalog
 from src.storage.json_store import read_json, write_json_atomic
 
@@ -32,6 +34,7 @@ def build_config_page(window):
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(10)
     page.setStyleSheet(
+        themed_style(
         """
         QLabel{font-size:14px}
         QLineEdit,QComboBox,QDoubleSpinBox{font-size:14px;padding:8px 11px;border-radius:7px}
@@ -39,6 +42,7 @@ def build_config_page(window):
         QTabBar::tab{font-size:13px;padding:10px 20px}
         QGroupBox{font-size:15px;border:1px solid #30363d;border-radius:10px;padding:24px;padding-top:36px}
         """
+        )
     )
 
     top_row = QHBoxLayout()
@@ -185,7 +189,7 @@ def _board_lock_icon(locked: bool) -> QIcon:
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    color = QColor("#6e7681" if locked else "#58a6ff")
+    color = QColor(theme_color("#6e7681" if locked else "#58a6ff"))
     painter.setPen(QPen(color, 2))
     painter.setBrush(color)
     painter.drawRoundedRect(QRectF(5, 10, 12, 8), 2, 2)
@@ -199,6 +203,218 @@ def _board_lock_icon(locked: bool) -> QIcon:
         painter.drawLine(8, 10, 8, 12)
     painter.end()
     return QIcon(pixmap)
+
+
+def _add_role_config_header(window, data, role_name, form_layout, rebuild_all_tabs):
+    role_header = QHBoxLayout()
+    role_header.addWidget(QLabel(f"角色: {role_name}"))
+    role_header.addStretch()
+    del_btn = QPushButton("删除此角色")
+    del_btn.setObjectName("btnDanger")
+    del_btn.clicked.connect(lambda checked=False, rn=role_name: window._del_role(rn, data, rebuild_all_tabs))
+    role_header.addWidget(del_btn)
+    form_layout.addLayout(role_header)
+
+
+def _add_default_set_row(window, data, role_name, role_data, form_layout):
+    set_combo = SearchableComboBox()
+    for set_name in window.all_set_names:
+        set_combo.addItem(set_name, set_name)
+    set_combo.refresh_search_items()
+    if role_data.get("default_set", "") in window.all_set_names:
+        set_combo.setCurrentText(role_data.get("default_set", ""))
+    set_combo.activated.connect(
+        lambda _idx, rn=role_name, c=set_combo: window._save_role_field(
+            rn, "default_set", c.currentData() or c.currentText(), data
+        )
+    )
+    if set_combo.lineEdit():
+        set_combo.lineEdit().editingFinished.connect(
+            lambda rn=role_name, c=set_combo: window._save_role_field(rn, "default_set", c.currentText(), data)
+        )
+    _field("默认套装", set_combo, form_layout)
+
+
+def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
+    extra_combo = NoWheelComboBox()
+    extra_combo.addItems(["Type-2", "Type-3", "Type-4"])
+    extra_combo.setCurrentText(role_data.get("extra_shape_label", ""))
+    extra_combo.currentTextChanged.connect(
+        lambda text, rn=role_name: window._save_role_field(rn, "extra_shape_label", text, data)
+    )
+    _field("额外形状标签", extra_combo, form_layout)
+
+
+def _add_extra_shape_buff_row(window, data, role_name, role_data, form_layout):
+    buff_row = QHBoxLayout()
+    buff_row.setSpacing(8)
+    buff_row.addWidget(QLabel("额外形状加成"))
+    buff_stat_combo = SearchableComboBox()
+    for stat in window._stat_choice_pool():
+        buff_stat_combo.addItem(stat, stat)
+    buff_stat_combo.refresh_search_items()
+    extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
+    current_buff = (
+        next(iter(extra_buffs.items()), ("", 0.0))
+        if isinstance(extra_buffs, dict) and extra_buffs
+        else ("", 0.0)
+    )
+    if current_buff[0]:
+        buff_stat_combo.setCurrentText(current_buff[0])
+    else:
+        buff_stat_combo.setCurrentIndex(-1)
+        buff_stat_combo.setEditText("")
+    buff_value = NoWheelDoubleSpinBox()
+    buff_value.setRange(-99999, 99999)
+    buff_value.setDecimals(2)
+    buff_value.setSingleStep(1.0)
+    buff_value.setValue(float(current_buff[1] or 0))
+    buff_value.setMinimumWidth(96)
+    buff_value.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    buff_value.setKeyboardTracking(False)
+    buff_stat_combo.activated.connect(
+        lambda _idx, rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
+            rn, c.currentData() or c.currentText(), s.value(), data
+        )
+    )
+    if buff_stat_combo.lineEdit():
+        buff_stat_combo.lineEdit().editingFinished.connect(
+            lambda rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
+                rn, c.currentText(), s.value(), data
+            )
+        )
+    buff_value.editingFinished.connect(
+        lambda rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
+            rn, c.currentText(), s.value(), data
+        )
+    )
+    buff_row.addWidget(buff_stat_combo, 1)
+    buff_row.addWidget(buff_value)
+    form_layout.addLayout(buff_row)
+
+
+def _add_board_matrix_editor(window, data, role_name, role_data, form_layout):
+    board_header = QHBoxLayout()
+    board_header.addWidget(QLabel("底盘矩阵 (0=空格, -1=锁定):"))
+    board_header.addStretch()
+    board_lock_btn = QPushButton()
+    board_lock_btn.setObjectName("btnBoardLock")
+    board_lock_btn.setStyleSheet("QPushButton#btnBoardLock{padding:4px;border-radius:6px}")
+    board_lock_btn.setCheckable(True)
+    board_lock_btn.setChecked(True)
+    board_lock_btn.setText("")
+    board_lock_btn.setIcon(_board_lock_icon(True))
+    board_lock_btn.setIconSize(QSize(18, 18))
+    board_lock_btn.setMinimumSize(34, 30)
+    board_lock_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    board_lock_btn.setToolTip("默认锁定，点击后才可修改底盘矩阵。")
+    board_header.addWidget(board_lock_btn)
+    form_layout.addLayout(board_header)
+
+    board_matrix = role_data.get("board_matrix", [[0] * 5 for _ in range(5)])
+    board_widget = QWidget()
+    board_grid = QGridLayout(board_widget)
+    board_grid.setSpacing(2)
+    board_combos = []
+    for row in range(5):
+        for col in range(5):
+            value = str(board_matrix[row][col]) if row < len(board_matrix) and col < len(board_matrix[row]) else "0"
+            combo = QComboBox()
+            combo.addItems(["-1", "0"])
+            combo.setCurrentText(value)
+            combo.setMinimumWidth(52)
+            combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            combo.setEnabled(False)
+            combo.currentTextChanged.connect(
+                lambda text, rn=role_name, r=row, c=col: window._save_role_board_cell(rn, r, c, text, data)
+            )
+            board_combos.append(combo)
+            board_grid.addWidget(combo, row, col)
+    for col in range(5):
+        board_grid.setColumnStretch(col, 1)
+
+    def set_board_locked(locked):
+        for item in board_combos:
+            item.setEnabled(not locked)
+        board_lock_btn.setIcon(_board_lock_icon(locked))
+        board_lock_btn.setToolTip(
+            "底盘矩阵已锁定，点击后才可修改。" if locked else "底盘矩阵可修改，点击重新锁定。"
+        )
+
+    board_lock_btn.toggled.connect(set_board_locked)
+    set_board_locked(True)
+    form_layout.addWidget(board_widget)
+
+
+def _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, title, field_name, add_label):
+    weights_header = QHBoxLayout()
+    weights_header.addWidget(QLabel(f"{title}:"))
+    weights_header.addStretch()
+    add_weight_btn = QPushButton(add_label)
+    add_weight_btn.setObjectName("btnAction")
+    add_weight_btn.clicked.connect(
+        lambda checked=False, rn=role_name, field=field_name: window._add_weight(
+            rn, data, lambda active=rn: rebuild_all_tabs(active), field
+        )
+    )
+    weights_header.addWidget(add_weight_btn)
+    form_layout.addLayout(weights_header)
+
+    weights = role_data.get(field_name, {}) or {}
+    if not weights:
+        empty_label = QLabel("暂无配置")
+        empty_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+        form_layout.addWidget(empty_label)
+        return
+    for weight_key in sorted(weights.keys()):
+        weight_row = QHBoxLayout()
+        weight_row.setSpacing(6)
+        weight_row.addWidget(QLabel(weight_key))
+        spin = NoWheelDoubleSpinBox()
+        spin.setRange(0, 10)
+        spin.setSingleStep(0.05)
+        spin.setValue(float(weights[weight_key]))
+        spin.setDecimals(3)
+        spin.setKeyboardTracking(False)
+        spin.editingFinished.connect(
+            lambda rn=role_name, k=weight_key, s=spin, field=field_name: window._save_role_weight_value(
+                rn, k, s.value(), data, field
+            )
+        )
+        weight_row.addWidget(spin)
+        del_weight_btn = QPushButton("×")
+        del_weight_btn.setObjectName("btnSm")
+        del_weight_btn.setMinimumSize(28, 28)
+        del_weight_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        del_weight_btn.clicked.connect(
+            lambda checked=False, rn=role_name, k=weight_key, field=field_name: window._del_weight(
+                rn, k, data, lambda active=rn: rebuild_all_tabs(active), field
+            )
+        )
+        weight_row.addWidget(del_weight_btn)
+        form_layout.addLayout(weight_row)
+
+
+def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_tabs):
+    if tab_scroll.property("loaded"):
+        return
+    role_data = data[role_name]
+    tab_widget = QWidget()
+    tab_scroll.setWidget(tab_widget)
+    tab_scroll.setProperty("loaded", True)
+
+    form_layout = QVBoxLayout(tab_widget)
+    form_layout.setSpacing(12)
+    form_layout.setContentsMargins(12, 12, 12, 12)
+
+    _add_role_config_header(window, data, role_name, form_layout, rebuild_all_tabs)
+    _add_default_set_row(window, data, role_name, role_data, form_layout)
+    _add_extra_shape_row(window, data, role_name, role_data, form_layout)
+    _add_extra_shape_buff_row(window, data, role_name, role_data, form_layout)
+    _add_board_matrix_editor(window, data, role_name, role_data, form_layout)
+    _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
+    _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "卡带主词条权重", "main_weights", "+ 添加主词条")
+    form_layout.addStretch()
 
 
 def render_roles_form(window, data, active_role=None):
@@ -225,194 +441,6 @@ def render_roles_form(window, data, active_role=None):
             visible = match_pinyin(role_name, keyword) if keyword else True
             roles_tabs.setTabVisible(index, visible)
 
-    def populate_role_tab(role_name, tab_scroll):
-        if tab_scroll.property("loaded"):
-            return
-        role_data = data[role_name]
-        tab_widget = QWidget()
-        tab_scroll.setWidget(tab_widget)
-        tab_scroll.setProperty("loaded", True)
-
-        form_layout = QVBoxLayout(tab_widget)
-        form_layout.setSpacing(12)
-        form_layout.setContentsMargins(12, 12, 12, 12)
-
-        role_header = QHBoxLayout()
-        role_header.addWidget(QLabel(f"角色: {role_name}"))
-        role_header.addStretch()
-        del_btn = QPushButton("删除此角色")
-        del_btn.setObjectName("btnDanger")
-        del_btn.clicked.connect(lambda checked=False, rn=role_name: window._del_role(rn, data, rebuild_all_tabs))
-        role_header.addWidget(del_btn)
-        form_layout.addLayout(role_header)
-
-        set_combo = SearchableComboBox()
-        for set_name in window.all_set_names:
-            set_combo.addItem(set_name, set_name)
-        set_combo.refresh_search_items()
-        if role_data.get("default_set", "") in window.all_set_names:
-            set_combo.setCurrentText(role_data.get("default_set", ""))
-        set_combo.activated.connect(
-            lambda _idx, rn=role_name, c=set_combo: window._save_role_field(
-                rn, "default_set", c.currentData() or c.currentText(), data
-            )
-        )
-        if set_combo.lineEdit():
-            set_combo.lineEdit().editingFinished.connect(
-                lambda rn=role_name, c=set_combo: window._save_role_field(rn, "default_set", c.currentText(), data)
-            )
-        _field("默认套装", set_combo, form_layout)
-
-        extra_combo = NoWheelComboBox()
-        extra_combo.addItems(["Type-2", "Type-3", "Type-4"])
-        extra_combo.setCurrentText(role_data.get("extra_shape_label", ""))
-        extra_combo.currentTextChanged.connect(
-            lambda text, rn=role_name: window._save_role_field(rn, "extra_shape_label", text, data)
-        )
-        _field("额外形状标签", extra_combo, form_layout)
-
-        buff_row = QHBoxLayout()
-        buff_row.setSpacing(8)
-        buff_row.addWidget(QLabel("额外形状加成"))
-        buff_stat_combo = SearchableComboBox()
-        for stat in window._stat_choice_pool():
-            buff_stat_combo.addItem(stat, stat)
-        buff_stat_combo.refresh_search_items()
-        extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
-        current_buff = (
-            next(iter(extra_buffs.items()), ("", 0.0))
-            if isinstance(extra_buffs, dict) and extra_buffs
-            else ("", 0.0)
-        )
-        if current_buff[0]:
-            buff_stat_combo.setCurrentText(current_buff[0])
-        else:
-            buff_stat_combo.setCurrentIndex(-1)
-            buff_stat_combo.setEditText("")
-        buff_value = NoWheelDoubleSpinBox()
-        buff_value.setRange(-99999, 99999)
-        buff_value.setDecimals(2)
-        buff_value.setSingleStep(1.0)
-        buff_value.setValue(float(current_buff[1] or 0))
-        buff_value.setMaximumWidth(140)
-        buff_value.setKeyboardTracking(False)
-        buff_stat_combo.activated.connect(
-            lambda _idx, rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
-                rn, c.currentData() or c.currentText(), s.value(), data
-            )
-        )
-        if buff_stat_combo.lineEdit():
-            buff_stat_combo.lineEdit().editingFinished.connect(
-                lambda rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
-                    rn, c.currentText(), s.value(), data
-                )
-            )
-        buff_value.editingFinished.connect(
-            lambda rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
-                rn, c.currentText(), s.value(), data
-            )
-        )
-        buff_row.addWidget(buff_stat_combo, 1)
-        buff_row.addWidget(buff_value)
-        form_layout.addLayout(buff_row)
-
-        board_header = QHBoxLayout()
-        board_header.addWidget(QLabel("底盘矩阵 (0=空格, -1=锁定):"))
-        board_header.addStretch()
-        board_lock_btn = QPushButton()
-        board_lock_btn.setObjectName("btnBoardLock")
-        board_lock_btn.setStyleSheet("QPushButton#btnBoardLock{padding:4px;border-radius:6px}")
-        board_lock_btn.setCheckable(True)
-        board_lock_btn.setChecked(True)
-        board_lock_btn.setText("")
-        board_lock_btn.setIcon(_board_lock_icon(True))
-        board_lock_btn.setIconSize(QSize(18, 18))
-        board_lock_btn.setFixedSize(34, 30)
-        board_lock_btn.setToolTip("默认锁定，点击后才可修改底盘矩阵。")
-        board_header.addWidget(board_lock_btn)
-        form_layout.addLayout(board_header)
-        board_matrix = role_data.get("board_matrix", [[0] * 5 for _ in range(5)])
-        board_widget = QWidget()
-        board_grid = QGridLayout(board_widget)
-        board_grid.setSpacing(2)
-        board_combos = []
-        for row in range(5):
-            for col in range(5):
-                value = str(board_matrix[row][col]) if row < len(board_matrix) and col < len(board_matrix[row]) else "0"
-                combo = QComboBox()
-                combo.addItems(["-1", "0"])
-                combo.setCurrentText(value)
-                combo.setFixedWidth(76)
-                combo.setEnabled(False)
-                combo.currentTextChanged.connect(
-                    lambda text, rn=role_name, r=row, c=col: window._save_role_board_cell(rn, r, c, text, data)
-                )
-                board_combos.append(combo)
-                board_grid.addWidget(combo, row, col)
-
-        def set_board_locked(locked):
-            for item in board_combos:
-                item.setEnabled(not locked)
-            board_lock_btn.setIcon(_board_lock_icon(locked))
-            board_lock_btn.setToolTip(
-                "底盘矩阵已锁定，点击后才可修改。" if locked else "底盘矩阵可修改，点击重新锁定。"
-            )
-
-        board_lock_btn.toggled.connect(set_board_locked)
-        set_board_locked(True)
-        form_layout.addWidget(board_widget)
-
-        def add_weight_group(title, field_name, add_label):
-            weights_header = QHBoxLayout()
-            weights_header.addWidget(QLabel(f"{title}:"))
-            weights_header.addStretch()
-            add_weight_btn = QPushButton(add_label)
-            add_weight_btn.setObjectName("btnAction")
-            add_weight_btn.clicked.connect(
-                lambda checked=False, rn=role_name, field=field_name: window._add_weight(
-                    rn, data, lambda active=rn: rebuild_all_tabs(active), field
-                )
-            )
-            weights_header.addWidget(add_weight_btn)
-            form_layout.addLayout(weights_header)
-
-            weights = role_data.get(field_name, {}) or {}
-            if not weights:
-                empty_label = QLabel("暂无配置")
-                empty_label.setStyleSheet("color:#8b949e;font-size:12px")
-                form_layout.addWidget(empty_label)
-                return
-            for weight_key in sorted(weights.keys()):
-                weight_row = QHBoxLayout()
-                weight_row.setSpacing(6)
-                weight_row.addWidget(QLabel(weight_key))
-                spin = NoWheelDoubleSpinBox()
-                spin.setRange(0, 10)
-                spin.setSingleStep(0.05)
-                spin.setValue(float(weights[weight_key]))
-                spin.setDecimals(3)
-                spin.setKeyboardTracking(False)
-                spin.editingFinished.connect(
-                    lambda rn=role_name, k=weight_key, s=spin, field=field_name: window._save_role_weight_value(
-                        rn, k, s.value(), data, field
-                    )
-                )
-                weight_row.addWidget(spin)
-                del_weight_btn = QPushButton("×")
-                del_weight_btn.setObjectName("btnSm")
-                del_weight_btn.setFixedSize(28, 28)
-                del_weight_btn.clicked.connect(
-                    lambda checked=False, rn=role_name, k=weight_key, field=field_name: window._del_weight(
-                        rn, k, data, lambda active=rn: rebuild_all_tabs(active), field
-                    )
-                )
-                weight_row.addWidget(del_weight_btn)
-                form_layout.addLayout(weight_row)
-
-        add_weight_group("副词条权重", "weights", "+ 添加副词条")
-        add_weight_group("卡带主词条权重", "main_weights", "+ 添加主词条")
-        form_layout.addStretch()
-
     def load_current_tab():
         index = roles_tabs.currentIndex()
         if index < 0:
@@ -420,7 +448,7 @@ def render_roles_form(window, data, active_role=None):
         tab_scroll = roles_tabs.widget(index)
         role_name = tab_scroll.property("role_name") if tab_scroll else ""
         if role_name in data:
-            populate_role_tab(role_name, tab_scroll)
+            _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_tabs)
 
     def rebuild_all_tabs(active_role=None):
         nonlocal all_names
