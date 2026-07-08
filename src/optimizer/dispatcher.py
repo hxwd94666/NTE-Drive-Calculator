@@ -1,7 +1,8 @@
 # 分配算法的调度入口。
 """Dispatch facade that selects the requested allocation strategy."""
 
-from src.optimizer.strategies import RolePriorityStrategy, DrivePriorityStrategy, GlobalOptimalStrategy
+from src.optimizer.role_priority_strategy import RolePriorityStrategy
+from src.optimizer.drive_priority_strategy import DrivePriorityStrategy, GlobalOptimalStrategy
 from src.optimizer.contracts import (
     AllocationResult,
     CandidatePool,
