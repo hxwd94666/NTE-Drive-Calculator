@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.storage.config_migration import migrate_core_config_dir
+from src.utils.logger import logger
 
 
 TRANSFER_FORMAT_VERSION = 1
@@ -75,8 +76,8 @@ class AccountManager:
                     data = json.load(f)
                 if isinstance(data, dict) and data.get("accounts"):
                     return data
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(f"账号索引读取失败，使用默认账号配置: {exc}")
         return {"active_account_id": "default", "accounts": [{"id": "default", "name": "默认账号"}]}
 
     def write_index(self, data: dict) -> None:
@@ -130,8 +131,8 @@ class AccountManager:
             for file in self.iter_image_files(legacy_screenshots):
                 try:
                     shutil.copy2(str(file), str(account_screenshots / file.name))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(f"迁移旧截图失败，已跳过该文件: {file} | {exc}")
 
     def activate(self, account_id: str) -> AccountState:
         data = self.read_index()
