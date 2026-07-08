@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.app import runtime
+from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.solver.orchestrator import NTEPipelineOrchestrator
 from src.ui.puzzle_board import PuzzleBoardWidget, get_shape_pixmap as _get_shape_pixmap
@@ -69,7 +70,7 @@ def _draw_blueprints(self,filter_text=""):
         rd=self.roles_db.get(role_name,{})
         default_set=rd.get("default_set","")
         grp=QGroupBox(f"{role_name}  —  {default_set}  ({len(blueprints)} 套图纸)")
-        grp.setStyleSheet("QGroupBox{font-size:13px;font-weight:600;color:#58a6ff;border:1px solid #21262d;border-radius:8px;padding-top:16px}")
+        grp.setStyleSheet(themed_style("QGroupBox{font-size:13px;font-weight:600;color:#58a6ff;border:1px solid #21262d;border-radius:8px;padding-top:16px}"))
         gl=QVBoxLayout(grp); gl.setSpacing(8)
         visible_blueprints=blueprints if has_search else blueprints[:3]
         for i,bp in enumerate(visible_blueprints):
@@ -88,7 +89,7 @@ def _draw_blueprints(self,filter_text=""):
             row.addWidget(extras_w,1); gl.addLayout(row)
         if not has_search and len(blueprints)>3:
             hint=QLabel(f"默认仅显示 3 张；搜索「{role_name}」可显示全部 {len(blueprints)} 张图纸。")
-            hint.setStyleSheet("color:#8b949e;font-size:11px;border:none;background:transparent")
+            hint.setStyleSheet(themed_style("color:#8b949e;font-size:11px;border:none;background:transparent"))
             gl.addWidget(hint)
         self._bp_content_layout.addWidget(grp)
 
