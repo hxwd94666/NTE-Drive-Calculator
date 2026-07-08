@@ -1,7 +1,7 @@
 # PySide6 主窗口入口和功能模块挂载。
 """NTE Drive Calc - PySide6 Desktop Application"""
 
-import sys, os, threading, ctypes
+import sys, os, threading, ctypes, subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +17,7 @@ from src.app import runtime
 from src.app.constants import (
     ACCOUNT_USER_FILES,
     APP_VERSION,
+    BILIBILI_HOME_URL,
     CORE_CONFIG_FILES,
     GITHUB_HOME_URL,
     GITHUB_LATEST_RELEASE_API,
@@ -24,7 +25,14 @@ from src.app.constants import (
     NETDISK_DOWNLOAD_LINKS,
     QUARK_NETDISK_URL,
 )
-from src.app.theme import STYLE, apply_dark_palette, install_dialog_defaults
+from src.app.theme import (
+    apply_app_theme,
+    current_style_sheet,
+    install_dialog_defaults,
+    refresh_inline_theme_styles,
+    theme_color,
+    theme_preference,
+)
 
 BUNDLED_CONFIG_DIR = ROOT / "config"
 ASSET_DIR = ROOT / "assets"
@@ -119,9 +127,11 @@ from PySide6.QtCore import Qt, Signal, QPoint, QTimer
 from PySide6.QtGui import QColor, QTextCursor, QIcon
 
 from src.features.scanning.file_lifecycle import (
+    build_screenshot_cleanup_plan,
+    execute_screenshot_cleanup,
     iter_image_files as _iter_image_files,
+    managed_screenshot_usage,
 )
-from src.features.identification.temp_files import iter_identify_clipboard_files
 from src.optimizer.state_manager import StateManager
 from src.optimizer.scoring import ScoringEngine
 from src.domain.stat_catalog import StatCatalog
@@ -131,7 +141,7 @@ from src.utils.name_resolver import resolve_name
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.hotkeys import load_hotkey_config, save_hotkey_config
-from src.features.role.page import (_page_my_role, _refresh_my_role, confirm_pending_my_role_changes)
+from src.features.role.page import confirm_pending_my_role_changes
 from src.features.configuration.page import (
     add_role as config_add_role,
     add_set as config_add_set,
@@ -166,6 +176,7 @@ from src.features.settings.updates import (
     show_update_dialog,
 )
 from src.app.workers import WorkerThread
+from src.ui.main_window_mixins import FeatureMainWindowMixin
 
 ACCOUNT_MANAGER = AccountManager(
     DATA_ROOT,
@@ -212,7 +223,7 @@ class QtLogSink:
     def flush(self): pass
 
 # ── Main Window
-class MainWindow(QMainWindow):
+class MainWindow(FeatureMainWindowMixin, QMainWindow):
     log_signal=Signal(str); identify_capture_signal=Signal(str); identify_capture_done_signal=Signal(); W,H=1260,860
 
     def __init__(self):
@@ -245,13 +256,15 @@ class MainWindow(QMainWindow):
         self._load_hotkey_config()
         self._update_config=self._load_update_config()
         self._ui_preferences=self._load_ui_preferences()
+        self._apply_theme_preference()
         self._update_check_manual=True
 
         self.log_signal.connect(self._on_log); self.identify_capture_signal.connect(self._add_identify_capture_path); self.identify_capture_done_signal.connect(self._finish_identify_capture_mode); self._log_sink=QtLogSink(self.log_signal)
         try:
             from loguru import logger as lu
             lu.add(self._log_sink,format="{time:HH:mm:ss} | {level: <8} | {message}",level="INFO",colorize=False)
-        except: pass
+        except Exception as exc:
+            logger.debug(f"注册界面日志输出失败，仅写入文件日志: {exc}")
         self._build_ui(); self._load_data(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
 
     def _load_hotkey_config(self):
@@ -273,6 +286,7 @@ class MainWindow(QMainWindow):
             "full_scan_dual_thread_processing":True,
             "full_scan_discrete_gpu_acceleration":False,
             "full_scan_amd_compatibility":False,
+            "theme":"dark",
         }
         try:
             data=read_json(path, default={}) or {}
@@ -287,8 +301,9 @@ class MainWindow(QMainWindow):
                 default["full_scan_amd_compatibility"]=bool(
                     data.get("full_scan_amd_compatibility",False)
                 )
-        except Exception:
-            pass
+                default["theme"]=theme_preference(str(data.get("theme") or "dark"))
+        except Exception as exc:
+            logger.debug(f"读取界面偏好失败，使用默认值: {exc}")
         if default.get("full_scan_amd_compatibility"):
             default["full_scan_dual_thread_processing"]=False
             default["full_scan_discrete_gpu_acceleration"]=False
@@ -296,6 +311,69 @@ class MainWindow(QMainWindow):
 
     def _save_ui_preferences(self):
         write_json(USER_CONFIG_DIR/"ui_preferences.json", self._ui_preferences)
+
+    def _current_style_sheet(self):
+        return current_style_sheet(QApplication.instance())
+
+    def _apply_theme_preference(self):
+        theme=(self._ui_preferences or {}).get("theme","dark")
+        apply_app_theme(QApplication.instance(), theme)
+        refresh_inline_theme_styles(self, QApplication.instance())
+        if hasattr(self,"topbar_source_label"):
+            self.topbar_source_label.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px;margin-left:12px")
+        if hasattr(self,"status_lbl"):
+            self.status_lbl.setStyleSheet(f"color:{theme_color('#6e7681')};font-size:12px")
+
+    def _set_theme_preference(self, theme):
+        normalized=theme_preference(theme)
+        if (self._ui_preferences or {}).get("theme","dark")==normalized:
+            return True
+        if not self._prompt_restart_for_theme_change():
+            return False
+        previous=(self._ui_preferences or {}).get("theme","dark")
+        self._ui_preferences["theme"]=normalized
+        self._save_ui_preferences()
+        if not self._restart_application_as_admin():
+            self._ui_preferences["theme"]=previous
+            self._save_ui_preferences()
+            return False
+        return True
+
+    def _prompt_restart_for_theme_change(self):
+        box=QMessageBox(self)
+        box.setWindowTitle("重启生效")
+        box.setText("切换主题需要重启应用，是否现在重启并应用？")
+        ok_button=box.addButton("好的", QMessageBox.AcceptRole)
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.setDefaultButton(ok_button)
+        box.exec()
+        return box.clickedButton() is ok_button
+
+    def _restart_application_as_admin(self):
+        QApplication.processEvents()
+        program=sys.executable
+        args=sys.argv[:]
+        parameters=""
+        if not getattr(sys, "frozen", False):
+            parameters=subprocess.list2cmdline(args)
+        elif len(args)>1:
+            parameters=subprocess.list2cmdline(args[1:])
+        if sys.platform=="win32":
+            result=ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",
+                program,
+                parameters,
+                str(APP_DIR),
+                1,
+            )
+            if result <= 32:
+                QMessageBox.warning(self, "重启失败", "未能以管理员方式重启应用，主题设置已取消。")
+                return False
+            QApplication.quit()
+            return True
+        QMessageBox.warning(self, "重启失败", "当前系统不支持自动管理员重启，主题设置已取消。")
+        return False
 
     # ── Frameless
     def _on_edge(self,pos): w,h=self.width(),self.height(); m=self._resize_margin; return (pos.x()<m,pos.y()<m,pos.x()>w-m,pos.y()>h-m)
@@ -370,7 +448,7 @@ class MainWindow(QMainWindow):
         tbar=QWidget(); tbar.setObjectName("topbar"); tbh=QHBoxLayout(tbar); tbh.setContentsMargins(20,10,20,10)
         self.topbar_title=QLabel(NAV_ITEMS[0].label); tbh.addWidget(self.topbar_title)
         self.topbar_source_label=QLabel("评分标准来源于微信小程序“异环工坊”")
-        self.topbar_source_label.setStyleSheet("color:#8b949e;font-size:12px;margin-left:12px")
+        self.topbar_source_label.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px;margin-left:12px")
         self.topbar_source_label.setWordWrap(False)
         self.topbar_source_label.setVisible(False)
         tbh.addWidget(self.topbar_source_label)
@@ -380,7 +458,7 @@ class MainWindow(QMainWindow):
         tbh.addWidget(self.account_combo)
         account_btn=QPushButton("管理账号"); account_btn.setObjectName("btnAction"); account_btn.clicked.connect(self._manage_accounts); tbh.addWidget(account_btn)
         guide_btn=QPushButton("新手向导"); guide_btn.setObjectName("btnAction"); guide_btn.clicked.connect(self._show_quick_start); tbh.addWidget(guide_btn)
-        self.status_lbl=QLabel("就绪"); self.status_lbl.setStyleSheet("color:#6e7681;font-size:12px"); tbh.addWidget(self.status_lbl)
+        self.status_lbl=QLabel("就绪"); self.status_lbl.setStyleSheet(f"color:{theme_color('#6e7681')};font-size:12px"); tbh.addWidget(self.status_lbl)
         guide_btn.setText("使用教程")
         rr.addWidget(tbar)
         self.stack=QStackedWidget()
@@ -462,7 +540,7 @@ class MainWindow(QMainWindow):
     def _manage_accounts(self):
         show_account_manager_dialog(
             self,
-            STYLE,
+            self._current_style_sheet(),
             ACCOUNT_MANAGER,
             ACTIVE_ACCOUNT_ID,
             self._switch_account,
@@ -473,7 +551,7 @@ class MainWindow(QMainWindow):
 
     def _on_log(self,msg):
         if not self._log_enabled: return
-        c="#8b949e"
+        c=theme_color("#8b949e")
         if any(k in msg for k in ("ERROR","error","失败","崩溃")): c="#f85149"
         elif any(k in msg for k in ("WARNING","warning","警告")): c="#d2991d"
         elif any(k in msg for k in ("SUCCESS","完成","完毕")): c="#3fb950"
@@ -549,9 +627,9 @@ class MainWindow(QMainWindow):
             self.status_lbl.setText("库存文件异常")
             self.status_lbl.setStyleSheet("color:#f85149;font-size:12px")
     def _card(self,title):
-        c=QFrame(); c.setStyleSheet("QFrame{background:#161b22;border:1px solid #21262d;border-radius:10px}")
+        c=QFrame(); c.setObjectName("card")
         l=QVBoxLayout(c); l.setContentsMargins(20,16,20,16); l.setSpacing(8)
-        lb=QLabel(title); lb.setStyleSheet("font-size:14px;font-weight:600;color:#58a6ff"); l.addWidget(lb); return c
+        lb=QLabel(title); lb.setObjectName("cardTitle"); l.addWidget(lb); return c
 
     # ── Page: Execute
 
@@ -723,7 +801,7 @@ class MainWindow(QMainWindow):
         return should_show_startup_update(self._update_config,info)
 
     def _show_update_dialog(self, info, manual=False):
-        result=show_update_dialog(self,STYLE,info,APP_VERSION)
+        result=show_update_dialog(self,self._current_style_sheet(),info,APP_VERSION)
         if result.get("never_remind"):
             self._update_config["never_remind"]=True
         if result.get("ignored_version"):
@@ -745,6 +823,9 @@ class MainWindow(QMainWindow):
 
     def _open_update_homepage(self):
         self._open_url(GITHUB_HOME_URL)
+
+    def _open_bilibili_homepage(self):
+        self._open_url(BILIBILI_HOME_URL)
 
     def _show_netdisk_download_dialog(self, links):
         links=tuple((str(name),str(url)) for name,url in links if name and url)
@@ -786,60 +867,18 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self,"保存","快捷键已保存！\n全局截图: "+self._hk_capture+"\n截图完成: "+self._hk_finish+"\n停止: "+self._hk_stop)
 
     def _refresh_ss(self):
-        files=_iter_image_files(SCREENSHOT_DIR)+iter_identify_clipboard_files(ACCOUNT_DATA_ROOT)
-        c=len(files)
-        s=sum(f.stat().st_size for f in files)/(1024*1024) if files else 0
-        self._ss_info.setText(f"当前截图: {c} 个 · {s:.1f} MB")
+        usage=managed_screenshot_usage(SCREENSHOT_DIR, ACCOUNT_DATA_ROOT)
+        self._ss_info.setText(f"当前截图: {usage.count} 个 · {usage.size_mb:.1f} MB")
     def _clear_ss(self):
-        files=_iter_image_files(SCREENSHOT_DIR)
-        temp_files=iter_identify_clipboard_files(ACCOUNT_DATA_ROOT)
-        count=len(files)+len(temp_files)
-        if count==0: QMessageBox.information(self,"清理","没有需要清理的文件。"); return
-        baseline=SCREENSHOT_DIR/"raw_drive_0001.png"
-        has_baseline=baseline.exists()
-        delete_files=[f for f in files if f.resolve()!=baseline.resolve()]
-        baseline_warning=bool(files) and not has_baseline
-        prompt=(
-            "由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n"
-            f"将删除 {len(delete_files)} 个其它扫描截图、{len(temp_files)} 个临时鉴定粘贴截图，不可恢复。"
-        )
-        if baseline_warning:
-            prompt+="\n\n注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"
-        if QMessageBox.question(self,"确认清理",prompt,QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes:
-            for f in delete_files+temp_files:
-                try: f.unlink()
-                except: pass
-            self._refresh_ss(); logger.success(f"已清理 {len(delete_files)+len(temp_files)} 个截图")
-            if baseline_warning:
+        plan=build_screenshot_cleanup_plan(SCREENSHOT_DIR, ACCOUNT_DATA_ROOT)
+        if plan.total_count==0: QMessageBox.information(self,"清理","没有需要清理的文件。"); return
+        if QMessageBox.question(self,"确认清理",plan.confirmation_text(),QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes:
+            result=execute_screenshot_cleanup(plan)
+            self._refresh_ss(); logger.success(f"已清理 {result.deleted} 个截图")
+            if result.failed_files:
+                QMessageBox.warning(self, "清理完成", f"有 {len(result.failed_files)} 个文件删除失败，可能正在被占用。")
+            if plan.baseline_missing:
                 QMessageBox.warning(self,"清理完成","注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。")
-
-def _install_feature_methods():
-    import sys as _sys
-    from src.features.onboarding import guide as onboarding_guide
-    from src.features.inventory import page as inventory_page
-    from src.features.blueprints import page as blueprints_page
-    from src.features.allocation import runner as allocation_runner
-    from src.features.role import page as role_page
-    from src.features.allocation import results_view as allocation_results_view
-    from src.features.identification import controller as identification_controller
-    from src.features.identification import dialogs as identification_dialogs
-    from src.features.scanning import controller as scanning_controller
-
-    app_module = _sys.modules[__name__]
-    for module in (
-        onboarding_guide,
-        inventory_page,
-        blueprints_page,
-        allocation_runner,
-        allocation_results_view,
-        identification_controller,
-        identification_dialogs,
-        scanning_controller,
-        role_page
-    ):
-        module.install_methods(app_module, MainWindow)
-
-_install_feature_methods()
 
 # ── Facade
 
@@ -852,8 +891,8 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
     try:
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.critical(None, "程序异常", f"发生未捕获的异常:\n\n{error_msg[:1000]}")
-    except:
-        pass
+    except Exception as exc:
+        logger.error(f"显示全局异常弹窗失败: {exc}")
 
 def run_gui():
     import faulthandler
@@ -866,8 +905,7 @@ def run_gui():
     threading.excepthook = lambda args: logger.error(f"线程异常 [{args.thread}]: {args.exc_type.__name__}: {args.exc_value}")
     if hasattr(Qt, "AA_DontUseNativeDialogs"):
         QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
-    app=QApplication(sys.argv); app.setStyle("Fusion"); app.setStyleSheet(STYLE)
-    apply_dark_palette(app)
+    app=QApplication(sys.argv); app.setStyle("Fusion"); apply_app_theme(app,"dark")
     install_dialog_defaults(app)
     if APP_ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
