@@ -32,14 +32,26 @@ class GamepadVisionRule:
     pixel_threshold: int = 185
 
 
+ZERO_LEVEL_DETAIL_PAGE_RULES: tuple[GamepadVisionRule, ...] = (
+    GamepadVisionRule("强化按钮白色占比", (0.69, 0.88, 0.98, 0.985), "white", "gt", 0.16, 185),
+    GamepadVisionRule("快捷添加槽灰色占比", (0.68, 0.70, 0.99, 0.88), "gray", "gt", 0.22),
+    GamepadVisionRule("快捷添加槽非高亮", (0.68, 0.70, 0.99, 0.88), "white", "lt", 0.25, 185),
+    GamepadVisionRule("详情右栏非背包白底", (0.68, 0.40, 0.97, 0.90), "white", "lt", 0.20, 185),
+)
+
+COMMON_DETAIL_PAGE_RULES: tuple[GamepadVisionRule, ...] = (
+    GamepadVisionRule("详情属性区灰色占比", (0.68, 0.20, 0.98, 0.55), "gray", "gt", 0.25),
+    GamepadVisionRule("详情右栏非背包白底", (0.68, 0.40, 0.97, 0.90), "white", "lt", 0.20, 185),
+)
+
+
 @dataclass(frozen=True)
 class GamepadVisionProfile:
     region: str = "cn"
-    detail_page_rules: tuple[GamepadVisionRule, ...] = (
-        GamepadVisionRule("强化按钮白色占比", (0.69, 0.88, 0.98, 0.985), "white", "gt", 0.16, 185),
-        GamepadVisionRule("快捷添加槽灰色占比", (0.68, 0.70, 0.99, 0.88), "gray", "gt", 0.22),
-        GamepadVisionRule("快捷添加槽非高亮", (0.68, 0.70, 0.99, 0.88), "white", "lt", 0.25, 185),
-        GamepadVisionRule("详情右栏非背包白底", (0.68, 0.40, 0.97, 0.90), "white", "lt", 0.20, 185),
+    detail_page_rules: tuple[GamepadVisionRule, ...] = ZERO_LEVEL_DETAIL_PAGE_RULES
+    detail_page_rule_groups: tuple[tuple[GamepadVisionRule, ...], ...] = (
+        ZERO_LEVEL_DETAIL_PAGE_RULES,
+        COMMON_DETAIL_PAGE_RULES,
     )
     inventory_first_item_rules: tuple[GamepadVisionRule, ...] = (
         GamepadVisionRule("第一格粉色选框", (0.04, 0.135, 0.155, 0.34), "pink", "gt", 0.008),
@@ -425,7 +437,14 @@ class GamepadScanner:
         return True, "; ".join(values)
 
     def _looks_like_detail_page(self, image: np.ndarray) -> tuple[bool, str]:
-        return self._evaluate_vision_rules(image, self._profile().vision.detail_page_rules)
+        reasons = []
+        for index, rules in enumerate(self._profile().vision.detail_page_rule_groups, start=1):
+            matched, reason = self._evaluate_vision_rules(image, rules)
+            group_reason = f"详情规则组{index}: {reason}"
+            if matched:
+                return True, group_reason
+            reasons.append(group_reason)
+        return False, " | ".join(reasons)
 
     def _looks_like_inventory_first_item(self, image: np.ndarray) -> tuple[bool, str]:
         return self._evaluate_vision_rules(image, self._profile().vision.inventory_first_item_rules)
