@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.utils.logger import logger
+
 
 IDENTIFY_CLIPBOARD_PREFIX = "identify_clipboard_"
 IDENTIFY_CLIPBOARD_SUFFIX = ".png"
@@ -44,6 +46,6 @@ def cleanup_identify_clipboard_files(paths: list[Path], account_root: Path) -> i
         try:
             Path(path).unlink(missing_ok=True)
             removed += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"清理鉴定临时图片失败，文件可能正被占用，已忽略: {path} | {exc}")
     return removed
