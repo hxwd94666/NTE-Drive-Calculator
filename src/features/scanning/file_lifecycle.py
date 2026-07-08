@@ -38,6 +38,48 @@ class IncrementalParsePreparation:
     baseline_missing: bool = False
 
 
+@dataclass
+class ScreenshotUsage:
+    """Current managed screenshot/temp-file usage for one account."""
+
+    files: list[Path] = field(default_factory=list)
+    count: int = 0
+    size_mb: float = 0.0
+
+
+@dataclass
+class ScreenshotCleanupPlan:
+    """Files that are safe to remove from one account according to lifecycle rules."""
+
+    delete_files: list[Path] = field(default_factory=list)
+    preserved_files: list[Path] = field(default_factory=list)
+    scan_delete_count: int = 0
+    temp_delete_count: int = 0
+    baseline_missing: bool = False
+
+    @property
+    def total_count(self) -> int:
+        return len(self.delete_files)
+
+    def confirmation_text(self) -> str:
+        prompt = (
+            "由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n"
+            f"将删除 {self.scan_delete_count} 个其它扫描截图、"
+            f"{self.temp_delete_count} 个临时鉴定粘贴截图，不可恢复。"
+        )
+        if self.baseline_missing:
+            prompt += "\n\n注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"
+        return prompt
+
+
+@dataclass
+class ScreenshotCleanupResult:
+    """Result after executing a screenshot cleanup plan."""
+
+    deleted: int = 0
+    failed_files: list[Path] = field(default_factory=list)
+
+
 def iter_image_files(path: Path) -> list[Path]:
     """Return all image files below a directory, including subdirectories."""
 
@@ -99,6 +141,62 @@ def equipment_compare_signature(item) -> tuple:
     if item_type == "tape":
         return ("tape", quality, getattr(item, "set_name", ""), str(getattr(item, "main_stats", "")), sub_stats)
     return (item_type, quality, sub_stats)
+
+
+def _iter_account_temp_images(account_root: Path) -> list[Path]:
+    """Return app-generated temporary images in the account root."""
+
+    from src.features.identification.temp_files import iter_identify_clipboard_files
+
+    return iter_identify_clipboard_files(Path(account_root))
+
+
+def managed_screenshot_usage(screenshot_dir: Path, account_root: Path) -> ScreenshotUsage:
+    """Return files and disk usage managed by the screenshot lifecycle policy."""
+
+    files = iter_image_files(Path(screenshot_dir)) + _iter_account_temp_images(Path(account_root))
+    size_mb = sum(f.stat().st_size for f in files if f.exists()) / (1024 * 1024) if files else 0.0
+    return ScreenshotUsage(files=files, count=len(files), size_mb=size_mb)
+
+
+def build_screenshot_cleanup_plan(screenshot_dir: Path, account_root: Path) -> ScreenshotCleanupPlan:
+    """Build a cleanup plan while preserving files required by incremental scanning."""
+
+    screenshot_dir = Path(screenshot_dir)
+    scan_files = iter_image_files(screenshot_dir)
+    temp_files = _iter_account_temp_images(Path(account_root))
+    baseline = screenshot_dir / "raw_drive_0001.png"
+    baseline_resolved = baseline.resolve()
+    delete_scan_files = []
+    preserved_files = []
+    for path in scan_files:
+        if path.resolve() == baseline_resolved:
+            preserved_files.append(path)
+        else:
+            delete_scan_files.append(path)
+    return ScreenshotCleanupPlan(
+        delete_files=delete_scan_files + temp_files,
+        preserved_files=preserved_files,
+        scan_delete_count=len(delete_scan_files),
+        temp_delete_count=len(temp_files),
+        baseline_missing=bool(scan_files) and not baseline.exists(),
+    )
+
+
+def execute_screenshot_cleanup(plan: ScreenshotCleanupPlan) -> ScreenshotCleanupResult:
+    """Delete files from a cleanup plan and log any failures."""
+
+    result = ScreenshotCleanupResult()
+    for path in plan.delete_files:
+        try:
+            path.unlink()
+            result.deleted += 1
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            result.failed_files.append(path)
+            logger.warning(f"删除截图文件失败: {path} ({exc})")
+    return result
 
 
 class ScanFileLifecycle:
