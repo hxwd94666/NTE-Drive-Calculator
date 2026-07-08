@@ -10,7 +10,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QButtonGroup, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.app import runtime
-from src.app.theme import STYLE
+from src.app.theme import current_style_sheet, themed_style
 from src.models.equipment import Tape
 from src.ui.widgets import SearchableComboBox
 
@@ -42,7 +42,7 @@ def _choose_identify_image_options(self,path:Path):
     dlg=QDialog(self)
     dlg.setWindowTitle("选择鉴定类型")
     dlg.setMinimumSize(900,720)
-    dlg.setStyleSheet(STYLE)
+    dlg.setStyleSheet(current_style_sheet())
     layout=QVBoxLayout(dlg); layout.setSpacing(10)
 
     image_label=QLabel()
@@ -73,9 +73,9 @@ def _choose_identify_image_options(self,path:Path):
         selected_shape["value"]=shape_id
         for btn,sid in shape_buttons:
             if sid==shape_id:
-                btn.setStyleSheet("QPushButton{border:2px solid #2f81f7;background:#10243f;color:#f0f6fc;border-radius:6px;padding:4px}")
+                btn.setStyleSheet(themed_style("QPushButton{border:2px solid #2f81f7;background:#10243f;color:#f0f6fc;border-radius:6px;padding:4px}"))
             else:
-                btn.setStyleSheet("QPushButton{border:1px solid #30363d;background:#161b22;color:#c9d1d9;border-radius:6px;padding:4px}")
+                btn.setStyleSheet(themed_style("QPushButton{border:1px solid #30363d;background:#161b22;color:#c9d1d9;border-radius:6px;padding:4px}"))
 
     grouped_shapes=group_shape_ids_by_area(self._shape_areas)
     for area in (2,3,4):
@@ -157,10 +157,10 @@ def _confirm_identify_tape_main_stats(self,items):
     dlg=QDialog(self)
     dlg.setWindowTitle("确认卡带主词条")
     dlg.setMinimumSize(720,420)
-    dlg.setStyleSheet(STYLE)
+    dlg.setStyleSheet(current_style_sheet())
     layout=QVBoxLayout(dlg); layout.setSpacing(10)
     hint=QLabel("请为每个识别到的卡带分别确认主词条；可直接输入中文或拼音搜索。")
-    hint.setStyleSheet("color:#8b949e;border:none")
+    hint.setStyleSheet(themed_style("color:#8b949e;border:none"))
     hint.setWordWrap(True)
     layout.addWidget(hint)
 
@@ -170,7 +170,7 @@ def _confirm_identify_tape_main_stats(self,items):
     fallback_main=self.ident_main_combo.currentData() or self.ident_main_combo.currentText()
     for idx,item in enumerate(tapes,1):
         frame=QFrame()
-        frame.setStyleSheet("QFrame{background:#161b22;border:1px solid #21262d;border-radius:6px}")
+        frame.setStyleSheet(themed_style("QFrame{background:#161b22;border:1px solid #21262d;border-radius:6px}"))
         row=QHBoxLayout(frame); row.setContentsMargins(10,8,10,8); row.setSpacing(10)
         summary=", ".join(f"{k}{v:g}" for k,v in list(item.sub_stats.items())[:4])
         label=QLabel(f"卡带 {idx}  {item.set_name or ''}  {summary}")
