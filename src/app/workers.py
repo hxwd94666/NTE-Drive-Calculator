@@ -117,8 +117,6 @@ class GamepadScanParseWorkerThread(QThread):
         self,
         total_drives,
         parent=None,
-        auto_discard_grade=None,
-        auto_discard_lock_action="skip",
         post_actions_config=None,
         selected_roles=None,
         parse_during_scan=True,
@@ -127,8 +125,6 @@ class GamepadScanParseWorkerThread(QThread):
     ):
         super().__init__(parent)
         self.total_drives = total_drives
-        self.auto_discard_grade = auto_discard_grade
-        self.auto_discard_lock_action = auto_discard_lock_action
         self.post_actions_config = post_actions_config
         self.selected_roles = list(selected_roles or [])
         self.amd_compatibility = bool(amd_compatibility)
@@ -187,8 +183,6 @@ class GamepadScanParseWorkerThread(QThread):
                 scan_done_callback=lambda captured, total: self.scan_done.emit(captured, total),
                 parse_done_callback=lambda: self.parse_done.emit(),
                 post_action_ready_callback=self._notify_post_actions_ready,
-                auto_discard_grade=self.auto_discard_grade,
-                auto_discard_lock_action=self.auto_discard_lock_action,
                 post_actions_config=self.post_actions_config,
                 selected_roles=self.selected_roles,
                 config_dir=str(runtime.CONFIG_DIR),
