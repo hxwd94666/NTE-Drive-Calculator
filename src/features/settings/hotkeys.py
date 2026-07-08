@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from src.utils.logger import logger
+
 
 DEFAULT_HOTKEYS = {
     "capture": "F9",
@@ -25,8 +27,8 @@ def load_hotkey_config(config_dir: Path) -> dict[str, str]:
                 hotkeys["capture"] = str(data.get("capture", hotkeys["capture"]))
                 hotkeys["finish"] = str(data.get("finish", hotkeys["finish"]))
                 hotkeys["stop"] = str(data.get("stop", hotkeys["stop"]))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(f"读取热键配置失败，使用默认热键: {path} | {exc}")
     return hotkeys
 
 
