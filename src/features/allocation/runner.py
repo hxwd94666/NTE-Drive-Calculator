@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushBu
 
 from src.app import runtime
 from src.app.facade import NTEAppFacade
-from src.app.theme import STYLE
+from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.optimizer.plan_diff import build_plan_diff
 from src.utils.logger import logger
@@ -51,7 +51,7 @@ def _confirm_unsaved_allocation_before_recompute(self):
         return True
     dlg=QDialog(self)
     dlg.setWindowTitle("当前配装尚未保存")
-    dlg.setStyleSheet(STYLE)
+    dlg.setStyleSheet(current_style_sheet())
     layout=QVBoxLayout(dlg); layout.setContentsMargins(18,18,18,18); layout.setSpacing(14)
     msg=QLabel("重新执行计算会覆盖当前计算结果，是否先保存当前配装？")
     msg.setWordWrap(True)
