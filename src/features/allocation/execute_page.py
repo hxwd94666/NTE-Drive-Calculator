@@ -23,18 +23,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.app.theme import themed_style
 
-def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline_help, show_help):
-    page = QWidget()
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setWidget(page)
-    layout = QVBoxLayout(page)
-    layout.setContentsMargins(20, 16, 20, 16)
-    layout.setSpacing(12)
-
+def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, show_help):
     scan_card = window._card("第一步 · 扫描模式")
     window.scan_group = QButtonGroup()
+    _add_scan_mode_options(window, scan_card, scan_help, show_help)
+    _build_offline_frame(window, scan_card, offline_help, show_help)
+    _build_total_count_frame(window, scan_card)
+    _build_scan_processing_options(window, scan_card, show_help)
+    _build_drone_frame(window, scan_card, drone_help, show_help)
+    window.scan_group.idToggled.connect(window._on_scan_change)
+    layout.addWidget(scan_card)
+
+
+def _add_scan_mode_options(window, scan_card, scan_help, show_help):
     scan_options = [
         ("4", "直接读取库存 — 不扫描，直接重新配装"),
         ("3", "离线解析 — 解析已有截图并生成库存"),
@@ -55,6 +58,8 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
         row.addStretch()
         scan_card.layout().addLayout(row)
 
+
+def _build_offline_frame(window, scan_card, offline_help, show_help):
     window.offline_frame = QWidget()
     window.offline_frame.setVisible(False)
     offline_layout = QHBoxLayout(window.offline_frame)
@@ -78,6 +83,8 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     offline_layout.addStretch()
     scan_card.layout().addWidget(window.offline_frame)
 
+
+def _build_total_count_frame(window, scan_card):
     window.total_count_frame = QWidget()
     window.total_count_frame.setVisible(False)
     total_count_layout = QHBoxLayout(window.total_count_frame)
@@ -98,6 +105,8 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     total_count_layout.addStretch()
     scan_card.layout().addWidget(window.total_count_frame)
 
+
+def _build_scan_processing_options(window, scan_card, show_help):
     window.scan_dual_thread_frame = QWidget()
     window.scan_dual_thread_frame.setVisible(False)
     dual_thread_layout = QHBoxLayout(window.scan_dual_thread_frame)
@@ -205,6 +214,8 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     dual_thread_layout.addStretch()
     scan_card.layout().addWidget(window.scan_dual_thread_frame)
 
+
+def _build_drone_frame(window, scan_card, drone_help, show_help):
     window.drone_frame = QWidget()
     window.drone_frame.setVisible(False)
     drone_layout = QHBoxLayout(window.drone_frame)
@@ -225,15 +236,17 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
         drone_layout.addLayout(sub_row)
     drone_layout.addStretch()
     scan_card.layout().addWidget(window.drone_frame)
-    window.scan_group.idToggled.connect(window._on_scan_change)
-    layout.addWidget(scan_card)
 
+
+def _build_priority_card(window, layout, role_selector_cls):
     priority_card = window._card("第二步 · 角色优先级配置")
     window.role_selector = role_selector_cls()
     window.role_selector.orderChanged.connect(window._on_priority_changed)
     priority_card.layout().addWidget(window.role_selector)
     layout.addWidget(priority_card)
 
+
+def _build_strategy_card(window, layout):
     strategy_card = window._card("第三步 · 分配策略")
     window.strategy_group = QButtonGroup()
     strategy_options = [
@@ -249,6 +262,8 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
         strategy_card.layout().addWidget(rb)
     layout.addWidget(strategy_card)
 
+
+def _build_run_button(window, layout):
     window.btn_run = QPushButton("⚡  开始执行")
     window.btn_run.setObjectName("btnPrimary")
     window.btn_run.setFixedHeight(46)
@@ -256,10 +271,12 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     window.btn_run.clicked.connect(window._do_exec)
     layout.addWidget(window.btn_run)
 
+
+def _build_result_card(window, layout):
     window.result_card = QWidget()
     window.result_card.setVisible(False)
     window.result_card.setStyleSheet(
-        "QWidget{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px}"
+        themed_style("QWidget{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px}")
     )
     result_layout = QVBoxLayout(window.result_card)
     result_header = QHBoxLayout()
@@ -275,5 +292,20 @@ def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline
     result_layout.addWidget(window.result_content)
     layout.addWidget(window.result_card)
 
+
+def build_execute_page(window, role_selector_cls, scan_help, drone_help, offline_help, show_help):
+    page = QWidget()
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setWidget(page)
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(20, 16, 20, 16)
+    layout.setSpacing(12)
+
+    _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, show_help)
+    _build_priority_card(window, layout, role_selector_cls)
+    _build_strategy_card(window, layout)
+    _build_run_button(window, layout)
+    _build_result_card(window, layout)
     layout.addStretch()
     return scroll
