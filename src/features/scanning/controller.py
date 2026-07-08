@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from src.app import runtime
 from src.app.constants import DRONE_HELP, OFFLINE_HELP, SCAN_HELP
 from src.app.dialogs import show_help
-from src.app.theme import STYLE
+from src.app.theme import current_style_sheet
 from src.app.workers import GamepadScanParseWorkerThread, GamepadScanWorkerThread, ScanWorkerThread, WorkerThread
 from src.features.allocation.execute_page import build_execute_page
 from src.features.allocation.preference_modes import role_preference_mode_error
@@ -53,7 +53,7 @@ def _page_execute(self):
         self,
         lambda: RoleSelector(
             priority_config_path_provider=lambda: runtime.USER_CONFIG_DIR / "priority_config.json",
-            style_sheet=STYLE,
+            style_sheet=current_style_sheet(),
             help_callback=show_help,
         ),
         SCAN_HELP,
@@ -287,8 +287,6 @@ def _on_vision_done(self,stats):
     summary=f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
     if pending_manual_count:
         summary += f"\n待补录 {pending_manual_count} 件，已补录入库 {manual_added} 件。"
-    if stats.get("auto_discard_grade"):
-        summary += f"\n低于 {stats['auto_discard_grade']} 的驱动：目标 {int(stats.get('discard_target_count',0) or 0)} 个，已标记 {int(stats.get('discard_marked_count',0) or 0)} 个。"
     if stats.get("post_actions_enabled"):
         summary += (
             "\n扫描后管理："
@@ -358,7 +356,7 @@ def _start_scan(self,drone_mode):
     self.btn_run.setText("⏳  扫描中... (F12 停止)")
     self._scan_worker.start()
 
-def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard_lock_action="skip", post_actions_config=None, selected_roles=None, parse_during_scan=True, discrete_gpu_acceleration=False, amd_compatibility=False):
+def _start_gamepad_scan(self,total_drives, post_actions_config=None, selected_roles=None, parse_during_scan=True, discrete_gpu_acceleration=False, amd_compatibility=False):
     self._replace_inventory_on_next_parse=True
     self._pending_scan_mode="gamepad"
     self._pending_parse_scope="full"
@@ -366,7 +364,7 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
     self._pending_probe_duplicate_count=0
     self._gamepad_parse_progress=(0,total_drives,"")
     self._gamepad_pipeline_finished=False
-    self._gamepad_post_actions_enabled=bool(post_actions_enabled(post_actions_config) or auto_discard_grade)
+    self._gamepad_post_actions_enabled=bool(post_actions_enabled(post_actions_config))
     self._gamepad_suppress_parse_ui=False
     action_hint = ""
     if self._gamepad_post_actions_enabled:
@@ -395,8 +393,6 @@ def _start_gamepad_scan(self,total_drives, auto_discard_grade=None, auto_discard
     self._gamepad_worker=GamepadScanParseWorkerThread(
         total_drives=total_drives,
         parent=self,
-        auto_discard_grade=auto_discard_grade,
-        auto_discard_lock_action=auto_discard_lock_action,
         post_actions_config=post_actions_config,
         selected_roles=selected_roles,
         parse_during_scan=parse_during_scan,
@@ -561,7 +557,8 @@ def _hotkey_poll_loop(self):
                 if kb.is_pressed(self._hk_finish.lower()):
                     self._on_hk_finish()
                     time.sleep(0.5)
-        except: pass
+        except Exception as exc:
+            logger.debug(f"扫描热键轮询异常，继续监听: {exc}")
         time.sleep(0.05)
 
 def _unregister_scan_hotkeys(self):
@@ -569,8 +566,8 @@ def _unregister_scan_hotkeys(self):
     if sys.platform=="win32" and getattr(self,"_hk_thread_id",None):
         try:
             ctypes.windll.user32.PostThreadMessageW(int(self._hk_thread_id),0,0,0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"唤醒扫描热键线程失败，可能线程已退出: {exc}")
 
 def _on_hk_stop(self):
     w=getattr(self,'_scan_worker',None) or getattr(self,'_gamepad_worker',None) or getattr(self,'_gamepad_pipeline_worker',None)
