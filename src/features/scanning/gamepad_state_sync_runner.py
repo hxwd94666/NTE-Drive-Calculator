@@ -26,6 +26,7 @@ class GamepadStateSyncRunner:
 
     def sync(self, state_changes: list[dict], effective_config: dict | None) -> dict[str, int]:
         if not state_changes:
+            logger.info("[状态管理] 没有需要同步的游戏内状态变更")
             return summarize_state_changes([])
         if not hasattr(self.scanner, "sync_equipment_states"):
             logger.warning("扫描后管理目标已生成，但当前扫描器不支持状态同步，已跳过游戏内处理。")
@@ -33,11 +34,22 @@ class GamepadStateSyncRunner:
 
         self._notify_ready()
         action_mode = "hmt" if (effective_config or {}).get("server_region") == "hmt" else "default"
+        logger.info(
+            f"[状态管理] 开始游戏内同步: total={self.total_drives} "
+            f"targets={len(state_changes)} mode={action_mode}"
+        )
+        for change in state_changes:
+            logger.info(
+                f"[状态管理] 同步队列 raw_drive_{int(change.get('index', 0)):04d} "
+                f"{change.get('current_state')} -> {change.get('target_state')} "
+                f"uid={change.get('uid')} type={change.get('item_type')}"
+            )
         applied_count = self.scanner.sync_equipment_states(
             self.total_drives,
             state_changes,
             action_mode=action_mode,
         )
+        logger.info(f"[状态管理] 游戏内同步完成: requested={len(state_changes)} applied={applied_count}")
         return summarize_state_changes(state_changes, applied_count)
 
     def _notify_ready(self) -> None:
