@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass, field
 from typing import Any
 
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.optimizer.scoring import ScoringEngine
+from src.solver.orchestrator import NTEPipelineOrchestrator
 
 
 GRADE_ORDER = ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]
@@ -114,6 +116,47 @@ def _role_names_for_scope(scoring: ScoringEngine, module_config: dict, selected_
     return list(scoring.roles_db.keys())
 
 
+@dataclass
+class PostActionScoreContext:
+    strict: bool = False
+    drive_roles_by_shape: dict[str, set[str]] = field(default_factory=dict)
+    tape_roles_by_set: dict[str, set[str]] = field(default_factory=dict)
+    role_sets: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_config_dir(cls, config_dir: str | None) -> "PostActionScoreContext":
+        try:
+            orchestrator = NTEPipelineOrchestrator(config_dir=str(config_dir or "config"))
+            role_names = list(orchestrator.roles_db.keys())
+            blueprints = orchestrator.solve_blueprints(role_names)
+        except Exception:
+            return cls(strict=False)
+
+        drive_roles_by_shape: dict[str, set[str]] = {}
+        tape_roles_by_set: dict[str, set[str]] = {}
+        role_sets: dict[str, str] = {}
+        for role_name, role_data in orchestrator.roles_db.items():
+            try:
+                target_set = orchestrator._resolve_set_name(role_data.get("default_set", ""))
+            except Exception:
+                continue
+            role_sets[role_name] = target_set
+            tape_roles_by_set.setdefault(target_set, set()).add(role_name)
+
+            for blueprint in blueprints.get(role_name, []) or []:
+                shape_ids = list(blueprint.get("set_pieces", []) or []) + list(blueprint.get("extra_pieces", []) or [])
+                for shape_id in shape_ids:
+                    if shape_id:
+                        drive_roles_by_shape.setdefault(str(shape_id), set()).add(role_name)
+
+        return cls(
+            strict=bool(drive_roles_by_shape or tape_roles_by_set),
+            drive_roles_by_shape=drive_roles_by_shape,
+            tape_roles_by_set=tape_roles_by_set,
+            role_sets=role_sets,
+        )
+
+
 def _quality_matches(item: BaseEquipment, quality_scope: str) -> bool:
     if quality_scope == "gold":
         return item.quality == "Gold"
@@ -217,9 +260,52 @@ def _grade_for_score(scoring: ScoringEngine, item: BaseEquipment, score: float) 
     return scoring.get_grade_tag(float(score or 0.0), int(getattr(item, "area", 1) or 1))
 
 
-def _scores_for_roles(item: BaseEquipment, role_names: list[str]) -> list[float]:
+def _usable_role_names(
+    item: BaseEquipment,
+    role_names: list[str],
+    score_context: PostActionScoreContext | None,
+) -> tuple[list[str], str]:
+    if not score_context or not score_context.strict:
+        return role_names, "fallback_all_roles"
+    allowed: set[str]
+    if isinstance(item, Drive):
+        allowed = score_context.drive_roles_by_shape.get(str(getattr(item, "shape_id", "") or ""), set())
+    elif isinstance(item, Tape):
+        allowed = score_context.tape_roles_by_set.get(str(getattr(item, "set_name", "") or ""), set())
+    else:
+        allowed = set()
+    filtered = [role for role in role_names if role in allowed]
+    return filtered, "matched_usable_roles"
+
+
+def _role_score_pairs_for_item(
+    item: BaseEquipment,
+    role_names: list[str],
+    score_context: PostActionScoreContext | None = None,
+) -> tuple[list[tuple[str, float]], str]:
+    usable_roles, match_mode = _usable_role_names(item, role_names, score_context)
     role_scores = getattr(item, "role_scores", {}) or {}
-    return [float(role_scores.get(role, 0.0) or 0.0) for role in role_names]
+    return [(role, float(role_scores.get(role, 0.0) or 0.0)) for role in usable_roles], match_mode
+
+
+def _best_score_detail(
+    item: BaseEquipment,
+    role_names: list[str],
+    scoring: ScoringEngine,
+    score_context: PostActionScoreContext | None = None,
+) -> dict[str, Any]:
+    pairs, match_mode = _role_score_pairs_for_item(item, role_names, score_context)
+    best_role = ""
+    best_score = 0.0
+    if pairs:
+        best_role, best_score = max(pairs, key=lambda pair: pair[1])
+    return {
+        "score": best_score,
+        "grade": _grade_for_score(scoring, item, best_score),
+        "role": best_role,
+        "eligible_roles": len(pairs),
+        "match_mode": match_mode,
+    }
 
 
 def _discard_module_result(
@@ -228,22 +314,33 @@ def _discard_module_result(
     module_config: dict,
     scoring: ScoringEngine,
     selected_roles: list[str] | None,
-) -> str | None:
+    score_context: PostActionScoreContext | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    detail = {"module": "discard", "enabled": bool(module_config.get("enabled")), "result": None}
     if not module_config.get("enabled") or not _module_matches_item(item, module_config):
-        return None
+        detail["reason"] = "module_or_filter_not_matched"
+        return None, detail
     if not _state_action_allowed(current_state, module_config):
-        return None
+        detail["reason"] = "state_policy_skip"
+        return None, detail
     role_names = _role_names_for_scope(scoring, module_config, selected_roles)
     if not role_names:
-        return None
-    scores = _scores_for_roles(item, role_names)
-    grade = _grade_for_score(scoring, item, max(scores) if scores else 0.0)
+        detail["reason"] = "no_scope_roles"
+        return None, detail
+    detail.update(_best_score_detail(item, role_names, scoring, score_context))
+    grade = detail["grade"]
+    detail["threshold"] = module_config["grade"]
     is_low = GRADE_ORDER.index(grade) >= GRADE_ORDER.index(module_config["grade"])
     if is_low:
-        return "discarded"
+        detail["result"] = "discarded"
+        detail["reason"] = "grade_below_or_equal_threshold"
+        return "discarded", detail
     if current_state == "discarded":
-        return "normal"
-    return None
+        detail["result"] = "normal"
+        detail["reason"] = "discarded_item_no_longer_matches"
+        return "normal", detail
+    detail["reason"] = "grade_kept"
+    return None, detail
 
 
 def _lock_module_result(
@@ -252,22 +349,33 @@ def _lock_module_result(
     module_config: dict,
     scoring: ScoringEngine,
     selected_roles: list[str] | None,
-) -> str | None:
+    score_context: PostActionScoreContext | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    detail = {"module": "lock", "enabled": bool(module_config.get("enabled")), "result": None}
     if not module_config.get("enabled") or not _module_matches_item(item, module_config):
-        return None
+        detail["reason"] = "module_or_filter_not_matched"
+        return None, detail
     if not _state_action_allowed(current_state, module_config):
-        return None
+        detail["reason"] = "state_policy_skip"
+        return None, detail
     role_names = _role_names_for_scope(scoring, module_config, selected_roles)
     if not role_names:
-        return None
-    scores = _scores_for_roles(item, role_names)
-    grade = _grade_for_score(scoring, item, max(scores) if scores else 0.0)
+        detail["reason"] = "no_scope_roles"
+        return None, detail
+    detail.update(_best_score_detail(item, role_names, scoring, score_context))
+    grade = detail["grade"]
+    detail["threshold"] = module_config["grade"]
     is_high = GRADE_ORDER.index(grade) <= GRADE_ORDER.index(module_config["grade"])
     if is_high:
-        return "locked"
+        detail["result"] = "locked"
+        detail["reason"] = "grade_above_or_equal_threshold"
+        return "locked", detail
     if current_state == "locked":
-        return "normal"
-    return None
+        detail["result"] = "normal"
+        detail["reason"] = "locked_item_no_longer_matches"
+        return "normal", detail
+    detail["reason"] = "grade_not_high_enough"
+    return None, detail
 
 
 def target_state_for_item(
@@ -276,20 +384,40 @@ def target_state_for_item(
     config: dict[str, Any],
     scoring: ScoringEngine,
     selected_roles: list[str] | None = None,
+    score_context: PostActionScoreContext | None = None,
 ) -> str:
+    return evaluate_target_state_for_item(
+        item,
+        current_state,
+        config,
+        scoring,
+        selected_roles,
+        score_context,
+    )[0]
+
+
+def evaluate_target_state_for_item(
+    item: BaseEquipment,
+    current_state: str,
+    config: dict[str, Any],
+    scoring: ScoringEngine,
+    selected_roles: list[str] | None = None,
+    score_context: PostActionScoreContext | None = None,
+) -> tuple[str, dict[str, Any]]:
     current_state = current_state if current_state in EQUIPMENT_STATES else "normal"
     config = merge_post_action_config(config)
-    lock_result = _lock_module_result(item, current_state, config["lock"], scoring, selected_roles)
-    discard_result = _discard_module_result(item, current_state, config["discard"], scoring, selected_roles)
+    lock_result, lock_detail = _lock_module_result(item, current_state, config["lock"], scoring, selected_roles, score_context)
+    discard_result, discard_detail = _discard_module_result(item, current_state, config["discard"], scoring, selected_roles, score_context)
+    details = {"lock": lock_detail, "discard": discard_detail}
     if lock_result == "locked":
-        return "locked"
+        return "locked", details
     if discard_result == "discarded":
-        return "discarded"
+        return "discarded", details
     if current_state == "locked" and lock_result == "normal":
-        return "normal"
+        return "normal", details
     if current_state == "discarded" and discard_result == "normal":
-        return "normal"
-    return current_state
+        return "normal", details
+    return current_state, details
 
 
 def build_state_changes(
@@ -297,10 +425,18 @@ def build_state_changes(
     config: dict[str, Any],
     scoring: ScoringEngine,
     selected_roles: list[str] | None = None,
+    score_context: PostActionScoreContext | None = None,
 ) -> list[dict[str, Any]]:
     changes = []
     for index, item, current_state in parsed_items:
-        target_state = target_state_for_item(item, current_state, config, scoring, selected_roles)
+        target_state, detail = evaluate_target_state_for_item(
+            item,
+            current_state,
+            config,
+            scoring,
+            selected_roles,
+            score_context,
+        )
         if target_state != current_state:
             changes.append(
                 {
@@ -310,6 +446,11 @@ def build_state_changes(
                     "item_type": item.item_type,
                     "quality": item.quality,
                     "uid": item.uid,
+                    "shape_id": getattr(item, "shape_id", ""),
+                    "set_name": getattr(item, "set_name", ""),
+                    "sub_stats": dict(getattr(item, "sub_stats", {}) or {}),
+                    "main_stats": getattr(item, "main_stats", ""),
+                    "decision": detail,
                 }
             )
     return changes
