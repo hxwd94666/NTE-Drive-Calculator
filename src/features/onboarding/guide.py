@@ -12,8 +12,9 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 
 from src.app import runtime
-from src.app.theme import STYLE
+from src.app.theme import current_style_sheet
 from src.features.scanning.file_lifecycle import IMAGE_EXTS
+from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
@@ -49,7 +50,7 @@ def _show_quick_start(self, auto=False):
     dlg = QDialog(self)
     dlg.setWindowTitle("使用教程")
     dlg.setMinimumSize(760, 660)
-    dlg.setStyleSheet(STYLE)
+    dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
     layout.setContentsMargins(14, 14, 14, 14)
     layout.setSpacing(10)
@@ -97,5 +98,5 @@ def _show_quick_start(self, auto=False):
         try:
             with open(runtime.USER_CONFIG_DIR / "guide_seen.json", "w", encoding="utf-8") as f:
                 json.dump({"seen": True}, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"保存新手引导已读状态失败，下次可能会再次显示: {exc}")
