@@ -30,7 +30,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
             workers.time.sleep = original_sleep
 
         self.assertEqual(["ready"], events)
-        self.assertEqual([1.0], sleeps)
+        self.assertEqual([2.0], sleeps)
 
     def _state_button_image(self, active=None):
         from src.features.scanning import streaming_pipeline
@@ -55,7 +55,11 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("discarded", _right_panel_button_state_from_image(self._state_button_image("discarded")))
 
     def test_post_action_thresholds_include_equal_grade(self):
-        from src.features.scanning.post_actions import default_post_action_config, target_state_for_item
+        from src.features.scanning.post_actions import (
+            default_post_action_config,
+            summarize_post_action_filtering,
+            target_state_for_item,
+        )
 
         class FakeScoring:
             roles_db = {"A": {}, "B": {}}
@@ -76,7 +80,11 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("locked", target_state_for_item(item, "normal", config, FakeScoring()))
 
     def test_post_action_type_range_filters_default_drive_shapes_and_tape_sets(self):
-        from src.features.scanning.post_actions import default_post_action_config, target_state_for_item
+        from src.features.scanning.post_actions import (
+            default_post_action_config,
+            summarize_post_action_filtering,
+            target_state_for_item,
+        )
         from src.models.equipment import Drive, Tape
 
         class FakeScoring:
@@ -130,6 +138,24 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("normal", target_state_for_item(excluded_drive, "normal", config, FakeScoring()))
         self.assertEqual("locked", target_state_for_item(keep_tape, "normal", config, FakeScoring()))
         self.assertEqual("normal", target_state_for_item(excluded_tape, "normal", config, FakeScoring()))
+        self.assertEqual(
+            {
+                "post_action_parsed_count": 4,
+                "post_action_candidate_count": 2,
+                "post_action_quality_filtered_count": 0,
+                "post_action_type_filtered_count": 0,
+                "post_action_type_range_filtered_count": 2,
+            },
+            summarize_post_action_filtering(
+                [
+                    (1, keep_drive, "normal"),
+                    (2, excluded_drive, "normal"),
+                    (3, keep_tape, "normal"),
+                    (4, excluded_tape, "normal"),
+                ],
+                config,
+            ),
+        )
 
     def test_parser_consumes_first_capture_before_scan_finishes(self):
         from src.features.scanning.streaming_pipeline import run_streaming_scan_parse
@@ -180,7 +206,12 @@ class StreamingScanPipelineTests(unittest.TestCase):
             scanner = FakeScanner(Path(tmp))
             processor = FakeProcessor()
 
-            stats = run_streaming_scan_parse(scanner, processor, total_drives=2)
+            stats = run_streaming_scan_parse(
+                scanner,
+                processor,
+                total_drives=2,
+                parse_during_scan=True,
+            )
 
         self.assertLess(events.index("parse:raw_drive_0001.png"), events.index("scan_done"))
         self.assertEqual(False, scanner.commit_on_complete)
@@ -190,296 +221,102 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual(0, stats["failed_count"])
         self.assertEqual("full", stats["parse_scope"])
 
-    def test_auto_discard_marks_low_score_drive_indexes_after_scoring(self):
+    def test_default_low_load_parse_waits_until_scan_finishes(self):
         from src.features.scanning.streaming_pipeline import run_streaming_scan_parse
-        from src.models.equipment import Drive
+
+        events = []
 
         class FakeScanner:
             def __init__(self, root):
                 self.output_dir = str(root)
                 self.temp_dir = root / "temp"
                 self.temp_dir.mkdir()
-                self.marked = []
 
             def start_scan(self, total_drives, on_capture=None, commit_on_complete=True):
                 for index in range(1, total_drives + 1):
                     path = self.temp_dir / f"raw_drive_{index:04d}.png"
                     path.write_bytes(b"png")
+                    events.append(f"capture:{index}")
                     on_capture(str(path), index, total_drives)
+                events.append("scan_done")
                 return total_drives
 
             def _commit_temp_output(self):
-                pass
-
-            def mark_discard_by_indexes(self, total_drives, target_indexes):
-                self.marked.append((total_drives, list(target_indexes)))
-                return len(target_indexes)
+                events.append("commit")
 
         class FakeProcessor:
-            def __init__(self, items):
-                self.items = items
+            def __init__(self):
                 self.inventory = []
-                self.exported_scores = []
 
-            def process_image_file(self, _image_path, filename, **_kwargs):
-                index = int(filename.removeprefix("raw_drive_").removesuffix(".png"))
-                item = self.items[index - 1]
-                self.inventory.append(item)
-                return item, True
+            def process_image_file(self, image_path, filename, **_kwargs):
+                events.append(f"parse:{filename}")
+                self.inventory.append({"filename": filename})
+                return SimpleNamespace(item_type="drive"), True
 
             def _export_to_json(self):
-                self.exported_scores = [item.max_score for item in self.inventory]
+                events.append("export")
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            (config_dir / "roles.json").write_text(
-                json.dumps({"A": {"weights": {"Good": 1.0}, "default_set": "Set"}}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (config_dir / "stats.json").write_text(
-                json.dumps(
-                    {
-                        "gold_base_values": {"Good": 1.0, "Bad": 1.0},
-                        "main_only_keywords": [],
-                        "stat_alias_mapping": {},
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            items = [
-                Drive(
-                    uid="low",
-                    quality="Gold",
-                    area=1,
-                    shape_id="S1",
-                    set_name="Set",
-                    main_stats={"m1": 1.0, "m2": 1.0},
-                    sub_stats={"Bad": 1.0},
-                ),
-                Drive(
-                    uid="high",
-                    quality="Gold",
-                    area=1,
-                    shape_id="S2",
-                    set_name="Set",
-                    main_stats={"m1": 1.0, "m2": 1.0},
-                    sub_stats={"Good": 1.0},
-                ),
-            ]
-            scanner = FakeScanner(root)
-            processor = FakeProcessor(items)
+            stats = run_streaming_scan_parse(FakeScanner(Path(tmp)), FakeProcessor(), total_drives=2)
 
-            stats = run_streaming_scan_parse(
-                scanner,
-                processor,
-                total_drives=2,
-                auto_discard_grade="A",
-                config_dir=config_dir,
-            )
+        self.assertLess(events.index("scan_done"), events.index("parse:raw_drive_0001.png"))
+        self.assertEqual(2, stats["success_count"])
+        self.assertEqual(0, stats["failed_count"])
 
-        self.assertEqual([(2, [1])], scanner.marked)
-        self.assertEqual(1, stats["discard_target_count"])
-        self.assertEqual(1, stats["discard_marked_count"])
-        self.assertGreater(processor.exported_scores[1], processor.exported_scores[0])
-
-    def test_auto_discard_skips_locked_drive_indexes(self):
+    def test_amd_low_load_forces_post_scan_parse_and_throttles(self):
         from src.features.scanning import streaming_pipeline
-        from src.models.equipment import Drive
+
+        events = []
+        sleeps = []
+        original_sleep = streaming_pipeline.time.sleep
 
         class FakeScanner:
             def __init__(self, root):
                 self.output_dir = str(root)
                 self.temp_dir = root / "temp"
                 self.temp_dir.mkdir()
-                self.marked = []
 
             def start_scan(self, total_drives, on_capture=None, commit_on_complete=True):
                 for index in range(1, total_drives + 1):
                     path = self.temp_dir / f"raw_drive_{index:04d}.png"
                     path.write_bytes(b"png")
+                    events.append(f"capture:{index}")
                     on_capture(str(path), index, total_drives)
+                events.append("scan_done")
                 return total_drives
 
             def _commit_temp_output(self):
-                pass
-
-            def mark_discard_by_indexes(self, total_drives, target_indexes):
-                self.marked.append((total_drives, list(target_indexes)))
-                return len(target_indexes)
+                events.append("commit")
 
         class FakeProcessor:
-            def __init__(self, items):
-                self.items = items
+            def __init__(self):
                 self.inventory = []
 
-            def process_image_file(self, _image_path, filename, **_kwargs):
-                index = int(filename.removeprefix("raw_drive_").removesuffix(".png"))
-                item = self.items[index - 1]
-                self.inventory.append(item)
-                return item, True
+            def process_image_file(self, image_path, filename, **_kwargs):
+                events.append(f"parse:{filename}")
+                self.inventory.append({"filename": filename})
+                return SimpleNamespace(item_type="drive"), True
 
             def _export_to_json(self):
-                pass
+                events.append("export")
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            (config_dir / "roles.json").write_text(
-                json.dumps({"A": {"weights": {"Good": 1.0}, "default_set": "Set"}}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (config_dir / "stats.json").write_text(
-                json.dumps(
-                    {
-                        "gold_base_values": {"Bad": 1.0},
-                        "main_only_keywords": [],
-                        "stat_alias_mapping": {},
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            items = [
-                Drive(
-                    uid="locked-low",
-                    quality="Gold",
-                    area=1,
-                    shape_id="S1",
-                    set_name="Set",
-                    main_stats={"m1": 1.0, "m2": 1.0},
-                    sub_stats={"Bad": 1.0},
-                ),
-                Drive(
-                    uid="unlocked-low",
-                    quality="Gold",
-                    area=1,
-                    shape_id="S2",
-                    set_name="Set",
-                    main_stats={"m1": 1.0, "m2": 1.0},
-                    sub_stats={"Bad": 1.0},
-                ),
-            ]
-            scanner = FakeScanner(root)
-            processor = FakeProcessor(items)
-            original_detector = streaming_pipeline._drive_screenshot_is_locked
-            streaming_pipeline._drive_screenshot_is_locked = lambda path: str(path).endswith("raw_drive_0001.png")
-            try:
+        streaming_pipeline.time.sleep = lambda seconds: sleeps.append(seconds)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
                 stats = streaming_pipeline.run_streaming_scan_parse(
-                    scanner,
-                    processor,
+                    FakeScanner(Path(tmp)),
+                    FakeProcessor(),
                     total_drives=2,
-                    auto_discard_grade="A",
-                    config_dir=config_dir,
+                    parse_during_scan=True,
+                    low_load_mode=True,
                 )
-            finally:
-                streaming_pipeline._drive_screenshot_is_locked = original_detector
+        finally:
+            streaming_pipeline.time.sleep = original_sleep
 
-        self.assertEqual([(2, [2])], scanner.marked)
-        self.assertEqual(1, stats["discard_target_count"])
-        self.assertEqual(1, stats["discard_marked_count"])
-
-    def test_auto_discard_unlock_mode_keeps_locked_drive_targets(self):
-        from src.features.scanning import streaming_pipeline
-        from src.models.equipment import Drive
-
-        class FakeScanner:
-            def __init__(self, root):
-                self.output_dir = str(root)
-                self.temp_dir = root / "temp"
-                self.temp_dir.mkdir()
-                self.marked = []
-
-            def start_scan(self, total_drives, on_capture=None, commit_on_complete=True):
-                for index in range(1, total_drives + 1):
-                    path = self.temp_dir / f"raw_drive_{index:04d}.png"
-                    path.write_bytes(b"png")
-                    on_capture(str(path), index, total_drives)
-                return total_drives
-
-            def _commit_temp_output(self):
-                pass
-
-            def mark_discard_by_indexes(self, total_drives, target_indexes, locked_indexes=None):
-                self.marked.append((total_drives, list(target_indexes), list(locked_indexes or [])))
-                return len(target_indexes)
-
-        class FakeProcessor:
-            def __init__(self, items):
-                self.items = items
-                self.inventory = []
-
-            def process_image_file(self, _image_path, filename, **_kwargs):
-                index = int(filename.removeprefix("raw_drive_").removesuffix(".png"))
-                item = self.items[index - 1]
-                self.inventory.append(item)
-                return item, True
-
-            def _export_to_json(self):
-                pass
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            (config_dir / "roles.json").write_text(
-                json.dumps({"A": {"weights": {"Good": 1.0}, "default_set": "Set"}}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (config_dir / "stats.json").write_text(
-                json.dumps(
-                    {
-                        "gold_base_values": {"Bad": 1.0},
-                        "main_only_keywords": [],
-                        "stat_alias_mapping": {},
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            items = [
-                Drive(
-                    uid="locked-low",
-                    quality="Gold",
-                    area=1,
-                    shape_id="S1",
-                    set_name="Set",
-                    main_stats={"m1": 1.0, "m2": 1.0},
-                    sub_stats={"Bad": 1.0},
-                ),
-                Drive(
-                    uid="unlocked-low",
-                    quality="Gold",
-                    area=1,
-                    shape_id="S2",
-                    set_name="Set",
-                    main_stats={"m1": 1.0, "m2": 1.0},
-                    sub_stats={"Bad": 1.0},
-                ),
-            ]
-            scanner = FakeScanner(root)
-            processor = FakeProcessor(items)
-            original_detector = streaming_pipeline._drive_screenshot_is_locked
-            streaming_pipeline._drive_screenshot_is_locked = lambda path: str(path).endswith("raw_drive_0001.png")
-            try:
-                stats = streaming_pipeline.run_streaming_scan_parse(
-                    scanner,
-                    processor,
-                    total_drives=2,
-                    auto_discard_grade="A",
-                    auto_discard_lock_action="unlock",
-                    config_dir=config_dir,
-                )
-            finally:
-                streaming_pipeline._drive_screenshot_is_locked = original_detector
-
-        self.assertEqual([(2, [1, 2], [1])], scanner.marked)
-        self.assertEqual(2, stats["discard_target_count"])
-        self.assertEqual(2, stats["discard_marked_count"])
-        self.assertEqual(1, stats["discard_locked_target_count"])
+        self.assertLess(events.index("scan_done"), events.index("parse:raw_drive_0001.png"))
+        self.assertEqual([0.12, 0.12], sleeps)
+        self.assertEqual(2, stats["success_count"])
+        self.assertEqual(0, stats["failed_count"])
 
     def test_post_actions_syncs_lock_discard_and_clear_targets(self):
         from src.features.scanning import streaming_pipeline
@@ -502,8 +339,8 @@ class StreamingScanPipelineTests(unittest.TestCase):
             def _commit_temp_output(self):
                 pass
 
-            def sync_equipment_states(self, total_drives, state_changes):
-                self.synced.append((total_drives, list(state_changes)))
+            def sync_equipment_states(self, total_drives, state_changes, action_mode="default"):
+                self.synced.append((total_drives, list(state_changes), action_mode))
                 return len(state_changes)
 
         class FakeProcessor:
@@ -584,6 +421,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
                     parse_done_callback=lambda: events.append(("parse_done",)),
                     post_action_ready_callback=lambda: events.append(("post_action_ready",)),
                     post_actions_config={
+                        "server_region": "hmt",
                         "discard": {
                             "enabled": True,
                             "grade": "SS",
@@ -612,6 +450,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual([("scan_done", 3, 3)], [event for event in events if event[0] == "scan_done"])
         self.assertLess(events.index(("scan_done", 3, 3)), events.index(("parse_done",)))
         self.assertLess(events.index(("parse_done",)), events.index(("post_action_ready",)))
+        self.assertEqual("hmt", scanner.synced[0][2])
         changes = scanner.synced[0][1]
         self.assertEqual(
             [(1, "normal", "discarded"), (2, "normal", "locked"), (3, "discarded", "locked")],
