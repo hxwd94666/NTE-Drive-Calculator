@@ -6,6 +6,7 @@ ALLOCATION_TOTAL_SCORE_AREA = 35
 GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/hxwd94666/NTE-Drive-Calc/releases/latest"
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
+BILIBILI_HOME_URL = "https://b23.tv/nXJGdh3"
 WORKSHOP_WEIGHT_CONFIGS_API = "https://yh.zzzmap.com/api/open/game-character/weight-configs"
 QUARK_NETDISK_URL = "https://pan.quark.cn/s/82f16b845aec"
 BAIDU_NETDISK_URL = "https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke"
