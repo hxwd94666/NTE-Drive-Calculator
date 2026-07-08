@@ -194,6 +194,16 @@ class AllocationContractSupportTests(unittest.TestCase):
         self.assertEqual([], candidate_pool["drives"])
         self.assertFalse(plan["valid"])
 
+    def test_legacy_strategy_module_exports_split_strategy_classes(self):
+        from src.optimizer import strategies
+        from src.optimizer.drive_candidate_ranker import BaseDispatchStrategy
+        from src.optimizer.role_priority_strategy import RolePriorityStrategy
+        from src.optimizer.drive_priority_strategy import MatrixBaseStrategy
+
+        self.assertIs(strategies.BaseDispatchStrategy, BaseDispatchStrategy)
+        self.assertIs(strategies.RolePriorityStrategy, RolePriorityStrategy)
+        self.assertIs(strategies.MatrixBaseStrategy, MatrixBaseStrategy)
+
 
 class SetEffectModeSupportTests(unittest.TestCase):
     def test_set_effect_modes_choose_required_set_pieces(self):
@@ -211,7 +221,7 @@ class SetEffectModeSupportTests(unittest.TestCase):
 
     def test_role_priority_uses_blueprint_set_pieces_instead_of_full_set_shapes(self):
         from src.models.equipment import Drive
-        from src.optimizer.strategies import RolePriorityStrategy
+        from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
         strategy = RolePriorityStrategy({"Role": {"default_set": "S"}}, {"S": {"shapes": ["A", "B", "C", "D"]}}, {})
         blueprint = {"set_pieces": ["A", "B"], "extra_pieces": ["X"], "board": []}
@@ -229,7 +239,7 @@ class SetEffectModeSupportTests(unittest.TestCase):
 
     def test_matrix_strategy_uses_blueprint_set_pieces_for_slots(self):
         from src.models.equipment import Drive
-        from src.optimizer.strategies import MatrixBaseStrategy
+        from src.optimizer.drive_priority_strategy import MatrixBaseStrategy
 
         strategy = MatrixBaseStrategy({"Role": {"default_set": "S"}}, {"S": {"shapes": ["A", "B", "C", "D"]}}, {})
         blueprint = {"set_pieces": ["A", "B"], "extra_pieces": ["X"], "board": []}
@@ -267,7 +277,7 @@ class MatrixStrategyBlueprintSelectionTests(unittest.TestCase):
         self.assertEqual([["layout-c"]], deduped[1]["board"])
 
     def test_blueprints_are_deduped_by_complete_extra_shape_combination(self):
-        from src.optimizer.strategies import MatrixBaseStrategy
+        from src.optimizer.drive_priority_strategy import MatrixBaseStrategy
 
         strategy = MatrixBaseStrategy({}, {}, {})
         blueprints = [
@@ -284,7 +294,7 @@ class MatrixStrategyBlueprintSelectionTests(unittest.TestCase):
 
     def test_large_blueprint_combos_keep_highest_theoretical_score_and_limit_to_500(self):
         from src.models.equipment import Drive
-        from src.optimizer.strategies import MatrixBaseStrategy
+        from src.optimizer.drive_priority_strategy import MatrixBaseStrategy
 
         roles = {
             "A": {"default_set": "S", "weights": {}},
