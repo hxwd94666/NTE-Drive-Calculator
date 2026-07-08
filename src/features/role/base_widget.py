@@ -11,11 +11,13 @@ from PySide6.QtWidgets import (
     QWidget,
     QPushButton,
     QMessageBox,
+    QSizePolicy,
 )
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QPixmap, QDesktopServices
 
 from .paths import get_roles_img_path
+from src.app.theme import themed_style
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
 
 
@@ -60,7 +62,8 @@ class BaseStatsWidget:
         content_row.setSpacing(16)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(150)
+        left_panel.setMinimumWidth(132)
+        left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
@@ -71,7 +74,8 @@ class BaseStatsWidget:
             pixmap = QPixmap(str(avatar_path))
             if not pixmap.isNull():
                 avatar_label = QLabel()
-                avatar_label.setFixedSize(80, 80)
+                avatar_label.setMinimumSize(72, 72)
+                avatar_label.setMaximumSize(96, 96)
                 avatar_label.setScaledContents(True)
                 avatar_label.setPixmap(pixmap)
                 left_layout.addWidget(avatar_label, alignment=Qt.AlignHCenter)
@@ -95,14 +99,16 @@ class BaseStatsWidget:
             self.level_combo.setCurrentText(current_level)
         else:
             self.level_combo.setCurrentIndex(0)
-        self.level_combo.setFixedWidth(80)
+        self.level_combo.setMinimumWidth(72)
+        self.level_combo.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.level_combo.setStyleSheet("font-size:14px; padding:4px;")
         level_row.addWidget(self.level_combo)
 
         # 问号按钮
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
-        help_btn.setFixedSize(16, 16)
+        help_btn.setMinimumSize(16, 16)
+        help_btn.setMaximumSize(22, 22)
         help_btn.setStyleSheet("""
             QPushButton#btnHelp {
                 background-color: #58a6ff;
@@ -127,7 +133,7 @@ class BaseStatsWidget:
         if guide_url:
             guide_btn = QPushButton("攻略")
             guide_btn.setObjectName("btnGuide")
-            guide_btn.setFixedHeight(24)
+            guide_btn.setMinimumHeight(24)
             guide_btn.setStyleSheet("""
                 QPushButton#btnGuide {
                     background-color: #ff6b6b;
@@ -169,7 +175,8 @@ class BaseStatsWidget:
             grid_row = index // 2
             grid_col = (index % 2) * 2
             label = QLabel(key)
-            label.setFixedWidth(100)
+            label.setMinimumWidth(92)
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
             spin = NoWheelDoubleSpinBox()
             spin.setRange(-999999, 999999)
@@ -197,7 +204,7 @@ class BaseStatsWidget:
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
-        line.setStyleSheet("background-color: #30363d; max-height: 1px;")
+        line.setStyleSheet(themed_style("background-color: #30363d; max-height: 1px;"))
         base_layout.addWidget(line)
 
         # 其他 sub_stats（排除基础属性）
