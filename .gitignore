@@ -9,6 +9,7 @@ __pycache__/
 venv/
 env/
 other/
+installer/
 
 # IDE and OS files
 .idea/
