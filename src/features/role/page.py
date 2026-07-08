@@ -30,6 +30,30 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QHeaderView
 from PySide6.QtCore import Qt
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
+from src.app.theme import themed_style
+from src.optimizer.contracts import (
+    DIFF_ADDED_UIDS,
+    DIFF_CHANGED,
+    EQUIP_DISPLAY_NAME,
+    EQUIP_GRADE,
+    EQUIP_IS_CHANGED,
+    EQUIP_IS_NEW,
+    EQUIP_MAIN_STATS,
+    EQUIP_QUALITY,
+    EQUIP_SCORE,
+    EQUIP_SCORE_AREA,
+    EQUIP_SET_NAME,
+    EQUIP_SHAPE_ID,
+    EQUIP_SUB_STATS,
+    EQUIP_UID,
+    ROLE_BLUEPRINT_LAYOUT,
+    ROLE_EQUIPPED_DRIVES,
+    ROLE_EQUIPPED_TAPE,
+    ROLE_LAST_DIFF,
+    ROLE_SCORE_AREA,
+    ROLE_TOTAL_GRADE,
+    ROLE_TOTAL_SCORE,
+)
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox, match_pinyin
 
@@ -69,6 +93,7 @@ def _page_my_role(window) -> QWidget:
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(10)
     page.setStyleSheet(
+        themed_style(
         """
         QLabel{font-size:14px}
         QLineEdit,QComboBox,QDoubleSpinBox{font-size:14px;padding:8px 11px;border-radius:7px}
@@ -76,6 +101,7 @@ def _page_my_role(window) -> QWidget:
         QTabBar::tab{font-size:13px;padding:10px 20px}
         QGroupBox{font-size:15px;border:1px solid #30363d;border-radius:10px;padding:24px;padding-top:36px}
         """
+        )
     )
 
     top_row = QHBoxLayout()
@@ -215,30 +241,30 @@ def _role_drive_state(window, role_name, role_data, old_role_state):
             score = window._score_drive_dict(sub_stats, shape_id, weights, quality)
         grade = window._calc_grade(score, area) if hasattr(window, "_calc_grade") else "D"
         drive_entry = {
-            "uid": uid,
-            "display_name": drive.get("display_name") or f"{shape_id}-" + "|".join(f"{k}_{v}" for k, v in sub_stats.items()),
-            "shape_id": shape_id,
-            "sub_stats": sub_stats,
-            "quality": quality,
-            "score": round(float(score or 0.0), 2),
-            "grade": grade,
-            "score_area": area,
+            EQUIP_UID: uid,
+            EQUIP_DISPLAY_NAME: drive.get(EQUIP_DISPLAY_NAME) or f"{shape_id}-" + "|".join(f"{k}_{v}" for k, v in sub_stats.items()),
+            EQUIP_SHAPE_ID: shape_id,
+            EQUIP_SUB_STATS: sub_stats,
+            EQUIP_QUALITY: quality,
+            EQUIP_SCORE: round(float(score or 0.0), 2),
+            EQUIP_GRADE: grade,
+            EQUIP_SCORE_AREA: area,
         }
-        if drive.get("is_changed"):
-            drive_entry["is_changed"] = True
+        if drive.get(EQUIP_IS_CHANGED):
+            drive_entry[EQUIP_IS_CHANGED] = True
         drives.append(drive_entry)
 
     board = role_data.get("drive", {}).get("blueprint_layout", []) or []
     role_state = dict(old_role_state or {})
-    role_state["blueprint_layout"] = board
-    role_state["equipped_drives"] = drives
+    role_state[ROLE_BLUEPRINT_LAYOUT] = board
+    role_state[ROLE_EQUIPPED_DRIVES] = drives
 
     tape = role_data.get("tape", {})
     equipped_tape = None
     if isinstance(tape, dict):
         uid = str(tape.get("uid", "") or "")
         if uid and not uid.startswith("empty_"):
-            main_stats = tape.get("main_stats", {}) or {}
+            main_stats = tape.get(EQUIP_MAIN_STATS, {}) or {}
             main_stat_name = next(iter(main_stats.keys()), "") if isinstance(main_stats, dict) else str(main_stats or "")
             sub_stats = tape.get("sub_stats", {}) or {}
             quality = tape.get("quality", "Gold")
@@ -251,25 +277,25 @@ def _role_drive_state(window, role_name, role_data, old_role_state):
                     score = window._score_tape_dict(main_stat_name, sub_stats, weights, quality)
             grade = window._calc_grade(score, 15) if hasattr(window, "_calc_grade") else "D"
             equipped_tape = {
-                "uid": uid,
-                "display_name": tape.get("display_name") or tape.get("set_name") or "卡带",
-                "set_name": tape.get("set_name", ""),
-                "main_stats": main_stat_name,
-                "sub_stats": sub_stats,
-                "quality": quality,
-                "score": round(float(score or 0.0), 2),
-                "grade": grade,
-                "score_area": 15,
+                EQUIP_UID: uid,
+                EQUIP_DISPLAY_NAME: tape.get(EQUIP_DISPLAY_NAME) or tape.get(EQUIP_SET_NAME) or "卡带",
+                EQUIP_SET_NAME: tape.get(EQUIP_SET_NAME, ""),
+                EQUIP_MAIN_STATS: main_stat_name,
+                EQUIP_SUB_STATS: sub_stats,
+                EQUIP_QUALITY: quality,
+                EQUIP_SCORE: round(float(score or 0.0), 2),
+                EQUIP_GRADE: grade,
+                EQUIP_SCORE_AREA: 15,
             }
-            if tape.get("is_changed"):
-                equipped_tape["is_changed"] = True
-    role_state["equipped_tape"] = equipped_tape
+            if tape.get(EQUIP_IS_CHANGED):
+                equipped_tape[EQUIP_IS_CHANGED] = True
+    role_state[ROLE_EQUIPPED_TAPE] = equipped_tape
 
-    total = float((role_state.get("equipped_tape") or {}).get("score", 0.0) or 0.0)
-    total += sum(float(drive.get("score", 0.0) or 0.0) for drive in drives)
-    role_state["total_score"] = round(total, 2)
-    role_state["total_grade"] = window._calc_grade(total, ALLOCATION_TOTAL_SCORE_AREA) if hasattr(window, "_calc_grade") else "D"
-    role_state["score_area"] = ALLOCATION_TOTAL_SCORE_AREA
+    total = float((role_state.get(ROLE_EQUIPPED_TAPE) or {}).get(EQUIP_SCORE, 0.0) or 0.0)
+    total += sum(float(drive.get(EQUIP_SCORE, 0.0) or 0.0) for drive in drives)
+    role_state[ROLE_TOTAL_SCORE] = round(total, 2)
+    role_state[ROLE_TOTAL_GRADE] = window._calc_grade(total, ALLOCATION_TOTAL_SCORE_AREA) if hasattr(window, "_calc_grade") else "D"
+    role_state[ROLE_SCORE_AREA] = ALLOCATION_TOTAL_SCORE_AREA
     return role_state
 
 
@@ -291,15 +317,15 @@ def _save_pending_role_equipment_state(window, data):
         role_state = _role_drive_state(window, role_name, role_data, old_state.get(role_name, {}))
         role_diff = state_mgr._build_role_diff(old_state.get(role_name), role_state)
         last_diffs[role_name] = role_diff
-        role_state.pop("last_diff", None)
-        for item in role_state.get("equipped_drives", []) or []:
-            item.pop("is_new", None)
-        if role_diff.get("changed"):
-            added_uids = set(role_diff.get("added_uids", []) or [])
-            for item in role_state.get("equipped_drives", []) or []:
-                if item.get("uid") in added_uids and not item.get("is_changed"):
-                    item["is_new"] = True
-            role_state["last_diff"] = role_diff
+        role_state.pop(ROLE_LAST_DIFF, None)
+        for item in role_state.get(ROLE_EQUIPPED_DRIVES, []) or []:
+            item.pop(EQUIP_IS_NEW, None)
+        if role_diff.get(DIFF_CHANGED):
+            added_uids = set(role_diff.get(DIFF_ADDED_UIDS, []) or [])
+            for item in role_state.get(ROLE_EQUIPPED_DRIVES, []) or []:
+                if item.get(EQUIP_UID) in added_uids and not item.get(EQUIP_IS_CHANGED):
+                    item[EQUIP_IS_NEW] = True
+            role_state[ROLE_LAST_DIFF] = role_diff
         new_state[role_name] = role_state
     with open(state_mgr.state_file, "w", encoding="utf-8") as f:
         json.dump(new_state, f, ensure_ascii=False, indent=4)
@@ -344,35 +370,31 @@ def confirm_pending_my_role_changes(window):
     return True
 
 
-def _render_my_roles(window):
-    # 记录当前选中的角色（用于删除/添加后保持选中）
-    current_role = getattr(window, '_current_my_role', None)
-
-    """清除旧内容并重新渲染所有角色，分块展示各模块."""
-    layout = window.my_role_form_layout
+def _clear_my_role_form_layout(layout):
     while layout.count():
         item = layout.takeAt(0)
         if item.widget():
             item.widget().deleteLater()
 
-    # 加载数据并自动合并模型中的新角色
+
+def _load_ordered_my_role_data(window):
     data = merge_new_roles_from_model()
     window._my_role_form_data = data
     window._my_role_dirty = False
     window._my_role_equipment_dirty_roles = set()
 
     if not data:
-        layout.addWidget(QLabel("暂无角色数据，请确保 my_roles.json 或 my_roles_model.json 存在。"))
-        return
+        return data, []
 
-    # ----- 加载角色顺序（从独立文件） -----
     order = load_role_order()
     valid_order = [name for name in order if name in data]
     missing = sorted(set(data.keys()) - set(valid_order))
     valid_order.extend(missing)
-    save_role_order(valid_order)  # 确保文件同步
-    all_names = valid_order
+    save_role_order(valid_order)
+    return data, valid_order
 
+
+def _add_my_role_search_header(layout):
     header = QHBoxLayout()
     role_search = QLineEdit()
     role_search.setPlaceholderText("搜索角色（支持拼音）...")
@@ -380,6 +402,139 @@ def _render_my_roles(window):
     header.addWidget(role_search)
     header.addStretch()
     layout.addLayout(header)
+    return role_search
+
+
+def _refresh_margin_panel(window, role_name):
+    panels = getattr(window, "_margin_panels", {})
+    panel = panels.get(role_name) if isinstance(panels, dict) else None
+    if panel:
+        panel.refresh()
+
+
+def _register_role_widget(window, attr_name, role_name, widget):
+    registry = getattr(window, attr_name, None)
+    if not isinstance(registry, dict):
+        registry = {}
+        setattr(window, attr_name, registry)
+    registry[role_name] = widget
+
+
+def _populate_my_role_tab(window, data, role_name, tab_scroll):
+    role_name = str(role_name)
+    if tab_scroll.property("loaded"):
+        return
+    tab_scroll.setProperty("loaded", True)
+    tab_widget = QWidget()
+    tab_scroll.setWidget(tab_widget)
+    form = QVBoxLayout(tab_widget)
+    form.setSpacing(15)
+    form.setContentsMargins(15, 15, 15, 15)
+
+    role_data = data[role_name]
+
+    def refresh_margin():
+        _refresh_margin_panel(window, role_name)
+
+    def mark_dirty_and_refresh_margin():
+        _mark_my_role_dirty(window)
+        refresh_margin()
+
+    def refresh_drive_block():
+        from .drive_widget import refresh_drive_group
+
+        refresh_drive_group(window, role_name)
+
+    def show_drive_details_callback():
+        show_drive_details(
+            window,
+            role_name,
+            save_callback=lambda: _mark_my_role_dirty(window),
+            refresh_callback=None,
+            refresh_margin_callback=refresh_margin,
+            refresh_drive_callback=refresh_drive_block,
+        )
+
+    margin_panel = MarginalBenefitPanel(
+        parent_layout=form,
+        window=window,
+        role_name=role_name,
+        role_data=role_data,
+        on_weight_changed_callback=lambda: refresh_weight_group(window, role_name),
+    )
+    _register_role_widget(window, "_margin_panels", role_name, margin_panel)
+
+    drive_group = build_drive_group(
+        parent_layout=form,
+        window=window,
+        role_name=role_name,
+        role_data=role_data,
+        on_details_callback=show_drive_details_callback,
+    )
+    _register_role_widget(window, "_drive_groups", role_name, drive_group)
+
+    base_widget = BaseStatsWidget(
+        parent_layout=form,
+        window=window,
+        role_name=role_name,
+        role_data=role_data,
+        on_data_changed_callback=mark_dirty_and_refresh_margin,
+        on_level_changed_callback=refresh_margin,
+    )
+    _register_role_widget(window, "_base_widgets", role_name, base_widget)
+
+    weapon_group = build_weapon_group(
+        parent_layout=form,
+        window=window,
+        role_name=role_name,
+        role_data=role_data,
+        on_save_callback=lambda: _mark_my_role_dirty(window),
+        on_margin_refresh_callback=refresh_margin,
+    )
+    _register_role_widget(window, "_weapon_groups", role_name, weapon_group)
+
+    tape_group = build_tape_group(
+        parent_layout=form,
+        window=window,
+        role_name=role_name,
+        role_data=role_data,
+        on_save_callback=lambda: _mark_my_role_dirty(window),
+        on_margin_refresh_callback=refresh_margin,
+        on_update_nested_field=_update_nested_field,
+    )
+    _register_role_widget(window, "_tape_groups", role_name, tape_group)
+
+    weight_group = build_weight_group(
+        parent_layout=form,
+        window=window,
+        role_name=role_name,
+        role_data=role_data,
+        on_save_callback=lambda: _mark_my_role_dirty(window),
+        on_margin_refresh_callback=refresh_margin,
+    )
+    _register_role_widget(window, "_weight_groups", role_name, weight_group)
+
+    form.addSpacing(100)
+    form.addStretch()
+    form.addStretch()
+
+
+def _render_my_roles(window):
+    # 记录当前选中的角色（用于删除/添加后保持选中）
+    current_role = getattr(window, '_current_my_role', None)
+
+    """清除旧内容并重新渲染所有角色，分块展示各模块."""
+    layout = window.my_role_form_layout
+    _clear_my_role_form_layout(layout)
+
+    # 加载数据并自动合并模型中的新角色
+    data, all_names = _load_ordered_my_role_data(window)
+
+    if not data:
+        layout.addWidget(QLabel("暂无角色数据，请确保 my_roles.json 或 my_roles_model.json 存在。"))
+        return
+
+    role_search = _add_my_role_search_header(layout)
 
     tabs = QTabWidget()
     tab_indices = {}
@@ -390,62 +545,6 @@ def _render_my_roles(window):
             visible = match_pinyin(role_name, keyword) if keyword else True
             tabs.setTabVisible(index, visible)
 
-    # ------------------------------------------------------------
-    # 内部辅助：为字典生成一组行（数值型）
-    def add_dict_rows(parent_layout, data_dict, path_prefix, window, role_name):
-        def safe_float(v):
-            try:
-                if v is None or v == "":
-                    return 0.0
-                return float(v)
-            except Exception:
-                return 0.0
-
-        for key, val in data_dict.items():
-            row = QHBoxLayout()
-            row.addWidget(QLabel(key))
-
-            spin = NoWheelDoubleSpinBox()
-            spin.setRange(-999999, 999999)
-            spin.setDecimals(2)
-
-            spin.setValue(safe_float(val))
-
-            spin.editingFinished.connect(
-                lambda rn=role_name, p=path_prefix, k=key, s=spin:
-                _update_nested_field(window, rn, p + [k], s.value())
-            )
-
-            row.addWidget(spin)
-            row.addStretch()
-            parent_layout.addLayout(row)
-
-    # 内部辅助：生成一个带有标签和数值输入框的单行
-    def add_single_value_row(parent_layout, label_text, path, window, role_name, default=0.0, is_float=True,
-                             is_str=False):
-        row = QHBoxLayout()
-        row.addWidget(QLabel(label_text))
-        if is_str:
-            widget = QLineEdit()
-            widget.setText(str(default))
-            widget.editingFinished.connect(
-                lambda rn=role_name, p=path, w=widget:
-                _update_nested_field(window, rn, p, w.text())
-            )
-        else:
-            widget = NoWheelDoubleSpinBox()
-            widget.setRange(-999999, 999999)
-            widget.setDecimals(2 if is_float else 0)
-            widget.setValue(float(default))
-            widget.editingFinished.connect(
-                lambda rn=role_name, p=path, w=widget:
-                _update_nested_field(window, rn, p, w.value() if is_float else int(w.value()))
-            )
-        row.addWidget(widget)
-        row.addStretch()
-        parent_layout.addLayout(row)
-
-    # ------------------------------------------------------------
     def _apply_margins_to_weights(rn, margins):
         """将边际收益的 gain 值覆盖到对应权重"""
         if rn not in data:
@@ -461,162 +560,6 @@ def _render_my_roles(window):
         else:
             _mark_my_role_dirty(window)
             refresh_weight_group(window, rn)
-
-    def populate_role_tab(role_name, tab_scroll):
-        role_name = str(role_name)  # 确保是字符串
-        if tab_scroll.property("loaded"):
-            return
-        tab_scroll.setProperty("loaded", True)
-        tab_widget = QWidget()
-        tab_scroll.setWidget(tab_widget)
-        form = QVBoxLayout(tab_widget)
-        form.setSpacing(15)
-        form.setContentsMargins(15, 15, 15, 15)
-
-        role_data = data[role_name]  # 从 data 获取
-
-        # ---- 0. 边际收益 ----
-        def _refresh_weight_block():
-            refresh_weight_group(window, role_name)
-
-        margin_panel = MarginalBenefitPanel(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_weight_changed_callback=_refresh_weight_block,
-        )
-
-        if not hasattr(window, "_margin_panels"):
-            window._margin_panels = {}
-        window._margin_panels[role_name] = margin_panel
-
-        # ---- 1. 驱动加成 ----
-        def _refresh_margin_panel_for_role():
-            if hasattr(window, "_margin_panels"):
-                panel = window._margin_panels.get(role_name)
-                if panel:
-                    panel.refresh()
-
-        def _refresh_drive_block():
-            from .drive_widget import refresh_drive_group
-            refresh_drive_group(window, role_name)
-
-        def _on_show_drive_details():
-            show_drive_details(
-                window,
-                role_name,
-                save_callback=lambda: _mark_my_role_dirty(window),
-                refresh_callback=None,
-                refresh_margin_callback=_refresh_margin_panel_for_role,
-                refresh_drive_callback=_refresh_drive_block,
-            )
-
-        drive_group = build_drive_group(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_details_callback=_on_show_drive_details,
-        )
-
-        if not hasattr(window, "_drive_groups"):
-            window._drive_groups = {}
-        window._drive_groups[role_name] = drive_group
-
-        # ---- 2. 基础加成 ----
-        def _refresh_margin_panel_for_role():
-            if hasattr(window, "_margin_panels"):
-                panel = window._margin_panels.get(role_name)
-                if panel:
-                    panel.refresh()
-
-        def _on_base_data_changed():
-            _mark_my_role_dirty(window)
-            _refresh_margin_panel_for_role()
-
-        base_widget = BaseStatsWidget(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_data_changed_callback=_on_base_data_changed,
-            on_level_changed_callback=_refresh_margin_panel_for_role,
-        )
-        if not hasattr(window, "_base_widgets"):
-            window._base_widgets = {}
-        window._base_widgets[role_name] = base_widget
-
-        # ---- 3. 弧盘加成 ----
-        def _refresh_margin_panel_for_role():
-            if hasattr(window, "_margin_panels"):
-                panel = window._margin_panels.get(role_name)
-                if panel:
-                    panel.refresh()
-
-        weapon_group = build_weapon_group(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_save_callback=lambda: _mark_my_role_dirty(window),
-            on_margin_refresh_callback=_refresh_margin_panel_for_role,
-        )
-
-        # 存储引用以便刷新
-        if not hasattr(window, "_weapon_groups"):
-            window._weapon_groups = {}
-        window._weapon_groups[role_name] = weapon_group
-
-        # ---- 4. 空幕加成 ----
-        def _refresh_margin_panel_for_role():
-            if hasattr(window, "_margin_panels"):
-                panel = window._margin_panels.get(role_name)
-                if panel:
-                    panel.refresh()
-
-        tape_group = build_tape_group(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_save_callback=lambda: _mark_my_role_dirty(window),
-            on_margin_refresh_callback=_refresh_margin_panel_for_role,
-            on_update_nested_field=_update_nested_field,
-        )
-
-        # 存储引用以便刷新
-        if not hasattr(window, "_tape_groups"):
-            window._tape_groups = {}
-        window._tape_groups[role_name] = tape_group
-
-        # ---- 5. 词条权重 ----
-        def _refresh_margin_panel_for_role():
-            if hasattr(window, "_margin_panels"):
-                panel = window._margin_panels.get(role_name)
-                if panel:
-                    panel.refresh()
-
-        def _refresh_weight_block():
-            refresh_weight_group(window, role_name)
-
-        weight_group = build_weight_group(
-            parent_layout=form,
-            window=window,
-            role_name=role_name,
-            role_data=role_data,
-            on_save_callback=lambda: _mark_my_role_dirty(window),
-            on_margin_refresh_callback=_refresh_margin_panel_for_role,
-        )
-
-        # 存储引用以便刷新
-        if not hasattr(window, "_weight_groups"):
-            window._weight_groups = {}
-        window._weight_groups[role_name] = weight_group
-
-        form.addSpacing(100)  # 添加100像素固定空白
-        form.addStretch()  # 添加弹性空间，使内容顶部对齐
-        form.addStretch()
 
     # 构建标签页
     def rebuild_all_tabs():
@@ -656,7 +599,7 @@ def _render_my_roles(window):
             return
         rname = tabs.tabText(idx)
         if rname in data:
-            populate_role_tab(rname, tabs.widget(idx))
+            _populate_my_role_tab(window, data, rname, tabs.widget(idx))
 
     rebuild_all_tabs()
     role_search.textChanged.connect(filter_tabs)
