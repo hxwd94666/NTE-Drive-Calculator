@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 from PySide6.QtCore import Qt
+from src.app.theme import themed_style
 from src.ui.puzzle_board import PuzzleBoardWidget
 
 from .core import (
@@ -22,10 +23,18 @@ from .core import (
     calc_marginal_benefits,
     apply_margins_to_weights,
     get_valid_drives,
-    is_empty_drive,
 )
 from .dao import load_real_inventory, load_my_roles, load_stats
 from .equipment_import import set_bonus_from_tape_source, tape_equipment_from_source
+from .replacement_service import (
+    apply_drive_replacement_plan,
+    build_drive_replacement_options,
+    build_drive_replacement_plan,
+    calc_single_drive_margin as service_calc_single_drive_margin,
+    equipment_user_map,
+    keep_top_candidates_with_unassigned,
+)
+from src.utils.logger import logger
 
 
 def clear_layout(layout):
@@ -116,9 +125,9 @@ def _build_drive_group_content(group_drive):
             else:
                 gain = (damage_with / damage_without - 1) * 100
             margin_label.setText(f"直伤收益: {gain:+.2f}%")
-        except Exception as e:
+        except Exception as exc:
             margin_label.setText("直伤收益: 计算错误")
-            print(f"计算驱动总直伤收益失败: {e}")
+            logger.warning(f"计算驱动总直伤收益失败: {exc}")
 
     group_drive._update_margin = _update_total_margin
     _update_total_margin()
@@ -134,7 +143,7 @@ def _build_drive_group_content(group_drive):
     if calc_rows:
         info_group = QGroupBox("汇总属性（实时计算）")
         info_group.setStyleSheet(
-            "QGroupBox{border:1px solid #30363d;border-radius:5px;padding:8px;}"
+            themed_style("QGroupBox{border:1px solid #30363d;border-radius:5px;padding:8px;}")
         )
         info_layout = QVBoxLayout(info_group)
         for stat, value in calc_rows:
@@ -231,44 +240,7 @@ def _calc_single_drive_margin(role_data: dict, drive_to_exclude) -> float:
     计算单个驱动在整体配置中的直伤收益
     返回百分比值（如 5.23 表示 5.23%）
     """
-    # 如果驱动为空，直接返回0
-    if is_empty_drive(drive_to_exclude):
-        return 0.0
-
-    try:
-        drive_data = role_data.get("drive", {})
-        original_drives = drive_data.get("drives", [])
-        # 获取有效驱动（排除空驱动）
-        valid_drives = get_valid_drives(original_drives)
-
-        # 过滤掉要排除的驱动（仅在有效驱动中排除）
-        if drive_to_exclude:
-            exclude_uid = drive_to_exclude.get("uid")
-            if exclude_uid:
-                filtered_drives = [d for d in valid_drives if d.get("uid") != exclude_uid]
-            else:
-                filtered_drives = [d for d in valid_drives if d is not drive_to_exclude]
-        else:
-            filtered_drives = valid_drives
-
-        # 构造不含该驱动的角色数据
-        no_drive_data = {k: v for k, v in role_data.items() if k != "drive"}
-        no_drive_data["drive"] = {"drives": filtered_drives}
-
-        stats_without = get_character_total_stats(no_drive_data)
-        damage_without = calc_base_damage(stats_without)
-
-        # 包含该驱动的伤害（包含所有有效驱动）
-        # 注意：这里要包含该驱动（因为它是有效驱动），所以使用全部有效驱动
-        stats_with = get_character_total_stats(role_data)
-        damage_with = calc_base_damage(stats_with)
-
-        if damage_without == 0:
-            return 0.0
-        return (damage_with / damage_without - 1) * 100
-    except Exception as e:
-        print(f"计算单个驱动直伤收益失败: {e}")
-        return 0.0
+    return service_calc_single_drive_margin(role_data, drive_to_exclude)
 
 
 def _main_stat_label(tape: dict) -> str:
@@ -291,8 +263,8 @@ def _calc_tape_margin(role_data: dict) -> float:
         if damage_without == 0:
             return 0.0
         return (damage_with / damage_without - 1) * 100
-    except Exception as e:
-        print(f"计算卡带直伤收益失败: {e}")
+    except Exception as exc:
+        logger.debug(f"计算卡带直伤收益失败: {exc}")
         return 0.0
 
 
@@ -303,8 +275,8 @@ def _calc_tape_replacement_margin(role_data: dict, candidate_tape: dict) -> floa
         sim_role_data["tape"] = candidate_tape
         sim_role_data["set_bonus"] = set_bonus_from_tape_source(candidate_tape)
         return _calc_tape_margin(sim_role_data)
-    except Exception as e:
-        print(f"计算候选卡带直伤收益失败: {e}")
+    except Exception as exc:
+        logger.debug(f"计算候选卡带直伤收益失败: {exc}")
         return 0.0
 
 
@@ -347,8 +319,8 @@ def _role_scoring_weights(window, role_name: str, role_data: dict | None = None)
                 alias_map = stats_config.get("benefit_alias_mapping", {})
                 apply_margins_to_weights(dynamic_weights, margins, alias_map)
                 return dynamic_weights
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"读取边际收益动态权重失败，使用角色基础权重: {exc}")
 
     if base_weights:
         return base_weights
@@ -538,37 +510,24 @@ def refresh_drive_detail_content(window):
     _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid_drives, role_data)
 
 
-def _show_tape_optimization(
-        window,
-        role_name,
-        current_tape,
-        weights,
-        on_save_refresh_callback,
-):
-    """卡带替换弹窗。"""
+def _equipment_user_map(my_roles_data: dict, role_name: str, item_kind: str) -> dict[str, list[str]]:
+    return equipment_user_map(my_roles_data, role_name, item_kind)
+
+
+def _keep_top_candidates_with_unassigned(candidates, user_map: dict, uid_getter, top_limit: int = 20, min_unassigned: int = 3):
+    return keep_top_candidates_with_unassigned(candidates, user_map, uid_getter, top_limit, min_unassigned)
+
+
+def _build_tape_replacement_candidates(window, role_name, current_tape, weights, role_data, user_map):
     all_items = load_real_inventory()
     if not all_items:
-        QMessageBox.warning(window, "错误", "real_inventory.json 不存在或格式错误")
-        return
-
-    my_roles_data = load_my_roles()
-    user_map = {}
-    for rn, rdata in my_roles_data.items():
-        if rn == role_name:
-            continue
-        tape = rdata.get("tape", {}) if isinstance(rdata, dict) else {}
-        uid = tape.get("uid") if isinstance(tape, dict) else ""
-        if uid:
-            user_map.setdefault(uid, []).append(rn)
-
-    role_data = window._my_role_form_data.get(role_name, {})
+        return None
     current_uid = current_tape.get("uid", "")
     current_set = current_tape.get("set_name", "")
     equipped_uids = {
         str(role_data.get("tape", {}).get("uid", "") or ""),
         *[str(d.get("uid", "") or "") for d in role_data.get("drive", {}).get("drives", []) or []],
     }
-
     candidates = []
     for item in all_items:
         if item.get("item_type") != "tape" and item.get("shape_id") != "TAPE_15":
@@ -582,17 +541,144 @@ def _show_tape_optimization(
         if tape_entry:
             score, _grade = _score_tape(window, role_name, tape_entry, weights)
             candidates.append((score, tape_entry, item))
-
     candidates.sort(key=lambda item: item[0], reverse=True)
-    final = list(candidates[:20])
-    unassigned_count = sum(1 for _, tape, _raw in final if tape.get("uid", "") not in user_map)
-    if unassigned_count < 3:
-        for entry in candidates[20:]:
-            if entry[1].get("uid", "") not in user_map:
-                final.append(entry)
-                unassigned_count += 1
-                if unassigned_count >= 3:
-                    break
+    return _keep_top_candidates_with_unassigned(candidates, user_map, lambda entry: entry[1].get("uid", ""))
+
+
+def _apply_tape_replacement(window, role_name, role_data, new_tape, user_map):
+    new_tape["is_changed"] = True
+    role_data["tape"] = new_tape
+    role_data["set_bonus"] = set_bonus_from_tape_source(new_tape)
+    dirty_equipment_roles = {role_name}
+    new_uid = new_tape.get("uid", "")
+
+    if new_uid in user_map:
+        for other_role in user_map[new_uid]:
+            other_role_data = window._my_role_form_data.get(other_role, {})
+            old_tape = other_role_data.get("tape", {})
+            if isinstance(old_tape, dict) and old_tape.get("uid") == new_uid:
+                other_role_data["tape"] = {
+                    "uid": f"empty_{new_uid}",
+                    "display_name": "空卡带",
+                    "shape_id": "TAPE_15",
+                    "set_name": old_tape.get("set_name", ""),
+                    "quality": "Gold",
+                    "main_stats": {},
+                    "sub_stats": {},
+                    "is_changed": True,
+                }
+                other_role_data["set_bonus"] = {"display_name": "", "skill": {}, "skill_2": {}, "skill_cover": 0.8}
+                dirty_equipment_roles.add(other_role)
+
+    if not hasattr(window, "_my_role_equipment_dirty_roles"):
+        window._my_role_equipment_dirty_roles = set()
+    window._my_role_equipment_dirty_roles.update(dirty_equipment_roles)
+
+
+def _add_current_drive_section(window, main_layout, current_shape, current_uid, current_drive, weights, current_score, current_margin):
+    cur_group = QGroupBox("当前驱动")
+    cur_layout = QVBoxLayout(cur_group)
+    if hasattr(window, "_equip_card"):
+        cur_layout.addWidget(
+            window._equip_card(
+                current_shape,
+                "",
+                current_drive.get("sub_stats", {}),
+                current_shape,
+                current_uid,
+                weights,
+                (
+                    current_score,
+                    window._calc_grade(current_score, window._shape_areas.get(current_shape, 3))
+                    if hasattr(window, "_calc_grade")
+                    else "-",
+                ),
+                current_drive.get("quality", "Gold"),
+            )
+        )
+    else:
+        cur_layout.addWidget(QLabel(f"UID: {current_uid} Score: {current_score:.2f}"))
+    cur_margin_label = QLabel(f"直伤收益: {current_margin:+.2f}%")
+    cur_margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px; margin-top: 4px;")
+    cur_layout.addWidget(cur_margin_label)
+    main_layout.addWidget(cur_group)
+
+
+def _add_drive_candidate_card(
+    window,
+    scroll_layout,
+    *,
+    current_shape,
+    candidate_drive,
+    score,
+    margin,
+    weights,
+    used_by,
+    replace_callback,
+):
+    quality = candidate_drive.get("quality", "Gold")
+    uid = candidate_drive.get("uid", "")
+    grade = (
+        window._calc_grade(score, window._shape_areas.get(current_shape, 3))
+        if hasattr(window, "_calc_grade")
+        else "-"
+    )
+    card_container = QWidget()
+    card_layout = QVBoxLayout(card_container)
+    card_layout.setContentsMargins(0, 0, 0, 0)
+    card_layout.setSpacing(4)
+    if hasattr(window, "_equip_card"):
+        card_layout.addWidget(
+            window._equip_card(
+                candidate_drive.get("shape_id", ""),
+                "",
+                candidate_drive.get("sub_stats", {}),
+                candidate_drive.get("shape_id", ""),
+                candidate_drive.get("uid", ""),
+                weights,
+                (score, grade),
+                quality,
+            )
+        )
+    else:
+        card_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
+
+    replace_btn = QPushButton("替换")
+    replace_btn.setObjectName("btnAction")
+    replace_btn.clicked.connect(lambda checked=False, drive=candidate_drive: replace_callback(drive))
+    action_row = QHBoxLayout()
+    margin_label = QLabel(f"直伤收益: {margin:+.2f}%")
+    margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
+    action_row.addWidget(margin_label)
+    action_row.addStretch()
+    action_row.addWidget(replace_btn)
+    card_layout.addLayout(action_row)
+
+    if used_by:
+        user_label = QLabel(f"使用者: {', '.join(used_by)}")
+        user_label.setStyleSheet("color: #ff9800; font-size: 12px;")
+        card_layout.addWidget(user_label)
+
+    scroll_layout.addWidget(card_container)
+
+
+def _show_tape_optimization(
+        window,
+        role_name,
+        current_tape,
+        weights,
+        on_save_refresh_callback,
+):
+    """卡带替换弹窗。"""
+    role_data = window._my_role_form_data.get(role_name, {})
+    user_map = _equipment_user_map(load_my_roles(), role_name, "tape")
+    final = _build_tape_replacement_candidates(window, role_name, current_tape, weights, role_data, user_map)
+    if final is None:
+        QMessageBox.warning(window, "错误", "real_inventory.json 不存在或格式错误")
+        return
+
+    current_uid = current_tape.get("uid", "")
+    current_set = current_tape.get("set_name", "")
 
     if not final:
         QMessageBox.information(window, "替换", "没有可替换的同套装卡带")
@@ -629,34 +715,7 @@ def _show_tape_optimization(
     scroll_layout = QVBoxLayout(scroll_widget)
 
     def _replace_tape(new_tape, raw_item):
-        new_tape["is_changed"] = True
-        role_data["tape"] = new_tape
-        role_data["set_bonus"] = set_bonus_from_tape_source(new_tape)
-        dirty_equipment_roles = {role_name}
-        new_uid = new_tape.get("uid", "")
-
-        if new_uid in user_map:
-            for other_role in user_map[new_uid]:
-                other_role_data = window._my_role_form_data.get(other_role, {})
-                old_tape = other_role_data.get("tape", {})
-                if isinstance(old_tape, dict) and old_tape.get("uid") == new_uid:
-                    other_role_data["tape"] = {
-                        "uid": f"empty_{new_uid}",
-                        "display_name": "空卡带",
-                        "shape_id": "TAPE_15",
-                        "set_name": old_tape.get("set_name", ""),
-                        "quality": "Gold",
-                        "main_stats": {},
-                        "sub_stats": {},
-                        "is_changed": True,
-                    }
-                    other_role_data["set_bonus"] = {"display_name": "", "skill": {}, "skill_2": {}, "skill_cover": 0.8}
-                    dirty_equipment_roles.add(other_role)
-
-        if not hasattr(window, "_my_role_equipment_dirty_roles"):
-            window._my_role_equipment_dirty_roles = set()
-        window._my_role_equipment_dirty_roles.update(dirty_equipment_roles)
-
+        _apply_tape_replacement(window, role_name, role_data, new_tape, user_map)
         dlg.accept()
         on_save_refresh_callback()
         refresh_drive_detail_content(window)
@@ -717,242 +776,74 @@ def _show_drive_optimization(
         on_save_refresh_callback,
 ):
     """驱动优化替换弹窗"""
-    all_drives = load_real_inventory()
-    if not all_drives:
+    role_data = window._my_role_form_data.get(role_name, {})
+    options = build_drive_replacement_options(
+        role_name=role_name,
+        role_data=role_data,
+        current_drive=current_drive,
+        inventory=load_real_inventory(),
+        my_roles_data=load_my_roles(),
+        weights=weights,
+        score_drive=getattr(window, "_score_drive_dict", None),
+    )
+    if options is None:
         QMessageBox.warning(window, "错误", "real_inventory.json 不存在或格式错误")
         return
 
-    my_roles_data = load_my_roles()
-    user_map = {}
-    for rn, rdata in my_roles_data.items():
-        if rn == role_name:
-            continue
-        drives = rdata.get("drive", {}).get("drives", [])
-        for d in drives:
-            uid = d.get("uid")
-            if uid:
-                if uid not in user_map:
-                    user_map[uid] = []
-                user_map[uid].append(rn)
-
-    current_shape = current_drive.get("shape_id", "")
-    current_uid = current_drive.get("uid", "")
-
-    role_data = window._my_role_form_data.get(role_name, {})
-    equipped_drives = role_data.get("drive", {}).get("drives", [])
-    equipped_uids = {d.get("uid", "") for d in equipped_drives}
-
-    if hasattr(window, "_score_drive_dict"):
-        current_score = window._score_drive_dict(
-            current_drive.get("sub_stats", {}),
-            current_shape,
-            weights,
-            current_drive.get("quality", "Gold")
-        )
-    else:
-        current_score = 0
-
-    # 计算当前驱动的直伤收益
-    current_margin = _calc_single_drive_margin(role_data, current_drive)
-
-    candidates = []
-    for d in all_drives:
-        if d.get("shape_id") == current_shape and d.get("uid") not in equipped_uids and d.get("uid") != current_uid:
-            candidates.append(d)
-
-    if not candidates:
+    if not options.candidates:
         QMessageBox.information(window, "优化", "没有可替换的驱动")
         return
 
-    candidate_scores = []
-    for d in candidates:
-        score = window._score_drive_dict(
-            d.get("sub_stats", {}),
-            d.get("shape_id", ""),
-            weights,
-            d.get("quality", "Gold")
-        )
-        candidate_scores.append((score, d))
-
-    candidate_scores.sort(key=lambda x: x[0], reverse=True)
-
-    final = list(candidate_scores[:20])
-    unassigned_count = sum(1 for _, d in final if d.get("uid", "") not in user_map)
-    if unassigned_count < 3:
-        for s, d in candidate_scores[20:]:
-            if d.get("uid", "") not in user_map:
-                final.append((s, d))
-                unassigned_count += 1
-                if unassigned_count >= 3:
-                    break
-
-    if not final:
-        QMessageBox.information(window, "优化", "没有更好的驱动（或符合条件）")
-        return
-
     def _replace_drive(new_drive):
-        drives_list = role_data["drive"]["drives"]
-        idx = next((i for i, d in enumerate(drives_list) if d.get("uid") == current_uid), None)
-        if idx is None:
+        plan = build_drive_replacement_plan(role_name, options.current_uid, new_drive, options.user_map)
+        applied, dirty_roles = apply_drive_replacement_plan(window._my_role_form_data, role_data, plan)
+        if not applied:
             QMessageBox.warning(window, "替换失败", "当前驱动已不存在，请刷新后重试。")
             return
-        dirty_equipment_roles = {role_name}
-        new_entry = {
-            "uid": new_drive["uid"],
-            "shape_id": new_drive["shape_id"],
-            "sub_stats": new_drive["sub_stats"],
-            "quality": new_drive.get("quality", "Gold"),
-            "is_changed": True,
-            "display_name": f"{new_drive['shape_id']}-" + "|".join(
-                f"{k}_{v}" for k, v in new_drive["sub_stats"].items()
-            )
-        }
-        drives_list[idx] = new_entry
-
-        new_uid = new_drive["uid"]
-        if new_uid in user_map:
-            for other_role in user_map[new_uid]:
-                other_drives = window._my_role_form_data.get(other_role, {}).get("drive", {}).get("drives", [])
-                for i, od in enumerate(other_drives):
-                    if od.get("uid") == new_uid:
-                        empty_drive = {
-                            "uid": f"empty_{new_uid}",
-                            "shape_id": od.get("shape_id", ""),
-                            "sub_stats": {},
-                            "quality": "Gold",
-                            "is_changed": True,
-                            "display_name": f"{od.get('shape_id', '')}-(空)"
-                        }
-                        other_drives[i] = empty_drive
-                        dirty_equipment_roles.add(other_role)
-                        break
         if not hasattr(window, "_my_role_equipment_dirty_roles"):
             window._my_role_equipment_dirty_roles = set()
-        window._my_role_equipment_dirty_roles.update(dirty_equipment_roles)
-
+        window._my_role_equipment_dirty_roles.update(dirty_roles)
         dlg.accept()
         on_save_refresh_callback()
         refresh_drive_detail_content(window)
 
     # ---------- 构建弹窗 ----------
     dlg = QDialog(window)
-    dlg.setWindowTitle(f"优化替换 - {current_shape}")
+    dlg.setWindowTitle(f"优化替换 - {options.current_shape}")
     dlg.resize(850, 650)
     main_layout = QVBoxLayout(dlg)
 
-    # 当前驱动
-    cur_group = QGroupBox("当前驱动")
-    cur_layout = QVBoxLayout(cur_group)
-    if hasattr(window, "_equip_card"):
-        cur_card = window._equip_card(
-            current_shape,
-            "",
-            current_drive.get("sub_stats", {}),
-            current_shape,
-            current_uid,
-            weights,
-            (current_score,
-             window._calc_grade(current_score, window._shape_areas.get(current_shape, 3)) if hasattr(window,
-                                                                                                     "_calc_grade") else "-"),
-            current_drive.get("quality", "Gold")
-        )
-        cur_layout.addWidget(cur_card)
-    else:
-        cur_layout.addWidget(QLabel(f"UID: {current_uid} Score: {current_score:.2f}"))
-
-    # 当前驱动的直伤收益
-    cur_margin_label = QLabel(f"直伤收益: {current_margin:+.2f}%")
-    cur_margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px; margin-top: 4px;")
-    cur_layout.addWidget(cur_margin_label)
-
-    main_layout.addWidget(cur_group)
+    _add_current_drive_section(
+        window,
+        main_layout,
+        options.current_shape,
+        options.current_uid,
+        current_drive,
+        weights,
+        options.current_score,
+        options.current_margin,
+    )
 
     # 候选驱动
-    cand_group = QGroupBox(f"可替换驱动 ({len(final)})")
+    cand_group = QGroupBox(f"可替换驱动 ({len(options.candidates)})")
     cand_layout = QVBoxLayout(cand_group)
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll_widget = QWidget()
     scroll_layout = QVBoxLayout(scroll_widget)
 
-    for score, d in final:
-        quality = d.get("quality", "Gold")
-        uid = d.get("uid", "")
-        grade = window._calc_grade(score, window._shape_areas.get(current_shape, 3)) if hasattr(window,
-                                                                                                "_calc_grade") else "-"
-
-        # ---- 计算该候选驱动的直伤收益 ----
-        # 1. 用新驱动替换当前驱动后的角色数据（只使用有效驱动）
-        sim_role_data = {k: v for k, v in role_data.items() if k != "drive"}
-        bp = role_data.get("drive", {}).get("blueprint_layout", [])
-        # 获取当前有效驱动（排除空驱动）
-        current_valid_drives = get_valid_drives(equipped_drives)
-        # 移除当前驱动（如果当前驱动有效）
-        sim_drives = [drive for drive in current_valid_drives if drive.get("uid") != current_uid]
-        # 添加候选驱动（候选驱动肯定不是空驱动）
-        sim_drives.append({
-            "uid": d["uid"],
-            "shape_id": d["shape_id"],
-            "sub_stats": d["sub_stats"],
-            "quality": d.get("quality", "Gold"),
-        })
-        sim_role_data["drive"] = {"drives": sim_drives, "blueprint_layout": bp}
-
-        # 2. 包含该候选驱动的伤害
-        stats_with = get_character_total_stats(sim_role_data)
-        damage_with = calc_base_damage(stats_with)
-
-        # 3. 排除该候选驱动后的伤害
-        exclude_drive_data = {k: v for k, v in sim_role_data.items() if k != "drive"}
-        candidate_uid = d["uid"]
-        exclude_drives = [drive for drive in sim_drives if drive.get("uid") != candidate_uid]
-        exclude_drive_data["drive"] = {"drives": exclude_drives, "blueprint_layout": bp}
-        stats_without = get_character_total_stats(exclude_drive_data)
-        damage_without = calc_base_damage(stats_without)
-
-        if damage_without == 0:
-            sim_margin = 0.0
-        else:
-            sim_margin = (damage_with / damage_without - 1) * 100
-
-        # 创建卡片容器...
-        card_container = QWidget()
-        card_layout = QVBoxLayout(card_container)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(4)
-
-        if hasattr(window, "_equip_card"):
-            card = window._equip_card(
-                d.get("shape_id", ""),
-                "",
-                d.get("sub_stats", {}),
-                d.get("shape_id", ""),
-                d.get("uid", ""),
-                weights,
-                (score, grade),
-                quality,
-            )
-            card_layout.addWidget(card)
-        else:
-            card_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
-
-        replace_btn = QPushButton("替换")
-        replace_btn.setObjectName("btnAction")
-        replace_btn.clicked.connect(lambda checked=False, nd=d: _replace_drive(nd))
-        action_row = QHBoxLayout()
-        margin_label = QLabel(f"直伤收益: {sim_margin:+.2f}%")
-        margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
-        action_row.addWidget(margin_label)
-        action_row.addStretch()
-        action_row.addWidget(replace_btn)
-        card_layout.addLayout(action_row)
-
-        if uid in user_map:
-            user_label = QLabel(f"使用者: {', '.join(user_map[uid])}")
-            user_label.setStyleSheet("color: #ff9800; font-size: 12px;")
-            card_layout.addWidget(user_label)
-
-        scroll_layout.addWidget(card_container)
+    for candidate in options.candidates:
+        _add_drive_candidate_card(
+            window,
+            scroll_layout,
+            current_shape=options.current_shape,
+            candidate_drive=candidate.drive,
+            score=candidate.score,
+            margin=candidate.margin,
+            weights=weights,
+            used_by=candidate.used_by,
+            replace_callback=_replace_drive,
+        )
 
     scroll_layout.addStretch()
     scroll.setWidget(scroll_widget)
