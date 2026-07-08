@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from src.app import runtime
+from src.app.theme import current_theme_name
 
 
 class PuzzleBoardWidget(QWidget):
@@ -43,6 +44,7 @@ class PuzzleBoardWidget(QWidget):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        is_light = current_theme_name() == "light"
         rows, cols = len(self.matrix), len(self.matrix[0])
         for row in range(rows):
             for col in range(cols):
@@ -50,26 +52,39 @@ class PuzzleBoardWidget(QWidget):
                 rect = QRect(x + 1, y + 1, self.cell_size - 2, self.cell_size - 2)
                 cell = str(self.matrix[row][col]) if row < rows and col < len(self.matrix[row]) else "0"
                 if cell in ("XX", "-1"):
-                    painter.setPen(QPen(QColor("#da3633"), 1))
-                    painter.setBrush(QColor(218, 54, 51, 40))
+                    border = QColor("#cf222e" if is_light else "#da3633")
+                    fill = QColor(255, 235, 233, 210) if is_light else QColor(218, 54, 51, 40)
+                    painter.setPen(QPen(border, 1.4 if is_light else 1))
+                    painter.setBrush(fill)
                     painter.drawRoundedRect(rect, 4, 4)
-                    painter.setPen(QColor("#da3633"))
+                    painter.setPen(border)
                     painter.setFont(QFont("Microsoft YaHei UI", 8, QFont.Bold))
                     painter.drawText(rect, Qt.AlignCenter, "✕")
                 elif cell in ("0", "0.0"):
-                    painter.setPen(QPen(QColor("#21262d"), 1))
-                    painter.setBrush(QColor(13, 17, 23, 120))
+                    painter.setPen(QPen(QColor("#d0d7de" if is_light else "#21262d"), 1.2 if is_light else 1))
+                    painter.setBrush(QColor(246, 248, 250, 180) if is_light else QColor(13, 17, 23, 120))
                     painter.drawRoundedRect(rect, 4, 4)
                 else:
                     hue = self.SHAPE_HUE.get(cell, abs(hash(cell)) % 360)
-                    color = QColor.fromHsl(hue, 180, 128)
-                    border = QColor.fromHsl(hue, 220, 160)
-                    painter.setPen(QPen(border, 1.5))
-                    painter.setBrush(QColor(color.red(), color.green(), color.blue(), 100))
+                    if is_light:
+                        color = QColor.fromHsl(hue, 185, 220)
+                        border = QColor.fromHsl(hue, 210, 135)
+                        text_color = QColor.fromHsl(hue, 220, 70)
+                        painter.setPen(QPen(border, 1.4))
+                        painter.setBrush(QColor(color.red(), color.green(), color.blue(), 215))
+                    else:
+                        color = QColor.fromHsl(hue, 180, 128)
+                        border = QColor.fromHsl(hue, 220, 160)
+                        text_color = border
+                        painter.setPen(QPen(border, 1.5))
+                        painter.setBrush(QColor(color.red(), color.green(), color.blue(), 100))
                     painter.drawRoundedRect(rect, 4, 4)
-                    painter.setPen(border)
                     painter.setFont(QFont("Microsoft YaHei UI", 7, QFont.Bold))
                     label = cell.replace("L_3_", "").replace("Trap_4_", "").replace("TAPE_", "T")
+                    if is_light:
+                        painter.setPen(QColor(255, 255, 255, 180))
+                        painter.drawText(rect.adjusted(1, 1, 1, 1), Qt.AlignCenter, label)
+                    painter.setPen(text_color)
                     painter.drawText(rect, Qt.AlignCenter, label)
 
 
