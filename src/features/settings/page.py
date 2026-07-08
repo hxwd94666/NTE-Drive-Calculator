@@ -15,13 +15,15 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
     QKeySequenceEdit,
 )
 
-from src.app.constants import NETDISK_DOWNLOAD_LINKS
+from src.app.constants import BILIBILI_HOME_URL, NETDISK_DOWNLOAD_LINKS
+from src.app.theme import THEME_LABELS, themed_style
 
 
 def _normalize_netdisk_links(netdisk_links=None):
@@ -55,14 +57,22 @@ def _move_card_title_to_row(card, title, button):
 
 def build_settings_page(window, app_version, get_paths, iter_image_files, netdisk_links=None):
     page = QWidget()
+    page.setObjectName("settingsPage")
     scroll = QScrollArea()
+    scroll.setObjectName("settingsScroll")
     scroll.setWidgetResizable(True)
     scroll.setWidget(page)
+    scroll.setStyleSheet(
+        themed_style(
+            "QScrollArea#settingsScroll{background:#0d1117;border:none}"
+            "QWidget#settingsPage{background:#0d1117}"
+        )
+    )
     layout = QVBoxLayout(page)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(16)
 
-    log_card = window._card("运行日志设置")
+    log_card = window._card("工具设置")
     log_row = QHBoxLayout()
     log_row.addWidget(QLabel("实时日志输出:"))
     log_toggle = QCheckBox("启用运行日志")
@@ -71,6 +81,34 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     log_row.addWidget(log_toggle)
     log_row.addStretch()
     log_card.layout().addLayout(log_row)
+
+    theme_row = QHBoxLayout()
+    theme_row.addWidget(QLabel("主题颜色:"))
+    current_theme = (getattr(window, "_ui_preferences", {}) or {}).get("theme", "dark")
+    dark_radio = QRadioButton(THEME_LABELS["dark"])
+    black_radio = QRadioButton(THEME_LABELS["black"])
+    light_radio = QRadioButton(THEME_LABELS["light"])
+    theme_radios = {"dark": dark_radio, "black": black_radio, "light": light_radio}
+    current_radio = theme_radios.get(current_theme, dark_radio)
+    current_radio.setChecked(True)
+
+    def select_theme(theme: str):
+        if window._set_theme_preference(theme):
+            return
+        active_theme = (getattr(window, "_ui_preferences", {}) or {}).get("theme", "dark")
+        for value, radio in theme_radios.items():
+            radio.blockSignals(True)
+            radio.setChecked(value == active_theme)
+            radio.blockSignals(False)
+
+    dark_radio.toggled.connect(lambda checked: checked and select_theme("dark"))
+    black_radio.toggled.connect(lambda checked: checked and select_theme("black"))
+    light_radio.toggled.connect(lambda checked: checked and select_theme("light"))
+    theme_row.addWidget(dark_radio)
+    theme_row.addWidget(black_radio)
+    theme_row.addWidget(light_radio)
+    theme_row.addStretch()
+    log_card.layout().addLayout(theme_row)
     layout.addWidget(log_card)
 
     hotkey_card = window._card("快捷键绑定")
@@ -123,6 +161,12 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     window._check_update_btn.clicked.connect(lambda: window._check_updates(manual=True))
     home_btn = QPushButton("GitHub 主页")
     home_btn.clicked.connect(window._open_update_homepage)
+    bilibili_btn = QPushButton("B站主页")
+    bilibili_btn.clicked.connect(
+        window._open_bilibili_homepage
+        if hasattr(window, "_open_bilibili_homepage")
+        else lambda: window._open_url(BILIBILI_HOME_URL)
+    )
     netdisk_btn = QPushButton("网盘下载")
     netdisk_options = _normalize_netdisk_links(netdisk_links)
     netdisk_btn.clicked.connect(
@@ -133,6 +177,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     update_row.addWidget(window._check_update_btn)
     update_row.addWidget(netdisk_btn)
     update_row.addWidget(home_btn)
+    update_row.addWidget(bilibili_btn)
     update_row.addStretch()
     update_card.layout().addLayout(update_row)
     layout.addWidget(update_card)
@@ -184,13 +229,17 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     thanks_row.setSpacing(8)
     thanks_name = QLabel("异环工坊")
     thanks_name.setStyleSheet(
-        "color:#58a6ff;font-weight:700;background:#0d1f35;"
-        "border:1px solid #1f6feb;border-radius:6px;padding:5px 10px"
+        themed_style(
+            "color:#58a6ff;font-weight:700;background:#0d1f35;"
+            "border:1px solid #1f6feb;border-radius:6px;padding:5px 10px"
+        )
     )
     thanks_desc = QLabel("提供角色评分标准与词条权重参考")
     thanks_desc.setStyleSheet(
-        "color:#c9d1d9;background:#161b22;"
-        "border:1px solid #30363d;border-radius:6px;padding:5px 10px"
+        themed_style(
+            "color:#c9d1d9;background:#161b22;"
+            "border:1px solid #30363d;border-radius:6px;padding:5px 10px"
+        )
     )
     thanks_row.addWidget(thanks_name)
     thanks_row.addWidget(thanks_desc)
