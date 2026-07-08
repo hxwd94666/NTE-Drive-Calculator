@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox, QCompleter, QFileDialog, QMessageBox
 
 from src.app import runtime
-from src.app.theme import STYLE
+from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.features.identification.page import build_identify_page, build_identify_result_row, parse_identify_paths, refresh_identify_previews, render_identify_result_page, show_identify_preview_image
 from src.features.identification.temp_files import cleanup_identify_clipboard_files, is_identify_clipboard_file
@@ -147,7 +147,7 @@ def _refresh_identify_previews(self,*_):
     return refresh_identify_previews(self,self._identify_paths_from_text())
 
 def _show_identify_preview_image(self,path:Path):
-    return show_identify_preview_image(self,path,STYLE)
+    return show_identify_preview_image(self,path,current_style_sheet())
 
 def _remove_identify_preview_path(self,path:Path):
     paths=[p for p in self._identify_paths_from_text() if p!=path]
