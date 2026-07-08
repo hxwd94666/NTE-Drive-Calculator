@@ -65,8 +65,8 @@ def set_log_dir(path: str | Path) -> None:
     new_dir.mkdir(parents=True, exist_ok=True)
     try:
         logger.remove(_file_sink_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"切换日志目录时移除旧日志 sink 失败，继续添加新 sink: {exc}\n")
     LOG_DIR = new_dir
     _file_sink_id = logger.add(
         str(LOG_DIR / "nte_runtime.log"),
