@@ -15,6 +15,9 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLabel, QTextEdit, QVBoxLayout
 
+from src.app.theme import themed_style
+from src.utils.logger import logger
+
 UPDATE_FAILURE_NETDISK_MESSAGE = "GitHub请求失败，可前往网盘链接查看版本更新情况"
 UPDATE_FALLBACK_MESSAGE = "GitHub API 请求失败，已通过 Release 页面获取版本号。"
 UPDATE_CHECK_TIMEOUT_SECONDS = 2
@@ -55,8 +58,8 @@ def load_update_config(user_config_dir: Path) -> dict:
                         "ignored_version": str(data.get("ignored_version", "") or ""),
                     }
                 )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(f"读取更新提醒配置失败，使用默认提醒设置: {path} | {exc}")
     return default
 
 
@@ -275,7 +278,7 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -
     layout.addWidget(title)
 
     subtitle = QLabel(f"当前版本: {app_version}")
-    subtitle.setStyleSheet("color:#8b949e")
+    subtitle.setStyleSheet(themed_style("color:#8b949e"))
     layout.addWidget(subtitle)
 
     notes = QTextEdit()
@@ -291,7 +294,7 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -
     link.setTextFormat(Qt.RichText)
     link.setOpenExternalLinks(True)
     link.setTextInteractionFlags(Qt.TextBrowserInteraction)
-    link.setStyleSheet("color:#8b949e;font-size:12px")
+    link.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     layout.addWidget(link)
 
     never_cb = QCheckBox("永不提醒")
