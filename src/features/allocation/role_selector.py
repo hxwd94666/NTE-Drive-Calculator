@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
+from src.app.theme import current_theme_name, themed_style
 from src.features.allocation.priority_groups import (
     cycle_priority_link,
     links_to_priority_groups,
@@ -200,7 +201,7 @@ class RoleSelector(QWidget):
         layout.addLayout(search_row)
 
         tip = QLabel("点击选择角色，选中顺序即优先级；重置只影响当前界面，恢复会读取已保存配置。")
-        tip.setStyleSheet("color:#8b949e;font-size:11px;border:none")
+        tip.setStyleSheet(themed_style("color:#8b949e;font-size:11px;border:none"))
         layout.addWidget(tip)
 
         self.roles_scroll = QScrollArea()
@@ -292,7 +293,7 @@ class RoleSelector(QWidget):
         ]
         if not visible_indexes:
             empty = QLabel("未选择角色")
-            empty.setStyleSheet("color:#8b949e;border:none;font-size:12px")
+            empty.setStyleSheet(themed_style("color:#8b949e;border:none;font-size:12px"))
             self.priority_layout.addWidget(empty, 0, 0)
             return
         for visible_pos, index in enumerate(visible_indexes):
@@ -305,8 +306,10 @@ class RoleSelector(QWidget):
             item = QFrame()
             item.setFixedSize(self._priority_role_frame_width(name), 40)
             item.setStyleSheet(
-                "QFrame{background:#161b22;border:1px solid #30363d;border-radius:7px}"
-                "QFrame:hover{border-color:#58a6ff;background:#1f6feb22}"
+                themed_style(
+                    "QFrame{background:#161b22;border:1px solid #30363d;border-radius:7px}"
+                    "QFrame:hover{border-color:#58a6ff;background:#1f6feb22}"
+                )
             )
             item_layout = QHBoxLayout(item)
             item_layout.setContentsMargins(6, 5, 6, 5)
@@ -318,9 +321,11 @@ class RoleSelector(QWidget):
             name_btn.setFixedWidth(self._priority_role_name_width())
             name_size = self._priority_role_name_font_size(name)
             name_btn.setStyleSheet(
-                "QPushButton{background:transparent;color:#c9d1d9;border:none;"
-                f"padding:3px 5px;font-size:{name_size}px;font-weight:700;text-align:left}}"
-                "QPushButton:hover{color:#fff}"
+                themed_style(
+                    "QPushButton{background:transparent;color:#c9d1d9;border:none;"
+                    f"padding:3px 5px;font-size:{name_size}px;font-weight:700;text-align:left}}"
+                    "QPushButton:hover{color:#fff}"
+                )
             )
             item_layout.addWidget(name_btn)
 
@@ -342,10 +347,23 @@ class RoleSelector(QWidget):
                 link_btn.setFixedWidth(42)
                 link_btn.setObjectName("btnAction")
                 if link_text == ">>":
+                    if current_theme_name() == "light":
+                        link_btn.setStyleSheet(
+                            "QPushButton{color:#cf222e;border:1px solid #cf222e;"
+                            "background:#ffffff;border-radius:6px;font-weight:700}"
+                            "QPushButton:hover{background:#fff5f5;border-color:#cf222e}"
+                        )
+                    else:
+                        link_btn.setStyleSheet(
+                            "QPushButton{color:#ff7b72;border:1px solid #f85149;"
+                            "background:#2d1117;border-radius:6px;font-weight:700}"
+                            "QPushButton:hover{background:#3c151c;border-color:#ff7b72}"
+                        )
+                elif current_theme_name() == "light":
                     link_btn.setStyleSheet(
-                        "QPushButton{color:#ff7b72;border:1px solid #f85149;"
-                        "background:#2d1117;border-radius:6px;font-weight:700}"
-                        "QPushButton:hover{background:#3c151c;border-color:#ff7b72}"
+                        "QPushButton{color:#0969da;border:1px solid #0969da;"
+                        "background:#ffffff;border-radius:6px;font-weight:700}"
+                        "QPushButton:hover{background:#f6f8fa;border-color:#0969da}"
                     )
                 link_btn.setToolTip(">：严格优先；>>：批次边界；=：同批次平级。点击循环切换。")
                 link_btn.clicked.connect(lambda _checked=False, pos=index: self._cycle_priority_link(pos))
@@ -358,7 +376,7 @@ class RoleSelector(QWidget):
         card = QFrame()
         card.setFixedSize(96, 34)
         card.setCursor(Qt.PointingHandCursor)
-        card.setStyleSheet(self._CARD_SEL if selected else self._CARD_OFF)
+        card.setStyleSheet(themed_style(self._CARD_SEL if selected else self._CARD_OFF))
 
         layout = QHBoxLayout(card)
         layout.setContentsMargins(7, 4, 7, 4)
@@ -366,7 +384,7 @@ class RoleSelector(QWidget):
 
         name_label = QLabel(name)
         name_label.setAlignment(Qt.AlignCenter)
-        name_label.setStyleSheet("font-size:12px;font-weight:700;border:none;background:transparent;color:#c9d1d9")
+        name_label.setStyleSheet(themed_style("font-size:12px;font-weight:700;border:none;background:transparent;color:#c9d1d9"))
         layout.addWidget(name_label, 1)
 
         card.mousePressEvent = lambda event, role=name: self._toggle(role)
@@ -474,6 +492,69 @@ class RoleSelector(QWidget):
             combo.setCurrentIndex(-1)
             combo.setEditText("")
 
+    def _make_selected_summary_label(self):
+        label = QLabel()
+        label.setWordWrap(True)
+        label.setMinimumHeight(32)
+        label.setMinimumWidth(150)
+        if current_theme_name() == "light":
+            label.setStyleSheet(
+                "color:#24292f;font-size:13px;border:1px solid #d0d7de;border-radius:6px;"
+                "background:#f6f8fa;padding:4px 7px"
+            )
+        else:
+            label.setStyleSheet(
+                "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
+                "background:#0f3d2e;padding:4px 7px"
+            )
+        return label
+
+    def _refresh_selected_summary_label(self, label: QLabel, selected: list[str], separator: str):
+        text = "Default" if not selected else separator.join(selected)
+        label.setText(text)
+        label.setToolTip(text)
+
+    def _build_multi_select_row(self, title: str, choices: list[str], selected: list[str], separator: str):
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(3)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(QLabel(title))
+        combo = SearchableComboBox()
+        self._fill_search_combo(combo, choices)
+        row.addWidget(combo, 1)
+
+        add_btn = QPushButton("添加")
+        add_btn.setObjectName("btnAction")
+        clear_btn = QPushButton("清空")
+        clear_btn.setObjectName("btnDanger")
+        row.addWidget(add_btn)
+        row.addWidget(clear_btn)
+
+        summary = self._make_selected_summary_label()
+        layout.addLayout(row)
+        layout.addWidget(summary)
+
+        def refresh_summary():
+            self._refresh_selected_summary_label(summary, selected, separator)
+
+        def add_choice():
+            value = combo.currentText().strip()
+            resolved = resolve_priority_choice(choices, value, combo.currentData())
+            if resolved in choices and resolved not in selected:
+                selected.append(resolved)
+                refresh_summary()
+            combo.setCurrentIndex(-1)
+            combo.setEditText("")
+
+        add_btn.clicked.connect(add_choice)
+        clear_btn.clicked.connect(lambda: (selected.clear(), refresh_summary()))
+        refresh_summary()
+        return box
+
     def _manage_role_preferences(self, name):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{name} · 管理")
@@ -512,48 +593,7 @@ class RoleSelector(QWidget):
         template_layout.setSpacing(5)
 
         selected_main_stats = list(self.tape_main_filters.get(name, []))
-        main_box = QWidget()
-        main_layout = QVBoxLayout(main_box)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(3)
-        main_row = QHBoxLayout()
-        main_row.setSpacing(6)
-        main_row.addWidget(QLabel("卡带主词条："))
-        main_combo = SearchableComboBox()
-        self._fill_search_combo(main_combo, self.tape_main_stats)
-        main_row.addWidget(main_combo, 1)
-        add_main_btn = QPushButton("添加")
-        add_main_btn.setObjectName("btnAction")
-        clear_main_btn = QPushButton("清空")
-        clear_main_btn.setObjectName("btnDanger")
-        main_row.addWidget(add_main_btn)
-        main_row.addWidget(clear_main_btn)
-        main_label = QLabel()
-        main_label.setWordWrap(True)
-        main_label.setMinimumHeight(32)
-        main_label.setMinimumWidth(150)
-        main_label.setStyleSheet(
-            "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
-            "background:#0f3d2e;padding:4px 7px"
-        )
-        main_layout.addLayout(main_row)
-        main_layout.addWidget(main_label)
-
-        def refresh_main_label():
-            text = "Default" if not selected_main_stats else "、".join(selected_main_stats)
-            main_label.setText(text)
-            main_label.setToolTip(text)
-
-        def add_main_stat():
-            value = main_combo.currentText().strip()
-            resolved = resolve_priority_choice(self.tape_main_stats, value, main_combo.currentData())
-            if resolved in self.tape_main_stats and resolved not in selected_main_stats:
-                selected_main_stats.append(resolved)
-                refresh_main_label()
-
-        add_main_btn.clicked.connect(add_main_stat)
-        clear_main_btn.clicked.connect(lambda: (selected_main_stats.clear(), refresh_main_label()))
-        refresh_main_label()
+        main_box = self._build_multi_select_row("卡带主词条：", self.tape_main_stats, selected_main_stats, "、")
         template_layout.addWidget(main_box)
 
         current_stat_cfg = (
@@ -562,36 +602,11 @@ class RoleSelector(QWidget):
             else {}
         )
         selected_stats = [s for s in list(current_stat_cfg.get("stats", []) or []) if s in self.drive_sub_stats]
-        stat_box = QWidget()
-        stat_layout = QVBoxLayout(stat_box)
-        stat_layout.setContentsMargins(0, 0, 0, 0)
-        stat_layout.setSpacing(3)
-        stat_row = QHBoxLayout()
-        stat_row.setSpacing(6)
-        stat_row.addWidget(QLabel("卡带/驱动副词条："))
-        stat_combo = SearchableComboBox()
-        self._fill_search_combo(stat_combo, self.drive_sub_stats)
-        stat_row.addWidget(stat_combo, 1)
-        add_stat_btn = QPushButton("添加")
-        add_stat_btn.setObjectName("btnAction")
-        clear_stat_btn = QPushButton("清空")
-        clear_stat_btn.setObjectName("btnDanger")
-        stat_row.addWidget(add_stat_btn)
-        stat_row.addWidget(clear_stat_btn)
+        stat_box = self._build_multi_select_row("卡带/驱动副词条：", self.drive_sub_stats, selected_stats, " > ")
+        stat_layout = stat_box.layout()
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
         help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
-
-        stat_label = QLabel()
-        stat_label.setWordWrap(True)
-        stat_label.setMinimumHeight(32)
-        stat_label.setMinimumWidth(150)
-        stat_label.setStyleSheet(
-            "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
-            "background:#0f3d2e;padding:4px 7px"
-        )
-        stat_layout.addLayout(stat_row)
-        stat_layout.addWidget(stat_label)
 
         stat_option_row = QHBoxLayout()
         stat_option_row.setSpacing(14)
@@ -606,24 +621,6 @@ class RoleSelector(QWidget):
         stat_option_row.addWidget(help_btn)
         stat_option_row.addStretch(1)
         stat_layout.addLayout(stat_option_row)
-
-        def refresh_stat_label():
-            text = "Default" if not selected_stats else " > ".join(selected_stats)
-            stat_label.setText(text)
-            stat_label.setToolTip(text)
-
-        def add_stat_priority():
-            value = stat_combo.currentText().strip()
-            resolved = resolve_priority_choice(self.drive_sub_stats, value, stat_combo.currentData())
-            if resolved in self.drive_sub_stats and resolved not in selected_stats:
-                selected_stats.append(resolved)
-                refresh_stat_label()
-            stat_combo.setCurrentIndex(-1)
-            stat_combo.setEditText("")
-
-        add_stat_btn.clicked.connect(add_stat_priority)
-        clear_stat_btn.clicked.connect(lambda: (selected_stats.clear(), refresh_stat_label()))
-        refresh_stat_label()
         template_layout.addWidget(stat_box)
         layout.addWidget(template_box)
 
