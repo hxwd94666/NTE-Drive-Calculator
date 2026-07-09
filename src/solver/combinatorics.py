@@ -1,3 +1,4 @@
+# 生成拼图填充和装备组合候选。
 """Shape combination generation used before board placement solving."""
 
 from typing import List, Dict

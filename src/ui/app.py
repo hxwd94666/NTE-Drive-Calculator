@@ -1,6 +1,7 @@
+# PySide6 主窗口入口和功能模块挂载。
 """NTE Drive Calc - PySide6 Desktop Application"""
 
-import sys, os, json, time, shutil, traceback, threading, ctypes, re
+import sys, os, threading, ctypes, subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,27 @@ else:
     ROOT = Path(__file__).resolve().parent.parent.parent
     APP_DIR = ROOT
 sys.path.insert(0, str(ROOT))
+
+from src.app import runtime
+from src.app.constants import (
+    ACCOUNT_USER_FILES,
+    APP_VERSION,
+    BILIBILI_HOME_URL,
+    CORE_CONFIG_FILES,
+    GITHUB_HOME_URL,
+    GITHUB_LATEST_RELEASE_API,
+    GITHUB_RELEASES_URL,
+    NETDISK_DOWNLOAD_LINKS,
+    QUARK_NETDISK_URL,
+)
+from src.app.theme import (
+    apply_app_theme,
+    current_style_sheet,
+    install_dialog_defaults,
+    refresh_inline_theme_styles,
+    theme_color,
+    theme_preference,
+)
 
 BUNDLED_CONFIG_DIR = ROOT / "config"
 ASSET_DIR = ROOT / "assets"
@@ -35,7 +57,6 @@ def _select_data_root() -> Path:
             continue
     raise RuntimeError("无法创建可写数据目录，请检查安装目录或用户权限。")
 
-
 DATA_ROOT = _select_data_root()
 CONFIG_DIR = DATA_ROOT / "config"
 ACCOUNTS_DIR = DATA_ROOT / "accounts"
@@ -49,177 +70,121 @@ OUTPUT_FILE = USER_CONFIG_DIR / "real_inventory.json"
 SCREENSHOT_DIR = ACCOUNT_DATA_ROOT / "scanned_images"
 LOG_DIR = ACCOUNT_DATA_ROOT / "logs"
 
-APP_VERSION = "1.1.0"
-GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
-GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/hxwd94666/NTE-Drive-Calc/releases/latest"
-GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
-CORE_CONFIG_FILES = ("roles.json", "sets.json", "shapes.json", "stats.json")
-USER_DATA_FILES = ("equipped_state.json", "real_inventory.json")
-ACCOUNT_USER_FILES = (
-    "equipped_state.json", "real_inventory.json", "priority_config.json",
-    "hotkeys.json", "update_config.json", "quick_start_seen.json", "guide_seen.json",
-    "ui_preferences.json",
+runtime.configure(
+    root=ROOT,
+    app_dir=APP_DIR,
+    data_root=DATA_ROOT,
+    bundled_config_dir=BUNDLED_CONFIG_DIR,
+    asset_dir=ASSET_DIR,
+    app_icon_path=APP_ICON_PATH,
 )
 
+def _apply_account_state(state):
+    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_CONFIG_DIR, OUTPUT_FILE, SCREENSHOT_DIR, LOG_DIR
+    ACTIVE_ACCOUNT_ID = state.active_account_id
+    ACTIVE_ACCOUNT_NAME = state.active_account_name
+    ACCOUNT_DATA_ROOT = state.account_data_root
+    USER_CONFIG_DIR = state.user_config_dir
+    OUTPUT_FILE = state.output_file
+    SCREENSHOT_DIR = state.screenshot_dir
+    LOG_DIR = state.log_dir
+    runtime.apply_account_state(state)
+
 def _safe_account_id(name: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", (name or "").strip()).strip("_")
-    return cleaned[:40] or f"account_{int(time.time())}"
+    return ACCOUNT_MANAGER.safe_account_id(name)
 
 def _read_accounts_index() -> dict:
-    if ACCOUNTS_INDEX_FILE.exists():
-        try:
-            with open(ACCOUNTS_INDEX_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict) and data.get("accounts"):
-                return data
-        except Exception:
-            pass
-    return {"active_account_id": "default", "accounts": [{"id": "default", "name": "默认账号"}]}
+    return ACCOUNT_MANAGER.read_index()
 
 def _write_accounts_index(data: dict) -> None:
-    ACCOUNTS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(ACCOUNTS_INDEX_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    ACCOUNT_MANAGER.write_index(data)
 
 def _account_meta(account_id: str | None = None) -> dict:
-    data = _read_accounts_index()
-    target = account_id or data.get("active_account_id") or "default"
-    for account in data.get("accounts", []):
-        if account.get("id") == target:
-            return account
-    return data.get("accounts", [{"id": "default", "name": "默认账号"}])[0]
+    return ACCOUNT_MANAGER.account_meta(account_id)
 
 def _account_dir(account_id: str) -> Path:
-    return ACCOUNTS_DIR / account_id
+    return ACCOUNT_MANAGER.account_dir(account_id)
 
 def _seed_user_config():
-    if BUNDLED_CONFIG_DIR.exists():
-        for fname in CORE_CONFIG_FILES:
-            dst = CONFIG_DIR / fname
-            src = BUNDLED_CONFIG_DIR / fname
-            if src.exists() and src.resolve() != dst.resolve():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(src), str(dst))
-
-        src_templates = BUNDLED_CONFIG_DIR / "templates"
-        if src_templates.exists() and src_templates.resolve() != TEMPLATE_DIR.resolve():
-            shutil.copytree(str(src_templates), str(TEMPLATE_DIR), dirs_exist_ok=True)
+    ACCOUNT_MANAGER.seed_user_config()
 
 def _seed_account_data(account_id: str, migrate_legacy: bool = False):
-    account_root = _account_dir(account_id)
-    account_config = account_root / "config"
-    for subdir in (account_config, account_root / "scanned_images", account_root / "logs"):
-        subdir.mkdir(parents=True, exist_ok=True)
-
-    legacy_config = DATA_ROOT / "config"
-    for fname in ACCOUNT_USER_FILES:
-        dst = account_config / fname
-        if dst.exists():
-            continue
-        src = legacy_config / fname if migrate_legacy else None
-        if src and src.exists() and src.resolve() != dst.resolve():
-            shutil.copy2(str(src), str(dst))
-            continue
-        if fname == "equipped_state.json":
-            dst.write_text("{}", encoding="utf-8")
-        elif fname == "real_inventory.json":
-            dst.write_text("[]", encoding="utf-8")
-
-    legacy_screenshots = DATA_ROOT / "scanned_images"
-    account_screenshots = account_root / "scanned_images"
-    if migrate_legacy and legacy_screenshots.exists() and not any(account_screenshots.iterdir()):
-        for file in _iter_image_files(legacy_screenshots):
-            try:
-                shutil.copy2(str(file), str(account_screenshots / file.name))
-            except Exception:
-                pass
+    ACCOUNT_MANAGER.seed_account_data(account_id, migrate_legacy=migrate_legacy)
 
 def _set_active_account(account_id: str):
-    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_CONFIG_DIR, OUTPUT_FILE, SCREENSHOT_DIR, LOG_DIR
-    data = _read_accounts_index()
-    account = next((a for a in data.get("accounts", []) if a.get("id") == account_id), None)
-    if not account:
-        account = {"id": "default", "name": "默认账号"}
-    ACTIVE_ACCOUNT_ID = account["id"]
-    ACTIVE_ACCOUNT_NAME = account.get("name") or account["id"]
-    ACCOUNT_DATA_ROOT = _account_dir(ACTIVE_ACCOUNT_ID)
-    USER_CONFIG_DIR = ACCOUNT_DATA_ROOT / "config"
-    OUTPUT_FILE = USER_CONFIG_DIR / "real_inventory.json"
-    SCREENSHOT_DIR = ACCOUNT_DATA_ROOT / "scanned_images"
-    LOG_DIR = ACCOUNT_DATA_ROOT / "logs"
-    _seed_account_data(ACTIVE_ACCOUNT_ID)
+    _apply_account_state(ACCOUNT_MANAGER.activate(account_id))
 
 def _initialize_accounts():
-    _seed_user_config()
-    data = _read_accounts_index()
-    ids = []
-    normalized = []
-    for account in data.get("accounts", []):
-        account_id = _safe_account_id(account.get("id") or account.get("name") or "default")
-        if account_id in ids:
-            continue
-        ids.append(account_id)
-        normalized.append({"id": account_id, "name": account.get("name") or account_id})
-    if not normalized:
-        normalized = [{"id": "default", "name": "默认账号"}]
-    active_id = data.get("active_account_id") if data.get("active_account_id") in ids else normalized[0]["id"]
-    data = {"active_account_id": active_id, "accounts": normalized}
-    _write_accounts_index(data)
-    _seed_account_data(active_id, migrate_legacy=(active_id == "default"))
-    _set_active_account(active_id)
+    _apply_account_state(ACCOUNT_MANAGER.initialize())
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QScrollArea, QStackedWidget, QFrame,
-    QTextEdit, QRadioButton, QButtonGroup, QLineEdit, QSpinBox,
-    QMessageBox, QComboBox, QCheckBox, QDialog, QDialogButtonBox,
-    QTabWidget, QGroupBox, QSizePolicy, QSizeGrip, QGridLayout,
-    QDoubleSpinBox, QInputDialog, QKeySequenceEdit, QFormLayout,
-    QProgressDialog, QFileDialog, QCompleter,
+    QPushButton, QLabel, QStackedWidget, QFrame,
+    QTextEdit, QMessageBox, QComboBox,
+    QSizeGrip,
 )
-from PySide6.QtCore import Qt, Signal, QThread, QSize, QRect, QPoint, QTimer, QEvent, QStringListModel
-from PySide6.QtGui import (
-    QFont, QColor, QPainter, QPen, QBrush, QTextCursor, QPixmap, QMouseEvent,
-    QKeySequence, QShortcut, QIcon, QPalette, QIntValidator, QStandardItem,
-    QStandardItemModel,
-)
+from PySide6.QtCore import Qt, Signal, QPoint, QTimer
+from PySide6.QtGui import QColor, QTextCursor, QIcon
 
-from src.scanner.batch_processor import BatchProcessor
-from src.scanner.drone_scanner import DroneScanner
-from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.features.scanning.file_lifecycle import (
+    build_screenshot_cleanup_plan,
+    execute_screenshot_cleanup,
+    iter_image_files as _iter_image_files,
+    managed_screenshot_usage,
+)
 from src.optimizer.state_manager import StateManager
 from src.optimizer.scoring import ScoringEngine
-from src.utils.logger import logger, set_log_dir
+from src.domain.stat_catalog import StatCatalog
+from src.storage.json_store import read_json, write_json
+from src.utils.logger import disable_session_log, enable_session_log, logger, set_log_dir
 from src.utils.name_resolver import resolve_name
-from src.models.equipment import Drive, Tape
+from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
+from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
+from src.features.settings.hotkeys import load_hotkey_config, save_hotkey_config
+from src.features.role.page import confirm_pending_my_role_changes
+from src.features.configuration.page import (
+    add_role as config_add_role,
+    add_set as config_add_set,
+    add_weight as config_add_weight,
+    build_config_page,
+    confirm_pending_config_changes as config_confirm_pending_config_changes,
+    config_add_item as config_add_config_item,
+    del_role as config_del_role,
+    del_set as config_del_set,
+    del_weight as config_del_weight,
+    refresh_config_forms as config_refresh_config_forms,
+    render_roles_form,
+    render_sets_form,
+    reset_config_form as config_reset_config_form,
+    save_config_data as config_save_config_data,
+    save_config_form as config_save_config_form,
+    save_role_board_cell as config_save_role_board_cell,
+    save_role_field as config_save_role_field,
+    save_role_weight_value as config_save_role_weight_value,
+    save_set_shapes as config_save_set_shapes,
+    save_single_extra_shape_buff as config_save_single_extra_shape_buff,
+    stat_choice_pool as config_stat_choice_pool,
+    switch_config_form as config_switch_config_form,
+)
+from src.features.settings.page import build_settings_page
+from src.features.settings.updates import (
+    fetch_update_info,
+    is_newer_version,
+    load_update_config,
+    save_update_config,
+    should_show_startup_update,
+    show_update_dialog,
+)
+from src.app.workers import WorkerThread
+from src.ui.main_window_mixins import FeatureMainWindowMixin
 
-GRADE_COLORS = {"ACE": "#ffa726", "SSS": "#ffa726", "SS": "#f0883e", "S": "#f0883e", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
-GRADE_BGS = {"ACE": "#ffa72630", "SSS": "#ffa72620", "SS": "#f0883e18", "S": "#f0883e18", "A": "#7ec8e318", "B": "#5b9bd515", "C": "#4a7fb512", "D": "#3d5a8010"}
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp"}
-FULL_SCAN_PREFIX = "raw_drive_"
-INCREMENTAL_PREFIXES = ("raw_drive_probe_", "raw_drive_new_", "raw_drive_semi_")
-AUTO_INCREMENTAL_PREFIXES = ("raw_drive_probe_", "raw_drive_new_")
-SEMI_INCREMENTAL_PREFIXES = ("raw_drive_semi_",)
-FAILED_SCREENSHOT_DIRNAME = "failed"
-FULL_SCAN_TEMP_DIRNAME = "temp"
-
-
-def _iter_image_files(path: Path):
-    if not path.exists():
-        return []
-    return [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in IMAGE_EXTS]
-
-
-def _iter_root_image_files(path: Path):
-    if not path.exists():
-        return []
-    return [f for f in path.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXTS]
-
-
-def _raw_drive_index(path: Path) -> int | None:
-    match = re.fullmatch(r"raw_drive_(\d+)", path.stem)
-    return int(match.group(1)) if match else None
-
+ACCOUNT_MANAGER = AccountManager(
+    DATA_ROOT,
+    BUNDLED_CONFIG_DIR,
+    _iter_image_files,
+    CORE_CONFIG_FILES,
+    ACCOUNT_USER_FILES,
+)
 
 _initialize_accounts()
 
@@ -230,7 +195,6 @@ def _is_admin():
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
-
 
 def _restart_as_admin():
     if sys.platform != "win32":
@@ -243,859 +207,12 @@ def _restart_as_admin():
     except Exception:
         return False
 
-
 def _ensure_admin():
     if _is_admin():
         return
     if _restart_as_admin():
         sys.exit(0)
     raise RuntimeError("需要管理员权限启动，请右键程序选择“以管理员身份运行”。")
-
-
-def _apply_dark_palette(app: QApplication):
-    palette = QPalette()
-    palette.setColor(QPalette.Window, QColor("#0d1117"))
-    palette.setColor(QPalette.WindowText, QColor("#c9d1d9"))
-    palette.setColor(QPalette.Base, QColor("#0d1117"))
-    palette.setColor(QPalette.AlternateBase, QColor("#161b22"))
-    palette.setColor(QPalette.ToolTipBase, QColor("#161b22"))
-    palette.setColor(QPalette.ToolTipText, QColor("#c9d1d9"))
-    palette.setColor(QPalette.Text, QColor("#c9d1d9"))
-    palette.setColor(QPalette.Button, QColor("#21262d"))
-    palette.setColor(QPalette.ButtonText, QColor("#c9d1d9"))
-    palette.setColor(QPalette.BrightText, QColor("#ffffff"))
-    palette.setColor(QPalette.Highlight, QColor("#1f6feb"))
-    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
-    app.setPalette(palette)
-
-STYLE = """
-QMainWindow{background:#0d1117;border:1px solid #21262d;border-radius:10px}
-QDialog{background:#0d1117;border:1px solid #21262d;border-radius:8px}
-QWidget{color:#c9d1d9;font-family:"Microsoft YaHei UI","Segoe UI",sans-serif;font-size:13px}
-
-#sidebar{background:#161b22;border-right:1px solid #21262d;min-width:200px;max-width:200px;border-bottom-left-radius:10px}
-#sidebar QPushButton{background:transparent;color:#8b949e;border:none;border-radius:8px;padding:10px 14px;text-align:left;font-size:13px;font-weight:500;margin:2px 8px}
-#sidebar QPushButton:hover{background:#1c2128;color:#c9d1d9}
-#sidebar QPushButton:checked{background:#1f6feb33;color:#58a6ff}
-
-#titleBar{background:#161b22;border-bottom:1px solid #21262d;border-top-left-radius:10px;border-top-right-radius:10px}
-#titleBar QLabel{font-size:13px;font-weight:600;color:#c9d1d9}
-#titleBar QPushButton{background:transparent;border:none;border-radius:6px;color:#8b949e;font-size:14px;padding:4px 10px;font-weight:bold}
-#titleBar QPushButton:hover{background:#21262d;color:#c9d1d9}
-#titleBar #btnClose:hover{background:#da3633;color:#fff}
-
-#topbar{background:#161b22;border-bottom:1px solid #21262d;padding:10px 20px}
-#topbar QLabel{font-size:15px;font-weight:600;color:#c9d1d9}
-
-QPushButton{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:7px 16px;font-weight:500}
-QPushButton:hover{background:#30363d}
-QPushButton:pressed{background:#161b22}
-QPushButton#btnPrimary{background:#238636;color:#fff;border:1px solid #2ea043;font-weight:600}
-QPushButton#btnPrimary:hover{background:#2ea043}
-QPushButton#btnPrimary:disabled{background:#1b3a24;color:#6e7681}
-QPushButton#btnDanger{background:#da3633;color:#fff;border:1px solid #f85149}
-QPushButton#btnDanger:hover{background:#f85149}
-QPushButton#btnAction{background:#1f6feb33;color:#58a6ff;border:1px solid #1f6feb;font-size:12px;padding:5px 12px}
-QPushButton#btnAction:hover{background:#1f6feb66}
-QPushButton#btnSm{font-size:11px;padding:4px 8px;min-width:28px;min-height:24px}
-QPushButton#btnHelp{background:transparent;border:1px solid #30363d;border-radius:10px;color:#8b949e;font-size:11px;font-weight:700;padding:2px 7px;min-width:20px;max-width:20px;min-height:20px;max-height:20px}
-QPushButton#btnHelp:hover{background:#1f6feb33;color:#58a6ff;border-color:#58a6ff}
-
-QLineEdit,QTextEdit,QSpinBox,QDoubleSpinBox,QComboBox{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:7px 10px}
-QLineEdit:focus,QTextEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QComboBox:focus{border:1px solid #58a6ff}
-QComboBox::drop-down{border:none;width:20px}
-QComboBox QAbstractItemView{background:#161b22;border:1px solid #30363d;selection-background-color:#1f6feb33}
-
-QRadioButton{spacing:10px;padding:6px 0}
-QRadioButton::indicator{width:22px;height:22px;border-radius:11px;border:2px solid #30363d;background:#0d1117}
-QRadioButton::indicator:checked{border:2px solid #58a6ff;background:qradialgradient(cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 #58a6ff,stop:0.45 #1f6feb,stop:0.5 #0d1117,stop:1 #0d1117)}
-QRadioButton::indicator:hover{border:2px solid #58a6ff}
-QCheckBox{spacing:8px}
-QCheckBox::indicator{width:18px;height:18px;border-radius:4px;border:2px solid #30363d;background:#0d1117}
-QCheckBox::indicator:checked{background:#238636;border-color:#2ea043}
-
-QScrollArea{border:none;background:transparent}
-QScrollBar:vertical{background:#0d1117;width:8px;border-radius:4px}
-QScrollBar::handle:vertical{background:#30363d;border-radius:4px;min-height:30px}
-QScrollBar::handle:vertical:hover{background:#484f58}
-QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0}
-
-QTabWidget::pane{border:1px solid #21262d;background:#0d1117;border-radius:8px}
-QTabBar::tab{background:#161b22;color:#8b949e;padding:8px 18px;border:1px solid #21262d;border-bottom:none;border-top-left-radius:8px;border-top-right-radius:8px}
-QTabBar::tab:selected{background:#0d1117;color:#58a6ff;border-bottom:2px solid #58a6ff}
-
-QToolTip{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px 10px;font-size:12px}
-
-QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:16px;padding:22px;padding-top:34px;font-size:14px;font-weight:700;color:#58a6ff}
-QGroupBox::title{subcontrol-origin:margin;left:14px;padding:0 8px}
-
-#logPanel{background:#0d1117;border-top:1px solid #21262d}
-#logPanel QTextEdit{background:#0d1117;border:none;color:#8b949e;font-family:'Consolas','Cascadia Code',monospace;font-size:11px}
-
-QKeySequenceEdit{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px 8px;font-family:'Consolas',monospace;font-size:12px}
-"""
-
-SCAN_HELP = {
-    "4": "直接读取库存\n\n跳过扫描步骤，直接读取已有的\nreal_inventory.json 进行分配计算。\n\n适合：已有库存数据，只想重跑分配。",
-    "3": "离线解析\n\n读取 scanned_images/ 文件夹中的截图，\n用 OCR + 模板匹配提取属性，\n生成 real_inventory.json 后分配。\n\n适合：已有截图，需要解析后分配。",
-    "2": "增量扫描\n\n自动探测 NEW 标记，\n截取新装备 → 解析 → 分配。\n\n适合：日常更新，只抓取新装备。",
-    "1": "全量扫描\n\n虚拟手柄自动遍历背包，\n全量截图所有驱动 → 解析 → 分配。\n\n适合：首次使用。",
-}
-
-DRONE_HELP = {
-    "2": "半自动模式\n\n· 自己用鼠标点选装备\n· 按 F9 抓取当前装备\n· 按 F10 结算并触发解析\n· 速度快、精准度高\n\n日常推荐",
-    "1": "全自动模式\n\n· 程序自动向下翻页\n· 自动检测 NEW 标记\n· 自动截图所有新装备\n· 无需人工干预\n\n需要游戏画面在背包首页",
-}
-
-OFFLINE_HELP = {
-    "full": "全量解析\n\n全量扫描已经完成，但解析中断、未解析或未解析完时使用。\n只读取 raw_drive_0001 这类全量截图，并覆盖生成 real_inventory.json。",
-    "incremental": "增量解析\n\n增量扫描已经完成，但解析中断、未解析或未解析完时使用。\n只读取 raw_drive_probe、raw_drive_new、raw_drive_semi 这类增量截图，成功后追加到库存并改名接到全量截图序列后面。",
-    "all": "全部截图解析\n\n读取截图文件夹根目录下所有图片。\n警告：此模式可能把旧截图重复写入库存，如若产生库存异常，请重新全量扫描。",
-}
-
-
-def _match_pinyin(name: str, filt: str) -> bool:
-    if not filt: return True
-    f = filt.lower(); n = name.lower()
-    if f in n: return True
-    try:
-        from pypinyin import lazy_pinyin, Style
-        py_list = lazy_pinyin(name, style=Style.NORMAL)
-        if f in ''.join(py_list).lower(): return True
-        if f in ''.join(p[0] for p in py_list if p).lower(): return True
-    except ImportError: pass
-    return False
-
-
-def _show_help(parent, title, text):
-    dlg = QDialog(parent)
-    dlg.setWindowTitle(title); dlg.setMinimumSize(380, 220); dlg.setStyleSheet(STYLE)
-    l = QVBoxLayout(dlg); l.setSpacing(12)
-    lbl = QLabel(text); lbl.setStyleSheet("font-size:13px;line-height:1.6;padding:8px"); lbl.setWordWrap(True)
-    l.addWidget(lbl)
-    bb = QDialogButtonBox(QDialogButtonBox.Ok); bb.accepted.connect(dlg.accept); l.addWidget(bb)
-    dlg.exec()
-
-
-class NoWheelComboBox(QComboBox):
-    def wheelEvent(self, event):
-        event.ignore()
-
-
-class SearchableComboBox(NoWheelComboBox):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._search_items = []
-        self._search_updating = False
-        self.setEditable(True)
-        self.setInsertPolicy(QComboBox.NoInsert)
-        self._completion_model = QStringListModel(self)
-        self._completer = QCompleter(self._completion_model, self)
-        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
-        self._completer.setFilterMode(Qt.MatchContains)
-        self._completer.setCompletionMode(QCompleter.PopupCompletion)
-        self._completer.activated[str].connect(self._on_completion_activated)
-        popup = self._completer.popup()
-        if popup:
-            popup.setFocusPolicy(Qt.NoFocus)
-        if self.lineEdit():
-            self.lineEdit().setClearButtonEnabled(True)
-            self.lineEdit().installEventFilter(self)
-            self.lineEdit().textEdited.connect(self._filter_items)
-            self.lineEdit().editingFinished.connect(self._commit_typed_text)
-            self.lineEdit().setCompleter(self._completer)
-        self.activated.connect(self._commit_current_item)
-
-    def refresh_search_items(self):
-        self._search_items = [(self.itemText(i), self.itemData(i)) for i in range(self.count())]
-        self._set_completion_items([label for label, _ in self._search_items])
-
-    def _set_completion_items(self, labels):
-        self._completion_model.setStringList(list(labels))
-
-    def _filter_items(self, text):
-        if self._search_updating:
-            return
-        if not self._search_items:
-            self.refresh_search_items()
-        text = text.strip()
-        filtered = [item for item in self._search_items if _match_pinyin(item[0], text)]
-        self._set_completion_items([label for label, _ in (filtered or self._search_items)])
-        if self.lineEdit():
-            self.lineEdit().setFocus(Qt.OtherFocusReason)
-            self.lineEdit().setCursorPosition(len(text))
-            self._completer.setCompletionPrefix("")
-            self._completer.complete()
-
-    def _open_all(self):
-        if not self._search_items:
-            self.refresh_search_items()
-        text = self.currentText()
-        self._set_completion_items([label for label, _ in self._search_items])
-        if self.lineEdit():
-            self.lineEdit().setFocus(Qt.OtherFocusReason)
-            self.lineEdit().selectAll()
-            self._completer.setCompletionPrefix("")
-            self._completer.complete()
-
-    def _commit_current_item(self, index=None):
-        if self._search_updating:
-            return
-        text = self.currentText()
-        data = self.currentData()
-        if data is not None:
-            text = str(data)
-        elif index is not None and isinstance(index, int) and 0 <= index < self.count():
-            text = self.itemText(index)
-        self.setCurrentText(text)
-        if self.lineEdit():
-            self.lineEdit().setText(text)
-            self.lineEdit().selectAll()
-
-    def _on_completion_activated(self, text):
-        self._set_current_by_text(text)
-        if self.lineEdit():
-            self.lineEdit().setFocus(Qt.OtherFocusReason)
-            self.lineEdit().setText(text)
-            self.lineEdit().selectAll()
-
-    def _set_current_by_text(self, text):
-        for i in range(self.count()):
-            if self.itemText(i) == text or str(self.itemData(i) or "") == text:
-                self.setCurrentIndex(i)
-                return True
-        return False
-
-    def _commit_typed_text(self):
-        text = self.currentText().strip()
-        if not text:
-            return
-        if self._set_current_by_text(text):
-            return
-        if not self._search_items:
-            self.refresh_search_items()
-        matches = [label for label, _ in self._search_items if _match_pinyin(label, text)]
-        if matches:
-            self._set_current_by_text(matches[0])
-
-    def eventFilter(self, obj, event):
-        if obj is self.lineEdit() and event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress):
-            QTimer.singleShot(0, self._open_all)
-        return super().eventFilter(obj, event)
-
-
-class CheckableMultiSelectComboBox(NoWheelComboBox):
-    selectionChanged = Signal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setModel(QStandardItemModel(self))
-        self.view().pressed.connect(self._toggle_index)
-        self.setEditable(True)
-        if self.lineEdit():
-            self.lineEdit().setReadOnly(True)
-            self.lineEdit().setClearButtonEnabled(False)
-        self._update_display()
-
-    def set_items(self, items: list[str]):
-        self.model().clear()
-        for text in items:
-            item = QStandardItem(text)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-            item.setData(Qt.Unchecked, Qt.CheckStateRole)
-            self.model().appendRow(item)
-        self._update_display()
-
-    def checked_items(self) -> list[str]:
-        result = []
-        for row in range(self.model().rowCount()):
-            item = self.model().item(row)
-            if item.checkState() == Qt.Checked:
-                result.append(item.text())
-        return result
-
-    def set_checked_items(self, values: list[str]):
-        selected = set(values or [])
-        for row in range(self.model().rowCount()):
-            item = self.model().item(row)
-            item.setCheckState(Qt.Checked if item.text() in selected else Qt.Unchecked)
-        self._update_display()
-
-    def _toggle_index(self, index):
-        item = self.model().itemFromIndex(index)
-        if not item:
-            return
-        item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
-        self._update_display()
-        self.selectionChanged.emit()
-
-    def _update_display(self):
-        values = self.checked_items()
-        text = "Default" if not values else "、".join(values)
-        if self.lineEdit():
-            self.lineEdit().setText(text)
-        self.setToolTip(text)
-
-
-class NoWheelDoubleSpinBox(QDoubleSpinBox):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setButtonSymbols(QDoubleSpinBox.NoButtons)
-
-    def wheelEvent(self, event):
-        event.ignore()
-
-
-class PuzzleBoardWidget(QWidget):
-    SHAPE_HUE = {"H_2":0,"V_2":30,"H_3":60,"V_3":90,
-                 "L_3_TL":120,"L_3_TR":150,"L_3_BL":180,"L_3_BR":210,
-                 "H_4":240,"V_4":270,"Trap_4_H":300,"Trap_4_V":330,
-                 "TAPE_15":50}
-    def __init__(self, matrix=None, cell_size=40, parent=None):
-        super().__init__(parent); self.matrix=matrix or []; self.cell_size=cell_size
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed); self._recalc()
-    def _recalc(self):
-        if not self.matrix: self.setFixedSize(100,100); return
-        r,c=len(self.matrix), len(self.matrix[0]) if self.matrix else 0
-        self.setFixedSize(c*self.cell_size+8, r*self.cell_size+8)
-    def set_matrix(self,m): self.matrix=m; self._recalc(); self.update()
-    def paintEvent(self,e):
-        if not self.matrix: return
-        p=QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        rows,cols=len(self.matrix), len(self.matrix[0])
-        for r in range(rows):
-            for c in range(cols):
-                x,y=c*self.cell_size+4, r*self.cell_size+4
-                rect=QRect(x+1,y+1,self.cell_size-2,self.cell_size-2)
-                cell=str(self.matrix[r][c]) if r<rows and c<len(self.matrix[r]) else "0"
-                if cell in ("XX","-1"):
-                    p.setPen(QPen(QColor("#da3633"),1)); p.setBrush(QColor(218,54,51,40)); p.drawRoundedRect(rect,4,4)
-                    p.setPen(QColor("#da3633")); p.setFont(QFont("Microsoft YaHei UI",8,QFont.Bold)); p.drawText(rect,Qt.AlignCenter,"✕")
-                elif cell in ("0","0.0"):
-                    p.setPen(QPen(QColor("#21262d"),1)); p.setBrush(QColor(13,17,23,120)); p.drawRoundedRect(rect,4,4)
-                else:
-                    hue=self.SHAPE_HUE.get(cell, abs(hash(cell))%360)
-                    color=QColor.fromHsl(hue,180,128); border=QColor.fromHsl(hue,220,160)
-                    p.setPen(QPen(border,1.5)); p.setBrush(QColor(color.red(),color.green(),color.blue(),100)); p.drawRoundedRect(rect,4,4)
-                    p.setPen(border); p.setFont(QFont("Microsoft YaHei UI",7,QFont.Bold))
-                    s=cell.replace("L_3_","").replace("Trap_4_","").replace("TAPE_","T")
-                    p.drawText(rect,Qt.AlignCenter,s)
-
-
-class RoleSelector(QWidget):
-    orderChanged=Signal()
-    def __init__(self,parent=None):
-        super().__init__(parent); self.all_roles:dict={}; self.all_sets:list[str]=[]; self.selected:list[str]=[]; self._cards:dict={}; self._build()
-    def _build(self):
-        l=QVBoxLayout(self); l.setContentsMargins(0,0,0,0); l.setSpacing(8)
-        search_row=QHBoxLayout(); search_row.setSpacing(8)
-        self.search=QLineEdit(); self.search.setPlaceholderText("搜索角色（支持拼音）..."); self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self._filter); search_row.addWidget(self.search,1)
-        reset_btn=QPushButton("重置优先级"); reset_btn.setObjectName("btnDanger")
-        reset_btn.clicked.connect(self.reset_selection); search_row.addWidget(reset_btn)
-        l.addLayout(search_row)
-        lbl=QLabel("点击选择角色，选中顺序即优先级"); lbl.setStyleSheet("color:#8b949e;font-size:11px;border:none"); l.addWidget(lbl)
-        self.grid_scroll=QScrollArea(); self.grid_scroll.setWidgetResizable(True); self.grid_scroll.setMinimumHeight(200)
-        self.grid_w=QWidget(); self.grid_layout=QGridLayout(self.grid_w)
-        self.grid_layout.setContentsMargins(0,0,0,0); self.grid_layout.setSpacing(6); self.grid_layout.setAlignment(Qt.AlignLeft|Qt.AlignTop)
-        self.grid_scroll.setWidget(self.grid_w); l.addWidget(self.grid_scroll,1)
-    _CARD_SEL="QFrame{background:#1f6feb22;border:2px solid #58a6ff;border-radius:8px}QFrame:hover{border-color:#79c0ff}"
-    _CARD_OFF="QFrame{background:#161b22;border:1px solid #21262d;border-radius:8px}QFrame:hover{border-color:#30363d}"
-
-    def load_roles(self,roles_db,all_sets): self.all_roles=roles_db; self.all_sets=all_sets; self._render_grid()
-    def _render_grid(self,filter_text=""):
-        while self.grid_layout.count():
-            it=self.grid_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        self._cards.clear()
-        names=sorted(self.all_roles.keys())
-        if filter_text.strip(): names=[n for n in names if _match_pinyin(n,filter_text.strip())]
-        MAX_COLS=4; col,row=0,0
-        for name in names:
-            card=self._make_card(name)
-            self.grid_layout.addWidget(card,row,col); col+=1
-            if col>=MAX_COLS: col=0; row+=1
-    def _make_card(self,name):
-        sel=name in self.selected
-        card=QFrame(); card.setFixedSize(180,56); card.setCursor(Qt.PointingHandCursor)
-        card.setStyleSheet(self._CARD_SEL if sel else self._CARD_OFF)
-        card.setProperty("role_name",name)
-        cl=QGridLayout(card); cl.setContentsMargins(8,4,8,4); cl.setSpacing(4)
-        cl.setColumnMinimumWidth(0,20); cl.setColumnStretch(1,1)
-        badge=QLabel(""); badge.setFixedSize(20,20); badge.setAlignment(Qt.AlignCenter)
-        if sel:
-            idx=self.selected.index(name)+1
-            badge.setText(str(idx)); badge.setStyleSheet("background:#1f6feb;color:#fff;border-radius:10px;font-size:10px;font-weight:700;border:none")
-        else:
-            badge.setStyleSheet("background:transparent;border:none")
-        cl.addWidget(badge,0,0,2,1)
-        nm=QLabel(name); nm.setStyleSheet("font-size:12px;font-weight:600;border:none;background:transparent;color:#c9d1d9"); cl.addWidget(nm,0,1)
-        rd=self.all_roles.get(name,{}); ds=rd.get("default_set",self.all_sets[0] if self.all_sets else "")
-        combo=SearchableComboBox(); combo.addItems(self.all_sets); combo.refresh_search_items(); combo.setFixedHeight(20)
-        if ds in self.all_sets: combo.setCurrentText(ds)
-        combo.setStyleSheet("font-size:10px;padding:1px 4px;background:#0d1117;border:1px solid #30363d;border-radius:3px;color:#8b949e")
-        combo.currentTextChanged.connect(lambda: self.orderChanged.emit())
-        cl.addWidget(combo,1,1)
-        card.mousePressEvent=lambda e,n=name: self._toggle(n)
-        self._cards[name]={"card":card,"combo":combo,"badge":badge}
-        return card
-    def _filter(self,txt): self._render_grid(txt)
-    def reset_selection(self):
-        self.selected.clear()
-        self._render_grid(self.search.text())
-        self.orderChanged.emit()
-    def _toggle(self,name):
-        if name in self.selected: self.selected.remove(name)
-        else: self.selected.append(name)
-        self._render_grid(self.search.text()); self.orderChanged.emit()
-    def get_selected(self): return list(self.selected)
-    def get_custom_sets(self):
-        result={}
-        for name,info in self._cards.items():
-            if name in self.selected: result[name]=info["combo"].currentText()
-        return result
-    def save_priority_config(self):
-        cfg={"priority_list":self.selected,"custom_sets":self.get_custom_sets()}
-        with open(USER_CONFIG_DIR/"priority_config.json","w",encoding="utf-8") as f: json.dump(cfg,f,ensure_ascii=False,indent=2)
-    def load_priority_config(self):
-        pf=USER_CONFIG_DIR/"priority_config.json"
-        if not pf.exists(): return
-        try:
-            with open(pf,"r",encoding="utf-8") as f: cfg=json.load(f)
-            saved_list=cfg.get("priority_list",[])
-            self.selected=[r for r in saved_list if r in self.all_roles]
-            self._render_grid(self.search.text())
-        except Exception: pass
-
-# ── Shape Image
-class RoleSelector(QWidget):
-    orderChanged=Signal()
-    def __init__(self,parent=None):
-        super().__init__(parent)
-        self.all_roles:dict={}
-        self.all_sets:list[str]=[]
-        self.tape_main_stats:list[str]=[]
-        self.drive_sub_stats:list[str]=[]
-        self.selected:list[str]=[]
-        self.custom_sets:dict[str,str]={}
-        self.tape_main_filters:dict[str,list[str]]={}
-        self.stat_priority_configs:dict[str,dict]={}
-        self._cards:dict={}
-        self._build()
-    def _build(self):
-        l=QVBoxLayout(self); l.setContentsMargins(0,0,0,0); l.setSpacing(8)
-        search_row=QHBoxLayout(); search_row.setSpacing(8)
-        self.search=QLineEdit(); self.search.setPlaceholderText("搜索角色（支持拼音）..."); self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self._filter); search_row.addWidget(self.search,1)
-        reset_btn=QPushButton("重置"); reset_btn.setObjectName("btnAction")
-        reset_btn.clicked.connect(self.reset_selection); search_row.addWidget(reset_btn)
-        restore_btn=QPushButton("恢复"); restore_btn.setObjectName("btnAction")
-        restore_btn.clicked.connect(self.load_priority_config); search_row.addWidget(restore_btn)
-        delete_btn=QPushButton("删除优先级"); delete_btn.setObjectName("btnDanger")
-        delete_btn.clicked.connect(self.delete_priority_config); search_row.addWidget(delete_btn)
-        l.addLayout(search_row)
-        lbl=QLabel("点击选择角色，选中顺序即优先级；重置只影响当前界面，恢复会读取已保存配置。")
-        lbl.setStyleSheet("color:#8b949e;font-size:11px;border:none"); l.addWidget(lbl)
-        self.grid_scroll=QScrollArea(); self.grid_scroll.setWidgetResizable(True); self.grid_scroll.setMinimumHeight(260)
-        self.grid_w=QWidget(); self.grid_layout=QGridLayout(self.grid_w)
-        self.grid_layout.setContentsMargins(0,0,0,0); self.grid_layout.setSpacing(6); self.grid_layout.setAlignment(Qt.AlignLeft|Qt.AlignTop)
-        self.grid_scroll.setWidget(self.grid_w); l.addWidget(self.grid_scroll,1)
-    _CARD_SEL="QFrame{background:#1f6feb22;border:2px solid #58a6ff;border-radius:8px}QFrame:hover{border-color:#79c0ff}"
-    _CARD_OFF="QFrame{background:#161b22;border:1px solid #21262d;border-radius:8px}QFrame:hover{border-color:#30363d}"
-
-    def load_roles(self,roles_db,all_sets,tape_main_stats=None,drive_sub_stats=None):
-        self.all_roles=roles_db
-        self.all_sets=all_sets
-        self.tape_main_stats=list(tape_main_stats or [])
-        self.drive_sub_stats=list(drive_sub_stats or [])
-        self._render_grid(self.search.text() if hasattr(self,"search") else "")
-    def _render_grid(self,filter_text=""):
-        while self.grid_layout.count():
-            it=self.grid_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        self._cards.clear()
-        names=sorted(self.all_roles.keys())
-        if filter_text.strip(): names=[n for n in names if _match_pinyin(n,filter_text.strip())]
-        MAX_COLS=4; col,row=0,0
-        for name in names:
-            card=self._make_card(name)
-            self.grid_layout.addWidget(card,row,col); col+=1
-            if col>=MAX_COLS: col=0; row+=1
-    def _make_card(self,name):
-        sel=name in self.selected
-        card=QFrame(); card.setFixedSize(214,48); card.setCursor(Qt.PointingHandCursor)
-        card.setStyleSheet(self._CARD_SEL if sel else self._CARD_OFF)
-        cl=QGridLayout(card); cl.setContentsMargins(8,5,8,5); cl.setSpacing(4)
-        cl.setColumnMinimumWidth(0,22); cl.setColumnStretch(1,1)
-        badge=QLabel(""); badge.setFixedSize(20,20); badge.setAlignment(Qt.AlignCenter)
-        if sel:
-            idx=self.selected.index(name)+1
-            badge.setText(str(idx)); badge.setStyleSheet("background:#1f6feb;color:#fff;border-radius:10px;font-size:10px;font-weight:700;border:none")
-        else:
-            badge.setStyleSheet("background:transparent;border:none")
-        cl.addWidget(badge,0,0,1,1)
-        name_row=QHBoxLayout(); name_row.setSpacing(6)
-        nm=QLabel(name); nm.setStyleSheet("font-size:13px;font-weight:700;border:none;background:transparent;color:#c9d1d9")
-        name_row.addWidget(nm,1)
-        manage_btn=QPushButton("管理"); manage_btn.setObjectName("btnSm")
-        manage_btn.setCursor(Qt.PointingHandCursor)
-        manage_btn.setStyleSheet("QPushButton{background:#238636;color:#fff;border:1px solid #2ea043;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:700}QPushButton:hover{background:#2ea043}")
-        manage_btn.clicked.connect(lambda checked=False,n=name: self._manage_tape_main_filters(n))
-        name_row.addWidget(manage_btn)
-        cl.addLayout(name_row,0,1)
-        card.mousePressEvent=lambda e,n=name: self._toggle(n)
-        self._cards[name]={"card":card,"badge":badge}
-        return card
-    def _filter(self,txt): self._render_grid(txt)
-    def _set_custom_set(self,name,text):
-        self.custom_sets[name]=text
-        self.orderChanged.emit()
-    def _set_tape_main_filter(self,name,values):
-        if values: self.tape_main_filters[name]=values
-        else: self.tape_main_filters.pop(name,None)
-        self.orderChanged.emit()
-    def _set_stat_priority_config(self,name,stats,equal_priority=False):
-        clean=[]
-        for stat in stats or []:
-            if stat and stat in self.drive_sub_stats and stat not in clean:
-                clean.append(stat)
-        if clean:
-            self.stat_priority_configs[name]={"stats":clean,"equal_priority":bool(equal_priority)}
-        else:
-            self.stat_priority_configs.pop(name,None)
-        self.orderChanged.emit()
-    def _manage_tape_main_filters(self,name):
-        dlg=QDialog(self); dlg.setWindowTitle(f"{name} · 管理"); dlg.setMinimumSize(480,360); dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg); layout.setSpacing(12)
-
-        rd=self.all_roles.get(name,{})
-        current_set=self.custom_sets.get(name) or rd.get("default_set",self.all_sets[0] if self.all_sets else "")
-        set_box=QGroupBox("套装配置")
-        set_layout=QHBoxLayout(set_box); set_layout.setSpacing(8)
-        set_combo=SearchableComboBox()
-        for set_name in self.all_sets:
-            set_combo.addItem(set_name,set_name)
-        set_combo.refresh_search_items()
-        if current_set in self.all_sets:
-            set_combo.setCurrentText(current_set)
-        set_layout.addWidget(set_combo,1)
-        layout.addWidget(set_box)
-
-        main_box=QGroupBox("卡带主词条选项")
-        main_layout=QVBoxLayout(main_box); main_layout.setSpacing(8)
-        add_row=QHBoxLayout(); add_row.setSpacing(8)
-        stat_combo=SearchableComboBox()
-        for stat in self.tape_main_stats:
-            stat_combo.addItem(stat,stat)
-        stat_combo.refresh_search_items()
-        stat_combo.setCurrentIndex(-1)
-        stat_combo.setEditText("")
-        add_row.addWidget(stat_combo,1)
-        add_btn=QPushButton("添加"); add_btn.setObjectName("btnAction")
-        add_row.addWidget(add_btn)
-        clear_btn=QPushButton("清空"); clear_btn.setObjectName("btnDanger")
-        add_row.addWidget(clear_btn)
-        main_layout.addLayout(add_row)
-        selected=list(self.tape_main_filters.get(name,[]))
-        selected_label=QLabel()
-        selected_label.setWordWrap(True)
-        selected_label.setMinimumHeight(32)
-        selected_label.setStyleSheet("color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;background:#0f3d2e;padding:7px 9px")
-        main_layout.addWidget(selected_label)
-
-        def _refresh_selected_label():
-            selected_label.setText("Default" if not selected else "、".join(selected))
-            selected_label.setToolTip("Default" if not selected else "、".join(selected))
-
-        def _add_selected():
-            value=stat_combo.currentText().strip() or stat_combo.currentData()
-            resolved=next((s for s in self.tape_main_stats if s==value or _match_pinyin(s,value)), value)
-            if resolved in self.tape_main_stats and resolved not in selected:
-                selected.append(resolved)
-                _refresh_selected_label()
-
-        add_btn.clicked.connect(_add_selected)
-        clear_btn.clicked.connect(lambda: (selected.clear(), _refresh_selected_label()))
-        _refresh_selected_label()
-        layout.addWidget(main_box)
-
-        stat_box=QGroupBox("词条优先")
-        stat_layout=QVBoxLayout(stat_box); stat_layout.setSpacing(8)
-        stat_top=QHBoxLayout(); stat_top.setSpacing(8)
-        stat_combo=SearchableComboBox()
-        for stat in self.drive_sub_stats:
-            stat_combo.addItem(stat,stat)
-        stat_combo.refresh_search_items()
-        stat_combo.setCurrentIndex(-1)
-        stat_combo.setEditText("")
-        stat_top.addWidget(stat_combo,1)
-        add_stat_btn=QPushButton("添加"); add_stat_btn.setObjectName("btnAction")
-        clear_stat_btn=QPushButton("清空"); clear_stat_btn.setObjectName("btnDanger")
-        stat_top.addWidget(add_stat_btn); stat_top.addWidget(clear_stat_btn)
-        help_btn=QPushButton("?"); help_btn.setObjectName("btnHelp")
-        help_btn.clicked.connect(lambda: _show_help(
-            self,
-            "词条优先说明",
-            "词条优先只影响该角色挑选驱动/卡带时的候选顺序，不改变词条权重，也不额外加最终评分。\n\n"
-            "关闭“词条优先级一致”时：按照你添加词条的顺序作为优先级，先从最高优先级词条的候选池找，没有合适的再逐级向后找，最后回到全局池。\n\n"
-            "开启“词条优先级一致”时：不看添加顺序，优先使用覆盖所选词条数量更多的装备。\n\n"
-            "卡带会先满足卡带主词条筛选，再在满足主词条的池子里应用本规则。为避免只因词条命中选到低质装备，命中优先只对至少 A 级评分的装备生效。"
-        ))
-        stat_top.addWidget(help_btn)
-        stat_layout.addLayout(stat_top)
-        stat_equal=QCheckBox("词条优先级一致")
-        current_stat_cfg=self.stat_priority_configs.get(name,{}) if isinstance(self.stat_priority_configs.get(name,{}),dict) else {}
-        stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority",False)))
-        stat_layout.addWidget(stat_equal)
-        selected_stats=list(current_stat_cfg.get("stats",[]) or [])
-        selected_stats=[s for s in selected_stats if s in self.drive_sub_stats]
-        stat_selected_label=QLabel()
-        stat_selected_label.setWordWrap(True)
-        stat_selected_label.setMinimumHeight(32)
-        stat_selected_label.setStyleSheet("color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;background:#0f3d2e;padding:7px 9px")
-        stat_layout.addWidget(stat_selected_label)
-        def _refresh_stat_selected_label():
-            stat_selected_label.setText("Default" if not selected_stats else " > ".join(selected_stats))
-        def _add_stat_priority():
-            value=stat_combo.currentText().strip() or stat_combo.currentData()
-            resolved=next((s for s in self.drive_sub_stats if s==value or _match_pinyin(s,value)), value)
-            if resolved in self.drive_sub_stats and resolved not in selected_stats:
-                selected_stats.append(resolved)
-                _refresh_stat_selected_label()
-            stat_combo.setCurrentIndex(-1); stat_combo.setEditText("")
-        add_stat_btn.clicked.connect(_add_stat_priority)
-        clear_stat_btn.clicked.connect(lambda: (selected_stats.clear(), _refresh_stat_selected_label()))
-        _refresh_stat_selected_label()
-        layout.addWidget(stat_box)
-        btns=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel)
-        btns.accepted.connect(dlg.accept); btns.rejected.connect(dlg.reject); layout.addWidget(btns)
-        if dlg.exec()==QDialog.Accepted:
-            set_value=set_combo.currentText().strip() or set_combo.currentData()
-            resolved_set=next((s for s in self.all_sets if s==set_value or _match_pinyin(s,set_value)), set_value)
-            self._set_custom_set(name,resolved_set)
-            self._set_tape_main_filter(name,selected)
-            self._set_stat_priority_config(name,selected_stats,stat_equal.isChecked())
-            self._render_grid(self.search.text())
-    def reset_selection(self):
-        self.selected.clear()
-        self.custom_sets.clear()
-        self.tape_main_filters.clear()
-        self.stat_priority_configs.clear()
-        self._render_grid(self.search.text())
-    def delete_priority_config(self):
-        pf=USER_CONFIG_DIR/"priority_config.json"
-        try:
-            if pf.exists(): pf.unlink()
-        except Exception as exc:
-            QMessageBox.warning(self,"删除优先级",f"删除失败：{exc}")
-            return
-        self.selected.clear(); self.custom_sets.clear(); self.tape_main_filters.clear(); self.stat_priority_configs.clear()
-        self._render_grid(self.search.text())
-        QMessageBox.information(self,"删除优先级","当前账号的优先级配置已删除。")
-    def _toggle(self,name):
-        if name in self.selected: self.selected.remove(name)
-        else: self.selected.append(name)
-        self._render_grid(self.search.text()); self.orderChanged.emit()
-    def get_selected(self): return list(self.selected)
-    def get_custom_sets(self):
-        result={}
-        for name in self.selected:
-            rd=self.all_roles.get(name,{})
-            result[name]=self.custom_sets.get(name) or rd.get("default_set","")
-        return result
-    def get_tape_main_filters(self):
-        return {name:list(self.tape_main_filters.get(name,[])) for name in self.selected if self.tape_main_filters.get(name)}
-    def get_crit_priority_modes(self):
-        return {
-            name:dict(self.stat_priority_configs.get(name))
-            for name in self.selected
-            if self.stat_priority_configs.get(name)
-        }
-    def save_priority_config(self):
-        cfg={
-            "priority_list":self.selected,
-            "custom_sets":self.get_custom_sets(),
-            "tape_main_filters":self.get_tape_main_filters(),
-            "stat_priority_configs":self.get_crit_priority_modes(),
-        }
-        USER_CONFIG_DIR.mkdir(parents=True,exist_ok=True)
-        with open(USER_CONFIG_DIR/"priority_config.json","w",encoding="utf-8") as f: json.dump(cfg,f,ensure_ascii=False,indent=2)
-    def load_priority_config(self):
-        pf=USER_CONFIG_DIR/"priority_config.json"
-        self.selected.clear(); self.custom_sets.clear(); self.tape_main_filters.clear(); self.stat_priority_configs.clear()
-        if not pf.exists():
-            self._render_grid(self.search.text())
-            return
-        try:
-            with open(pf,"r",encoding="utf-8") as f: cfg=json.load(f)
-            saved_list=cfg.get("priority_list",[])
-            self.selected=[r for r in saved_list if r in self.all_roles]
-            self.custom_sets={r:s for r,s in cfg.get("custom_sets",{}).items() if r in self.all_roles and s}
-            raw_filters=cfg.get("tape_main_filters",{})
-            self.tape_main_filters={
-                r:[v for v in vals if v in self.tape_main_stats]
-                for r,vals in raw_filters.items()
-                if r in self.all_roles and isinstance(vals,list)
-            }
-            raw_stat_cfg=cfg.get("stat_priority_configs",{})
-            self.stat_priority_configs={}
-            for role,cfg_item in raw_stat_cfg.items():
-                if role not in self.all_roles or not isinstance(cfg_item,dict):
-                    continue
-                stats=[s for s in cfg_item.get("stats",[]) if s in self.drive_sub_stats]
-                if stats:
-                    self.stat_priority_configs[role]={
-                        "stats":stats,
-                        "equal_priority":bool(cfg_item.get("equal_priority",False)),
-                    }
-            self._render_grid(self.search.text())
-        except Exception as exc:
-            QMessageBox.warning(self,"恢复优先级",f"读取优先级配置失败：{exc}")
-
-_shape_pixmaps:dict[tuple[str, str],QPixmap]={}
-def _get_shape_pixmap(shape_id:str,size=60,quality:str|None=None)->QPixmap:
-    key=(shape_id,quality or "")
-    if key in _shape_pixmaps:
-        return _shape_pixmaps[key].scaled(size,size,Qt.KeepAspectRatio,Qt.SmoothTransformation)
-    path=TEMPLATE_DIR/f"{shape_id}_{quality}.png" if quality else TEMPLATE_DIR/f"{shape_id}.png"
-    if quality and not path.exists():
-        path=TEMPLATE_DIR/f"{shape_id}.png"
-    if path.exists():
-        pm=QPixmap(str(path)); _shape_pixmaps[key]=pm
-        return pm.scaled(size,size,Qt.KeepAspectRatio,Qt.SmoothTransformation)
-    return QPixmap()
-
-# ── Worker
-class WorkerThread(QThread):
-    result_ready=Signal(object); error=Signal(str)
-    def __init__(self,target,parent=None): super().__init__(parent); self.target=target
-    def run(self):
-        try: self.result_ready.emit(self.target())
-        except SystemExit as e:
-            logger.error(f"WorkerThread 捕获 SystemExit: {e}")
-            self.error.emit(f"系统异常退出: {e}")
-        except Exception as e:
-            import traceback as tb
-            err_detail=f"{e}\n\n{tb.format_exc()}"
-            logger.error(f"WorkerThread 异常: {err_detail}")
-            self.error.emit(str(e))
-
-class VisionWorkerThread(QThread):
-    processing_done=Signal(dict); canceled=Signal(int); error=Signal(str)
-    progress=Signal(int,int,str)  # current, total, filename
-    def __init__(self,input_dir,output_file,parent=None,replace_output=False,parse_scope="all",skip_names=None):
-        super().__init__(parent)
-        self.input_dir=input_dir; self.output_file=output_file; self.replace_output=replace_output
-        self.parse_scope=parse_scope; self.skip_names=set(skip_names or [])
-        self._cancel_requested=False
-    def request_cancel(self):
-        self._cancel_requested=True
-    def _is_allowed_file(self,filename):
-        if filename in self.skip_names:
-            return False
-        stem=os.path.splitext(filename)[0]
-        if self.parse_scope=="full":
-            return re.fullmatch(r"raw_drive_\d+",stem) is not None
-        if self.parse_scope=="incremental_auto":
-            return stem.startswith(AUTO_INCREMENTAL_PREFIXES)
-        if self.parse_scope=="incremental_semi":
-            return stem.startswith(SEMI_INCREMENTAL_PREFIXES)
-        if self.parse_scope=="incremental":
-            return stem.startswith(INCREMENTAL_PREFIXES)
-        return True
-    def run(self):
-        try:
-            p=BatchProcessor(input_dir=self.input_dir,output_file=self.output_file,config_dir=str(CONFIG_DIR),replace_output=self.replace_output)
-            if not os.path.exists(self.input_dir):
-                self.error.emit(f"找不到截图文件夹 {self.input_dir}"); return
-            image_files=[f for f in os.listdir(self.input_dir) if
-                         f.lower().endswith((".png",".jpg",".jpeg",".bmp")) and os.path.isfile(os.path.join(self.input_dir,f))]
-            image_files=[f for f in image_files if self._is_allowed_file(f)]
-            image_files.sort()
-            total=len(image_files)
-            if total==0:
-                self.error.emit("截图文件夹为空，没有需要处理的图片。"); return
-            added_paths=[]
-            duplicate_paths=[]
-            failed_paths=[]
-            for idx,filename in enumerate(image_files,1):
-                if self._cancel_requested:
-                    break
-                self.progress.emit(idx,total,filename)
-                file_path=os.path.join(self.input_dir,filename)
-                try:
-                    item_obj,added=p.process_image_file(file_path,filename)
-                    if not added:
-                        duplicate_paths.append(file_path)
-                        logger.info(f"相邻截图画面与解析数据均一致，按连拍重复过滤: {filename}")
-                    else:
-                        added_paths.append(file_path)
-                except Exception as e:
-                    failed_paths.append(file_path)
-                    logger.error(f"解析失败: {filename} | {e}")
-            processed_count=len(p.inventory)
-            if self._cancel_requested:
-                logger.info("VisionWorkerThread: 解析已取消")
-                del p
-                self.canceled.emit(processed_count)
-                return
-            if p.inventory:
-                p._export_to_json()
-            del p
-            logger.info("VisionWorkerThread: 即将发射 processing_done 信号")
-            self.processing_done.emit({
-                "added_paths": added_paths,
-                "duplicate_paths": duplicate_paths,
-                "failed_paths": failed_paths,
-                "success_count": len(added_paths),
-                "duplicate_count": len(duplicate_paths),
-                "failed_count": len(failed_paths),
-                "total_count": total,
-                "parse_scope": self.parse_scope,
-            })
-        except SystemExit as e:
-            logger.error(f"VisionWorker 捕获 SystemExit: {e}")
-            self.error.emit(f"系统异常退出: {e}")
-        except Exception as e:
-            import traceback as tb
-            err_detail=f"{e}\n\n{tb.format_exc()}"
-            logger.error(f"VisionWorker 异常: {err_detail}")
-            self.error.emit(str(e))
-
-class ScanWorkerThread(QThread):
-    scan_done=Signal(int); error=Signal(str); scanner_ready=Signal()
-    def __init__(self,mode="semi",parent=None):
-        super().__init__(parent); self.mode=mode; self.scanner=None
-    def run(self):
-        try:
-            self.scanner=DroneScanner(output_dir=str(SCREENSHOT_DIR),template_path=str(TEMPLATE_DIR/"new_tag.png"))
-            self.scanner_ready.emit()
-            if self.mode=="auto":
-                count=self.scanner.start_scan()
-            else:
-                count=self.scanner.start_semi_auto_scan()
-            self.scan_done.emit(count)
-        except Exception as e:
-            logger.error(f"ScanWorker 异常: {e}")
-            self.error.emit(str(e))
-
-class GamepadScanWorkerThread(QThread):
-    scan_done=Signal(int); error=Signal(str); scanner_ready=Signal()
-    def __init__(self,total_drives,parent=None):
-        super().__init__(parent); self.total_drives=total_drives; self.scanner=None
-    def run(self):
-        try:
-            from src.scanner.gamepad_controller import GamepadScanner
-            self.scanner=GamepadScanner(output_dir=str(SCREENSHOT_DIR))
-            self.scanner_ready.emit()
-            count=self.scanner.start_scan(self.total_drives)
-            self.scan_done.emit(count)
-        except (FileNotFoundError, OSError) as e:
-            logger.error(f"GamepadScanWorker DLL错误: {e}")
-            self.error.emit(f"ViGEmClient.dll 加载失败，请确认:\n1. 已安装 ViGEmBus 驱动 (https://github.com/nefarius/ViGEmBus/releases)\n2. 重启电脑后再试\n\n原始错误: {e}")
-        except Exception as e:
-            logger.error(f"GamepadScanWorker 异常: {e}")
-            self.error.emit(str(e))
 
 # ── Log Sink
 class QtLogSink:
@@ -1105,22 +222,23 @@ class QtLogSink:
         if msg: self.signal.emit(msg)
     def flush(self): pass
 
-class PlainTextOnlyTextEdit(QTextEdit):
-    def insertFromMimeData(self, source):
-        if source.hasText():
-            self.insertPlainText(source.text())
-
 # ── Main Window
-class MainWindow(QMainWindow):
+class MainWindow(FeatureMainWindowMixin, QMainWindow):
     log_signal=Signal(str); identify_capture_signal=Signal(str); identify_capture_done_signal=Signal(); W,H=1260,860
 
     def __init__(self):
-        super().__init__(); self.setWindowTitle("NTE Drive Calc"); self.resize(self.W,self.H); self.setMinimumSize(1000,700)
+        super().__init__(); self.setWindowTitle("NTE Drive Calc")
+        screen_geo=QApplication.primaryScreen().availableGeometry()
+        initial_w=min(self.W,max(640,screen_geo.width()-80))
+        initial_h=min(self.H,max(480,screen_geo.height()-80))
+        min_w=min(1000,max(640,screen_geo.width()-120))
+        min_h=min(700,max(480,screen_geo.height()-120))
+        self.resize(initial_w,initial_h); self.setMinimumSize(min_w,min_h)
         if APP_ICON_PATH.exists():
             self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.setWindowFlags(Qt.FramelessWindowHint); self.setAttribute(Qt.WA_TranslucentBackground,False)
         self._drag_pos:Optional[QPoint]=None; self._resize_margin=8
-        screen=QApplication.primaryScreen().geometry(); self.move((screen.width()-self.W)//2,(screen.height()-self.H)//2)
+        self.move(screen_geo.x()+(screen_geo.width()-initial_w)//2,screen_geo.y()+(screen_geo.height()-initial_h)//2)
         self.roles_db:dict={}; self.sets_db:dict={}; self.all_set_names:list[str]=[]; self.tape_main_stats:list[str]=[]; self.stats_config:dict={}
         self.equipped_state:dict={}; self.final_plan=None; self._allocation_dirty=False; self._shape_areas:dict={}
         self.scoring_engine=None
@@ -1138,63 +256,124 @@ class MainWindow(QMainWindow):
         self._load_hotkey_config()
         self._update_config=self._load_update_config()
         self._ui_preferences=self._load_ui_preferences()
+        self._apply_theme_preference()
         self._update_check_manual=True
 
         self.log_signal.connect(self._on_log); self.identify_capture_signal.connect(self._add_identify_capture_path); self.identify_capture_done_signal.connect(self._finish_identify_capture_mode); self._log_sink=QtLogSink(self.log_signal)
         try:
             from loguru import logger as lu
             lu.add(self._log_sink,format="{time:HH:mm:ss} | {level: <8} | {message}",level="INFO",colorize=False)
-        except: pass
+        except Exception as exc:
+            logger.debug(f"注册界面日志输出失败，仅写入文件日志: {exc}")
         self._build_ui(); self._load_data(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
 
     def _load_hotkey_config(self):
-        path=USER_CONFIG_DIR/"hotkeys.json"
-        try:
-            if path.exists():
-                with open(path,"r",encoding="utf-8") as f: d=json.load(f)
-                self._hk_capture=d.get("capture","F9"); self._hk_finish=d.get("finish","F10"); self._hk_stop=d.get("stop","F12")
-        except: pass
+        hotkeys=load_hotkey_config(USER_CONFIG_DIR)
+        self._hk_capture=hotkeys["capture"]; self._hk_finish=hotkeys["finish"]; self._hk_stop=hotkeys["stop"]
     def _save_hotkey_config(self):
-        with open(USER_CONFIG_DIR/"hotkeys.json","w",encoding="utf-8") as f:
-            json.dump({"capture":self._hk_capture,"finish":self._hk_finish,"stop":self._hk_stop},f,indent=2)
+        save_hotkey_config(USER_CONFIG_DIR,self._hk_capture,self._hk_finish,self._hk_stop)
 
     def _load_update_config(self):
-        path=USER_CONFIG_DIR/"update_config.json"
-        default={"never_remind":False,"ignored_version":""}
-        try:
-            if path.exists():
-                with open(path,"r",encoding="utf-8") as f:
-                    data=json.load(f)
-                if isinstance(data,dict):
-                    default.update({
-                        "never_remind":bool(data.get("never_remind",False)),
-                        "ignored_version":str(data.get("ignored_version","") or ""),
-                    })
-        except Exception:
-            pass
-        return default
+        return load_update_config(USER_CONFIG_DIR)
 
     def _save_update_config(self):
-        with open(USER_CONFIG_DIR/"update_config.json","w",encoding="utf-8") as f:
-            json.dump(self._update_config,f,ensure_ascii=False,indent=2)
+        save_update_config(USER_CONFIG_DIR,self._update_config)
 
     def _load_ui_preferences(self):
         path=USER_CONFIG_DIR/"ui_preferences.json"
-        default={"skip_unsaved_allocation_prompt":False}
+        default={
+            "skip_unsaved_allocation_prompt":False,
+            "full_scan_dual_thread_processing":True,
+            "full_scan_discrete_gpu_acceleration":False,
+            "full_scan_amd_compatibility":False,
+            "theme":"dark",
+        }
         try:
-            if path.exists():
-                with open(path,"r",encoding="utf-8") as f:
-                    data=json.load(f)
-                if isinstance(data,dict):
-                    default["skip_unsaved_allocation_prompt"]=bool(data.get("skip_unsaved_allocation_prompt",False))
-        except Exception:
-            pass
+            data=read_json(path, default={}) or {}
+            if isinstance(data,dict):
+                default["skip_unsaved_allocation_prompt"]=bool(data.get("skip_unsaved_allocation_prompt",False))
+                default["full_scan_dual_thread_processing"]=bool(
+                    data.get("full_scan_dual_thread_processing",True)
+                )
+                default["full_scan_discrete_gpu_acceleration"]=bool(
+                    data.get("full_scan_discrete_gpu_acceleration",False)
+                )
+                default["full_scan_amd_compatibility"]=bool(
+                    data.get("full_scan_amd_compatibility",False)
+                )
+                default["theme"]=theme_preference(str(data.get("theme") or "dark"))
+        except Exception as exc:
+            logger.debug(f"读取界面偏好失败，使用默认值: {exc}")
+        if default.get("full_scan_amd_compatibility"):
+            default["full_scan_dual_thread_processing"]=False
+            default["full_scan_discrete_gpu_acceleration"]=False
         return default
 
     def _save_ui_preferences(self):
-        USER_CONFIG_DIR.mkdir(parents=True,exist_ok=True)
-        with open(USER_CONFIG_DIR/"ui_preferences.json","w",encoding="utf-8") as f:
-            json.dump(self._ui_preferences,f,ensure_ascii=False,indent=2)
+        write_json(USER_CONFIG_DIR/"ui_preferences.json", self._ui_preferences)
+
+    def _current_style_sheet(self):
+        return current_style_sheet(QApplication.instance())
+
+    def _apply_theme_preference(self):
+        theme=(self._ui_preferences or {}).get("theme","dark")
+        apply_app_theme(QApplication.instance(), theme)
+        refresh_inline_theme_styles(self, QApplication.instance())
+        if hasattr(self,"topbar_source_label"):
+            self.topbar_source_label.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px;margin-left:12px")
+        if hasattr(self,"status_lbl"):
+            self.status_lbl.setStyleSheet(f"color:{theme_color('#6e7681')};font-size:12px")
+
+    def _set_theme_preference(self, theme):
+        normalized=theme_preference(theme)
+        if (self._ui_preferences or {}).get("theme","dark")==normalized:
+            return True
+        if not self._prompt_restart_for_theme_change():
+            return False
+        previous=(self._ui_preferences or {}).get("theme","dark")
+        self._ui_preferences["theme"]=normalized
+        self._save_ui_preferences()
+        if not self._restart_application_as_admin():
+            self._ui_preferences["theme"]=previous
+            self._save_ui_preferences()
+            return False
+        return True
+
+    def _prompt_restart_for_theme_change(self):
+        box=QMessageBox(self)
+        box.setWindowTitle("重启生效")
+        box.setText("切换主题需要重启应用，是否现在重启并应用？")
+        ok_button=box.addButton("好的", QMessageBox.AcceptRole)
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.setDefaultButton(ok_button)
+        box.exec()
+        return box.clickedButton() is ok_button
+
+    def _restart_application_as_admin(self):
+        QApplication.processEvents()
+        program=sys.executable
+        args=sys.argv[:]
+        parameters=""
+        if not getattr(sys, "frozen", False):
+            parameters=subprocess.list2cmdline(args)
+        elif len(args)>1:
+            parameters=subprocess.list2cmdline(args[1:])
+        if sys.platform=="win32":
+            result=ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",
+                program,
+                parameters,
+                str(APP_DIR),
+                1,
+            )
+            if result <= 32:
+                QMessageBox.warning(self, "重启失败", "未能以管理员方式重启应用，主题设置已取消。")
+                return False
+            QApplication.quit()
+            return True
+        QMessageBox.warning(self, "重启失败", "当前系统不支持自动管理员重启，主题设置已取消。")
+        return False
 
     # ── Frameless
     def _on_edge(self,pos): w,h=self.width(),self.height(); m=self._resize_margin; return (pos.x()<m,pos.y()<m,pos.x()>w-m,pos.y()>h-m)
@@ -1221,6 +400,23 @@ class MainWindow(QMainWindow):
             else: self.setCursor(Qt.ArrowCursor)
         super().mouseMoveEvent(e)
     def mouseReleaseEvent(self,e): self._drag_pos=None; self._drag_edges=(False,)*4; super().mouseReleaseEvent(e)
+    def closeEvent(self,e):
+        if getattr(self,"_config_dirty",False) and not self._confirm_leave_config_page():
+            e.ignore()
+            return
+        if getattr(self,"_my_role_dirty",False) and not self._confirm_leave_my_role_page():
+            e.ignore()
+            return
+        if hasattr(self,"role_selector"):
+            try:
+                self.role_selector.save_temporary_priority_config()
+            except Exception as exc:
+                logger.warning(f"保存临时优先级失败: {exc}")
+        if self._log_enabled:
+            logger.info("运行日志已随程序退出而停止")
+            disable_session_log()
+            self._log_enabled=False
+        super().closeEvent(e)
     def _tb_press(self,e):
         if e.button()==Qt.LeftButton: self._drag_pos=e.globalPosition().toPoint()
     def _tb_move(self,e):
@@ -1244,29 +440,34 @@ class MainWindow(QMainWindow):
         body=QHBoxLayout(); body.setContentsMargins(0,0,0,0); body.setSpacing(0)
         sidebar=QWidget(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(200)
         sl=QVBoxLayout(sidebar); sl.setContentsMargins(0,12,0,0); sl.setSpacing(0)
-        self.btn_exec=self._nav("⚡  执行","execute"); self.btn_equip=self._nav("💎  配装","equipment")
-        self.btn_identify=self._nav("🔍  鉴定","identify")
-        self.btn_blueprint=self._nav("📐  图纸","blueprint")
-        self.btn_config=self._nav("⚙  配置","config"); self.btn_settings=self._nav("🔧  设置","settings")
-        for b in [self.btn_exec,self.btn_equip,self.btn_identify,self.btn_blueprint,self.btn_config,self.btn_settings]: sl.addWidget(b)
+        self._nav_buttons={}
+        for item in NAV_ITEMS:
+            button=self._nav(item.label,item.key)
+            setattr(self,item.button_attr,button)
+            self._nav_buttons[item.key]=button
+            sl.addWidget(button)
         sl.addStretch(); body.addWidget(sidebar)
 
         right=QWidget(); rr=QVBoxLayout(right); rr.setContentsMargins(0,0,0,0); rr.setSpacing(0)
         tbar=QWidget(); tbar.setObjectName("topbar"); tbh=QHBoxLayout(tbar); tbh.setContentsMargins(20,10,20,10)
-        self.topbar_title=QLabel("⚡  执行"); tbh.addWidget(self.topbar_title); tbh.addStretch()
+        self.topbar_title=QLabel(NAV_ITEMS[0].label); tbh.addWidget(self.topbar_title)
+        self.topbar_source_label=QLabel("评分标准来源于微信小程序“异环工坊”")
+        self.topbar_source_label.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px;margin-left:12px")
+        self.topbar_source_label.setWordWrap(False)
+        self.topbar_source_label.setVisible(False)
+        tbh.addWidget(self.topbar_source_label)
+        tbh.addStretch()
         self.account_combo=QComboBox(); self.account_combo.setFixedWidth(150)
         self.account_combo.currentIndexChanged.connect(self._on_account_combo_changed)
         tbh.addWidget(self.account_combo)
         account_btn=QPushButton("管理账号"); account_btn.setObjectName("btnAction"); account_btn.clicked.connect(self._manage_accounts); tbh.addWidget(account_btn)
         guide_btn=QPushButton("新手向导"); guide_btn.setObjectName("btnAction"); guide_btn.clicked.connect(self._show_quick_start); tbh.addWidget(guide_btn)
-        self.status_lbl=QLabel("就绪"); self.status_lbl.setStyleSheet("color:#6e7681;font-size:12px"); tbh.addWidget(self.status_lbl)
+        self.status_lbl=QLabel("就绪"); self.status_lbl.setStyleSheet(f"color:{theme_color('#6e7681')};font-size:12px"); tbh.addWidget(self.status_lbl)
         guide_btn.setText("使用教程")
         rr.addWidget(tbar)
         self.stack=QStackedWidget()
-        self.stack.addWidget(self._page_execute()); self.stack.addWidget(self._page_equipment())
-        self.stack.addWidget(self._page_identify())
-        self.stack.addWidget(self._page_blueprint())
-        self.stack.addWidget(self._page_config()); self.stack.addWidget(self._page_settings())
+        for item in NAV_ITEMS:
+            self.stack.addWidget(getattr(self,item.page_builder)())
         rr.addWidget(self.stack,1)
 
         self.log_frame=QWidget(); self.log_frame.setObjectName("logPanel"); self.log_frame.setVisible(False)
@@ -1276,32 +477,34 @@ class MainWindow(QMainWindow):
         self.log_view=QTextEdit(); self.log_view.setReadOnly(True); self.log_view.setMaximumHeight(140); lf.addWidget(self.log_view)
         rr.addWidget(self.log_frame)
         body.addWidget(right,1); root.addLayout(body)
-        QSizeGrip(self).setStyleSheet("background:transparent"); self.btn_exec.setChecked(True)
+        QSizeGrip(self).setStyleSheet("background:transparent"); self._nav_buttons[NAV_ITEMS[0].key].setChecked(True)
         self._refresh_account_combo()
 
     def _nav(self,text,page): b=QPushButton(text); b.setCheckable(True); b.clicked.connect(lambda: self._go(page)); return b
+    def _nav_key_for_index(self,index):
+        return NAV_ITEMS[index].key if 0<=index<len(NAV_ITEMS) else NAV_ITEMS[0].key
+
     def _go(self,page):
-        m={"execute":0,"equipment":1,"identify":2,"blueprint":3,"config":4,"settings":5}; self.stack.setCurrentIndex(m.get(page,0))
-        t={"execute":"⚡  执行","equipment":"💎  配装","identify":"🔍  鉴定","blueprint":"📐  图纸","config":"⚙  配置","settings":"🔧  设置"}; self.topbar_title.setText(t.get(page,""))
-        for btn in [self.btn_exec,self.btn_equip,self.btn_identify,self.btn_blueprint,self.btn_config,self.btn_settings]: btn.setChecked(False)
-        {"execute":self.btn_exec,"equipment":self.btn_equip,"identify":self.btn_identify,"blueprint":self.btn_blueprint,"config":self.btn_config,"settings":self.btn_settings}[page].setChecked(True)
-        if page=="equipment": self._refresh_equip()
-        elif page=="identify": self._refresh_identify_options()
-        elif page=="config": self._refresh_config_forms()
-        elif page=="blueprint": self._refresh_blueprints()
+        item=nav_item_by_key(page) or NAV_ITEMS[0]
+        indexes=nav_index_map()
+        if self._nav_key_for_index(self.stack.currentIndex())=="config" and item.key!="config" and not self._confirm_leave_config_page():
+            return
+        if self._nav_key_for_index(self.stack.currentIndex())=="my_role" and item.key!="my_role" and not self._confirm_leave_my_role_page():
+            return
+        self.stack.setCurrentIndex(indexes.get(item.key,0))
+        self.topbar_title.setText(item.label)
+        if hasattr(self,"topbar_source_label"):
+            self.topbar_source_label.setVisible(item.key in {"equipment","identify","config"})
+        for btn in self._nav_buttons.values(): btn.setChecked(False)
+        self._nav_buttons[item.key].setChecked(True)
+        if item.refresh_method:
+            getattr(self,item.refresh_method)()
 
     def _refresh_account_combo(self):
         if not hasattr(self,"account_combo"):
             return
-        data=_read_accounts_index()
         self.account_combo.blockSignals(True)
-        self.account_combo.clear()
-        active_index=0
-        for idx,account in enumerate(data.get("accounts",[])):
-            self.account_combo.addItem(account.get("name") or account.get("id"),account.get("id"))
-            if account.get("id")==ACTIVE_ACCOUNT_ID:
-                active_index=idx
-        self.account_combo.setCurrentIndex(active_index)
+        populate_account_combo(self.account_combo,ACCOUNT_MANAGER.read_index(),ACTIVE_ACCOUNT_ID)
         self.account_combo.blockSignals(False)
 
     def _on_account_combo_changed(self,index):
@@ -1309,14 +512,18 @@ class MainWindow(QMainWindow):
             return
         account_id=self.account_combo.itemData(index)
         if account_id and account_id!=ACTIVE_ACCOUNT_ID:
-            self._switch_account(account_id)
+            if not self._switch_account(account_id):
+                self._refresh_account_combo()
 
     def _switch_account(self,account_id):
-        data=_read_accounts_index()
+        if getattr(self,"_my_role_dirty",False) and not self._confirm_leave_my_role_page():
+            return False
+        if getattr(self,"_config_dirty",False) and not self._confirm_leave_config_page():
+            return False
+        data=ACCOUNT_MANAGER.read_index()
         if not any(a.get("id")==account_id for a in data.get("accounts",[])):
-            return
-        data["active_account_id"]=account_id
-        _write_accounts_index(data)
+            return False
+        ACCOUNT_MANAGER.set_active_account_id(account_id)
         _set_active_account(account_id)
         set_log_dir(LOG_DIR)
         self.state_mgr=StateManager(config_dir=str(USER_CONFIG_DIR))
@@ -1332,254 +539,84 @@ class MainWindow(QMainWindow):
         if hasattr(self,"_ss_info"):
             self._refresh_ss()
         logger.info(f"已切换账号: {ACTIVE_ACCOUNT_NAME}")
+        return True
 
     def _manage_accounts(self):
-        dlg=QDialog(self); dlg.setWindowTitle("管理账号"); dlg.setMinimumSize(460,220); dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg); layout.setSpacing(10)
-        row=QHBoxLayout(); row.addWidget(QLabel("账号"))
-        combo=QComboBox(); row.addWidget(combo,1); layout.addLayout(row)
-        name_edit=QLineEdit(); name_edit.setPlaceholderText("账号名称"); layout.addWidget(name_edit)
-        btn_row=QHBoxLayout()
-        add_btn=QPushButton("添加"); add_btn.setObjectName("btnAction")
-        rename_btn=QPushButton("保存命名"); rename_btn.setObjectName("btnAction")
-        delete_btn=QPushButton("删除账号"); delete_btn.setObjectName("btnDanger")
-        close_btn=QPushButton("关闭")
-        for btn in (add_btn,rename_btn,delete_btn):
-            btn_row.addWidget(btn)
-        btn_row.addStretch(); btn_row.addWidget(close_btn); layout.addLayout(btn_row)
-
-        def refresh(select_id=None):
-            data=_read_accounts_index()
-            combo.blockSignals(True); combo.clear()
-            target=select_id or ACTIVE_ACCOUNT_ID
-            active_idx=0
-            for idx,account in enumerate(data.get("accounts",[])):
-                combo.addItem(account.get("name") or account.get("id"),account.get("id"))
-                if account.get("id")==target:
-                    active_idx=idx
-            combo.setCurrentIndex(active_idx)
-            combo.blockSignals(False)
-            current=data.get("accounts",[{}])[active_idx] if data.get("accounts") else {}
-            name_edit.setText(current.get("name",""))
-
-        def current_id():
-            return combo.currentData()
-
-        def on_combo_changed(_=None):
-            account=_account_meta(current_id())
-            name_edit.setText(account.get("name",""))
-
-        def add_account():
-            name,ok=QInputDialog.getText(dlg,"添加账号","请输入账号名称：")
-            if not ok or not name.strip():
-                return
-            data=_read_accounts_index()
-            existing={a.get("id") for a in data.get("accounts",[])}
-            base=_safe_account_id(name)
-            account_id=base
-            suffix=2
-            while account_id in existing:
-                account_id=f"{base}_{suffix}"
-                suffix+=1
-            data.setdefault("accounts",[]).append({"id":account_id,"name":name.strip()})
-            _write_accounts_index(data)
-            _seed_account_data(account_id)
-            refresh(account_id)
-
-        def rename_account():
-            account_id=current_id()
-            name=name_edit.text().strip()
-            if not account_id or not name:
-                return
-            data=_read_accounts_index()
-            for account in data.get("accounts",[]):
-                if account.get("id")==account_id:
-                    account["name"]=name
-            _write_accounts_index(data)
-            if account_id==ACTIVE_ACCOUNT_ID:
-                _set_active_account(account_id)
-            refresh(account_id); self._refresh_account_combo()
-
-        def delete_account():
-            account_id=current_id()
-            data=_read_accounts_index()
-            accounts=data.get("accounts",[])
-            if len(accounts)<=1:
-                QMessageBox.information(dlg,"删除账号","至少需要保留一个账号。")
-                return
-            account=_account_meta(account_id)
-            ret=QMessageBox.question(
-                dlg,"删除账号",
-                f"确定删除账号「{account.get('name',account_id)}」及其库存、配装、截图等数据吗？\n此操作不可恢复。",
-                QMessageBox.Yes|QMessageBox.No,QMessageBox.No
-            )
-            if ret!=QMessageBox.Yes:
-                return
-            data["accounts"]=[a for a in accounts if a.get("id")!=account_id]
-            if data.get("active_account_id")==account_id:
-                data["active_account_id"]=data["accounts"][0]["id"]
-            _write_accounts_index(data)
-            shutil.rmtree(_account_dir(account_id),ignore_errors=True)
-            if account_id==ACTIVE_ACCOUNT_ID:
-                self._switch_account(data["active_account_id"])
-            refresh(data.get("active_account_id")); self._refresh_account_combo()
-
-        combo.currentIndexChanged.connect(on_combo_changed)
-        add_btn.clicked.connect(add_account)
-        rename_btn.clicked.connect(rename_account)
-        delete_btn.clicked.connect(delete_account)
-        close_btn.clicked.connect(dlg.accept)
-        refresh()
-        dlg.exec()
-        self._refresh_account_combo()
-
-    def _maybe_show_quick_start(self):
-        seen_file=USER_CONFIG_DIR/"quick_start_seen.json"
-        if not seen_file.exists():
-            QTimer.singleShot(500, lambda: self._show_quick_start(auto=True))
-
-    def _show_quick_start(self, auto=False):
-        dlg=QDialog(self)
-        dlg.setWindowTitle("新手向导")
-        dlg.setMinimumSize(520,360)
-        dlg.setStyleSheet(STYLE)
-        l=QVBoxLayout(dlg); l.setSpacing(12)
-        title=QLabel("异环驱动计算器")
-        title.setStyleSheet("font-size:18px;font-weight:700;color:#58a6ff")
-        l.addWidget(title)
-        body=QLabel(
-            "1. 安装完成后可直接打开软件；程序启动时会统一申请管理员权限。\n"
-            "2. 首次使用先进入「执行」，选择目标角色；已有库存时可直接读取库存。\n"
-            "3. 没有库存时，把装备截图放进 scanned_images 后选择离线解析，或使用半自动/全量扫描。\n"
-            "4. 半自动和全量扫描会直接使用当前管理员进程控制鼠标/手柄，不再重复弹出权限提示。\n"
-            "5. 配装结果确认后点保存；截图文件会保留在当前账号截图目录中。"
+        show_account_manager_dialog(
+            self,
+            self._current_style_sheet(),
+            ACCOUNT_MANAGER,
+            ACTIVE_ACCOUNT_ID,
+            self._switch_account,
+            self._refresh_account_combo,
         )
-        body.setWordWrap(True)
-        body.setStyleSheet("color:#c9d1d9;line-height:1.6;padding:8px")
-        l.addWidget(body)
-        row=QHBoxLayout()
-        open_ss=QPushButton("打开截图文件夹"); open_ss.clicked.connect(lambda: os.startfile(str(SCREENSHOT_DIR)) if SCREENSHOT_DIR.exists() else None)
-        open_cfg=QPushButton("打开配置文件夹"); open_cfg.clicked.connect(lambda: os.startfile(str(CONFIG_DIR)) if CONFIG_DIR.exists() else None)
-        row.addWidget(open_ss); row.addWidget(open_cfg); row.addStretch(); l.addLayout(row)
-        dont_show=QCheckBox("不再自动显示")
-        dont_show.setChecked(auto)
-        l.addWidget(dont_show)
-        bb=QDialogButtonBox(QDialogButtonBox.Ok)
-        bb.accepted.connect(dlg.accept)
-        l.addWidget(bb)
-        dlg.exec()
-        if dont_show.isChecked():
-            try:
-                with open(USER_CONFIG_DIR/"quick_start_seen.json","w",encoding="utf-8") as f:
-                    json.dump({"seen":True},f,ensure_ascii=False,indent=2)
-            except Exception:
-                pass
 
     # ── Log
-    def _guide_image_files(self):
-        guide_dir = TEMPLATE_DIR / "guide"
-        if not guide_dir.exists():
-            return []
-        def natural_key(path: Path):
-            return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", path.name)]
-        return sorted([p for p in guide_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS], key=natural_key)
-
-    def _maybe_show_quick_start(self):
-        seen_file = USER_CONFIG_DIR / "guide_seen.json"
-        if not seen_file.exists():
-            QTimer.singleShot(500, lambda: self._show_quick_start(auto=True))
-
-    def _show_quick_start(self, auto=False):
-        images = self._guide_image_files()
-        if not images:
-            QMessageBox.warning(self, "使用教程", "未找到教程图片，请检查 config/templates/guide。")
-            return
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("使用教程")
-        dlg.setMinimumSize(760, 620)
-        dlg.setStyleSheet(STYLE)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        image_label = QLabel()
-        image_label.setAlignment(Qt.AlignCenter)
-        image_label.setMinimumSize(720, 500)
-        layout.addWidget(image_label, 1)
-
-        index = {"value": 0}
-        prev_btn = QPushButton("<")
-        next_btn = QPushButton(">")
-        dont_show = QCheckBox("不再自动显示")
-        dont_show.setChecked(auto)
-
-        def render():
-            pixmap = QPixmap(str(images[index["value"]]))
-            image_label.setPixmap(pixmap.scaled(image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            prev_btn.setEnabled(index["value"] > 0)
-            next_btn.setEnabled(index["value"] < len(images) - 1)
-
-        def go(delta):
-            index["value"] = max(0, min(len(images) - 1, index["value"] + delta))
-            render()
-
-        prev_btn.clicked.connect(lambda: go(-1))
-        next_btn.clicked.connect(lambda: go(1))
-
-        row = QHBoxLayout()
-        row.addWidget(prev_btn)
-        row.addWidget(next_btn)
-        row.addStretch()
-        row.addWidget(dont_show)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok)
-        buttons.accepted.connect(dlg.accept)
-        row.addWidget(buttons)
-        layout.addLayout(row)
-
-        render()
-        dlg.exec()
-        if dont_show.isChecked():
-            try:
-                with open(USER_CONFIG_DIR / "guide_seen.json", "w", encoding="utf-8") as f:
-                    json.dump({"seen": True}, f, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
 
     def _on_log(self,msg):
         if not self._log_enabled: return
-        c="#8b949e"
+        c=theme_color("#8b949e")
         if any(k in msg for k in ("ERROR","error","失败","崩溃")): c="#f85149"
         elif any(k in msg for k in ("WARNING","warning","警告")): c="#d2991d"
         elif any(k in msg for k in ("SUCCESS","完成","完毕")): c="#3fb950"
         self.log_view.moveCursor(QTextCursor.End); self.log_view.setTextColor(QColor(c)); self.log_view.insertPlainText(msg+"\n"); self.log_view.moveCursor(QTextCursor.End)
     def _clear_log(self): self.log_view.clear()
     def _toggle_log(self,enabled):
-        self._log_enabled=enabled; self.log_frame.setVisible(enabled)
-        if enabled: self._on_log("运行日志已开启")
-        else: self.log_view.clear(); self.log_view.insertPlainText("(日志已关闭)\n")
+        if enabled:
+            try:
+                log_path=enable_session_log()
+            except Exception as exc:
+                logger.error(f"创建运行日志文件失败: {exc}")
+                toggle=getattr(self,"_log_toggle",None)
+                if toggle is not None:
+                    toggle.blockSignals(True)
+                    toggle.setChecked(False)
+                    toggle.blockSignals(False)
+                QMessageBox.warning(self,"运行日志","无法创建运行日志文件，请检查日志目录是否可写")
+                return
+            self._log_enabled=True
+            self.log_frame.setVisible(True)
+            logger.info(f"运行日志已开启: {log_path.name}")
+            return
+        if self._log_enabled:
+            logger.info("运行日志已关闭")
+        disable_session_log()
+        self._log_enabled=False
+        self.log_frame.setVisible(False)
+        self.log_view.clear()
+        self.log_view.insertPlainText("(日志已关闭)\n")
 
     # ── Data
-    def _load_data(self):
+    def _load_data(self, reload_priority=True):
         try:
-            with open(CONFIG_DIR/"roles.json","r",encoding="utf-8") as f: self.roles_db=json.load(f)
-            with open(CONFIG_DIR/"sets.json","r",encoding="utf-8") as f:
-                sd=json.load(f).get("sets",{}); self.sets_db=sd; self.all_set_names=list(sd.keys())
-            with open(CONFIG_DIR/"stats.json","r",encoding="utf-8") as f:
-                self.stats_config=json.load(f)
-                self.tape_main_stats=self.stats_config.get("tape_main_stats_pool",[])
-                self.drive_sub_stats=list((self.stats_config.get("gold_base_values",{}) or {}).keys())
+            self.roles_db=read_json(CONFIG_DIR/"roles.json", default={}) or {}
+            sd=(read_json(CONFIG_DIR/"sets.json", default={}) or {}).get("sets",{})
+            self.sets_db=sd; self.all_set_names=list(sd.keys())
+            catalog=StatCatalog.from_config_dir(CONFIG_DIR)
+            self.stats_config={
+                "gold_base_values": catalog.gold_base_values,
+                "tape_main_stats_pool": catalog.tape_main_stats,
+                "tape_main_stat_values": catalog.tape_main_values,
+                "tape_stat_values": catalog.tape_stat_values,
+                "main_only_keywords": catalog.main_only_keywords,
+                "stat_alias_mapping": catalog.stat_alias_mapping,
+                "benefit_one": catalog.benefit_one,
+                "benefit_alias_mapping": catalog.benefit_alias_mapping,
+                "weight_pool": catalog.weight_pool,
+            }
+            self.tape_main_stats=catalog.tape_main_stats
+            self.drive_sub_stats=list(catalog.gold_base_values.keys())
+            self.weapons_db=read_json(CONFIG_DIR/"weapons.json", default={}) or {}
             self._canonicalize_loaded_role_sets()
-            with open(CONFIG_DIR/"shapes.json","r",encoding="utf-8") as f:
-                self._shape_areas={s["shape_id"]:s["area"] for s in json.load(f).get("shapes",[])}
+            self._shape_areas={s["shape_id"]:s["area"] for s in (read_json(CONFIG_DIR/"shapes.json", default={}) or {}).get("shapes",[])}
             sf=USER_CONFIG_DIR/"equipped_state.json"
-            if sf.exists():
-                with open(sf,"r",encoding="utf-8") as f: self.equipped_state=json.load(f)
+            self.equipped_state=read_json(sf, default={}) or {}
             self.scoring_engine=ScoringEngine(str(CONFIG_DIR))
             logger.info(f"加载完成：{len(self.roles_db)} 角色，{len(self.sets_db)} 套装")
             self._update_inventory_status()
-            self.role_selector.load_roles(self.roles_db,self.all_set_names,self.tape_main_stats,self.drive_sub_stats)
-            self.role_selector.load_priority_config()
+            self.role_selector.load_roles(self.roles_db,self.all_set_names,self.tape_main_stats,self.drive_sub_stats,weapons_db=self.weapons_db)
+            if reload_priority:
+                self.role_selector.load_startup_priority_config()
             self._identify_blueprint_cache=None
             if hasattr(self,"ident_shape_combo"):
                 self._refresh_identify_options()
@@ -1596,8 +633,7 @@ class MainWindow(QMainWindow):
                 logger.warning(f"角色 [{role_name}] 默认套装名已自动修正: {raw_set} -> {resolved}")
         if changed:
             try:
-                with open(CONFIG_DIR/"roles.json","w",encoding="utf-8") as f:
-                    json.dump(self.roles_db,f,ensure_ascii=False,indent=4)
+                write_json(CONFIG_DIR/"roles.json", self.roles_db, indent=4)
             except Exception as e:
                 logger.warning(f"默认套装名已在内存中修正，但写回 roles.json 失败: {e}")
 
@@ -1607,8 +643,7 @@ class MainWindow(QMainWindow):
             self.status_lbl.setStyleSheet("color:#d2991d;font-size:12px")
             return
         try:
-            with open(OUTPUT_FILE,"r",encoding="utf-8") as f:
-                data=json.load(f)
+            data=read_json(OUTPUT_FILE, default=[])
             count=len(data) if isinstance(data,list) else 0
             self.status_lbl.setText(f"库存 {count} 件" if count else "库存为空")
             self.status_lbl.setStyleSheet("color:#3fb950;font-size:12px" if count else "color:#d2991d;font-size:12px")
@@ -1616,2390 +651,112 @@ class MainWindow(QMainWindow):
             self.status_lbl.setText("库存文件异常")
             self.status_lbl.setStyleSheet("color:#f85149;font-size:12px")
     def _card(self,title):
-        c=QFrame(); c.setStyleSheet("QFrame{background:#161b22;border:1px solid #21262d;border-radius:10px}")
+        c=QFrame(); c.setObjectName("card")
         l=QVBoxLayout(c); l.setContentsMargins(20,16,20,16); l.setSpacing(8)
-        lb=QLabel(title); lb.setStyleSheet("font-size:14px;font-weight:600;color:#58a6ff"); l.addWidget(lb); return c
+        lb=QLabel(title); lb.setObjectName("cardTitle"); l.addWidget(lb); return c
 
     # ── Page: Execute
-    def _page_execute(self):
-        page=QWidget(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(page)
-        l=QVBoxLayout(page); l.setContentsMargins(20,16,20,16); l.setSpacing(12)
-
-        c1=self._card("第一步 · 扫描模式")
-        self.scan_group=QButtonGroup()
-        for val,text in [("4","直接读取库存 — 跳过扫描（最快，推荐）"),
-                         ("3","离线解析 — 读取 scanned_images/ → 分配"),
-                         ("2","增量扫描 — 自动/半自动截图 → 解析"),
-                         ("1","全量扫描 — 手柄遍历截图 → 解析")]:
-            row=QHBoxLayout(); row.setSpacing(6)
-            rb=QRadioButton(text); rb.setChecked(val=="4"); self.scan_group.addButton(rb,int(val)); row.addWidget(rb)
-            hb=QPushButton("?"); hb.setObjectName("btnHelp")
-            hb.clicked.connect(lambda checked,v=val: _show_help(self,"扫描模式说明",SCAN_HELP.get(v,"")))
-            row.addWidget(hb); row.addStretch(); c1.layout().addLayout(row)
-
-        self.offline_frame=QWidget(); self.offline_frame.setVisible(False)
-        ol=QHBoxLayout(self.offline_frame); ol.setContentsMargins(28,4,0,4); ol.setSpacing(10)
-        ol.addWidget(QLabel("离线解析类型:"))
-        self.offline_group=QButtonGroup()
-        for key,text in [("full","全量解析"),("incremental","增量解析"),("all","全部截图解析")]:
-            sub_row=QHBoxLayout(); sub_row.setSpacing(6)
-            rb=QRadioButton(text); rb.setChecked(key=="incremental")
-            rb.setProperty("offline_key",key); self.offline_group.addButton(rb); sub_row.addWidget(rb)
-            hb=QPushButton("?"); hb.setObjectName("btnHelp")
-            hb.clicked.connect(lambda checked,k=key: _show_help(self,"离线解析说明",OFFLINE_HELP.get(k,"")))
-            sub_row.addWidget(hb); ol.addLayout(sub_row)
-        ol.addStretch(); c1.layout().addWidget(self.offline_frame)
-
-        self.total_count_frame=QWidget(); self.total_count_frame.setVisible(False)
-        tcl=QHBoxLayout(self.total_count_frame); tcl.setContentsMargins(28,4,0,4); tcl.setSpacing(8)
-        tcl.addWidget(QLabel("库存数量:"))
-        self.total_count_edit=QLineEdit()
-        self.total_count_edit.setPlaceholderText("请输入当前库存数量")
-        self.total_count_edit.setValidator(QIntValidator(1,2000,self.total_count_edit))
-        self.total_count_edit.setMaximumWidth(180)
-        tcl.addWidget(self.total_count_edit)
-        tcl.addStretch()
-        c1.layout().addWidget(self.total_count_frame)
-
-        self.drone_frame=QWidget(); self.drone_frame.setVisible(False)
-        dl=QHBoxLayout(self.drone_frame); dl.setContentsMargins(28,4,0,4)
-        dl.addWidget(QLabel("无人机模式:")); self.drone_group=QButtonGroup()
-        for val,text in [("2","半自动模式（推荐）"),("1","全自动模式")]:
-            sub_row=QHBoxLayout(); sub_row.setSpacing(6)
-            rb=QRadioButton(text); rb.setChecked(val=="2"); self.drone_group.addButton(rb,int(val)); sub_row.addWidget(rb)
-            hb=QPushButton("?"); hb.setObjectName("btnHelp")
-            hb.clicked.connect(lambda checked,v=val: _show_help(self,"无人机模式说明",DRONE_HELP.get(v,"")))
-            sub_row.addWidget(hb); dl.addLayout(sub_row)
-        dl.addStretch(); c1.layout().addWidget(self.drone_frame)
-        self.scan_group.idToggled.connect(self._on_scan_change); l.addWidget(c1)
-
-        c2=self._card("第二步 · 角色优先级配置")
-        self.role_selector=RoleSelector(); self.role_selector.orderChanged.connect(self._on_priority_changed); c2.layout().addWidget(self.role_selector); l.addWidget(c2)
-
-        c3=self._card("第三步 · 分配策略")
-        self.strategy_group=QButtonGroup()
-        for i,text in enumerate(["角色优先 — 保证主C极品，副C次之",
-                                  "驱动优先 — 极品贪心反选，让好装备都有归宿",
-                                  "全局最优 — 匈牙利算法，追求全队总分最大化",
-                                  "增量更新 — 锁定已穿戴，仅用闲置装备配装"]):
-            rb=QRadioButton(text); rb.setChecked(i==0); self.strategy_group.addButton(rb,i); c3.layout().addWidget(rb)
-        l.addWidget(c3)
-
-        self.btn_run=QPushButton("⚡  开始执行"); self.btn_run.setObjectName("btnPrimary"); self.btn_run.setFixedHeight(46)
-        self.btn_run.setStyleSheet("#btnPrimary{font-size:15px;font-weight:700;border-radius:10px}"); self.btn_run.clicked.connect(self._do_exec); l.addWidget(self.btn_run)
-
-        self.result_card=QWidget(); self.result_card.setVisible(False)
-        self.result_card.setStyleSheet("QWidget{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px}")
-        rl=QVBoxLayout(self.result_card); rh=QHBoxLayout(); rh.addWidget(QLabel("计算结果")); rh.addStretch()
-        self.btn_save=QPushButton("保存装备锁定"); self.btn_save.setObjectName("btnAction"); self.btn_save.clicked.connect(self._save_alloc); rh.addWidget(self.btn_save)
-        rl.addLayout(rh); self.result_content=QWidget(); self.result_content_layout=QVBoxLayout(self.result_content); rl.addWidget(self.result_content)
-        l.addWidget(self.result_card); l.addStretch(); return scroll
-
-    def _on_scan_change(self,id):
-        if hasattr(self,"offline_frame"):
-            self.offline_frame.setVisible(id==3)
-        self.total_count_frame.setVisible(id==1)
-        self.drone_frame.setVisible(id==2)
-    def _on_priority_changed(self):
-        self.role_selector.save_priority_config()
-
-    def _do_exec(self):
-        sel=self.role_selector.get_selected()
-        sm=str(self.scan_group.checkedId())
-        parse_only=(not sel and sm in ("1","2","3"))
-        if not sel and not parse_only:
-            QMessageBox.warning(self,"提示","请先选择目标角色！"); return
-        total_drives=None
-        if sm=="1":
-            raw_count=self.total_count_edit.text().strip()
-            if not raw_count:
-                QMessageBox.warning(self,"提示","全量扫描前请先填写库存数量。")
-                return
-            total_drives=int(raw_count)
-            if not 0 < total_drives <= 2000:
-                QMessageBox.warning(self,"提示","库存数量必须在 1-2000 之间。")
-                return
-        if parse_only:
-            QMessageBox.information(self,"仅生成库存数据","当前未选择任何角色，本次扫描解析只会生成 real_inventory.json，不会进行配装计算。")
-        offline_scope=None
-        if sm=="3":
-            checked=self.offline_group.checkedButton() if hasattr(self,"offline_group") else None
-            offline_scope=checked.property("offline_key") if checked else "incremental"
-            if offline_scope=="all":
-                ret=QMessageBox.warning(
-                    self,
-                    "全部截图解析",
-                    "全部截图解析会读取文件夹根目录下所有截图，可能导致旧截图重复写入库存。\n\n如若产生库存异常，请重新全量扫描。\n\n确定继续吗？",
-                    QMessageBox.Yes|QMessageBox.No,
-                    QMessageBox.No,
-                )
-                if ret!=QMessageBox.Yes:
-                    return
-        pending_drone_mode=None
-        if sm=="2":
-            pending_drone_mode="auto" if self.drone_group.checkedId()==1 else "semi"
-            if pending_drone_mode=="auto" and not (SCREENSHOT_DIR/"raw_drive_0001.png").exists():
-                QMessageBox.warning(self,"需要重新全量扫描","由于版本更新解析逻辑变动，需要重新进行全量扫描")
-                return
-        if not parse_only and not self._confirm_unsaved_allocation_before_recompute():
-            return
-        self.btn_run.setEnabled(False); self.btn_run.setText("⏳  执行中..."); self.result_card.setVisible(False)
-        strat=["role_priority","drive_priority","global_optimal","update_mode"][max(0,min(3,self.strategy_group.checkedId()))]
-        cs=self.role_selector.get_custom_sets()
-        tmf=self.role_selector.get_tape_main_filters()
-        cpm=self.role_selector.get_crit_priority_modes()
-        self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm
-        self._pending_archive_paths=[]
-        self._pending_parse_only=parse_only
-
-        if sm=="3":
-            scope={"full":"full","incremental":"incremental","all":"all"}.get(offline_scope,"incremental")
-            self._start_vision_processing(replace_output=(scope=="full"),parse_scope=scope)
-        elif sm=="2":
-            drone_mode=pending_drone_mode or ("auto" if self.drone_group.checkedId()==1 else "semi")
-            self._start_scan(drone_mode)
-        elif sm=="1":
-            self._start_gamepad_scan(total_drives)
-        else:
-            self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm),parent=self)
-            self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
-
-    def _is_scope_image(self,path:Path,parse_scope:str,skip_names=None):
-        skip_names=set(skip_names or [])
-        if path.name in skip_names or path.suffix.lower() not in IMAGE_EXTS or not path.is_file():
-            return False
-        stem=path.stem
-        if parse_scope=="full":
-            return re.fullmatch(r"raw_drive_\d+",stem) is not None
-        if parse_scope=="incremental_auto":
-            return stem.startswith(AUTO_INCREMENTAL_PREFIXES)
-        if parse_scope=="incremental_semi":
-            return stem.startswith(SEMI_INCREMENTAL_PREFIXES)
-        if parse_scope=="incremental":
-            return stem.startswith(INCREMENTAL_PREFIXES)
-        return True
-
-    def _equipment_compare_signature(self,item):
-        item_type=getattr(item,"item_type","")
-        quality=getattr(item,"quality","")
-        sub_stats=tuple((str(k),float(v)) for k,v in (getattr(item,"sub_stats",{}) or {}).items())
-        if item_type=="drive":
-            main_stats=tuple((str(k),float(v)) for k,v in (getattr(item,"main_stats",{}) or {}).items())
-            return ("drive",quality,getattr(item,"shape_id",""),main_stats,sub_stats)
-        if item_type=="tape":
-            return ("tape",quality,getattr(item,"set_name",""),str(getattr(item,"main_stats","")),sub_stats)
-        return (item_type,quality,sub_stats)
-
-    def _same_equipment_by_ocr(self,left:Path,right:Path):
-        try:
-            p=BatchProcessor(input_dir=str(SCREENSHOT_DIR),output_file=str(OUTPUT_FILE),config_dir=str(CONFIG_DIR),replace_output=False)
-            left_item=p._process_single_image(str(left))
-            right_item=p._process_single_image(str(right))
-            left_sig=self._equipment_compare_signature(left_item)
-            right_sig=self._equipment_compare_signature(right_item)
-            same=left_sig==right_sig
-            logger.info(f"增量首图 OCR 数据比对: {'一致' if same else '不一致'} | {left.name} vs {right.name}")
-            if not same:
-                logger.debug(f"probe={left_sig} baseline={right_sig}")
-            return same
-        except Exception as exc:
-            logger.warning(f"增量首图 OCR 数据比对失败，将保留 probe 进入正常解析: {exc}")
-            return False
-
-    def _prepare_incremental_parse(self,parse_scope):
-        self._pending_delete_after_parse=[]
-        self._pending_probe_duplicate_count=0
-        if parse_scope not in ("incremental","incremental_auto"):
-            return set()
-        probes=sorted([p for p in _iter_root_image_files(SCREENSHOT_DIR) if p.stem.startswith("raw_drive_probe_")])
-        if not probes:
-            return set()
-        baseline=SCREENSHOT_DIR/"raw_drive_0001.png"
-        if not baseline.exists():
-            QMessageBox.warning(self,"需要重新全量扫描","由于版本更新解析逻辑变动，需要重新进行全量扫描")
-            return None
-        skip=set()
-        first_probe=probes[0]
-        if self._same_equipment_by_ocr(first_probe,baseline):
-            skip.add(first_probe.name)
-            self._pending_delete_after_parse=[str(first_probe)]
-            self._pending_probe_duplicate_count=1
-            logger.info(f"增量首图与 raw_drive_0001 一致，解析完成后删除: {first_probe.name}")
-        return skip
-
-    def _matching_scope_files(self,parse_scope,skip_names=None):
-        return sorted([p for p in _iter_root_image_files(SCREENSHOT_DIR) if self._is_scope_image(p,parse_scope,skip_names)],key=lambda p:p.name)
-
-    def _unique_path(self,directory:Path,name:str):
-        directory.mkdir(parents=True,exist_ok=True)
-        candidate=directory/name
-        base=candidate.with_suffix("")
-        ext=candidate.suffix
-        suffix=1
-        while candidate.exists():
-            candidate=Path(f"{base}_{suffix}{ext}")
-            suffix+=1
-        return candidate
-
-    def _move_to_failed(self,paths):
-        failed_dir=SCREENSHOT_DIR/FAILED_SCREENSHOT_DIRNAME
-        moved=0
-        for src in paths:
-            src_path=Path(src)
-            if not src_path.exists():
-                continue
-            dst=self._unique_path(failed_dir,src_path.name)
-            try:
-                shutil.move(str(src_path),str(dst))
-                moved+=1
-            except Exception as exc:
-                logger.error(f"移动失败截图失败: {src_path.name} | {exc}")
-        return moved
-
-    def _delete_paths(self,paths):
-        deleted=0
-        for src in paths:
-            src_path=Path(src)
-            if not src_path.exists():
-                continue
-            try:
-                src_path.unlink()
-                deleted+=1
-            except Exception as exc:
-                logger.error(f"删除重复截图失败: {src_path.name} | {exc}")
-        return deleted
-
-    def _next_full_scan_index(self):
-        indexes=[idx for idx in (_raw_drive_index(p) for p in _iter_root_image_files(SCREENSHOT_DIR)) if idx is not None]
-        return (max(indexes) if indexes else 0)+1
-
-    def _rename_incremental_successes(self,paths):
-        next_index=self._next_full_scan_index()
-        renamed=0
-        for src in paths:
-            src_path=Path(src)
-            if not src_path.exists():
-                continue
-            target=SCREENSHOT_DIR/f"raw_drive_{next_index:04d}{src_path.suffix.lower() or '.png'}"
-            while target.exists():
-                next_index+=1
-                target=SCREENSHOT_DIR/f"raw_drive_{next_index:04d}{src_path.suffix.lower() or '.png'}"
-            try:
-                src_path.rename(target)
-                renamed+=1
-                next_index+=1
-            except Exception as exc:
-                logger.error(f"增量截图重命名失败: {src_path.name} | {exc}")
-        return renamed
-
-    def _move_first_full_scan_to_tail(self):
-        first_candidates=[
-            p for p in _iter_root_image_files(SCREENSHOT_DIR)
-            if p.stem=="raw_drive_0001"
-        ]
-        if not first_candidates:
-            return False
-        first_path=first_candidates[0]
-        next_index=self._next_full_scan_index()
-        target=SCREENSHOT_DIR/f"raw_drive_{next_index:04d}{first_path.suffix.lower() or '.png'}"
-        while target.exists():
-            next_index+=1
-            target=SCREENSHOT_DIR/f"raw_drive_{next_index:04d}{first_path.suffix.lower() or '.png'}"
-        first_path.rename(target)
-        logger.info(f"全自动增量首图插队：旧 raw_drive_0001 已移动到 {target.name}")
-        return True
-
-    def _postprocess_vision_files(self,stats):
-        scope=stats.get("parse_scope") or getattr(self,"_pending_parse_scope","all")
-        failed_paths=list(stats.get("failed_paths") or [])
-        duplicate_paths=list(stats.get("duplicate_paths") or [])
-        added_paths=list(stats.get("added_paths") or [])
-        probe_delete=list(getattr(self,"_pending_delete_after_parse",[]) or [])
-        moved_failed=self._move_to_failed(failed_paths)
-        deleted_duplicates=self._delete_paths(duplicate_paths+probe_delete)
-        renamed=0
-        if scope in ("incremental","incremental_auto","incremental_semi"):
-            probe_success=[]
-            if scope=="incremental_auto":
-                probe_success=[p for p in added_paths if Path(p).stem.startswith("raw_drive_probe_") and Path(p).exists()]
-            if probe_success:
-                probe_path=Path(probe_success[0])
-                self._move_first_full_scan_to_tail()
-                target=SCREENSHOT_DIR/f"raw_drive_0001{probe_path.suffix.lower() or '.png'}"
-                probe_path.rename(target)
-                renamed+=1
-                added_paths=[p for p in added_paths if Path(p)!=probe_path]
-            renamed+=self._rename_incremental_successes(added_paths)
-        self._pending_delete_after_parse=[]
-        return {
-            "moved_failed": moved_failed,
-            "deleted_duplicates": deleted_duplicates,
-            "renamed": renamed,
-            "probe_duplicates": getattr(self,"_pending_probe_duplicate_count",0),
-        }
-
-    def _start_vision_processing(self, replace_output=False, parse_scope="all"):
-        input_dir=str(SCREENSHOT_DIR)
-        output_file=str(OUTPUT_FILE)
-        self._pending_archive_paths=[]
-        self._pending_parse_scope=parse_scope
-        skip_names=self._prepare_incremental_parse(parse_scope)
-        if skip_names is None:
-            self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-            self._pending_parse_only=False
-            return
-        matching_files=self._matching_scope_files(parse_scope,skip_names)
-        if not matching_files:
-            deleted=self._delete_paths(getattr(self,"_pending_delete_after_parse",[]) or [])
-            self._pending_delete_after_parse=[]
-            self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-            self._pending_parse_only=False
-            self._update_inventory_status()
-            QMessageBox.information(self,"解析完成",f"解析成功 0 张，解析失败 0 张，过滤重复 {deleted} 张。")
-            return
-        self._vision_worker=VisionWorkerThread(input_dir,output_file,self,replace_output=replace_output,parse_scope=parse_scope,skip_names=skip_names)
-        self._progress_dlg=QProgressDialog("正在解析截图...","取消",0,100,self)
-        self._progress_dlg.setWindowTitle("截图解析进度")
-        self._progress_dlg.setMinimumWidth(400)
-        self._progress_dlg.setAutoClose(False)
-        self._progress_dlg.setAutoReset(False)
-        self._progress_dlg.canceled.connect(self._on_vision_cancel)
-        self._progress_dlg.show()
-        self._vision_worker.progress.connect(self._on_vision_progress)
-        self._vision_worker.processing_done.connect(self._on_vision_done)
-        self._vision_worker.canceled.connect(self._on_vision_canceled)
-        self._vision_worker.error.connect(self._on_vision_error)
-        self._vision_worker.start()
-
-    def _on_vision_progress(self,current,total,filename):
-        self._progress_dlg.setMaximum(total)
-        self._progress_dlg.setValue(current)
-        self._progress_dlg.setLabelText(f"正在解析 ({current}/{total}): {filename}")
-
-    def _on_vision_done(self,stats):
-        stats=stats or {}
-        self._pending_archive_paths=[]
-        logger.info("视觉解析线程完成，准备启动分配计算...")
-        if hasattr(self, '_progress_dlg') and self._progress_dlg:
-            self._progress_dlg.close()
-        if hasattr(self,'_vision_worker') and self._vision_worker.isRunning():
-            self._vision_worker.wait(5000)
-        post=self._postprocess_vision_files(stats)
-        success_count=int(stats.get("success_count",0) or 0)
-        failed_count=int(stats.get("failed_count",0) or 0)
-        duplicate_count=int(stats.get("duplicate_count",0) or 0)+int(post.get("probe_duplicates",0) or 0)
-        summary=f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
-        details=[]
-        if post.get("moved_failed"):
-            details.append(f"失败截图已移动到 failed 文件夹 {post['moved_failed']} 张。")
-        if post.get("renamed"):
-            details.append(f"增量截图已改名接入全量序列 {post['renamed']} 张。")
-        if details:
-            summary+="\n"+"\n".join(details)
-        if getattr(self,"_pending_parse_only",False):
-            self._pending_archive_paths=[]
-            self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-            self._update_inventory_status()
-            QMessageBox.information(self,"库存数据已生成",summary+"\n\n本次未配置角色优先级，已仅生成/更新 real_inventory.json，未进行配装计算。")
-            self._pending_parse_only=False
-            return
-        from PySide6.QtCore import QTimer
-        QMessageBox.information(self,"截图解析完成",summary)
-        QTimer.singleShot(100, self._start_allocation_worker)
-
-    def _start_allocation_worker(self):
-        logger.info("启动分配工作线程...")
-        self._worker=WorkerThread(target=lambda:self._run_allocation(self._pending_strat,self._pending_sel,self._pending_cs,getattr(self,"_pending_tape_main_filters",{}),getattr(self,"_pending_crit_priority_modes",{})),parent=self)
-        self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
-        logger.info("分配线程已启动")
-
-    def _on_vision_error(self,err):
-        self._progress_dlg.close()
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-        self._pending_parse_only=False
-        QMessageBox.critical(self,"解析失败",f"截图解析出错:\n{err}")
-
-    def _on_vision_cancel(self):
-        if hasattr(self,'_vision_worker') and self._vision_worker.isRunning():
-            self._vision_worker.request_cancel()
-            self._progress_dlg.setCancelButton(None)
-            self._progress_dlg.setLabelText("正在取消解析，等待当前截图处理完成...")
-            return
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-
-    def _on_vision_canceled(self,count):
-        if hasattr(self, '_progress_dlg') and self._progress_dlg:
-            self._progress_dlg.close()
-        self.btn_run.setEnabled(True); self.btn_run.setText("开始执行")
-        self._pending_parse_only=False
-        QMessageBox.information(self,"解析已取消",f"已停止继续解析，本次已入库 {count} 张截图。")
-
-    def _start_scan(self,drone_mode):
-        self._pending_scan_mode=drone_mode
-        self.showMinimized()
-        self._scan_worker=ScanWorkerThread(mode=drone_mode,parent=self)
-        self._scan_worker.scan_done.connect(self._on_scan_done)
-        self._scan_worker.error.connect(self._on_scan_error)
-        self._register_scan_hotkeys(drone_mode)
-        self.btn_run.setText("⏳  扫描中... (F12 停止)")
-        self._scan_worker.start()
-
-    def _start_gamepad_scan(self,total_drives):
-        self._replace_inventory_on_next_parse=True
-        self._pending_scan_mode="gamepad"
-        QMessageBox.information(
-            self,
-            "全量扫描准备",
-            "点击 OK 后程序会最小化并准备开始全量扫描。\n\n"
-            "请切换至游戏的驱动仓库页面，并确保当前选中第一排第一个驱动。\n"
-            "程序会在短暂倒计时后接管虚拟手柄进行遍历截图。"
-        )
-        self.showMinimized()
-        self._gamepad_worker=GamepadScanWorkerThread(total_drives=total_drives,parent=self)
-        self._gamepad_worker.scan_done.connect(self._on_scan_done)
-        self._gamepad_worker.error.connect(self._on_gamepad_error)
-        self._register_scan_hotkeys("gamepad")
-        self.btn_run.setText("⏳  手柄扫描中... (F12 停止)")
-        self._gamepad_worker.start()
-
-    def _register_scan_hotkeys(self, mode):
-        """启动热键监听线程"""
-        self._hk_mode=mode
-        self._hk_active=True
-        self._hk_thread_id=None
-        import threading
-        self._hk_thread=threading.Thread(target=self._hotkey_poll_loop, daemon=True)
-        self._hk_thread.start()
-
-    def _hotkey_to_vk(self,hotkey):
-        text=str(hotkey or "").strip().upper()
-        match=re.fullmatch(r"F(\d{1,2})",text)
-        if match:
-            num=int(match.group(1))
-            if 1<=num<=24:
-                return 0x70+num-1
-        if len(text)==1 and ("A"<=text<="Z" or "0"<=text<="9"):
-            return ord(text)
-        return None
-
-    def _win_hotkey_loop(self):
-        if sys.platform!="win32":
-            return False
-        user32=ctypes.windll.user32
-        kernel32=ctypes.windll.kernel32
-        WM_HOTKEY=0x0312
-        WM_NULL=0x0000
-        PM_REMOVE=0x0001
-        MOD_NOREPEAT=0x4000
-
-        class POINT(ctypes.Structure):
-            _fields_=[("x",ctypes.c_long),("y",ctypes.c_long)]
-
-        class MSG(ctypes.Structure):
-            _fields_=[
-                ("hwnd",ctypes.c_void_p),
-                ("message",ctypes.c_uint),
-                ("wParam",ctypes.c_size_t),
-                ("lParam",ctypes.c_size_t),
-                ("time",ctypes.c_uint),
-                ("pt",POINT),
-            ]
-
-        actions={}
-        registrations=[]
-        hotkeys=[(1,self._hk_stop,"stop")]
-        if self._hk_mode in ("semi","identify"):
-            hotkeys.extend([(2,self._hk_capture,"capture"),(3,self._hk_finish,"finish")])
-        for hotkey_id,hotkey,action in hotkeys:
-            vk=self._hotkey_to_vk(hotkey)
-            if not vk:
-                continue
-            if not user32.RegisterHotKey(None,hotkey_id,MOD_NOREPEAT,vk):
-                for registered_id in registrations:
-                    user32.UnregisterHotKey(None,registered_id)
-                return False
-            registrations.append(hotkey_id)
-            actions[hotkey_id]=action
-        if not registrations:
-            return False
-
-        self._hk_thread_id=kernel32.GetCurrentThreadId()
-        msg=MSG()
-        try:
-            while self._hk_active:
-                while user32.PeekMessageW(ctypes.byref(msg),None,0,0,PM_REMOVE):
-                    if msg.message==WM_HOTKEY:
-                        action=actions.get(int(msg.wParam))
-                        if action=="stop":
-                            self._on_hk_stop()
-                        elif action=="capture":
-                            self._on_hk_capture()
-                        elif action=="finish":
-                            self._on_hk_finish()
-                time.sleep(0.03)
-        finally:
-            for hotkey_id in registrations:
-                user32.UnregisterHotKey(None,hotkey_id)
-            self._hk_thread_id=None
-        return True
-
-    def _hotkey_poll_loop(self):
-        """后台轮询线程，监听全局热键"""
-        if self._win_hotkey_loop():
-            return
-        import keyboard as kb
-        while self._hk_active:
-            try:
-                if kb.is_pressed(self._hk_stop.lower()):
-                    self._on_hk_stop()
-                    time.sleep(0.5)
-                if self._hk_mode in ("semi","identify"):
-                    if kb.is_pressed(self._hk_capture.lower()):
-                        self._on_hk_capture()
-                        time.sleep(0.3)
-                    if kb.is_pressed(self._hk_finish.lower()):
-                        self._on_hk_finish()
-                        time.sleep(0.5)
-            except: pass
-            time.sleep(0.05)
-
-    def _unregister_scan_hotkeys(self):
-        self._hk_active=False
-        if sys.platform=="win32" and getattr(self,"_hk_thread_id",None):
-            try:
-                ctypes.windll.user32.PostThreadMessageW(int(self._hk_thread_id),0,0,0)
-            except Exception:
-                pass
-
-    def _on_hk_stop(self):
-        w=getattr(self,'_scan_worker',None) or getattr(self,'_gamepad_worker',None)
-        if w and w.scanner:
-            w.scanner._stopped=True
-            w.scanner._finish_flag=True
-
-    def _on_hk_capture(self):
-        if getattr(self,"_hk_mode",None)=="identify":
-            self._capture_identify_foreground()
-            return
-        w=getattr(self,'_scan_worker',None)
-        if w and w.scanner: w.scanner._capture_flag=True
-
-    def _on_hk_finish(self):
-        if getattr(self,"_hk_mode",None)=="identify":
-            self.identify_capture_done_signal.emit()
-            return
-        w=getattr(self,'_scan_worker',None)
-        if w and w.scanner: w.scanner._finish_flag=True
-
-    def _on_gamepad_error(self,err):
-        self._unregister_scan_hotkeys()
-        self._replace_inventory_on_next_parse=False
-        self.showNormal(); self.activateWindow()
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-        self._pending_parse_only=False
-        QMessageBox.critical(self,"手柄扫描失败",f"全量扫描出错:\n{err}")
-
-    def _on_scan_done(self,count):
-        self._unregister_scan_hotkeys()
-        self.showNormal(); self.activateWindow()
-        if count>0:
-            replace_output=getattr(self,"_replace_inventory_on_next_parse",False)
-            self._replace_inventory_on_next_parse=False
-            scan_mode=getattr(self,"_pending_scan_mode",None)
-            if replace_output or scan_mode=="gamepad":
-                self._start_vision_processing(replace_output=True,parse_scope="full")
-            elif scan_mode=="auto":
-                self._start_vision_processing(replace_output=False,parse_scope="incremental_auto")
-            elif scan_mode=="semi":
-                self._start_vision_processing(replace_output=False,parse_scope="incremental_semi")
-            else:
-                self._start_vision_processing(replace_output=False,parse_scope="incremental")
-        else:
-            self._replace_inventory_on_next_parse=False
-            self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-            self._pending_parse_only=False
-            QMessageBox.information(self,"扫描完成","未捕获到新装备，无需解析。")
-
-    def _on_scan_error(self,err):
-        self._unregister_scan_hotkeys()
-        self.showNormal(); self.activateWindow()
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-        self._pending_parse_only=False
-        QMessageBox.critical(self,"扫描失败",f"扫描出错:\n{err}")
-
-    def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes=None):
-        try:
-            logger.info(f"开始分配计算: 策略={strat}, 角色={sel}")
-            a=NTEAppFacade(config_dir=str(CONFIG_DIR),user_config_dir=str(USER_CONFIG_DIR))
-            fp,_=a.execute_allocation(str(OUTPUT_FILE),sel,cs,strat,tape_main_filters=tape_main_filters or {},crit_priority_modes=crit_priority_modes or {})
-            logger.info(f"分配计算完成: result_type={type(fp).__name__}")
-            return fp
-        except Exception as e:
-            import traceback as tb
-            logger.error(f"_run_allocation 内部异常: {e}\n{tb.format_exc()}")
-            raise
-
-    def _confirm_unsaved_allocation_before_recompute(self):
-        if not self.final_plan or not self._allocation_dirty:
-            return True
-        if self._ui_preferences.get("skip_unsaved_allocation_prompt"):
-            self._allocation_dirty=False
-            return True
-        dlg=QDialog(self)
-        dlg.setWindowTitle("当前配装尚未保存")
-        dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg); layout.setContentsMargins(18,18,18,18); layout.setSpacing(14)
-        msg=QLabel("重新执行计算会覆盖当前计算结果，是否先保存当前配装？")
-        msg.setWordWrap(True)
-        layout.addWidget(msg)
-        row=QHBoxLayout(); row.setSpacing(10)
-        dont_btn=QPushButton("不再提醒"); dont_btn.setObjectName("btnDanger")
-        skip_btn=QPushButton("不保存")
-        save_btn=QPushButton("保存"); save_btn.setObjectName("btnPrimary")
-        row.addWidget(dont_btn); row.addWidget(skip_btn); row.addWidget(save_btn)
-        layout.addLayout(row)
-        choice={"value":None}
-        dont_btn.clicked.connect(lambda: (choice.__setitem__("value","never"), dlg.accept()))
-        skip_btn.clicked.connect(lambda: (choice.__setitem__("value","skip"), dlg.accept()))
-        save_btn.clicked.connect(lambda: (choice.__setitem__("value","save"), dlg.accept()))
-        dlg.exec()
-        if choice["value"]=="save":
-            return self._save_alloc(show_message=False)
-        if choice["value"]=="never":
-            self._ui_preferences["skip_unsaved_allocation_prompt"]=True
-            self._save_ui_preferences()
-            self._allocation_dirty=False
-            return True
-        if choice["value"]=="skip":
-            self._allocation_dirty=False
-            return True
-        return False
-
-    def _on_done(self,r):
-        try:
-            logger.info(f"_on_done 收到结果: type={type(r).__name__}, keys={list(r.keys()) if isinstance(r,dict) else 'N/A'}")
-            self.final_plan=r; self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-            if r is None: QMessageBox.warning(self,"提示","计算失败，请检查库存文件是否存在。"); return
-            self._allocation_dirty=True
-            self._render_results(r)
-            logger.info("_render_results 完成")
-        except Exception as e:
-            import traceback as tb
-            logger.error(f"_on_done 异常: {e}\n{tb.format_exc()}")
-            QMessageBox.critical(self,"渲染失败",f"{e}")
-
-    def _on_exec_error(self,err):
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-        QMessageBox.critical(self,"执行失败",f"发生错误:\n{err}")
-
-    def _section_label(self,text):
-        label=QLabel(text)
-        label.setStyleSheet("font-size:14px;font-weight:700;color:#c9d1d9;border:none;background:transparent;padding:2px 0")
-        return label
-
-    def _render_results(self,plan):
-        if not plan: return
-        self.result_card.setVisible(True)
-        while self.result_content_layout.count():
-            it=self.result_content_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        mode_labels={"role_priority":"角色优先","drive_priority":"驱动优先","global_optimal":"全局最优","update_mode":"增量更新"}
-        mode_name=mode_labels.get(getattr(self,'_pending_strat',''),'')
-        for role,p in plan.items():
-            if not p or not p.get("valid"):
-                self.result_content_layout.addWidget(QLabel(f"❌ {role}: 无有效配装方案")); continue
-            total_score=p.get('score',0); total_grade=self._calc_grade(total_score,20)
-            gc=GRADE_COLORS.get(total_grade,"#58a6ff"); gbg=GRADE_BGS.get(total_grade,f"{gc}15")
-
-            grp=QGroupBox(""); grp.setStyleSheet("QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:12px;padding:18px}")
-            gl=QVBoxLayout(grp); gl.setSpacing(10)
-            # Role header: name + score + grade side by side, compact
-            role_hdr=QHBoxLayout(); role_hdr.setSpacing(8)
-            # Role name with different color from stat blocks - use teal/cyan tone
-            rnl=QLabel(role)
-            rnl.setStyleSheet("font-size:15px;font-weight:800;color:#4dd0e1;border:1px solid #4dd0e1;border-radius:7px;padding:4px 14px;background:#4dd0e122")
-            role_hdr.addWidget(rnl)
-            if mode_name:
-                ml=QLabel(mode_name); ml.setStyleSheet("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px")
-                role_hdr.addWidget(ml)
-            role_hdr.addStretch()
-            # Score badge (separate)
-            sf=QFrame()
-            sf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
-            slb=QHBoxLayout(sf); slb.setSpacing(6); slb.setContentsMargins(4,0,4,0)
-            sv=QLabel(f"{total_score:.1f}"); sv.setStyleSheet(f"font-size:15px;font-weight:800;color:{gc};border:none")
-            slb.addWidget(QLabel("评分")); slb.addWidget(sv)
-            role_hdr.addWidget(sf)
-            # Grade badge (separate)
-            gf=QFrame()
-            gf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
-            glb=QHBoxLayout(gf); glb.setSpacing(6); glb.setContentsMargins(4,0,4,0)
-            gv=QLabel(total_grade); gv.setStyleSheet(f"font-size:15px;font-weight:800;color:{gc};border:none")
-            glb.addWidget(QLabel("评级")); glb.addWidget(gv)
-            role_hdr.addWidget(gf)
-            gl.addLayout(role_hdr); gl.addSpacing(6)
-
-            board=p.get("blueprint",{}).get("board",[])
-            wts=self.roles_db.get(role,{}).get("weights",{})
-
-            tape=p.get("assigned_tape")
-            drives=p.get("assigned_set_drives",[])+p.get("assigned_extra_drives",[])
-            if board:
-                gl.addWidget(self._section_label("拼图图纸:"))
-                bp_row=QHBoxLayout(); bp_row.setSpacing(44)
-                bp_row.addWidget(PuzzleBoardWidget(board),0,Qt.AlignTop)
-                bp_row.addWidget(self._bonus_summary_widget(role,tape,drives),0,Qt.AlignTop)
-                bp_row.addStretch(1)
-                gl.addLayout(bp_row); gl.addSpacing(8)
-
-            if tape:
-                t_score=tape.role_scores.get(role,0) if hasattr(tape,'role_scores') else 0
-                t_grade=self._calc_grade(t_score,15)
-                gl.addWidget(self._section_label("卡带:"))
-                gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality))
-
-            if drives:
-                gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
-                for d in drives:
-                    score=d.role_scores.get(role,0) if hasattr(d,'role_scores') else 0
-                    grade=self._calc_grade(score,d.area)
-                    mvp_tag=f" 👑第{d.pick_order}顺位" if getattr(d,'is_mvp',False) else ""
-                    gl.addWidget(self._equip_card(d.shape_id,"",d.sub_stats,d.shape_id,d.uid+mvp_tag,wts,(score,grade),d.quality))
-            self.result_content_layout.addWidget(grp)
-        self.result_content_layout.addStretch()
-
-    def _calc_grade(self, score, area):
-        max_score = area * 10.0
-        if max_score == 0: return "D"
-        ratio = score / max_score
-        if ratio >= 0.8: return "ACE"
-        elif ratio >= 0.7: return "SSS"
-        elif ratio >= 0.6: return "SS"
-        elif ratio >= 0.5: return "S"
-        elif ratio >= 0.4: return "A"
-        elif ratio >= 0.3: return "B"
-        elif ratio >= 0.2: return "C"
-        return "D"
-
-    def _stat_w(self,sn,wts):
-        if not wts: return 0.0
-        if sn in wts: return wts[sn]
-        for k,v in wts.items():
-            if k.replace("%","")==sn.replace("%","") or sn.replace("%","")==k.replace("%",""): return v
-            if k in sn or sn in k: return v
-        return 0.0
-
-    def _stat_c(self,w):
-        w=max(0.0,min(1.0,w))
-        if w<0.3: return "#8b949e"
-        if w<0.5: return "#58a6ff"
-        if w<0.7: return "#56d364"
-        if w<0.85: return "#d2991d"
-        return "#f0883e"
-
-    def _weighted_score(self,sub_stats,wts):
-        if not sub_stats: return 0
-        total=0.0
-        for sn,sv in sub_stats.items():
-            sw=self._stat_w(sn,wts)
-            total+=float(sv)*sw
-        return total
-
-    def _quality_coef(self, quality):
-        return {"Gold":1.0,"Purple":0.8,"Blue":0.6}.get(str(quality or "Gold"),1.0)
-
-    def _canonical_stat_name(self, stat):
-        stat=str(stat or "").strip()
-        if not stat:
-            return ""
-        aliases={}
-        if self.scoring_engine:
-            aliases=getattr(self.scoring_engine,"stat_alias_mapping",{}) or {}
-        aliases.update(self.stats_config.get("stat_alias_mapping",{}) if isinstance(self.stats_config,dict) else {})
-        return aliases.get(stat,stat)
-
-    def _stat_number_value(self, value):
-        try:
-            return float(str(value).replace("%","").strip())
-        except Exception:
-            return 0.0
-
-    def _item_value(self, item, key, default=None):
-        if isinstance(item,dict):
-            return item.get(key,default)
-        return getattr(item,key,default)
-
-    def _add_stat_total(self, totals, stat, value):
-        stat=self._canonical_stat_name(stat)
-        value=self._stat_number_value(value)
-        if not stat or value==0:
-            return
-        totals[stat]=round(totals.get(stat,0.0)+value,4)
-
-    def _fallback_tape_main_value(self, main_stat, quality):
-        configured=(self.stats_config or {}).get("tape_main_stat_values",{})
-        main_stat=str(main_stat or "").strip()
-        canonical=self._canonical_stat_name(main_stat)
-        if main_stat in configured:
-            return self._stat_number_value(configured[main_stat])*self._quality_coef(quality)
-        if canonical in configured:
-            return self._stat_number_value(configured[canonical])*self._quality_coef(quality)
-        if canonical in {"暴击伤害%"}:
-            return 60.0*self._quality_coef(quality)
-        if canonical in {"暴击率%"}:
-            return 30.0*self._quality_coef(quality)
-        if canonical in {"攻击力%","防御力%","生命值%"}:
-            return 37.5*self._quality_coef(quality)
-        if canonical in {"环合强度","倾陷强度"}:
-            return 180.0*self._quality_coef(quality)
-        if "治疗加成" in canonical:
-            return 34.5*self._quality_coef(quality)
-        if "伤害增强" in canonical:
-            return 37.5*self._quality_coef(quality)
-        return 0.0
-
-    def _extra_shape_area(self, role_name):
-        label=str(self.roles_db.get(role_name,{}).get("extra_shape_label",""))
-        m=re.search(r"(\d+)",label)
-        return int(m.group(1)) if m else None
-
-    def _equipment_bonus_rows(self, role_name, tape, drives):
-        totals={}
-        if tape:
-            main_stat=self._item_value(tape,"main_stats","")
-            main_value=self._item_value(tape,"main_value",None)
-            if main_value is None:
-                main_value=self._fallback_tape_main_value(main_stat,self._item_value(tape,"quality","Gold"))
-            self._add_stat_total(totals,main_stat,main_value)
-            for stat,value in (self._item_value(tape,"sub_stats",{}) or {}).items():
-                self._add_stat_total(totals,stat,value)
-        drives=list(drives or [])
-        for drive in drives:
-            for stat,value in (self._item_value(drive,"sub_stats",{}) or {}).items():
-                self._add_stat_total(totals,stat,value)
-        role_data=self.roles_db.get(role_name,{})
-        extra_buffs=role_data.get("extra_shape_buffs",{}) or {}
-        if isinstance(extra_buffs,dict) and len(extra_buffs)>1:
-            first_key=next(iter(extra_buffs))
-            extra_buffs={first_key:extra_buffs[first_key]}
-        target_area=self._extra_shape_area(role_name)
-        matched_count=0
-        if target_area:
-            for drive in drives:
-                area=self._item_value(drive,"area",None)
-                if area is None:
-                    area=self._shape_areas.get(self._item_value(drive,"shape_id",""),0)
-                if int(area or 0)==target_area:
-                    matched_count+=1
-        for stat,value in extra_buffs.items():
-            self._add_stat_total(totals,stat,self._stat_number_value(value)*matched_count)
-        rows=sorted(totals.items(),key=lambda kv: kv[1],reverse=True)
-        return [(stat,value) for stat,value in rows if value]
-
-    def _format_bonus_value(self, stat, value):
-        suffix="%" if "%" in stat or "伤害增强" in stat or "治疗加成" in stat else ""
-        if suffix:
-            return f"+{value:.2f}%"
-        return f"+{value:.0f}" if abs(value-round(value))<0.01 else f"+{value:.2f}"
-
-    def _bonus_summary_widget(self, role_name, tape, drives):
-        rows=self._equipment_bonus_rows(role_name,tape,drives)
-        box=QFrame()
-        box.setFixedWidth(240)
-        box.setStyleSheet("QFrame{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px}")
-        layout=QVBoxLayout(box); layout.setContentsMargins(7,5,7,5); layout.setSpacing(4)
-        title=QLabel("属性汇总")
-        title.setStyleSheet("font-size:11px;font-weight:800;color:#8b949e;border:none;background:transparent")
-        layout.addWidget(title)
-        visible=rows[:4]
-        if not visible:
-            empty=QLabel("暂无可汇总属性")
-            empty.setStyleSheet("color:#6e7681;border:none;background:transparent")
-            layout.addWidget(empty)
-        for stat,value in visible:
-            layout.addWidget(self._bonus_row_widget(stat,value))
-        if len(rows)>len(visible):
-            more=QPushButton("•••")
-            more.setObjectName("btnSm")
-            more.setFixedSize(54,22)
-            more.setCursor(Qt.PointingHandCursor)
-            more.setStyleSheet("QPushButton{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;font-size:13px;font-weight:800;padding:0}QPushButton:hover{border-color:#58a6ff;color:#58a6ff}")
-            more.clicked.connect(lambda checked=False,r=rows,role=role_name: self._show_bonus_summary_dialog(role,r))
-            layout.addWidget(more,0,Qt.AlignCenter)
-        layout.addStretch()
-        return box
-
-    def _bonus_row_widget(self, stat, value):
-        row=QFrame()
-        row.setStyleSheet("QFrame{background:#161b22;border:1px solid #21262d;border-radius:5px;padding:2px 6px}")
-        rl=QHBoxLayout(row); rl.setContentsMargins(6,1,6,1); rl.setSpacing(6)
-        name=QLabel(stat); name.setStyleSheet("font-size:10px;font-weight:700;color:#c9d1d9;border:none;background:transparent")
-        val=QLabel(self._format_bonus_value(stat,value)); val.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
-        val.setStyleSheet("font-size:10px;font-weight:800;color:#f0f6fc;border:none;background:transparent")
-        rl.addWidget(name,1); rl.addWidget(val)
-        return row
-
-    def _show_bonus_summary_dialog(self, role_name, rows):
-        dlg=QDialog(self)
-        dlg.setWindowTitle(f"{role_name} 属性汇总")
-        dlg.setMinimumSize(360,420)
-        dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg); layout.setContentsMargins(14,14,14,14); layout.setSpacing(8)
-        for stat,value in rows:
-            layout.addWidget(self._bonus_row_widget(stat,value))
-        buttons=QDialogButtonBox(QDialogButtonBox.Ok)
-        buttons.accepted.connect(dlg.accept)
-        layout.addWidget(buttons)
-        dlg.exec()
-
-    def _score_drive_dict(self, sub_stats, shape_id, weights, quality="Gold"):
-        if not self.scoring_engine: return 0.0
-        se=self.scoring_engine
-        max_w=se._get_max_theoretical_weight(weights)
-        area=self._shape_areas.get(shape_id, 3)
-        actual_w=sum(se._get_flexible_weight(sn, weights) for sn in sub_stats.keys())
-        if actual_w<=0 or max_w<=0: return 0.0
-        quality_coef=se.quality_map.get(quality, 1.0)
-        return round((10.0/max_w)*actual_w*area*quality_coef, 2)
-
-    def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold"):
-        if not self.scoring_engine: return 0.0
-        se=self.scoring_engine
-        max_w=se._get_max_theoretical_weight(weights)
-        quality_coef=se.quality_map.get(quality, 1.0)
-        main_w=se._get_flexible_weight(main_stats, weights) if main_stats else 0
-        main_score=main_w*50.0*quality_coef
-        sub_w=sum(se._get_flexible_weight(sn, weights) for sn in sub_stats.keys())
-        sub_score=(10.0/max_w)*sub_w*10.0*quality_coef if max_w>0 else 0
-        return round(main_score+sub_score, 2)
-
-    def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None):
-        QUALITY_COLORS={"Gold":"#ffd700","Purple":"#ffe082","Blue":"#58a6ff"}
-        QUALITY_LABELS={"Gold":"金","Purple":"紫","Blue":"蓝"}
-        QUALITY_BGS={"Gold":"#332600","Purple":"#6f2dbd","Blue":"#0d2748"}
-        w=QWidget(); w.setStyleSheet("QWidget{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:9px 13px;margin:3px 0}")
-        outer=QHBoxLayout(w); outer.setSpacing(12); outer.setContentsMargins(2,2,2,2)
-
-        # Shape image (compact)
-        if shape_id:
-            pm=_get_shape_pixmap(shape_id,64,quality)
-            if not pm.isNull():
-                img_lbl=QLabel(); img_lbl.setPixmap(pm); img_lbl.setFixedSize(68,68); img_lbl.setScaledContents(True)
-                img_lbl.setStyleSheet("border:1px solid #30363d;border-radius:6px;background:#161b22"); outer.addWidget(img_lbl)
-
-        inner=QVBoxLayout(); inner.setSpacing(5); inner.setContentsMargins(0,3,0,3)
-
-        # Header: shape name + quality + main stat block + score|grade
-        hdr=QHBoxLayout(); hdr.setSpacing(8)
-        label_color = "#7ee787" if not shape_id else "#4dd0e1"
-        label_bg = "#0f3d2e" if not shape_id else f"{label_color}15"
-        label_border = "#238636" if not shape_id else label_color
-        name_lbl = QLabel(f"<b>{label}</b>")
-        name_size = 12 if shape_id else 13
-        name_pad = "2px 8px" if shape_id else "3px 10px"
-        name_lbl.setStyleSheet(f"font-size:{name_size}px;font-weight:800;color:{label_color};border:1px solid {label_border};border-radius:6px;padding:{name_pad};background:{label_bg}")
-        hdr.addWidget(name_lbl)
-        # Quality badge: only tapes show text; drive quality is represented by the icon.
-        if quality and not shape_id:
-            qcolor=QUALITY_COLORS.get(quality,"#8b949e"); qlabel=QUALITY_LABELS.get(quality,quality)
-            qbg=QUALITY_BGS.get(quality,f"{qcolor}15")
-            q_lbl=QLabel(qlabel)
-            q_lbl.setStyleSheet(f"font-size:11px;font-weight:700;color:{qcolor};border:1px solid {qcolor};border-radius:5px;padding:2px 7px;background:{qbg}")
-            hdr.addWidget(q_lbl)
-        # Main stat as colored block (same style as sub stats)
-        if main_stat:
-            mw=self._stat_w(main_stat,weights); mc=self._stat_c(mw); qc=QColor(mc)
-            ms_block=QLabel(main_stat); ms_block.setStyleSheet(
-                f"border:1px solid {mc};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);"
-                f"border-radius:6px;padding:4px 12px;font-size:13px;color:{mc};font-weight:700"
-            )
-            hdr.addWidget(ms_block)
-        hdr.addStretch()
-
-        # Score | Grade side by side
-        if score_info is not None:
-            score,grade=score_info; gc=GRADE_COLORS.get(grade,"#58a6ff")
-            sf=QFrame()
-            sf.setStyleSheet(f"QFrame{{background:{gc}15;border:1px solid {gc};border-radius:6px;padding:2px 10px}}")
-            sf_layout=QHBoxLayout(sf); sf_layout.setSpacing(5); sf_layout.setContentsMargins(4,1,4,1)
-            sl=QLabel(f"{score:.1f}"); sl.setStyleSheet(f"font-size:13px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(sl)
-            gl=QLabel(grade); gl.setStyleSheet(f"font-size:11px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(gl)
-            hdr.addWidget(sf)
-        uid_lbl=QLabel(f"<span style='color:#6e7681;font-size:10px;'>{uid}</span>"); hdr.addWidget(uid_lbl)
-        inner.addLayout(hdr)
-
-        # Stat blocks row
-        if sub_stats:
-            br=QHBoxLayout(); br.setSpacing(5)
-            for sn,sv in sub_stats.items():
-                sw=self._stat_w(sn,weights); color=self._stat_c(sw); qc=QColor(color)
-                block=QLabel(f"{sn} <b>{sv}</b>"); block.setAlignment(Qt.AlignCenter)
-                block.setStyleSheet(f"border:1px solid {color};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);border-radius:6px;padding:5px 12px;font-size:12px;color:{color};font-weight:600")
-                block.setToolTip(f"权重: {sw:.2f}"); br.addWidget(block)
-            br.addStretch(); inner.addLayout(br)
-        outer.addLayout(inner,1); return w
-
-    def _save_alloc(self, show_message=True):
-        if not self.final_plan:
-            return False
-        try:
-            self.state_mgr.save_allocation(self.final_plan, mode=getattr(self,'_pending_strat',''))
-            self._load_data()
-            self._allocation_dirty=False
-            if show_message:
-                QMessageBox.information(self,"保存成功","配装保存成功")
-            return True
-        except Exception as e:
-            QMessageBox.critical(self,"失败",str(e))
-            return False
-
-    def _archive_pending_screenshots(self):
-        paths=list(getattr(self,'_pending_archive_paths',[]) or [])
-        if not paths:
-            return 0
-        archive_dir=SCREENSHOT_DIR/"archive"
-        archive_dir.mkdir(parents=True,exist_ok=True)
-        archived_count=0
-        for src in paths:
-            src_path=Path(src)
-            if not src_path.exists():
-                continue
-            dst=archive_dir/src_path.name
-            base=dst.with_suffix("")
-            ext=dst.suffix
-            suffix=1
-            while dst.exists():
-                dst=Path(f"{base}_{suffix}{ext}")
-                suffix+=1
-            shutil.move(str(src_path),str(dst))
-            archived_count+=1
-        self._pending_archive_paths=[]
-        if archived_count:
-            logger.success(f"已归档 {archived_count} 张已保存配装的截图。")
-        return archived_count
 
     # ── Page: Equipment
-    def _page_equipment(self):
-        page=QWidget(); l=QVBoxLayout(page); l.setContentsMargins(20,16,20,16); l.setSpacing(8)
-        sh=QHBoxLayout(); sh.addWidget(QLabel("搜索"))
-        self.equip_search=QLineEdit(); self.equip_search.setPlaceholderText("搜索角色名称（支持拼音）..."); self.equip_search.setClearButtonEnabled(True)
-        self.equip_search.textChanged.connect(self._refresh_equip); sh.addWidget(self.equip_search)
-        clear_btn=QPushButton("清空配装"); clear_btn.setObjectName("btnDanger"); clear_btn.clicked.connect(self._clear_all_equipment)
-        sh.addWidget(clear_btn); l.addLayout(sh)
-        scroll=QScrollArea(); scroll.setWidgetResizable(True)
-        self.equip_content=QWidget(); self.equip_content_layout=QVBoxLayout(self.equip_content); scroll.setWidget(self.equip_content)
-        l.addWidget(scroll,1); return page
-
-    def _refresh_equip(self):
-        while self.equip_content_layout.count():
-            it=self.equip_content_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        eq=self.equipped_state; all_roles=sorted(eq.keys())
-        filt=self.equip_search.text().strip() if hasattr(self,'equip_search') else ""
-        shown=0
-        for role_name in all_roles:
-            if filt and not _match_pinyin(role_name,filt): continue
-            rd=eq.get(role_name,{})
-            if not isinstance(rd,dict): continue
-            shown+=1; wts=self.roles_db.get(role_name,{}).get("weights",{})
-
-            total_score=0.0; total_area=0
-            tape_data=rd.get("equipped_tape")
-            if tape_data:
-                t_q=tape_data.get("quality","Gold")
-                t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
-                total_score+=t_s; total_area+=15
-            for d in rd.get("equipped_drives",[]):
-                d_area=self._shape_areas.get(d.get("shape_id",""),3)
-                d_q=d.get("quality","Gold")
-                d_s=self._score_drive_dict(d.get("sub_stats",{}),d.get("shape_id",""),wts,d_q)
-                total_score+=d_s; total_area+=d_area
-            total_grade=self._calc_grade(total_score,total_area)
-            gc=GRADE_COLORS.get(total_grade,"#58a6ff"); gbg=GRADE_BGS.get(total_grade,f"{gc}15")
-
-            grp=QGroupBox(""); grp.setStyleSheet("QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:12px;padding:18px}")
-            gl=QVBoxLayout(grp); gl.setSpacing(10)
-            role_hdr=QHBoxLayout(); role_hdr.setSpacing(8)
-            rnl=QLabel(role_name)
-            rnl.setStyleSheet(f"font-size:15px;font-weight:800;color:#4dd0e1;border:1px solid #4dd0e1;border-radius:7px;padding:4px 14px;background:#4dd0e122")
-            role_hdr.addWidget(rnl)
-            _sm=rd.get("strategy_mode","")
-            if _sm:
-                _ml={"role_priority":"角色优先","drive_priority":"驱动优先","global_optimal":"全局最优","update_mode":"增量更新"}.get(_sm,_sm)
-                sml=QLabel(_ml); sml.setStyleSheet("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px")
-                role_hdr.addWidget(sml)
-            role_hdr.addStretch()
-            # Score
-            sf=QFrame()
-            sf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
-            slb=QHBoxLayout(sf); slb.setSpacing(6); slb.setContentsMargins(4,0,4,0)
-            sv=QLabel(f"{total_score:.1f}"); sv.setStyleSheet(f"font-size:15px;font-weight:800;color:{gc};border:none")
-            slb.addWidget(QLabel("评分")); slb.addWidget(sv); role_hdr.addWidget(sf)
-            # Grade
-            gf=QFrame()
-            gf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
-            glb=QHBoxLayout(gf); glb.setSpacing(6); glb.setContentsMargins(4,0,4,0)
-            gv=QLabel(total_grade); gv.setStyleSheet(f"font-size:15px;font-weight:800;color:{gc};border:none")
-            glb.addWidget(QLabel("评级")); glb.addWidget(gv); role_hdr.addWidget(gf)
-            del_btn=QPushButton("删除"); del_btn.setObjectName("btnDanger")
-            del_btn.clicked.connect(lambda _=False, rn=role_name: self._delete_role_equipment(rn))
-            role_hdr.addWidget(del_btn)
-            gl.addLayout(role_hdr); gl.addSpacing(6)
-
-            bp=rd.get("blueprint_layout",[])
-            drives=rd.get("equipped_drives",[])
-            if bp:
-                gl.addWidget(self._section_label("拼图图纸:"))
-                bp_row=QHBoxLayout(); bp_row.setSpacing(44)
-                bp_row.addWidget(PuzzleBoardWidget(bp),0,Qt.AlignTop)
-                bp_row.addWidget(self._bonus_summary_widget(role_name,tape_data,drives),0,Qt.AlignTop)
-                bp_row.addStretch(1)
-                gl.addLayout(bp_row)
-            if tape_data:
-                t_q=tape_data.get("quality","Gold")
-                t_s=self._score_tape_dict(tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),wts,t_q)
-                t_g=self._calc_grade(t_s,15)
-                gl.addWidget(self._section_label("卡带:"))
-                gl.addWidget(self._equip_card(tape_data.get("set_name",""),tape_data.get("main_stats",""),tape_data.get("sub_stats",{}),None,tape_data.get("uid",""),wts,(t_s,t_g),t_q))
-            if drives:
-                gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
-                for d in drives:
-                    d_q=d.get("quality","Gold")
-                    d_s=self._score_drive_dict(d.get("sub_stats",{}),d.get("shape_id",""),wts,d_q)
-                    d_g=self._calc_grade(d_s,self._shape_areas.get(d.get("shape_id",""),3))
-                    gl.addWidget(self._equip_card(d.get("shape_id",""),"",d.get("sub_stats",{}),d.get("shape_id",""),d.get("uid",""),wts,(d_s,d_g),d_q))
-            self.equip_content_layout.addWidget(grp)
-        if shown==0:
-            ph=QLabel("暂无已保存的配装。请先执行分配并保存。"); ph.setStyleSheet("color:#6e7681;padding:24px"); ph.setAlignment(Qt.AlignCenter); self.equip_content_layout.addWidget(ph)
-        self.equip_content_layout.addStretch()
-
-    def _clear_all_equipment(self):
-        if not self.equipped_state:
-            QMessageBox.information(self,"清空配装","当前没有已保存的配装。")
-            return
-        ret=QMessageBox.question(
-            self,
-            "清空配装",
-            "确定要清空所有角色的已保存配装吗？\n这会解除增量扫描中的装备锁定。",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if ret!=QMessageBox.Yes:
-            return
-        self.equipped_state={}
-        self._save_eq()
-        self._refresh_equip()
-        logger.success("已清空所有角色配装")
-
-    def _delete_role_equipment(self, role_name: str):
-        if role_name not in self.equipped_state:
-            self._refresh_equip()
-            return
-        ret=QMessageBox.question(
-            self,
-            "删除角色配装",
-            f"确定要删除 [{role_name}] 的已保存配装吗？\n该角色占用的驱动/卡带将不再被锁定。",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if ret!=QMessageBox.Yes:
-            return
-        self.equipped_state.pop(role_name,None)
-        self._save_eq()
-        self._refresh_equip()
-        logger.success(f"已删除角色配装: {role_name}")
-
-    def _save_eq(self):
-        with open(USER_CONFIG_DIR/"equipped_state.json","w",encoding="utf-8") as f: json.dump(self.equipped_state,f,ensure_ascii=False,indent=4); logger.success("装备状态已保存")
 
     # ── Page: Identify
-    def _page_identify(self):
-        page=QWidget(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(page)
-        l=QVBoxLayout(page); l.setContentsMargins(20,16,20,16); l.setSpacing(12)
-
-        c1=self._card("快速鉴定")
-        type_row=QHBoxLayout(); type_row.setSpacing(12)
-        type_row.addWidget(QLabel("装备类型"))
-        self.ident_type_group=QButtonGroup(self)
-        self.ident_drive_rb=QRadioButton("驱动块"); self.ident_tape_rb=QRadioButton("卡带")
-        self.ident_drive_rb.setChecked(True)
-        self.ident_type_group.addButton(self.ident_drive_rb,0); self.ident_type_group.addButton(self.ident_tape_rb,1)
-        self.ident_type_group.buttonToggled.connect(lambda *_: self._on_identify_type_changed())
-        type_row.addWidget(self.ident_drive_rb); type_row.addWidget(self.ident_tape_rb)
-        type_row.addSpacing(18); type_row.addWidget(QLabel("品质"))
-        self.ident_quality_combo=QComboBox()
-        for label,value in [("金色","Gold"),("紫色","Purple"),("蓝色","Blue")]:
-            self.ident_quality_combo.addItem(label,value)
-        type_row.addWidget(self.ident_quality_combo); type_row.addStretch(); c1.layout().addLayout(type_row)
-
-        self.ident_shape_row=QWidget(); sr=QHBoxLayout(self.ident_shape_row); sr.setContentsMargins(0,0,0,0)
-        sr.addWidget(QLabel("驱动形状")); self.ident_shape_combo=SearchableComboBox(); sr.addWidget(self.ident_shape_combo,1); c1.layout().addWidget(self.ident_shape_row)
-
-        self.ident_tape_row=QWidget(); tr=QHBoxLayout(self.ident_tape_row); tr.setContentsMargins(0,0,0,0); tr.setSpacing(8)
-        tr.addWidget(QLabel("卡带套装")); self.ident_set_combo=SearchableComboBox(); tr.addWidget(self.ident_set_combo,1)
-        tr.addWidget(QLabel("主词条")); self.ident_main_combo=SearchableComboBox(); tr.addWidget(self.ident_main_combo,1); c1.layout().addWidget(self.ident_tape_row)
-
-        path_row=QHBoxLayout(); path_row.setSpacing(8)
-        self.ident_path_edit=QLineEdit(); self.ident_path_edit.setPlaceholderText("图片路径；多个图片可用分号分隔")
-        self.ident_path_edit.textChanged.connect(self._refresh_identify_previews)
-        path_row.addWidget(self.ident_path_edit,1)
-        choose_btn=QPushButton("选择图片"); choose_btn.clicked.connect(self._identify_choose_file); path_row.addWidget(choose_btn)
-        paste_btn=QPushButton("粘贴"); paste_btn.clicked.connect(self._identify_from_clipboard); path_row.addWidget(paste_btn)
-        self.ident_parse_btn=QPushButton("解析图片"); self.ident_parse_btn.setObjectName("btnPrimary"); self.ident_parse_btn.clicked.connect(self._identify_from_image_path); path_row.addWidget(self.ident_parse_btn)
-        capture_btn=QPushButton("截图鉴定"); capture_btn.clicked.connect(self._start_identify_capture_mode); path_row.insertWidget(path_row.count()-1,capture_btn)
-        self.ident_parse_btn.setVisible(False)
-        c1.layout().addLayout(path_row)
-
-        self.ident_preview_scroll=QScrollArea()
-        self.ident_preview_scroll.setWidgetResizable(True)
-        self.ident_preview_scroll.setFixedHeight(106)
-        self.ident_preview_widget=QWidget()
-        self.ident_preview_layout=QHBoxLayout(self.ident_preview_widget)
-        self.ident_preview_layout.setContentsMargins(4,4,4,4)
-        self.ident_preview_layout.setSpacing(8)
-        self.ident_preview_scroll.setWidget(self.ident_preview_widget)
-        self.ident_preview_scroll.setVisible(False)
-        c1.layout().addWidget(self.ident_preview_scroll)
-
-        self.ident_manual_text=PlainTextOnlyTextEdit()
-        self.ident_manual_text.setAcceptDrops(False)
-        self.ident_manual_text.setPlaceholderText("手动输入副词条，每行一条，例如：暴击率 1.0%")
-        self.ident_manual_text.setFixedHeight(108)
-        c1.layout().addWidget(self.ident_manual_text)
-        btn_row=QHBoxLayout(); btn_row.addStretch()
-        clear_btn=QPushButton("清空"); clear_btn.clicked.connect(self._clear_identify_input); btn_row.addWidget(clear_btn)
-        self.ident_manual_btn=QPushButton("开始鉴定"); self.ident_manual_btn.setObjectName("btnPrimary"); self.ident_manual_btn.clicked.connect(self._identify_start); btn_row.addWidget(self.ident_manual_btn)
-        c1.layout().addLayout(btn_row); l.addWidget(c1)
-
-        c2=self._card("鉴定结果")
-        self.ident_summary=QLabel("等待输入装备数据")
-        self.ident_summary.setStyleSheet("color:#8b949e")
-        c2.layout().addWidget(self.ident_summary)
-        self.ident_result_widget=QWidget(); self.ident_result_layout=QVBoxLayout(self.ident_result_widget); self.ident_result_layout.setContentsMargins(0,0,0,0); self.ident_result_layout.setSpacing(8)
-        c2.layout().addWidget(self.ident_result_widget); l.addWidget(c2); l.addStretch()
-
-        self._on_identify_type_changed()
-        return scroll
-
-    def _refresh_identify_options(self):
-        if not hasattr(self,"ident_shape_combo"):
-            return
-
-        current_shape=self.ident_shape_combo.currentData()
-        self.ident_shape_combo.blockSignals(True); self.ident_shape_combo.clear()
-        for sid in sorted([s for s in self._shape_areas.keys() if s!="TAPE_15"], key=lambda x:(self._shape_areas.get(x,0),x)):
-            self.ident_shape_combo.addItem(f"{sid} ({self._shape_areas.get(sid,0)}格)",sid)
-        idx=self.ident_shape_combo.findData(current_shape)
-        if idx>=0: self.ident_shape_combo.setCurrentIndex(idx)
-        self.ident_shape_combo.blockSignals(False)
-        self._make_combo_searchable(self.ident_shape_combo)
-
-        current_set=self.ident_set_combo.currentData()
-        self.ident_set_combo.blockSignals(True); self.ident_set_combo.clear()
-        for set_name in self.all_set_names:
-            self.ident_set_combo.addItem(set_name,set_name)
-        idx=self.ident_set_combo.findData(current_set)
-        if idx>=0: self.ident_set_combo.setCurrentIndex(idx)
-        self.ident_set_combo.blockSignals(False)
-        self._make_combo_searchable(self.ident_set_combo)
-
-        current_main=self.ident_main_combo.currentData()
-        self.ident_main_combo.blockSignals(True); self.ident_main_combo.clear()
-        for stat_name in self._get_tape_main_stats_pool():
-            self.ident_main_combo.addItem(stat_name,stat_name)
-        idx=self.ident_main_combo.findData(current_main)
-        if idx>=0: self.ident_main_combo.setCurrentIndex(idx)
-        self.ident_main_combo.blockSignals(False)
-        self._make_combo_searchable(self.ident_main_combo)
-
-    def _on_identify_type_changed(self):
-        is_tape=hasattr(self,"ident_tape_rb") and self.ident_tape_rb.isChecked()
-        if hasattr(self,"ident_shape_row"): self.ident_shape_row.setVisible(not is_tape)
-        if hasattr(self,"ident_tape_row"): self.ident_tape_row.setVisible(is_tape)
-
-    def _get_tape_main_stats_pool(self):
-        try:
-            with open(CONFIG_DIR/"stats.json","r",encoding="utf-8") as f:
-                return json.load(f).get("tape_main_stats_pool",[])
-        except Exception:
-            return []
-
-    def _set_combo_data(self,combo,value):
-        if value is None: return
-        if isinstance(combo,SearchableComboBox):
-            combo._restore_items()
-        idx=combo.findData(value)
-        if idx<0: idx=combo.findText(str(value))
-        if idx>=0: combo.setCurrentIndex(idx)
-
-    def _make_combo_searchable(self,combo):
-        if isinstance(combo,SearchableComboBox):
-            combo.refresh_search_items()
-            return
-        combo.setEditable(True)
-        combo.setInsertPolicy(QComboBox.NoInsert)
-        items=[combo.itemText(i) for i in range(combo.count())]
-        completer=QCompleter(items,combo)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
-        combo.setCompleter(completer)
-
-    def _combo_data_or_resolved_text(self,combo,choices=None):
-        data=combo.currentData()
-        if data:
-            return data
-        text=combo.currentText().strip()
-        for i in range(combo.count()):
-            if text == combo.itemText(i):
-                return combo.itemData(i) or combo.itemText(i)
-        if choices:
-            return resolve_name(text,choices,cutoff=0.55) or text
-        return text
-
-    def _identify_quality(self):
-        return self.ident_quality_combo.currentData() or "Gold"
-
-    def _clear_identify_input(self):
-        self.ident_path_edit.clear(); self.ident_manual_text.clear()
-        self._clear_identify_results()
-        self.ident_summary.setText("等待输入装备数据")
-        self._refresh_identify_previews()
-
-    def _clear_identify_results(self):
-        while self.ident_result_layout.count():
-            it=self.ident_result_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-            elif it.layout(): self._delete_layout(it.layout())
-
-    def _delete_layout(self,layout):
-        while layout.count():
-            it=layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-            elif it.layout(): self._delete_layout(it.layout())
-
-    def _set_identify_busy(self,busy,msg=None):
-        if msg: self.ident_summary.setText(msg)
-        for btn in (getattr(self,"ident_parse_btn",None),getattr(self,"ident_manual_btn",None)):
-            if btn: btn.setEnabled(not busy)
-
-    def _identify_paths_from_text(self):
-        raw=self.ident_path_edit.text().strip().strip('"')
-        if not raw:
-            return []
-        return [Path(os.path.expandvars(part.strip().strip('"'))) for part in re.split(r"[;\n]+",raw) if part.strip()]
-
-    def _refresh_identify_previews(self):
-        if not hasattr(self,"ident_preview_layout"):
-            return
-        while self.ident_preview_layout.count():
-            it=self.ident_preview_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-            elif it.layout(): self._delete_layout(it.layout())
-
-        paths=[path for path in self._identify_paths_from_text() if path.exists()]
-        self.ident_preview_scroll.setVisible(bool(paths))
-        for path in paths[:12]:
-            frame=QFrame()
-            frame.setFixedSize(98,98)
-            frame.setStyleSheet("QFrame{background:#0d1117;border:1px solid #30363d;border-radius:6px}")
-            grid=QGridLayout(frame)
-            grid.setContentsMargins(2,2,2,2)
-            grid.setSpacing(0)
-            label=QLabel()
-            label.setFixedSize(92,92)
-            label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet("border:none;background:transparent")
-            pix=QPixmap(str(path))
-            if not pix.isNull():
-                label.setPixmap(pix.scaled(label.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
-            label.setToolTip(str(path))
-            label.mousePressEvent=lambda event,p=path: self._show_identify_preview_image(p)
-            grid.addWidget(label,0,0)
-            close_btn=QPushButton("×")
-            close_btn.setObjectName("btnDanger")
-            close_btn.setFixedSize(20,20)
-            close_btn.clicked.connect(lambda checked,p=path: self._remove_identify_preview_path(p))
-            grid.addWidget(close_btn,0,0,Qt.AlignTop|Qt.AlignRight)
-            self.ident_preview_layout.addWidget(frame)
-        self.ident_preview_layout.addStretch()
-
-    def _show_identify_preview_image(self,path:Path):
-        dlg=QDialog(self)
-        dlg.setWindowTitle(path.name)
-        dlg.setMinimumSize(900,650)
-        dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg)
-        label=QLabel()
-        label.setAlignment(Qt.AlignCenter)
-        pix=QPixmap(str(path))
-        if not pix.isNull():
-            screen=QApplication.primaryScreen().availableGeometry()
-            max_size=QSize(min(1200,screen.width()-160),min(800,screen.height()-180))
-            label.setPixmap(pix.scaled(max_size,Qt.KeepAspectRatio,Qt.SmoothTransformation))
-        layout.addWidget(label,1)
-        buttons=QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
-        dlg.exec()
-
-    def _remove_identify_preview_path(self,path:Path):
-        remaining=[str(p) for p in self._identify_paths_from_text() if p != path]
-        self.ident_path_edit.setText(";".join(remaining))
-
-    def _identify_start(self):
-        if self._identify_paths_from_text():
-            self._identify_from_image_path()
-        else:
-            self._identify_from_manual()
-
-    def _start_identify_capture_mode(self):
-        QMessageBox.information(
-            self,
-            "截图鉴定",
-            f"点击 OK 后请切回游戏。\n\n按 {self._hk_capture} 连续截图，按 {self._hk_finish} 完成并返回鉴定页。"
-        )
-        self._identify_capture_dir=ACCOUNT_DATA_ROOT/"identify_captures"
-        self._identify_capture_dir.mkdir(parents=True,exist_ok=True)
-        self._identify_capture_count=0
-        self.showMinimized()
-        self._register_scan_hotkeys("identify")
-        self.ident_summary.setText(f"截图鉴定已启动：{self._hk_capture} 截图，{self._hk_finish} 完成")
-
-    def _capture_identify_foreground(self):
-        try:
-            import mss
-            import mss.tools
-            from src.scanner.window_capture import capture_foreground_window
-            with mss.MSS() as sct:
-                screenshot,_=capture_foreground_window(sct)
-                self._identify_capture_count=getattr(self,"_identify_capture_count",0)+1
-                filename=f"identify_capture_{int(time.time()*1000)}_{self._identify_capture_count:04d}.png"
-                path=getattr(self,"_identify_capture_dir",ACCOUNT_DATA_ROOT/"identify_captures")/filename
-                path.parent.mkdir(parents=True,exist_ok=True)
-                mss.tools.to_png(screenshot.rgb,screenshot.size,output=str(path))
-            logger.success(f"鉴定截图成功: {path.name}")
-            self.identify_capture_signal.emit(str(path))
-        except Exception as e:
-            logger.error(f"鉴定截图失败: {e}")
-
-    def _add_identify_capture_path(self,path_text):
-        paths=[str(p) for p in self._identify_paths_from_text()]
-        paths.append(path_text)
-        self.ident_path_edit.setText(";".join(paths))
-
-    def _finish_identify_capture_mode(self):
-        self._unregister_scan_hotkeys()
-        self.showNormal(); self.activateWindow()
-        count=getattr(self,"_identify_capture_count",0)
-        self.ident_summary.setText(f"已完成鉴定截图 {count} 张，点击开始鉴定继续。")
-
-    def _identify_choose_file(self):
-        paths,_=QFileDialog.getOpenFileNames(self,"选择装备截图",str(SCREENSHOT_DIR),"Images (*.png *.jpg *.jpeg *.bmp)")
-        if paths:
-            self.ident_path_edit.setText(";".join(paths))
-
-    def _identify_from_clipboard(self):
-        cb=QApplication.clipboard()
-        mime=cb.mimeData()
-        if mime and mime.hasImage():
-            img=cb.image()
-            if not img.isNull():
-                clip_path=ACCOUNT_DATA_ROOT/f"identify_clipboard_{int(time.time()*1000)}.png"
-                img.save(str(clip_path))
-                self.ident_path_edit.setText(str(clip_path))
-                return
-
-        text=(cb.text() or "").strip()
-        if not text:
-            QMessageBox.information(self,"粘贴","剪贴板中没有图片、路径或文本数据。")
-            return
-        maybe_paths=[Path(os.path.expandvars(part.strip().strip('"'))) for part in re.split(r"[;\n]+",text) if part.strip()]
-        if maybe_paths and all(path.exists() for path in maybe_paths):
-            self.ident_path_edit.setText(";".join(str(path) for path in maybe_paths))
-        else:
-            self.ident_manual_text.setPlainText(text)
-            self._apply_identify_manual_fields(text)
-
-    def _identify_from_image_path(self):
-        paths=self._identify_paths_from_text()
-        if not paths:
-            QMessageBox.warning(self,"鉴定","请先选择或粘贴图片路径。")
-            return
-        missing=[str(path) for path in paths if not path.exists()]
-        if missing:
-            QMessageBox.warning(self,"鉴定",f"图片不存在：{missing[0]}")
-            return
-        image_jobs=[]
-        for path in paths:
-            options=self._choose_identify_image_options(path)
-            if options is None:
-                return
-            image_jobs.append((path,options))
-        self._set_identify_busy(True,"正在解析图片...")
-        self._identify_parse_worker=WorkerThread(target=lambda:self._parse_identify_images(image_jobs),parent=self)
-        self._identify_parse_worker.result_ready.connect(self._on_identify_items_loaded)
-        self._identify_parse_worker.error.connect(self._on_identify_error)
-        self._identify_parse_worker.start()
-
-    def _choose_identify_image_options(self,path:Path):
-        dlg=QDialog(self)
-        dlg.setWindowTitle("选择鉴定类型")
-        dlg.setMinimumSize(820,680)
-        dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg); layout.setSpacing(10)
-
-        image_label=QLabel()
-        image_label.setAlignment(Qt.AlignCenter)
-        image_label.setMinimumHeight(430)
-        pix=QPixmap(str(path))
-        if not pix.isNull():
-            image_label.setPixmap(pix.scaled(QSize(780,430),Qt.KeepAspectRatio,Qt.SmoothTransformation))
-        layout.addWidget(image_label,1)
-
-        type_row=QHBoxLayout(); type_row.addWidget(QLabel("装备类型"))
-        type_group=QButtonGroup(dlg)
-        drive_rb=QRadioButton("驱动"); tape_rb=QRadioButton("卡带")
-        drive_rb.setChecked(True)
-        type_group.addButton(drive_rb,0); type_group.addButton(tape_rb,1)
-        type_row.addWidget(drive_rb); type_row.addWidget(tape_rb); type_row.addStretch()
-        layout.addLayout(type_row)
-
-        drive_row=QHBoxLayout(); drive_row.addWidget(QLabel("驱动形状"))
-        shape_combo=SearchableComboBox()
-        for sid in sorted([s for s in self._shape_areas.keys() if s!="TAPE_15"], key=lambda x:(self._shape_areas.get(x,0),x)):
-            shape_combo.addItem(f"{sid} ({self._shape_areas.get(sid,0)}格)",sid)
-        current_shape=self.ident_shape_combo.currentData() if hasattr(self,"ident_shape_combo") else None
-        idx=shape_combo.findData(current_shape)
-        if idx>=0: shape_combo.setCurrentIndex(idx)
-        self._make_combo_searchable(shape_combo)
-        drive_row.addWidget(shape_combo,1); layout.addLayout(drive_row)
-
-        tape_row=QHBoxLayout(); tape_row.addWidget(QLabel("卡带套装"))
-        set_combo=SearchableComboBox()
-        for set_name in self.all_set_names:
-            set_combo.addItem(set_name,set_name)
-        current_set=self.ident_set_combo.currentData() if hasattr(self,"ident_set_combo") else None
-        idx=set_combo.findData(current_set)
-        if idx>=0: set_combo.setCurrentIndex(idx)
-        self._make_combo_searchable(set_combo)
-        tape_row.addWidget(set_combo,1)
-        tape_row.addWidget(QLabel("默认主词条"))
-        main_combo=SearchableComboBox()
-        main_pool=self._get_tape_main_stats_pool()
-        for stat_name in main_pool:
-            main_combo.addItem(stat_name,stat_name)
-        current_main=self.ident_main_combo.currentData() if hasattr(self,"ident_main_combo") else None
-        idx=main_combo.findData(current_main)
-        if idx>=0: main_combo.setCurrentIndex(idx)
-        self._make_combo_searchable(main_combo)
-        tape_row.addWidget(main_combo,1); layout.addLayout(tape_row)
-
-        def sync_rows():
-            is_tape=tape_rb.isChecked()
-            for i in range(drive_row.count()):
-                w=drive_row.itemAt(i).widget()
-                if w: w.setVisible(not is_tape)
-            for i in range(tape_row.count()):
-                w=tape_row.itemAt(i).widget()
-                if w: w.setVisible(is_tape)
-        drive_rb.toggled.connect(sync_rows); tape_rb.toggled.connect(sync_rows); sync_rows()
-
-        buttons=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
-        if dlg.exec()!=QDialog.Accepted:
-            return None
-        if tape_rb.isChecked():
-            return {
-                "type":"tape",
-                "set_name":self._combo_data_or_resolved_text(set_combo,self.all_set_names),
-                "main_stat":self._combo_data_or_resolved_text(main_combo,main_pool),
-            }
-        return {"type":"drive","shape_id":self._combo_data_or_resolved_text(shape_combo,self._shape_areas.keys()).split()[0]}
-
-    def _parse_identify_images(self,image_jobs:list[tuple[Path,dict]]):
-        p=BatchProcessor(input_dir=str(SCREENSHOT_DIR),output_file=str(USER_CONFIG_DIR/"identify_preview.json"),config_dir=str(CONFIG_DIR))
-        items=[]
-        for path,options in image_jobs:
-            items.extend(p.parse_identify_items(
-                str(path),
-                forced_type=options.get("type"),
-                forced_shape_id=options.get("shape_id"),
-                forced_set_name=options.get("set_name"),
-                forced_main_stat=options.get("main_stat"),
-            ))
-        return items
-
-    def _on_identify_items_loaded(self,items):
-        self._set_identify_busy(False)
-        if not items:
-            QMessageBox.warning(self,"鉴定","未从图片中识别到可鉴定的驱动或卡带。")
-            return
-        if not self._confirm_identify_tape_main_stats(items):
-            self.ident_summary.setText("已取消鉴定")
-            return
-        self._load_identify_item_to_form(items[0])
-        self._start_identify_items(items)
-
-    def _confirm_identify_tape_main_stats(self,items):
-        tapes=[item for item in items if isinstance(item,Tape)]
-        if not tapes:
-            return True
-        should_confirm=len(tapes)>1 or any((not item.main_stats) or ("未知" in str(item.main_stats)) for item in tapes)
-        if not should_confirm:
-            return True
-
-        main_pool=self._get_tape_main_stats_pool()
-        dlg=QDialog(self)
-        dlg.setWindowTitle("确认卡带主词条")
-        dlg.setMinimumSize(720,420)
-        dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg); layout.setSpacing(10)
-        hint=QLabel("请为每个识别到的卡带分别确认主词条；可直接输入中文或拼音搜索。")
-        hint.setStyleSheet("color:#8b949e;border:none")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        scroll=QScrollArea(); scroll.setWidgetResizable(True)
-        content=QWidget(); rows=QVBoxLayout(content); rows.setContentsMargins(0,0,0,0); rows.setSpacing(8)
-        combos=[]
-        fallback_main=self.ident_main_combo.currentData() or self.ident_main_combo.currentText()
-        for idx,item in enumerate(tapes,1):
-            frame=QFrame()
-            frame.setStyleSheet("QFrame{background:#161b22;border:1px solid #21262d;border-radius:6px}")
-            row=QHBoxLayout(frame); row.setContentsMargins(10,8,10,8); row.setSpacing(10)
-            summary=", ".join(f"{k}{v:g}" for k,v in list(item.sub_stats.items())[:4])
-            label=QLabel(f"卡带 {idx}  {item.set_name or ''}  {summary}")
-            label.setWordWrap(True)
-            row.addWidget(label,1)
-            combo=SearchableComboBox()
-            current=item.main_stats if item.main_stats and "未知" not in str(item.main_stats) else fallback_main
-            added=set()
-            if current:
-                combo.addItem(str(current),str(current)); added.add(str(current))
-            for stat_name in main_pool:
-                if stat_name not in added:
-                    combo.addItem(stat_name,stat_name)
-            combo.refresh_search_items()
-            self._set_combo_data(combo,current)
-            combo.setMinimumWidth(220)
-            row.addWidget(combo)
-            combos.append((item,combo))
-            rows.addWidget(frame)
-        rows.addStretch()
-        scroll.setWidget(content)
-        layout.addWidget(scroll,1)
-
-        buttons=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
-        if dlg.exec()!=QDialog.Accepted:
-            return False
-        for item,combo in combos:
-            item.main_stats=self._combo_data_or_resolved_text(combo,main_pool)
-        return True
-
-    def _load_identify_item_to_form(self,item):
-        if isinstance(item,Tape):
-            self.ident_tape_rb.setChecked(True)
-            set_name=resolve_name(item.set_name,self.all_set_names,cutoff=0.78) or item.set_name
-            self._set_combo_data(self.ident_set_combo,set_name)
-            self._set_combo_data(self.ident_main_combo,item.main_stats)
-        else:
-            self.ident_drive_rb.setChecked(True)
-            self._set_combo_data(self.ident_shape_combo,item.shape_id)
-        self._set_combo_data(self.ident_quality_combo,item.quality)
-        self.ident_manual_text.setPlainText("\n".join(f"{k}: {v}" for k,v in item.sub_stats.items()))
-        self._on_identify_type_changed()
-
-    def _identify_from_manual(self):
-        text=self.ident_manual_text.toPlainText()
-        self._apply_identify_manual_fields(text)
-        sub_stats=self._parse_manual_stats(text)
-        quality=self._identify_quality()
-        uid=f"identify_{int(time.time()*1000)}"
-        try:
-            if self.ident_tape_rb.isChecked():
-                set_name=self._combo_data_or_resolved_text(self.ident_set_combo,self.all_set_names)
-                set_name=resolve_name(set_name,self.all_set_names,cutoff=0.78) or set_name
-                main_stat=self._combo_data_or_resolved_text(self.ident_main_combo,self._get_tape_main_stats_pool())
-                item=Tape(uid=uid,item_type="tape",shape_id="TAPE_15",area=15,quality=quality,set_name=set_name,main_stats=main_stat,sub_stats=sub_stats)
-            else:
-                shape_id=self._combo_data_or_resolved_text(self.ident_shape_combo,self._shape_areas.keys()).split()[0]
-                area=self._shape_areas.get(shape_id,3)
-                item=Drive(uid=uid,item_type="drive",shape_id=shape_id,area=area,quality=quality,main_stats={"攻击力":0.0,"生命值":0.0},sub_stats=sub_stats)
-        except Exception as e:
-            QMessageBox.critical(self,"鉴定",f"装备数据无效：\n{e}")
-            return
-        self._start_identify_item(item)
-
-    def _apply_identify_manual_fields(self,text):
-        if not text: return
-        lower=text.lower()
-        if "卡带" in text or "tape" in lower:
-            self.ident_tape_rb.setChecked(True)
-        elif "驱动" in text or "drive" in lower:
-            self.ident_drive_rb.setChecked(True)
-
-        if "purple" in lower or "紫" in text:
-            self._set_combo_data(self.ident_quality_combo,"Purple")
-        elif "blue" in lower or "蓝" in text:
-            self._set_combo_data(self.ident_quality_combo,"Blue")
-        elif "gold" in lower or "金" in text:
-            self._set_combo_data(self.ident_quality_combo,"Gold")
-
-        for sid in self._shape_areas.keys():
-            if sid!="TAPE_15" and sid in text:
-                self._set_combo_data(self.ident_shape_combo,sid)
-                break
-
-        tokens=self._manual_tokens(text)
-        for token in tokens:
-            if "套装" in token or "set" in token.lower():
-                value=self._manual_value(token)
-                resolved=resolve_name(value,self.all_set_names,cutoff=0.55)
-                if resolved:
-                    self._set_combo_data(self.ident_set_combo,resolved)
-            if "主词条" in token or "主属性" in token or "main" in token.lower():
-                value=self._manual_value(token)
-                resolved=resolve_name(value,self._get_tape_main_stats_pool(),cutoff=0.55)
-                if resolved:
-                    self._set_combo_data(self.ident_main_combo,resolved)
-        self._on_identify_type_changed()
-
-    def _manual_tokens(self,text):
-        import re
-        return [p.strip() for p in re.split(r"[\n,，;；]+",text) if p.strip()]
-
-    def _manual_value(self,token):
-        for sep in ("：",":","="):
-            if sep in token:
-                return token.split(sep,1)[1].strip()
-        return token.strip()
-
-    def _resolve_stat_name(self,name,percent=False):
-        clean=name.strip().strip("：:= ")
-        for prefix in ("副词条","词条","主词条","主属性"):
-            clean=clean.replace(prefix,"")
-        clean=clean.strip()
-        if percent and not clean.endswith("%") and not clean.endswith("百分比"):
-            clean=f"{clean}%"
-        se=self.scoring_engine or ScoringEngine(str(CONFIG_DIR))
-        aliases=se.stat_alias_mapping
-        if clean in aliases:
-            return aliases[clean]
-        choices=list(se.gold_base_values.keys())+list(aliases.keys())+list(aliases.values())
-        resolved=resolve_name(clean,choices,cutoff=0.62)
-        if resolved in aliases:
-            return aliases[resolved]
-        return resolved or clean
-
-    def _parse_manual_stats(self,text):
-        import re
-        stats={}
-        for token in self._manual_tokens(text):
-            if any(k in token for k in ("类型","品质","形状","套装","主词条","主属性")):
-                continue
-            m=re.search(r"(.+?)[：:=\s]+([-+]?\d+(?:\.\d+)?)\s*(%)?",token)
-            if not m:
-                m=re.search(r"([\u4e00-\u9fffA-Za-z%]+?)([-+]?\d+(?:\.\d+)?)\s*(%)?",token)
-            if not m:
-                continue
-            stat_name=self._resolve_stat_name(m.group(1),percent=(m.group(3)=="%" or "%" in token))
-            try:
-                stats[stat_name]=float(m.group(2))
-            except ValueError:
-                continue
-        return stats
-
-    def _start_identify_item(self,item):
-        self._start_identify_items([item])
-
-    def _start_identify_items(self,items):
-        self._set_identify_busy(True,"正在匹配角色图纸并评分...")
-        self._identify_worker=WorkerThread(target=lambda:self._run_identify_items(items),parent=self)
-        self._identify_worker.result_ready.connect(self._render_identify_result)
-        self._identify_worker.error.connect(self._on_identify_error)
-        self._identify_worker.start()
-
-    def _get_identify_blueprints(self):
-        if self._identify_blueprint_cache:
-            return self._identify_blueprint_cache
-        orchestrator=NTEPipelineOrchestrator(config_dir=str(CONFIG_DIR))
-        roles=list(orchestrator.roles_db.keys())
-        blueprints=orchestrator.solve_blueprints(roles)
-        self._identify_blueprint_cache=(orchestrator,blueprints)
-        return self._identify_blueprint_cache
-
-    def _run_identify_item(self,item):
-        orchestrator,blueprints=self._get_identify_blueprints()
-        scoring=ScoringEngine(str(CONFIG_DIR))
-        rows=[]
-        if isinstance(item,Tape):
-            item_set=orchestrator._resolve_set_name(item.set_name)
-            item.set_name=item_set
-        for role_name,role_data in orchestrator.roles_db.items():
-            role_bps=blueprints.get(role_name,[])
-            if not role_bps:
-                continue
-            target_set=orchestrator._resolve_set_name(role_data.get("default_set",""))
-            weights=role_data.get("weights",{})
-            max_weight=scoring._get_max_theoretical_weight(weights)
-            if isinstance(item,Tape):
-                if item.set_name!=target_set:
-                    continue
-                score=scoring.calculate_cartridge_score(item,weights,max_weight)
-                match_desc="套装匹配"
-                area=15
-            else:
-                set_shapes=orchestrator.sets_db[target_set]["shapes"]
-                in_set=item.shape_id in set_shapes
-                in_extra=any(item.shape_id in bp.get("extra_pieces",[]) for bp in role_bps)
-                if not in_set and not in_extra:
-                    continue
-                score=scoring.calculate_drive_score(item,weights,max_weight)
-                match_desc="套装位" if in_set else "散件位"
-                area=item.area
-            grade=scoring.get_grade_tag(score,area)
-            max_score=area*10.0
-            rows.append({
-                "role":role_name,
-                "set":target_set,
-                "score":score,
-                "grade":grade,
-                "percent":round(score/max_score*100,1) if max_score else 0,
-                "match":match_desc,
-                "weights":weights,
-            })
-        rows.sort(key=lambda r:r["score"],reverse=True)
-        return {"item":item,"rows":rows}
-
-    def _run_identify_items(self,items):
-        return [self._run_identify_item(item) for item in items]
-
-    def _render_identify_result(self,data):
-        if isinstance(data,list):
-            self._identify_result_pages=data
-            self._identify_result_page_index=0
-            self._render_identify_result_page()
-            return
-        self._identify_result_pages=[data]
-        self._identify_result_page_index=0
-        self._render_identify_result_page()
-
-    def _render_identify_result_page(self):
-        pages=getattr(self,"_identify_result_pages",[])
-        if not pages:
-            return
-        idx=max(0,min(getattr(self,"_identify_result_page_index",0),len(pages)-1))
-        self._identify_result_page_index=idx
-        data=pages[idx]
-        self._set_identify_busy(False)
-        self._clear_identify_results()
-        item=data.get("item")
-        rows=data.get("rows",[])
-        item_name="卡带" if isinstance(item,Tape) else "驱动块"
-        page_text=f"（{idx+1}/{len(pages)}）" if len(pages)>1 else ""
-        self.ident_summary.setText(f"{item_name}鉴定完成{page_text}：{len(rows)} 名角色可使用")
-
-        preview_weights=rows[0]["weights"] if rows else {}
-        if isinstance(item,Tape):
-            self.ident_result_layout.addWidget(self._equip_card(item.set_name,item.main_stats,item.sub_stats,None,item.uid,preview_weights,None,item.quality))
-        else:
-            self.ident_result_layout.addWidget(self._equip_card(item.shape_id,"",item.sub_stats,item.shape_id,item.uid,preview_weights,None,item.quality))
-
-        if len(pages)>1:
-            nav=QHBoxLayout()
-            prev_btn=QPushButton("上一页"); next_btn=QPushButton("下一页")
-            prev_btn.setEnabled(idx>0); next_btn.setEnabled(idx<len(pages)-1)
-            prev_btn.clicked.connect(lambda:self._set_identify_result_page(idx-1))
-            next_btn.clicked.connect(lambda:self._set_identify_result_page(idx+1))
-            nav.addWidget(prev_btn); nav.addWidget(next_btn); nav.addStretch()
-            self.ident_result_layout.addLayout(nav)
-
-        if not rows:
-            empty=QLabel("没有找到图纸可使用该装备的角色。")
-            empty.setAlignment(Qt.AlignCenter); empty.setStyleSheet("color:#6e7681;padding:20px")
-            self.ident_result_layout.addWidget(empty)
-            return
-
-        for i,row in enumerate(rows,1):
-            self.ident_result_layout.addWidget(self._identify_result_row(i,row))
-        self.ident_result_layout.addStretch()
-
-    def _set_identify_result_page(self,index):
-        self._identify_result_page_index=index
-        self._render_identify_result_page()
-
-    def _identify_result_row(self,rank,row):
-        grade=row["grade"]; gc=GRADE_COLORS.get(grade,"#58a6ff"); gbg=GRADE_BGS.get(grade,f"{gc}15")
-        w=QFrame(); w.setStyleSheet("QFrame{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:8px}")
-        h=QHBoxLayout(w); h.setSpacing(10); h.setContentsMargins(8,4,8,4)
-        rk=QLabel(str(rank)); rk.setFixedSize(28,28); rk.setAlignment(Qt.AlignCenter)
-        rk.setStyleSheet("background:#21262d;color:#c9d1d9;border-radius:14px;font-weight:700")
-        h.addWidget(rk)
-        info=QVBoxLayout(); info.setSpacing(2)
-        rn=QLabel(row["role"]); rn.setStyleSheet("font-size:14px;font-weight:700;color:#c9d1d9;border:none")
-        meta=QLabel(f"{row['set']} · {row['match']} · 占比 {row['percent']:.1f}%")
-        meta.setStyleSheet("color:#8b949e;font-size:11px;border:none")
-        info.addWidget(rn); info.addWidget(meta); h.addLayout(info,1)
-        badge=QFrame(); badge.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:6px;padding:4px 10px}}")
-        bl=QVBoxLayout(badge); bl.setContentsMargins(8,2,8,2); bl.setSpacing(0)
-        score=QLabel(f"{row['score']:.1f}"); score.setAlignment(Qt.AlignCenter); score.setStyleSheet(f"font-size:18px;font-weight:800;color:{gc};border:none")
-        gd=QLabel(grade); gd.setAlignment(Qt.AlignCenter); gd.setStyleSheet(f"font-size:11px;font-weight:700;color:{gc};border:none")
-        bl.addWidget(score); bl.addWidget(gd); h.addWidget(badge)
-        return w
-
-    def _on_identify_error(self,err):
-        self._set_identify_busy(False)
-        QMessageBox.critical(self,"鉴定失败",str(err))
 
     # ── Page: Blueprint
-    def _page_blueprint(self):
-        page=QWidget(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(page)
-        l=QVBoxLayout(page); l.setContentsMargins(20,16,20,16); l.setSpacing(12)
-        hdr=QHBoxLayout()
-        self._bp_search=QLineEdit(); self._bp_search.setPlaceholderText("搜索角色（支持拼音）..."); self._bp_search.setClearButtonEnabled(True)
-        self._bp_search.textChanged.connect(self._filter_blueprints); hdr.addWidget(self._bp_search)
-        refresh_btn=QPushButton("刷新图纸"); refresh_btn.setObjectName("btnAction"); refresh_btn.clicked.connect(self._refresh_blueprints); hdr.addWidget(refresh_btn)
-        l.addLayout(hdr)
-        self._bp_content=QWidget(); self._bp_content_layout=QVBoxLayout(self._bp_content)
-        self._bp_content_layout.setSpacing(12); self._bp_content_layout.setAlignment(Qt.AlignTop)
-        l.addWidget(self._bp_content); l.addStretch()
-        self._bp_data={}
-        return scroll
-
-    def _refresh_blueprints(self):
-        while self._bp_content_layout.count():
-            it=self._bp_content_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        self._bp_content_layout.addWidget(QLabel("正在求解图纸..."))
-        self._bp_worker=WorkerThread(target=self._compute_blueprints,parent=self)
-        self._bp_worker.result_ready.connect(self._render_blueprints)
-        self._bp_worker.error.connect(lambda e: self._bp_content_layout.itemAt(0).widget().setText(f"求解失败: {e}"))
-        self._bp_worker.start()
-
-    def _compute_blueprints(self):
-        o=NTEPipelineOrchestrator(config_dir=str(CONFIG_DIR))
-        all_roles=list(self.roles_db.keys())
-        raw=o.solve_blueprints(all_roles)
-        deduped={}
-        for role_name,blueprints in raw.items():
-            extra_label=self.roles_db[role_name].get("extra_shape_label","")
-            seen=set()
-            unique=[]
-            for bp in blueprints:
-                extra_set=frozenset(sid for sid in bp["extra_pieces"] if o.shapes_db[sid].label==extra_label)
-                if extra_set not in seen:
-                    seen.add(extra_set)
-                    unique.append(bp)
-            deduped[role_name]=unique
-        return deduped
-
-    def _render_blueprints(self,data):
-        self._bp_data=data or {}
-        self._draw_blueprints()
-
-    def _draw_blueprints(self,filter_text=""):
-        while self._bp_content_layout.count():
-            it=self._bp_content_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        if not self._bp_data:
-            self._bp_content_layout.addWidget(QLabel("暂无图纸数据，请点击刷新")); return
-        search_text=filter_text.strip()
-        has_search=bool(search_text)
-        for role_name in sorted(self._bp_data.keys()):
-            if has_search and not _match_pinyin(role_name,search_text): continue
-            blueprints=self._bp_data[role_name]
-            rd=self.roles_db.get(role_name,{})
-            default_set=rd.get("default_set","")
-            grp=QGroupBox(f"{role_name}  —  {default_set}  ({len(blueprints)} 套图纸)")
-            grp.setStyleSheet("QGroupBox{font-size:13px;font-weight:600;color:#58a6ff;border:1px solid #21262d;border-radius:8px;padding-top:16px}")
-            gl=QVBoxLayout(grp); gl.setSpacing(8)
-            visible_blueprints=blueprints if has_search else blueprints[:3]
-            for i,bp in enumerate(visible_blueprints):
-                row=QHBoxLayout(); row.setSpacing(10)
-                board_w=PuzzleBoardWidget(bp["board"],cell_size=28)
-                row.addWidget(board_w)
-                extras_w=QWidget(); el=QVBoxLayout(extras_w); el.setContentsMargins(0,0,0,0); el.setSpacing(2)
-                el.addWidget(QLabel(f"方案 {i+1}"))
-                extra_row=QHBoxLayout(); extra_row.setSpacing(4)
-                for shape_id in bp.get("extra_pieces",[]):
-                    pm=_get_shape_pixmap(shape_id,48)
-                    sl=QLabel(); sl.setPixmap(pm); sl.setToolTip(shape_id)
-                    sl.setFixedSize(52,52); sl.setScaledContents(True)
-                    extra_row.addWidget(sl)
-                extra_row.addStretch(); el.addLayout(extra_row)
-                row.addWidget(extras_w,1); gl.addLayout(row)
-            if not has_search and len(blueprints)>3:
-                hint=QLabel(f"默认仅显示 3 张；搜索「{role_name}」可显示全部 {len(blueprints)} 张图纸。")
-                hint.setStyleSheet("color:#8b949e;font-size:11px;border:none;background:transparent")
-                gl.addWidget(hint)
-            self._bp_content_layout.addWidget(grp)
-
-    def _filter_blueprints(self,txt): self._draw_blueprints(txt)
 
     # ── Page: Config
     def _page_config(self):
-        page=QWidget(); l=QVBoxLayout(page); l.setContentsMargins(20,16,20,16); l.setSpacing(10)
-        page.setStyleSheet("""
-            QLabel{font-size:14px}
-            QLineEdit,QComboBox,QDoubleSpinBox{font-size:14px;padding:8px 11px;border-radius:7px}
-            QPushButton{font-size:13px;padding:8px 15px;border-radius:7px}
-            QTabBar::tab{font-size:13px;padding:10px 20px}
-            QGroupBox{font-size:15px;border:1px solid #30363d;border-radius:10px;padding:24px;padding-top:36px}
-        """)
-        ts=QHBoxLayout(); ts.addWidget(QLabel("编辑配置文件:"))
-        self.config_tabs=QComboBox()
-        self.config_tabs.addItems(["roles.json","sets.json"])
-        self.config_tabs.currentTextChanged.connect(self._switch_config_form); ts.addWidget(self.config_tabs)
-        self.config_add_btn=QPushButton("+ 添加角色"); self.config_add_btn.setObjectName("btnPrimary")
-        self.config_add_btn.clicked.connect(self._config_add_item); ts.addWidget(self.config_add_btn)
-        ts.addStretch()
-        save_btn=QPushButton("保存"); save_btn.setObjectName("btnPrimary"); save_btn.clicked.connect(self._save_config_form); ts.addWidget(save_btn)
-        l.addLayout(ts)
-        self.config_form_area=QScrollArea(); self.config_form_area.setWidgetResizable(True)
-        self.config_form_widget=QWidget(); self.config_form_layout=QVBoxLayout(self.config_form_widget); self.config_form_area.setWidget(self.config_form_widget)
-        l.addWidget(self.config_form_area,1); return page
+        return build_config_page(self)
 
     def _refresh_config_forms(self):
-        if hasattr(self,'config_tabs'): self._switch_config_form(self.config_tabs.currentText())
+        return config_refresh_config_forms(self,CONFIG_DIR)
+
+    def _confirm_leave_config_page(self):
+        return config_confirm_pending_config_changes(self,CONFIG_DIR)
+
+    def _confirm_leave_my_role_page(self):
+        return confirm_pending_my_role_changes(self)
 
     def _switch_config_form(self,name):
-        if not name: return
-        # Update add button text based on selected file
-        if name=="roles.json": self.config_add_btn.setText("+ 添加角色")
-        elif name=="sets.json": self.config_add_btn.setText("+ 添加套装")
-        while self.config_form_layout.count():
-            it=self.config_form_layout.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        path=CONFIG_DIR/name
-        if not path.exists(): self.config_form_layout.addWidget(QLabel(f"文件不存在: {name}")); return
-        with open(path,"r",encoding="utf-8") as f: data=json.load(f)
-        self._current_config_name=name
-        if name=="roles.json": self._build_roles_form(data)
-        elif name=="sets.json": self._build_sets_form(data)
-
-    def _add_section(self,title): grp=QGroupBox(title); l=QVBoxLayout(grp); return grp,l
-    def _field(self,label,widget,layout): row=QHBoxLayout(); row.addWidget(QLabel(label)); row.addWidget(widget,1); layout.addLayout(row)
+        return config_switch_config_form(self,name,CONFIG_DIR)
 
     def _build_roles_form(self,data):
-        hdr=QHBoxLayout()
-        role_search=QLineEdit(); role_search.setPlaceholderText("搜索角色（支持拼音）..."); role_search.setClearButtonEnabled(True)
-        hdr.addWidget(role_search); hdr.addStretch()
-        self.config_form_layout.addLayout(hdr)
-
-        all_names=sorted(data.keys())
-        roles_tabs=QTabWidget()
-        tab_indices={}
-
-        def _build_all_tabs():
-            for rname in all_names:
-                rd=data[rname]; tw=QWidget()
-                scroll2=QScrollArea(); scroll2.setWidgetResizable(True); scroll2.setWidget(tw)
-                fl=QVBoxLayout(tw); fl.setSpacing(12); fl.setContentsMargins(12,12,12,12)
-                role_hdr=QHBoxLayout(); role_hdr.addWidget(QLabel(f"角色: {rname}")); role_hdr.addStretch()
-                del_rb=QPushButton("删除此角色"); del_rb.setObjectName("btnDanger")
-                del_rb.clicked.connect(lambda checked,rn=rname:self._del_role(rn,data,_full_rebuild))
-                role_hdr.addWidget(del_rb); fl.addLayout(role_hdr)
-                set_combo=SearchableComboBox()
-                for set_name in self.all_set_names:
-                    set_combo.addItem(set_name,set_name)
-                set_combo.refresh_search_items()
-                if rd.get("default_set","") in self.all_set_names:
-                    set_combo.setCurrentText(rd.get("default_set",""))
-                set_combo.activated.connect(lambda _idx,rn=rname,c=set_combo: self._save_role_field(rn,"default_set",c.currentData() or c.currentText(),data))
-                if set_combo.lineEdit():
-                    set_combo.lineEdit().editingFinished.connect(lambda rn=rname,c=set_combo: self._save_role_field(rn,"default_set",c.currentText(),data))
-                self._field("默认套装", set_combo, fl)
-                extra_combo=NoWheelComboBox(); extra_combo.addItems(["Type-2","Type-3","Type-4"]); extra_combo.setCurrentText(rd.get("extra_shape_label",""))
-                extra_combo.currentTextChanged.connect(lambda text,rn=rname: self._save_role_field(rn,"extra_shape_label",text,data))
-                self._field("额外形状标签", extra_combo,fl)
-                buff_row=QHBoxLayout(); buff_row.setSpacing(8)
-                buff_row.addWidget(QLabel("额外形状加成"))
-                buff_stat_combo=SearchableComboBox()
-                for stat in self._stat_choice_pool():
-                    buff_stat_combo.addItem(stat,stat)
-                buff_stat_combo.refresh_search_items()
-                extra_buffs=rd.get("extra_shape_buffs",{}) or {}
-                current_buff=next(iter(extra_buffs.items()),("",0.0)) if isinstance(extra_buffs,dict) and extra_buffs else ("",0.0)
-                if current_buff[0]:
-                    buff_stat_combo.setCurrentText(current_buff[0])
-                else:
-                    buff_stat_combo.setCurrentIndex(-1); buff_stat_combo.setEditText("")
-                buff_value=NoWheelDoubleSpinBox(); buff_value.setRange(-99999,99999); buff_value.setDecimals(2); buff_value.setSingleStep(1.0); buff_value.setValue(float(current_buff[1] or 0)); buff_value.setMaximumWidth(140); buff_value.setKeyboardTracking(False)
-                buff_stat_combo.activated.connect(lambda _idx,rn=rname,c=buff_stat_combo,s=buff_value: self._save_single_extra_shape_buff(rn,c.currentData() or c.currentText(),s.value(),data))
-                if buff_stat_combo.lineEdit():
-                    buff_stat_combo.lineEdit().editingFinished.connect(lambda rn=rname,c=buff_stat_combo,s=buff_value: self._save_single_extra_shape_buff(rn,c.currentText(),s.value(),data))
-                buff_value.editingFinished.connect(lambda rn=rname,c=buff_stat_combo,s=buff_value: self._save_single_extra_shape_buff(rn,c.currentText(),s.value(),data))
-                buff_row.addWidget(buff_stat_combo,1); buff_row.addWidget(buff_value)
-                fl.addLayout(buff_row)
-                fl.addWidget(QLabel("底盘矩阵 (0=空格, -1=锁定):"))
-                bm=rd.get("board_matrix",[[0]*5]*5); bw=QWidget(); bg=QGridLayout(bw); bg.setSpacing(2)
-                for ri in range(5):
-                    for ci in range(5):
-                        v=str(bm[ri][ci]) if ri<len(bm) and ci<len(bm[ri]) else "0"
-                        cb=QComboBox(); cb.addItems(["-1","0"]); cb.setCurrentText(v); cb.setFixedWidth(76); bg.addWidget(cb,ri,ci)
-                fl.addWidget(bw)
-                wts_hdr=QHBoxLayout(); wts_hdr.addWidget(QLabel("词条权重:")); wts_hdr.addStretch()
-                add_wt=QPushButton("+ 添加词条"); add_wt.setObjectName("btnAction")
-                add_wt.clicked.connect(lambda checked,rn=rname: self._add_weight(rn,data,lambda active=rn: _full_rebuild(active)))
-                wts_hdr.addWidget(add_wt); fl.addLayout(wts_hdr)
-                wts=rd.get("weights",{})
-                for wk in sorted(wts.keys()):
-                    wt_row=QHBoxLayout(); wt_row.setSpacing(6)
-                    wt_row.addWidget(QLabel(wk))
-                    sb=NoWheelDoubleSpinBox(); sb.setRange(0,10); sb.setSingleStep(0.05); sb.setValue(float(wts[wk])); sb.setDecimals(3)
-                    sb.setKeyboardTracking(False)
-                    sb.editingFinished.connect(lambda rn=rname,k=wk,s=sb: self._save_role_weight_value(rn,k,s.value(),data))
-                    wt_row.addWidget(sb)
-                    dw=QPushButton("✕"); dw.setObjectName("btnSm"); dw.setFixedSize(28,28)
-                    dw.clicked.connect(lambda checked,rn=rname,k=wk: self._del_weight(rn,k,data,lambda active=rn: _full_rebuild(active)))
-                    wt_row.addWidget(dw); fl.addLayout(wt_row)
-                fl.addStretch()
-                idx=roles_tabs.addTab(scroll2,rname); tab_indices[rname]=idx
-
-        def _filter_tabs(filter_txt=""):
-            ft=filter_txt.strip()
-            for rname,idx in tab_indices.items():
-                visible=_match_pinyin(rname,ft) if ft else True
-                roles_tabs.setTabVisible(idx,visible)
-
-        def _full_rebuild(active_role=None):
-            nonlocal all_names, tab_indices
-            if active_role is None and roles_tabs.currentIndex() >= 0:
-                active_role=roles_tabs.tabText(roles_tabs.currentIndex())
-            all_names=sorted(data.keys())
-            while roles_tabs.count(): roles_tabs.removeTab(0)
-            tab_indices.clear()
-            _build_all_tabs()
-            _filter_tabs(role_search.text())
-            if active_role in tab_indices:
-                roles_tabs.setCurrentIndex(tab_indices[active_role])
-
-        _build_all_tabs()
-        role_search.textChanged.connect(_filter_tabs)
-        self.config_form_layout.addWidget(roles_tabs)
-
-    def _config_add_item(self):
-        name=getattr(self,'_current_config_name','')
-        if name=="roles.json":
-            data={}
-            path=CONFIG_DIR/name
-            if path.exists():
-                with open(path,"r",encoding="utf-8") as f: data=json.load(f)
-            self._add_role(data)
-        elif name=="sets.json":
-            data={}
-            path=CONFIG_DIR/name
-            if path.exists():
-                with open(path,"r",encoding="utf-8") as f:
-                    raw=json.load(f)
-                    data=raw.get("sets",{})
-            self._add_set(data)
-
-    def _add_weight(self,rn,data,cb):
-        stats_path=CONFIG_DIR/"stats.json"
-        pool=[]
-        if stats_path.exists():
-            with open(stats_path,"r",encoding="utf-8") as f: pool=sorted(json.load(f).get("gold_base_values",{}).keys())
-        existing=set(data[rn].get("weights",{}).keys())
-        available=[s for s in pool if s not in existing]
-        if not available: QMessageBox.information(self,"提示","所有词条已添加。"); return
-        name,ok=QInputDialog.getItem(self,"添加词条","选择词条:",available,0,False)
-        if ok and name.strip():
-            data[rn].setdefault("weights",{})[name.strip()]=0.5
-            self._save_config_data(data); cb()
-    def _stat_choice_pool(self):
-        pool=set()
-        if isinstance(self.stats_config,dict):
-            pool.update((self.stats_config.get("gold_base_values",{}) or {}).keys())
-            aliases=self.stats_config.get("stat_alias_mapping",{}) or {}
-            pool.update(aliases.values())
-            pool.update(self._canonical_stat_name(s) for s in self.stats_config.get("tape_main_stats_pool",[]) or [])
-        if self.scoring_engine:
-            pool.update(getattr(self.scoring_engine,"gold_base_values",{}).keys())
-            pool.update((getattr(self.scoring_engine,"stat_alias_mapping",{}) or {}).values())
-        return sorted(s for s in pool if s)
-    def _save_single_extra_shape_buff(self,rn,raw_stat,value,data):
-        if rn not in data:
-            return
-        raw=str(raw_stat or "").strip()
-        if not raw:
-            if data[rn].pop("extra_shape_buffs",None) is not None:
-                self._save_config_data(data)
-            return
-        pool=self._stat_choice_pool()
-        stat=next((s for s in pool if s==raw or _match_pinyin(s,raw)), raw)
-        data[rn]["extra_shape_buffs"]={stat:round(float(value),2)}
-        self._save_config_data(data)
-    def _add_extra_shape_buff(self,rn,combo,spin,data,cb):
-        if rn not in data:
-            return
-        raw=combo.currentText().strip() or combo.currentData()
-        stat=next((s for s in self._stat_choice_pool() if s==raw or _match_pinyin(s,str(raw))), str(raw or "").strip())
-        if not stat:
-            QMessageBox.warning(self,"提示","请先选择要添加的加成词条。")
-            return
-        data[rn].setdefault("extra_shape_buffs",{})[stat]=round(float(spin.value()),2)
-        self._save_config_data(data); cb()
-    def _save_extra_shape_buff_value(self,rn,key,value,data):
-        if rn in data and key in data[rn].get("extra_shape_buffs",{}):
-            data[rn]["extra_shape_buffs"][key]=round(float(value),2)
-            self._save_config_data(data)
-    def _del_extra_shape_buff(self,rn,key,data,cb):
-        if rn in data and key in data[rn].get("extra_shape_buffs",{}):
-            del data[rn]["extra_shape_buffs"][key]
-            if not data[rn]["extra_shape_buffs"]:
-                data[rn].pop("extra_shape_buffs",None)
-            self._save_config_data(data); cb()
-    def _save_role_weight_value(self,rn,key,value,data):
-        if rn in data and key in data[rn].get("weights",{}):
-            data[rn]["weights"][key]=round(float(value),3)
-            self._save_config_data(data)
-    def _save_role_field(self,rn,key,value,data):
-        if rn not in data:
-            return
-        value=str(value or "").strip()
-        if key=="default_set":
-            value=next((s for s in self.all_set_names if s==value or _match_pinyin(s,value)), value)
-        if data[rn].get(key)==value:
-            return
-        data[rn][key]=value
-        self._save_config_data(data)
-    def _del_weight(self,rn,key,data,cb):
-        if rn in data and key in data[rn].get("weights",{}):
-            del data[rn]["weights"][key]
-            self._save_config_data(data); cb()
-
-    def _add_role(self,data):
-        name,ok=QInputDialog.getText(self,"添加角色","角色名称:")
-        if ok and name.strip() and name.strip() not in data:
-            data[name.strip()]={"role_name":name.strip(),"default_set":self.all_set_names[0] if self.all_set_names else "","extra_shape_label":"","extra_shape_buffs":{},"board_matrix":[[0]*5]*5,"weights":{}}
-            self._save_config_data(data); self._load_data(); self._switch_config_form("roles.json")
-    def _del_role(self,rn,data,cb=None):
-        if QMessageBox.question(self,"确认",f"确定删除角色「{rn}」？")==QMessageBox.Yes:
-            if rn in data: del data[rn]
-            self._save_config_data(data); self._load_data()
-            if cb: cb()
-            else: self._switch_config_form("roles.json")
+        return render_roles_form(self,data)
 
     def _build_sets_form(self,data):
-        sd=data.get("sets",{})
-        hdr=QHBoxLayout()
-        set_search=QLineEdit(); set_search.setPlaceholderText("搜索套装（支持拼音）..."); set_search.setClearButtonEnabled(True)
-        hdr.addWidget(set_search); hdr.addStretch()
-        self.config_form_layout.addLayout(hdr)
-        scroll=QScrollArea(); scroll.setWidgetResizable(True)
-        sw=QWidget(); slayout=QVBoxLayout(sw)
-        set_groups={}
-        for sname in sorted(sd.keys()):
-            sinfo=sd[sname]; grp,gl=self._add_section(sname)
-            set_groups[sname]=grp
-            set_hdr=QHBoxLayout(); set_hdr.addWidget(QLabel(f"套装名称: {sname}")); set_hdr.addStretch()
-            del_btn=QPushButton("删除"); del_btn.setObjectName("btnDanger")
-            del_btn.clicked.connect(lambda checked,sn=sname: self._del_set(sn,sd)); set_hdr.addWidget(del_btn)
-            gl.addLayout(set_hdr)
-            shapes_edit=QLineEdit(); shapes_edit.setText(", ".join(sinfo.get("shapes",[])))
-            gl.addWidget(QLabel("形状列表（逗号分隔）:")); gl.addWidget(shapes_edit)
-            save_shapes_btn=QPushButton("保存形状列表"); save_shapes_btn.setObjectName("btnAction")
-            save_shapes_btn.clicked.connect(lambda checked,sn=sname,se=shapes_edit,sdata=sd: self._save_set_shapes(sn,se,sdata))
-            gl.addWidget(save_shapes_btn)
-            slayout.addWidget(grp)
-        def _filter_sets(filter_txt=""):
-            ft=filter_txt.strip()
-            for sname,grp in set_groups.items():
-                grp.setVisible(_match_pinyin(sname,ft) if ft else True)
-        set_search.textChanged.connect(_filter_sets)
-        slayout.addStretch(); scroll.setWidget(sw); self.config_form_layout.addWidget(scroll)
+        return render_sets_form(self,data)
+
+    def _config_add_item(self):
+        return config_add_config_item(self,CONFIG_DIR)
+
+    def _add_weight(self,rn,data,cb,weight_field="weights"):
+        return config_add_weight(self,rn,data,cb,CONFIG_DIR,weight_field)
+
+    def _stat_choice_pool(self):
+        return config_stat_choice_pool(self)
+
+    def _save_single_extra_shape_buff(self,rn,raw_stat,value,data):
+        return config_save_single_extra_shape_buff(self,rn,raw_stat,value,data,CONFIG_DIR)
+
+    def _add_extra_shape_buff(self,rn,combo,spin,data,cb):
+        self._save_single_extra_shape_buff(rn,combo.currentText() or combo.currentData(),spin.value(),data)
+        cb()
+
+    def _save_extra_shape_buff_value(self,rn,key,value,data):
+        return self._save_single_extra_shape_buff(rn,key,value,data)
+
+    def _del_extra_shape_buff(self,rn,key,data,cb):
+        if rn in data:
+            data[rn].pop("extra_shape_buffs",None)
+            self._save_config_data(data)
+            cb()
+
+    def _save_role_weight_value(self,rn,key,value,data,weight_field="weights"):
+        return config_save_role_weight_value(self,rn,key,value,data,CONFIG_DIR,weight_field)
+
+    def _save_role_board_cell(self,rn,row,col,value,data):
+        return config_save_role_board_cell(self,rn,row,col,value,data,CONFIG_DIR)
+
+    def _save_role_field(self,rn,key,value,data):
+        return config_save_role_field(self,rn,key,value,data,CONFIG_DIR)
+
+    def _del_weight(self,rn,key,data,cb,weight_field="weights"):
+        return config_del_weight(self,rn,key,data,cb,CONFIG_DIR,weight_field)
+
+    def _add_role(self,data):
+        return config_add_role(self,data,CONFIG_DIR)
+
+    def _del_role(self,rn,data,cb=None):
+        return config_del_role(self,rn,data,CONFIG_DIR,cb=cb)
 
     def _save_set_shapes(self,set_name,line_edit,sd):
-        shapes_text=line_edit.text().strip()
-        shapes=[s.strip() for s in shapes_text.split(",") if s.strip()]
-        sd[set_name]["shapes"]=shapes
-        data={"sets":sd}; self._save_config_data(data)
-        QMessageBox.information(self,"保存",f"套装「{set_name}」形状列表已保存")
+        return config_save_set_shapes(self,set_name,line_edit,sd,CONFIG_DIR)
 
     def _add_set(self,sd):
-        name,ok=QInputDialog.getText(self,"添加套装","套装名称:")
-        if ok and name.strip() and name.strip() not in sd:
-            sd[name.strip()]={"set_name":name.strip(),"shapes":[]}
-            data={"sets":sd}; self._save_config_data(data); self._switch_config_form("sets.json")
+        return config_add_set(self,sd,CONFIG_DIR)
+
     def _del_set(self,sn,sd):
-        if QMessageBox.question(self,"确认",f"确定删除套装「{sn}」？")==QMessageBox.Yes:
-            if sn in sd: del sd[sn]
-            data={"sets":sd}; self._save_config_data(data); self._switch_config_form("sets.json")
+        return config_del_set(self,sn,sd,CONFIG_DIR)
 
     def _save_config_form(self):
-        name=getattr(self,'_current_config_name',None)
-        if not name: return
-        path=CONFIG_DIR/name
-        dlg=JsonEditDialog(name,path,self)
-        if dlg.exec()==QDialog.Accepted: self._load_data(); QMessageBox.information(self,"保存",f"{name} 已保存")
+        return config_save_config_form(self,CONFIG_DIR,None)
+
+    def _reset_config_form(self):
+        return config_reset_config_form(self,CONFIG_DIR,BUNDLED_CONFIG_DIR)
+
     def _save_config_data(self,data):
-        name=getattr(self,'_current_config_name',None)
-        if not name: return
-        with open(CONFIG_DIR/name,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False,indent=4)
+        return config_save_config_data(self,data,CONFIG_DIR)
 
-    # ── Page: Settings
+    def _settings_paths(self):
+        return {
+            "config_dir": CONFIG_DIR,
+            "accounts_dir": ACCOUNTS_DIR,
+            "log_dir": LOG_DIR,
+            "output_file": OUTPUT_FILE,
+            "screenshot_dir": SCREENSHOT_DIR,
+        }
+
     def _page_settings(self):
-        page=QWidget(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(page)
-        l=QVBoxLayout(page); l.setContentsMargins(20,16,20,16); l.setSpacing(16)
-
-        c1=self._card("运行日志设置")
-        lr=QHBoxLayout(); lr.addWidget(QLabel("实时日志输出:")); lt=QCheckBox("启用运行日志"); lt.setChecked(self._log_enabled); lt.toggled.connect(self._toggle_log); lr.addWidget(lt); lr.addStretch(); c1.layout().addLayout(lr); l.addWidget(c1)
-
-        # Hotkeys
-        c_hk=self._card("快捷键绑定")
-        f=QFormLayout(); f.setSpacing(10)
-        cap_row=QHBoxLayout(); cap_row.setSpacing(8)
-        self._hk_capture_edit=QKeySequenceEdit(QKeySequence(self._hk_capture))
-        self._hk_capture_edit.setMaximumWidth(160)
-        cap_row.addWidget(QLabel("全局截图按键:")); cap_row.addWidget(self._hk_capture_edit); cap_row.addStretch()
-        f.addRow(cap_row)
-        fin_row=QHBoxLayout(); fin_row.setSpacing(8)
-        self._hk_finish_edit=QKeySequenceEdit(QKeySequence(self._hk_finish))
-        self._hk_finish_edit.setMaximumWidth(160)
-        fin_row.addWidget(QLabel("截图完成按键:")); fin_row.addWidget(self._hk_finish_edit); fin_row.addStretch()
-        f.addRow(fin_row)
-        stop_row=QHBoxLayout(); stop_row.setSpacing(8)
-        self._hk_stop_edit=QKeySequenceEdit(QKeySequence(self._hk_stop))
-        self._hk_stop_edit.setMaximumWidth(160)
-        stop_row.addWidget(QLabel("紧急停止按键:")); stop_row.addWidget(self._hk_stop_edit); stop_row.addStretch()
-        f.addRow(stop_row)
-        save_hk=QPushButton("保存快捷键"); save_hk.setObjectName("btnPrimary"); save_hk.clicked.connect(self._save_hotkeys)
-        f.addRow(save_hk)
-        c_hk.layout().addLayout(f); l.addWidget(c_hk)
-
-        c_update=self._card("软件更新")
-        self._update_status=QLabel(f"当前版本: {APP_VERSION}")
-        c_update.layout().addWidget(self._update_status)
-        ur=QHBoxLayout(); ur.setSpacing(10)
-        self._check_update_btn=QPushButton("检查更新"); self._check_update_btn.setObjectName("btnPrimary")
-        self._check_update_btn.clicked.connect(lambda: self._check_updates(manual=True))
-        home_btn=QPushButton("GitHub 主页"); home_btn.clicked.connect(self._open_update_homepage)
-        ur.addWidget(self._check_update_btn); ur.addWidget(home_btn); ur.addStretch()
-        c_update.layout().addLayout(ur); l.addWidget(c_update)
-
-        c2=self._card("截图文件管理")
-        screenshot_files=_iter_image_files(SCREENSHOT_DIR)
-        count=len(screenshot_files)
-        smb=sum(f.stat().st_size for f in screenshot_files)/(1024*1024) if screenshot_files else 0
-        self._ss_info=QLabel(f"当前截图: {count} 个 · {smb:.1f} MB"); c2.layout().addWidget(self._ss_info)
-        br=QHBoxLayout(); br.setSpacing(10)
-        for text,slot in [("刷新统计",self._refresh_ss),("清理所有截图",self._clear_ss),("打开文件夹",lambda: os.startfile(str(SCREENSHOT_DIR)) if SCREENSHOT_DIR.exists() else None)]:
-            b=QPushButton(text)
-            if "清理" in text: b.setObjectName("btnDanger")
-            b.clicked.connect(slot); br.addWidget(b)
-        br.addStretch(); c2.layout().addLayout(br); l.addWidget(c2)
-        c3=self._card("库存信息")
-        if OUTPUT_FILE.exists(): c3.layout().addWidget(QLabel(f"real_inventory.json: {OUTPUT_FILE.stat().st_size/1024:.1f} KB"))
-        else: c3.layout().addWidget(QLabel("real_inventory.json 不存在")); l.addWidget(c3)
-        c4=self._card("📁  快捷访问")
-        qr=QHBoxLayout(); qr.setSpacing(10)
-        for lbl,path in [("config",CONFIG_DIR),("accounts",ACCOUNTS_DIR),("logs",LOG_DIR)]:
-            b=QPushButton(lbl); b.clicked.connect(lambda checked,p=path: os.startfile(str(p)) if p.exists() else None); qr.addWidget(b)
-        qr.addStretch(); c4.layout().addLayout(qr); l.addWidget(c4); l.addStretch(); return scroll
+        return build_settings_page(self,APP_VERSION,self._settings_paths,_iter_image_files,NETDISK_DOWNLOAD_LINKS)
 
     def _maybe_check_updates_on_startup(self):
         if self._update_config.get("never_remind"):
@@ -4021,42 +778,22 @@ class MainWindow(QMainWindow):
         self._update_worker.start()
 
     def _fetch_update_info(self):
-        import urllib.error
-        import urllib.request
-
-        req=urllib.request.Request(
+        return fetch_update_info(
             GITHUB_LATEST_RELEASE_API,
-            headers={"User-Agent": f"NTE-Drive-Calc/{APP_VERSION}", "Accept": "application/vnd.github+json"},
+            GITHUB_RELEASES_URL,
+            APP_VERSION,
         )
-        try:
-            with urllib.request.urlopen(req,timeout=10) as resp:
-                data=json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            if e.code==404:
-                return {"has_release":False,"newer":False,"url":GITHUB_RELEASES_URL,"message":"未找到 GitHub Release。"}
-            raise
-
-        latest=str(data.get("tag_name") or data.get("name") or "").strip()
-        url=data.get("html_url") or GITHUB_RELEASES_URL
-        assets=data.get("assets") or []
-        setup_asset=next((a for a in assets if str(a.get("name","")).lower().endswith(".exe")),None)
-        if setup_asset and setup_asset.get("browser_download_url"):
-            url=setup_asset["browser_download_url"]
-        return {
-            "has_release":True,
-            "latest":latest,
-            "newer":self._is_newer_version(latest,APP_VERSION),
-            "url":url,
-            "release_url":data.get("html_url") or GITHUB_RELEASES_URL,
-            "message":data.get("body") or "",
-            "name":data.get("name") or latest,
-        }
 
     def _on_update_checked(self,info):
         manual=getattr(self,"_update_check_manual",True)
         if manual:
             self._check_update_btn.setEnabled(True)
         if not info.get("has_release"):
+            if info.get("error"):
+                self._update_status.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
+                if manual:
+                    self._show_update_failure_netdisk_prompt(info.get("error", ""))
+                return
             self._update_status.setText(f"当前版本: {APP_VERSION}。{info.get('message','')}")
             if manual:
                 QMessageBox.information(self,"检查更新","当前仓库还没有发布 Release。")
@@ -4076,72 +813,65 @@ class MainWindow(QMainWindow):
         manual=getattr(self,"_update_check_manual",True)
         if manual:
             self._check_update_btn.setEnabled(True)
-            self._update_status.setText(f"检查失败: {err}")
-            if QMessageBox.question(self,"检查更新失败",f"无法自动检查更新:\n{err}\n\n是否打开 GitHub 主页？")==QMessageBox.Yes:
-                self._open_update_homepage()
+            self._update_status.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
+            self._show_update_failure_netdisk_prompt(err)
+            return
         else:
+            if hasattr(self, "_update_status"):
+                self._update_status.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
             logger.warning(f"启动自动检查更新失败: {err}")
 
     def _should_show_startup_update(self, info):
-        latest=str(info.get("latest") or "")
-        if self._update_config.get("never_remind"):
-            return False
-        if latest and self._update_config.get("ignored_version")==latest:
-            return False
-        return True
+        return should_show_startup_update(self._update_config,info)
 
     def _show_update_dialog(self, info, manual=False):
-        latest=str(info.get("latest") or "未知")
-        dlg=QDialog(self)
-        dlg.setWindowTitle("发现更新")
-        dlg.setMinimumSize(560,420)
-        dlg.setStyleSheet(STYLE)
-        layout=QVBoxLayout(dlg); layout.setContentsMargins(16,16,16,16); layout.setSpacing(10)
-
-        title=QLabel(f"发现新版本 {latest}")
-        title.setStyleSheet("font-size:18px;font-weight:700;color:#58a6ff")
-        layout.addWidget(title)
-        subtitle=QLabel(f"当前版本: {APP_VERSION}")
-        subtitle.setStyleSheet("color:#8b949e")
-        layout.addWidget(subtitle)
-
-        notes=QTextEdit()
-        notes.setReadOnly(True)
-        notes.setMinimumHeight(220)
-        release_text=(info.get("message") or "").strip() or "此版本没有填写更新说明。"
-        notes.setPlainText(release_text)
-        layout.addWidget(notes,1)
-
-        url=info.get("url") or info.get("release_url") or GITHUB_RELEASES_URL
-        link=QLabel(f"下载页面: {url}")
-        link.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        link.setStyleSheet("color:#8b949e;font-size:12px")
-        layout.addWidget(link)
-
-        never_cb=QCheckBox("永不提醒")
-        ignore_cb=QCheckBox("当前版本不再提醒")
-        never_cb.setChecked(False)
-        ignore_cb.setChecked(False)
-        layout.addWidget(never_cb)
-        layout.addWidget(ignore_cb)
-
-        buttons=QDialogButtonBox(QDialogButtonBox.Ok)
-        buttons.accepted.connect(dlg.accept)
-        layout.addWidget(buttons)
-        dlg.exec()
-
-        changed=False
-        if never_cb.isChecked():
+        result=show_update_dialog(self,self._current_style_sheet(),info,APP_VERSION)
+        if result.get("never_remind"):
             self._update_config["never_remind"]=True
-            changed=True
-        if ignore_cb.isChecked():
-            self._update_config["ignored_version"]=latest
-            changed=True
-        if changed:
+        if result.get("ignored_version"):
+            self._update_config["ignored_version"]=result["ignored_version"]
+        if result.get("changed"):
             self._save_update_config()
+
+    def _show_update_failure_netdisk_prompt(self, detail=""):
+        box=QMessageBox(self)
+        box.setWindowTitle("检查更新失败")
+        box.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
+        if detail:
+            box.setInformativeText(str(detail))
+        go_btn=box.addButton("前往", QMessageBox.AcceptRole)
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is go_btn:
+            self._open_url(QUARK_NETDISK_URL)
 
     def _open_update_homepage(self):
         self._open_url(GITHUB_HOME_URL)
+
+    def _open_bilibili_homepage(self):
+        self._open_url(BILIBILI_HOME_URL)
+
+    def _show_netdisk_download_dialog(self, links):
+        links=tuple((str(name),str(url)) for name,url in links if name and url)
+        if not links:
+            return
+        box=QMessageBox(self)
+        box.setWindowTitle("网盘下载")
+        box.setText("请选择下载网盘")
+        box.setInformativeText("\n\n".join(f"{name}：\n{url}" for name,url in links))
+        box.setMinimumSize(620, 300)
+        box.setStyleSheet(box.styleSheet()+"\nQLabel{min-width:560px;}")
+        buttons=[]
+        for name,url in links:
+            button=box.addButton(f"打开{name}", QMessageBox.AcceptRole)
+            buttons.append((button,url))
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.exec()
+        clicked=box.clickedButton()
+        for button,url in buttons:
+            if clicked is button:
+                self._open_url(url)
+                break
 
     def _open_url(self,url):
         try:
@@ -4151,11 +881,7 @@ class MainWindow(QMainWindow):
             webbrowser.open(url)
 
     def _is_newer_version(self,remote,current):
-        import re
-        def nums(v):
-            parts=[int(x) for x in re.findall(r"\d+",str(v))]
-            return (parts+[0,0,0])[:3]
-        return nums(remote)>nums(current)
+        return is_newer_version(remote,current)
 
     def _save_hotkeys(self):
         self._hk_capture=self._hk_capture_edit.keySequence().toString()
@@ -4165,57 +891,20 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self,"保存","快捷键已保存！\n全局截图: "+self._hk_capture+"\n截图完成: "+self._hk_finish+"\n停止: "+self._hk_stop)
 
     def _refresh_ss(self):
-        files=_iter_image_files(SCREENSHOT_DIR)
-        c=len(files)
-        s=sum(f.stat().st_size for f in files)/(1024*1024) if files else 0
-        self._ss_info.setText(f"当前截图: {c} 个 · {s:.1f} MB")
+        usage=managed_screenshot_usage(SCREENSHOT_DIR, ACCOUNT_DATA_ROOT)
+        self._ss_info.setText(f"当前截图: {usage.count} 个 · {usage.size_mb:.1f} MB")
     def _clear_ss(self):
-        if not SCREENSHOT_DIR.exists(): return
-        files=_iter_image_files(SCREENSHOT_DIR)
-        count=len(files)
-        if count==0: QMessageBox.information(self,"清理","没有需要清理的文件。"); return
-        baseline=SCREENSHOT_DIR/"raw_drive_0001.png"
-        has_baseline=baseline.exists()
-        delete_files=[f for f in files if f.resolve()!=baseline.resolve()]
-        prompt=f"由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n将删除 {len(delete_files)} 个其它截图，不可恢复。"
-        if not has_baseline:
-            prompt+="\n\n注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"
-        if QMessageBox.question(self,"确认清理",prompt,QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes:
-            for f in delete_files:
-                try: f.unlink()
-                except: pass
-            self._refresh_ss(); logger.success(f"已清理 {len(delete_files)} 个截图")
-            if not has_baseline:
+        plan=build_screenshot_cleanup_plan(SCREENSHOT_DIR, ACCOUNT_DATA_ROOT)
+        if plan.total_count==0: QMessageBox.information(self,"清理","没有需要清理的文件。"); return
+        if QMessageBox.question(self,"确认清理",plan.confirmation_text(),QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes:
+            result=execute_screenshot_cleanup(plan)
+            self._refresh_ss(); logger.success(f"已清理 {result.deleted} 个截图")
+            if result.failed_files:
+                QMessageBox.warning(self, "清理完成", f"有 {len(result.failed_files)} 个文件删除失败，可能正在被占用。")
+            if plan.baseline_missing:
                 QMessageBox.warning(self,"清理完成","注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。")
 
-# ── Dialogs
-class JsonEditDialog(QDialog):
-    def __init__(self,name,path,parent=None):
-        super().__init__(parent); self._path=path; self.setWindowTitle(f"编辑 {name}"); self.setMinimumSize(650,500); self.setStyleSheet(STYLE)
-        l=QVBoxLayout(self)
-        self._editor=QTextEdit(); self._editor.setStyleSheet("font-family:'Consolas',monospace;font-size:12px"); self._editor.setTabStopDistance(20)
-        with open(path,"r",encoding="utf-8") as f: self._editor.setPlainText(json.dumps(json.load(f),ensure_ascii=False,indent=2))
-        l.addWidget(self._editor)
-        bb=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel); bb.accepted.connect(self._ok); bb.rejected.connect(self.reject); l.addWidget(bb)
-    def _ok(self):
-        try:
-            data=json.loads(self._editor.toPlainText())
-            with open(self._path,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False,indent=4); self.accept()
-        except json.JSONDecodeError as e: QMessageBox.critical(self,"JSON 错误",str(e))
-
 # ── Facade
-class NTEAppFacade:
-    def __init__(self,config_dir=None,user_config_dir=None): self.config_dir=config_dir or str(CONFIG_DIR); self.user_config_dir=user_config_dir or str(USER_CONFIG_DIR)
-    def execute_vision_processing(self,input_dir=None,output_file=None):
-        input_dir=input_dir or str(SCREENSHOT_DIR); output_file=output_file or str(OUTPUT_FILE)
-        logger.info("开始视觉解析..."); p=BatchProcessor(input_dir=input_dir,output_file=output_file,config_dir=self.config_dir); p.process_all(); logger.success("视觉解析完成")
-    def execute_allocation(self,inventory_file,priority_list,custom_sets=None,mode="role_priority",tape_main_filters=None,crit_priority_modes=None):
-        if not os.path.exists(inventory_file): logger.error(f"找不到 {inventory_file}！"); return None,None
-        with open(inventory_file,"r",encoding="utf-8") as f: inventory=json.load(f)
-        o=NTEPipelineOrchestrator(config_dir=self.config_dir); m=StateManager(config_dir=self.user_config_dir); lu=set(); bm=mode
-        if mode=="update_mode": lu=m.get_locked_uids(); bm="role_priority"
-        fp=o.run_full_allocation(inventory=inventory,priority_list=priority_list,custom_sets=custom_sets or {},mode=bm,locked_uids=lu,tape_main_filters=tape_main_filters or {},crit_priority_modes=crit_priority_modes or {})
-        return fp,m
 
 # ── Entry
 def _global_exception_handler(exc_type, exc_value, exc_tb):
@@ -4226,8 +915,8 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
     try:
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.critical(None, "程序异常", f"发生未捕获的异常:\n\n{error_msg[:1000]}")
-    except:
-        pass
+    except Exception as exc:
+        logger.error(f"显示全局异常弹窗失败: {exc}")
 
 def run_gui():
     import faulthandler
@@ -4240,8 +929,8 @@ def run_gui():
     threading.excepthook = lambda args: logger.error(f"线程异常 [{args.thread}]: {args.exc_type.__name__}: {args.exc_value}")
     if hasattr(Qt, "AA_DontUseNativeDialogs"):
         QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
-    app=QApplication(sys.argv); app.setStyle("Fusion"); app.setStyleSheet(STYLE)
-    _apply_dark_palette(app)
+    app=QApplication(sys.argv); app.setStyle("Fusion"); apply_app_theme(app,"dark")
+    install_dialog_defaults(app)
     if APP_ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     w=MainWindow(); w.show(); sys.exit(app.exec())

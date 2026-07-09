@@ -1,12 +1,14 @@
+# 将 OCR 文本和形状结果解析为装备数据。
 """OCR text normalization and equipment object synthesis."""
 
 import os
 import json
 import re
 import difflib
-import time
-from typing import Dict, Any, List
+import unicodedata
+from typing import Dict, List
 import hashlib
+from src.domain.stat_catalog import StatCatalog
 from src.utils.logger import logger
 from src.utils.exceptions import ConfigMissingError
 from src.utils.name_resolver import resolve_name
@@ -15,11 +17,24 @@ from src.models.equipment import Drive, Tape
 
 class DriveDataParser:
     """数据清洗与推理引擎：OCR 原文解析、品质逆推、词条提取"""
+    ATTRIBUTE_MAIN_STATS = {
+        "光": "光属性异能伤害增强",
+        "灵": "灵属性异能伤害增强",
+        "咒": "咒属性异能伤害增强",
+        "暗": "暗属性异能伤害增强",
+        "魂": "魂属性异能伤害增强",
+        "相": "相属性异能伤害增强",
+        "心灵": "心灵伤害增强",
+    }
+
     def __init__(self, config_dir: str = "config"):
         self.config_dir = config_dir
-        self.stat_pattern = re.compile(r"([\u4e00-\u9fa5]+?)(?:增加|提升)?([0-9\.]+)(%?)")
+        self.stat_pattern = re.compile(r"([\u4e00-\u9fa5A-Za-z%]+?)(?:增加|提升)?\s*[+：:= ]*\s*([-+]?\d+(?:\.\d+)?)\s*(%?)")
         self.REAL_SETS_WHITE_LIST = self._load_sets_from_json()
-        self.GOLD_BASE_VALUES, self.TAPE_MAIN_STATS_POOL = self._load_stats_from_json()
+        self.stat_catalog = self._load_stat_catalog()
+        self.GOLD_BASE_VALUES = self.stat_catalog.gold_base_values
+        self.TAPE_MAIN_STATS_POOL = self.stat_catalog.tape_main_stats
+        self.STAT_ALIAS_MAPPING = self.stat_catalog.stat_alias_mapping
 
     def _generate_uid(self, prefix: str, **kwargs) -> str:
         """根据装备特征生成唯一 MD5 指纹"""
@@ -39,29 +54,44 @@ class DriveDataParser:
             logger.warning(f"无法读取 sets.json，使用兜底套装。")
             return ["森林萤火之心", "迪亚波罗斯", "音速蓝刺猬", "守卫王国", "失落光芒"]
 
-    def _load_stats_from_json(self) -> tuple[Dict[str, float], List[str]]:
-        stats_path = os.path.join(self.config_dir, "stats.json")
+    def _load_stat_catalog(self) -> StatCatalog:
         try:
-            with open(stats_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                gold_bases = data.get("gold_base_values", {})
-                tape_mains = data.get("tape_main_stats_pool", [])
-                logger.info(f"Parser 成功加载数值引擎。")
-                return gold_bases, tape_mains
+            catalog = StatCatalog.from_config_dir(self.config_dir)
+            if not catalog.gold_base_values:
+                raise ConfigMissingError("stats.json 缺少 gold_base_values")
+            logger.info(f"Parser 成功加载数值引擎。")
+            return catalog
         except Exception as e:
+            stats_path = os.path.join(self.config_dir, "stats.json")
             raise ConfigMissingError(f"找不到或无法解析 {stats_path}: {e}")
+
+    def _resolve_stat_name(self, raw_name: str, is_percent: bool) -> str | None:
+        return self.stat_catalog.normalize_stat_name(raw_name, is_percent=is_percent)
+
+    def _normalize_ocr_text(self, text: str) -> str:
+        normalized = unicodedata.normalize("NFKC", str(text or ""))
+        normalized = normalized.replace("％", "%")
+        normalized = re.sub(r"(?<=\d)[,，、·・](?=\d)", ".", normalized)
+        normalized = re.sub(r"(?<=\d)[oO](?=\d|\.|%|\s|$)", "0", normalized)
+        normalized = re.sub(r"(?<=\.)[oO](?=\d|%|\s|$)", "0", normalized)
+        return normalized
 
     def _clean_stats(self, raw_texts: List[str]) -> Dict[str, float]:
         clean_stats = {}
-        joined_text = "".join(raw_texts).replace(" ", "")
+        candidates = [self._normalize_ocr_text(text).strip() for text in raw_texts if str(text or "").strip()]
+        compact_joined = "".join(candidates).replace(" ", "")
+        if compact_joined:
+            candidates.append(compact_joined)
 
-        for match in self.stat_pattern.finditer(joined_text):
-            stat_name = match.group(1)
-            stat_value = float(match.group(2))
-            is_percent = match.group(3) == "%"
+        for text in candidates:
+            for match in self.stat_pattern.finditer(text):
+                stat_name = match.group(1)
+                stat_value = float(match.group(2))
+                is_percent = match.group(3) == "%" or "%" in stat_name
 
-            final_name = f"{stat_name}%" if is_percent else stat_name
-            clean_stats[final_name] = stat_value
+                final_name = self._resolve_stat_name(stat_name, is_percent)
+                if final_name:
+                    clean_stats[final_name] = stat_value
 
         return clean_stats
 
@@ -80,11 +110,42 @@ class DriveDataParser:
 
     def _fuzzy_match_tape_main(self, raw_text: str) -> str:
         clean_text = re.sub(r'[^\u4e00-\u9fa5]', '', raw_text)
+        protected = self._match_attribute_main_stat(clean_text)
+        if protected:
+            return protected
+        if self._looks_like_attribute_main_stat(clean_text):
+            return "未知主词条"
         matches = difflib.get_close_matches(clean_text, self.TAPE_MAIN_STATS_POOL, n=1, cutoff=0.4)
         if matches:
             return matches[0]
         else:
             return "未知主词条"
+
+    def _match_attribute_main_stat(self, clean_text: str) -> str | None:
+        if not clean_text:
+            return None
+        if "心灵" in clean_text:
+            return self.ATTRIBUTE_MAIN_STATS["心灵"]
+        matched = []
+        for key, stat_name in self.ATTRIBUTE_MAIN_STATS.items():
+            if key == "心灵":
+                continue
+            if key in clean_text:
+                matched.append(stat_name)
+        unique = list(dict.fromkeys(matched))
+        if len(unique) == 1:
+            return unique[0]
+        return None
+
+    def _looks_like_attribute_main_stat(self, clean_text: str) -> bool:
+        if not clean_text:
+            return False
+        return (
+            "属性" in clean_text
+            or "异能伤害" in clean_text
+            or "伤害增强" in clean_text
+            or "心灵伤害" in clean_text
+        )
 
     # ==========================================
     # 通过副词条数值逆推品质

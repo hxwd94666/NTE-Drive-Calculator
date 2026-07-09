@@ -1,3 +1,4 @@
+# 捕获前台窗口并裁剪游戏画面区域。
 """Window capture and coordinate conversion utilities for game screenshots."""
 
 import ctypes
@@ -6,6 +7,8 @@ from dataclasses import dataclass
 
 import mss
 import numpy as np
+
+from src.utils.logger import logger
 
 
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
@@ -59,8 +62,8 @@ def get_foreground_window_rect() -> WindowRect:
         )
         if result == 0 and rect.right > rect.left and rect.bottom > rect.top:
             return WindowRect(rect.left, rect.top, rect.right, rect.bottom)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"DWM 窗口边框获取失败，回退到 GetWindowRect: {exc}")
 
     if user32.GetWindowRect(hwnd, ctypes.byref(rect)) and rect.right > rect.left and rect.bottom > rect.top:
         return WindowRect(rect.left, rect.top, rect.right, rect.bottom)

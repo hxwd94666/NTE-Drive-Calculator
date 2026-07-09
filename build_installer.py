@@ -1,4 +1,5 @@
-"""
+# 生成安装包脚本并同步应用版本信息。
+r"""
 Build the Windows installer for NTE Drive Calc.
 
 Requirements:
@@ -14,12 +15,14 @@ Typical usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from tools import build_cli
 
 
 ROOT = Path(__file__).parent.resolve()
@@ -35,12 +38,26 @@ VIGEM_BUNDLE_EXE = ROOT / "ViGEmBus_1.22.0_x64_x86_arm64.exe"
 APP_NAME = "NTE Drive Calc"
 APP_EXE_NAME = "NTE_Drive_Calc.exe"
 APP_ID = "{{D7DA28BE-8A19-4E05-9216-3F16C4C2C820}"
-CORE_CONFIG_FILES = ("roles.json", "sets.json", "stats.json", "shapes.json")
+CORE_CONFIG_FILES = ("roles.json", "sets.json", "stats.json", "shapes.json",
+                     "my_roles_model.json", "tapes.json", "weapons.json")
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> None:
-    print("[RUN]", " ".join(cmd))
-    subprocess.run(cmd, cwd=str(cwd), check=True)
+    build_cli.run(cmd, cwd)
+
+
+def _running_in_automation() -> bool:
+    return build_cli.running_in_automation()
+
+
+def _choose_workshop_sync_mode(skip_workshop_sync: bool, require_workshop_sync: bool) -> tuple[bool, bool]:
+    if skip_workshop_sync or require_workshop_sync:
+        return build_cli.choose_build_mode(
+            skip_workshop_sync=skip_workshop_sync,
+            require_workshop_sync=require_workshop_sync,
+            has_explicit_choice=True,
+        )
+    return build_cli.choose_build_mode()
 
 
 def _find_iscc() -> Path | None:
@@ -58,27 +75,31 @@ def _find_iscc() -> Path | None:
 
 
 def _read_app_version() -> str:
-    app_path = ROOT / "src" / "ui" / "app.py"
-    text = app_path.read_text(encoding="utf-8")
-    match = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
-    if not match:
-        raise RuntimeError(f"APP_VERSION not found in {app_path}")
-    return match.group(1)
+    try:
+        from src.app.constants import APP_VERSION
+    except Exception as exc:
+        raise RuntimeError("APP_VERSION not found in src.app.constants ") from exc
+    return APP_VERSION
+
+
+def _find_package_dir(package_name: str) -> Path | None:
+    spec = importlib.util.find_spec(package_name)
+    if spec is None or spec.origin is None:
+        return None
+    return Path(spec.origin).parent
 
 
 def _find_vigem_installer() -> tuple[Path, bool]:
     if VIGEM_BUNDLE_EXE.exists():
         return VIGEM_BUNDLE_EXE, True
 
-    try:
-        import vgamepad
-    except ImportError as exc:
+    pkg_dir = _find_package_dir("vgamepad")
+    if pkg_dir is None:
         raise RuntimeError(
             f"ViGEmBus installer not found: {VIGEM_BUNDLE_EXE}. "
             "vgamepad is also not installed, so no fallback MSI is available."
-        ) from exc
+        )
 
-    pkg_dir = Path(vgamepad.__file__).parent
     msi = pkg_dir / "win" / "vigem" / "install" / "x64" / "ViGEmBusSetup_x64.msi"
     if not msi.exists():
         raise RuntimeError(f"ViGEmBus driver MSI not found: {msi}")
@@ -100,8 +121,10 @@ def _app_process_running() -> bool:
     return APP_EXE_NAME.lower() in result.stdout.lower()
 
 
-def _ensure_app_bundle(skip_app_build: bool) -> None:
+def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False, require_workshop_sync: bool = False) -> None:
     if skip_app_build:
+        if require_workshop_sync:
+            raise RuntimeError("--require-workshop-sync cannot be used with --skip-app-build because the existing app bundle cannot be refreshed.")
         if not APP_EXE.exists() or not APP_INTERNAL.exists():
             raise RuntimeError(
                 "dist/NTE_Drive_Calc is missing. Run build_exe.py first or omit --skip-app-build."
@@ -114,7 +137,12 @@ def _ensure_app_bundle(skip_app_build: bool) -> None:
             "or use --skip-app-build to package the existing app bundle."
         )
 
-    _run([sys.executable, str(ROOT / "build_exe.py")])
+    build_cmd = [sys.executable, str(ROOT / "build_exe.py")]
+    if skip_workshop_sync:
+        build_cmd.append("--skip-workshop-sync")
+    if require_workshop_sync:
+        build_cmd.append("--require-workshop-sync")
+    _run(build_cmd)
     if not APP_EXE.exists() or not APP_INTERNAL.exists():
         raise RuntimeError("PyInstaller build finished, but dist/NTE_Drive_Calc is incomplete.")
 
@@ -133,14 +161,29 @@ def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
         f'DestName: "{vigem_dest_name}"; Flags: ignoreversion'
     )
     core_config_excludes = ",".join(f"config\\{name}" for name in CORE_CONFIG_FILES)
-    core_config_replace_lines = "\n".join(
+    core_internal_config_replace_lines = "\n".join(
         f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\_internal\\config"; '
         'Flags: ignoreversion; Tasks: replacecoreconfig'
         for name in CORE_CONFIG_FILES
     )
-    core_config_keep_lines = "\n".join(
+    core_runtime_config_replace_lines = "\n".join(
+        f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\config"; '
+        'Flags: ignoreversion; Tasks: replacecoreconfig'
+        for name in CORE_CONFIG_FILES
+    )
+    core_internal_config_keep_lines = "\n".join(
         f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\_internal\\config"; '
         'Flags: ignoreversion onlyifdoesntexist; Check: ShouldKeepExistingCoreConfig'
+        for name in CORE_CONFIG_FILES
+    )
+    core_runtime_config_keep_lines = "\n".join(
+        f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\config"; '
+        'Flags: ignoreversion onlyifdoesntexist; Check: ShouldKeepExistingCoreConfig'
+        for name in CORE_CONFIG_FILES
+    )
+    core_config_backup_copy_lines = "\n".join(
+        f'  if FileExists(ExpandConstant(\'{{app}}\\config\\{name}\')) then\n'
+        f'    FileCopy(ExpandConstant(\'{{app}}\\config\\{name}\'), BackupDir + \'\\{name}\', False);'
         for name in CORE_CONFIG_FILES
     )
     if vigem_is_exe:
@@ -284,8 +327,10 @@ Name: "replacecoreconfig"; Description: "替换基础配置 JSON（roles / sets 
 [Files]
 Source: "{_inno_path(APP_EXE)}"; DestDir: "{{app}}"; Flags: ignoreversion
 Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "{core_config_excludes}"
-{core_config_replace_lines}
-{core_config_keep_lines}
+{core_internal_config_replace_lines}
+{core_runtime_config_replace_lines}
+{core_internal_config_keep_lines}
+{core_runtime_config_keep_lines}
 {vigem_file_line}
 
 [Dirs]
@@ -305,6 +350,23 @@ Filename: "{{cmd}}"; Parameters: "/C sc start ViGEmBus >NUL 2>NUL & exit /B 0"; 
 Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runascurrentuser
 
 [Code]
+procedure BackupCoreConfigBeforeReplace;
+var
+  BackupDir: string;
+begin
+  if not WizardIsTaskSelected('replacecoreconfig') then
+    Exit;
+  BackupDir := ExpandConstant('{{app}}\\config_backup\\' + GetDateTimeString('yyyymmddhhnnss', #0, #0));
+  ForceDirectories(BackupDir);
+{core_config_backup_copy_lines}
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+    BackupCoreConfigBeforeReplace;
+end;
+
 function ShouldInstallViGEmBus: Boolean;
 begin
   Result := IsWin64 and WizardIsTaskSelected('installvigem');
@@ -317,8 +379,8 @@ end;
 
 {chinese_custom_messages}
 """
-    ISS_PATH.write_text(content, encoding="utf-8")
-    print(f"[OK] Wrote installer script: {ISS_PATH}")
+    ISS_PATH.write_text(content, encoding="utf-8-sig")
+    build_cli.ok(f"Wrote installer script: {ISS_PATH}")
 
 
 def main() -> int:
@@ -326,35 +388,45 @@ def main() -> int:
     parser.add_argument("--version", default=os.environ.get("APP_VERSION") or _read_app_version())
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
+    parser.add_argument("--skip-workshop-sync", action="store_true", help="Do not sync workshop weights before building the app bundle.")
+    parser.add_argument("--require-workshop-sync", action="store_true", help="Fail release packaging if workshop weight sync cannot run.")
     args = parser.parse_args()
 
     try:
-        _ensure_app_bundle(skip_app_build=args.skip_app_build)
+        skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode(
+            args.skip_workshop_sync,
+            args.require_workshop_sync,
+        )
+        _ensure_app_bundle(
+            skip_app_build=args.skip_app_build,
+            skip_workshop_sync=skip_workshop_sync,
+            require_workshop_sync=require_workshop_sync,
+        )
         vigem_installer, vigem_is_exe = _find_vigem_installer()
         _write_iss(version=args.version, vigem_installer=vigem_installer, vigem_is_exe=vigem_is_exe)
 
         if args.generate_only:
-            print("[OK] Generate-only mode complete.")
+            build_cli.ok("Generate-only mode complete.")
             return 0
 
         iscc = _find_iscc()
         if not iscc:
-            print("[WARN] Inno Setup compiler was not found.")
-            print("[WARN] Install Inno Setup 6, or set INNO_SETUP_ISCC to ISCC.exe.")
-            print("[WARN] Then run: .\\.venv\\Scripts\\python.exe build_installer.py --skip-app-build")
+            build_cli.warn("Inno Setup compiler was not found.")
+            build_cli.warn("Install Inno Setup 6, or set INNO_SETUP_ISCC to ISCC.exe.")
+            build_cli.warn("Then run: .\\.venv\\Scripts\\python.exe build_installer.py --skip-app-build")
             return 2
 
         _run([str(iscc), str(ISS_PATH)])
         setup = OUTPUT_DIR / f"NTE_Drive_Calc_Setup_{args.version}.exe"
         if not setup.exists():
             raise RuntimeError(f"Installer build finished, but output was not found: {setup}")
-        print(f"[OK] Installer complete: {setup}")
+        build_cli.ok(f"Installer complete: {setup}")
         return 0
     except subprocess.CalledProcessError as exc:
-        print(f"[FAIL] Command failed with exit code {exc.returncode}")
+        build_cli.fail(f"Command failed with exit code {exc.returncode}")
         return exc.returncode
     except Exception as exc:
-        print(f"[FAIL] {exc}")
+        build_cli.fail(str(exc))
         return 1
 
 

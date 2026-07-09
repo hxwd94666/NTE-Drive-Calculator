@@ -1,3 +1,4 @@
+# 定义扫描识别所需的区域和阈值配置。
 """Resolution-aware scan regions and coordinate scaling helpers."""
 
 from src.scanner.window_capture import scale_region

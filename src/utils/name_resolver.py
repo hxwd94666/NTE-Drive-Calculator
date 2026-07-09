@@ -1,3 +1,4 @@
+# 规范化名称并进行近似匹配。
 """Fuzzy name matching helpers for sets, stats, and user input."""
 
 import difflib
@@ -35,7 +36,3 @@ def resolve_name(value: str | None, choices: Iterable[str], cutoff: float = 0.82
     if matches:
         return index[matches[0]]
     return None
-
-
-def canonical_name(value: str | None, choices: Iterable[str], cutoff: float = 0.82) -> str:
-    return resolve_name(value, choices, cutoff=cutoff) or (value or "")

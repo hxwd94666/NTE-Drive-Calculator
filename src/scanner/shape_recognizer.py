@@ -1,3 +1,4 @@
+# 识别驱动盘形状模板。
 """Template matching for drive shape and quality recognition."""
 
 from typing import Union
@@ -98,4 +99,4 @@ if __name__ == "__main__":
     test_image = "debug_crops/shape_icon.png"
     if os.path.exists(test_image):
         result = recognizer.recognize(test_image)
-        print(f"识别结果: {result['shape_id']} | 置信度: {result['confidence'] * 100:.1f}%")
+        logger.info(f"识别结果: {result['shape_id']} | 置信度: {result['confidence'] * 100:.1f}%")

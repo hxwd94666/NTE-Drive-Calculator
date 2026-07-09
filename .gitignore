@@ -8,27 +8,33 @@ __pycache__/
 .venv/
 venv/
 env/
+other/
+installer/
 
 # IDE and OS files
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
+.env
+.env.*
 
 # Build outputs
 build/
 dist/
 *.spec
+docs/
 
 # Installer generated files with local absolute paths
 installer/*.iss
 installer/output/
+installer/README.md
 
 # Runtime data
-logs/
-scanned_images/
-identify_captures/
-accounts/
+/logs/
+/scanned_images/
+/identify_captures/
+/accounts/
 config/real_inventory.json
 config/equipped_state.json
 config/priority_config.json
