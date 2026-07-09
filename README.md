@@ -53,24 +53,24 @@
     <td align="center" width="50%">
       <strong>配装结果</strong><br>
       <sub>查看每个角色最终驱动、卡带和评分变化</sub><br><br>
-      <img src="https://raw.githubusercontent.com/hxwd94666/NTE-Drive-Calc/main/config/github/img_1.png" alt="配装结果">
+      <img src="config/github/img_1.png" alt="配装结果">
     </td>
     <td align="center" width="50%">
       <strong>装备鉴定</strong><br>
       <sub>单件装备快速评分，判断适配角色和保留价值</sub><br><br>
-      <img src="https://raw.githubusercontent.com/hxwd94666/NTE-Drive-Calc/main/config/github/img_2.png" alt="装备鉴定">
+      <img src="config/github/img_2.png" alt="装备鉴定">
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
       <strong>扫描后管理</strong><br>
       <sub>按规则自动锁定、弃置或取消状态</sub><br><br>
-      <img src="https://raw.githubusercontent.com/hxwd94666/NTE-Drive-Calc/main/config/github/img_6.png" alt="扫描后管理">
+      <img src="config/github/img_6.png" alt="扫描后管理">
     </td>
     <td align="center" width="50%">
       <strong>角色边际</strong><br>
       <sub>看清当前角色下一条词条选什么更赚</sub><br><br>
-      <img src="https://raw.githubusercontent.com/hxwd94666/NTE-Drive-Calc/main/config/github/img_7.png" alt="角色边际">
+      <img src="config/github/img_7.png" alt="角色边际">
     </td>
   </tr>
 </table>
