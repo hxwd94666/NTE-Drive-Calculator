@@ -1,12 +1,19 @@
+# 统筹库存、评分和求解器生成最终配装。
 """End-to-end pipeline for blueprints, scoring, dispatch, and output."""
 
+import copy
 import json
 import os
-from typing import List, Dict, Any
+import time
+from typing import List, Dict
 
+from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
+from src.domain.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
 from src.solver.dfs_puzzle import DFSPuzzleSolver
+from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
+from src.solver.set_effects import normalize_set_effect_mode, set_piece_options_for_mode
 from src.optimizer.scoring import ScoringEngine
 from src.optimizer.dispatcher import DispatcherEngine
 from src.utils.visualizer import BoardVisualizer
@@ -15,6 +22,8 @@ from src.utils.name_resolver import resolve_name
 
 
 class NTEPipelineOrchestrator:
+    _blueprint_cache: dict[str, List[Dict]] = {}
+    _blueprint_cache_limit = 256
 
     def __init__(self, config_dir: str = "config"):
         self.config_dir = config_dir
@@ -57,14 +66,15 @@ class NTEPipelineOrchestrator:
                 resolved_sets[role_name] = self._resolve_set_name(set_name)
         return resolved_sets
 
-    def solve_blueprints(self, target_roles: List[str], custom_sets: Dict[str, str] = None) -> Dict[str, List[Dict]]:
+    def solve_blueprints(self, target_roles: List[str], custom_sets: Dict[str, str] = None,
+                         set_effect_modes: Dict[str, str] = None,
+                         include_layout_variants: bool = False) -> Dict[str, List[Dict]]:
         custom_sets = self._canonicalize_custom_sets(custom_sets)
+        set_effect_modes = set_effect_modes or {}
         logger.info(f"\n[阶段 2] 求解 {target_roles} 的合法底盘图纸...")
         combinatorics = PuzzleCombinatorics(self.shapes_db)
         dfs_solver = DFSPuzzleSolver(self.shapes_db)
         real_blueprints_db = {}
-
-        import time as _time
 
         for role_name in target_roles:
             role_data = self.roles_db[role_name]
@@ -73,29 +83,87 @@ class NTEPipelineOrchestrator:
             set_shapes = self.sets_db[set_name]["shapes"]
             extra_label = role_data["extra_shape_label"]
             board_matrix = role_data["board_matrix"]
+            set_effect_mode = normalize_set_effect_mode(set_effect_modes.get(role_name))
+            set_piece_options = set_piece_options_for_mode(set_shapes, set_effect_mode)
+            cache_key = self._blueprint_cache_key(
+                role_name,
+                set_name,
+                set_shapes,
+                extra_label,
+                board_matrix,
+                set_effect_mode,
+                include_layout_variants,
+            )
 
-            logger.info(f"  -> [{role_name}] 套装: {set_name} | 求解中...")
-            _t0 = _time.time()
-            combos = combinatorics.generate_piece_combinations(set_shapes, extra_label)
-            logger.info(f"     组合数: {len(combos)} | 耗时: {_time.time()-_t0:.2f}s")
+            logger.info(f"  -> [{role_name}] 套装: {set_name} | 套装效果: {set_effect_mode} | 求解中...")
+            _t0 = time.perf_counter()
+            if cache_key in self._blueprint_cache:
+                real_blueprints_db[role_name] = copy.deepcopy(self._blueprint_cache[cache_key])
+                logger.info(f"  [{role_name}] 图纸缓存命中，共 {len(real_blueprints_db[role_name])} 套合法方案。")
+                continue
             role_blueprints = []
 
-            for combo in combos:
-                pieces_to_place = set_shapes + combo
-                board_copy = [row[:] for row in board_matrix]
-                results = []
-                dfs_solver.solve(board_copy, pieces_to_place, results, max_solutions=1)
+            for set_pieces in set_piece_options:
+                combos = combinatorics.generate_piece_combinations(set_pieces, extra_label)
+                logger.info(f"     套装形状: {len(set_pieces)} | 组合数: {len(combos)} | 耗时: {time.perf_counter()-_t0:.2f}s")
 
-                if results:
-                    role_blueprints.append({
-                        "extra_pieces": combo,
-                        "board": results[0]
-                    })
+                for combo in combos:
+                    pieces_to_place = set_pieces + combo
+                    board_copy = [row[:] for row in board_matrix]
+                    results = []
+                    dfs_solver.solve(
+                        board_copy,
+                        pieces_to_place,
+                        results,
+                        max_solutions=0 if include_layout_variants else 1,
+                    )
 
+                    for result_board in results:
+                        role_blueprints.append({
+                            "set_pieces": list(set_pieces),
+                            "extra_pieces": combo,
+                            "set_effect_mode": set_effect_mode,
+                            "board": result_board,
+                        })
+
+            if not include_layout_variants:
+                role_blueprints = dedupe_blueprints_by_piece_signature(role_blueprints)
             real_blueprints_db[role_name] = role_blueprints
-            logger.success(f"  [{role_name}] 图纸求解完成，共 {len(role_blueprints)} 套合法方案。(总耗时 {_time.time()-_t0:.2f}s)")
+            self._remember_blueprint_cache(cache_key, role_blueprints)
+            logger.success(f"  [{role_name}] 图纸求解完成，共 {len(role_blueprints)} 套合法方案。(总耗时 {time.perf_counter()-_t0:.2f}s)")
 
         return real_blueprints_db
+
+    def _blueprint_cache_key(
+        self,
+        role_name: str,
+        set_name: str,
+        set_shapes: List[str],
+        extra_label: str,
+        board_matrix: List[List[int]],
+        set_effect_mode: str,
+        include_layout_variants: bool,
+    ) -> str:
+        shape_payload = {
+            shape_id: {"area": shape.area, "label": shape.label}
+            for shape_id, shape in sorted(self.shapes_db.items())
+        }
+        payload = {
+            "role": role_name,
+            "set": set_name,
+            "set_shapes": list(set_shapes or []),
+            "extra_label": extra_label,
+            "board_matrix": board_matrix,
+            "set_effect_mode": set_effect_mode,
+            "include_layout_variants": include_layout_variants,
+            "shapes": shape_payload,
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def _remember_blueprint_cache(self, cache_key: str, blueprints: List[Dict]) -> None:
+        if len(self._blueprint_cache) >= self._blueprint_cache_limit:
+            self._blueprint_cache.pop(next(iter(self._blueprint_cache)))
+        self._blueprint_cache[cache_key] = copy.deepcopy(blueprints)
 
     def _estimate_drive_screen_limit(self, blueprints_db: Dict[str, List[Dict]], custom_sets: Dict[str, str]) -> int:
         shape_demands: Dict[str, int] = {}
@@ -106,7 +174,8 @@ class NTEPipelineOrchestrator:
             role_max_demands: Dict[str, int] = {}
             for blueprint in blueprints:
                 counts: Dict[str, int] = {}
-                for shape_id in self.sets_db[set_name]["shapes"] + blueprint.get("extra_pieces", []):
+                set_pieces = blueprint.get("set_pieces", self.sets_db[set_name]["shapes"])
+                for shape_id in list(set_pieces) + blueprint.get("extra_pieces", []):
                     counts[shape_id] = counts.get(shape_id, 0) + 1
                 for shape_id, count in counts.items():
                     role_max_demands[shape_id] = max(role_max_demands.get(shape_id, 0), count)
@@ -115,30 +184,43 @@ class NTEPipelineOrchestrator:
 
         return max(15, max(shape_demands.values(), default=0) + 5)
 
+    def _max_priority_group_size(self, priority_list: List[str], priority_groups: List[List[str]] | None) -> int:
+        selected = set(priority_list or [])
+        max_size = 1
+        for group in priority_groups or []:
+            size = len([role for role in group or [] if role in selected])
+            max_size = max(max_size, size)
+        return max_size
+
     def run_full_allocation(self, inventory: List[Dict], priority_list: List[str],
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
-                            crit_priority_modes: Dict[str, str] = None):
+                            crit_priority_modes: Dict[str, str] = None, set_effect_modes: Dict[str, str] = None,
+                            priority_groups: List[List[str]] = None, crit_rate_caps: Dict[str, float] = None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
+        crit_rate_caps = crit_rate_caps or {}
+        set_effect_modes = set_effect_modes or {}
+        priority_groups = priority_groups or None
+        if mode != "role_priority":
+            tape_main_filters = {}
+            crit_priority_modes = {}
+            crit_rate_caps = {}
         custom_sets = self._canonicalize_custom_sets(custom_sets)
+        total_t0 = time.perf_counter()
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
-        blueprints_db = self.solve_blueprints(priority_list, custom_sets)
+        stage_t0 = time.perf_counter()
+        blueprints_db = self.solve_blueprints(priority_list, custom_sets, set_effect_modes)
+        logger.info(f"[计时] 图纸求解阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         logger.info(f"\n[阶段 3] 接收到 {len(inventory)} 个资产，正在过滤与类型转换...")
+        stage_t0 = time.perf_counter()
         parsed_inventory = []
         filtered_count = 0
 
         for item in inventory:
-            # 兼容旧版本卡带的主词条格式，强行拍扁为字符串
-            if item.get("item_type") == "tape" and isinstance(item.get("main_stats"), dict):
-                if item["main_stats"]:
-                    item["main_stats"] = list(item["main_stats"].keys())[0]
-                else:
-                    item["main_stats"] = "未知主词条"
-
-            # 实例化
+            item = normalize_equipment_item(item)
             obj = Drive(**item) if item.get("item_type") == "drive" else Tape(**item)
 
             # Skip equipment already worn by other characters
@@ -151,32 +233,35 @@ class NTEPipelineOrchestrator:
         if locked_uids:
             logger.info(
                 f"[模式四] 已屏蔽 {filtered_count} 件锁定装备，使用剩余 {len(parsed_inventory)} 件进行分配。")
+        logger.info(f"[计时] 库存转换阶段: {time.perf_counter() - stage_t0:.2f}s")
 
+        stage_t0 = time.perf_counter()
         scoring_engine = ScoringEngine(config_dir=self.config_dir)
-        drive_screen_limit = self._estimate_drive_screen_limit(blueprints_db, custom_sets)
+        max_priority_group_size = self._max_priority_group_size(priority_list, priority_groups)
+        drive_screen_limit = max(
+            self._estimate_drive_screen_limit(blueprints_db, custom_sets),
+            max(15, max_priority_group_size * 10),
+        )
+        tape_screen_limit = max(6, max_priority_group_size * 4)
         if drive_screen_limit > 15:
             logger.info(f"  候选驱动筛选上限已按当前角色需求提升到 Top {drive_screen_limit}/形状/角色。")
-        screened_pools = scoring_engine.evaluate_global_inventory(inventory=parsed_inventory,
-                                                                  top_k_per_shape_per_role=drive_screen_limit)
-        filtered_tape_count = 0
-        for role_name, allowed_mains in tape_main_filters.items():
-            allowed = {str(v) for v in allowed_mains if v}
-            if not allowed or role_name not in screened_pools.get("tapes", {}):
-                continue
-            before = len(screened_pools["tapes"].get(role_name, []))
-            screened_pools["tapes"][role_name] = [
-                tape for tape in screened_pools["tapes"].get(role_name, [])
-                if str(getattr(tape, "main_stats", "")) in allowed
-            ]
-            filtered_tape_count += before - len(screened_pools["tapes"][role_name])
-        if filtered_tape_count:
-            logger.info(f"  已按角色优先级配置过滤卡带主词条，排除 {filtered_tape_count} 张卡带候选。")
+        screened_pools = scoring_engine.evaluate_global_inventory(
+            inventory=parsed_inventory,
+            top_k_per_shape_per_role=drive_screen_limit,
+            tape_top_k_per_set_per_role=tape_screen_limit,
+            tape_main_filters=tape_main_filters,
+            crit_priority_modes=crit_priority_modes,
+        )
+        if tape_main_filters:
+            logger.info("  已按角色优先级配置提前过滤卡带主词条。")
 
         logger.success("  筛选完成。")
         logger.info(f"     - 入选驱动数: {len(screened_pools['drives'])}")
-        logger.info(f"     - 卡带分桶: 各角色 Top 3 已锁定")
+        logger.info(f"     - 卡带分桶: 各角色每套装 Top {tape_screen_limit} 已锁定")
+        logger.info(f"[计时] 评分筛选阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         logger.info(f"\n[阶段 4] 启动调度模式: [{mode}]...")
+        stage_t0 = time.perf_counter()
         dispatcher = DispatcherEngine(roles_db=self.roles_db, sets_db=self.sets_db, blueprints_db=blueprints_db)
 
         final_plan = dispatcher.execute_dispatch(
@@ -184,10 +269,16 @@ class NTEPipelineOrchestrator:
             candidate_pool=screened_pools,
             priority_list=priority_list,
             custom_sets=custom_sets,
-            crit_priority_modes=crit_priority_modes
+            crit_priority_modes=crit_priority_modes,
+            priority_groups=priority_groups,
+            crit_rate_caps=crit_rate_caps,
         )
+        logger.info(f"[计时] 调度阶段: {time.perf_counter() - stage_t0:.2f}s")
 
+        stage_t0 = time.perf_counter()
         self._render_results(final_plan, scoring_engine, custom_sets)
+        logger.info(f"[计时] 日志渲染阶段: {time.perf_counter() - stage_t0:.2f}s")
+        logger.info(f"[计时] 完整分配流程总耗时: {time.perf_counter() - total_t0:.2f}s")
 
         return final_plan
 
@@ -198,7 +289,7 @@ class NTEPipelineOrchestrator:
                 logger.error(f"角色 [{role}] 分配失败: 无法凑齐合法图纸。\n")
                 continue
 
-            grade = scoring_engine.get_grade_tag(plan['score'], area=20)
+            grade = scoring_engine.get_grade_tag(plan['score'], area=ALLOCATION_TOTAL_SCORE_AREA)
             used_set = custom_sets.get(role, self.roles_db[role]["default_set"])
 
             BoardVisualizer.display_final_plan(role_name=role, plan=plan, default_set=used_set, grade=grade)
@@ -217,7 +308,7 @@ class NTEPipelineOrchestrator:
             else:
                 logger.warning("     - 未为此角色分配合法卡带。")
 
-            for category, key in [("\n  [四件套驱动]\n", 'assigned_set_drives'),
+            for category, key in [("\n  [套装效果驱动]\n", 'assigned_set_drives'),
                                   ("  [额外散件]\n", 'assigned_extra_drives')]:
                 logger.opt(raw=True).info(f"{category}")
                 for d in plan.get(key, []):

@@ -1,3 +1,4 @@
+# 定义项目通用异常类型。
 """Project-specific exception types."""
 
 class NTEBaseError(Exception):
@@ -13,8 +14,4 @@ class InventoryEmptyError(NTEBaseError):
 
 
 class ConfigMissingError(NTEBaseError):
-    pass
-
-
-class AllocationFailedError(NTEBaseError):
     pass

@@ -1,3 +1,4 @@
+# 使用深度优先搜索求解驱动盘布局。
 """Depth-first board solver for fitting drive shapes into role blueprints."""
 
 import copy

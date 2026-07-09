@@ -1,9 +1,11 @@
+# 计算装备词条和套装评分。
 """Equipment scoring rules driven by role and stat configuration."""
 
 import json
 import os
 from typing import List, Dict, Any
 
+from src.domain.stat_catalog import StatCatalog
 from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
 
@@ -13,6 +15,7 @@ class ScoringEngine:
     def __init__(self, config_dir: str = "config"):
         self.config_dir = config_dir
         self.roles_db = {}
+        self.stat_catalog = StatCatalog()
         self.gold_base_values = {}
         self.main_only_keywords = []
         self.stat_alias_mapping = {}
@@ -29,11 +32,10 @@ class ScoringEngine:
 
         stats_path = os.path.join(self.config_dir, 'stats.json')
         if os.path.exists(stats_path):
-            with open(stats_path, 'r', encoding='utf-8') as f:
-                stats_data = json.load(f)
-                self.gold_base_values = stats_data.get("gold_base_values", {})
-                self.main_only_keywords = stats_data.get("main_only_keywords", [])
-                self.stat_alias_mapping = stats_data.get("stat_alias_mapping", {})
+            self.stat_catalog = StatCatalog.from_config_dir(self.config_dir)
+            self.gold_base_values = self.stat_catalog.gold_base_values
+            self.main_only_keywords = self.stat_catalog.main_only_keywords
+            self.stat_alias_mapping = self.stat_catalog.stat_alias_mapping
         else:
             logger.error(f"找不到数值规则文件: {stats_path}")
 
@@ -45,12 +47,30 @@ class ScoringEngine:
         return max_sub_weight if max_sub_weight > 0 else 1.0
 
     def _get_flexible_weight(self, stat_name: str, weights: Dict[str, float]) -> float:
-        mapped_name = self.stat_alias_mapping.get(stat_name, stat_name)
-        w = weights.get(mapped_name, 0.0)
-        if w > 0: return w
-        if mapped_name not in ["攻击力", "防御力", "生命值"]:
-            w = weights.get(f"{mapped_name}%", 0.0)
-        return w
+        names = [str(stat_name or "").strip()]
+        normalized = self.stat_catalog.normalize_stat_name(names[0], is_percent="%" in names[0])
+        if normalized:
+            names.append(normalized)
+        mapped_name = self.stat_catalog.flexible_weight_name(names[0])
+        if mapped_name:
+            names.append(mapped_name)
+
+        for name in dict.fromkeys(n for n in names if n):
+            w = weights.get(name, 0.0)
+            if w > 0:
+                return w
+        for target_name in dict.fromkeys(n for n in names if n):
+            for raw_name, weight in weights.items():
+                if weight > 0 and self.stat_catalog.flexible_weight_name(raw_name) == target_name:
+                    return weight
+
+        flat_names = {"攻击力", "防御力", "生命值"}
+        for name in dict.fromkeys(n for n in names if n):
+            if name not in flat_names:
+                w = weights.get(f"{name}%", 0.0)
+                if w > 0:
+                    return w
+        return 0.0
 
     def calculate_drive_score(self, drive: Drive, weights: Dict[str, float], max_weight: float) -> float:
         if max_weight <= 0: return 0.0
@@ -61,13 +81,14 @@ class ScoringEngine:
         score = (10.0 / max_weight) * actual_weight * drive.area * quality_coef
         return round(score, 2)
 
-    def calculate_cartridge_score(self, tape: Tape, weights: dict, max_weight: float) -> float:
+    def calculate_cartridge_score(self, tape: Tape, weights: dict, max_weight: float, main_weights: dict | None = None) -> float:
         if max_weight <= 0: return 0.0
 
         quality_coef = self.quality_map.get(tape.quality, 1.0)
 
         main_stat_name = tape.main_stats
-        main_weight = self._get_flexible_weight(main_stat_name, weights)
+        main_weight_source = main_weights if isinstance(main_weights, dict) else weights
+        main_weight = self._get_flexible_weight(main_stat_name, main_weight_source)
         main_score = main_weight * 50.0 * quality_coef
 
         sub_weight = sum(self._get_flexible_weight(stat_name, weights) for stat_name in tape.sub_stats.keys())
@@ -75,8 +96,78 @@ class ScoringEngine:
 
         return round(main_score + sub_score, 2)
 
-    def evaluate_global_inventory(self, inventory: List[BaseEquipment], top_k_per_shape_per_role: int = 15) -> Dict[str, Any]:
+    def _is_a_grade_item(self, role: str, item: BaseEquipment) -> bool:
+        score = getattr(item, "role_scores", {}).get(role, 0.0)
+        area = getattr(item, "area", 1) or 1
+        return score >= area * 10.0 * 0.4
+
+    def _item_has_stat(self, item: BaseEquipment, stat_key: str) -> bool:
+        target_raw = str(stat_key or "").strip()
+        if not target_raw:
+            return False
+        target = self.stat_catalog.normalize_stat_name(target_raw, is_percent="%" in target_raw) or target_raw
+        for name in (getattr(item, "sub_stats", {}) or {}).keys():
+            raw_name = str(name or "").strip()
+            normalized = self.stat_catalog.normalize_stat_name(raw_name, is_percent="%" in raw_name) or raw_name
+            if normalized == target:
+                return True
+        return False
+
+    def _priority_rank_for_item(self, role: str, item: BaseEquipment, config: dict | None) -> tuple[int, int]:
+        if not isinstance(config, dict):
+            return (0, 0)
+        if not config.get("ignore_grade_limit") and not self._is_a_grade_item(role, item):
+            return (0, 0)
+        stats = [str(stat) for stat in config.get("stats", []) if stat]
+        if not stats:
+            return (0, 0)
+        if config.get("equal_priority"):
+            covered = sum(1 for stat in stats if self._item_has_stat(item, stat))
+            return (covered, 0)
+        for tier, stat in enumerate(stats):
+            if self._item_has_stat(item, stat):
+                return (len(stats) - tier, 0)
+        return (0, 0)
+
+    def _has_stat_priority_for_any_role(self, item: BaseEquipment, configs: Dict[str, dict]) -> bool:
+        return any(self._priority_rank_for_item(role_name, item, config) > (0, 0) for role_name, config in configs.items())
+
+    def _allowed_tape_main_names(self, allowed_mains: List[str] | None) -> set[str]:
+        allowed = set()
+        for value in allowed_mains or []:
+            raw = str(value or "").strip()
+            if not raw:
+                continue
+            allowed.add(raw)
+            normalized = self.stat_catalog.normalize_tape_main_stat(raw)
+            if normalized:
+                allowed.add(normalized)
+        return allowed
+
+    def _tape_main_allowed(self, tape: Tape, allowed: set[str]) -> bool:
+        if not allowed:
+            return True
+        raw = str(getattr(tape, "main_stats", "") or "").strip()
+        normalized = self.stat_catalog.normalize_tape_main_stat(raw)
+        return raw in allowed or normalized in allowed
+
+    def evaluate_global_inventory(
+        self,
+        inventory: List[BaseEquipment],
+        top_k_per_shape_per_role: int = 15,
+        tape_top_k_per_set_per_role: int = 3,
+        tape_main_filters: Dict[str, List[str]] | None = None,
+        crit_priority_modes: Dict[str, dict] | None = None,
+    ) -> Dict[str, Any]:
         if not self.roles_db: return {"drives": [], "tapes": {}}
+        tape_main_filters = tape_main_filters or {}
+        crit_priority_modes = crit_priority_modes or {}
+        has_unlimited_stat_priority = any(
+            isinstance(config, dict)
+            and bool(config.get("ignore_grade_limit"))
+            and bool(config.get("stats"))
+            for config in crit_priority_modes.values()
+        )
         logger.info(f"  评分引擎: 开始评估 {len(inventory)} 件装备 × {len(self.roles_db)} 角色...")
 
         valid_drives: List[Drive] = []
@@ -93,27 +184,52 @@ class ScoringEngine:
                 if isinstance(item, Drive):
                     score = self.calculate_drive_score(item, weights, max_weight)
                 else:
-                    score = self.calculate_cartridge_score(item, weights, max_weight)
+                    main_weights = role_data["main_weights"] if "main_weights" in role_data else None
+                    score = self.calculate_cartridge_score(item, weights, max_weight, main_weights)
 
                 item.role_scores[role_name] = score
                 if score > item.max_score:
                     item.max_score = score
 
-            if item.max_score > 0:
-                if isinstance(item, Drive):
+            if isinstance(item, Drive):
+                if (
+                    has_unlimited_stat_priority
+                    or item.max_score > 0
+                    or self._has_stat_priority_for_any_role(item, crit_priority_modes)
+                ):
                     valid_drives.append(item)
-                else:
-                    valid_tapes.append(item)
+            elif item.max_score > 0 or any(
+                self._tape_main_allowed(item, self._allowed_tape_main_names(values))
+                for values in tape_main_filters.values()
+            ):
+                valid_tapes.append(item)
 
         global_drive_uids = set()
         for role_name in self.roles_db.keys():
+            role_priority_config = crit_priority_modes.get(role_name)
+            role_unlimited_stat_priority = (
+                isinstance(role_priority_config, dict)
+                and bool(role_priority_config.get("ignore_grade_limit"))
+                and bool(role_priority_config.get("stats"))
+            )
             buckets: Dict[str, List[Drive]] = {}
             for d in valid_drives:
-                if d.role_scores[role_name] > 0:
+                priority_rank = self._priority_rank_for_item(role_name, d, role_priority_config)
+                if role_unlimited_stat_priority or d.role_scores[role_name] > 0 or priority_rank > (0, 0):
                     buckets.setdefault(d.shape_id, []).append(d)
 
             for shape, drives_in_bucket in buckets.items():
-                drives_in_bucket.sort(key=lambda x: x.role_scores[role_name], reverse=True)
+                if role_unlimited_stat_priority:
+                    for d in drives_in_bucket:
+                        global_drive_uids.add(d.uid)
+                    continue
+                drives_in_bucket.sort(
+                    key=lambda x: (
+                        self._priority_rank_for_item(role_name, x, role_priority_config),
+                        x.role_scores[role_name],
+                    ),
+                    reverse=True,
+                )
                 for d in drives_in_bucket[:top_k_per_shape_per_role]:
                     global_drive_uids.add(d.uid)
 
@@ -122,15 +238,27 @@ class ScoringEngine:
 
         optimal_tapes = {role: [] for role in self.roles_db.keys()}
         for role_name in self.roles_db.keys():
-            role_tapes = [t for t in valid_tapes if t.role_scores[role_name] > 0]
+            allowed_mains = self._allowed_tape_main_names(tape_main_filters.get(role_name))
+            role_tapes = [
+                t
+                for t in valid_tapes
+                if t.role_scores[role_name] > 0 or (allowed_mains and self._tape_main_allowed(t, allowed_mains))
+            ]
+            role_tapes = [t for t in role_tapes if self._tape_main_allowed(t, allowed_mains)]
             set_buckets = {}
             for t in role_tapes:
                 set_buckets.setdefault(t.set_name, []).append(t)
 
             final_role_tapes = []
             for s_name, bucket in set_buckets.items():
-                bucket.sort(key=lambda x: x.role_scores[role_name], reverse=True)
-                final_role_tapes.extend(bucket[:3])
+                bucket.sort(
+                    key=lambda x: (
+                        self._priority_rank_for_item(role_name, x, crit_priority_modes.get(role_name)),
+                        x.role_scores[role_name],
+                    ),
+                    reverse=True,
+                )
+                final_role_tapes.extend(bucket[:tape_top_k_per_set_per_role])
 
             final_role_tapes.sort(key=lambda x: x.role_scores[role_name], reverse=True)
             optimal_tapes[role_name] = final_role_tapes
