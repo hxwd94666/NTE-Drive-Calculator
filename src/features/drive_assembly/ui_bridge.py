@@ -30,9 +30,11 @@ from src.features.drive_assembly.page_mapping import (
 )
 from src.features.drive_assembly.role_flow import (
     build_role_assembly_payloads,
-    collect_role_observation_pages,
+    collect_role_roster_until_repeat,
+    map_role_page_reset,
     map_role_page_scroll,
     plan_role_assembly_from_observations,
+    plan_role_assembly_from_roster,
     recognize_role_slots_from_image,
     required_roles_from_payloads,
 )
@@ -165,6 +167,9 @@ def execute_all_roles_from_current_game_page(
     if not required_roles:
         return execute_role_traversal_assembly_plan({"plans": []}, assembly_plan, backend=backend)
 
+    reset_sequence = map_role_page_reset(screen_size=screen_size, content_rect=action_rect, repeat_count=reset_scroll_count)["reset_sequence"]
+    execute_action_sequence(reset_sequence, backend=backend)
+    first_image, _first_rect = _capture_foreground_client_image()
     cached_images = {0: first_image}
 
     def observe_page(page_index: int):
@@ -183,19 +188,17 @@ def execute_all_roles_from_current_game_page(
         scroll_sequence = map_role_page_scroll(screen_size=screen_size, content_rect=action_rect)["scroll_sequence"]
         execute_action_sequence(scroll_sequence, backend=backend)
 
-    observed_pages = collect_role_observation_pages(
+    role_roster = collect_role_roster_until_repeat(
         required_roles,
         page_observer=observe_page,
         scroll_next_page=scroll_next,
-        max_pages=max_pages or max(8, (len(required_roles) + 4) // 5 + 3),
-        stop_when_all_seen=False,
+        max_pages=max_pages or max(12, (len(required_roles) + 4) // 5 + 6),
     )
-    traversal_plan = plan_role_assembly_from_observations(
+    traversal_plan = plan_role_assembly_from_roster(
         required_roles,
-        observed_pages,
+        role_roster,
         screen_size=screen_size,
         content_rect=action_rect,
-        reset_to_first_page=True,
         reset_scroll_count=reset_scroll_count,
     )
     checker = f12_stop_checker()

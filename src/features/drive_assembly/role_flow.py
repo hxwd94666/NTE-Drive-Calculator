@@ -33,6 +33,7 @@ DEFAULT_ROLE_PAGE_SCROLL = {
     "role_scroll_end": (2388.0, 242.0),
 }
 DEFAULT_ROLE_PAGE_RESET_SCROLLS = 6
+DEFAULT_ROLE_ROSTER_MAX_PAGES = 20
 DEFAULT_ROLE_NAME_REGION = (1738.0, 252.0, 1900.0, 320.0)
 DEFAULT_ROLE_TEMPLATE_REGION = (2300.0, 135.0, 2540.0, 1210.0)
 
@@ -279,6 +280,125 @@ def plan_role_assembly_from_observations(
         "unrecognized": unrecognized,
         "plans": plans,
         "complete": not missing and not unrecognized,
+    }
+
+
+def collect_role_roster_until_repeat(
+    expected_roles: list[str] | tuple[str, ...],
+    page_observer: Callable[[int], list[RoleRecognition]],
+    scroll_next_page: Callable[[int], None] | None = None,
+    max_pages: int | None = None,
+) -> dict[str, Any]:
+    """Scan the role sidebar until a post-scroll page repeats a known role."""
+
+    page_limit = max_pages if max_pages is not None else DEFAULT_ROLE_ROSTER_MAX_PAGES
+    observed_pages: list[list[RoleRecognition]] = []
+    role_order: list[str] = []
+    seen: set[str] = set()
+    duplicates: list[dict[str, Any]] = []
+    unrecognized: list[dict[str, Any]] = []
+    reached_bottom = False
+    bottom_page_index = 0
+
+    for page_index in range(max(1, page_limit)):
+        page = page_observer(page_index)
+        observed_pages.append(page)
+        page_repeated = False
+        for slot_index, observed in enumerate(page[:5]):
+            recognition = _coerce_recognition(observed)
+            if not recognition.role_name:
+                unrecognized.append({"page_index": page_index, "slot_index": slot_index})
+                continue
+            role_name = recognition.role_name
+            if role_name in seen:
+                duplicates.append({"role_name": role_name, "page_index": page_index, "slot_index": slot_index})
+                page_repeated = True
+                continue
+            seen.add(role_name)
+            role_order.append(role_name)
+        bottom_page_index = page_index
+        if page_index > 0 and page_repeated:
+            reached_bottom = True
+            break
+        if page_index < page_limit - 1 and scroll_next_page is not None:
+            scroll_next_page(page_index)
+
+    expected = [str(role) for role in expected_roles if str(role).strip()]
+    return {
+        "roles": role_order,
+        "observed_pages": observed_pages,
+        "duplicates": duplicates,
+        "unrecognized": unrecognized,
+        "missing_expected_roles": [role for role in expected if role not in seen],
+        "bottom_page_index": bottom_page_index,
+        "reached_bottom": reached_bottom,
+    }
+
+
+def plan_role_assembly_from_roster(
+    required_roles: list[str] | tuple[str, ...],
+    role_roster: dict[str, Any],
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+    reset_scroll_count: int = DEFAULT_ROLE_PAGE_RESET_SCROLLS,
+) -> dict[str, Any]:
+    """Build role assembly navigation from a cached full sidebar roster."""
+
+    required = [str(role) for role in required_roles if str(role).strip()]
+    slots = map_role_slots(screen_size, content_rect)
+    entry = map_role_navigation_controls(screen_size, content_rect)
+    scroll = map_role_page_scroll(screen_size, content_rect)["scroll_sequence"]
+    reset = map_role_page_reset(screen_size, content_rect, repeat_count=reset_scroll_count)["reset_sequence"]
+    roster = [str(role) for role in role_roster.get("roles", []) if str(role).strip()]
+    role_indexes = {role: index for index, role in enumerate(roster)}
+    bottom_scroll_count = int(role_roster.get("bottom_page_index", max(0, (len(roster) - 1) // 5)) or 0)
+    tail_count = len(roster) % len(slots) if slots else 0
+    tail_start = len(roster) - tail_count if tail_count else len(roster)
+    plans: list[dict[str, Any]] = []
+
+    for role_name in required:
+        index = role_indexes.get(role_name)
+        if index is None:
+            continue
+        use_bottom_anchor = bool(tail_count and index >= tail_start)
+        if use_bottom_anchor:
+            from_bottom = len(roster) - index
+            slot_index = max(0, min(len(slots) - 1, len(slots) - from_bottom))
+            page_index = "bottom"
+            scroll_count = bottom_scroll_count
+        else:
+            slot_index = index % len(slots)
+            page_index = index // len(slots)
+            scroll_count = int(page_index)
+        action_sequence = [
+            *reset,
+            *(scroll * scroll_count),
+            {"name": "role_slot", "role_name": role_name, "position": slots[slot_index]},
+            *entry["entry_sequence"],
+            {"name": "run_drive_assembly_for_role", "role_name": role_name},
+        ]
+        plans.append(
+            {
+                "role_name": role_name,
+                "page_index": page_index,
+                "slot_index": slot_index,
+                "roster_index": index,
+                "positioning": "bottom_tail" if use_bottom_anchor else "page_slot",
+                "action_sequence": action_sequence,
+            }
+        )
+
+    planned_roles = [plan["role_name"] for plan in plans]
+    missing = [role for role in required if role not in set(planned_roles)]
+    return {
+        "required_roles": required,
+        "planned_roles": planned_roles,
+        "missing_roles": missing,
+        "duplicates": list(role_roster.get("duplicates", []) or []),
+        "unrecognized": list(role_roster.get("unrecognized", []) or []),
+        "role_roster": roster,
+        "plans": plans,
+        "complete": not missing and not role_roster.get("unrecognized"),
     }
 
 

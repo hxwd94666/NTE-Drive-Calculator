@@ -248,6 +248,57 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         self.assertEqual(2, len(observed))
         self.assertEqual([0], scrolls)
 
+    def test_collects_role_roster_until_post_scroll_repeat(self):
+        from src.features.drive_assembly.role_flow import RoleRecognition, collect_role_roster_until_repeat
+
+        pages = [
+            [RoleRecognition(role, "template", 0.9) for role in ["A", "B", "C", "D", "E"]],
+            [RoleRecognition(role, "template", 0.9) for role in ["F", "G", "H", "I", "J"]],
+            [RoleRecognition(role, "template", 0.9) for role in ["I", "J", "K", "L", "M"]],
+            [RoleRecognition("N", "template", 0.9)],
+        ]
+        scrolls = []
+
+        roster = collect_role_roster_until_repeat(
+            list("ABCDEFGHIJKLM"),
+            page_observer=lambda index: pages[index],
+            scroll_next_page=lambda index: scrolls.append(index),
+            max_pages=4,
+        )
+
+        self.assertEqual(list("ABCDEFGHIJKLM"), roster["roles"])
+        self.assertTrue(roster["reached_bottom"])
+        self.assertEqual(2, roster["bottom_page_index"])
+        self.assertEqual([0, 1], scrolls)
+        self.assertEqual(
+            [
+                {"role_name": "I", "page_index": 2, "slot_index": 0},
+                {"role_name": "J", "page_index": 2, "slot_index": 1},
+            ],
+            roster["duplicates"],
+        )
+
+    def test_plans_tail_roles_from_bottom_reverse_slots(self):
+        from src.features.drive_assembly.role_flow import plan_role_assembly_from_roster
+
+        roster = {
+            "roles": list("ABCDEFGHIJKLM"),
+            "bottom_page_index": 2,
+            "duplicates": [],
+            "unrecognized": [],
+        }
+
+        plan = plan_role_assembly_from_roster(["K", "L", "M"], roster, reset_scroll_count=1)
+
+        self.assertEqual(["K", "L", "M"], plan["planned_roles"])
+        self.assertEqual(["bottom_tail", "bottom_tail", "bottom_tail"], [item["positioning"] for item in plan["plans"]])
+        self.assertEqual([2, 3, 4], [item["slot_index"] for item in plan["plans"]])
+        self.assertEqual([(2410, 697), (2410, 925), (2410, 1152)], [item["action_sequence"][3]["position"] for item in plan["plans"]])
+        self.assertEqual(
+            ["role_scroll_reset_to_first_page", "role_scroll_next_page", "role_scroll_next_page", "role_slot"],
+            [action["name"] for action in plan["plans"][0]["action_sequence"][:4]],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
