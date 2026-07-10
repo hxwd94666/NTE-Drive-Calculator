@@ -13,6 +13,16 @@ from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
 from src.app import runtime
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
+from src.features.drive_assembly.ui_bridge import (
+    build_all_role_assembly_plan,
+    build_single_role_assembly_plan,
+    execute_all_roles_from_current_game_page,
+    summarize_assembly_plan,
+)
+from src.features.drive_assembly.executor import (
+    AssemblyExecutionStopped,
+    execute_role_assembly_plan,
+)
 from src.features.role.equipment_import import equipment_from_saved_state, import_all_role_equipment, import_role_equipment
 from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.optimizer.contracts import (
@@ -45,7 +55,8 @@ from src.ui.main_window_method_install import install_methods as _install_main_w
 
 __all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equipment', '_refresh_equip',
            '_saved_plan_diff_text', '_show_saved_plan_diff_dialog', '_clear_all_equipment', '_delete_role_equipment',
-           '_import_to_my_role', '_import_all_to_my_roles', '_save_eq']
+           '_import_to_my_role', '_import_all_to_my_roles', '_preview_assemble_role', '_preview_assemble_all_roles',
+           '_save_eq']
 
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
@@ -70,7 +81,9 @@ def _page_equipment(self):
     clear_btn=QPushButton("清空配装"); clear_btn.setObjectName("btnDanger"); clear_btn.clicked.connect(self._clear_all_equipment)
     sh.addWidget(clear_btn)
     import_all_btn=QPushButton("一键导入"); import_all_btn.setObjectName("btnPrimary"); import_all_btn.clicked.connect(self._import_all_to_my_roles)
-    sh.addWidget(import_all_btn); l.addLayout(sh)
+    sh.addWidget(import_all_btn)
+    assemble_all_btn=QPushButton("一键装配所有角色"); assemble_all_btn.setObjectName("btnAction"); assemble_all_btn.clicked.connect(self._preview_assemble_all_roles)
+    sh.addWidget(assemble_all_btn); l.addLayout(sh)
     scroll=QScrollArea(); scroll.setWidgetResizable(True)
     self.equip_content=QWidget(); self.equip_content_layout=QVBoxLayout(self.equip_content); scroll.setWidget(self.equip_content)
     l.addWidget(scroll,1); return page
@@ -199,6 +212,10 @@ def _render_equip_role(self, role_name, rd):
     import_btn.setObjectName("btnPrimary")  # 蓝色主按钮样式
     import_btn.clicked.connect(lambda _, rn=role_name: self._import_to_my_role(rn))
     role_hdr.addWidget(import_btn)
+    assemble_btn = QPushButton("装配该角色")
+    assemble_btn.setObjectName("btnAction")
+    assemble_btn.clicked.connect(lambda _, rn=role_name: self._preview_assemble_role(rn))
+    role_hdr.addWidget(assemble_btn)
     gl.addLayout(role_hdr); gl.addSpacing(6)
 
     bp=rd.get(ROLE_BLUEPRINT_LAYOUT,[])
@@ -361,6 +378,64 @@ def _import_all_to_my_roles(self):
     except Exception as e:
         QMessageBox.critical(self,"一键导入失败",f"操作失败：{str(e)}")
         logger.error(f"批量导入配装失败: {e}")
+
+
+def _preview_assemble_role(self, role_name: str):
+    """生成并执行单个角色的游戏内装配动作计划。"""
+    _reload_equipped_state_from_disk(self)
+    try:
+        plan=build_single_role_assembly_plan(self.equipped_state, role_name)
+        summary=summarize_assembly_plan(plan)
+        if not plan.get("available"):
+            QMessageBox.warning(self,"装配计划",summary)
+            return
+        ret=QMessageBox.question(
+            self,
+            "装配计划",
+            summary + "\n\n确认后将接管鼠标点击/拖拽。请先切回游戏的装配页面，并保持页面不动。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ret!=QMessageBox.Yes:
+            return
+        report=execute_role_assembly_plan(plan)
+        QMessageBox.information(self,"装配执行完成",f"[{role_name}] 已执行 {report.executed_actions} 个动作。")
+        logger.info(f"已执行 [{role_name}] 装配动作：{report.executed_actions}")
+    except AssemblyExecutionStopped:
+        QMessageBox.warning(self,"装配已停止",f"[{role_name}] 装配执行已停止。")
+        logger.warning(f"[{role_name}] 装配执行已停止")
+    except Exception as e:
+        QMessageBox.critical(self,"装配执行失败",f"执行 [{role_name}] 装配失败：{str(e)}")
+        logger.error(f"执行单角色装配失败: {e}")
+
+
+def _preview_assemble_all_roles(self):
+    """生成并执行所有已保存角色的游戏内装配动作计划。"""
+    _reload_equipped_state_from_disk(self)
+    if not self.equipped_state:
+        QMessageBox.information(self,"一键装配所有角色","当前没有已保存的配装。")
+        return
+    try:
+        plan=build_all_role_assembly_plan(self.equipped_state)
+        summary=summarize_assembly_plan(plan)
+        ret=QMessageBox.question(
+            self,
+            "一键装配所有角色",
+            summary + "\n\n确认后将等待 3 秒，请在倒计时内切回游戏的信息页面，并保持右侧角色列表可见。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ret!=QMessageBox.Yes:
+            return
+        report=execute_all_roles_from_current_game_page(self.equipped_state)
+        QMessageBox.information(self,"一键装配完成",f"已执行 {len(report.role_reports)} 个角色，{report.executed_actions} 个动作。")
+        logger.info(f"已执行一键装配：{len(report.role_reports)} 个角色，{report.executed_actions} 个动作")
+    except AssemblyExecutionStopped:
+        QMessageBox.warning(self,"一键装配已停止","装配执行已停止。")
+        logger.warning("一键装配执行已停止")
+    except Exception as e:
+        QMessageBox.critical(self,"一键装配失败",f"执行一键装配失败：{str(e)}")
+        logger.error(f"执行全角色装配失败: {e}")
 
 
 def _save_eq(self):
