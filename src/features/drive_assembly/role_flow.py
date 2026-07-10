@@ -32,6 +32,7 @@ DEFAULT_ROLE_PAGE_SCROLL = {
     "role_scroll_start": (2388.0, 1152.0),
     "role_scroll_end": (2388.0, 242.0),
 }
+DEFAULT_ROLE_PAGE_RESET_SCROLLS = 6
 DEFAULT_ROLE_NAME_REGION = (1738.0, 252.0, 1900.0, 320.0)
 DEFAULT_ROLE_TEMPLATE_REGION = (2300.0, 135.0, 2540.0, 1210.0)
 
@@ -109,6 +110,32 @@ def map_role_page_scroll(
     return result
 
 
+def map_role_page_reset(
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+    repeat_count: int = DEFAULT_ROLE_PAGE_RESET_SCROLLS,
+    duration_ms: int = 700,
+) -> dict[str, Any]:
+    """Return swipes that move the right-side role list back toward the first page."""
+
+    controls = _scale_controls(DEFAULT_ROLE_PAGE_SCROLL, screen_size, content_rect)
+    result: dict[str, Any] = {
+        "role_scroll_start": controls["role_scroll_end"],
+        "role_scroll_end": controls["role_scroll_start"],
+        "repeat_count": max(0, int(repeat_count)),
+    }
+    result["reset_sequence"] = [
+        {
+            "name": "role_scroll_reset_to_first_page",
+            "from": result["role_scroll_start"],
+            "to": result["role_scroll_end"],
+            "duration_ms": duration_ms,
+        }
+        for _index in range(result["repeat_count"])
+    ]
+    return result
+
+
 def resolve_role_recognition(
     ocr_texts: list[str] | tuple[str, ...],
     expected_roles: list[str] | tuple[str, ...],
@@ -176,6 +203,8 @@ def plan_role_assembly_from_observations(
     observed_pages: list[list[RoleRecognition | str | None]],
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
+    reset_to_first_page: bool = False,
+    reset_scroll_count: int = DEFAULT_ROLE_PAGE_RESET_SCROLLS,
 ) -> dict[str, Any]:
     """Build a de-duplicated per-role assembly plan from visible-page observations."""
 
@@ -184,10 +213,20 @@ def plan_role_assembly_from_observations(
     slots = map_role_slots(screen_size, content_rect)
     entry = map_role_navigation_controls(screen_size, content_rect)
     scroll = map_role_page_scroll(screen_size, content_rect)
+    reset = map_role_page_reset(screen_size, content_rect, repeat_count=reset_scroll_count)
     seen: set[str] = set()
     plans: list[dict[str, Any]] = []
     duplicates: list[dict[str, Any]] = []
     unrecognized: list[dict[str, Any]] = []
+
+    if reset_to_first_page and observed_pages:
+        plans.append(
+            {
+                "role_name": None,
+                "page_index": -1,
+                "action_sequence": reset["reset_sequence"],
+            }
+        )
 
     for page_index, page in enumerate(observed_pages):
         for slot_index, observed in enumerate(page[: len(slots)]):
@@ -248,6 +287,7 @@ def collect_role_observation_pages(
     page_observer: Callable[[int], list[RoleRecognition]],
     scroll_next_page: Callable[[int], None] | None = None,
     max_pages: int | None = None,
+    stop_when_all_seen: bool = True,
 ) -> list[list[RoleRecognition]]:
     """Observe visible role pages until all required roles are seen or the page limit is reached."""
 
@@ -261,7 +301,7 @@ def collect_role_observation_pages(
         for recognition in page:
             if recognition.role_name:
                 seen.add(recognition.role_name)
-        if required and required.issubset(seen):
+        if stop_when_all_seen and required and required.issubset(seen):
             break
         if page_index < page_limit - 1 and scroll_next_page is not None:
             scroll_next_page(page_index)

@@ -26,7 +26,7 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         )
 
     def test_maps_five_visible_role_slots_and_scroll(self):
-        from src.features.drive_assembly.role_flow import map_role_page_scroll, map_role_slots
+        from src.features.drive_assembly.role_flow import map_role_page_reset, map_role_page_scroll, map_role_slots
 
         self.assertEqual(
             [(2410, 242), (2410, 470), (2410, 697), (2410, 925), (2410, 1152)],
@@ -47,6 +47,12 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
             ],
             scroll["scroll_sequence"],
         )
+
+        reset = map_role_page_reset(repeat_count=2)
+        self.assertEqual(2, len(reset["reset_sequence"]))
+        self.assertEqual("role_scroll_reset_to_first_page", reset["reset_sequence"][0]["name"])
+        self.assertEqual((2388, 242), reset["reset_sequence"][0]["from"])
+        self.assertEqual((2388, 1152), reset["reset_sequence"][0]["to"])
 
     def test_scales_role_navigation_to_other_screen(self):
         from src.features.drive_assembly.role_flow import map_role_navigation_controls, map_role_slots
@@ -213,6 +219,34 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         self.assertEqual(2, len(payloads["真红"]["drive_blocks"]))
         self.assertEqual("失落光芒", payloads["真红"]["tape_filter"]["set_name"])
         self.assertEqual((1081, 362), payloads["空幕"]["drive_blocks"][0]["pixel_position"])
+
+
+    def test_role_traversal_plan_resets_to_first_page_when_requested(self):
+        from src.features.drive_assembly.role_flow import plan_role_assembly_from_observations
+
+        plan = plan_role_assembly_from_observations(["A"], [["A"]], reset_to_first_page=True, reset_scroll_count=2)
+
+        self.assertEqual(None, plan["plans"][0]["role_name"])
+        self.assertEqual(2, len(plan["plans"][0]["action_sequence"]))
+        self.assertEqual("role_scroll_reset_to_first_page", plan["plans"][0]["action_sequence"][0]["name"])
+        self.assertEqual("A", plan["plans"][1]["role_name"])
+
+    def test_collects_all_requested_pages_when_not_stopping_after_required_roles(self):
+        from src.features.drive_assembly.role_flow import RoleRecognition, collect_role_observation_pages
+
+        pages = [[RoleRecognition("A", "template", 0.9)], [RoleRecognition("B", "template", 0.9)]]
+        scrolls = []
+
+        observed = collect_role_observation_pages(
+            ["A"],
+            page_observer=lambda index: pages[index],
+            scroll_next_page=lambda index: scrolls.append(index),
+            max_pages=2,
+            stop_when_all_seen=False,
+        )
+
+        self.assertEqual(2, len(observed))
+        self.assertEqual([0], scrolls)
 
 
 if __name__ == "__main__":

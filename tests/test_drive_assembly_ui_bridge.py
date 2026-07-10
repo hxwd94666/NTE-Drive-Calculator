@@ -4,6 +4,8 @@
 import unittest
 from types import SimpleNamespace
 
+import numpy as np
+
 
 class DriveAssemblyUiBridgeTests(unittest.TestCase):
     def _state(self):
@@ -150,7 +152,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             page_module._reload_equipped_state_from_disk = lambda _self: None
             page_module.build_single_role_assembly_plan = lambda *_args, **_kwargs: plan
             page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_role_assembly_plan = lambda p: calls.append(p) or SimpleNamespace(executed_actions=3)
+            page_module.execute_role_assembly_plan = lambda p, **_kwargs: calls.append(p) or SimpleNamespace(executed_actions=3)
             page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
 
@@ -237,6 +239,25 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             page_module.QMessageBox.information = original_information
 
         self.assertEqual([{"鐪熺孩": {}}], calls)
+
+
+    def test_verifies_blueprint_against_screenshot_samples_drive_positions(self):
+        from src.features.drive_assembly.ui_bridge import verify_blueprint_against_screenshot
+
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        image[48:53, 48:53] = 120
+        rect = SimpleNamespace(left=10, top=20)
+        plan = {
+            "drive_blocks": [
+                {"block_id": 1, "pixel_position": (60, 70)},
+                {"block_id": 2, "pixel_position": (90, 90)},
+            ]
+        }
+
+        result = verify_blueprint_against_screenshot(image, rect, plan)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual([{"block_id": 2, "position": (90, 90)}], result["missing_blocks"])
 
 
 if __name__ == "__main__":

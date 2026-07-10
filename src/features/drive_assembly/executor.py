@@ -39,6 +39,10 @@ class AssemblyExecutionReport:
     role_reports: list[ActionExecutionReport] = field(default_factory=list)
     skipped_roles: list[str] = field(default_factory=list)
     navigation_actions: int = 0
+    missing_roles: list[str] = field(default_factory=list)
+    duplicate_roles: list[dict[str, Any]] = field(default_factory=list)
+    unrecognized_roles: list[dict[str, Any]] = field(default_factory=list)
+    verification_failures: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def executed_actions(self) -> int:
@@ -47,6 +51,19 @@ class AssemblyExecutionReport:
 
 class AssemblyExecutionStopped(RuntimeError):
     """Raised when the user stops automatic assembly."""
+
+
+def f12_stop_checker() -> Callable[[], bool]:
+    """Return a Windows F12 stop checker suitable for long-running mouse automation."""
+
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+    except Exception:
+        return lambda: False
+
+    return lambda: bool(user32.GetAsyncKeyState(0x7B) & 0x8000)
 
 
 class PyAutoGuiMouseBackend:
@@ -98,6 +115,8 @@ def execute_role_assembly_plan(
     backend: MouseBackend | None = None,
     pause_seconds: float = DEFAULT_ACTION_PAUSE_SECONDS,
     should_stop: Callable[[], bool] | None = None,
+    startup_delay_seconds: float = 0.0,
+    role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
 ) -> ActionExecutionReport:
     """Execute all install actions for one role plan."""
 
@@ -105,14 +124,19 @@ def execute_role_assembly_plan(
     if not plan.get("available"):
         return ActionExecutionReport(role_name=role_name)
     mouse = backend or PyAutoGuiMouseBackend()
+    if startup_delay_seconds > 0:
+        mouse.pause(startup_delay_seconds)
     combined = _flatten_role_actions(plan.get("actions", []))
-    return execute_action_sequence(
+    report = execute_action_sequence(
         combined,
         backend=mouse,
         pause_seconds=pause_seconds,
         should_stop=should_stop,
         role_name=role_name,
     )
+    if role_verifier is not None:
+        role_verifier(role_name, plan)
+    return report
 
 
 def execute_all_role_assembly_plan(
@@ -147,12 +171,16 @@ def execute_role_traversal_assembly_plan(
     backend: MouseBackend | None = None,
     pause_seconds: float = DEFAULT_ACTION_PAUSE_SECONDS,
     should_stop: Callable[[], bool] | None = None,
+    role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
 ) -> AssemblyExecutionReport:
     """Execute role-list traversal and run the matching assembly plan for each role."""
 
     mouse = backend or PyAutoGuiMouseBackend()
     role_plans = _role_plan_lookup(assembly_plan)
     report = AssemblyExecutionReport()
+    report.missing_roles = list(traversal_plan.get("missing_roles", []) or [])
+    report.duplicate_roles = list(traversal_plan.get("duplicates", []) or [])
+    report.unrecognized_roles = list(traversal_plan.get("unrecognized", []) or [])
     for step in traversal_plan.get("plans", []):
         pending_actions: list[dict[str, Any]] = []
         for action in step.get("action_sequence", []):
@@ -181,6 +209,10 @@ def execute_role_traversal_assembly_plan(
                 pause_seconds=pause_seconds,
                 should_stop=should_stop,
             )
+            if role_verifier is not None:
+                verification = role_verifier(role_name, role_plan)
+                if verification and not verification.get("ok", True):
+                    report.verification_failures.append({"role_name": role_name, **verification})
             report.role_reports.append(role_report)
         if pending_actions:
             action_report = execute_action_sequence(
@@ -229,6 +261,9 @@ def _expand_drive_install_sequence(action: dict[str, Any]) -> list[dict[str, Any
 
 
 def _execute_one_action(action: dict[str, Any], backend: MouseBackend) -> bool:
+    if "wait_seconds" in action:
+        backend.pause(float(action.get("wait_seconds") or 0.0))
+        return True
     if "position" in action:
         backend.click(_point(action["position"]))
         return True

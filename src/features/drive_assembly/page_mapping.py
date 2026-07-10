@@ -22,7 +22,11 @@ DEFAULT_TAPE_FILTER_CONTROLS = {
     "set_select": (2067.0, 393.0),
 }
 DEFAULT_DRIVE_FILTER_CONTROLS = {
+    "set_select": (2067.0, 393.0),
     "shape_select": (2067.0, 540.0),
+}
+DEFAULT_FILTER_ACTION_CONTROLS = {
+    "reset_filter": (1861.0, 1322.0),
 }
 DEFAULT_TAPE_FILTER_STATUS_CONTROLS = {
     "status_equipped": (1861.0, 618.0),
@@ -282,6 +286,46 @@ def map_drive_shape_selection(
     return result
 
 
+def map_drive_set_selection(
+    set_name: str,
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+) -> dict[str, Any]:
+    """Return click positions for selecting a drive set from the filter panel."""
+    normalized_name = str(set_name).strip()
+    if normalized_name not in DEFAULT_TAPE_SET_OPTIONS:
+        available = ", ".join(DEFAULT_TAPE_SET_OPTIONS)
+        raise ValueError(f"unknown drive set: {set_name}. available sets: {available}")
+    filter_controls = _scale_controls(DEFAULT_DRIVE_FILTER_CONTROLS, screen_size, content_rect)
+    set_option = _scale_controls({normalized_name: DEFAULT_TAPE_SET_OPTIONS[normalized_name]}, screen_size, content_rect)[
+        normalized_name
+    ]
+    dialog_controls = _scale_controls(DEFAULT_TAPE_SET_DIALOG_CONTROLS, screen_size, content_rect)
+    result: dict[str, Any] = {
+        "set_name": normalized_name,
+        "set_select": filter_controls["set_select"],
+        "set_option": set_option,
+        "confirm_filter": dialog_controls["confirm_filter"],
+    }
+    result["selection_sequence"] = [
+        {"name": "drive_set_select", "set_name": normalized_name, "position": result["set_select"]},
+        {"name": "drive_set_option", "set_name": normalized_name, "position": result["set_option"]},
+        {"name": "confirm_drive_set_filter", "position": result["confirm_filter"]},
+    ]
+    return result
+
+
+def map_filter_reset(
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+) -> dict[str, Any]:
+    """Return the filter reset button used before every new drive search."""
+
+    controls = _scale_controls(DEFAULT_FILTER_ACTION_CONTROLS, screen_size, content_rect)
+    controls["reset_sequence"] = [{"name": "reset_filter", "position": controls["reset_filter"]}]
+    return controls
+
+
 def map_tape_set_selection(
     set_name: str,
     screen_size: tuple[int, int] | None = None,
@@ -513,6 +557,7 @@ def map_drive_block_installation(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
     duration_ms: int = 700,
+    cached_set_name: str | None = None,
 ) -> dict[str, Any]:
     """Return the filter and drag actions for installing one drive block."""
 
@@ -520,6 +565,9 @@ def map_drive_block_installation(
     drive_type = str(block.get("drive_type") or drive.get("shape_id") or "")
     quality = str(drive.get("quality") or "Gold")
     sub_stats = _drive_sub_stat_names(drive.get("sub_stats"))
+    set_name = str(cached_set_name or block.get("set_name") or drive.get("set_name") or "").strip()
+    reset = map_filter_reset(screen_size, content_rect)
+    set_selection = map_drive_set_selection(set_name, screen_size, content_rect) if set_name else None
     shape_selection = map_drive_shape_selection(drive_type, screen_size, content_rect)
     refinement = map_drive_filter_refinement([quality], sub_stats, screen_size, content_rect)
     controls = _scale_controls(DEFAULT_DRIVE_EQUIP_FIRST_RESULT, screen_size, content_rect)
@@ -527,12 +575,16 @@ def map_drive_block_installation(
     result: dict[str, Any] = {
         "block_id": block.get("block_id"),
         "drive_type": shape_selection["drive_type"],
+        "set_name": set_name,
         "shape_option": shape_selection["shape_option"],
         "first_drive": controls["first_drive"],
         "target_position": target_position,
         "confirm_filter": controls["confirm_filter"],
     }
     sequence: list[dict[str, Any]] = []
+    sequence.extend(reset["reset_sequence"])
+    if set_selection:
+        sequence.extend(set_selection["selection_sequence"])
     sequence.extend(shape_selection["selection_sequence"])
     sequence.extend(refinement["refinement_sequence"])
     sequence.append({"name": "confirm_filter", "position": result["confirm_filter"]})
@@ -562,8 +614,9 @@ def map_drive_blocks_installation(
     """
 
     page_controls = map_drive_page_controls(screen_size, content_rect)
+    cached_set_name = _drive_blocks_cached_set_name(blocks)
     install_plans = [
-        map_drive_block_installation(block, screen_size, content_rect, duration_ms)
+        map_drive_block_installation(block, screen_size, content_rect, duration_ms, cached_set_name=cached_set_name)
         for block in blocks
     ]
     result: dict[str, Any] = {
@@ -581,6 +634,15 @@ def map_drive_blocks_installation(
     )
     result["assembly_sequence"] = sequence
     return result
+
+
+def _drive_blocks_cached_set_name(blocks: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> str:
+    for block in blocks:
+        drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
+        set_name = str(block.get("set_name") or drive.get("set_name") or "").strip()
+        if set_name:
+            return set_name
+    return ""
 
 
 def _quality_control_name(quality: str) -> str:

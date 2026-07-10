@@ -22,6 +22,7 @@ from src.features.drive_assembly.ui_bridge import (
 from src.features.drive_assembly.executor import (
     AssemblyExecutionStopped,
     execute_role_assembly_plan,
+    f12_stop_checker,
 )
 from src.features.role.equipment_import import equipment_from_saved_state, import_all_role_equipment, import_role_equipment
 from src.features.scanning.file_lifecycle import equipment_compare_signature
@@ -398,7 +399,7 @@ def _preview_assemble_role(self, role_name: str):
         )
         if ret!=QMessageBox.Yes:
             return
-        report=execute_role_assembly_plan(plan)
+        report=execute_role_assembly_plan(plan, startup_delay_seconds=3.0, should_stop=f12_stop_checker())
         QMessageBox.information(self,"装配执行完成",f"[{role_name}] 已执行 {report.executed_actions} 个动作。")
         logger.info(f"已执行 [{role_name}] 装配动作：{report.executed_actions}")
     except AssemblyExecutionStopped:
@@ -428,6 +429,18 @@ def _preview_assemble_all_roles(self):
         if ret!=QMessageBox.Yes:
             return
         report=execute_all_roles_from_current_game_page(self.equipped_state)
+        message=f"Executed {len(report.role_reports)} roles, {report.executed_actions} actions."
+        if getattr(report, "missing_roles", None):
+            message += "\nMissing roles: " + ", ".join(report.missing_roles)
+        if getattr(report, "duplicate_roles", None):
+            message += f"\nDuplicate role slots: {len(report.duplicate_roles)}"
+        if getattr(report, "unrecognized_roles", None):
+            message += f"\nUnrecognized slots: {len(report.unrecognized_roles)}"
+        if getattr(report, "verification_failures", None):
+            message += f"\nScreenshot verification failures: {len(report.verification_failures)}"
+        QMessageBox.information(self,"Assembly complete",message)
+        logger.info(f"Assembly executed: {len(report.role_reports)} roles, {report.executed_actions} actions")
+        return
         QMessageBox.information(self,"一键装配完成",f"已执行 {len(report.role_reports)} 个角色，{report.executed_actions} 个动作。")
         logger.info(f"已执行一键装配：{len(report.role_reports)} 个角色，{report.executed_actions} 个动作")
     except AssemblyExecutionStopped:

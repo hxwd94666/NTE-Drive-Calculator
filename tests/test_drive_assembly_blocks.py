@@ -696,6 +696,34 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             plan["assembly_sequence"],
         )
 
+    def test_drive_block_installation_resets_filter_and_reuses_cached_set(self):
+        from src.features.drive_assembly.page_mapping import map_drive_blocks_installation
+
+        blocks = [
+            {
+                "block_id": 1,
+                "drive_type": "H_2",
+                "pixel_position": (1112, 362),
+                "drive": {"quality": "Gold", "set_name": "失落光芒", "sub_stats": {}},
+            },
+            {
+                "block_id": 2,
+                "drive_type": "V_2",
+                "pixel_position": (1205, 548),
+                "drive": {"quality": "Gold", "sub_stats": {}},
+            },
+        ]
+
+        plan = map_drive_blocks_installation(blocks)
+
+        first_sequence = plan["install_plans"][0]["install_sequence"]
+        second_sequence = plan["install_plans"][1]["install_sequence"]
+        self.assertEqual("reset_filter", first_sequence[0]["name"])
+        self.assertEqual("drive_set_select", first_sequence[1]["name"])
+        self.assertEqual("失落光芒", plan["install_plans"][1]["set_name"])
+        self.assertEqual("reset_filter", second_sequence[0]["name"])
+        self.assertEqual("drive_set_select", second_sequence[1]["name"])
+
 
 if __name__ == "__main__":
     unittest.main()
