@@ -91,6 +91,12 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertEqual(["all"], clicked)
         app.processEvents()
 
+    def test_inventory_mixin_exposes_assembly_methods(self):
+        from src.ui.main_window_mixins import InventoryPageMixin
+
+        self.assertTrue(hasattr(InventoryPageMixin, "_preview_assemble_role"))
+        self.assertTrue(hasattr(InventoryPageMixin, "_preview_assemble_all_roles"))
+
     def test_equipment_role_card_exposes_single_role_assemble_button(self):
         from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 
