@@ -101,6 +101,15 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
 
         self.assertEqual([("click", (1, 1))], backend.calls)
 
+    def test_executes_wait_actions(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        backend = FakeMouseBackend()
+        report = execute_action_sequence([{"name": "buffer", "wait_seconds": 1.25}], backend=backend, pause_seconds=0.0)
+
+        self.assertEqual([("pause", 1.25)], backend.calls)
+        self.assertEqual(1, report.executed_actions)
+
     def test_executes_all_ready_role_plans(self):
         from src.features.drive_assembly.executor import execute_all_role_assembly_plan
 
@@ -124,6 +133,9 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
 
         backend = FakeMouseBackend()
         traversal_plan = {
+            "missing_roles": ["B"],
+            "duplicates": [{"role_name": "A", "page_index": 1, "slot_index": 0}],
+            "unrecognized": [{"page_index": 0, "slot_index": 4}],
             "plans": [
                 {
                     "role_name": "A",
@@ -167,6 +179,34 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
         )
         self.assertEqual(["A"], [role.role_name for role in report.role_reports])
         self.assertEqual(5, report.executed_actions)
+        self.assertEqual(["B"], report.missing_roles)
+        self.assertEqual(1, len(report.duplicate_roles))
+        self.assertEqual(1, len(report.unrecognized_roles))
+
+    def test_role_traversal_collects_verification_failures(self):
+        from src.features.drive_assembly.executor import execute_role_traversal_assembly_plan
+
+        backend = FakeMouseBackend()
+        traversal_plan = {
+            "plans": [
+                {"role_name": "A", "action_sequence": [{"name": "run_drive_assembly_for_role", "role_name": "A"}]}
+            ]
+        }
+        assembly_plan = {
+            "role_plans": [
+                {"role_name": "A", "available": True, "actions": [{"name": "install_tape", "sequence": []}]},
+            ]
+        }
+
+        report = execute_role_traversal_assembly_plan(
+            traversal_plan,
+            assembly_plan,
+            backend=backend,
+            pause_seconds=0.0,
+            role_verifier=lambda role_name, _plan: {"ok": False, "reason": role_name},
+        )
+
+        self.assertEqual([{"role_name": "A", "ok": False, "reason": "A"}], report.verification_failures)
 
     def test_role_traversal_reports_missing_assembly_payload(self):
         from src.features.drive_assembly.executor import execute_role_traversal_assembly_plan
