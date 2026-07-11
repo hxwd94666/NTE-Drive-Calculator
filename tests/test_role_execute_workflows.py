@@ -749,6 +749,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
+
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
@@ -835,6 +841,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
+
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
@@ -887,6 +899,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
             def _calc_grade(self, *_args, **_kwargs):
                 return "A"
+
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
 
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
@@ -1118,7 +1136,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(["H_2"], window.card_labels)
+        self.assertEqual(["H_2", "V_2"], window.card_labels)
         self.assertIn("配装变动", dialog.windowTitle())
         app.processEvents()
 
@@ -1250,6 +1268,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
+
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
@@ -1305,6 +1329,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
             def _section_label(self, text):
                 return QLabel(text)
+
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
 
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
@@ -1370,6 +1400,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
             def _section_label(self, text):
                 return QLabel(text)
+
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
 
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
@@ -1440,6 +1476,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
             def _section_label(self, text):
                 return QLabel(text)
+
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
 
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
@@ -1890,6 +1932,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QWidget()
 
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
+
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
@@ -1986,6 +2034,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
             def _section_label(self, text):
                 return QLabel(text)
+
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
 
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
@@ -2271,6 +2325,12 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
             def _section_label(self, text):
                 return QLabel(text)
+
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
+                return QWidget()
 
             def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
