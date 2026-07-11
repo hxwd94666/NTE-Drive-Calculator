@@ -115,6 +115,26 @@ jobs:
 
           "INNO_SETUP_ISCC=$iscc" >> $env:GITHUB_ENV
 
+      - name: Download nte-core sidecar
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $bundleDir = Join-Path $env:RUNNER_TEMP 'nte-core-bundle'
+          $archive = Join-Path $bundleDir 'nte-core-windows-x64.zip'
+          $expanded = Join-Path $bundleDir 'expanded'
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+          gh release download --repo kongbaiz/nte-dps-toolkit --pattern 'nte-core-windows-x64.zip' --dir $bundleDir
+          if (-not (Test-Path $archive)) {
+            throw "nte-core release archive was not downloaded: $archive"
+          }
+          Expand-Archive -Path $archive -DestinationPath $expanded -Force
+          $coreExe = Get-ChildItem -Path $expanded -Filter nte-core.exe -Recurse | Select-Object -First 1
+          if (-not $coreExe) {
+            throw 'nte-core.exe is missing from nte-core-windows-x64.zip'
+          }
+          "NTE_CORE_EXE=$($coreExe.FullName)" >> $env:GITHUB_ENV
+
       - name: Build installer
         shell: pwsh
         env:

@@ -115,6 +115,7 @@ class EncodingGuardTests(unittest.TestCase):
             "src.app.runtime",
             "src.app.theme",
             "src.app.workers",
+            "src.integrations.nte_core",
             "src.ui.main_window_method_install",
             "src.ui.plain_text_edit",
             "src.ui.puzzle_board",

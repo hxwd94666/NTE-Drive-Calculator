@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 from src.app import runtime
+from src.app.constants import APP_VERSION
+from src.integrations.nte_core import NteCoreClient
 from src.optimizer.state_manager import StateManager
 from src.scanner.batch_processor import BatchProcessor
 from src.solver.orchestrator import NTEPipelineOrchestrator
@@ -17,6 +20,18 @@ class NTEAppFacade:
     def __init__(self, config_dir=None, user_config_dir=None):
         self.config_dir = config_dir or str(runtime.CONFIG_DIR)
         self.user_config_dir = user_config_dir or str(runtime.USER_CONFIG_DIR)
+
+    def create_nte_core_client(self, **options) -> NteCoreClient:
+        """Create an unstarted sidecar client without consuming its business DTOs."""
+
+        options.setdefault("data_dir", Path(runtime.LOG_DIR) / "nte_core")
+        options.setdefault("cwd", runtime.APP_DIR)
+        options.setdefault("client_version", APP_VERSION)
+        options.setdefault(
+            "stderr_handler",
+            lambda message: logger.debug(f"[nte-core] {message}"),
+        )
+        return NteCoreClient(**options)
 
     def execute_vision_processing(self, input_dir=None, output_file=None):
         input_dir = input_dir or str(runtime.SCREENSHOT_DIR)

@@ -40,6 +40,16 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn("gh release create $tag", workflow)
         self.assertIn("--target $env:GITHUB_SHA", workflow)
 
+    def test_release_and_pyinstaller_bundle_nte_core(self):
+        workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+        build_script = Path("build_exe.py").read_text(encoding="utf-8")
+
+        self.assertIn("Download nte-core sidecar", workflow)
+        self.assertIn("nte-core-windows-x64.zip", workflow)
+        self.assertIn("NTE_CORE_EXE=", workflow)
+        self.assertIn('resolve_nte_core_executable()', build_script)
+        self.assertIn('_append_add_binary(nte_core_executable, "nte_core")', build_script)
+
 
 if __name__ == "__main__":
     unittest.main()
