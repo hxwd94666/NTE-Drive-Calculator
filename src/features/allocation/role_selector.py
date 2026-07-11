@@ -546,7 +546,10 @@ class RoleSelector(QWidget):
 
         row = QHBoxLayout()
         row.setSpacing(6)
-        row.addWidget(QLabel(title))
+        title_label = QLabel(title)
+        title_label.setMinimumWidth(118)
+        title_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(title_label)
         combo = SearchableComboBox()
         self._fill_search_combo(combo, choices)
         row.addWidget(combo, 1)
@@ -630,15 +633,15 @@ class RoleSelector(QWidget):
         stat_layout = stat_box.layout()
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
+        help_btn.setFixedSize(24, 24)
         help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
 
         stat_option_row = QHBoxLayout()
-        stat_option_row.setSpacing(14)
+        stat_option_row.setContentsMargins(0, 4, 0, 0)
+        stat_option_row.setSpacing(16)
         stat_equal = QCheckBox("词条自选优先级一致")
-        stat_equal.setMinimumWidth(160)
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
         ignore_grade_limit = QCheckBox("不限制评分等级")
-        ignore_grade_limit.setMinimumWidth(130)
         ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
         stat_option_row.addWidget(stat_equal)
         stat_option_row.addWidget(ignore_grade_limit)
@@ -646,26 +649,28 @@ class RoleSelector(QWidget):
         stat_option_row.addStretch(1)
         stat_layout.addLayout(stat_option_row)
 
-        grade_row = QHBoxLayout()
-        grade_row.setSpacing(8)
+        limits_row = QHBoxLayout()
+        limits_row.setContentsMargins(0, 2, 0, 0)
+        limits_row.setSpacing(8)
+
         grade_label = QLabel("最低生效等级")
         grade_combo = QComboBox()
+        grade_combo.setFixedWidth(84)
         for grade in STAT_PRIORITY_GRADE_OPTIONS:
             grade_combo.addItem(grade, grade)
         current_min_grade = str(current_stat_cfg.get("min_grade_limit") or "A").upper()
         grade_index = grade_combo.findData(current_min_grade)
         grade_combo.setCurrentIndex(grade_index if grade_index >= 0 else grade_combo.findData("A"))
         grade_combo.setEnabled(not ignore_grade_limit.isChecked())
-        grade_row.addWidget(grade_label)
-        grade_row.addWidget(grade_combo, 1)
-        stat_layout.addLayout(grade_row)
+        limits_row.addWidget(grade_label)
+        limits_row.addWidget(grade_combo)
+        limits_row.addSpacing(20)
 
-        crit_row = QHBoxLayout()
-        crit_row.setSpacing(8)
-        crit_threshold_label = QLabel("暴击率阈值")
+        crit_threshold_label = QLabel("暴击率最小值")
         crit_threshold_spin = QSpinBox()
         crit_threshold_spin.setRange(0, 100)
         crit_threshold_spin.setSuffix("%")
+        crit_threshold_spin.setFixedWidth(84)
         raw_threshold = current_stat_cfg.get(
             "crit_threshold",
             current_stat_cfg.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD),
@@ -674,10 +679,10 @@ class RoleSelector(QWidget):
             crit_threshold_spin.setValue(int(raw_threshold))
         except (TypeError, ValueError):
             crit_threshold_spin.setValue(int(DEFAULT_CRIT_THRESHOLD))
-        crit_row.addWidget(crit_threshold_label)
-        crit_row.addWidget(crit_threshold_spin)
-        crit_row.addStretch(1)
-        stat_layout.addLayout(crit_row)
+        limits_row.addWidget(crit_threshold_label)
+        limits_row.addWidget(crit_threshold_spin)
+        limits_row.addStretch(1)
+        stat_layout.addLayout(limits_row)
 
         def sync_grade_combo_enabled(checked=False):
             grade_combo.setEnabled(not ignore_grade_limit.isChecked())
@@ -1005,10 +1010,10 @@ STAT_PRIORITY_HELP = (
     "关闭“优先级一致”时，按选择顺序逐层优先，例如 A > B > C 会优先使用同时含 A+B+C、再含 A+B、再含 A 的驱动。\n"
     "开启“优先级一致”时，优先使用命中副词条数量更多的驱动。\n\n"
     "未勾选“不限制评分等级”时，可通过“最低生效等级”选择 D 至 ACE 的门槛；"
-    "默认 A 级。词条自选加成与暴击率阈值加成都受该门槛约束。\n"
+    "默认 A 级。词条自选加成与暴击率最小值加成都受该门槛约束。\n"
     "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。\n\n"
-    "暴击率阈值会参考当前配装的累计暴击率：低于阈值时，仅对达到最低生效等级的驱动优先选择带暴击词条的；"
-    "达到阈值后取消该加成。暴击率上限会硬性限制配装总暴击。"
+    "暴击率最小值会参考当前配装的累计暴击率：低于该值时，仅对达到最低生效等级的驱动优先选择带暴击词条的；"
+    "达到后取消该加成。暴击率上限会硬性限制配装总暴击。"
 )
 
 
