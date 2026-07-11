@@ -8,10 +8,7 @@ from typing import Any
 
 CRIT_STAT = "暴击率%"
 CRIT_RANK_BONUS = 100_000.0
-DEFAULT_CRIT_THRESHOLD = 20.0
-DEFAULT_CRIT_RATE_CAP = 95.0
-# 兼容旧配置键名
-DEFAULT_CRIT_MIN = DEFAULT_CRIT_THRESHOLD
+DEFAULT_CRIT_THRESHOLD = 5.0
 
 
 def _item_value(item: Any, key: str, default=None):
@@ -72,8 +69,12 @@ def _drive_area(drive: Any, shape_areas: dict | None = None) -> int:
         return int(area or 0)
     shape_id = str(_item_value(drive, "shape_id", "") or "")
     if shape_areas and shape_id in shape_areas:
-        return int(shape_areas.get(shape_id, 0) or 0)
-    return 0
+        try:
+            return int(shape_areas.get(shape_id, 0) or 0)
+        except (TypeError, ValueError):
+            pass
+    numbers = re.findall(r"\d+", shape_id)
+    return int(numbers[0]) if numbers else 0
 
 
 def drive_has_crit(item: Any, alias_mapping: dict | None = None) -> bool:
@@ -81,14 +82,6 @@ def drive_has_crit(item: Any, alias_mapping: dict | None = None) -> bool:
         if _is_crit_stat(stat, alias_mapping):
             return True
     return False
-
-
-def drive_crit_value(item: Any, alias_mapping: dict | None = None) -> float:
-    total = 0.0
-    for stat, value in (_item_value(item, "sub_stats", {}) or {}).items():
-        if _is_crit_stat(stat, alias_mapping):
-            total += _stat_number_value(value)
-    return total
 
 
 def normalize_preference_config(config: dict | None) -> dict:
@@ -114,7 +107,30 @@ def normalize_preference_config(config: dict | None) -> dict:
 
 
 def preference_config_active(config: dict | None) -> bool:
-    return bool(normalize_preference_config(config))
+    """True when the role has a meaningful preference entry."""
+    if not isinstance(config, dict) or not config:
+        return False
+    normalized = normalize_preference_config(config)
+    return bool(
+        normalized.get("stats")
+        or normalized.get("equal_priority")
+        or normalized.get("ignore_grade_limit")
+        or str(normalized.get("min_grade_limit", "A")).upper() != "A"
+        or "crit_threshold" in config
+        or "crit_min_threshold" in config
+    )
+
+
+def crit_floor_enabled(config: dict | None) -> bool:
+    """Crit floor / greedy only when an explicit threshold key is present.
+
+    UI always persists ``crit_threshold`` when saving preference configs, so the
+    default (5%) still applies after a normal save. Bare ``{"stats": [...]}``
+    without a threshold key does not switch the multi-role solver to greedy.
+    """
+    if not isinstance(config, dict) or not config:
+        return False
+    return "crit_threshold" in config or "crit_min_threshold" in config
 
 
 def crit_rank_adjustment(
@@ -158,9 +174,8 @@ def loadout_crit_total(
             _add_crit_total(totals, stat, value, alias_mapping)
 
     extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
-    if isinstance(extra_buffs, dict) and len(extra_buffs) > 1:
-        first_key = next(iter(extra_buffs))
-        extra_buffs = {first_key: extra_buffs[first_key]}
+    if not isinstance(extra_buffs, dict):
+        extra_buffs = {}
     target_area = _extra_shape_area(role_data)
     matched_count = 0
     if target_area:
