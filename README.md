@@ -149,6 +149,39 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### 调用 nte-core Sidecar
+
+项目通过 `src.integrations.nte_core.NteCoreClient` 封装 `nte-core.exe` 的启动、协议握手、并发请求、异步事件、stderr 排空和正常关闭。模块只返回 CLI 的原始业务 DTO，不解释或改写背包与战斗数据。
+
+开发环境会自动查找相邻 `nte-dps-toolkit/target/release/nte-core.exe`、应用目录或 `PATH`；也可以显式设置：
+
+```powershell
+$env:NTE_CORE_EXE = "C:\path\to\nte-core.exe"
+```
+
+通过应用 Facade 创建并调用：
+
+```python
+from src.app.facade import NTEAppFacade
+
+facade = NTEAppFacade()
+with facade.create_nte_core_client() as core:
+    environment = core.detect_capture_environment()
+    core.start_capture(profile="inventory", raw_capture="disabled")
+    while True:
+        event = core.get_event(timeout=30)
+        if event["method"] == "event.inventory.snapshot":
+            inventory = event["params"]
+            break
+    core.stop_capture()
+
+# environment、event、inventory 均为原始协议 dict，由业务层自行处理。
+```
+
+可用的高层调用包括 `status()`、`detect_capture_environment()`、`start_capture()`、`stop_capture()`、`get_latest_inventory()`、`get_battle_summary()`、`reset_battle()` 和 `shutdown()`；未知或新增方法可通过 `call(method, params)` 直接调用。事件可用 `get_event()` 拉取，也可通过 `add_event_handler(method, callback)` 订阅。
+
+打包时必须提供 `nte-core.exe`。`build_exe.py` 会将它放入应用内部的 `nte_core/` 目录；发布工作流会从 `kongbaiz/nte-dps-toolkit` 的最新 Release 下载正式 CLI 包。
+
 打包桌面程序：
 
 ```powershell

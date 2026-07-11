@@ -23,6 +23,7 @@ from PyInstaller.utils.hooks import (
 )
 
 from tools import build_cli
+from src.integrations.nte_core import NteCoreNotFoundError, resolve_nte_core_executable
 
 ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
@@ -62,6 +63,16 @@ def _sync_workshop_weights_before_build() -> None:
 
 
 _sync_workshop_weights_before_build()
+
+try:
+    nte_core_executable = resolve_nte_core_executable()
+except NteCoreNotFoundError as exc:
+    build_cli.fail(str(exc))
+    build_cli.info(
+        "Build nte-core first or set NTE_CORE_EXE to the executable from "
+        "nte-core-windows-x64.zip."
+    )
+    sys.exit(1)
 
 for path in (DIST, BUILD):
     if path.exists():
@@ -111,6 +122,25 @@ def _find_package_dir(package_name: str) -> Path | None:
     if spec is None or spec.origin is None:
         return None
     return Path(spec.origin).parent
+
+
+def _find_nte_core_support_file(executable: Path, relative_path: str) -> Path | None:
+    candidates = [
+        executable.parent / relative_path,
+        ROOT.parent / relative_path,
+        ROOT.parent / "docs" / relative_path,
+    ]
+    return next((path for path in candidates if path.exists()), None)
+
+
+_append_add_binary(nte_core_executable, "nte_core")
+for protocol_name in ("CLI_PROTOCOL.md", "CLI_PROTOCOL_ZH.md", "THIRD_PARTY_LICENSES.md"):
+    support_file = _find_nte_core_support_file(nte_core_executable, protocol_name)
+    if support_file is not None:
+        _append_add_data(support_file, "nte_core")
+nte_core_licenses = _find_nte_core_support_file(nte_core_executable, "licenses")
+if nte_core_licenses is not None:
+    _append_add_data(nte_core_licenses, "nte_core/licenses")
 
 
 hidden_imports = [
