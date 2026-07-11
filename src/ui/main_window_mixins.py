@@ -80,6 +80,7 @@ class AllocationResultsMixin:
     _get_my_role_entry = allocation_results_view._get_my_role_entry
     _role_base_bonus_rows = allocation_results_view._role_base_bonus_rows
     _merge_bonus_row_lists = allocation_results_view._merge_bonus_row_lists
+    _synthesize_character_bonus_rows = allocation_results_view._synthesize_character_bonus_rows
     _bonus_rows_for_mode = allocation_results_view._bonus_rows_for_mode
     _bonus_summary_mode_label = allocation_results_view._bonus_summary_mode_label
     _make_bonus_mode_switch = allocation_results_view._make_bonus_mode_switch
