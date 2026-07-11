@@ -72,7 +72,8 @@ __all__ = [
     '_sync_role_tape_replacement', '_stat_w', '_stat_c', '_weighted_score', '_quality_coef',
     '_canonical_stat_name', '_stat_number_value', '_item_value', '_add_stat_total', '_fallback_tape_main_value',
     '_extra_shape_area', '_equipment_bonus_rows', '_get_my_role_entry', '_role_base_bonus_rows',
-    '_merge_bonus_row_lists', '_bonus_rows_for_mode', '_bonus_summary_mode_label', '_make_bonus_mode_switch',
+    '_merge_bonus_row_lists', '_synthesize_character_bonus_rows', '_bonus_rows_for_mode',
+    '_bonus_summary_mode_label', '_make_bonus_mode_switch',
     '_clear_layout_widgets', '_format_bonus_value', '_bonus_summary_widget', '_role_stat_priority_stats',
     '_sort_bonus_aligned_rows', '_role_bonus_summary_panel', '_refresh_bonus_summary_panel',
     '_aligned_bonus_comparison_rows', '_has_bonus_delta', '_bonus_row_widget', '_bonus_placeholder_row_widget',
@@ -981,11 +982,49 @@ def _merge_bonus_row_lists(self, *sources):
     merged=sorted(totals.items(),key=lambda kv: kv[1],reverse=True)
     return [(stat,value) for stat,value in merged if value]
 
+# 角色面板：白值合成最终面板值，并把小攻/小生/小防改成展示名。
+_CHARACTER_STAT_SYNTHESIS = (
+    # base_key, pct_key, flat_key, total_label, flat_label
+    ("攻击力白值", "攻击力%", "攻击力", "总攻击力", "小攻击"),
+    ("生命白值", "生命值%", "生命值", "总生命值", "小生命"),
+    ("防御力白值", "防御力%", "防御力", "总防御力", "小防御"),
+)
+
+_CHARACTER_STAT_ALIASES = {
+    "总攻击力": "攻击力白值",
+    "攻击力白值": "总攻击力",
+    "小攻击": "攻击力",
+    "攻击力": "小攻击",
+    "总生命值": "生命白值",
+    "生命白值": "总生命值",
+    "小生命": "生命值",
+    "生命值": "小生命",
+    "总防御力": "防御力白值",
+    "防御力白值": "总防御力",
+    "小防御": "防御力",
+    "防御力": "小防御",
+}
+
+def _synthesize_character_bonus_rows(self, rows):
+    totals={stat: float(value) for stat,value in (rows or [])}
+    for base_key,pct_key,flat_key,total_label,flat_label in _CHARACTER_STAT_SYNTHESIS:
+        base=float(totals.get(base_key,0.0) or 0.0)
+        pct=float(totals.get(pct_key,0.0) or 0.0)
+        flat=float(totals.get(flat_key,0.0) or 0.0)
+        if base or pct or flat:
+            totals[total_label]=round(base*(1.0+pct/100.0)+flat,4)
+        totals.pop(base_key,None)
+        if flat_key in totals:
+            totals[flat_label]=totals.pop(flat_key)
+    merged=sorted(totals.items(),key=lambda kv: kv[1],reverse=True)
+    return [(stat,value) for stat,value in merged if value]
+
 def _bonus_rows_for_mode(self, role_name, tape, drives, mode="equipment"):
     equipment_rows=self._equipment_bonus_rows(role_name,tape,drives)
     if mode!="character":
         return equipment_rows
-    return self._merge_bonus_row_lists(self._role_base_bonus_rows(role_name),equipment_rows)
+    merged=self._merge_bonus_row_lists(self._role_base_bonus_rows(role_name),equipment_rows)
+    return self._synthesize_character_bonus_rows(merged)
 
 def _bonus_summary_mode_label(self, mode):
     return "角色属性汇总" if mode=="character" else "空幕属性汇总"
@@ -1042,7 +1081,15 @@ def _stats_match(stat, stat_key):
     right=str(stat_key or "").replace("%","").strip()
     if not left or not right:
         return False
-    return left == right or left in right or right in left
+    if left == right or left in right or right in left:
+        return True
+    left_alias=_CHARACTER_STAT_ALIASES.get(str(stat or "").strip())
+    right_alias=_CHARACTER_STAT_ALIASES.get(str(stat_key or "").strip())
+    if left_alias and (left_alias.replace("%","").strip()==right or left_alias==str(stat_key or "").strip()):
+        return True
+    if right_alias and (right_alias.replace("%","").strip()==left or right_alias==str(stat or "").strip()):
+        return True
+    return False
 
 def _is_highlighted_bonus_stat(stat, priority_stats=None):
     if _is_crit_rate_stat(stat):
