@@ -6,6 +6,8 @@ from typing import List, Dict
 
 from src.domain.crit_threshold import (
     DEFAULT_CRIT_THRESHOLD,
+    _is_crit_stat,
+    crit_floor_enabled,
     crit_rank_adjustment,
     drive_has_crit,
     loadout_crit_total,
@@ -42,32 +44,30 @@ class BaseDispatchStrategy:
             raise ValueError(f"错误：指定的套装 {raw_set} 不存在于 sets.json 中！")
         return target_set
 
-    def _stat_priority_config(self, config) -> dict:
-        normalized = normalize_preference_config(config)
-        stats = normalized.get("stats", [])
-        if not stats:
-            return {}
-        return {
-            "stats": stats,
-            "equal_priority": bool(normalized.get("equal_priority", False)),
-            "ignore_grade_limit": bool(normalized.get("ignore_grade_limit", False)),
-            "min_grade_limit": normalized.get("min_grade_limit", "A"),
-        }
-
     def _preference_config(self, config) -> dict:
         return normalize_preference_config(config)
 
+    def _stat_priority_config(self, config) -> dict:
+        """Stat-priority ranking only; empty when no preferred stats."""
+        normalized = self._preference_config(config)
+        if not normalized.get("stats"):
+            return {}
+        return normalized
+
     def _group_uses_crit_thresholds(self, group: list[str], crit_priority_modes: Dict[str, dict]) -> bool:
-        return any(preference_config_active(crit_priority_modes.get(role)) for role in group)
+        return any(crit_floor_enabled(crit_priority_modes.get(role)) for role in group)
 
     def _role_crit_context(self, role: str) -> dict:
         role_data = self.roles_db.get(role, {}) or {}
         catalog = self.stat_catalog
+        shape_areas = getattr(self, "_shape_areas", None)
+        if not isinstance(shape_areas, dict):
+            shape_areas = {}
         return {
             "role_data": role_data,
             "alias_mapping": dict(getattr(catalog, "stat_alias_mapping", {}) or {}),
             "tape_main_values": dict(getattr(catalog, "tape_main_values", {}) or {}),
-            "shape_areas": {},
+            "shape_areas": shape_areas,
         }
 
     def _current_role_crit(self, role: str, tape, drives: list[Drive]) -> float:
@@ -83,7 +83,7 @@ class BaseDispatchStrategy:
 
     def _meets_grade_limit(self, role: str, item, config) -> bool:
         cfg = self._preference_config(config)
-        if not cfg:
+        if not preference_config_active(config):
             return False
         if cfg.get("ignore_grade_limit"):
             return True
@@ -92,7 +92,7 @@ class BaseDispatchStrategy:
         return meets_min_grade(score, area, cfg.get("min_grade_limit", "A"))
 
     def _crit_rank_bonus(self, role: str, item, config, current_crit: float | None) -> float:
-        if current_crit is None or not preference_config_active(config):
+        if current_crit is None or not crit_floor_enabled(config):
             return 0.0
         if not self._meets_grade_limit(role, item, config):
             return 0.0
@@ -100,7 +100,7 @@ class BaseDispatchStrategy:
         return crit_rank_adjustment(
             current_crit,
             drive_has_crit(item),
-            pref.get("crit_threshold", pref.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD)),
+            pref.get("crit_threshold", DEFAULT_CRIT_THRESHOLD),
         )
 
     def _item_has_stat(self, item, stat_key: str) -> bool:
@@ -372,8 +372,7 @@ class BaseDispatchStrategy:
             return None
 
     def _is_crit_rate_key(self, key: str) -> bool:
-        normalized = str(key or "").replace("%", "")
-        return "暴击率" in normalized or "鏆村嚮鐜" in normalized
+        return _is_crit_stat(key)
 
     def _crit_rate_from_stats(self, stats) -> float:
         if not isinstance(stats, dict):
