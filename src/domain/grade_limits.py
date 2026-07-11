@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 GRADE_LADDER: tuple[str, ...] = ("D", "C", "B", "A", "S", "SS", "SSS", "ACE")
+STAT_PRIORITY_GRADE_OPTIONS: tuple[str, ...] = GRADE_LADDER
 
 GRADE_MIN_RATIOS: dict[str, float] = {
     "D": 0.0,

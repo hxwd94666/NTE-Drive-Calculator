@@ -418,10 +418,13 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
             custom_sets,
             crit_priority_modes,
         ):
+            slots, profit_matrix, ranking_matrix = self._build_profit_matrix(
+                bp_combo, valid_group, drives_pool, custom_sets, crit_priority_modes
+            )
+            if slots is None:
+                continue
+
             if use_greedy:
-                slots = self._build_group_slots(bp_combo, valid_group, custom_sets)
-                if len(drives_pool) < len(slots):
-                    continue
                 temp_alloc = self._assign_group_slots_greedy(
                     slots,
                     drives_pool,
@@ -454,12 +457,6 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                     best_rank_score = team_rank_score
                     best_score = team_score
                     best_allocation = temp_alloc
-                continue
-
-            slots, profit_matrix, ranking_matrix = self._build_profit_matrix(
-                bp_combo, valid_group, drives_pool, custom_sets, crit_priority_modes
-            )
-            if slots is None:
                 continue
 
             row_ind, col_ind = linear_sum_assignment(-ranking_matrix)

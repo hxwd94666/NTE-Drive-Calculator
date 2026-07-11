@@ -6,12 +6,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from src.domain.grade_limits import GRADE_LADDER, meets_min_grade
-
 CRIT_STAT = "暴击率%"
 CRIT_RANK_BONUS = 100_000.0
-DEFAULT_CRIT_THRESHOLD = 5.0
-BASE_CRIT_RATE = 5.0
+DEFAULT_CRIT_THRESHOLD = 20.0
+DEFAULT_CRIT_RATE_CAP = 95.0
+# 兼容旧配置键名
+DEFAULT_CRIT_MIN = DEFAULT_CRIT_THRESHOLD
 
 
 def _item_value(item: Any, key: str, default=None):
@@ -35,7 +35,7 @@ def _canonical_stat_name(stat: str, alias_mapping: dict | None = None) -> str:
     return aliases.get(stat, stat)
 
 
-def is_crit_stat(stat: str, alias_mapping: dict | None = None) -> bool:
+def _is_crit_stat(stat: str, alias_mapping: dict | None = None) -> bool:
     canonical = _canonical_stat_name(stat, alias_mapping)
     normalized = canonical.replace("%", "")
     return normalized == "暴击率" or canonical == CRIT_STAT
@@ -72,19 +72,23 @@ def _drive_area(drive: Any, shape_areas: dict | None = None) -> int:
         return int(area or 0)
     shape_id = str(_item_value(drive, "shape_id", "") or "")
     if shape_areas and shape_id in shape_areas:
-        try:
-            return int(shape_areas.get(shape_id, 0) or 0)
-        except (TypeError, ValueError):
-            pass
-    numbers = re.findall(r"\d+", shape_id)
-    return int(numbers[0]) if numbers else 0
+        return int(shape_areas.get(shape_id, 0) or 0)
+    return 0
 
 
 def drive_has_crit(item: Any, alias_mapping: dict | None = None) -> bool:
     for stat in (_item_value(item, "sub_stats", {}) or {}).keys():
-        if is_crit_stat(stat, alias_mapping):
+        if _is_crit_stat(stat, alias_mapping):
             return True
     return False
+
+
+def drive_crit_value(item: Any, alias_mapping: dict | None = None) -> float:
+    total = 0.0
+    for stat, value in (_item_value(item, "sub_stats", {}) or {}).items():
+        if _is_crit_stat(stat, alias_mapping):
+            total += _stat_number_value(value)
+    return total
 
 
 def normalize_preference_config(config: dict | None) -> dict:
@@ -92,7 +96,7 @@ def normalize_preference_config(config: dict | None) -> dict:
         return {}
     stats = [str(s) for s in config.get("stats", []) if s]
     min_grade = str(config.get("min_grade_limit") or "A").upper()
-    if min_grade not in GRADE_LADDER:
+    if min_grade not in {"D", "C", "B", "A", "S", "SS", "SSS", "ACE"}:
         min_grade = "A"
     raw_threshold = config.get("crit_threshold", config.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD))
     try:
@@ -110,171 +114,7 @@ def normalize_preference_config(config: dict | None) -> dict:
 
 
 def preference_config_active(config: dict | None) -> bool:
-    if not isinstance(config, dict) or not config:
-        return False
-    normalized = normalize_preference_config(config)
-    return bool(
-        normalized.get("stats")
-        or normalized.get("equal_priority")
-        or normalized.get("ignore_grade_limit")
-        or str(normalized.get("min_grade_limit", "A")).upper() != "A"
-        or "crit_threshold" in config
-        or "crit_min_threshold" in config
-    )
-
-
-def crit_floor_enabled(config: dict | None) -> bool:
-    # 仅显式写入 crit_threshold / crit_min_threshold 时启用暴击下限与 greedy
-    if not isinstance(config, dict) or not config:
-        return False
-    return "crit_threshold" in config or "crit_min_threshold" in config
-
-
-def meets_preference_grade_limit(
-    score: float,
-    area: int,
-    config: dict | None,
-    *,
-    require_active: bool = False,
-) -> bool:
-    if require_active and not preference_config_active(config):
-        return False
-    if not isinstance(config, dict):
-        return meets_min_grade(score, area, "A")
-    normalized = normalize_preference_config(config)
-    if normalized.get("ignore_grade_limit"):
-        return True
-    return meets_min_grade(score, area, normalized.get("min_grade_limit", "A"))
-
-
-def _dedupe_stats(stats) -> list[str]:
-    clean: list[str] = []
-    seen: set[str] = set()
-    for stat in stats or []:
-        name = str(stat or "").strip()
-        if name and name not in seen:
-            seen.add(name)
-            clean.append(name)
-    return clean
-
-
-def _stat_priority_should_persist(normalized: dict, *, crit_floor_configured: bool = False) -> bool:
-    has_custom_grade = (
-        not normalized.get("ignore_grade_limit")
-        and str(normalized.get("min_grade_limit", "A")).upper() != "A"
-    )
-    return bool(
-        normalized.get("stats")
-        or has_custom_grade
-        or crit_floor_configured
-        or normalized.get("equal_priority")
-        or normalized.get("ignore_grade_limit")
-    )
-
-
-def persistable_stat_priority_config(
-    cfg: dict,
-    *,
-    allowed_stats: set[str] | frozenset[str] | None = None,
-    dedupe_stats: bool = False,
-) -> dict | None:
-    if not isinstance(cfg, dict):
-        return None
-    if dedupe_stats:
-        stats = _dedupe_stats(cfg.get("stats", []))
-    else:
-        stats = [stat for stat in cfg.get("stats", []) if stat]
-    if allowed_stats is not None:
-        stats = [stat for stat in stats if stat in allowed_stats]
-    payload = {
-        "stats": stats,
-        "equal_priority": bool(cfg.get("equal_priority", False)),
-        "ignore_grade_limit": bool(cfg.get("ignore_grade_limit", False)),
-        "min_grade_limit": cfg.get("min_grade_limit", "A"),
-    }
-    crit_floor_configured = "crit_threshold" in cfg or "crit_min_threshold" in cfg
-    if "crit_threshold" in cfg:
-        payload["crit_threshold"] = cfg["crit_threshold"]
-    elif "crit_min_threshold" in cfg:
-        payload["crit_min_threshold"] = cfg["crit_min_threshold"]
-    normalized = normalize_preference_config(payload)
-    if not _stat_priority_should_persist(normalized, crit_floor_configured=crit_floor_configured):
-        return None
-    result = {
-        "stats": normalized["stats"],
-        "equal_priority": normalized["equal_priority"],
-        "ignore_grade_limit": normalized["ignore_grade_limit"],
-        "min_grade_limit": normalized["min_grade_limit"],
-    }
-    if crit_floor_configured:
-        result["crit_threshold"] = int(normalized["crit_threshold"])
-    return result
-
-
-def character_crit_baseline(character_data: dict | None, *, alias_mapping: dict | None = None) -> float:
-    if not isinstance(character_data, dict):
-        return 0.0
-    total = 0.0
-    for stat, value in (character_data.get("sub_stats") or {}).items():
-        if is_crit_stat(stat, alias_mapping):
-            total += _stat_number_value(value)
-    weapon = character_data.get("weapon")
-    if isinstance(weapon, dict):
-        for stat, value in (weapon.get("sub_stats") or {}).items():
-            if is_crit_stat(stat, alias_mapping):
-                total += _stat_number_value(value)
-    return total
-
-
-def character_crit_total(
-    character_data: dict | None,
-    role_data: dict,
-    tape: Any | None,
-    drives: list[Any] | None,
-    *,
-    alias_mapping: dict | None = None,
-    tape_main_values: dict | None = None,
-    shape_areas: dict | None = None,
-) -> float:
-    baseline = character_crit_baseline(character_data, alias_mapping=alias_mapping)
-    loadout = loadout_crit_total(
-        role_data,
-        tape,
-        drives,
-        alias_mapping=alias_mapping,
-        tape_main_values=tape_main_values,
-        shape_areas=shape_areas,
-    )
-    return round(baseline + loadout, 4)
-
-
-def minimum_crit_total(
-    role_data: dict,
-    tape: Any | None,
-    drives: list[Any] | None,
-    *,
-    alias_mapping: dict | None = None,
-    tape_main_values: dict | None = None,
-    shape_areas: dict | None = None,
-) -> float:
-    """Crit total used by the minimum-crit preference.
-
-    The game grants every role a fixed 5% base crit rate.  This preference
-    deliberately excludes character growth and weapon/arc stats, then adds
-    only the equipped tape, drives, and extra-shape buff.
-    """
-    return round(
-        BASE_CRIT_RATE
-        + loadout_crit_total(
-            role_data,
-            tape,
-            drives,
-            alias_mapping=alias_mapping,
-            tape_main_values=tape_main_values,
-            shape_areas=shape_areas,
-        ),
-        4,
-    )
+    return bool(normalize_preference_config(config))
 
 
 def crit_rank_adjustment(
@@ -318,8 +158,9 @@ def loadout_crit_total(
             _add_crit_total(totals, stat, value, alias_mapping)
 
     extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
-    if not isinstance(extra_buffs, dict):
-        extra_buffs = {}
+    if isinstance(extra_buffs, dict) and len(extra_buffs) > 1:
+        first_key = next(iter(extra_buffs))
+        extra_buffs = {first_key: extra_buffs[first_key]}
     target_area = _extra_shape_area(role_data)
     matched_count = 0
     if target_area:
@@ -327,12 +168,12 @@ def loadout_crit_total(
             if _drive_area(drive, shape_areas) == target_area:
                 matched_count += 1
     for stat, value in extra_buffs.items():
-        if is_crit_stat(stat, alias_mapping):
+        if _is_crit_stat(stat, alias_mapping):
             _add_crit_total(totals, stat, _stat_number_value(value) * matched_count, alias_mapping)
 
     crit_key = CRIT_STAT
     for stat, value in totals.items():
-        if is_crit_stat(stat, alias_mapping):
+        if _is_crit_stat(stat, alias_mapping):
             crit_key = stat
             break
     return totals.get(crit_key, totals.get(CRIT_STAT, 0.0))

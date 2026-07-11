@@ -6,13 +6,11 @@ from typing import List, Dict
 
 from src.domain.crit_threshold import (
     DEFAULT_CRIT_THRESHOLD,
-    minimum_crit_total,
-    crit_floor_enabled,
     crit_rank_adjustment,
     drive_has_crit,
-    is_crit_stat,
-    meets_preference_grade_limit,
+    loadout_crit_total,
     normalize_preference_config,
+    preference_config_active,
 )
 from src.domain.grade_limits import meets_min_grade
 from src.domain.stat_catalog import StatCatalog
@@ -32,6 +30,7 @@ class BaseDispatchStrategy:
         self._max_single_weight_cache = {}
         self._extra_shape_factor_cache = {}
         self._extra_shape_hidden_bonus_cache = {}
+
     def _resolve_set_name(self, set_name: str) -> str:
         resolved = resolve_name(set_name, self.sets_db.keys(), cutoff=0.78)
         return resolved or set_name
@@ -45,29 +44,35 @@ class BaseDispatchStrategy:
 
     def _stat_priority_config(self, config) -> dict:
         normalized = normalize_preference_config(config)
-        if not normalized.get("stats"):
+        stats = normalized.get("stats", [])
+        if not stats:
             return {}
-        return normalized
+        return {
+            "stats": stats,
+            "equal_priority": bool(normalized.get("equal_priority", False)),
+            "ignore_grade_limit": bool(normalized.get("ignore_grade_limit", False)),
+            "min_grade_limit": normalized.get("min_grade_limit", "A"),
+        }
+
+    def _preference_config(self, config) -> dict:
+        return normalize_preference_config(config)
 
     def _group_uses_crit_thresholds(self, group: list[str], crit_priority_modes: Dict[str, dict]) -> bool:
-        return any(crit_floor_enabled(crit_priority_modes.get(role)) for role in group)
+        return any(preference_config_active(crit_priority_modes.get(role)) for role in group)
 
     def _role_crit_context(self, role: str) -> dict:
         role_data = self.roles_db.get(role, {}) or {}
         catalog = self.stat_catalog
-        shape_areas = getattr(self, "_shape_areas", None)
-        if not isinstance(shape_areas, dict):
-            shape_areas = {}
         return {
             "role_data": role_data,
             "alias_mapping": dict(getattr(catalog, "stat_alias_mapping", {}) or {}),
             "tape_main_values": dict(getattr(catalog, "tape_main_values", {}) or {}),
-            "shape_areas": shape_areas,
+            "shape_areas": {},
         }
 
     def _current_role_crit(self, role: str, tape, drives: list[Drive]) -> float:
         ctx = self._role_crit_context(role)
-        return minimum_crit_total(
+        return loadout_crit_total(
             ctx["role_data"],
             tape,
             drives,
@@ -77,20 +82,25 @@ class BaseDispatchStrategy:
         )
 
     def _meets_grade_limit(self, role: str, item, config) -> bool:
+        cfg = self._preference_config(config)
+        if not cfg:
+            return False
+        if cfg.get("ignore_grade_limit"):
+            return True
         score = getattr(item, "role_scores", {}).get(role, 0.0)
         area = getattr(item, "area", 1) or 1
-        return meets_preference_grade_limit(score, area, config, require_active=True)
+        return meets_min_grade(score, area, cfg.get("min_grade_limit", "A"))
 
     def _crit_rank_bonus(self, role: str, item, config, current_crit: float | None) -> float:
-        if current_crit is None or not crit_floor_enabled(config):
+        if current_crit is None or not preference_config_active(config):
             return 0.0
         if not self._meets_grade_limit(role, item, config):
             return 0.0
-        pref = normalize_preference_config(config)
+        pref = self._preference_config(config)
         return crit_rank_adjustment(
             current_crit,
             drive_has_crit(item),
-            pref.get("crit_threshold", DEFAULT_CRIT_THRESHOLD),
+            pref.get("crit_threshold", pref.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD)),
         )
 
     def _item_has_stat(self, item, stat_key: str) -> bool:
@@ -362,7 +372,8 @@ class BaseDispatchStrategy:
             return None
 
     def _is_crit_rate_key(self, key: str) -> bool:
-        return is_crit_stat(key)
+        normalized = str(key or "").replace("%", "")
+        return "暴击率" in normalized or "鏆村嚮鐜" in normalized
 
     def _crit_rate_from_stats(self, stats) -> float:
         if not isinstance(stats, dict):
