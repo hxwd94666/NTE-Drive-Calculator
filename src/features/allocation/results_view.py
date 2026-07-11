@@ -519,8 +519,25 @@ def _build_plan_diff_dialog(self, role_name, diff):
             "L_3_TL": "L_3", "L_3_TR": "L_3", "L_3_BL": "L_3", "L_3_BR": "L_3",
             "Trap_4_H": "Trap_4", "Trap_4_V": "Trap_4",
         }
+        shape_areas=getattr(self,"_shape_areas",{}) or {}
         def _shape_family(sid: str) -> str:
             return _SHAPE_FAMILY.get(sid, sid)
+
+        def _item_area(item) -> int:
+            area=item.get(EQUIP_AREA) or item.get(EQUIP_SCORE_AREA)
+            if area:
+                try:
+                    return int(area)
+                except (TypeError,ValueError):
+                    pass
+            sid=str(item.get(EQUIP_SHAPE_ID,"") or "")
+            if sid in shape_areas:
+                try:
+                    return int(shape_areas[sid])
+                except (TypeError,ValueError):
+                    pass
+            m=re.search(r"_(\d+)",sid)
+            return int(m.group(1)) if m else 0
 
         def _match_pairs(old_list, new_list):
             old_by_shape: dict[str, list] = {}
@@ -565,6 +582,26 @@ def _build_plan_diff_dialog(self, role_name, diff):
             for fam in sorted(all_families):
                 old_items = old_by_family.get(fam, [])
                 new_items = new_by_family.get(fam, [])
+                n = min(len(old_items), len(new_items))
+                for i in range(n):
+                    pairs.append((old_items[i], new_items[i]))
+                unmatched_old.extend(old_items[n:])
+                unmatched_new.extend(new_items[n:])
+
+            # 第三轮：按格数配对（如 L_3_TR ↔ V_3）
+            old_by_area: dict[int, list] = {}
+            for item in unmatched_old:
+                old_by_area.setdefault(_item_area(item), []).append(item)
+            new_by_area: dict[int, list] = {}
+            for item in unmatched_new:
+                new_by_area.setdefault(_item_area(item), []).append(item)
+
+            unmatched_old = []
+            unmatched_new = []
+            all_areas = set(old_by_area) | set(new_by_area)
+            for area in sorted(all_areas):
+                old_items = old_by_area.get(area, [])
+                new_items = new_by_area.get(area, [])
                 n = min(len(old_items), len(new_items))
                 for i in range(n):
                     pairs.append((old_items[i], new_items[i]))

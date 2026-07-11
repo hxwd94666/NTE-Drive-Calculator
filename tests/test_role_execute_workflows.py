@@ -1131,6 +1131,39 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertIn("配装变动", dialog.windowTitle())
         app.processEvents()
 
+    def test_result_diff_dialog_pairs_drives_by_area_when_families_differ(self):
+        from PySide6.QtWidgets import QApplication, QLabel, QWidget
+
+        from src.features.allocation import results_view
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.roles_db = {"A": {"weights": {}}}
+                self._shape_areas = {"L_3_TR": 3, "V_3": 3}
+                self.card_labels = []
+
+            def _equip_card(self, label, *_args, **_kwargs):
+                self.card_labels.append(label)
+                return QWidget()
+
+        window = Window()
+        dialog = results_view._build_plan_diff_dialog(
+            window,
+            "A",
+            {
+                "removed": [{"uid": "old", "type": "drive", "shape_id": "L_3_TR", "sub_stats": {}, "quality": "Gold", "area": 3}],
+                "added": [{"uid": "new", "type": "drive", "shape_id": "V_3", "sub_stats": {}, "quality": "Gold", "area": 3}],
+            },
+        )
+
+        self.assertEqual(["L_3_TR", "V_3"], window.card_labels)
+        titles = [label.text() for label in dialog.findChildren(QLabel) if "变动" in label.text()]
+        self.assertTrue(any("L_3_TR → V_3" in title for title in titles), titles)
+        self.assertFalse(any("卸下 L_3_TR" == title.split("：")[-1] for title in titles))
+        app.processEvents()
+
     def test_result_diff_card_hydrates_compact_item_from_saved_equipment(self):
         from src.features.allocation import results_view
 
