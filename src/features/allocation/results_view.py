@@ -295,13 +295,71 @@ def _merge_diff_item(base, source):
 def _diff_saved_sources(self, role_name):
     role_data=(getattr(self,"equipped_state",{}) or {}).get(role_name,{})
     if not isinstance(role_data,dict):
-        return []
+        role_data={}
     items=[]
     tape=role_data.get(ROLE_EQUIPPED_TAPE)
     if isinstance(tape,dict):
         items.append(tape)
     items.extend([item for item in role_data.get(ROLE_EQUIPPED_DRIVES,[]) or [] if isinstance(item,dict)])
+    if items:
+        return items
+    state_mgr=getattr(self,"state_mgr",None)
+    if state_mgr is not None and hasattr(state_mgr,"load_state"):
+        try:
+            loaded=state_mgr.load_state() or {}
+        except Exception:
+            loaded={}
+        role_data=loaded.get(role_name,{}) if isinstance(loaded,dict) else {}
+        if isinstance(role_data,dict):
+            tape=role_data.get(ROLE_EQUIPPED_TAPE)
+            if isinstance(tape,dict):
+                items.append(tape)
+            items.extend([item for item in role_data.get(ROLE_EQUIPPED_DRIVES,[]) or [] if isinstance(item,dict)])
     return items
+
+def _loadout_uids(tape, drives):
+    uids=set()
+    uid=str(_diff_value(tape,EQUIP_UID,"") or "") if tape else ""
+    if uid:
+        uids.add(uid)
+    for drive in drives or []:
+        drive_uid=str(_diff_value(drive,EQUIP_UID,"") or "")
+        if drive_uid:
+            uids.add(drive_uid)
+    return uids
+
+def _previous_loadout_from_diff(self, role_name, tape, drives, role_diff):
+    role_diff=role_diff or {}
+    removed=[dict(item) for item in (role_diff.get(DIFF_REMOVED,[]) or []) if isinstance(item,dict)]
+    added_uids={str(uid) for uid in (role_diff.get(DIFF_ADDED_UIDS,set()) or set()) if uid}
+    for item in role_diff.get(DIFF_ADDED,[]) or []:
+        if isinstance(item,dict):
+            uid=str(item.get(EQUIP_UID,"") or "")
+            if uid:
+                added_uids.add(uid)
+    kept=[]
+    if tape:
+        uid=str(_diff_value(tape,EQUIP_UID,"") or "")
+        if uid and uid not in added_uids:
+            kept.append(tape if isinstance(tape,dict) else _diff_snapshot_from_source(self,role_name,tape))
+    for drive in drives or []:
+        uid=str(_diff_value(drive,EQUIP_UID,"") or "")
+        if uid and uid not in added_uids:
+            kept.append(drive if isinstance(drive,dict) else _diff_snapshot_from_source(self,role_name,drive))
+    old_items=kept+[_hydrate_diff_item(self,role_name,item) for item in removed]
+    return _split_loadout_sources(old_items)
+
+def _resolve_comparison_role_diff(self, role_name):
+    plan_diffs=getattr(self,"allocation_plan_diff",{}) or {}
+    role_diff=plan_diffs.get(role_name,{}) or {}
+    if role_diff.get(DIFF_CHANGED):
+        return role_diff
+    role_data=(getattr(self,"equipped_state",{}) or {}).get(role_name,{})
+    if isinstance(role_data,dict):
+        last_diff=role_data.get(ROLE_LAST_DIFF,{}) or {}
+        if last_diff.get(DIFF_CHANGED):
+            return last_diff
+    return role_diff
 
 def _diff_plan_sources(self, role_name):
     plan=(getattr(self,"final_plan",{}) or {}).get(role_name,{})
@@ -1185,8 +1243,13 @@ def _refresh_bonus_summary_panel(self, box, role_name, tape, drives, compare_wit
     content_layout=box._bonus_summary_content_layout
     self._clear_layout_widgets(content_layout)
     if compare_with_saved:
+        role_diff=_resolve_comparison_role_diff(self,role_name)
         saved_sources=_diff_saved_sources(self,role_name)
         old_tape,old_drives=_split_loadout_sources(saved_sources)
+        new_uids=_loadout_uids(tape,drives)
+        old_uids=_loadout_uids(old_tape,old_drives)
+        if role_diff.get(DIFF_CHANGED) and ((not old_tape and not old_drives) or old_uids==new_uids):
+            old_tape,old_drives=_previous_loadout_from_diff(self,role_name,tape,drives,role_diff)
         if old_tape or old_drives:
             old_rows=self._bonus_rows_for_mode(role_name,old_tape,old_drives,mode)
             new_rows=self._bonus_rows_for_mode(role_name,tape,drives,mode)
