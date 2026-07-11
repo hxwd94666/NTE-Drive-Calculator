@@ -755,9 +755,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
-                return QWidget()
-
             def _equip_card(self, *args, **kwargs):
                 self.new_flags.append(kwargs.get("is_new", False))
                 return QWidget()
@@ -847,9 +844,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
-                return QWidget()
-
             def _equip_card(self, *args, **kwargs):
                 self.changed_flags.append(kwargs.get("is_changed", False))
                 self.new_flags.append(kwargs.get("is_new", False))
@@ -904,9 +898,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return []
 
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
-                return QWidget()
-
-            def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
         window = Window()
@@ -1274,9 +1265,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
-                return QWidget()
-
             def _equip_card(self, *_args, **_kwargs):
                 return QWidget()
 
@@ -1334,9 +1322,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return []
 
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
-                return QWidget()
-
-            def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *_args, **_kwargs):
@@ -1405,9 +1390,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return []
 
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
-                return QWidget()
-
-            def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, _label, _main_stat, _sub_stats, _shape_id, uid, *_args, **_kwargs):
@@ -1481,9 +1463,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return []
 
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
-                return QWidget()
-
-            def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **kwargs):
@@ -1938,9 +1917,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
-                return QWidget()
-
             def _equip_card(self, *args, **kwargs):
                 self.card_flags.append((kwargs.get("is_new", False), kwargs.get("is_changed", False)))
                 return QWidget()
@@ -2039,9 +2015,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return []
 
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
-                return QWidget()
-
-            def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **kwargs):
@@ -2330,9 +2303,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return []
 
             def _role_bonus_summary_panel(self, *_args, **_kwargs):
-                return QWidget()
-
-            def _bonus_summary_widget(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **_kwargs):

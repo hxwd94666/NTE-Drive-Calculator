@@ -213,7 +213,7 @@ def _render_equip_role(self, role_name, rd):
                 tape_data,
                 drives,
                 compare_with_saved=bool(last_diff.get(DIFF_CHANGED)),
-                priority_stats=self._role_stat_priority_stats(role_name) if hasattr(self,"_role_stat_priority_stats") else [],
+                priority_stats=self._role_stat_priority_stats(role_name),
             ),
             1,
             Qt.AlignTop,
