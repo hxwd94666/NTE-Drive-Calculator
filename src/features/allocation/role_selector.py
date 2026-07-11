@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
     QLineEdit,
@@ -29,6 +30,8 @@ from PySide6.QtWidgets import (
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
 from src.app.theme import current_theme_name, themed_style
+from src.domain.crit_threshold import DEFAULT_CRIT_THRESHOLD
+from src.domain.grade_limits import STAT_PRIORITY_GRADE_OPTIONS
 from src.features.allocation.priority_groups import (
     cycle_priority_link,
     links_to_priority_groups,
@@ -453,16 +456,37 @@ class RoleSelector(QWidget):
             self.tape_main_filters.pop(name, None)
         self.orderChanged.emit()
 
-    def _set_stat_priority_config(self, name, stats, equal_priority=False, ignore_grade_limit=False):
+    def _set_stat_priority_config(
+        self,
+        name,
+        stats,
+        equal_priority=False,
+        ignore_grade_limit=False,
+        min_grade_limit="A",
+        crit_threshold=DEFAULT_CRIT_THRESHOLD,
+    ):
         clean = []
         for stat in stats or []:
             if stat and stat in self.drive_sub_stats and stat not in clean:
                 clean.append(stat)
-        if clean:
+        try:
+            crit_value = int(crit_threshold)
+        except (TypeError, ValueError):
+            crit_value = int(DEFAULT_CRIT_THRESHOLD)
+        crit_value = max(0, min(100, crit_value))
+        min_grade = str(min_grade_limit or "A").upper()
+        if min_grade not in STAT_PRIORITY_GRADE_OPTIONS:
+            min_grade = "A"
+        has_custom_grade = not ignore_grade_limit and min_grade != "A"
+        has_custom_crit = crit_value != int(DEFAULT_CRIT_THRESHOLD)
+        has_options = bool(equal_priority or ignore_grade_limit)
+        if clean or has_custom_grade or has_custom_crit or has_options:
             self.stat_priority_configs[name] = {
                 "stats": clean,
                 "equal_priority": bool(equal_priority),
                 "ignore_grade_limit": bool(ignore_grade_limit),
+                "min_grade_limit": min_grade,
+                "crit_threshold": crit_value,
             }
         else:
             self.stat_priority_configs.pop(name, None)
@@ -621,6 +645,44 @@ class RoleSelector(QWidget):
         stat_option_row.addWidget(help_btn)
         stat_option_row.addStretch(1)
         stat_layout.addLayout(stat_option_row)
+
+        grade_row = QHBoxLayout()
+        grade_row.setSpacing(8)
+        grade_label = QLabel("最低生效等级")
+        grade_combo = QComboBox()
+        for grade in STAT_PRIORITY_GRADE_OPTIONS:
+            grade_combo.addItem(grade, grade)
+        current_min_grade = str(current_stat_cfg.get("min_grade_limit") or "A").upper()
+        grade_index = grade_combo.findData(current_min_grade)
+        grade_combo.setCurrentIndex(grade_index if grade_index >= 0 else grade_combo.findData("A"))
+        grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+        grade_row.addWidget(grade_label)
+        grade_row.addWidget(grade_combo, 1)
+        stat_layout.addLayout(grade_row)
+
+        crit_row = QHBoxLayout()
+        crit_row.setSpacing(8)
+        crit_threshold_label = QLabel("暴击率阈值")
+        crit_threshold_spin = QSpinBox()
+        crit_threshold_spin.setRange(0, 100)
+        crit_threshold_spin.setSuffix("%")
+        raw_threshold = current_stat_cfg.get(
+            "crit_threshold",
+            current_stat_cfg.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD),
+        )
+        try:
+            crit_threshold_spin.setValue(int(raw_threshold))
+        except (TypeError, ValueError):
+            crit_threshold_spin.setValue(int(DEFAULT_CRIT_THRESHOLD))
+        crit_row.addWidget(crit_threshold_label)
+        crit_row.addWidget(crit_threshold_spin)
+        crit_row.addStretch(1)
+        stat_layout.addLayout(crit_row)
+
+        def sync_grade_combo_enabled(checked=False):
+            grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+
+        ignore_grade_limit.toggled.connect(sync_grade_combo_enabled)
         template_layout.addWidget(stat_box)
         layout.addWidget(template_box)
 
@@ -684,6 +746,8 @@ class RoleSelector(QWidget):
                 selected_stats,
                 stat_equal.isChecked(),
                 ignore_grade_limit.isChecked(),
+                grade_combo.currentData(),
+                crit_threshold_spin.value(),
             )
             cap_text = crit_cap_edit.text().strip()
             if cap_text or not selected_weapon:
@@ -872,11 +936,28 @@ class RoleSelector(QWidget):
                 if role not in self.all_roles or not isinstance(cfg_item, dict):
                     continue
                 stats = [s for s in cfg_item.get("stats", []) if s in self.drive_sub_stats]
-                if stats:
+                min_grade = str(cfg_item.get("min_grade_limit") or "A").upper()
+                if min_grade not in STAT_PRIORITY_GRADE_OPTIONS:
+                    min_grade = "A"
+                try:
+                    raw_threshold = cfg_item.get(
+                        "crit_threshold",
+                        cfg_item.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD),
+                    )
+                    crit_value = int(raw_threshold)
+                except (TypeError, ValueError):
+                    crit_value = int(DEFAULT_CRIT_THRESHOLD)
+                ignore_grade = bool(cfg_item.get("ignore_grade_limit", False))
+                equal_priority = bool(cfg_item.get("equal_priority", False))
+                has_custom_grade = not ignore_grade and min_grade != "A"
+                has_custom_crit = crit_value != int(DEFAULT_CRIT_THRESHOLD)
+                if stats or has_custom_grade or has_custom_crit or ignore_grade or equal_priority:
                     self.stat_priority_configs[role] = {
                         "stats": stats,
-                        "equal_priority": bool(cfg_item.get("equal_priority", False)),
-                        "ignore_grade_limit": bool(cfg_item.get("ignore_grade_limit", False)),
+                        "equal_priority": equal_priority,
+                        "ignore_grade_limit": ignore_grade,
+                        "min_grade_limit": min_grade,
+                        "crit_threshold": max(0, min(100, crit_value)),
                     }
             self.set_effect_modes = {}
             for role, mode in data.get("set_effect_modes", {}).items():
@@ -923,8 +1004,11 @@ STAT_PRIORITY_HELP = (
     "卡带/驱动副词条：让该角色优先使用带有所选副词条的驱动。\n"
     "关闭“优先级一致”时，按选择顺序逐层优先，例如 A > B > C 会优先使用同时含 A+B+C、再含 A+B、再含 A 的驱动。\n"
     "开启“优先级一致”时，优先使用命中副词条数量更多的驱动。\n\n"
-    "默认只对评分达到 A 级的驱动生效。\n"
-    "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。"
+    "未勾选“不限制评分等级”时，可通过“最低生效等级”选择 D 至 ACE 的门槛；"
+    "默认 A 级。词条自选加成与暴击率阈值加成都受该门槛约束。\n"
+    "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。\n\n"
+    "暴击率阈值会参考当前配装的累计暴击率：低于阈值时，仅对达到最低生效等级的驱动优先选择带暴击词条的；"
+    "达到阈值后取消该加成。暴击率上限会硬性限制配装总暴击。"
 )
 
 
