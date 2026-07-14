@@ -115,6 +115,35 @@ class NteCoreRpcError(NteCoreError):
         super().__init__(f"nte-core RPC error {self.code}{suffix}: {self.message}")
 
 
+def group_inventory_items_by_character(
+    snapshot: Mapping[str, Any],
+) -> dict[int, list[JsonObject]]:
+    """按角色表稳定 ID 分组已解析出装备者的背包条目。
+
+    equipped_character_uid 是账号内实例 UID，不能跨账号或连接关联；这里仅使用
+    nte-core 新版提供的 equipped_character_id。旧版 core 缺少该字段时，对应条目
+    保持未归属，不做猜测。
+    """
+
+    items = snapshot.get("items")
+    if not isinstance(items, list):
+        raise NteCoreProtocolError("inventory snapshot items must be an array")
+
+    grouped: dict[int, list[JsonObject]] = {}
+    for item in items:
+        if not isinstance(item, Mapping):
+            raise NteCoreProtocolError("inventory snapshot item must be an object")
+        character_id = item.get("equipped_character_id")
+        if character_id is None:
+            continue
+        if isinstance(character_id, bool) or not isinstance(character_id, int) or character_id <= 0:
+            raise NteCoreProtocolError(
+                "inventory equipped_character_id must be a positive integer or null"
+            )
+        grouped.setdefault(character_id, []).append(dict(item))
+    return grouped
+
+
 def _deduplicated_paths(paths: Sequence[Path]) -> list[Path]:
     unique: list[Path] = []
     seen: set[str] = set()
@@ -542,6 +571,11 @@ class NteCoreClient:
 
     def get_latest_inventory(self) -> JsonObject:
         return self.call("inventory.get_latest")
+
+    def get_latest_inventory_by_character(self) -> dict[int, list[JsonObject]]:
+        """取得最新背包，并按 characters.json 的稳定角色 ID 分组已装备条目。"""
+
+        return group_inventory_items_by_character(self.get_latest_inventory())
 
     def get_battle_summary(self, *, subtract_time_stop: bool = True) -> JsonObject | None:
         return self.call(

@@ -10,6 +10,7 @@ from src.integrations.nte_core import (
     NteCoreProtocolError,
     NteCoreRpcError,
     NteCoreTimeoutError,
+    group_inventory_items_by_character,
 )
 
 
@@ -47,6 +48,33 @@ for line in sys.stdin:
         break
     elif method == "core.status":
         send({"jsonrpc": "2.0", "id": request_id, "result": {"core_state": "idle"}})
+    elif method == "inventory.get_latest":
+        send({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "generation": 1,
+                "items": [
+                    {
+                        "uid": {"slot": 1, "serial": 2},
+                        "equipped": True,
+                        "equipped_character_uid": {"slot": 3, "serial": 4},
+                        "equipped_character_id": 1020,
+                    },
+                    {
+                        "uid": {"slot": 5, "serial": 6},
+                        "equipped": True,
+                        "equipped_character_uid": {"slot": 7, "serial": 8},
+                        "equipped_character_id": None,
+                    },
+                    {
+                        "uid": {"slot": 9, "serial": 10},
+                        "equipped": False,
+                        "equipped_character_uid": None,
+                    },
+                ],
+            },
+        })
     elif method == "test.defer":
         deferred = request_id
         send({"jsonrpc": "2.0", "method": "event.test.deferred", "params": {}})
@@ -157,6 +185,35 @@ class NteCoreClientTests(unittest.TestCase):
             with self.assertRaises(NteCoreTimeoutError):
                 client.call("test.timeout", timeout=0.05)
             self.assertEqual(client.status(), {"core_state": "idle"})
+
+    def test_inventory_groups_only_resolved_stable_character_ids(self):
+        with fake_client() as client:
+            snapshot = client.get_latest_inventory()
+            grouped = group_inventory_items_by_character(snapshot)
+            grouped_from_client = client.get_latest_inventory_by_character()
+
+        self.assertEqual(snapshot["items"][0]["equipped_character_id"], 1020)
+        self.assertEqual(list(grouped), [1020])
+        self.assertEqual(grouped[1020][0]["uid"], {"slot": 1, "serial": 2})
+        self.assertEqual(grouped_from_client, grouped)
+
+    def test_inventory_grouping_keeps_old_core_items_unresolved(self):
+        snapshot = {
+            "items": [
+                {
+                    "equipped": True,
+                    "equipped_character_uid": {"slot": 3, "serial": 4},
+                }
+            ]
+        }
+
+        self.assertEqual(group_inventory_items_by_character(snapshot), {})
+
+    def test_inventory_grouping_rejects_invalid_stable_character_id(self):
+        with self.assertRaises(NteCoreProtocolError):
+            group_inventory_items_by_character(
+                {"items": [{"equipped_character_id": "1020"}]}
+            )
 
     def test_polling_coalesces_battle_summaries_and_preserves_reliable_order(self):
         with fake_client() as client:
