@@ -15,14 +15,23 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
 
         controls = map_role_navigation_controls()
 
-        self.assertEqual((176, 581), controls["left_kongmu_tab"])
+        self.assertEqual((88, 581), controls["left_kongmu_tab"])
         self.assertEqual((2160, 1322), controls["assemble_button"])
+        self.assertEqual((2490, 70), controls["assembly_back_button"])
         self.assertEqual(
             [
-                {"name": "left_kongmu_tab", "position": (176, 581)},
+                {"name": "left_kongmu_tab", "position": (88, 581)},
+                {"name": "wait_after_left_kongmu_tab", "wait_seconds": 1.0},
                 {"name": "assemble_button", "position": (2160, 1322)},
+                {"name": "wait_after_assemble_button", "wait_seconds": 1.2},
             ],
             controls["entry_sequence"],
+        )
+        self.assertEqual(
+            [
+                {"name": "assembly_back_button", "position": (2490, 70)},
+            ],
+            controls["exit_sequence"],
         )
 
     def test_maps_five_visible_role_slots_and_scroll(self):
@@ -60,7 +69,7 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         controls = map_role_navigation_controls(screen_size=(1280, 720))
         slots = map_role_slots(screen_size=(1280, 720))
 
-        self.assertEqual((88, 291), controls["left_kongmu_tab"])
+        self.assertEqual((44, 291), controls["left_kongmu_tab"])
         self.assertEqual((1080, 661), controls["assemble_button"])
         self.assertEqual((1205, 121), slots[0])
 
@@ -72,6 +81,80 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         self.assertEqual(5, len(regions))
         self.assertEqual((2290, 122, 2530, 362), regions[0])
         self.assertEqual((2290, 1032, 2530, 1272), regions[4])
+
+    def test_maps_expanded_current_role_name_region(self):
+        from src.features.drive_assembly.role_flow import map_current_role_name_region
+
+        self.assertEqual((1738, 252, 2180, 320), map_current_role_name_region())
+        self.assertEqual((1688, 228, 2248, 342), map_current_role_name_region(expanded=True))
+
+    def test_recognizes_current_role_with_expanded_ocr_fallback(self):
+        from src.features.drive_assembly.role_flow import recognize_current_role_from_image
+
+        class FakeOcr:
+            def __init__(self):
+                self.calls = 0
+
+            def extract_text(self, crop):
+                self.calls += 1
+                if self.calls == 1:
+                    self.primary_shape = crop.shape[:2]
+                    return []
+                self.fallback_shape = crop.shape[:2]
+                return ["达芙蒂尔"]
+
+        ocr = FakeOcr()
+        image = np.zeros((1440, 2560, 3), dtype=np.uint8)
+
+        result = recognize_current_role_from_image(image, ["达芙蒂尔"], ocr)
+
+        self.assertEqual("达芙蒂尔", result.role_name)
+        self.assertEqual("ocr_fallback", result.method)
+        self.assertEqual((68, 442), ocr.primary_shape)
+        self.assertEqual((114, 560), ocr.fallback_shape)
+
+    def test_recognizes_player_name_as_protagonist_alias(self):
+        from src.features.drive_assembly.role_flow import recognize_current_role_from_image
+
+        class FakeOcr:
+            def extract_text(self, _crop):
+                return ["空月"]
+
+        image = np.zeros((1440, 2560, 3), dtype=np.uint8)
+
+        result = recognize_current_role_from_image(
+            image,
+            ["主角", "空月"],
+            FakeOcr(),
+            role_aliases={"主角": "空月"},
+        )
+
+        self.assertEqual("主角", result.role_name)
+        self.assertEqual("空月", result.raw_text)
+
+    def test_fuzzy_role_ocr_accepts_repeated_name_with_one_character_error(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(
+            ["\u6cd5\u5e1d\u5a05\u6cd5\u5e1d\u5a05S"],
+            ["\u6cd5\u8482\u5a05", "\u54c8\u5c3c\u5a05"],
+        )
+
+        self.assertEqual("\u6cd5\u8482\u5a05", result.role_name)
+        self.assertEqual("ocr_fuzzy", result.method)
+        self.assertGreaterEqual(result.confidence, 0.6)
+
+    def test_recognizes_known_ocr_error_for_yi(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(
+            ["\u533b\u6bbfB\u6734"],
+            ["\u7ff3", "\u7ea2"],
+        )
+
+        self.assertEqual("\u7ff3", result.role_name)
+        self.assertEqual("ocr_correction", result.method)
+        self.assertEqual("\u533b\u6bbfB\u6734", result.raw_text)
 
     def test_recognizes_visible_role_slots_from_templates(self):
         from src.features.drive_assembly.role_flow import recognize_role_slots_from_image
@@ -103,6 +186,22 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
 
         self.assertEqual("真红", result.role_name)
         self.assertEqual("ocr", result.method)
+
+    def test_fuzzy_role_ocr_accepts_surrounding_text_and_one_character_error(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(["角色真虹", "暗"], ["真红", "薄荷"])
+
+        self.assertEqual("真红", result.role_name)
+        self.assertEqual("ocr_fuzzy", result.method)
+        self.assertEqual(0.5, result.confidence)
+
+    def test_fuzzy_role_ocr_rejects_ambiguous_one_character_match(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(["真某"], ["真红", "真夜"])
+
+        self.assertIsNone(result.role_name)
 
     def test_resolves_role_from_template_when_ocr_fails(self):
         from src.features.drive_assembly.role_flow import resolve_role_recognition
@@ -145,6 +244,8 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         self.assertEqual([{"page_index": 0, "slot_index": 3, "position": (2410, 925)}], plan["unrecognized"])
         self.assertFalse(plan["complete"])
         self.assertEqual({"name": "role_slot", "role_name": "真红", "position": (2410, 242)}, plan["plans"][0]["action_sequence"][0])
+        self.assertEqual("assemble_current_role_from_blueprint", plan["plans"][0]["action_sequence"][-1]["name"])
+        self.assertEqual("find_role_then_assemble_blueprint", plan["plans"][0]["flow"])
         self.assertEqual([{"name": "role_scroll_next_page", "from": (2388, 1152), "to": (2388, 242), "duration_ms": 700}], plan["plans"][2]["action_sequence"])
 
     def test_reports_missing_required_roles(self):
@@ -278,6 +379,71 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
             roster["duplicates"],
         )
 
+    def test_collects_role_roster_with_dpad_until_down_stops_changing_role(self):
+        from src.features.drive_assembly.role_flow import RoleRecognition, collect_role_roster_with_dpad
+
+        observations = iter(
+            [
+                RoleRecognition("A", "ocr", 1.0, "A"),
+                RoleRecognition("B", "ocr", 1.0, "B"),
+                RoleRecognition("C", "ocr", 1.0, "C"),
+                RoleRecognition("C", "ocr", 1.0, "C"),
+                RoleRecognition("C", "ocr", 1.0, "C"),
+                RoleRecognition("C", "ocr", 1.0, "C"),
+            ]
+        )
+        presses = []
+
+        roster = collect_role_roster_with_dpad(
+            ["A", "C"],
+            current_observer=lambda _index: next(observations),
+            press_up=lambda: presses.append("up"),
+            press_down=lambda: presses.append("down"),
+            reset_up_count=4,
+            bottom_repeat_limit=3,
+            max_roles=10,
+        )
+
+        self.assertEqual(["A", "B", "C"], roster["roles"])
+        self.assertTrue(roster["reached_bottom"])
+        self.assertEqual(["up", "up", "up", "up", "down", "down", "down", "down", "down"], presses)
+        self.assertEqual([], roster["missing_expected_roles"])
+        self.assertEqual({"A": 0, "B": 1, "C": 2}, roster["role_positions"])
+        self.assertEqual(2, roster["current_index"])
+
+    def test_dpad_roster_keeps_real_cursor_indexes_when_some_roles_are_unrecognized(self):
+        from src.features.drive_assembly.role_flow import (
+            RoleRecognition,
+            collect_role_roster_with_dpad,
+            plan_role_assembly_from_dpad_roster,
+        )
+
+        observations = iter(
+            [
+                RoleRecognition("主角", "ocr", 1.0, "空月"),
+                RoleRecognition(None, "unrecognized", 0.0, ""),
+                RoleRecognition("真红", "ocr", 1.0, "真红"),
+                RoleRecognition("真红", "ocr", 1.0, "真红"),
+                RoleRecognition("真红", "ocr", 1.0, "真红"),
+                RoleRecognition("真红", "ocr", 1.0, "真红"),
+            ]
+        )
+
+        roster = collect_role_roster_with_dpad(
+            ["主角"],
+            current_observer=lambda _index: next(observations),
+            press_up=lambda: None,
+            press_down=lambda: None,
+            reset_up_count=0,
+            bottom_repeat_limit=3,
+            max_roles=10,
+        )
+        plan = plan_role_assembly_from_dpad_roster(["主角"], roster)
+
+        self.assertEqual({"主角": 0, "真红": 2}, roster["role_positions"])
+        self.assertEqual(2, roster["current_index"])
+        self.assertEqual(["dpad_up", "dpad_up"], [action["gamepad_button"] for action in plan["plans"][0]["action_sequence"][:2]])
+
     def test_plans_tail_roles_from_bottom_reverse_slots(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_roster
 
@@ -292,11 +458,52 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
 
         self.assertEqual(["K", "L", "M"], plan["planned_roles"])
         self.assertEqual(["bottom_tail", "bottom_tail", "bottom_tail"], [item["positioning"] for item in plan["plans"]])
+        self.assertEqual(["find_role_then_assemble_blueprint"] * 3, [item["flow"] for item in plan["plans"]])
         self.assertEqual([2, 3, 4], [item["slot_index"] for item in plan["plans"]])
         self.assertEqual([(2410, 697), (2410, 925), (2410, 1152)], [item["action_sequence"][3]["position"] for item in plan["plans"]])
+        self.assertEqual("assemble_current_role_from_blueprint", plan["plans"][0]["action_sequence"][-1]["name"])
         self.assertEqual(
             ["role_scroll_reset_to_first_page", "role_scroll_next_page", "role_scroll_next_page", "role_slot"],
             [action["name"] for action in plan["plans"][0]["action_sequence"][:4]],
+        )
+
+    def test_plans_role_assembly_from_dpad_roster(self):
+        from src.features.drive_assembly.role_flow import plan_role_assembly_from_dpad_roster
+
+        plan = plan_role_assembly_from_dpad_roster(
+            ["A", "C"],
+            {"roles": ["A", "B", "C"], "duplicates": [], "unrecognized": []},
+        )
+
+        first_actions = plan["plans"][0]["action_sequence"]
+        second_actions = plan["plans"][1]["action_sequence"]
+        self.assertEqual(["A", "C"], plan["planned_roles"])
+        self.assertEqual("dpad_current_role", plan["navigation"])
+        self.assertEqual(["dpad_up", "dpad_up"], [a["gamepad_button"] for a in first_actions[:2]])
+        self.assertEqual(
+            [
+                "left_kongmu_tab",
+                "wait_after_left_kongmu_tab",
+                "assemble_button",
+                "wait_after_assemble_button",
+                "assemble_current_role_from_blueprint",
+                "assembly_back_button",
+            ],
+            [a["name"] for a in first_actions[2:]],
+        )
+        self.assertEqual(["dpad_down", "dpad_down"], [a["gamepad_button"] for a in second_actions[:2]])
+        self.assertEqual("assembly_back_button", first_actions[-1]["name"])
+        self.assertEqual("dpad_down", second_actions[0]["gamepad_button"])
+        self.assertEqual(
+            [
+                "left_kongmu_tab",
+                "wait_after_left_kongmu_tab",
+                "assemble_button",
+                "wait_after_assemble_button",
+                "assemble_current_role_from_blueprint",
+                "assembly_back_button",
+            ],
+            [a["name"] for a in second_actions[2:]],
         )
 
 

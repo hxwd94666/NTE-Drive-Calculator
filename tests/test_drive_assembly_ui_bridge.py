@@ -8,6 +8,50 @@ import numpy as np
 
 
 class DriveAssemblyUiBridgeTests(unittest.TestCase):
+    def test_assembly_report_lists_unrecognized_role_details(self):
+        from src.features.inventory.page import _assembly_report_dialog
+
+        report = SimpleNamespace(
+            role_reports=[object()],
+            executed_actions=212,
+            missing_roles=[],
+            skipped_roles=[],
+            duplicate_roles=[],
+            unrecognized_roles=[
+                {"roster_index": 2, "raw_text": "unknown-one"},
+                {"roster_index": 7, "raw_text": ""},
+            ],
+            verification_failures=[],
+        )
+
+        _title, message, completed = _assembly_report_dialog("assembly", report)
+
+        self.assertFalse(completed)
+        self.assertIn("第 3 个角色", message)
+        self.assertIn("unknown-one", message)
+        self.assertIn("第 8 个角色", message)
+        self.assertIn("未读取到文字", message)
+
+    def test_assembly_report_lists_missing_drive_block_ids(self):
+        from src.features.inventory.page import _assembly_report_dialog
+
+        report = SimpleNamespace(
+            role_reports=[object()],
+            executed_actions=20,
+            missing_roles=[],
+            skipped_roles=[],
+            duplicate_roles=[],
+            unrecognized_roles=[],
+            verification_failures=[
+                {"role_name": "A", "missing_blocks": [{"block_id": 5}]},
+            ],
+        )
+
+        _title, message, completed = _assembly_report_dialog("assembly", report)
+
+        self.assertFalse(completed)
+        self.assertIn("#5", message)
+
     def _state(self):
         return {
             "真红": {
@@ -38,8 +82,75 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertEqual("真红", plan["role_name"])
         self.assertEqual(1, plan["tape_count"])
         self.assertEqual(2, plan["drive_count"])
-        self.assertEqual(["install_tape", "install_drives"], [action["name"] for action in plan["actions"]])
+        self.assertEqual(
+            ["prepare_assembly_page", "install_tape", "install_drives"],
+            [action["name"] for action in plan["actions"]],
+        )
+        self.assertEqual(
+            [
+                {"name": "unload_existing_drives", "position": (1524, 1252)},
+                {"name": "wait_for_unload_existing_drives_prompt", "wait_seconds": 1.0},
+                {
+                    "name": "confirm_unload_existing_drives_prompt",
+                    "optional_confirm_position": (1546, 953),
+                    "modal_probe_position": (1280, 690),
+                    "brightness_threshold": 150,
+                },
+            ],
+            plan["actions"][0]["sequence"],
+        )
         self.assertEqual("真红：卡带 1，驱动 2", summarize_assembly_plan(plan))
+
+    def test_tape_filter_sequence_opens_main_stat_with_gamepad_before_sub_stat_bottom(self):
+        from src.features.drive_assembly.ui_bridge import build_single_role_assembly_plan
+
+        state = self._state()
+        role_name = next(iter(state))
+        plan = build_single_role_assembly_plan(state, role_name)
+        tape_action = next(action for action in plan["actions"] if action["name"] == "install_tape")
+        sequence_names = [step["name"] for step in tape_action["sequence"]]
+        main_stat_step = next(step for step in tape_action["sequence"] if step["name"] == "main_stat_option")
+
+        expected_order = [
+            "main_stat_gamepad_down_to_expand",
+            "main_stat_gamepad_confirm_expand",
+            "main_stat_gamepad_down_to_options",
+            "main_stat_option",
+            "sub_stat_scroll_to_expand",
+            "sub_stat_expand",
+            "sub_stat_scroll_to_bottom",
+            "sub_stat_option",
+            "sub_stat_count_four",
+        ]
+        indexes = [sequence_names.index(name) for name in expected_order]
+
+        self.assertEqual(sorted(indexes), indexes)
+        main_stat_open_steps = [
+            step for step in tape_action["sequence"]
+            if step["name"].startswith("main_stat_gamepad")
+        ]
+        self.assertEqual(
+            ["left_down"] * 7 + ["a"] + ["left_down"] * 3,
+            [step.get("gamepad_stick") or step.get("gamepad_button") for step in main_stat_open_steps],
+        )
+        self.assertNotIn("main_stat_expand", sequence_names)
+        self.assertNotIn("main_stat_scroll_to_second_page", sequence_names)
+        self.assertIn("ocr_target_text", main_stat_step)
+        self.assertIn("ocr_search_region", main_stat_step)
+        self.assertIn("fallback_position", main_stat_step)
+
+    def test_drive_install_plan_verifies_each_drive_target_after_drag(self):
+        from src.features.drive_assembly.page_mapping import map_drive_block_installation
+
+        install = map_drive_block_installation(
+            {"block_id": 3, "drive_type": "V_3", "cells": [(3, 5), (4, 5), (5, 5)], "drive": {"quality": "Gold"}}
+        )
+        verify = next(step for step in install["install_sequence"] if step["name"] == "verify_drive_block_installed")
+
+        self.assertEqual(3, verify["block_id"])
+        self.assertEqual(install["first_drive"], verify["retry_from"])
+        self.assertEqual(install["target_position"], verify["retry_to"])
+        self.assertEqual(1.0, verify["retry_settle_seconds"])
 
     def test_reports_single_role_without_payload(self):
         from src.features.drive_assembly.ui_bridge import build_single_role_assembly_plan, summarize_assembly_plan
@@ -97,6 +208,28 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertTrue(hasattr(InventoryPageMixin, "_preview_assemble_role"))
         self.assertTrue(hasattr(InventoryPageMixin, "_preview_assemble_all_roles"))
 
+    def test_role_recognition_candidates_include_templates_and_payload_roles(self):
+        import tempfile
+        from pathlib import Path
+
+        from src.features.drive_assembly.ui_bridge import _role_recognition_candidates
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Path(temp_dir, "非目标角色.png").write_bytes(b"fake")
+            roles = _role_recognition_candidates(["目标角色"], temp_dir, {"已保存角色": {}})
+
+        self.assertEqual(["目标角色", "已保存角色", "非目标角色"], roles)
+
+    def test_role_recognition_candidates_include_role_aliases(self):
+        import tempfile
+
+        from src.features.drive_assembly.ui_bridge import _role_recognition_candidates
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            roles = _role_recognition_candidates(["主角"], temp_dir, {}, {"主角": "空月"})
+
+        self.assertEqual(["主角", "空月"], roles)
+
     def test_equipment_role_card_exposes_single_role_assemble_button(self):
         from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 
@@ -151,14 +284,17 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         original_reload = page_module._reload_equipped_state_from_disk
         original_build = page_module.build_single_role_assembly_plan
         original_summary = page_module.summarize_assembly_plan
-        original_execute = page_module.execute_role_assembly_plan
+        original_execute = page_module.execute_selected_role_from_current_game_page
         original_question = page_module.QMessageBox.question
         original_information = page_module.QMessageBox.information
         try:
             page_module._reload_equipped_state_from_disk = lambda _self: None
             page_module.build_single_role_assembly_plan = lambda *_args, **_kwargs: plan
             page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_role_assembly_plan = lambda p, **_kwargs: calls.append(p) or SimpleNamespace(executed_actions=3)
+            page_module.execute_selected_role_from_current_game_page = (
+                lambda state, role_name, **_kwargs: calls.append((state, role_name))
+                or SimpleNamespace(role_reports=[1], executed_actions=3)
+            )
             page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
 
@@ -167,11 +303,11 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             page_module._reload_equipped_state_from_disk = original_reload
             page_module.build_single_role_assembly_plan = original_build
             page_module.summarize_assembly_plan = original_summary
-            page_module.execute_role_assembly_plan = original_execute
+            page_module.execute_selected_role_from_current_game_page = original_execute
             page_module.QMessageBox.question = original_question
             page_module.QMessageBox.information = original_information
 
-        self.assertEqual([plan], calls)
+        self.assertEqual([({"鐪熺孩": {}}, "鐪熺孩")], calls)
 
     def test_all_role_button_does_not_execute_when_cancelled(self):
         from PySide6.QtWidgets import QMessageBox
@@ -193,7 +329,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             page_module._reload_equipped_state_from_disk = lambda _self: None
             page_module.build_all_role_assembly_plan = lambda *_args, **_kwargs: plan
             page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_all_roles_from_current_game_page = lambda state: calls.append(state)
+            page_module.execute_all_roles_from_current_game_page = lambda state, **_kwargs: calls.append(state)
             page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.No
 
             page_module._preview_assemble_all_roles(FakeWindow())
@@ -230,7 +366,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             page_module.build_all_role_assembly_plan = lambda *_args, **_kwargs: plan
             page_module.summarize_assembly_plan = lambda _plan: "summary"
             page_module.execute_all_roles_from_current_game_page = (
-                lambda state: calls.append(state) or SimpleNamespace(role_reports=[1, 2], executed_actions=9)
+                lambda state, **_kwargs: calls.append(state) or SimpleNamespace(role_reports=[1], executed_actions=9)
             )
             page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None

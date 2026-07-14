@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import difflib
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,14 +14,17 @@ import numpy as np
 from src.features.drive_assembly.blocks import extract_drive_blocks_from_state, extract_tape_filters_from_state
 from src.features.drive_assembly.page_mapping import map_blocks_to_page
 from src.utils.image_io import imread_unicode
-from src.utils.name_resolver import resolve_name
+from src.utils.name_resolver import normalize_name, resolve_name
 
 
 REFERENCE_SCREEN_SIZE = (2560, 1440)
 DEFAULT_ROLE_NAVIGATION_CONTROLS = {
-    "left_kongmu_tab": (176.0, 581.0),
+    "left_kongmu_tab": (88.0, 581.0),
     "assemble_button": (2160.0, 1322.0),
+    "assembly_back_button": (2490.0, 70.0),
 }
+ROLE_KONGMU_TAB_SETTLE_SECONDS = 1.0
+ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS = 1.2
 DEFAULT_ROLE_SLOT_POSITIONS = [
     (2410.0, 242.0),
     (2410.0, 470.0),
@@ -34,8 +38,17 @@ DEFAULT_ROLE_PAGE_SCROLL = {
 }
 DEFAULT_ROLE_PAGE_RESET_SCROLLS = 6
 DEFAULT_ROLE_ROSTER_MAX_PAGES = 20
-DEFAULT_ROLE_NAME_REGION = (1738.0, 252.0, 1900.0, 320.0)
+DEFAULT_ROLE_NAME_REGION = (1738.0, 252.0, 2180.0, 320.0)
+DEFAULT_ROLE_NAME_FALLBACK_REGION = (1688.0, 228.0, 2248.0, 342.0)
 DEFAULT_ROLE_TEMPLATE_REGION = (2300.0, 135.0, 2540.0, 1210.0)
+DEFAULT_DPAD_RESET_UP_COUNT = 4
+DEFAULT_DPAD_BOTTOM_REPEAT_LIMIT = 3
+DEFAULT_DPAD_ROLE_LIMIT = 80
+# Known OCR misreads observed in the in-game role-name region.  These are
+# applied only when the canonical role is present in the active blueprint.
+ROLE_OCR_CORRECTIONS = {
+    "医殿B朴": "翳",
+}
 
 
 @dataclass(frozen=True)
@@ -57,7 +70,12 @@ def map_role_navigation_controls(
     controls = _scale_controls(DEFAULT_ROLE_NAVIGATION_CONTROLS, screen_size, content_rect)
     controls["entry_sequence"] = [
         {"name": "left_kongmu_tab", "position": controls["left_kongmu_tab"]},
+        {"name": "wait_after_left_kongmu_tab", "wait_seconds": ROLE_KONGMU_TAB_SETTLE_SECONDS},
         {"name": "assemble_button", "position": controls["assemble_button"]},
+        {"name": "wait_after_assemble_button", "wait_seconds": ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS},
+    ]
+    controls["exit_sequence"] = [
+        {"name": "assembly_back_button", "position": controls["assembly_back_button"]},
     ]
     return controls
 
@@ -137,6 +155,51 @@ def map_role_page_reset(
     return result
 
 
+def map_current_role_name_region(
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+    expanded: bool = False,
+) -> tuple[int, int, int, int]:
+    """Return the top-right current role name OCR region."""
+
+    region = DEFAULT_ROLE_NAME_FALLBACK_REGION if expanded else DEFAULT_ROLE_NAME_REGION
+    x1, y1 = _scale_point((region[0], region[1]), screen_size, content_rect)
+    x2, y2 = _scale_point((region[2], region[3]), screen_size, content_rect)
+    return x1, y1, x2, y2
+
+
+def map_dpad_role_reset_sequence(repeat_count: int = DEFAULT_DPAD_RESET_UP_COUNT) -> list[dict[str, Any]]:
+    """Return gamepad actions that move the role cursor to the first role."""
+
+    return [
+        {"name": "role_dpad_reset_to_first", "gamepad_button": "dpad_up"}
+        for _index in range(max(0, int(repeat_count)))
+    ]
+
+
+def map_dpad_role_down_sequence(repeat_count: int) -> list[dict[str, Any]]:
+    """Return gamepad actions that move down by a role count."""
+
+    return [
+        {"name": "role_dpad_next", "gamepad_button": "dpad_down"}
+        for _index in range(max(0, int(repeat_count)))
+    ]
+
+
+def map_dpad_role_move_sequence(current_index: int, target_index: int) -> list[dict[str, Any]]:
+    """Return D-pad actions that move from one recognized roster index to another."""
+
+    delta = int(target_index) - int(current_index)
+    if delta > 0:
+        return map_dpad_role_down_sequence(delta)
+    if delta < 0:
+        return [
+            {"name": "role_dpad_previous", "gamepad_button": "dpad_up"}
+            for _index in range(abs(delta))
+        ]
+    return []
+
+
 def resolve_role_recognition(
     ocr_texts: list[str] | tuple[str, ...],
     expected_roles: list[str] | tuple[str, ...],
@@ -146,16 +209,93 @@ def resolve_role_recognition(
 ) -> RoleRecognition:
     """Resolve a role name from OCR texts first, then template scores."""
 
-    raw_text = "".join(str(text) for text in ocr_texts if str(text).strip())
-    role_from_ocr = resolve_name(raw_text, expected_roles, cutoff=ocr_cutoff)
+    text_parts = [str(text).strip() for text in ocr_texts if str(text).strip()]
+    raw_text = "".join(text_parts)
+    corrected_role = _resolve_known_role_ocr_correction(text_parts, expected_roles)
+    if corrected_role:
+        return RoleRecognition(corrected_role, "ocr_correction", 1.0, raw_text)
+    role_from_ocr = _resolve_role_name_from_ocr(text_parts, expected_roles, ocr_cutoff)
     if role_from_ocr:
-        return RoleRecognition(role_from_ocr, "ocr", 1.0, raw_text)
+        role_name, method, confidence = role_from_ocr
+        return RoleRecognition(role_name, method, confidence, raw_text)
 
     best_template = _best_template_score(template_scores or {}, expected_roles)
     if best_template and best_template[1] >= template_cutoff:
         return RoleRecognition(best_template[0], "template", round(float(best_template[1]), 4), raw_text)
 
     return RoleRecognition(None, "unrecognized", 0.0, raw_text)
+
+
+def _resolve_known_role_ocr_correction(
+    text_parts: list[str],
+    expected_roles: list[str] | tuple[str, ...],
+) -> str | None:
+    """Return a canonical role for a known, otherwise ambiguous OCR error."""
+
+    candidates = {str(role).strip() for role in expected_roles if str(role).strip()}
+    if not candidates:
+        return None
+    sources = [normalize_name(text) for text in [*text_parts, "".join(text_parts)]]
+    for mistaken_text, canonical_role in ROLE_OCR_CORRECTIONS.items():
+        if canonical_role not in candidates:
+            continue
+        mistaken_key = normalize_name(mistaken_text)
+        if mistaken_key and any(mistaken_key in source for source in sources):
+            return canonical_role
+    return None
+
+
+def _resolve_role_name_from_ocr(
+    text_parts: list[str],
+    expected_roles: list[str] | tuple[str, ...],
+    cutoff: float,
+) -> tuple[str, str, float] | None:
+    """Match OCR fragments against role names, tolerating surrounding UI text and one-character errors."""
+
+    candidates = [str(role).strip() for role in expected_roles if str(role).strip()]
+    if not text_parts or not candidates:
+        return None
+
+    sources = [*text_parts, "".join(text_parts)]
+    for source in sources:
+        resolved = resolve_name(source, candidates, cutoff=cutoff)
+        if resolved:
+            return resolved, "ocr", 1.0
+
+    scored: list[tuple[float, str]] = []
+    for role_name in candidates:
+        role_key = normalize_name(role_name)
+        if len(role_key) < 2:
+            continue
+        score = max((_role_ocr_similarity(source, role_key) for source in sources), default=0.0)
+        scored.append((score, role_name))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_role = scored[0]
+    second_score = scored[1][0] if len(scored) > 1 else 0.0
+
+    # A two-character Chinese name with one OCR error scores about 0.5.
+    # Keep a margin so similar candidates cannot be silently confused.
+    if best_score < 0.5 or best_score - second_score < 0.15:
+        return None
+    return best_role, "ocr_fuzzy", round(best_score, 4)
+
+
+def _role_ocr_similarity(source: str, role_key: str) -> float:
+    source_key = normalize_name(source)
+    if not source_key:
+        return 0.0
+    if role_key in source_key:
+        return 1.0
+    score = difflib.SequenceMatcher(None, source_key, role_key).ratio()
+    target_length = len(role_key)
+    for width in range(max(2, target_length - 1), target_length + 2):
+        if width > len(source_key):
+            continue
+        for start in range(0, len(source_key) - width + 1):
+            score = max(score, difflib.SequenceMatcher(None, source_key[start:start + width], role_key).ratio())
+    return score
 
 
 def match_role_template(
@@ -197,6 +337,43 @@ def recognize_role_slots_from_image(
         match_role_template(image, template_dir, expected_roles, region=region)
         for region in regions
     ]
+
+
+def recognize_current_role_from_image(
+    image: np.ndarray,
+    expected_roles: list[str] | tuple[str, ...],
+    ocr_engine: Any,
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+    role_aliases: dict[str, str] | None = None,
+) -> RoleRecognition:
+    """Recognize the currently selected role from the top-right name text."""
+
+    if image is None or image.size == 0:
+        return RoleRecognition(None, "unrecognized", 0.0)
+    if ocr_engine is None:
+        return RoleRecognition(None, "unrecognized", 0.0)
+
+    primary_region = map_current_role_name_region(screen_size, content_rect)
+    primary_crop = _crop(image, primary_region)
+    primary_texts = ocr_engine.extract_text(primary_crop)
+    primary_result = resolve_role_recognition(primary_texts, expected_roles)
+    if primary_result.role_name:
+        return _normalize_role_alias(primary_result, role_aliases)
+
+    fallback_region = map_current_role_name_region(screen_size, content_rect, expanded=True)
+    fallback_crop = _crop(image, fallback_region)
+    fallback_texts = ocr_engine.extract_text(fallback_crop)
+    combined_texts = list(primary_texts or []) + list(fallback_texts or [])
+    fallback_result = resolve_role_recognition(combined_texts, expected_roles)
+    if fallback_result.role_name:
+        return _normalize_role_alias(RoleRecognition(
+            fallback_result.role_name,
+            "ocr_fallback",
+            fallback_result.confidence,
+            fallback_result.raw_text,
+        ), role_aliases)
+    return _normalize_role_alias(fallback_result, role_aliases)
 
 
 def plan_role_assembly_from_observations(
@@ -246,13 +423,14 @@ def plan_role_assembly_from_observations(
             action_sequence = [
                 {"name": "role_slot", "role_name": role_name, "position": slot_position},
                 *entry["entry_sequence"],
-                {"name": "run_drive_assembly_for_role", "role_name": role_name},
+                {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
             ]
             plans.append(
                 {
                     "role_name": role_name,
                     "page_index": page_index,
                     "slot_index": slot_index,
+                    "flow": "find_role_then_assemble_blueprint",
                     "recognition": {
                         "method": recognition.method,
                         "confidence": recognition.confidence,
@@ -335,6 +513,73 @@ def collect_role_roster_until_repeat(
     }
 
 
+def collect_role_roster_with_dpad(
+    expected_roles: list[str] | tuple[str, ...],
+    current_observer: Callable[[int], RoleRecognition],
+    press_up: Callable[[], None],
+    press_down: Callable[[], None],
+    reset_up_count: int = DEFAULT_DPAD_RESET_UP_COUNT,
+    bottom_repeat_limit: int = DEFAULT_DPAD_BOTTOM_REPEAT_LIMIT,
+    max_roles: int = DEFAULT_DPAD_ROLE_LIMIT,
+) -> dict[str, Any]:
+    """Scan roles by D-pad navigation until repeated down presses no longer change the role."""
+
+    for _index in range(max(0, int(reset_up_count))):
+        press_up()
+
+    roles: list[str] = []
+    observations: list[RoleRecognition] = []
+    seen: set[str] = set()
+    duplicates: list[dict[str, Any]] = []
+    unrecognized: list[dict[str, Any]] = []
+    unchanged_count = 0
+    previous_key: str | None = None
+    reached_bottom = False
+    cursor_index = 0
+    role_positions: dict[str, int] = {}
+
+    for index in range(max(1, int(max_roles))):
+        recognition = _coerce_recognition(current_observer(index))
+        key = _recognition_stability_key(recognition)
+        is_unchanged = bool(previous_key and key and key == previous_key)
+        if index > 0 and is_unchanged:
+            unchanged_count += 1
+            if unchanged_count >= max(1, int(bottom_repeat_limit)):
+                reached_bottom = True
+                break
+        else:
+            if index > 0:
+                cursor_index += 1
+            unchanged_count = 0
+            if not recognition.role_name:
+                unrecognized.append({"roster_index": cursor_index, "raw_text": recognition.raw_text})
+            elif recognition.role_name in seen:
+                duplicates.append({"role_name": recognition.role_name, "roster_index": cursor_index})
+            else:
+                seen.add(recognition.role_name)
+                role_positions[recognition.role_name] = cursor_index
+                roles.append(recognition.role_name)
+                observations.append(recognition)
+        previous_key = key or previous_key
+        if index < max_roles - 1:
+            press_down()
+
+    expected = [str(role) for role in expected_roles if str(role).strip()]
+    return {
+        "roles": roles,
+        "role_positions": role_positions,
+        "current_index": cursor_index,
+        "observations": observations,
+        "duplicates": duplicates,
+        "unrecognized": unrecognized,
+        "missing_expected_roles": [role for role in expected if role not in seen],
+        "reached_bottom": reached_bottom,
+        "navigation": "dpad_current_role",
+        "reset_up_count": max(0, int(reset_up_count)),
+        "bottom_repeat_limit": max(1, int(bottom_repeat_limit)),
+    }
+
+
 def plan_role_assembly_from_roster(
     required_roles: list[str] | tuple[str, ...],
     role_roster: dict[str, Any],
@@ -375,7 +620,7 @@ def plan_role_assembly_from_roster(
             *(scroll * scroll_count),
             {"name": "role_slot", "role_name": role_name, "position": slots[slot_index]},
             *entry["entry_sequence"],
-            {"name": "run_drive_assembly_for_role", "role_name": role_name},
+            {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
         ]
         plans.append(
             {
@@ -384,6 +629,7 @@ def plan_role_assembly_from_roster(
                 "slot_index": slot_index,
                 "roster_index": index,
                 "positioning": "bottom_tail" if use_bottom_anchor else "page_slot",
+                "flow": "find_role_then_assemble_blueprint",
                 "action_sequence": action_sequence,
             }
         )
@@ -399,6 +645,70 @@ def plan_role_assembly_from_roster(
         "role_roster": roster,
         "plans": plans,
         "complete": not missing and not role_roster.get("unrecognized"),
+    }
+
+
+def plan_role_assembly_from_dpad_roster(
+    required_roles: list[str] | tuple[str, ...],
+    role_roster: dict[str, Any],
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+    reset_up_count: int = DEFAULT_DPAD_RESET_UP_COUNT,
+    current_index: int | None = None,
+) -> dict[str, Any]:
+    """Build assembly navigation from the D-pad current-role roster."""
+
+    required = [str(role) for role in required_roles if str(role).strip()]
+    entry = map_role_navigation_controls(screen_size, content_rect)
+    roster = [str(role) for role in role_roster.get("roles", []) if str(role).strip()]
+    role_positions = {
+        str(role): int(index)
+        for role, index in (role_roster.get("role_positions", {}) or {}).items()
+        if str(role).strip()
+    }
+    role_indexes = role_positions or {role: index for index, role in enumerate(roster)}
+    cursor_index = (
+        int(current_index)
+        if current_index is not None
+        else int(role_roster.get("current_index", max(0, len(roster) - 1)) or 0)
+    )
+    plans: list[dict[str, Any]] = []
+
+    for role_name in required:
+        index = role_indexes.get(role_name)
+        if index is None:
+            continue
+        move_sequence = map_dpad_role_move_sequence(cursor_index, index)
+        action_sequence = [
+            *move_sequence,
+            *entry["entry_sequence"],
+            {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
+            *entry["exit_sequence"],
+        ]
+        plans.append(
+            {
+                "role_name": role_name,
+                "roster_index": index,
+                "start_roster_index": cursor_index,
+                "navigation": "dpad_current_role",
+                "flow": "find_role_then_assemble_blueprint",
+                "action_sequence": action_sequence,
+            }
+        )
+        cursor_index = index
+
+    planned_roles = [plan["role_name"] for plan in plans]
+    missing = [role for role in required if role not in set(planned_roles)]
+    return {
+        "required_roles": required,
+        "planned_roles": planned_roles,
+        "missing_roles": missing,
+        "duplicates": list(role_roster.get("duplicates", []) or []),
+        "unrecognized": list(role_roster.get("unrecognized", []) or []),
+        "role_roster": roster,
+        "plans": plans,
+        "complete": not missing and not role_roster.get("unrecognized"),
+        "navigation": "dpad_current_role",
     }
 
 
@@ -471,6 +781,27 @@ def _coerce_recognition(value: RoleRecognition | str | None) -> RoleRecognition:
     if isinstance(value, str) and value.strip():
         return RoleRecognition(value.strip(), "provided", 1.0, value.strip())
     return RoleRecognition(None, "unrecognized", 0.0)
+
+
+def _recognition_stability_key(recognition: RoleRecognition) -> str:
+    if recognition.role_name:
+        return recognition.role_name
+    return str(recognition.raw_text or "").strip()
+
+
+def _normalize_role_alias(
+    recognition: RoleRecognition,
+    role_aliases: dict[str, str] | None,
+) -> RoleRecognition:
+    if not recognition.role_name or not role_aliases:
+        return recognition
+    recognized = str(recognition.role_name).strip()
+    for canonical, alias in role_aliases.items():
+        canonical_name = str(canonical).strip()
+        alias_name = str(alias).strip()
+        if alias_name and recognized == alias_name:
+            return RoleRecognition(canonical_name, recognition.method, recognition.confidence, recognition.raw_text)
+    return recognition
 
 
 def _best_template_score(

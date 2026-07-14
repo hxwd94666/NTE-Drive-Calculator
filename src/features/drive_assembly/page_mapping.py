@@ -18,6 +18,9 @@ DEFAULT_DRIVE_PAGE_CONTROLS = {
     "drive_tab": (554.0, 309.0),
     "filter_button": (111.0, 1347.0),
 }
+DEFAULT_ASSEMBLY_PAGE_CONTROLS = {
+    "unload_existing_drives": (1524.0, 1252.0),
+}
 DEFAULT_TAPE_FILTER_CONTROLS = {
     "set_select": (2067.0, 393.0),
 }
@@ -35,27 +38,44 @@ DEFAULT_TAPE_FILTER_STATUS_CONTROLS = {
     "status_other": (2273.0, 704.0),
 }
 DEFAULT_DRIVE_FILTER_STATUS_CONTROLS = {
-    "status_equipped": (1861.0, 679.0),
-    "status_locked": (2273.0, 679.0),
-    "status_discarded": (1861.0, 766.0),
-    "status_other": (2273.0, 766.0),
+    "status_equipped": (1861.0, 765.0),
+    "status_locked": (2273.0, 765.0),
+    "status_discarded": (1861.0, 851.0),
+    "status_other": (2273.0, 851.0),
 }
 DEFAULT_TAPE_FILTER_QUALITY_CONTROLS = {
     "quality_blue": (1861.0, 843.0),
     "quality_purple": (2273.0, 843.0),
     "quality_orange": (1861.0, 929.0),
 }
+DEFAULT_TAPE_FILTER_QUALITY_SELECTION_PROBES = {
+    "quality_blue": (1721.0, 843.0),
+    "quality_purple": (2133.0, 843.0),
+    "quality_orange": (1721.0, 929.0),
+}
 DEFAULT_DRIVE_FILTER_QUALITY_CONTROLS = {
-    "quality_blue": (1861.0, 903.0),
-    "quality_purple": (2273.0, 903.0),
-    "quality_orange": (1861.0, 989.0),
+    "quality_blue": (1861.0, 989.0),
+    "quality_purple": (2273.0, 989.0),
+    "quality_orange": (1861.0, 1075.0),
 }
 DEFAULT_TAPE_FILTER_MAIN_STAT_CONTROLS = {
     "main_stat_expand": (2067.0, 1071.0),
 }
+DEFAULT_DRIVE_FILTER_QUALITY_SELECTION_PROBES = {
+    "quality_blue": (1721.0, 989.0),
+    "quality_purple": (2133.0, 989.0),
+    "quality_orange": (1721.0, 1075.0),
+}
+DEFAULT_TAPE_MAIN_STAT_OCR_REGION = {
+    "main_stat_ocr_region": (1640.0, 430.0, 2460.0, 1130.0),
+}
 DEFAULT_DRIVE_FILTER_SUB_STAT_CONTROLS = {
-    "sub_stat_expand": (2067.0, 1136.0),
+    "sub_stat_expand": (2067.0, 890.0),
     "sub_stat_count_four": (1861.0, 1202.0),
+}
+DEFAULT_DRIVE_SUB_STAT_SCROLL = {
+    "sub_stat_scroll_start": (2067.0, 1190.0),
+    "sub_stat_scroll_end": (2067.0, 395.0),
 }
 DEFAULT_TAPE_MAIN_STAT_SCROLL = {
     "main_stat_scroll_start": (2067.0, 1190.0),
@@ -64,7 +84,7 @@ DEFAULT_TAPE_MAIN_STAT_SCROLL = {
 DEFAULT_TAPE_SUB_STAT_FILTER_ENTRY = {
     "sub_stat_scroll_start": (2067.0, 1190.0),
     "sub_stat_scroll_end": (2067.0, 395.0),
-    "sub_stat_expand": (2067.0, 1226.0),
+    "sub_stat_expand": (2067.0, 898.0),
 }
 DEFAULT_TAPE_SUB_STAT_SELECTION = {
     "sub_stat_scroll_start": (2067.0, 1190.0),
@@ -75,6 +95,10 @@ DEFAULT_TAPE_EQUIP_FIRST_RESULT = {
     "confirm_filter": (2273.0, 1322.0),
     "first_tape": (126.0, 430.0),
     "tape_socket": (1267.0, 1090.0),
+}
+DEFAULT_EQUIPMENT_REUSE_PROMPT = {
+    "reuse_prompt_confirm": (1546.0, 953.0),
+    "reuse_prompt_probe": (1280.0, 690.0),
 }
 DEFAULT_DRIVE_EQUIP_FIRST_RESULT = {
     "confirm_filter": (2273.0, 1322.0),
@@ -88,14 +112,12 @@ DEFAULT_DRIVE_SHAPE_OPTIONS = {
     "V_2": (948.0, 488.0),
     "H_3": (799.0, 745.0),
     "V_3": (948.0, 745.0),
-    "L_3": (1095.0, 745.0),
-    "J_3": (1243.0, 745.0),
-    "S_3": (1392.0, 745.0),
-    "Z_3": (1542.0, 745.0),
+    "L_3_BL": (1095.0, 745.0),
+    "L_3_TL": (1243.0, 745.0),
+    "L_3_TR": (1392.0, 745.0),
+    "L_3_BR": (1542.0, 745.0),
     "H_4": (799.0, 1004.0),
     "V_4": (948.0, 1004.0),
-    "T_4": (1095.0, 1004.0),
-    "J_4": (1243.0, 1004.0),
     "Trap_4_H": (1095.0, 1004.0),
     "Trap_4_V": (1243.0, 1004.0),
 }
@@ -158,6 +180,12 @@ DRIVE_SHAPE_ALIASES = {
     "I_2": "V_2",
     "I_3": "V_3",
     "I_4": "V_4",
+    "L_3": "L_3_BL",
+    "J_3": "L_3_TL",
+    "S_3": "L_3_TR",
+    "Z_3": "L_3_BR",
+    "T_4": "Trap_4_H",
+    "J_4": "Trap_4_V",
 }
 DEFAULT_TAPE_SET_DIALOG_CONTROLS = {
     "confirm_filter": (1564.0, 1186.0),
@@ -242,6 +270,29 @@ def map_drive_page_controls(
     controls["click_sequence"] = [
         {"name": "drive_tab", "position": controls["drive_tab"]},
         {"name": "filter_button", "position": controls["filter_button"]},
+    ]
+    return controls
+
+
+def map_assembly_page_prepare_controls(
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+) -> dict[str, Any]:
+    """Return controls used immediately after entering the assembly page."""
+
+    controls = _scale_controls(DEFAULT_ASSEMBLY_PAGE_CONTROLS, screen_size, content_rect)
+    prompt = _scale_controls(DEFAULT_EQUIPMENT_REUSE_PROMPT, screen_size, content_rect)
+    controls["unload_prompt_confirm"] = prompt["reuse_prompt_confirm"]
+    controls["unload_prompt_probe"] = prompt["reuse_prompt_probe"]
+    controls["prepare_sequence"] = [
+        {"name": "unload_existing_drives", "position": controls["unload_existing_drives"]},
+        {"name": "wait_for_unload_existing_drives_prompt", "wait_seconds": 1.0},
+        {
+            "name": "confirm_unload_existing_drives_prompt",
+            "optional_confirm_position": controls["unload_prompt_confirm"],
+            "modal_probe_position": controls["unload_prompt_probe"],
+            "brightness_threshold": 150,
+        },
     ]
     return controls
 
@@ -357,12 +408,13 @@ def map_tape_filter_refinement(
     qualities: list[str] | tuple[str, ...],
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
+    include_main_stat_expand: bool = True,
 ) -> dict[str, Any]:
     """Return filter positions after the set has been selected."""
 
     status_controls = _scale_controls(DEFAULT_TAPE_FILTER_STATUS_CONTROLS, screen_size, content_rect)
     quality_controls = _scale_controls(DEFAULT_TAPE_FILTER_QUALITY_CONTROLS, screen_size, content_rect)
-    main_stat_controls = _scale_controls(DEFAULT_TAPE_FILTER_MAIN_STAT_CONTROLS, screen_size, content_rect)
+    quality_probes = _scale_controls(DEFAULT_TAPE_FILTER_QUALITY_SELECTION_PROBES, screen_size, content_rect)
     result: dict[str, Any] = {}
     for name in ("status_locked", "status_discarded", "status_other"):
         result[name] = status_controls[name]
@@ -375,8 +427,19 @@ def map_tape_filter_refinement(
         control_name = _quality_control_name(quality)
         result[control_name] = quality_controls[control_name]
         sequence.append({"name": control_name, "quality": quality, "position": result[control_name]})
-    result["main_stat_expand"] = main_stat_controls["main_stat_expand"]
-    sequence.append({"name": "main_stat_expand", "position": result["main_stat_expand"]})
+        sequence.append(
+            {
+                "name": "verify_quality_selected",
+                "quality": quality,
+                "selection_probe_position": quality_probes[control_name],
+                "retry_position": result[control_name],
+            }
+        )
+    if include_main_stat_expand:
+        main_stat_controls = _scale_controls(DEFAULT_TAPE_FILTER_MAIN_STAT_CONTROLS, screen_size, content_rect)
+        result["main_stat_expand"] = main_stat_controls["main_stat_expand"]
+        sequence.append({"name": "main_stat_expand", "position": result["main_stat_expand"]})
+        sequence.append({"name": "wait_after_main_stat_expand", "wait_seconds": 0.5})
     result["refinement_sequence"] = sequence
     return result
 
@@ -386,12 +449,17 @@ def map_drive_filter_refinement(
     sub_stats: list[str] | tuple[str, ...],
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
+    duration_ms: int = 500,
+    include_status_filters: bool = True,
+    bottom_scroll_count: int = 2,
 ) -> dict[str, Any]:
     """Return drive filter positions after the shape has been selected."""
 
     status_controls = _scale_controls(DEFAULT_DRIVE_FILTER_STATUS_CONTROLS, screen_size, content_rect)
     quality_controls = _scale_controls(DEFAULT_DRIVE_FILTER_QUALITY_CONTROLS, screen_size, content_rect)
+    quality_probes = _scale_controls(DEFAULT_DRIVE_FILTER_QUALITY_SELECTION_PROBES, screen_size, content_rect)
     sub_stat_controls = _scale_controls(DEFAULT_DRIVE_FILTER_SUB_STAT_CONTROLS, screen_size, content_rect)
+    scroll_controls = _scale_controls(DEFAULT_DRIVE_SUB_STAT_SCROLL, screen_size, content_rect)
     normalized_stats = [_normalize_tape_sub_stat(stat) for stat in sub_stats]
     option_controls = _scale_controls(
         {stat: DEFAULT_TAPE_SUB_STAT_OPTIONS[stat] for stat in normalized_stats},
@@ -401,19 +469,52 @@ def map_drive_filter_refinement(
     result: dict[str, Any] = {}
     for name in ("status_locked", "status_discarded", "status_other"):
         result[name] = status_controls[name]
-    sequence = [
-        {"name": "status_locked", "position": result["status_locked"]},
-        {"name": "status_discarded", "position": result["status_discarded"]},
-        {"name": "status_other", "position": result["status_other"]},
-    ]
+    sequence = []
+    if include_status_filters:
+        sequence.extend(
+            [
+                {"name": "status_locked", "position": result["status_locked"]},
+                {"name": "status_discarded", "position": result["status_discarded"]},
+                {"name": "status_other", "position": result["status_other"]},
+            ]
+        )
     for quality in qualities:
         control_name = _quality_control_name(quality)
         result[control_name] = quality_controls[control_name]
         sequence.append({"name": control_name, "quality": quality, "position": result[control_name]})
+        sequence.append(
+            {
+                "name": "verify_quality_selected",
+                "quality": quality,
+                "selection_probe_position": quality_probes[control_name],
+                "retry_position": result[control_name],
+            }
+        )
     result["sub_stat_expand"] = sub_stat_controls["sub_stat_expand"]
+    result["sub_stat_scroll_start"] = scroll_controls["sub_stat_scroll_start"]
+    result["sub_stat_scroll_end"] = scroll_controls["sub_stat_scroll_end"]
     result["sub_stat_options"] = option_controls
     result["sub_stat_count_four"] = sub_stat_controls["sub_stat_count_four"]
+    sequence.extend(
+        {
+            "name": "drive_filter_scroll_to_bottom",
+            "from": result["sub_stat_scroll_start"],
+            "to": result["sub_stat_scroll_end"],
+            "duration_ms": duration_ms,
+        }
+        for _index in range(max(1, int(bottom_scroll_count)))
+    )
     sequence.append({"name": "sub_stat_expand", "position": result["sub_stat_expand"]})
+    sequence.append({"name": "wait_after_drive_sub_stat_expand", "wait_seconds": 0.5})
+    sequence.extend(
+        {
+            "name": "drive_sub_stat_scroll_to_bottom",
+            "from": result["sub_stat_scroll_start"],
+            "to": result["sub_stat_scroll_end"],
+            "duration_ms": duration_ms,
+        }
+        for _index in range(max(1, int(bottom_scroll_count)))
+    )
     sequence.extend(
         {"name": "sub_stat_option", "sub_stat": stat, "position": option_controls[stat]} for stat in normalized_stats
     )
@@ -445,6 +546,22 @@ def map_tape_main_stat_scroll(
     return result
 
 
+def map_tape_main_stat_gamepad_open() -> dict[str, Any]:
+    """Return gamepad actions that open the tape main-stat list."""
+
+    sequence: list[dict[str, Any]] = []
+    sequence.extend(
+        {"name": "main_stat_gamepad_down_to_expand", "gamepad_stick": "left_down"}
+        for _index in range(7)
+    )
+    sequence.append({"name": "main_stat_gamepad_confirm_expand", "gamepad_button": "a"})
+    sequence.extend(
+        {"name": "main_stat_gamepad_down_to_options", "gamepad_stick": "left_down"}
+        for _index in range(3)
+    )
+    return {"open_sequence": sequence}
+
+
 def map_tape_main_stat_selection(
     main_stat: str,
     screen_size: tuple[int, int] | None = None,
@@ -454,12 +571,23 @@ def map_tape_main_stat_selection(
 
     normalized = _normalize_tape_main_stat(main_stat)
     controls = _scale_controls({normalized: DEFAULT_TAPE_MAIN_STAT_OPTIONS[normalized]}, screen_size, content_rect)
+    region = _scale_region(DEFAULT_TAPE_MAIN_STAT_OCR_REGION["main_stat_ocr_region"], screen_size, content_rect)
     result: dict[str, Any] = {
         "main_stat": normalized,
         "main_stat_option": controls[normalized],
+        "main_stat_ocr_region": region,
     }
     result["selection_sequence"] = [
         {"name": "main_stat_option", "main_stat": normalized, "position": result["main_stat_option"]}
+    ]
+    result["ocr_selection_sequence"] = [
+        {
+            "name": "main_stat_option",
+            "main_stat": normalized,
+            "ocr_target_text": normalized,
+            "ocr_search_region": region,
+            "fallback_position": result["main_stat_option"],
+        }
     ]
     return result
 
@@ -467,7 +595,7 @@ def map_tape_main_stat_selection(
 def map_tape_sub_stat_filter_entry(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    scroll_count: int = 3,
+    scroll_count: int = 1,
     duration_ms: int = 500,
 ) -> dict[str, Any]:
     """Return drag actions for reaching and opening the tape sub-stat filter."""
@@ -480,7 +608,7 @@ def map_tape_sub_stat_filter_entry(
     }
     sequence: list[dict[str, Any]] = [
         {
-            "name": "sub_stat_scroll_to_bottom",
+            "name": "sub_stat_scroll_to_expand",
             "from": result["sub_stat_scroll_start"],
             "to": result["sub_stat_scroll_end"],
             "duration_ms": duration_ms,
@@ -488,6 +616,7 @@ def map_tape_sub_stat_filter_entry(
         for _index in range(scroll_count)
     ]
     sequence.append({"name": "sub_stat_expand", "position": result["sub_stat_expand"]})
+    sequence.append({"name": "wait_after_sub_stat_expand", "wait_seconds": 0.5})
     result["entry_sequence"] = sequence
     return result
 
@@ -535,10 +664,13 @@ def map_tape_equip_first_result(
     """Return actions for confirming the filter and equipping the first visible tape."""
 
     controls = _scale_controls(DEFAULT_TAPE_EQUIP_FIRST_RESULT, screen_size, content_rect)
+    prompt = _scale_controls(DEFAULT_EQUIPMENT_REUSE_PROMPT, screen_size, content_rect)
     result: dict[str, Any] = {
         "confirm_filter": controls["confirm_filter"],
         "first_tape": controls["first_tape"],
         "tape_socket": controls["tape_socket"],
+        "reuse_prompt_confirm": prompt["reuse_prompt_confirm"],
+        "reuse_prompt_probe": prompt["reuse_prompt_probe"],
     }
     result["equip_sequence"] = [
         {"name": "confirm_filter", "position": result["confirm_filter"]},
@@ -547,6 +679,13 @@ def map_tape_equip_first_result(
             "from": result["first_tape"],
             "to": result["tape_socket"],
             "duration_ms": duration_ms,
+        },
+        {"name": "wait_for_equipment_reuse_prompt", "wait_seconds": 0.3},
+        {
+            "name": "confirm_equipment_reuse_prompt",
+            "optional_confirm_position": result["reuse_prompt_confirm"],
+            "modal_probe_position": result["reuse_prompt_probe"],
+            "brightness_threshold": 150,
         },
     ]
     return result
@@ -558,6 +697,7 @@ def map_drive_block_installation(
     content_rect: tuple[int, int, int, int] | None = None,
     duration_ms: int = 700,
     cached_set_name: str | None = None,
+    open_filter: bool = False,
 ) -> dict[str, Any]:
     """Return the filter and drag actions for installing one drive block."""
 
@@ -567,10 +707,19 @@ def map_drive_block_installation(
     sub_stats = _drive_sub_stat_names(drive.get("sub_stats"))
     set_name = str(cached_set_name or block.get("set_name") or drive.get("set_name") or "").strip()
     reset = map_filter_reset(screen_size, content_rect)
+    page_controls = map_drive_page_controls(screen_size, content_rect)
     set_selection = map_drive_set_selection(set_name, screen_size, content_rect) if set_name else None
     shape_selection = map_drive_shape_selection(drive_type, screen_size, content_rect)
-    refinement = map_drive_filter_refinement([quality], sub_stats, screen_size, content_rect)
+    is_duplicate = bool(block.get("is_duplicate_drive") or block.get("is_duplicate_equipment"))
+    refinement = map_drive_filter_refinement(
+        [quality],
+        sub_stats,
+        screen_size,
+        content_rect,
+        include_status_filters=is_duplicate,
+    )
     controls = _scale_controls(DEFAULT_DRIVE_EQUIP_FIRST_RESULT, screen_size, content_rect)
+    prompt = _scale_controls(DEFAULT_EQUIPMENT_REUSE_PROMPT, screen_size, content_rect)
     target_position = _drive_target_position(block, screen_size, content_rect)
     result: dict[str, Any] = {
         "block_id": block.get("block_id"),
@@ -580,21 +729,61 @@ def map_drive_block_installation(
         "first_drive": controls["first_drive"],
         "target_position": target_position,
         "confirm_filter": controls["confirm_filter"],
+        "reuse_prompt_confirm": prompt["reuse_prompt_confirm"],
+        "reuse_prompt_probe": prompt["reuse_prompt_probe"],
     }
     sequence: list[dict[str, Any]] = []
+    if open_filter:
+        sequence.append({"name": "filter_button", "position": page_controls["filter_button"]})
     sequence.extend(reset["reset_sequence"])
+    sequence.extend(shape_selection["selection_sequence"])
     if set_selection:
         sequence.extend(set_selection["selection_sequence"])
-    sequence.extend(shape_selection["selection_sequence"])
     sequence.extend(refinement["refinement_sequence"])
     sequence.append({"name": "confirm_filter", "position": result["confirm_filter"]})
     sequence.append(
         {
-            "name": "drag_first_drive_to_block",
+            "name": "capture_drive_target_baseline",
+            "block_id": block.get("block_id"),
+            "target_position": result["target_position"],
+            "sample_radius": 12,
+        }
+    )
+    sequence.append(
+        {
+            "name": "force_drag_first_drive_to_block",
             "block_id": block.get("block_id"),
             "from": result["first_drive"],
             "to": result["target_position"],
             "duration_ms": duration_ms,
+        }
+    )
+    sequence.append({"name": "wait_for_equipment_reuse_prompt", "wait_seconds": 0.3})
+    sequence.append(
+        {
+            "name": "confirm_equipment_reuse_prompt",
+            "block_id": block.get("block_id"),
+            "optional_confirm_position": result["reuse_prompt_confirm"],
+            "modal_probe_position": result["reuse_prompt_probe"],
+            "brightness_threshold": 150,
+        }
+    )
+    sequence.append({"name": "wait_after_drive_block_install", "wait_seconds": 1.0})
+    sequence.append(
+        {
+            "name": "verify_drive_block_installed",
+            "block_id": block.get("block_id"),
+            "target_position": result["target_position"],
+            "retry_from": result["first_drive"],
+            "retry_to": result["target_position"],
+            "retry_duration_ms": duration_ms,
+            "sample_radius": 12,
+            "change_threshold": 15.0,
+            "brightness_threshold": 80.0,
+            "optional_confirm_position": result["reuse_prompt_confirm"],
+            "modal_probe_position": result["reuse_prompt_probe"],
+            "retry_prompt_wait_seconds": 0.3,
+            "retry_settle_seconds": 1.0,
         }
     )
     result["install_sequence"] = sequence
@@ -616,14 +805,21 @@ def map_drive_blocks_installation(
     page_controls = map_drive_page_controls(screen_size, content_rect)
     cached_set_name = _drive_blocks_cached_set_name(blocks)
     install_plans = [
-        map_drive_block_installation(block, screen_size, content_rect, duration_ms, cached_set_name=cached_set_name)
+        map_drive_block_installation(
+            block,
+            screen_size,
+            content_rect,
+            duration_ms,
+            cached_set_name=cached_set_name,
+            open_filter=True,
+        )
         for block in blocks
     ]
     result: dict[str, Any] = {
         "page_controls": page_controls,
         "install_plans": install_plans,
     }
-    sequence: list[dict[str, Any]] = list(page_controls["click_sequence"])
+    sequence: list[dict[str, Any]] = [{"name": "drive_tab", "position": page_controls["drive_tab"]}]
     sequence.extend(
         {
             "name": "install_drive_block",
@@ -711,6 +907,23 @@ def _scale_controls(
         name: (_round_half_up(left + x * scale_x), _round_half_up(top + y * scale_y))
         for name, (x, y) in controls.items()
     }
+
+
+def _scale_region(
+    region: tuple[float, float, float, float],
+    screen_size: tuple[int, int] | None,
+    content_rect: tuple[int, int, int, int] | None,
+) -> tuple[int, int, int, int]:
+    left, top, content_width, content_height = _content_rect_for(screen_size, REFERENCE_SCREEN_SIZE, content_rect)
+    scale_x = content_width / REFERENCE_SCREEN_SIZE[0]
+    scale_y = content_height / REFERENCE_SCREEN_SIZE[1]
+    x1, y1, x2, y2 = region
+    return (
+        _round_half_up(left + x1 * scale_x),
+        _round_half_up(top + y1 * scale_y),
+        _round_half_up(left + x2 * scale_x),
+        _round_half_up(top + y2 * scale_y),
+    )
 
 
 def _content_rect_for(

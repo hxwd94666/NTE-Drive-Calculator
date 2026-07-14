@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.features.drive_assembly.duplicate_marker import mark_duplicate_drive_blocks, mark_duplicate_tape_filters
+
 
 EMPTY_CELLS = {"", "0", "0.0", "XX", "-1", "None", "none", "null"}
 
@@ -46,9 +48,12 @@ def extract_drive_blocks_from_state(state: dict[str, Any] | None) -> list[dict[s
         if not board:
             continue
         drives = [drive for drive in role_state.get("equipped_drives", []) or [] if isinstance(drive, dict)]
-        for block_index, matrix_name in enumerate(_matrix_names_in_scan_order(board)):
+        matrix_names = _matrix_names_in_scan_order(board)
+        matched_drives = _match_drives_to_matrix_names(drives, matrix_names)
+        for block_index, matrix_name in enumerate(matrix_names):
             cells = _cells_for_name(board, matrix_name)
-            drive_type = _drive_type_for(drives, block_index, matrix_name)
+            drive = matched_drives[block_index]
+            drive_type = _drive_type_for(drive, matrix_name)
             top_left = _top_left_for(cells, drive_type)
             block = {
                 "block_id": next_id,
@@ -61,11 +66,11 @@ def extract_drive_blocks_from_state(state: dict[str, Any] | None) -> list[dict[s
                 "left_count": _occupied_left_count(board, top_left),
                 "up_count": _occupied_up_count(board, top_left),
             }
-            if block_index < len(drives):
-                block["drive"] = drives[block_index]
+            if drive is not None:
+                block["drive"] = drive
             blocks.append(block)
             next_id += 1
-    return blocks
+    return mark_duplicate_drive_blocks(blocks)
 
 
 def extract_tape_filters_from_state(state: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -93,7 +98,7 @@ def extract_tape_filters_from_state(state: dict[str, Any] | None) -> list[dict[s
                 "tape": tape,
             }
         )
-    return filters
+    return mark_duplicate_tape_filters(filters)
 
 
 def _tape_main_stat_name(main_stats: Any) -> str:
@@ -133,15 +138,44 @@ def _is_occupied(cell: str) -> bool:
     return str(cell) not in EMPTY_CELLS
 
 
-def _drive_type_for(drives: list[dict[str, Any]], block_index: int, matrix_name: str) -> str:
-    if block_index >= len(drives):
+def _drive_type_for(drive: dict[str, Any] | None, matrix_name: str) -> str:
+    if not isinstance(drive, dict):
         return matrix_name
-    drive = drives[block_index]
     for key in ("drive_type", "shape_id", "type"):
         value = drive.get(key)
         if value:
             return str(value)
     return matrix_name
+
+
+def _match_drives_to_matrix_names(
+    drives: list[dict[str, Any]],
+    matrix_names: list[str],
+) -> list[dict[str, Any] | None]:
+    """Match saved drive details to blueprint groups by shape before positional fallback."""
+
+    unmatched_indexes = set(range(len(drives)))
+    matches: list[dict[str, Any] | None] = [None] * len(matrix_names)
+
+    for matrix_index, matrix_name in enumerate(matrix_names):
+        target = _normalize_shape_id(matrix_name)
+        for drive_index, drive in enumerate(drives):
+            if drive_index not in unmatched_indexes:
+                continue
+            if _normalize_shape_id(_drive_type_for(drive, "")) == target:
+                matches[matrix_index] = drive
+                unmatched_indexes.remove(drive_index)
+                break
+
+    remaining_drives = (drives[index] for index in range(len(drives)) if index in unmatched_indexes)
+    for matrix_index, match in enumerate(matches):
+        if match is None:
+            matches[matrix_index] = next(remaining_drives, None)
+    return matches
+
+
+def _normalize_shape_id(value: Any) -> str:
+    return str(value or "").strip().upper()
 
 
 def _top_left_for(cells: list[tuple[int, int]], drive_type: str) -> tuple[int, int]:

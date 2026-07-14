@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import time
 from typing import Any
 
@@ -12,17 +13,19 @@ import numpy as np
 from src.app import runtime
 from src.features.drive_assembly.executor import (
     MouseBackend,
+    PyAutoGuiMouseBackend,
     execute_action_sequence,
     execute_role_traversal_assembly_plan,
     f12_stop_checker,
 )
 from src.features.drive_assembly.page_mapping import (
+    map_assembly_page_prepare_controls,
     map_drive_blocks_installation,
     map_page_controls,
     map_tape_equip_first_result,
     map_tape_filter_controls,
     map_tape_filter_refinement,
-    map_tape_main_stat_scroll,
+    map_tape_main_stat_gamepad_open,
     map_tape_main_stat_selection,
     map_tape_set_selection,
     map_tape_sub_stat_filter_entry,
@@ -30,15 +33,20 @@ from src.features.drive_assembly.page_mapping import (
 )
 from src.features.drive_assembly.role_flow import (
     build_role_assembly_payloads,
+    collect_role_roster_with_dpad,
     collect_role_roster_until_repeat,
     map_role_page_reset,
     map_role_page_scroll,
+    plan_role_assembly_from_dpad_roster,
     plan_role_assembly_from_observations,
     plan_role_assembly_from_roster,
+    recognize_current_role_from_image,
     recognize_role_slots_from_image,
     required_roles_from_payloads,
 )
+from src.scanner.ocr_engine import OCREngine
 from src.scanner.window_capture import capture_foreground_window
+from src.utils.logger import logger
 
 
 def build_single_role_assembly_plan(
@@ -60,6 +68,15 @@ def build_single_role_assembly_plan(
         }
     actions: list[dict[str, Any]] = []
     tape_filter = payload.get("tape_filter")
+    drive_blocks = payload.get("drive_blocks") or []
+    if tape_filter or drive_blocks:
+        actions.append(
+            {
+                "name": "prepare_assembly_page",
+                "role_name": role_name,
+                "sequence": map_assembly_page_prepare_controls(screen_size, content_rect)["prepare_sequence"],
+            }
+        )
     if tape_filter:
         actions.append(
             {
@@ -68,7 +85,6 @@ def build_single_role_assembly_plan(
                 "sequence": _tape_install_sequence(tape_filter, screen_size, content_rect),
             }
         )
-    drive_blocks = payload.get("drive_blocks") or []
     if drive_blocks:
         drive_plan = map_drive_blocks_installation(drive_blocks, screen_size, content_rect)
         actions.append(
@@ -147,8 +163,61 @@ def execute_all_roles_from_current_game_page(
     startup_delay_seconds: float = 3.0,
     reset_scroll_count: int = 6,
     verification_enabled: bool = True,
+    role_name_aliases: dict[str, str] | None = None,
 ):
     """Recognize the current game role list, traverse roles, and execute assembly."""
+
+    return _execute_roles_from_current_game_page(
+        equipped_state,
+        target_roles=None,
+        backend=backend,
+        template_dir=template_dir,
+        max_pages=max_pages,
+        startup_delay_seconds=startup_delay_seconds,
+        reset_scroll_count=reset_scroll_count,
+        verification_enabled=verification_enabled,
+        role_name_aliases=role_name_aliases,
+    )
+
+
+def execute_selected_role_from_current_game_page(
+    equipped_state: dict[str, Any] | None,
+    role_name: str,
+    backend: MouseBackend | None = None,
+    template_dir: str | None = None,
+    max_pages: int | None = None,
+    startup_delay_seconds: float = 3.0,
+    reset_scroll_count: int = 6,
+    verification_enabled: bool = True,
+    role_name_aliases: dict[str, str] | None = None,
+):
+    """Find one selected role in the game sidebar and assemble only its blueprint."""
+
+    return _execute_roles_from_current_game_page(
+        equipped_state,
+        target_roles=[role_name],
+        backend=backend,
+        template_dir=template_dir,
+        max_pages=max_pages,
+        startup_delay_seconds=startup_delay_seconds,
+        reset_scroll_count=reset_scroll_count,
+        verification_enabled=verification_enabled,
+        role_name_aliases=role_name_aliases,
+    )
+
+
+def _execute_roles_from_current_game_page(
+    equipped_state: dict[str, Any] | None,
+    target_roles: list[str] | tuple[str, ...] | None,
+    backend: MouseBackend | None,
+    template_dir: str | None,
+    max_pages: int | None,
+    startup_delay_seconds: float,
+    reset_scroll_count: int,
+    verification_enabled: bool,
+    role_name_aliases: dict[str, str] | None = None,
+):
+    """Shared game-page flow: find target roles first, then assemble their blueprints."""
 
     template_root = template_dir or str(runtime.CONFIG_DIR / "templates" / "roles")
     if startup_delay_seconds > 0:
@@ -163,43 +232,64 @@ def execute_all_roles_from_current_game_page(
         image_content_rect[3],
     )
     assembly_plan = build_all_role_assembly_plan(equipped_state, screen_size=screen_size, content_rect=action_rect)
+    assembly_plan = _filter_assembly_plan_for_roles(assembly_plan, target_roles)
     required_roles = assembly_plan.get("roles", [])
     if not required_roles:
         return execute_role_traversal_assembly_plan({"plans": []}, assembly_plan, backend=backend)
+    recognition_roles = _role_recognition_candidates(required_roles, template_root, equipped_state, role_name_aliases)
+    action_backend = backend or PyAutoGuiMouseBackend()
+    ocr_engine = OCREngine()
 
-    reset_sequence = map_role_page_reset(screen_size=screen_size, content_rect=action_rect, repeat_count=reset_scroll_count)["reset_sequence"]
-    execute_action_sequence(reset_sequence, backend=backend)
-    first_image, _first_rect = _capture_foreground_client_image()
-    cached_images = {0: first_image}
-
-    def observe_page(page_index: int):
-        image = cached_images.pop(page_index, None)
-        if image is None:
-            image, _rect = _capture_foreground_client_image()
-        return recognize_role_slots_from_image(
-            image,
-            required_roles,
-            template_root,
-            screen_size=screen_size,
-            content_rect=image_content_rect,
+    def press_up():
+        execute_action_sequence(
+            [{"name": "role_dpad_reset_to_first", "gamepad_button": "dpad_up"}],
+            backend=action_backend,
         )
 
-    def scroll_next(_page_index: int):
-        scroll_sequence = map_role_page_scroll(screen_size=screen_size, content_rect=action_rect)["scroll_sequence"]
-        execute_action_sequence(scroll_sequence, backend=backend)
+    def press_down():
+        execute_action_sequence(
+            [{"name": "role_dpad_next", "gamepad_button": "dpad_down"}],
+            backend=action_backend,
+        )
 
-    role_roster = collect_role_roster_until_repeat(
+    def observe_current(_index: int):
+        image, _rect = _capture_foreground_client_image()
+        recognition = recognize_current_role_from_image(
+            image,
+            recognition_roles,
+            ocr_engine,
+            screen_size=screen_size,
+            content_rect=image_content_rect,
+            role_aliases=role_name_aliases,
+        )
+        logger.info(
+            f"驱动装配角色扫描 #{_index + 1}："
+            f"匹配={recognition.role_name or '未识别'}，"
+            f"方式={recognition.method}，"
+            f"置信度={recognition.confidence:.3f}，"
+            f"OCR={recognition.raw_text!r}"
+        )
+        return recognition
+
+    role_roster = collect_role_roster_with_dpad(
         required_roles,
-        page_observer=observe_page,
-        scroll_next_page=scroll_next,
-        max_pages=max_pages or max(12, (len(required_roles) + 4) // 5 + 6),
+        current_observer=observe_current,
+        press_up=press_up,
+        press_down=press_down,
+        max_roles=max_pages or max(20, len(recognition_roles) + 6),
     )
-    traversal_plan = plan_role_assembly_from_roster(
+    logger.info(
+        "驱动装配角色扫描完成："
+        f"已识别={role_roster.get('roles', [])}，"
+        f"未识别={role_roster.get('unrecognized', [])}，"
+        f"重复={role_roster.get('duplicates', [])}"
+    )
+    traversal_plan = plan_role_assembly_from_dpad_roster(
         required_roles,
         role_roster,
         screen_size=screen_size,
         content_rect=action_rect,
-        reset_scroll_count=reset_scroll_count,
+        current_index=role_roster.get("current_index", max(0, len(role_roster.get("roles", []) or []) - 1)),
     )
     checker = f12_stop_checker()
 
@@ -212,10 +302,63 @@ def execute_all_roles_from_current_game_page(
     return execute_role_traversal_assembly_plan(
         traversal_plan,
         assembly_plan,
-        backend=backend,
+        backend=action_backend,
         should_stop=checker,
         role_verifier=verifier,
     )
+
+
+def _filter_assembly_plan_for_roles(
+    assembly_plan: dict[str, Any],
+    target_roles: list[str] | tuple[str, ...] | None,
+) -> dict[str, Any]:
+    if not target_roles:
+        return assembly_plan
+    targets = [str(role) for role in target_roles if str(role).strip()]
+    target_set = set(targets)
+    role_plans = [
+        plan for plan in assembly_plan.get("role_plans", [])
+        if str(plan.get("role_name") or "") in target_set
+    ]
+    ready = [plan for plan in role_plans if plan.get("available")]
+    filtered = dict(assembly_plan)
+    filtered["roles"] = [role for role in targets if any(plan.get("role_name") == role for plan in role_plans)]
+    filtered["role_plans"] = role_plans
+    filtered["role_count"] = len(filtered["roles"])
+    filtered["ready_count"] = len(ready)
+    filtered["missing_roles"] = [role for role in targets if role not in set(filtered["roles"])]
+    return filtered
+
+
+def _role_recognition_candidates(
+    required_roles: list[str] | tuple[str, ...],
+    template_root: str,
+    equipped_state: dict[str, Any] | None,
+    role_name_aliases: dict[str, str] | None = None,
+) -> list[str]:
+    """Return all role names that can help identify the sidebar roster."""
+
+    names: list[str] = []
+    for role in required_roles:
+        _append_unique_role_name(names, role)
+    if isinstance(equipped_state, dict):
+        for role in equipped_state:
+            _append_unique_role_name(names, role)
+    if isinstance(role_name_aliases, dict):
+        for canonical, alias in role_name_aliases.items():
+            _append_unique_role_name(names, canonical)
+            _append_unique_role_name(names, alias)
+    template_dir = Path(template_root)
+    if template_dir.exists():
+        for path in sorted(template_dir.glob("*.png")):
+            _append_unique_role_name(names, path.stem)
+    return names
+
+
+def _append_unique_role_name(names: list[str], role_name: Any) -> None:
+    value = str(role_name).strip()
+    if value and value not in names:
+        names.append(value)
 
 
 def verify_blueprint_against_screenshot(
@@ -312,9 +455,17 @@ def _tape_install_sequence(
     sequence.extend(map_page_controls(screen_size, content_rect)["click_sequence"])
     sequence.extend(map_tape_filter_controls(screen_size, content_rect)["set_filter_sequence"])
     sequence.extend(map_tape_set_selection(tape_filter["set_name"], screen_size, content_rect)["selection_sequence"])
-    sequence.extend(map_tape_filter_refinement([tape_filter.get("quality", "Gold")], screen_size, content_rect)["refinement_sequence"])
-    sequence.extend(map_tape_main_stat_scroll(screen_size, content_rect)["scroll_sequence"])
-    sequence.extend(map_tape_main_stat_selection(tape_filter["main_stat"], screen_size, content_rect)["selection_sequence"])
+    sequence.extend(
+        map_tape_filter_refinement(
+            [tape_filter.get("quality", "Gold")],
+            screen_size,
+            content_rect,
+            include_main_stat_expand=False,
+        )["refinement_sequence"]
+    )
+    sequence.extend(map_tape_main_stat_gamepad_open()["open_sequence"])
+    main_stat_selection = map_tape_main_stat_selection(tape_filter["main_stat"], screen_size, content_rect)
+    sequence.extend(main_stat_selection.get("ocr_selection_sequence") or main_stat_selection["selection_sequence"])
     sequence.extend(map_tape_sub_stat_filter_entry(screen_size, content_rect)["entry_sequence"])
     sequence.extend(map_tape_sub_stat_selection(tape_filter.get("sub_stats", []), screen_size, content_rect)["selection_sequence"])
     sequence.extend(map_tape_equip_first_result(screen_size, content_rect)["equip_sequence"])
