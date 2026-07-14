@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, \
+from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QMessageBox, QPushButton, QScrollArea, \
     QVBoxLayout, QWidget
 
 from src.app import runtime
@@ -17,12 +17,11 @@ from src.features.drive_assembly.ui_bridge import (
     build_all_role_assembly_plan,
     build_single_role_assembly_plan,
     execute_all_roles_from_current_game_page,
+    execute_selected_role_from_current_game_page,
     summarize_assembly_plan,
 )
 from src.features.drive_assembly.executor import (
     AssemblyExecutionStopped,
-    execute_role_assembly_plan,
-    f12_stop_checker,
 )
 from src.features.role.equipment_import import equipment_from_saved_state, import_all_role_equipment, import_role_equipment
 from src.features.scanning.file_lifecycle import equipment_compare_signature
@@ -390,6 +389,86 @@ def _import_all_to_my_roles(self):
         logger.error(f"批量导入配装失败: {e}")
 
 
+def _assembly_report_dialog(action_name: str, report, expected_role_count: int | None = None):
+    """Build a completion/warning dialog from a game assembly execution report."""
+    role_count = len(getattr(report, "role_reports", []) or [])
+    action_count = getattr(report, "executed_actions", 0)
+    missing = list(getattr(report, "missing_roles", []) or [])
+    skipped = list(getattr(report, "skipped_roles", []) or [])
+    duplicates = list(getattr(report, "duplicate_roles", []) or [])
+    unrecognized = list(getattr(report, "unrecognized_roles", []) or [])
+    verification_failures = list(getattr(report, "verification_failures", []) or [])
+
+    incomplete = bool(missing or skipped or duplicates or unrecognized or verification_failures)
+    if expected_role_count is not None and role_count < expected_role_count:
+        incomplete = True
+    if role_count == 0:
+        incomplete = True
+
+    title = f"{action_name}未完成" if incomplete else f"{action_name}完成"
+    lines = [f"已装配 {role_count} 个角色，执行 {action_count} 个动作。"]
+    if expected_role_count is not None and role_count < expected_role_count:
+        lines.append(f"预计装配 {expected_role_count} 个角色，还有 {expected_role_count - role_count} 个未完成。")
+    if missing:
+        lines.append("未找到角色：" + "、".join(str(role) for role in missing))
+    if skipped:
+        lines.append("跳过角色：" + "、".join(str(role) for role in skipped))
+    if duplicates:
+        lines.append(f"重复识别角色槽位：{len(duplicates)} 个。")
+    if unrecognized:
+        lines.append(f"未识别角色槽位：{len(unrecognized)} 个。")
+        for entry in unrecognized:
+            if not isinstance(entry, dict):
+                lines.append(f"- {entry}")
+                continue
+            if entry.get("roster_index") is not None:
+                position = f"第 {int(entry['roster_index']) + 1} 个角色"
+            elif entry.get("page_index") is not None and entry.get("slot_index") is not None:
+                position = f"第 {int(entry['page_index']) + 1} 页第 {int(entry['slot_index']) + 1} 个角色"
+            else:
+                position = "未知位置"
+            raw_text = str(entry.get("raw_text") or "").strip() or "未读取到文字"
+            lines.append(f"- {position}（OCR：{raw_text}）")
+    if verification_failures:
+        lines.append(f"图纸截图校验失败：{len(verification_failures)} 个。")
+        for failure in verification_failures:
+            if not isinstance(failure, dict):
+                continue
+            role_name = str(failure.get("role_name") or "未知角色")
+            block_ids = [
+                str(item.get("block_id"))
+                for item in (failure.get("missing_blocks") or [])
+                if isinstance(item, dict) and item.get("block_id") is not None
+            ]
+            if block_ids:
+                lines.append(f"- {role_name}：未通过校验的驱动块 #{'、#'.join(block_ids)}")
+    if incomplete:
+        lines.append("请检查角色识别结果后重新执行。")
+    return title, "\n".join(lines), not incomplete
+
+
+def _prompt_protagonist_alias_if_needed(self, role_names) -> dict[str, str]:
+    roles = {str(role).strip() for role in (role_names or []) if str(role).strip()}
+    if "主角" not in roles:
+        return {}
+    default_name = str(getattr(self, "_drive_assembly_protagonist_name", "") or "").strip()
+    player_name, ok = QInputDialog.getText(
+        self,
+        "主角名称",
+        "请输入游戏中主角显示的名字：",
+        QLineEdit.Normal,
+        default_name,
+    )
+    if not ok:
+        return {}
+    player_name = str(player_name).strip()
+    if not player_name:
+        QMessageBox.warning(self, "主角名称", "需要输入主角在游戏中显示的名字。")
+        return {}
+    self._drive_assembly_protagonist_name = player_name
+    return {"主角": player_name}
+
+
 def _preview_assemble_role(self, role_name: str):
     """生成并执行单个角色的游戏内装配动作计划。"""
     _reload_equipped_state_from_disk(self)
@@ -398,6 +477,9 @@ def _preview_assemble_role(self, role_name: str):
         summary=summarize_assembly_plan(plan)
         if not plan.get("available"):
             QMessageBox.warning(self,"装配计划",summary)
+            return
+        role_name_aliases = _prompt_protagonist_alias_if_needed(self, [role_name])
+        if role_name == "主角" and not role_name_aliases:
             return
         ret=QMessageBox.question(
             self,
@@ -408,8 +490,16 @@ def _preview_assemble_role(self, role_name: str):
         )
         if ret!=QMessageBox.Yes:
             return
-        report=execute_role_assembly_plan(plan, startup_delay_seconds=3.0, should_stop=f12_stop_checker())
-        QMessageBox.information(self,"装配执行完成",f"[{role_name}] 已执行 {report.executed_actions} 个动作。")
+        report=execute_selected_role_from_current_game_page(
+            self.equipped_state,
+            role_name,
+            role_name_aliases=role_name_aliases,
+        )
+        title, message, completed = _assembly_report_dialog("单角色装配", report, expected_role_count=1)
+        if completed:
+            QMessageBox.information(self,title,message)
+        else:
+            QMessageBox.warning(self,title,message)
         logger.info(f"已执行 [{role_name}] 装配动作：{report.executed_actions}")
     except AssemblyExecutionStopped:
         QMessageBox.warning(self,"装配已停止",f"[{role_name}] 装配执行已停止。")
@@ -428,6 +518,10 @@ def _preview_assemble_all_roles(self):
     try:
         plan=build_all_role_assembly_plan(self.equipped_state)
         summary=summarize_assembly_plan(plan)
+        planned_roles = [str(role) for role in (plan.get("roles") or self.equipped_state.keys())]
+        role_name_aliases = _prompt_protagonist_alias_if_needed(self, planned_roles)
+        if "主角" in planned_roles and not role_name_aliases:
+            return
         ret=QMessageBox.question(
             self,
             "一键装配所有角色",
@@ -437,17 +531,16 @@ def _preview_assemble_all_roles(self):
         )
         if ret!=QMessageBox.Yes:
             return
-        report=execute_all_roles_from_current_game_page(self.equipped_state)
-        message=f"Executed {len(report.role_reports)} roles, {report.executed_actions} actions."
-        if getattr(report, "missing_roles", None):
-            message += "\nMissing roles: " + ", ".join(report.missing_roles)
-        if getattr(report, "duplicate_roles", None):
-            message += f"\nDuplicate role slots: {len(report.duplicate_roles)}"
-        if getattr(report, "unrecognized_roles", None):
-            message += f"\nUnrecognized slots: {len(report.unrecognized_roles)}"
-        if getattr(report, "verification_failures", None):
-            message += f"\nScreenshot verification failures: {len(report.verification_failures)}"
-        QMessageBox.information(self,"Assembly complete",message)
+        report=execute_all_roles_from_current_game_page(self.equipped_state, role_name_aliases=role_name_aliases)
+        title, message, completed = _assembly_report_dialog(
+            "一键装配所有角色",
+            report,
+            expected_role_count=len(planned_roles),
+        )
+        if completed:
+            QMessageBox.information(self,title,message)
+        else:
+            QMessageBox.warning(self,title,message)
         logger.info(f"Assembly executed: {len(report.role_reports)} roles, {report.executed_actions} actions")
         return
         QMessageBox.information(self,"一键装配完成",f"已执行 {len(report.role_reports)} 个角色，{report.executed_actions} 个动作。")
