@@ -31,6 +31,8 @@ class InventoryPageMixin:
     _delete_role_equipment = inventory_page._delete_role_equipment
     _import_to_my_role = inventory_page._import_to_my_role
     _import_all_to_my_roles = inventory_page._import_all_to_my_roles
+    _preview_assemble_role = inventory_page._preview_assemble_role
+    _preview_assemble_all_roles = inventory_page._preview_assemble_all_roles
     _save_eq = inventory_page._save_eq
 
 
