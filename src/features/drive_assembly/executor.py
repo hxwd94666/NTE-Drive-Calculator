@@ -8,60 +8,21 @@ import difflib
 import re
 from typing import Any, Callable, Protocol
 import time
-import pyautogui
-from src.features.drive_assembly.randomization import (
-    RandomizationContext,
-    jitter_duration_ms,
-    jitter_position,
-    jitter_scroll_endpoint,
-    jitter_timing,
-    path_noise_offset,
-)
+
 from src.utils.logger import logger
 
-_DEFAULT_RANDOMIZATION_CTX = RandomizationContext()
 
 DEFAULT_ACTION_PAUSE_SECONDS = 0.5
-FILTER_ACTION_PAUSE_SECONDS = 0.25
-DEFAULT_DRAG_DURATION_MS = 1200
+DEFAULT_DRAG_DURATION_MS = 700
 DEFAULT_CLICK_HOLD_SECONDS = 0.035
-ROLE_LIST_OPEN_RS_HOLD_SECONDS = 0.25
 STOP_POLL_INTERVAL_SECONDS = 0.05
 SENDINPUT_DRAG_HOLD_SECONDS = 0.30
 SENDINPUT_DRAG_RELEASE_SECONDS = 0.20
 SENDINPUT_DRAG_STEP_SECONDS = 0.012
-EQUIPMENT_DRAG_HOLD_SECONDS = 0.45
+EQUIPMENT_DRAG_HOLD_SECONDS = 0.35
 EQUIPMENT_DRAG_RELEASE_SECONDS = 0.20
 MAX_OCR_INPUT_WIDTH = 1200
 MAX_OCR_INPUT_HEIGHT = 900
-
-FILTER_INTERACTION_ACTION_NAMES = {
-    "tape_tab",
-    "drive_tab",
-    "filter_button",
-    "reset_filter",
-    "set_select",
-    "set_option",
-    "drive_set_select",
-    "drive_set_option",
-    "confirm_filter",
-    "confirm_drive_set_filter",
-    "shape_select",
-    "shape_option",
-    "confirm_shape_filter",
-    "status_locked",
-    "status_discarded",
-    "status_other",
-    "quality_blue",
-    "quality_purple",
-    "quality_orange",
-    "verify_quality_selected",
-    "main_stat_expand",
-    "main_stat_option",
-    "sub_stat_expand",
-    "sub_stat_option",
-    "sub_stat_count_four",
-}
 
 INPUT_MOUSE = 0
 MOUSEEVENTF_MOVE = 0x0001
@@ -142,54 +103,43 @@ def f12_stop_checker() -> Callable[[], bool]:
 class PyAutoGuiMouseBackend:
     """Mouse backend powered by pyautogui."""
 
-    def __init__(self, randomization: RandomizationContext | None = None):
+    def __init__(self):
+        import pyautogui
 
-        self._randomization = (
-            randomization
-            if randomization is not None
-            else RandomizationContext()
-        )
         self._pyautogui = pyautogui
         self._pyautogui.FAILSAFE = True
-        self._send_input = _WindowsSendInputMouseDriver(randomization=self._randomization)
+        self._send_input = _WindowsSendInputMouseDriver()
         self._gamepad = _VirtualGamepadDriver()
         self._sleeper = time.sleep
 
     def click(self, position: tuple[int, int]) -> None:
-        ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
-        jpos = jitter_position(ctx, position, ctx.click_offset_range)
-        jhold = jitter_timing(ctx, DEFAULT_CLICK_HOLD_SECONDS)
         if self._send_input.available:
-            self._send_input.click(jpos, hold_seconds=jhold)
+            self._send_input.click(position)
             return
         self._pyautogui.mouseUp()
-        self._pyautogui.moveTo(*jpos)
+        self._pyautogui.moveTo(*position)
         self._pyautogui.mouseDown()
-        time.sleep(jhold)
+        time.sleep(DEFAULT_CLICK_HOLD_SECONDS)
         self._pyautogui.mouseUp()
 
     def drag(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
         # Equipment placement needs the game's original mouse drag behavior.
         # Filter-panel scrolling uses drag_scroll() and remains on SendInput.
-        ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
-        jittered_start = jitter_position(ctx, start, ctx.drag_start_offset_range)
-        jittered_end = jitter_position(ctx, end, ctx.drag_end_offset_range)
-        duration = max(0.0, jitter_duration_ms(ctx, duration_ms) / 1000.0)
+        duration = max(0.0, duration_ms / 1000.0)
         sleeper = getattr(self, "_sleeper", time.sleep)
 
         # Give the game time to recognize that the filtered equipment card was
-        # grabbed. Do not use dragTo here: it presses and releases the button
-        # itself, which resets the long press before the movement begins.
+        # grabbed. Keep the established dragTo movement unchanged afterwards.
         self._pyautogui.mouseUp(button="left")
-        self._pyautogui.moveTo(*jittered_start)
-        sleeper(jitter_timing(ctx, 0.15))
+        self._pyautogui.moveTo(*start)
+        sleeper(0.15)
         self._pyautogui.mouseDown(button="left")
         try:
-            sleeper(jitter_timing(ctx, EQUIPMENT_DRAG_HOLD_SECONDS))
-            self._pyautogui.moveTo(*jittered_end, duration=duration)
+            sleeper(EQUIPMENT_DRAG_HOLD_SECONDS)
+            self._pyautogui.dragTo(*end, duration=duration, button="left")
         finally:
             self._pyautogui.mouseUp(button="left")
-        sleeper(jitter_timing(ctx, EQUIPMENT_DRAG_RELEASE_SECONDS))
+        sleeper(EQUIPMENT_DRAG_RELEASE_SECONDS)
 
     def drag_scroll(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
         if self._send_input.available:
@@ -203,27 +153,11 @@ class PyAutoGuiMouseBackend:
     def push_left_joystick(self, x: float, y: float) -> None:
         self._gamepad.push_left_joystick(x, y)
 
-    def close(self) -> None:
-        """Reset and release the lazily-created virtual controller."""
-
-        self._gamepad.close()
-
     def pause(self, seconds: float) -> None:
         time.sleep(max(0.0, seconds))
 
     def screenshot(self) -> Any:
         return self._pyautogui.screenshot()
-
-    def enable_randomization(self, seed: int | None = None) -> None:
-        """Turn on the randomization context for this backend.
-
-        When *seed* is provided the internal RNG is reset so that
-        subsequent jitter is deterministic and reproducible.
-        """
-        self._randomization.enabled = True
-        if seed is not None:
-            self._randomization.seed(seed)
-        self._send_input._randomization = self._randomization
 
 
 class _WindowsSendInputMouseDriver:
@@ -233,9 +167,7 @@ class _WindowsSendInputMouseDriver:
         self,
         user32: Any | None = None,
         sleeper: Callable[[float], None] = time.sleep,
-        randomization: RandomizationContext | None = None,
     ):
-        self._randomization = randomization or _DEFAULT_RANDOMIZATION_CTX
         self._sleeper = sleeper
         self._ctypes = None
         self._wintypes = None
@@ -260,64 +192,40 @@ class _WindowsSendInputMouseDriver:
     def drag(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
         if not self.available:
             raise RuntimeError("SendInput is not available")
-        ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
-        jittered_start = jitter_position(ctx, start, ctx.drag_start_offset_range)
-        jittered_end = jitter_scroll_endpoint(ctx, start, end, ctx.drag_end_offset_range)
-        jittered_duration_ms = jitter_duration_ms(ctx, duration_ms)
-        self._move_to(jittered_start)
-        self._sleeper(jitter_timing(ctx, 0.15))
+        self._move_to(start)
+        self._sleeper(0.15)
         self._send(MOUSEEVENTF_LEFTDOWN)
-        self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_HOLD_SECONDS))
-        steps = self._drag_steps(jittered_start, jittered_end, jittered_duration_ms)
-        self._move_relative_in_steps(jittered_start, jittered_end, steps, ctx=ctx)
-        self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_RELEASE_SECONDS))
+        self._sleeper(SENDINPUT_DRAG_HOLD_SECONDS)
+        steps = self._drag_steps(start, end, duration_ms)
+        self._move_relative_in_steps(start, end, steps)
+        self._sleeper(SENDINPUT_DRAG_RELEASE_SECONDS)
         self._send(MOUSEEVENTF_LEFTUP)
-        self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_RELEASE_SECONDS))
+        self._sleeper(SENDINPUT_DRAG_RELEASE_SECONDS)
 
-    def click(self, position: tuple[int, int], hold_seconds: float | None = None) -> None:
+    def click(self, position: tuple[int, int]) -> None:
         """Click without invoking PyAutoGUI's corner fail-safe check."""
 
         if not self.available:
             raise RuntimeError("SendInput is not available")
-        hold = hold_seconds if hold_seconds is not None else DEFAULT_CLICK_HOLD_SECONDS
         self._move_to(position)
         self._sleeper(0.05)
         self._send(MOUSEEVENTF_LEFTDOWN)
-        self._sleeper(hold)
+        self._sleeper(DEFAULT_CLICK_HOLD_SECONDS)
         self._send(MOUSEEVENTF_LEFTUP)
 
-    def _move_relative_in_steps(
-        self,
-        start: tuple[int, int],
-        end: tuple[int, int],
-        steps: int,
-        ctx: RandomizationContext | None = None,
-    ) -> None:
+    def _move_relative_in_steps(self, start: tuple[int, int], end: tuple[int, int], steps: int) -> None:
         previous_x, previous_y = start
         total_dx = end[0] - start[0]
         total_dy = end[1] - start[1]
-        use_noise = ctx is not None and ctx.enabled and ctx.path_noise_pixels > 0
-        noise_dx = 0
-        noise_dy = 0
         for index in range(1, steps + 1):
             target_x = start[0] + round(total_dx * index / steps)
             target_y = start[1] + round(total_dy * index / steps)
-            # Zero-sum path noise: add noise on odd steps, undo on even steps
-            # so the endpoint is always exactly correct.
-            if use_noise and index % 2 == 1 and index + 1 <= steps:
-                noise_dx, noise_dy = path_noise_offset(ctx)
-            elif use_noise and index % 2 == 0:
-                target_x -= noise_dx
-                target_y -= noise_dy
-                noise_dx = 0
-                noise_dy = 0
             dx = target_x - previous_x
             dy = target_y - previous_y
             if dx or dy:
                 self._send(MOUSEEVENTF_MOVE, dx, dy)
             previous_x, previous_y = target_x, target_y
-            step_sleep = jitter_timing(ctx, SENDINPUT_DRAG_STEP_SECONDS) if ctx is not None else SENDINPUT_DRAG_STEP_SECONDS
-            self._sleeper(step_sleep)
+            self._sleeper(SENDINPUT_DRAG_STEP_SECONDS)
 
     def _move_to(self, position: tuple[int, int]) -> None:
         ax, ay = self._abs_coord(position)
@@ -373,7 +281,6 @@ class _VirtualGamepadDriver:
         "b": "XUSB_GAMEPAD_B",
         "x": "XUSB_GAMEPAD_X",
         "y": "XUSB_GAMEPAD_Y",
-        "rs": "XUSB_GAMEPAD_RIGHT_THUMB",
     }
 
     def __init__(
@@ -399,12 +306,7 @@ class _VirtualGamepadDriver:
         button = getattr(self._buttons, attr_name)
         self._gamepad.press_button(button=button)
         self._gamepad.update()
-        hold_seconds = (
-            ROLE_LIST_OPEN_RS_HOLD_SECONDS
-            if key == "rs"
-            else self._hold_seconds
-        )
-        self._sleeper(hold_seconds)
+        self._sleeper(self._hold_seconds)
         self._gamepad.release_button(button=button)
         self._gamepad.update()
         self._sleeper(self._settle_seconds)
@@ -417,24 +319,6 @@ class _VirtualGamepadDriver:
         self._gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
         self._gamepad.update()
         self._sleeper(self._settle_seconds)
-
-    def close(self) -> None:
-        """Reset inputs, then release the ViGEm controller object.
-
-        ``vgamepad`` exposes no explicit disconnect API; dropping the gamepad
-        object after a reset/update releases its virtual-controller handle.
-        """
-
-        gamepad = self._gamepad
-        self._gamepad = None
-        self._buttons = None
-        if gamepad is None:
-            return
-        try:
-            gamepad.reset()
-            gamepad.update()
-        finally:
-            del gamepad
 
     def _ensure_connected(self) -> None:
         if self._gamepad is not None:
@@ -452,7 +336,6 @@ def execute_action_sequence(
     pause_seconds: float = DEFAULT_ACTION_PAUSE_SECONDS,
     should_stop: Callable[[], bool] | None = None,
     role_name: str | None = None,
-    on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
 ) -> ActionExecutionReport:
     """Execute a flat click/drag sequence."""
 
@@ -464,38 +347,11 @@ def execute_action_sequence(
             raise AssemblyExecutionStopped("assembly execution stopped")
         if _execute_one_action(action, mouse, should_stop=should_stop, runtime_state=runtime_state):
             report.executed_actions += 1
-            if action.get("duplicate_status_filter"):
-                logger.info(
-                    "重复装备状态筛选已执行 | "
-                    f"角色={role_name or '未指定'} | 块={action.get('block_id', '未指定')} | "
-                    f"分组={action.get('duplicate_group_id') or '未分组'} | 状态={action.get('name')}"
-                )
-            action_pause_seconds = float(
-                action.get("post_action_pause_seconds", _default_action_pause_seconds(action, pause_seconds))
-            )
-            if action_pause_seconds > 0:
-                _pause_with_stop(mouse, action_pause_seconds, should_stop)
-            if on_action_executed is not None:
-                try:
-                    on_action_executed(dict(action), role_name)
-                except Exception as exc:
-                    logger.warning(f"装配动作记录回调失败 | {_action_diagnostic(action)} | 原因={exc}")
+            if pause_seconds > 0:
+                _pause_with_stop(mouse, pause_seconds, should_stop)
         else:
             report.skipped_actions.append(dict(action))
-            logger.warning(
-                "装配动作跳过 | "
-                f"角色={role_name or '未指定'} | {_action_diagnostic(action)} | "
-                "原因=动作不受支持或前置检测失败"
-            )
     return report
-
-
-def _default_action_pause_seconds(action: dict[str, Any], pause_seconds: float) -> float:
-    """Use a shorter pause for ordinary filtering clicks and confirmations."""
-
-    if str(action.get("name") or "") in FILTER_INTERACTION_ACTION_NAMES:
-        return min(float(pause_seconds), FILTER_ACTION_PAUSE_SECONDS)
-    return float(pause_seconds)
 
 
 def execute_role_assembly_plan(
@@ -505,7 +361,6 @@ def execute_role_assembly_plan(
     should_stop: Callable[[], bool] | None = None,
     startup_delay_seconds: float = 0.0,
     role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
-    on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
 ) -> ActionExecutionReport:
     """Execute all install actions for one role plan."""
 
@@ -513,11 +368,6 @@ def execute_role_assembly_plan(
     if not plan.get("available"):
         return ActionExecutionReport(role_name=role_name)
     mouse = backend or PyAutoGuiMouseBackend()
-    logger.info(
-        "角色装配开始 | "
-        f"角色={role_name or '未指定'} | 卡带={plan.get('tape_count', 0)} | "
-        f"驱动={plan.get('drive_count', 0)} | 顶层动作={[action.get('name') for action in plan.get('actions', [])]}"
-    )
     if startup_delay_seconds > 0:
         _pause_with_stop(mouse, startup_delay_seconds, should_stop)
     combined = _flatten_role_actions(plan.get("actions", []))
@@ -527,15 +377,9 @@ def execute_role_assembly_plan(
         pause_seconds=pause_seconds,
         should_stop=should_stop,
         role_name=role_name,
-        on_action_executed=on_action_executed,
     )
     if role_verifier is not None:
         role_verifier(role_name, plan)
-    logger.info(
-        "角色装配结束 | "
-        f"角色={role_name or '未指定'} | 已执行={report.executed_actions} | "
-        f"跳过={[action.get('name', '未命名') for action in report.skipped_actions]}"
-    )
     return report
 
 
@@ -572,7 +416,6 @@ def execute_role_traversal_assembly_plan(
     pause_seconds: float = DEFAULT_ACTION_PAUSE_SECONDS,
     should_stop: Callable[[], bool] | None = None,
     role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
-    on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
 ) -> AssemblyExecutionReport:
     """Execute role-list traversal and run the matching assembly plan for each role."""
 
@@ -582,18 +425,7 @@ def execute_role_traversal_assembly_plan(
     report.missing_roles = list(traversal_plan.get("missing_roles", []) or [])
     report.duplicate_roles = list(traversal_plan.get("duplicates", []) or [])
     report.unrecognized_roles = list(traversal_plan.get("unrecognized", []) or [])
-    logger.info(
-        "装配遍历执行开始 | "
-        f"计划角色={[step.get('role_name') for step in traversal_plan.get('plans', [])]} | "
-        f"缺失={report.missing_roles} | 未识别={report.unrecognized_roles} | 重复角色={report.duplicate_roles}"
-    )
     for step in traversal_plan.get("plans", []):
-        logger.info(
-            "角色路径执行 | "
-            f"角色={step.get('role_name')} | 起始索引={step.get('start_roster_index')} | "
-            f"目标索引={step.get('roster_index')} | "
-            f"导航={[action.get('gamepad_button') or action.get('gamepad_stick') or action.get('name') for action in step.get('action_sequence', []) if not _is_role_blueprint_assembly_action(action)]}"
-        )
         pending_actions: list[dict[str, Any]] = []
         for action in step.get("action_sequence", []):
             if not _is_role_blueprint_assembly_action(action):
@@ -606,7 +438,6 @@ def execute_role_traversal_assembly_plan(
                     pause_seconds=pause_seconds,
                     should_stop=should_stop,
                     role_name=step.get("role_name"),
-                    on_action_executed=on_action_executed,
                 )
                 report.navigation_actions += action_report.executed_actions
                 pending_actions = []
@@ -615,20 +446,17 @@ def execute_role_traversal_assembly_plan(
             if role_plan is None:
                 if role_name:
                     report.skipped_roles.append(role_name)
-                logger.warning(f"角色装配跳过 | 角色={role_name or '未指定'} | 原因=未找到对应装配计划")
                 continue
             role_report = execute_role_assembly_plan(
                 role_plan,
                 backend=mouse,
                 pause_seconds=pause_seconds,
                 should_stop=should_stop,
-                on_action_executed=on_action_executed,
             )
             if role_verifier is not None:
                 verification = role_verifier(role_name, role_plan)
                 if verification and not verification.get("ok", True):
                     report.verification_failures.append({"role_name": role_name, **verification})
-                    logger.warning(f"角色装配校验失败 | 角色={role_name} | 详情={verification}")
             report.role_reports.append(role_report)
         if pending_actions:
             action_report = execute_action_sequence(
@@ -637,14 +465,8 @@ def execute_role_traversal_assembly_plan(
                 pause_seconds=pause_seconds,
                 should_stop=should_stop,
                 role_name=step.get("role_name"),
-                on_action_executed=on_action_executed,
             )
             report.navigation_actions += action_report.executed_actions
-    logger.info(
-        "装配遍历执行结束 | "
-        f"导航动作={report.navigation_actions} | 角色报告={[(item.role_name, item.executed_actions) for item in report.role_reports]} | "
-        f"跳过角色={report.skipped_roles} | 校验失败={report.verification_failures}"
-    )
     return report
 
 
@@ -669,16 +491,6 @@ def _role_plan_lookup(assembly_plan: dict[str, Any]) -> dict[str, dict[str, Any]
 
 def _is_role_blueprint_assembly_action(action: dict[str, Any]) -> bool:
     return action.get("name") in {"assemble_current_role_from_blueprint", "run_drive_assembly_for_role"}
-
-
-def _action_diagnostic(action: dict[str, Any]) -> str:
-    """Return concise, useful context for an action that could not run."""
-
-    fields = [f"动作={action.get('name', '未命名')}"]
-    for key in ("block_id", "position", "from", "to", "target_position", "duration_ms", "gamepad_button", "gamepad_stick"):
-        if key in action:
-            fields.append(f"{key}={action[key]}")
-    return " | ".join(fields)
 
 
 def _expand_drive_install_sequence(action: dict[str, Any]) -> list[dict[str, Any]]:
@@ -766,12 +578,10 @@ def _retry_unselected_quality(
 
     capture = getattr(backend, "screenshot", None)
     if capture is None:
-        logger.warning(f"驱动块 {action.get('block_id')} 无法校验 | 原因=后端不支持截图")
         return False
     try:
         image = capture()
-    except Exception as exc:
-        logger.warning(f"驱动块 {action.get('block_id')} 无法校验 | 原因=截图失败 | 异常={exc!r}")
+    except Exception:
         return False
     if _quality_button_looks_selected(image, _point(action["selection_probe_position"])):
         return True
@@ -800,7 +610,6 @@ def _retry_missing_drive_block(
     retry_from = action.get("retry_from")
     retry_to = action.get("retry_to") or target
     if not target or not retry_from or not retry_to:
-        logger.warning(f"驱动块 {action.get('block_id')} 无法校验 | 原因=缺少重试坐标 | target={target} from={retry_from} to={retry_to}")
         return False
     target_point = _point(target)
     # New plans provide a wider comparison sample. Keep the old narrow sample
@@ -817,31 +626,19 @@ def _retry_missing_drive_block(
             minimum_difference=float(action.get("change_threshold") or 15.0),
         )
         if changed:
-            logger.info(
-                f"Drive block {action.get('block_id')} install verified by target-image change | "
-                f"target={target_point} | radius={sample_radius} | threshold={action.get('change_threshold') or 15.0}"
-            )
+            logger.info(f"Drive block {action.get('block_id')} install verified by target-image change")
             return True
-        logger.warning(
-            f"Drive block {action.get('block_id')} target image unchanged; retrying drag | "
-            f"target={target_point} | radius={sample_radius} | threshold={action.get('change_threshold') or 15.0}"
-        )
+        logger.warning(f"Drive block {action.get('block_id')} target image unchanged; retrying drag")
     elif _drive_target_looks_occupied(
         image,
         target_point,
         radius=sample_radius,
         brightness_threshold=float(action.get("brightness_threshold") or 80.0),
     ):
-        logger.info(
-            f"Drive block {action.get('block_id')} install verified by fallback brightness | "
-            f"target={target_point} | radius={sample_radius} | threshold={action.get('brightness_threshold') or 80.0}"
-        )
+        logger.info(f"Drive block {action.get('block_id')} install verified by fallback brightness")
         return True
     else:
-        logger.warning(
-            f"Drive block {action.get('block_id')} has no baseline; retrying drag | "
-            f"target={target_point} | radius={sample_radius} | threshold={action.get('brightness_threshold') or 80.0}"
-        )
+        logger.warning(f"Drive block {action.get('block_id')} has no baseline; retrying drag")
 
     retry_start = _point(retry_from)
     retry_end = _point(retry_to)
@@ -868,25 +665,16 @@ def _capture_drive_target_baseline(
     capture = getattr(backend, "screenshot", None)
     target = action.get("target_position")
     if capture is None or not target:
-        logger.warning(
-            f"驱动块 {action.get('block_id')} 未采集基线 | "
-            f"原因={'后端不支持截图' if capture is None else '缺少目标坐标'} | target={target}"
-        )
         return False
     try:
         image = capture()
-    except Exception as exc:
-        logger.warning(f"驱动块 {action.get('block_id')} 未采集基线 | 原因=截图失败 | 异常={exc!r}")
+    except Exception:
         return False
     sample = _drive_target_sample(image, _point(target), int(action.get("sample_radius") or 12))
     if sample is None:
-        logger.warning(f"驱动块 {action.get('block_id')} 未采集基线 | 原因=目标采样无效 | target={target}")
         return False
     runtime_state[_drive_target_state_key(action)] = sample
-    logger.info(
-        f"Drive block {action.get('block_id')} target baseline captured | "
-        f"target={_point(target)} | radius={action.get('sample_radius') or 12}"
-    )
+    logger.info(f"Drive block {action.get('block_id')} target baseline captured")
     return True
 
 

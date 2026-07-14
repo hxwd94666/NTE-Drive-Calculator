@@ -6,8 +6,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from src.scanner.window_capture import game_content_rect
-
 
 REFERENCE_SCREEN_SIZE = (2560, 1440)
 DEFAULT_BOARD_ORIGIN = (1034.0, 315.0)
@@ -83,7 +81,6 @@ DEFAULT_TAPE_MAIN_STAT_SCROLL = {
     "main_stat_scroll_start": (2067.0, 1190.0),
     "main_stat_scroll_end": (2067.0, 395.0),
 }
-TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS = 0.20
 DEFAULT_TAPE_SUB_STAT_FILTER_ENTRY = {
     "sub_stat_scroll_start": (2067.0, 1190.0),
     "sub_stat_scroll_end": (2067.0, 395.0),
@@ -155,19 +152,9 @@ DEFAULT_TAPE_MAIN_STAT_OPTIONS = {
     "心灵伤害增强": (1861.0, 1085.0),
 }
 TAPE_MAIN_STAT_ALIASES = {
-    # 旧库存按数值属性名保存百分号，游戏筛选器则展示为无百分号的主词条名称。
     "生命值%": "生命值百分比",
     "攻击力%": "攻击力百分比",
     "防御力%": "防御力百分比",
-    "暴击率%": "暴击率",
-    "暴击伤害%": "暴击伤害",
-    "光属性异能伤害增强%": "光属性异能伤害增强",
-    "灵属性异能伤害增强%": "灵属性异能伤害增强",
-    "咒属性异能伤害增强%": "咒属性异能伤害增强",
-    "暗属性异能伤害增强%": "暗属性异能伤害增强",
-    "魂属性异能伤害增强%": "魂属性异能伤害增强",
-    "相属性异能伤害增强%": "相属性异能伤害增强",
-    "心灵伤害增强%": "心灵伤害增强",
 }
 TAPE_SUB_STAT_ALIASES = {
     "生命值%": "生命值百分比",
@@ -216,9 +203,6 @@ DEFAULT_TAPE_SET_OPTIONS = {
     "失落光芒": (762.0, 960.0),
     "缇娅的夜间酒馆": (994.0, 960.0),
     "静谧山庄": (1225.0, 960.0),
-}
-TAPE_SET_NAME_ALIASES = {
-    "缇娜的夜间酒馆": "缇娅的夜间酒馆",
 }
 
 
@@ -322,7 +306,6 @@ def map_tape_filter_controls(
     controls = _scale_controls(DEFAULT_TAPE_FILTER_CONTROLS, screen_size, content_rect)
     controls["set_filter_sequence"] = [
         {"name": "set_select", "position": controls["set_select"]},
-        {"name": "wait_after_tape_set_dialog_open", "wait_seconds": 0.5},
     ]
     return controls
 
@@ -348,10 +331,8 @@ def map_drive_shape_selection(
     }
     result["selection_sequence"] = [
         {"name": "shape_select", "position": result["shape_select"]},
-        {"name": "wait_after_drive_shape_dialog_open", "wait_seconds": 0.5},
         {"name": "shape_option", "drive_type": normalized, "position": result["shape_option"]},
         {"name": "confirm_shape_filter", "position": result["confirm_filter"]},
-        {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": 0.5},
     ]
     return result
 
@@ -362,7 +343,7 @@ def map_drive_set_selection(
     content_rect: tuple[int, int, int, int] | None = None,
 ) -> dict[str, Any]:
     """Return click positions for selecting a drive set from the filter panel."""
-    normalized_name = _normalize_tape_set_name(set_name)
+    normalized_name = str(set_name).strip()
     if normalized_name not in DEFAULT_TAPE_SET_OPTIONS:
         available = ", ".join(DEFAULT_TAPE_SET_OPTIONS)
         raise ValueError(f"unknown drive set: {set_name}. available sets: {available}")
@@ -403,7 +384,7 @@ def map_tape_set_selection(
 ) -> dict[str, Any]:
     """Return click positions for selecting a tape set in the set filter dialog."""
 
-    normalized_name = _normalize_tape_set_name(set_name)
+    normalized_name = str(set_name).strip()
     if normalized_name not in DEFAULT_TAPE_SET_OPTIONS:
         available = "、".join(DEFAULT_TAPE_SET_OPTIONS)
         raise ValueError(f"未知套装: {set_name}。可用套装: {available}")
@@ -419,7 +400,6 @@ def map_tape_set_selection(
     result["selection_sequence"] = [
         {"name": "set_option", "set_name": normalized_name, "position": result["set_option"]},
         {"name": "confirm_filter", "position": result["confirm_filter"]},
-        {"name": "wait_after_tape_set_dialog_close", "wait_seconds": 0.5},
     ]
     return result
 
@@ -429,7 +409,6 @@ def map_tape_filter_refinement(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
     include_main_stat_expand: bool = True,
-    include_status_filters: bool = False,
 ) -> dict[str, Any]:
     """Return filter positions after the set has been selected."""
 
@@ -439,15 +418,11 @@ def map_tape_filter_refinement(
     result: dict[str, Any] = {}
     for name in ("status_locked", "status_discarded", "status_other"):
         result[name] = status_controls[name]
-    sequence: list[dict[str, Any]] = []
-    if include_status_filters:
-        sequence.extend(
-            [
-                {"name": "status_locked", "position": result["status_locked"]},
-                {"name": "status_discarded", "position": result["status_discarded"]},
-                {"name": "status_other", "position": result["status_other"]},
-            ]
-        )
+    sequence = [
+        {"name": "status_locked", "position": result["status_locked"]},
+        {"name": "status_discarded", "position": result["status_discarded"]},
+        {"name": "status_other", "position": result["status_other"]},
+    ]
     for quality in qualities:
         control_name = _quality_control_name(quality)
         result[control_name] = quality_controls[control_name]
@@ -476,7 +451,7 @@ def map_drive_filter_refinement(
     content_rect: tuple[int, int, int, int] | None = None,
     duration_ms: int = 500,
     include_status_filters: bool = True,
-    bottom_scroll_count: int = 1,
+    bottom_scroll_count: int = 2,
 ) -> dict[str, Any]:
     """Return drive filter positions after the shape has been selected."""
 
@@ -576,26 +551,12 @@ def map_tape_main_stat_gamepad_open() -> dict[str, Any]:
 
     sequence: list[dict[str, Any]] = []
     sequence.extend(
-        {
-            "name": "main_stat_gamepad_down_to_expand",
-            "gamepad_stick": "left_down",
-            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
-        }
+        {"name": "main_stat_gamepad_down_to_expand", "gamepad_stick": "left_down"}
         for _index in range(7)
     )
-    sequence.append(
-        {
-            "name": "main_stat_gamepad_confirm_expand",
-            "gamepad_button": "a",
-            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
-        }
-    )
+    sequence.append({"name": "main_stat_gamepad_confirm_expand", "gamepad_button": "a"})
     sequence.extend(
-        {
-            "name": "main_stat_gamepad_down_to_options",
-            "gamepad_stick": "left_down",
-            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
-        }
+        {"name": "main_stat_gamepad_down_to_options", "gamepad_stick": "left_down"}
         for _index in range(3)
     )
     return {"open_sequence": sequence}
@@ -698,7 +659,7 @@ def map_tape_sub_stat_selection(
 def map_tape_equip_first_result(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    duration_ms: int = 1200,
+    duration_ms: int = 700,
 ) -> dict[str, Any]:
     """Return actions for confirming the filter and equipping the first visible tape."""
 
@@ -734,7 +695,8 @@ def map_drive_block_installation(
     block: dict[str, Any],
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    duration_ms: int = 1200,
+    duration_ms: int = 700,
+    cached_set_name: str | None = None,
     open_filter: bool = False,
 ) -> dict[str, Any]:
     """Return the filter and drag actions for installing one drive block."""
@@ -743,10 +705,12 @@ def map_drive_block_installation(
     drive_type = str(block.get("drive_type") or drive.get("shape_id") or "")
     quality = str(drive.get("quality") or "Gold")
     sub_stats = _drive_sub_stat_names(drive.get("sub_stats"))
+    set_name = str(cached_set_name or block.get("set_name") or drive.get("set_name") or "").strip()
     reset = map_filter_reset(screen_size, content_rect)
     page_controls = map_drive_page_controls(screen_size, content_rect)
+    set_selection = map_drive_set_selection(set_name, screen_size, content_rect) if set_name else None
     shape_selection = map_drive_shape_selection(drive_type, screen_size, content_rect)
-    is_duplicate = _is_duplicate_drive_block(block)
+    is_duplicate = bool(block.get("is_duplicate_drive") or block.get("is_duplicate_equipment"))
     refinement = map_drive_filter_refinement(
         [quality],
         sub_stats,
@@ -760,26 +724,21 @@ def map_drive_block_installation(
     result: dict[str, Any] = {
         "block_id": block.get("block_id"),
         "drive_type": shape_selection["drive_type"],
+        "set_name": set_name,
         "shape_option": shape_selection["shape_option"],
         "first_drive": controls["first_drive"],
         "target_position": target_position,
         "confirm_filter": controls["confirm_filter"],
         "reuse_prompt_confirm": prompt["reuse_prompt_confirm"],
         "reuse_prompt_probe": prompt["reuse_prompt_probe"],
-        "duplicate_status_filter_enabled": is_duplicate,
-        "duplicate_group_id": block.get("duplicate_group_id"),
     }
     sequence: list[dict[str, Any]] = []
     if open_filter:
         sequence.append({"name": "filter_button", "position": page_controls["filter_button"]})
     sequence.extend(reset["reset_sequence"])
     sequence.extend(shape_selection["selection_sequence"])
-    if is_duplicate:
-        for action in refinement["refinement_sequence"]:
-            if action.get("name") in {"status_locked", "status_discarded", "status_other"}:
-                action["block_id"] = block.get("block_id")
-                action["duplicate_group_id"] = block.get("duplicate_group_id")
-                action["duplicate_status_filter"] = True
+    if set_selection:
+        sequence.extend(set_selection["selection_sequence"])
     sequence.extend(refinement["refinement_sequence"])
     sequence.append({"name": "confirm_filter", "position": result["confirm_filter"]})
     sequence.append(
@@ -835,7 +794,7 @@ def map_drive_blocks_installation(
     blocks: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    duration_ms: int = 1200,
+    duration_ms: int = 700,
 ) -> dict[str, Any]:
     """Return a per-block drive assembly plan.
 
@@ -844,12 +803,14 @@ def map_drive_blocks_installation(
     """
 
     page_controls = map_drive_page_controls(screen_size, content_rect)
+    cached_set_name = _drive_blocks_cached_set_name(blocks)
     install_plans = [
         map_drive_block_installation(
             block,
             screen_size,
             content_rect,
             duration_ms,
+            cached_set_name=cached_set_name,
             open_filter=True,
         )
         for block in blocks
@@ -871,18 +832,13 @@ def map_drive_blocks_installation(
     return result
 
 
-def _is_duplicate_drive_block(block: dict[str, Any]) -> bool:
-    """Accept both current duplicate flags and persisted group metadata."""
-
-    drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
-    return bool(
-        block.get("is_duplicate_drive")
-        or block.get("is_duplicate_equipment")
-        or drive.get("is_duplicate_drive")
-        or drive.get("is_duplicate_equipment")
-        or int(block.get("duplicate_count") or 0) > 1
-        or int(drive.get("duplicate_count") or 0) > 1
-    )
+def _drive_blocks_cached_set_name(blocks: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> str:
+    for block in blocks:
+        drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
+        set_name = str(block.get("set_name") or drive.get("set_name") or "").strip()
+        if set_name:
+            return set_name
+    return ""
 
 
 def _quality_control_name(quality: str) -> str:
@@ -900,20 +856,6 @@ def _normalize_tape_main_stat(main_stat: str) -> str:
         available = "、".join(DEFAULT_TAPE_MAIN_STAT_OPTIONS)
         raise ValueError(f"未知卡带主词条: {main_stat}。可用主词条: {available}")
     return normalized
-
-
-def _normalize_tape_set_name(set_name: str) -> str:
-    value = str(set_name or "").strip()
-    if value in DEFAULT_TAPE_SET_OPTIONS:
-        return value
-    if value in TAPE_SET_NAME_ALIASES:
-        return TAPE_SET_NAME_ALIASES[value]
-
-    def compact(name: str) -> str:
-        return "".join(char for char in name if char not in {" ", ":", "：", "·"})
-
-    matches = [known_name for known_name in DEFAULT_TAPE_SET_OPTIONS if compact(known_name) == compact(value)]
-    return matches[0] if len(matches) == 1 else value
 
 
 def _normalize_tape_sub_stat(sub_stat: str) -> str:
@@ -997,7 +939,20 @@ def _content_rect_for(
 
 
 def _fit_content_rect(target_width: int, target_height: int, base_size: tuple[int, int]) -> tuple[int, int, int, int]:
-    return game_content_rect(target_width, target_height, base_size)
+    base_w, base_h = base_size
+    base_aspect = base_w / base_h
+    target_aspect = target_width / target_height
+    if target_aspect >= base_aspect:
+        content_height = target_height
+        content_width = round(content_height * base_aspect)
+        left = round((target_width - content_width) / 2)
+        top = 0
+    else:
+        content_width = target_width
+        content_height = round(content_width / base_aspect)
+        left = 0
+        top = round((target_height - content_height) / 2)
+    return left, top, max(1, content_width), max(1, content_height)
 
 
 def _map_block_to_page(block: dict[str, Any], calibration: PageCalibration) -> dict[str, Any]:

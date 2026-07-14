@@ -55,35 +55,6 @@ class FakeOcrEngine:
 
 
 class DriveAssemblyExecutorTests(unittest.TestCase):
-    def test_action_observer_runs_after_each_successful_action(self):
-        from src.features.drive_assembly.executor import execute_action_sequence
-
-        backend = FakeMouseBackend()
-        observed = []
-        execute_action_sequence(
-            [{"name": "filter_button", "position": (10, 20)}],
-            backend=backend,
-            pause_seconds=0.0,
-            role_name="A",
-            on_action_executed=lambda action, role: observed.append((action["name"], role)),
-        )
-
-        self.assertEqual([("filter_button", "A")], observed)
-
-    def test_action_observer_failure_does_not_interrupt_assembly(self):
-        from src.features.drive_assembly.executor import execute_action_sequence
-
-        backend = FakeMouseBackend()
-        report = execute_action_sequence(
-            [{"name": "filter_button", "position": (10, 20)}],
-            backend=backend,
-            pause_seconds=0.0,
-            on_action_executed=lambda _action, _role: (_ for _ in ()).throw(RuntimeError("record failure")),
-        )
-
-        self.assertEqual(1, report.executed_actions)
-        self.assertEqual([("click", (10, 20))], backend.calls)
-
     def test_executes_click_and_drag_actions_in_order(self):
         from src.features.drive_assembly.executor import execute_action_sequence
 
@@ -154,7 +125,7 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
 
         drag_index = backend.calls.index(("drag", (2067, 1190), (2067, 395), 500))
         self.assertEqual(("click", (1861, 1075)), backend.calls[0])
-        self.assertAlmostEqual(0.25, sum(value for kind, value in backend.calls[1:drag_index] if kind == "pause"))
+        self.assertAlmostEqual(0.5, sum(value for kind, value in backend.calls[1:drag_index] if kind == "pause"))
         self.assertAlmostEqual(0.5, sum(value for kind, value in backend.calls[drag_index + 1 :] if kind == "pause"))
 
     def test_retries_a_quality_click_only_when_the_button_is_not_selected(self):
@@ -176,7 +147,7 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
         )
 
         self.assertEqual(("click", (40, 50)), backend.calls[0])
-        self.assertAlmostEqual(0.75, sum(value for kind, value in backend.calls if kind == "pause"))
+        self.assertAlmostEqual(1.0, sum(value for kind, value in backend.calls if kind == "pause"))
 
     def test_retries_a_drive_drag_when_its_target_is_still_empty(self):
         import numpy as np
@@ -375,79 +346,6 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
         self.assertEqual([("left_joystick", 0.0, -1.0)], backend.calls)
         self.assertEqual(1, report.executed_actions)
 
-    def test_virtual_gamepad_close_resets_and_releases_the_controller(self):
-        from src.features.drive_assembly.executor import _VirtualGamepadDriver
-
-        calls = []
-
-        class Gamepad:
-            def reset(self):
-                calls.append("reset")
-
-            def update(self):
-                calls.append("update")
-
-        driver = _VirtualGamepadDriver.__new__(_VirtualGamepadDriver)
-        driver._gamepad = Gamepad()
-        driver._buttons = object()
-
-        driver.close()
-        driver.close()
-
-        self.assertEqual(["reset", "update"], calls)
-        self.assertIsNone(driver._gamepad)
-        self.assertIsNone(driver._buttons)
-
-    def test_virtual_gamepad_holds_rs_longer_than_other_buttons(self):
-        from src.features.drive_assembly.executor import _VirtualGamepadDriver
-
-        pauses = []
-
-        class Gamepad:
-            def press_button(self, button):
-                pass
-
-            def release_button(self, button):
-                pass
-
-            def update(self):
-                pass
-
-        class Buttons:
-            XUSB_GAMEPAD_A = object()
-            XUSB_GAMEPAD_RIGHT_THUMB = object()
-
-        driver = _VirtualGamepadDriver.__new__(_VirtualGamepadDriver)
-        driver._gamepad = Gamepad()
-        driver._buttons = Buttons()
-        driver._hold_seconds = 0.08
-        driver._settle_seconds = 0.30
-        driver._sleeper = pauses.append
-        driver._ensure_connected = lambda: None
-
-        driver.press("a")
-        driver.press("rs")
-
-        self.assertEqual([0.08, 0.30, 0.25, 0.30], pauses)
-
-    def test_action_can_override_default_post_action_pause(self):
-        from src.features.drive_assembly.executor import execute_action_sequence
-
-        backend = FakeMouseBackend()
-        execute_action_sequence(
-            [
-                {
-                    "name": "main_stat_gamepad_down_to_expand",
-                    "gamepad_stick": "left_down",
-                    "post_action_pause_seconds": 0.3,
-                }
-            ],
-            backend=backend,
-        )
-
-        self.assertEqual(("left_joystick", 0.0, -1.0), backend.calls[0])
-        self.assertAlmostEqual(0.3, sum(call[1] for call in backend.calls if call[0] == "pause"))
-
     def test_clicks_optional_confirm_when_prompt_probe_is_bright(self):
         import numpy as np
 
@@ -636,7 +534,7 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
         class SendInput:
             available = True
 
-            def click(self, position, hold_seconds=None):
+            def click(self, position):
                 calls.append(("sendinput_click", position))
 
         class PyAutoGui:
@@ -651,7 +549,7 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
 
         self.assertEqual([("sendinput_click", (320, 240))], calls)
 
-    def test_backend_keeps_mouse_pressed_through_equipment_dragging(self):
+    def test_backend_keeps_pyautogui_for_equipment_dragging(self):
         from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
 
         calls = []
@@ -660,8 +558,8 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
             available = True
 
         class PyAutoGui:
-            def moveTo(self, *position, **kwargs):
-                calls.append(("move", position, kwargs))
+            def moveTo(self, *position):
+                calls.append(("move", position))
 
             def mouseDown(self, **kwargs):
                 calls.append(("down", kwargs))
@@ -669,27 +567,25 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
             def mouseUp(self, **kwargs):
                 calls.append(("up", kwargs))
 
+            def dragTo(self, *position, **kwargs):
+                calls.append(("drag", position, kwargs))
+
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
         backend._send_input = SendInput()
         backend._pyautogui = PyAutoGui()
         backend._sleeper = lambda seconds: calls.append(("sleep", round(seconds, 3)))
 
-        backend.drag((120, 840), (720, 260), 700)
+        backend.drag((120, 840), (120, 260), 700)
 
         down_index = calls.index(("down", {"button": "left"}))
-        drag_move_index = next(
-            index for index, call in enumerate(calls)
-            if call[0] == "move" and call[1] == (720, 260)
-        )
+        drag_index = calls.index(("drag", (120, 260), {"duration": 0.7, "button": "left"}))
         final_up_index = max(index for index, call in enumerate(calls) if call == ("up", {"button": "left"}))
 
         self.assertEqual(("up", {"button": "left"}), calls[0])
-        self.assertEqual(("move", (120, 840), {}), calls[1])
-        self.assertLess(down_index, drag_move_index)
-        self.assertLess(drag_move_index, final_up_index)
-        self.assertEqual(1, len([call for call in calls if call[0] == "down"]))
-        self.assertAlmostEqual(0.7, sum(call[2]["duration"] for call in calls if call[0] == "move" and call[2]))
-        self.assertIn(("sleep", 0.45), calls)
+        self.assertEqual(("move", (120, 840)), calls[1])
+        self.assertLess(down_index, drag_index)
+        self.assertLess(drag_index, final_up_index)
+        self.assertIn(("sleep", 0.35), calls)
 
     def test_backend_uses_segmented_sendinput_for_filter_scrolls(self):
         from src.features.drive_assembly.executor import PyAutoGuiMouseBackend

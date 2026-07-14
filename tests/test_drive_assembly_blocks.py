@@ -96,52 +96,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual(["corner", "vertical"], [block["drive"]["uid"] for block in blocks])
         self.assertEqual(["Gold", "Purple"], [block["drive"]["quality"] for block in blocks])
 
-    def test_skips_empty_replacement_slots_during_game_assembly(self):
-        from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
-
-        state = {
-            "角色A": {
-                "blueprint_layout": [["H_2", "H_2", "V_2"], ["XX", "XX", "V_2"]],
-                "equipped_drives": [
-                    {"uid": "empty_taken_h2", "shape_id": "H_2"},
-                    {"uid": "real_v2", "shape_id": "V_2"},
-                ],
-            }
-        }
-
-        blocks = extract_drive_blocks_from_state(state)
-
-        self.assertEqual(["real_v2"], [block["drive"]["uid"] for block in blocks])
-        self.assertEqual(["V_2"], [block["matrix_name"] for block in blocks])
-
-    def test_splits_multiple_same_name_h2_shapes_into_independent_blocks(self):
-        from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
-        from src.features.drive_assembly.page_mapping import map_blocks_to_page
-
-        state = {
-            "角色A": {
-                "blueprint_layout": [
-                    ["XX", "XX", "XX", "XX", "XX"],
-                    ["XX", "XX", "XX", "H_2", "H_2"],
-                    ["XX", "XX", "XX", "XX", "XX"],
-                    ["XX", "XX", "XX", "XX", "XX"],
-                    ["XX", "XX", "XX", "H_2", "H_2"],
-                ],
-                "equipped_drives": [
-                    {"uid": "upper", "shape_id": "H_2"},
-                    {"uid": "lower", "shape_id": "H_2"},
-                ],
-            }
-        }
-
-        blocks = extract_drive_blocks_from_state(state)
-        mapped = map_blocks_to_page(blocks)
-
-        self.assertEqual(["H_2", "H_2"], [block["matrix_name"] for block in blocks])
-        self.assertEqual([[(2, 4), (2, 5)], [(5, 4), (5, 5)]], [block["cells"] for block in blocks])
-        self.assertEqual(["upper", "lower"], [block["drive"]["uid"] for block in blocks])
-        self.assertEqual([(1406, 455), (1406, 734)], [block["pixel_position"] for block in mapped])
-
     def test_extracts_tape_filter_from_equipped_state_blueprint(self):
         from src.features.drive_assembly.blocks import extract_tape_filters_from_state
 
@@ -258,43 +212,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual(blocks[0]["equipment_signature"], blocks[1]["equipment_signature"])
         self.assertNotIn("duplicate_group_id", blocks[2])
         self.assertNotIn("is_duplicate_equipment", blocks[2])
-
-    def test_marks_drives_with_the_same_filter_fields_even_when_values_differ(self):
-        from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
-
-        state = {
-            "role-a": {
-                "blueprint_layout": [["H_2", "H_2"]],
-                "equipped_drives": [
-                    {
-                        "uid": "drive-a",
-                        "shape_id": "H_2",
-                        "quality": "Gold",
-                        "set_name": "ignored-set-a",
-                        "sub_stats": {"crit_rate": 2.0, "attack": 12.0},
-                        "grade": "ACE",
-                    }
-                ],
-            },
-            "role-b": {
-                "blueprint_layout": [["H_2", "H_2"]],
-                "equipped_drives": [
-                    {
-                        "uid": "drive-b",
-                        "shape_id": "H_2",
-                        "quality": "Gold",
-                        "set_name": "ignored-set-b",
-                        "sub_stats": {"attack": 80.0, "crit_rate": 4.0},
-                        "grade": "SSS",
-                    }
-                ],
-            },
-        }
-
-        blocks = extract_drive_blocks_from_state(state)
-
-        self.assertEqual(["drive_dup_001", "drive_dup_001"], [block["duplicate_group_id"] for block in blocks])
-        self.assertTrue(all(block["is_duplicate_drive"] for block in blocks))
 
     def test_marks_duplicate_tape_filters_by_equipment_content(self):
         from src.features.drive_assembly.blocks import extract_tape_filters_from_state
@@ -429,16 +346,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((517, 158), mapped[0]["board_origin"])
         self.assertEqual((46.5, 46.5), mapped[0]["cell_size"])
 
-    def test_page_mapping_keeps_16_10_game_controls_top_aligned(self):
-        from src.features.drive_assembly.page_mapping import map_blocks_to_page, map_page_controls
-
-        blocks = [{"block_id": 1, "cells": [(1, 2), (1, 3), (2, 2)], "top_left": (1, 2)}]
-
-        mapped = map_blocks_to_page(blocks, screen_size=(2560, 1600))
-
-        self.assertEqual((1205, 393), mapped[0]["pixel_position"])
-        self.assertEqual((111, 1347), map_page_controls(screen_size=(2560, 1600))["filter_button"])
-
     def test_page_mapping_uses_content_rect_offsets_for_windowed_clients(self):
         from src.features.drive_assembly.page_mapping import map_blocks_to_page
 
@@ -480,10 +387,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         self.assertEqual((2067, 393), controls["set_select"])
         self.assertEqual(
-            [
-                {"name": "set_select", "position": (2067, 393)},
-                {"name": "wait_after_tape_set_dialog_open", "wait_seconds": 0.5},
-            ],
+            [{"name": "set_select", "position": (2067, 393)}],
             controls["set_filter_sequence"],
         )
 
@@ -505,7 +409,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             [
                 {"name": "set_option", "set_name": "森林萤火之心", "position": (532, 727)},
                 {"name": "confirm_filter", "position": (1564, 1186)},
-                {"name": "wait_after_tape_set_dialog_close", "wait_seconds": 0.5},
             ],
             selection["selection_sequence"],
         )
@@ -533,17 +436,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             {set_name: map_tape_set_selection(set_name)["set_option"] for set_name in expected},
         )
 
-    def test_maps_config_set_name_aliases_to_filter_options(self):
-        from src.features.drive_assembly.page_mapping import map_drive_set_selection, map_tape_set_selection
-
-        tape_selection = map_tape_set_selection("恶魔之血：诅咒")
-        drive_selection = map_drive_set_selection("恶魔之血：诅咒")
-
-        self.assertEqual("恶魔之血·诅咒", tape_selection["set_name"])
-        self.assertEqual((532, 960), tape_selection["set_option"])
-        self.assertEqual("恶魔之血·诅咒", drive_selection["set_name"])
-        self.assertEqual((532, 960), drive_selection["set_option"])
-
     def test_scales_tape_set_selection_to_other_screens(self):
         from src.features.drive_assembly.page_mapping import map_tape_set_selection
 
@@ -561,7 +453,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
     def test_maps_tape_filter_status_quality_and_main_stat_controls(self):
         from src.features.drive_assembly.page_mapping import map_tape_filter_refinement
 
-        controls = map_tape_filter_refinement(["Gold", "Purple"], include_status_filters=True)
+        controls = map_tape_filter_refinement(["Gold", "Purple"])
 
         self.assertEqual((2273, 618), controls["status_locked"])
         self.assertEqual((1861, 704), controls["status_discarded"])
@@ -602,13 +494,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         self.assertNotIn("main_stat_expand", [step["name"] for step in controls["refinement_sequence"]])
         self.assertNotIn("wait_after_main_stat_expand", [step["name"] for step in controls["refinement_sequence"]])
-
-    def test_tape_filter_refinement_omits_status_and_quality_when_not_requested(self):
-        from src.features.drive_assembly.page_mapping import map_tape_filter_refinement
-
-        controls = map_tape_filter_refinement([], include_main_stat_expand=False)
-
-        self.assertEqual([], controls["refinement_sequence"])
 
     def test_scales_tape_filter_refinement_to_other_screens(self):
         from src.features.drive_assembly.page_mapping import map_tape_filter_refinement
@@ -659,16 +544,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         self.assertEqual(11, len(sequence))
         self.assertEqual(["left_down"] * 7, [step["gamepad_stick"] for step in sequence[:7]])
-        self.assertEqual(
-            {
-                "name": "main_stat_gamepad_confirm_expand",
-                "gamepad_button": "a",
-                "post_action_pause_seconds": 0.2,
-            },
-            sequence[7],
-        )
+        self.assertEqual({"name": "main_stat_gamepad_confirm_expand", "gamepad_button": "a"}, sequence[7])
         self.assertEqual(["left_down"] * 3, [step["gamepad_stick"] for step in sequence[8:]])
-        self.assertEqual([0.2] * 11, [step["post_action_pause_seconds"] for step in sequence])
 
     def test_maps_tape_main_stat_selection_from_blueprint_stat(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
@@ -711,16 +588,10 @@ class DriveAssemblyBlockTests(unittest.TestCase):
     def test_accepts_percent_symbol_tape_main_stat_aliases(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
 
-        aliases = {
-            "攻击力%": "攻击力百分比",
-            "暴击率%": "暴击率",
-            "暴击伤害%": "暴击伤害",
-            "光属性异能伤害增强%": "光属性异能伤害增强",
-        }
-        for raw_name, expected_name in aliases.items():
-            with self.subTest(raw_name=raw_name):
-                selection = map_tape_main_stat_selection(raw_name)
-                self.assertEqual(expected_name, selection["main_stat"])
+        selection = map_tape_main_stat_selection("攻击力%")
+
+        self.assertEqual("攻击力百分比", selection["main_stat"])
+        self.assertEqual((2273, 485), selection["main_stat_option"])
 
     def test_scales_tape_main_stat_selection_to_other_screens(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
@@ -823,7 +694,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                     "name": "drag_first_tape_to_socket",
                     "from": (126, 430),
                     "to": (1267, 1090),
-                    "duration_ms": 1200,
+                    "duration_ms": 700,
                 },
                 {"name": "wait_for_equipment_reuse_prompt", "wait_seconds": 0.3},
                 {
@@ -895,10 +766,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual(
             [
                 {"name": "shape_select", "position": (2067, 540)},
-                {"name": "wait_after_drive_shape_dialog_open", "wait_seconds": 0.5},
                 {"name": "shape_option", "drive_type": "V_3", "position": (948, 745)},
                 {"name": "confirm_shape_filter", "position": (1564, 1186)},
-                {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": 0.5},
             ],
             selection["selection_sequence"],
         )
@@ -947,8 +816,10 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                 "quality_orange",
                 "verify_quality_selected",
                 "drive_filter_scroll_to_bottom",
+                "drive_filter_scroll_to_bottom",
                 "sub_stat_expand",
                 "wait_after_drive_sub_stat_expand",
+                "drive_sub_stat_scroll_to_bottom",
                 "drive_sub_stat_scroll_to_bottom",
                 "sub_stat_option",
                 "sub_stat_option",
@@ -957,7 +828,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             [step["name"] for step in controls["refinement_sequence"]],
         )
 
-    def test_drive_block_filter_uses_shape_then_one_scroll_per_filter_stage(self):
+    def test_drive_block_filter_uses_shape_then_two_bottom_scroll_stages(self):
         from src.features.drive_assembly.page_mapping import map_drive_block_installation
 
         block = {
@@ -973,10 +844,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             "filter_button",
             "reset_filter",
             "shape_select",
-            "wait_after_drive_shape_dialog_open",
             "shape_option",
             "confirm_shape_filter",
-            "wait_after_drive_shape_dialog_close",
             "quality_orange",
             "verify_quality_selected",
             "drive_filter_scroll_to_bottom",
@@ -990,8 +859,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         indexes = [names.index(name) for name in expected_order]
         self.assertEqual(sorted(indexes), indexes)
-        self.assertEqual(1, names.count("drive_filter_scroll_to_bottom"))
-        self.assertEqual(1, names.count("drive_sub_stat_scroll_to_bottom"))
+        self.assertEqual(2, names.count("drive_filter_scroll_to_bottom"))
+        self.assertEqual(2, names.count("drive_sub_stat_scroll_to_bottom"))
 
     def test_maps_drive_block_installation_to_precomputed_pixel_position(self):
         from src.features.drive_assembly.page_mapping import map_drive_block_installation
@@ -1019,7 +888,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             if step["name"] == "force_drag_first_drive_to_block"
         )
         self.assertEqual(
-            {"name": "force_drag_first_drive_to_block", "block_id": 3, "from": (126, 430), "to": (1205, 393), "duration_ms": 1200},
+            {"name": "force_drag_first_drive_to_block", "block_id": 3, "from": (126, 430), "to": (1205, 393), "duration_ms": 700},
             install["install_sequence"][drag_index],
         )
         self.assertEqual({"name": "wait_for_equipment_reuse_prompt", "wait_seconds": 0.3}, install["install_sequence"][drag_index + 1])
@@ -1055,53 +924,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertIn("status_locked", sequence_names)
         self.assertIn("status_discarded", sequence_names)
         self.assertIn("status_other", sequence_names)
-        self.assertTrue(install["duplicate_status_filter_enabled"])
-        status_steps = [step for step in install["install_sequence"] if step["name"].startswith("status_")]
-        self.assertEqual([4, 4, 4], [step["block_id"] for step in status_steps])
-        self.assertTrue(all(step["duplicate_status_filter"] for step in status_steps))
-        self.assertLess(sequence_names.index("shape_option"), sequence_names.index("status_locked"))
-        self.assertLess(sequence_names.index("status_other"), sequence_names.index("quality_orange"))
-        self.assertFalse(any(name.startswith("set_") for name in sequence_names))
-
-    def test_duplicate_group_metadata_enables_drive_status_filters(self):
-        from src.features.drive_assembly.page_mapping import map_drive_block_installation
-
-        install = map_drive_block_installation(
-            {
-                "block_id": 9,
-                "drive_type": "H_2",
-                "cells": [(1, 1), (1, 2)],
-                "duplicate_count": 2,
-                "drive": {"quality": "Gold", "sub_stats": {}},
-            }
-        )
-
-        self.assertTrue(install["duplicate_status_filter_enabled"])
-        self.assertEqual(
-            ["status_locked", "status_discarded", "status_other"],
-            [step["name"] for step in install["install_sequence"] if step["name"].startswith("status_")],
-        )
-
-    def test_each_duplicate_drive_resets_filters_before_status_selection(self):
-        from src.features.drive_assembly.page_mapping import map_drive_blocks_installation
-
-        blocks = [
-            {
-                "block_id": block_id,
-                "drive_type": "H_2",
-                "cells": [(1, 1), (1, 2)],
-                "is_duplicate_drive": True,
-                "drive": {"uid": "drive-shared", "quality": "Gold", "sub_stats": {}},
-            }
-            for block_id in (1, 2)
-        ]
-
-        plan = map_drive_blocks_installation(blocks)
-
-        for install in plan["install_plans"]:
-            names = [step["name"] for step in install["install_sequence"]]
-            self.assertLess(names.index("reset_filter"), names.index("status_locked"))
-            self.assertEqual(1, names.count("reset_filter"))
 
     def test_maps_drive_block_installation_from_cells_when_pixel_position_missing(self):
         from src.features.drive_assembly.page_mapping import map_drive_block_installation
@@ -1158,7 +980,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             plan["assembly_sequence"],
         )
 
-    def test_drive_block_installation_resets_filter_without_selecting_a_set(self):
+    def test_drive_block_installation_resets_filter_and_reuses_cached_set(self):
         from src.features.drive_assembly.page_mapping import map_drive_blocks_installation
 
         blocks = [
@@ -1183,15 +1005,12 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual("filter_button", first_sequence[0]["name"])
         self.assertEqual("reset_filter", first_sequence[1]["name"])
         self.assertEqual("shape_select", first_sequence[2]["name"])
-        self.assertEqual("wait_after_drive_shape_dialog_open", first_sequence[3]["name"])
-        self.assertEqual("quality_orange", first_sequence[7]["name"])
-        self.assertFalse(any(step["name"].startswith("set_") for step in first_sequence))
+        self.assertEqual("drive_set_select", first_sequence[5]["name"])
+        self.assertEqual("失落光芒", plan["install_plans"][1]["set_name"])
         self.assertEqual("filter_button", second_sequence[0]["name"])
         self.assertEqual("reset_filter", second_sequence[1]["name"])
         self.assertEqual("shape_select", second_sequence[2]["name"])
-        self.assertEqual("wait_after_drive_shape_dialog_open", second_sequence[3]["name"])
-        self.assertEqual("quality_orange", second_sequence[7]["name"])
-        self.assertFalse(any(step["name"].startswith("set_") for step in second_sequence))
+        self.assertEqual("drive_set_select", second_sequence[5]["name"])
 
     def test_maps_filter_open_before_reset_for_every_drive_block(self):
         from src.features.drive_assembly.page_mapping import map_drive_blocks_installation

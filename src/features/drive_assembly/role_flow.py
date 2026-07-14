@@ -13,7 +13,6 @@ import numpy as np
 
 from src.features.drive_assembly.blocks import extract_drive_blocks_from_state, extract_tape_filters_from_state
 from src.features.drive_assembly.page_mapping import map_blocks_to_page
-from src.scanner.window_capture import game_content_rect
 from src.utils.image_io import imread_unicode
 from src.utils.name_resolver import normalize_name, resolve_name
 
@@ -22,10 +21,10 @@ REFERENCE_SCREEN_SIZE = (2560, 1440)
 DEFAULT_ROLE_NAVIGATION_CONTROLS = {
     "left_kongmu_tab": (88.0, 581.0),
     "assemble_button": (2160.0, 1322.0),
+    "assembly_back_button": (2490.0, 70.0),
 }
 ROLE_KONGMU_TAB_SETTLE_SECONDS = 1.0
 ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS = 1.2
-ROLE_LIST_STICK_MOVE_PAUSE_SECONDS = 0.25
 DEFAULT_ROLE_SLOT_POSITIONS = [
     (2410.0, 242.0),
     (2410.0, 470.0),
@@ -42,17 +41,13 @@ DEFAULT_ROLE_ROSTER_MAX_PAGES = 20
 DEFAULT_ROLE_NAME_REGION = (1738.0, 252.0, 2180.0, 320.0)
 DEFAULT_ROLE_NAME_FALLBACK_REGION = (1688.0, 228.0, 2248.0, 342.0)
 DEFAULT_ROLE_TEMPLATE_REGION = (2300.0, 135.0, 2540.0, 1210.0)
-DEFAULT_DPAD_RESET_UP_COUNT = 5
+DEFAULT_DPAD_RESET_UP_COUNT = 4
 DEFAULT_DPAD_BOTTOM_REPEAT_LIMIT = 3
 DEFAULT_DPAD_ROLE_LIMIT = 80
-ROLE_LIST_GRID_COLUMNS = 3
 # Known OCR misreads observed in the in-game role-name region.  These are
 # applied only when the canonical role is present in the active blueprint.
 ROLE_OCR_CORRECTIONS = {
     "医殿B朴": "翳",
-    # The single-character name 翳 is commonly read as the longer fragment
-    # “医设醫” in the in-game role-name region.
-    "医设": "翳",
 }
 
 
@@ -73,21 +68,14 @@ def map_role_navigation_controls(
     """Return controls for entering the assembly page from a role page."""
 
     controls = _scale_controls(DEFAULT_ROLE_NAVIGATION_CONTROLS, screen_size, content_rect)
-    controls["assemble_sequence"] = [
-        {"name": "assemble_button", "position": controls["assemble_button"]},
-        {"name": "wait_after_assemble_button", "wait_seconds": ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS},
-    ]
     controls["entry_sequence"] = [
         {"name": "left_kongmu_tab", "position": controls["left_kongmu_tab"]},
         {"name": "wait_after_left_kongmu_tab", "wait_seconds": ROLE_KONGMU_TAB_SETTLE_SECONDS},
-        *controls["assemble_sequence"],
+        {"name": "assemble_button", "position": controls["assemble_button"]},
+        {"name": "wait_after_assemble_button", "wait_seconds": ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS},
     ]
     controls["exit_sequence"] = [
-        {
-            "name": "assembly_back_to_role_page",
-            "gamepad_button": "b",
-            "post_action_pause_seconds": 1.5,
-        },
+        {"name": "assembly_back_button", "position": controls["assembly_back_button"]},
     ]
     return controls
 
@@ -212,93 +200,6 @@ def map_dpad_role_move_sequence(current_index: int, target_index: int) -> list[d
     return []
 
 
-def map_role_list_grid_move_sequence(
-    current_index: int,
-    target_index: int,
-    columns: int = ROLE_LIST_GRID_COLUMNS,
-) -> list[dict[str, Any]]:
-    """Move between roles in the three-column RS character-list grid.
-
-    All directional inputs in the list use the left stick. Adjacent roster
-    entries cross a row boundary through left/right exactly as the game does.
-    Longer moves use vertical movement first, then stay within the target row
-    for horizontal correction.
-    """
-
-    width = max(1, int(columns))
-    current = max(0, int(current_index))
-    target = max(0, int(target_index))
-    if target == current:
-        return []
-    if target == current + 1:
-        return [
-            {
-                "name": "role_list_next",
-                "gamepad_stick": "left_right",
-                "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
-            }
-        ]
-    if target == current - 1:
-        return [
-            {
-                "name": "role_list_previous",
-                "gamepad_stick": "left_left",
-                "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
-            }
-        ]
-
-    current_row, current_col = divmod(current, width)
-    target_row, target_col = divmod(target, width)
-    sequence: list[dict[str, Any]] = []
-    vertical_stick = "left_down" if target_row > current_row else "left_up"
-    vertical_name = "role_list_down" if target_row > current_row else "role_list_up"
-    sequence.extend(
-        {
-            "name": vertical_name,
-            "gamepad_stick": vertical_stick,
-            "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
-        }
-        for _index in range(abs(target_row - current_row))
-    )
-    horizontal_input = "left_right" if target_col > current_col else "left_left"
-    horizontal_name = "role_list_next" if target_col > current_col else "role_list_previous"
-    sequence.extend(
-        {
-            "name": horizontal_name,
-            "gamepad_stick": horizontal_input,
-            "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
-        }
-        for _index in range(abs(target_col - current_col))
-    )
-    return sequence
-
-
-def map_role_list_reverse_left_move_sequence(
-    current_index: int,
-    target_index: int,
-) -> list[dict[str, Any]]:
-    """Return only left-stick moves for reverse traversal of the RS list.
-
-    The roster scan advances to the right and leaves the cursor at its final
-    scanned position.  Planning targets from high to low roster indexes can
-    therefore return to every target solely through left input, avoiding the
-    unreliable assumption that the sidebar and RS-list orders match.
-    """
-
-    current = max(0, int(current_index))
-    target = max(0, int(target_index))
-    if target > current:
-        raise ValueError("reverse role-list traversal cannot move right")
-    return [
-        {
-            "name": "role_list_previous",
-            "gamepad_stick": "left_left",
-            "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
-        }
-        for _index in range(current - target)
-    ]
-
-
 def resolve_role_recognition(
     ocr_texts: list[str] | tuple[str, ...],
     expected_roles: list[str] | tuple[str, ...],
@@ -317,9 +218,6 @@ def resolve_role_recognition(
     if role_from_ocr:
         role_name, method, confidence = role_from_ocr
         return RoleRecognition(role_name, method, confidence, raw_text)
-    yi_fallback = _resolve_yi_ocr_fallback(text_parts, expected_roles)
-    if yi_fallback:
-        return RoleRecognition(yi_fallback, "ocr_yi_fallback", 0.6, raw_text)
 
     best_template = _best_template_score(template_scores or {}, expected_roles)
     if best_template and best_template[1] >= template_cutoff:
@@ -344,26 +242,6 @@ def _resolve_known_role_ocr_correction(
         mistaken_key = normalize_name(mistaken_text)
         if mistaken_key and any(mistaken_key in source for source in sources):
             return canonical_role
-    return None
-
-
-def _resolve_yi_ocr_fallback(
-    text_parts: list[str],
-    expected_roles: list[str] | tuple[str, ...],
-) -> str | None:
-    """Identify 翳 from a residual OCR fragment containing 医/醫.
-
-    This is intentionally evaluated only after normal OCR matching failed,
-    and only if 翳 is an active candidate.  It therefore cannot override a
-    valid recognition of another role.
-    """
-
-    candidates = {str(role).strip() for role in expected_roles if str(role).strip()}
-    if "翳" not in candidates:
-        return None
-    sources = [normalize_name(text) for text in [*text_parts, "".join(text_parts)]]
-    if any("医" in source or "醫" in source for source in sources):
-        return "翳"
     return None
 
 
@@ -702,85 +580,6 @@ def collect_role_roster_with_dpad(
     }
 
 
-def collect_role_roster_from_role_list(
-    expected_roles: list[str] | tuple[str, ...],
-    current_observer: Callable[[int], RoleRecognition],
-    press_up: Callable[[], None],
-    open_role_list: Callable[[], None],
-    confirm_selection: Callable[[], None],
-    move_right: Callable[[], None],
-    reset_up_count: int = DEFAULT_DPAD_RESET_UP_COUNT,
-    bottom_repeat_limit: int = DEFAULT_DPAD_BOTTOM_REPEAT_LIMIT,
-    max_roles: int = DEFAULT_DPAD_ROLE_LIMIT,
-) -> dict[str, Any]:
-    """Scan the RS three-column role list and stop as soon as targets are found.
-
-    ``A`` refreshes the current character while leaving the list open, so OCR
-    observes each grid position without relying on the unrelated sidebar order.
-    """
-
-    for _index in range(max(0, int(reset_up_count))):
-        press_up()
-    open_role_list()
-
-    expected_order = [str(role).strip() for role in expected_roles if str(role).strip()]
-    expected = set(expected_order)
-    roles: list[str] = []
-    role_positions: dict[str, int] = {}
-    observations: list[RoleRecognition] = []
-    seen: set[str] = set()
-    duplicates: list[dict[str, Any]] = []
-    unrecognized: list[dict[str, Any]] = []
-    previous_key = ""
-    unchanged_count = 0
-    current_index = 0
-    stop_reason = "max_roles_reached"
-
-    for list_index in range(max(1, int(max_roles))):
-        confirm_selection()
-        recognition = _coerce_recognition(current_observer(list_index))
-        key = _recognition_stability_key(recognition) or "<unrecognized>"
-        if list_index > 0 and key == previous_key:
-            unchanged_count += 1
-            if unchanged_count >= max(1, int(bottom_repeat_limit)):
-                stop_reason = "role_list_end_reached"
-                break
-        else:
-            unchanged_count = 0
-            current_index = list_index
-            if not recognition.role_name:
-                unrecognized.append({"roster_index": list_index, "raw_text": recognition.raw_text})
-            elif recognition.role_name in seen:
-                duplicates.append({"role_name": recognition.role_name, "roster_index": list_index})
-            else:
-                seen.add(recognition.role_name)
-                role_positions[recognition.role_name] = list_index
-                roles.append(recognition.role_name)
-                observations.append(recognition)
-
-            if expected and expected.issubset(seen):
-                stop_reason = "all_required_roles_found"
-                break
-        previous_key = key
-        if list_index < max(1, int(max_roles)) - 1:
-            move_right()
-
-    return {
-        "roles": roles,
-        "role_positions": role_positions,
-        "current_index": current_index,
-        "observations": observations,
-        "duplicates": duplicates,
-        "unrecognized": unrecognized,
-        "missing_expected_roles": [role for role in expected_order if role not in seen],
-        "reached_bottom": stop_reason == "role_list_end_reached",
-        "stop_reason": stop_reason,
-        "list_open": True,
-        "navigation": "rs_role_list_scan",
-        "reset_up_count": max(0, int(reset_up_count)),
-    }
-
-
 def plan_role_assembly_from_roster(
     required_roles: list[str] | tuple[str, ...],
     role_roster: dict[str, Any],
@@ -868,10 +667,6 @@ def plan_role_assembly_from_dpad_roster(
         if str(role).strip()
     }
     role_indexes = role_positions or {role: index for index, role in enumerate(roster)}
-    ordered_required = sorted(
-        (role for role in required if role in role_indexes),
-        key=lambda role: role_indexes[role],
-    )
     cursor_index = (
         int(current_index)
         if current_index is not None
@@ -879,35 +674,23 @@ def plan_role_assembly_from_dpad_roster(
     )
     plans: list[dict[str, Any]] = []
 
-    for plan_index, role_name in enumerate(ordered_required):
-        index = role_indexes[role_name]
-        if plan_index == 0:
-            move_sequence = map_dpad_role_move_sequence(cursor_index, index)
-            action_sequence = [
-                *move_sequence,
-                *entry["entry_sequence"],
-                {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
-                *entry["exit_sequence"],
-            ]
-            navigation = "sidebar_dpad"
-        else:
-            move_sequence = map_role_list_grid_move_sequence(cursor_index, index)
-            action_sequence = [
-                {"name": "open_role_list", "gamepad_button": "rs"},
-                *move_sequence,
-                {"name": "confirm_role_list_selection", "gamepad_button": "a"},
-                {"name": "close_role_list_after_confirmation", "gamepad_button": "b"},
-                *entry["entry_sequence"],
-                {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
-                *entry["exit_sequence"],
-            ]
-            navigation = "rs_role_list_grid"
+    for role_name in required:
+        index = role_indexes.get(role_name)
+        if index is None:
+            continue
+        move_sequence = map_dpad_role_move_sequence(cursor_index, index)
+        action_sequence = [
+            *move_sequence,
+            *entry["entry_sequence"],
+            {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
+            *entry["exit_sequence"],
+        ]
         plans.append(
             {
                 "role_name": role_name,
                 "roster_index": index,
                 "start_roster_index": cursor_index,
-                "navigation": navigation,
+                "navigation": "dpad_current_role",
                 "flow": "find_role_then_assemble_blueprint",
                 "action_sequence": action_sequence,
             }
@@ -925,92 +708,7 @@ def plan_role_assembly_from_dpad_roster(
         "role_roster": roster,
         "plans": plans,
         "complete": not missing and not role_roster.get("unrecognized"),
-        "navigation": "sidebar_then_rs_role_list_grid",
-    }
-
-
-def plan_role_assembly_from_role_list_roster(
-    required_roles: list[str] | tuple[str, ...],
-    role_roster: dict[str, Any],
-    screen_size: tuple[int, int] | None = None,
-    content_rect: tuple[int, int, int, int] | None = None,
-    current_index: int | None = None,
-) -> dict[str, Any]:
-    """Plan assembly entirely through the RS three-column character list.
-
-    The initial roster scan leaves the list open. The first target therefore
-    only needs grid movement, ``A`` confirmation and ``B`` to close the list;
-    every later target reopens the list with ``RS`` before following the same
-    route. Targets are visited in reverse list order, using only left-stick
-    movement so selection never depends on the unrelated sidebar order.
-    """
-
-    required = [str(role) for role in required_roles if str(role).strip()]
-    entry = map_role_navigation_controls(screen_size, content_rect)
-    roster = [str(role) for role in role_roster.get("roles", []) if str(role).strip()]
-    role_positions = {
-        str(role): int(index)
-        for role, index in (role_roster.get("role_positions", {}) or {}).items()
-        if str(role).strip()
-    }
-    role_indexes = role_positions or {role: index for index, role in enumerate(roster)}
-    ordered_required = sorted(
-        (role for role in required if role in role_indexes),
-        key=lambda role: role_indexes[role],
-        reverse=True,
-    )
-    cursor_index = (
-        int(current_index)
-        if current_index is not None
-        else int(role_roster.get("current_index", max(0, len(roster) - 1)) or 0)
-    )
-    list_is_open = bool(role_roster.get("list_open", True))
-    plans: list[dict[str, Any]] = []
-
-    for plan_index, role_name in enumerate(ordered_required):
-        index = role_indexes[role_name]
-        move_sequence = map_role_list_reverse_left_move_sequence(cursor_index, index)
-        starts_in_open_list = plan_index == 0 and list_is_open
-        action_sequence: list[dict[str, Any]] = []
-        if not starts_in_open_list:
-            action_sequence.append({"name": "open_role_list", "gamepad_button": "rs"})
-        action_sequence.extend(
-            [
-                *move_sequence,
-                {"name": "confirm_role_list_selection", "gamepad_button": "a"},
-                {"name": "close_role_list_after_confirmation", "gamepad_button": "b"},
-                *entry["entry_sequence"],
-                {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
-                *entry["exit_sequence"],
-            ]
-        )
-        plans.append(
-            {
-                "role_name": role_name,
-                "roster_index": index,
-                "start_roster_index": cursor_index,
-                "navigation": "role_list_reverse_left_from_open"
-                if starts_in_open_list
-                else "rs_role_list_reverse_left",
-                "flow": "find_role_then_assemble_blueprint",
-                "action_sequence": action_sequence,
-            }
-        )
-        cursor_index = index
-
-    planned_roles = [plan["role_name"] for plan in plans]
-    missing = [role for role in required if role not in set(planned_roles)]
-    return {
-        "required_roles": required,
-        "planned_roles": planned_roles,
-        "missing_roles": missing,
-        "duplicates": list(role_roster.get("duplicates", []) or []),
-        "unrecognized": list(role_roster.get("unrecognized", []) or []),
-        "role_roster": roster,
-        "plans": plans,
-        "complete": not missing and not role_roster.get("unrecognized"),
-        "navigation": "rs_role_list_scan_then_reverse_left",
-        "scan_stop_reason": role_roster.get("stop_reason", ""),
+        "navigation": "dpad_current_role",
     }
 
 
@@ -1169,7 +867,21 @@ def _content_rect_for(
         return content_rect
     if screen_size is None:
         return 0, 0, REFERENCE_SCREEN_SIZE[0], REFERENCE_SCREEN_SIZE[1]
-    return game_content_rect(screen_size[0], screen_size[1], REFERENCE_SCREEN_SIZE)
+    base_w, base_h = REFERENCE_SCREEN_SIZE
+    target_w, target_h = screen_size
+    base_aspect = base_w / base_h
+    target_aspect = target_w / target_h
+    if target_aspect >= base_aspect:
+        content_h = target_h
+        content_w = round(content_h * base_aspect)
+        left = round((target_w - content_w) / 2)
+        top = 0
+    else:
+        content_w = target_w
+        content_h = round(content_w / base_aspect)
+        left = 0
+        top = round((target_h - content_h) / 2)
+    return left, top, max(1, content_w), max(1, content_h)
 
 
 def _round_half_up(value: float) -> int:

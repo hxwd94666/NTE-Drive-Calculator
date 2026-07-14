@@ -1,4 +1,3 @@
-# 标记驱动配装规划中的重复装备分组。
 """Mark duplicate equipment groups for drive assembly planning."""
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ IGNORED_EQUIPMENT_FIELDS = {
 
 
 def mark_duplicate_drive_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Annotate drives that cannot be distinguished by the game filters."""
+    """Annotate drive blocks whose nested drive content is exactly repeated."""
 
     return _mark_duplicate_items(
         blocks,
@@ -31,7 +30,7 @@ def mark_duplicate_drive_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def mark_duplicate_tape_filters(filters: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Annotate tapes that cannot be distinguished by the game filters."""
+    """Annotate tape filters whose tape content is exactly repeated."""
 
     return _mark_duplicate_items(
         filters,
@@ -86,26 +85,20 @@ def _drive_block_signature(block: dict[str, Any]) -> str:
     drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
     if not drive:
         return ""
-    data = {
-        "item_type": "drive",
-        "shape_id": str(block.get("drive_type") or drive.get("shape_id") or "").strip(),
-        "quality": str(drive.get("quality") or "").strip(),
-        "sub_stat_names": _sub_stat_names(drive.get("sub_stats")),
-    }
+    data = dict(drive)
+    data.setdefault("item_type", "drive")
+    data.setdefault("shape_id", block.get("drive_type"))
     return equipment_signature(data)
 
 
 def _tape_filter_signature(tape_filter: dict[str, Any]) -> str:
     tape = tape_filter.get("tape") if isinstance(tape_filter.get("tape"), dict) else {}
-    data = {
-        "item_type": "tape",
-        "set_name": str(tape_filter.get("set_name") or tape.get("set_name") or "").strip(),
-        "main_stat": str(
-            tape_filter.get("main_stat") or _main_stat_name(tape.get("main_stats"))
-        ).strip(),
-        "sub_stat_names": _sub_stat_names(tape_filter.get("sub_stats") or tape.get("sub_stats")),
-        "quality": str(tape_filter.get("quality") or tape.get("quality") or "").strip(),
-    }
+    data = dict(tape)
+    data.setdefault("item_type", "tape")
+    data["set_name"] = tape_filter.get("set_name") or data.get("set_name")
+    data["main_stats"] = tape_filter.get("main_stat") or _main_stat_name(data.get("main_stats"))
+    data["sub_stats"] = _sub_stat_names(tape_filter.get("sub_stats") or data.get("sub_stats"))
+    data["quality"] = tape_filter.get("quality") or data.get("quality")
     return equipment_signature(data)
 
 

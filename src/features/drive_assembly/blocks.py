@@ -11,20 +11,6 @@ from src.features.drive_assembly.duplicate_marker import mark_duplicate_drive_bl
 
 
 EMPTY_CELLS = {"", "0", "0.0", "XX", "-1", "None", "none", "null"}
-SHAPE_FOOTPRINTS: dict[str, tuple[tuple[int, int], ...]] = {
-    "H_2": ((0, 0), (0, 1)),
-    "V_2": ((0, 0), (1, 0)),
-    "H_3": ((0, 0), (0, 1), (0, 2)),
-    "V_3": ((0, 0), (1, 0), (2, 0)),
-    "L_3_TL": ((0, 0), (0, 1), (1, 0)),
-    "L_3_TR": ((0, 0), (0, 1), (1, 1)),
-    "L_3_BL": ((0, 0), (1, 0), (1, 1)),
-    "L_3_BR": ((0, 1), (1, 0), (1, 1)),
-    "H_4": ((0, 0), (0, 1), (0, 2), (0, 3)),
-    "V_4": ((0, 0), (1, 0), (2, 0), (3, 0)),
-    "Trap_4_H": ((0, 1), (0, 2), (1, 0), (1, 1)),
-    "Trap_4_V": ((0, 1), (1, 0), (1, 1), (2, 0)),
-}
 
 
 def load_drive_blocks(equipped_state_path: str | Path) -> list[dict[str, Any]]:
@@ -62,14 +48,11 @@ def extract_drive_blocks_from_state(state: dict[str, Any] | None) -> list[dict[s
         if not board:
             continue
         drives = [drive for drive in role_state.get("equipped_drives", []) or [] if isinstance(drive, dict)]
-        matrix_groups = _matrix_groups_in_scan_order(board)
-        matrix_names = [matrix_name for matrix_name, _cells in matrix_groups]
+        matrix_names = _matrix_names_in_scan_order(board)
         matched_drives = _match_drives_to_matrix_names(drives, matrix_names)
-        for block_index, (matrix_name, cells) in enumerate(matrix_groups):
+        for block_index, matrix_name in enumerate(matrix_names):
+            cells = _cells_for_name(board, matrix_name)
             drive = matched_drives[block_index]
-            if _is_empty_equipped_drive(drive):
-                # 优化替换留下的空位保存在配装页供后续填充，但不应进入游戏内自动装配。
-                continue
             drive_type = _drive_type_for(drive, matrix_name)
             top_left = _top_left_for(cells, drive_type)
             block = {
@@ -88,10 +71,6 @@ def extract_drive_blocks_from_state(state: dict[str, Any] | None) -> list[dict[s
             blocks.append(block)
             next_id += 1
     return mark_duplicate_drive_blocks(blocks)
-
-
-def _is_empty_equipped_drive(drive: dict[str, Any] | None) -> bool:
-    return isinstance(drive, dict) and str(drive.get("uid") or "").startswith("empty_")
 
 
 def extract_tape_filters_from_state(state: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -115,7 +94,7 @@ def extract_tape_filters_from_state(state: dict[str, Any] | None) -> list[dict[s
                 "set_name": set_name,
                 "main_stat": main_stat,
                 "sub_stats": _tape_sub_stat_names(tape.get("sub_stats")),
-                "quality": str(tape.get("quality") or "").strip(),
+                "quality": str(tape.get("quality") or "Gold"),
                 "tape": tape,
             }
         )
@@ -220,79 +199,6 @@ def _matrix_names_in_scan_order(board: list[list[str]]) -> list[str]:
             seen.add(cell)
             names.append(cell)
     return names
-
-
-def _matrix_groups_in_scan_order(board: list[list[str]]) -> list[tuple[str, list[tuple[int, int]]]]:
-    """Return independently placeable same-name shape groups in scan order.
-
-    Blueprint cells use a shape id as their display value.  A role can contain
-    multiple copies of the same shape, so collecting every matching cell under
-    one id produces a false centroid between those copies.  Known shape
-    footprints are therefore partitioned with an exact cover before blocks are
-    matched to their saved drive records.
-    """
-
-    groups: list[tuple[str, list[tuple[int, int]]]] = []
-    for matrix_name in _matrix_names_in_scan_order(board):
-        cells = _cells_for_name(board, matrix_name)
-        split_cells = _split_cells_by_shape_footprint(board, matrix_name, cells)
-        groups.extend((matrix_name, group_cells) for group_cells in split_cells)
-    return groups
-
-
-def _split_cells_by_shape_footprint(
-    board: list[list[str]],
-    matrix_name: str,
-    cells: list[tuple[int, int]],
-) -> list[list[tuple[int, int]]]:
-    footprint = SHAPE_FOOTPRINTS.get(_normalize_shape_id(matrix_name))
-    if not footprint or len(cells) % len(footprint):
-        return [cells]
-
-    remaining = set(cells)
-    candidates = _shape_placement_candidates(board, matrix_name, footprint, remaining)
-    placements_by_cell: dict[tuple[int, int], list[frozenset[tuple[int, int]]]] = {
-        cell: [] for cell in remaining
-    }
-    for placement in candidates:
-        for cell in placement:
-            placements_by_cell[cell].append(placement)
-
-    solution = _exact_shape_cover(remaining, placements_by_cell)
-    if solution is None:
-        return [cells]
-    return [sorted(placement) for placement in sorted(solution, key=lambda group: min(group))]
-
-
-def _shape_placement_candidates(
-    board: list[list[str]],
-    matrix_name: str,
-    footprint: tuple[tuple[int, int], ...],
-    cells: set[tuple[int, int]],
-) -> list[frozenset[tuple[int, int]]]:
-    candidates: list[frozenset[tuple[int, int]]] = []
-    for row in range(1, len(board) + 1):
-        for col in range(1, max((len(line) for line in board), default=0) + 1):
-            placement = frozenset((row + row_offset, col + col_offset) for row_offset, col_offset in footprint)
-            if placement <= cells:
-                candidates.append(placement)
-    return candidates
-
-
-def _exact_shape_cover(
-    remaining: set[tuple[int, int]],
-    placements_by_cell: dict[tuple[int, int], list[frozenset[tuple[int, int]]]],
-) -> list[frozenset[tuple[int, int]]] | None:
-    if not remaining:
-        return []
-    pivot = min(remaining)
-    for placement in placements_by_cell[pivot]:
-        if not placement <= remaining:
-            continue
-        rest = _exact_shape_cover(remaining - placement, placements_by_cell)
-        if rest is not None:
-            return [placement, *rest]
-    return None
 
 
 def _cells_for_name(board: list[list[str]], matrix_name: str) -> list[tuple[int, int]]:
