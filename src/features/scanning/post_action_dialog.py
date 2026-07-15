@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize
@@ -12,13 +13,21 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QAbstractItemView,
+    QFrame,
     QFormLayout,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QListView,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -27,11 +36,13 @@ from src.app import runtime
 from src.features.scanning.post_actions import (
     DEFAULT_EXCLUDED_SET_NAMES,
     DEFAULT_EXCLUDED_SHAPE_IDS,
+    DEFAULT_PRESERVE_RULE,
     GRADE_ORDER,
     default_post_action_config,
     merge_post_action_config,
     validate_post_action_config,
 )
+from src.domain.stat_catalog import StatCatalog
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
 
@@ -40,6 +51,7 @@ ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
 QUALITY_SCOPE_OPTIONS = (("全部", "all"), ("仅金品质", "gold"), ("仅金紫品质", "gold_purple"))
 TYPE_SCOPE_OPTIONS = (("全部", "all"), ("仅驱动", "drive"), ("仅卡带", "tape"))
 STATE_ACTION_OPTIONS = (("跳过", "skip"), ("正常处理", "normal"))
+SUB_MATCH_OPTIONS = (("全部", "all"), ("任意一个", 1), ("任意两个", 2), ("任意三个", 3))
 
 
 def scan_post_action_config_path(user_config_dir: Path) -> Path:
@@ -59,14 +71,14 @@ def save_scan_post_action_config(user_config_dir: Path, config: dict) -> None:
     write_json(scan_post_action_config_path(user_config_dir), merge_post_action_config(config), indent=2)
 
 
-def _set_combo_data(combo: QComboBox, value: str) -> None:
+def _set_combo_data(combo: QComboBox, value: object) -> None:
     for index in range(combo.count()):
         if combo.itemData(index) == value:
             combo.setCurrentIndex(index)
             return
 
 
-def _combo(options, value: str, width: int = 130) -> QComboBox:
+def _combo(options, value: object, width: int = 130) -> QComboBox:
     combo = QComboBox()
     for label, data in options:
         combo.addItem(label, data)
@@ -211,6 +223,274 @@ class TypeRangeDialog(QDialog):
         return shape_ids, set_names
 
 
+def _rule_summary_values(values: list[str], limit: int = 2) -> str:
+    values = [str(value) for value in values if str(value)]
+    if len(values) <= limit:
+        return "、".join(values)
+    return "、".join(values[:limit]) + f" 等 {len(values)} 项"
+
+
+def _preserve_rule_summary(rule: dict) -> str:
+    parts = []
+    if rule.get("item_type") == "tape" and rule.get("main_stats"):
+        parts.append(f"主：{_rule_summary_values(rule['main_stats'])}")
+    if rule.get("sub_stats"):
+        raw_mode = rule.get("sub_match", "all")
+        if raw_mode == "all":
+            mode = "全部"
+        else:
+            try:
+                mode = {1: "任意一个", 2: "任意两个", 3: "任意三个"}.get(int(raw_mode), "任意一个")
+            except (TypeError, ValueError):
+                mode = "任意一个"
+        parts.append(f"副：{_rule_summary_values(rule['sub_stats'])}（{mode}）")
+    return "｜".join(parts) or "未设置词条条件"
+
+
+class PreserveRuleEditor(QDialog):
+    """编辑单条预留规则，避免在规则列表中展开复杂多选控件。"""
+
+    def __init__(
+        self,
+        parent,
+        rule: dict | None,
+        shape_options: list[tuple[str, int]],
+        set_options: list[str],
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("预留规则")
+        self.setMinimumSize(700, 610)
+        self.rule = copy.deepcopy(DEFAULT_PRESERVE_RULE)
+        if isinstance(rule, dict):
+            self.rule.update(rule)
+        self.shape_options = shape_options
+        self.set_options = set_options
+        self._item_type = self.rule.get("item_type", "tape")
+        self._action = self.rule.get("action", "keep")
+        self._range_values = {
+            "shape_ids": self.rule.get("shape_ids"),
+            "set_names": self.rule.get("set_names"),
+        }
+        catalog = StatCatalog.from_config_dir(getattr(runtime, "CONFIG_DIR", Path("config")))
+        self._main_stat_options = catalog.tape_main_stats
+        self._sub_stat_options = catalog.weight_choice_pool()
+        self._result_rule = None
+        self._build_ui()
+
+    def _build_segment(self, options, current, on_change) -> tuple[QWidget, dict[str, QPushButton]]:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        buttons = {}
+        for label, value in options:
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setChecked(value == current)
+            button.setStyleSheet(_button_style(value == current))
+            button.clicked.connect(lambda _checked=False, selected=value: on_change(selected))
+            layout.addWidget(button)
+            buttons[value] = button
+        layout.addStretch()
+        return widget, buttons
+
+    def _set_segment_value(self, buttons: dict[str, QPushButton], current: str) -> None:
+        for value, button in buttons.items():
+            button.setChecked(value == current)
+            button.setStyleSheet(_button_style(value == current))
+
+    @staticmethod
+    def _selected_stats(widget: QListWidget) -> list[str]:
+        return [item.text() for item in widget.selectedItems()]
+
+    def _make_stat_list(self, options: list[str], selected: list[str], height: int) -> QListWidget:
+        widget = QListWidget()
+        widget.setSelectionMode(QAbstractItemView.MultiSelection)
+        widget.setMaximumHeight(height)
+        for stat in options:
+            item = QListWidgetItem(stat)
+            widget.addItem(item)
+            item.setSelected(stat in selected)
+        return widget
+
+    def _refresh_sub_stat_layout(self) -> None:
+        """Use the otherwise unused drive-editor space for a readable stat grid."""
+        is_drive = self._item_type == "drive"
+        self.sub_stat_list.setViewMode(QListView.IconMode if is_drive else QListView.ListMode)
+        self.sub_stat_list.setFlow(QListView.LeftToRight if is_drive else QListView.TopToBottom)
+        self.sub_stat_list.setWrapping(is_drive)
+        self.sub_stat_list.setResizeMode(QListView.Adjust if is_drive else QListView.Fixed)
+        self.sub_stat_list.setMovement(QListView.Static)
+        self.sub_stat_list.setUniformItemSizes(is_drive)
+        self.sub_stat_list.setSpacing(5 if is_drive else 0)
+        if is_drive:
+            self.sub_stat_list.setGridSize(QSize(142, 30))
+            self.sub_stat_list.setMinimumHeight(212)
+            self.sub_stat_list.setMaximumHeight(16777215)
+        else:
+            self.sub_stat_list.setGridSize(QSize())
+            self.sub_stat_list.setMinimumHeight(0)
+            self.sub_stat_list.setMaximumHeight(132)
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(12)
+        form = QFormLayout()
+        self.name_edit = QLineEdit(str(self.rule.get("name") or ""))
+        self.name_edit.setPlaceholderText("例如：双爆输出卡带")
+        form.addRow("规则名称", self.name_edit)
+        type_widget, self._type_buttons = self._build_segment(
+            (("卡带", "tape"), ("驱动", "drive")), self._item_type, self._change_item_type
+        )
+        form.addRow("装备对象", type_widget)
+        action_widget, self._action_buttons = self._build_segment(
+            (("仅保留", "keep"), ("直接锁定", "lock")), self._action, self._change_action
+        )
+        form.addRow("命中后处理", action_widget)
+        root.addLayout(form)
+
+        self.main_group = QGroupBox("卡带主词条（命中任一）")
+        main_layout = QVBoxLayout(self.main_group)
+        self.main_stat_list = self._make_stat_list(self._main_stat_options, self.rule.get("main_stats", []), 112)
+        main_layout.addWidget(self.main_stat_list)
+        root.addWidget(self.main_group)
+
+        self.sub_group = QGroupBox("副词条")
+        sub_layout = QVBoxLayout(self.sub_group)
+        sub_mode_row = QHBoxLayout()
+        sub_mode_row.addWidget(QLabel("副词条命中"))
+        self.sub_match_combo = _combo(SUB_MATCH_OPTIONS, self._normalized_sub_match(), 132)
+        self.sub_match_combo.currentIndexChanged.connect(self._change_sub_match)
+        sub_mode_row.addWidget(self.sub_match_combo)
+        self.sub_match_hint = QLabel()
+        self.sub_match_hint.setStyleSheet("color:#f85149")
+        sub_mode_row.addWidget(self.sub_match_hint)
+        sub_mode_row.addStretch()
+        sub_layout.addLayout(sub_mode_row)
+        self.sub_stat_list = self._make_stat_list(self._sub_stat_options, self.rule.get("sub_stats", []), 132)
+        self.sub_stat_list.itemSelectionChanged.connect(self._refresh_sub_match_hint)
+        sub_layout.addWidget(self.sub_stat_list)
+        root.addWidget(self.sub_group, 1)
+
+        advanced = QFormLayout()
+        self.quality_combo = _combo(QUALITY_SCOPE_OPTIONS, self.rule.get("quality_scope", "gold_purple"), 150)
+        advanced.addRow("品质范围", self.quality_combo)
+        self.range_summary = QLabel()
+        range_row = QWidget()
+        range_layout = QHBoxLayout(range_row)
+        range_layout.setContentsMargins(0, 0, 0, 0)
+        range_button = QPushButton("选择范围")
+        range_button.clicked.connect(self._open_range_dialog)
+        range_layout.addWidget(self.range_summary, 1)
+        range_layout.addWidget(range_button)
+        advanced.addRow("类型范围", range_row)
+        root.addLayout(advanced)
+        self._refresh_visibility()
+        self._refresh_range_summary()
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._save_rule)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+        self._refresh_sub_match_hint()
+
+    def _change_item_type(self, value: str) -> None:
+        self._item_type = value
+        self._set_segment_value(self._type_buttons, value)
+        self._refresh_visibility()
+        self._refresh_range_summary()
+
+    def _change_action(self, value: str) -> None:
+        self._action = value
+        self._set_segment_value(self._action_buttons, value)
+
+    def _normalized_sub_match(self) -> str | int:
+        value = self.rule.get("sub_match", "all")
+        if value == "all":
+            return "all"
+        if value == "any":
+            return 1
+        try:
+            return max(1, min(int(value), 3))
+        except (TypeError, ValueError):
+            return "all"
+
+    def _change_sub_match(self, _index: int) -> None:
+        self.rule["sub_match"] = self.sub_match_combo.currentData()
+        self._refresh_sub_match_hint()
+
+    def _refresh_sub_match_hint(self) -> None:
+        selected_count = len(self._selected_stats(self.sub_stat_list))
+        if self.sub_match_combo.currentData() == "all" and selected_count > 4:
+            self.sub_match_hint.setText("单件装备最多 4 条副词条，规则不会命中")
+        else:
+            self.sub_match_hint.clear()
+
+    def _refresh_visibility(self) -> None:
+        self.main_group.setVisible(self._item_type == "tape")
+        self._refresh_sub_stat_layout()
+
+    def _range_defaults(self) -> tuple[list[str], list[str]]:
+        shapes = self._range_values.get("shape_ids")
+        sets = self._range_values.get("set_names")
+        if not isinstance(shapes, list):
+            shapes = [shape_id for shape_id, _area in self.shape_options if shape_id not in DEFAULT_EXCLUDED_SHAPE_IDS]
+        if not isinstance(sets, list):
+            sets = [set_name for set_name in self.set_options if set_name not in DEFAULT_EXCLUDED_SET_NAMES]
+        return shapes, sets
+
+    def _refresh_range_summary(self) -> None:
+        shapes, sets = self._range_defaults()
+        label = "卡带套装" if self._item_type == "tape" else "驱动形状"
+        count = len(sets) if self._item_type == "tape" else len(shapes)
+        total = len(self.set_options) if self._item_type == "tape" else len(self.shape_options)
+        self.range_summary.setText(f"{label} {count}/{total}")
+
+    def _open_range_dialog(self) -> None:
+        shapes, sets = self._range_defaults()
+        dialog = TypeRangeDialog(self, self.shape_options, self.set_options, shapes, sets)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        selected_shapes, selected_sets = dialog.selected_values()
+        self._range_values = {"shape_ids": selected_shapes, "set_names": selected_sets}
+        self._refresh_range_summary()
+
+    def _save_rule(self) -> None:
+        main_stats = self._selected_stats(self.main_stat_list) if self._item_type == "tape" else []
+        sub_stats = self._selected_stats(self.sub_stat_list)
+        if self._item_type == "drive" and not sub_stats:
+            QMessageBox.warning(self, "规则无效", "驱动规则至少选择一个副词条。")
+            return
+        if self._item_type == "tape" and not (main_stats or sub_stats):
+            QMessageBox.warning(self, "规则无效", "卡带规则至少选择主词条或副词条。")
+            return
+        if self.sub_match_combo.currentData() == "all" and len(sub_stats) > 4:
+            QMessageBox.warning(
+                self,
+                "规则无效",
+                "单件装备最多只有 4 条副词条；“全部”模式下选择超过 4 条会导致规则永远无法命中。",
+            )
+            return
+        name = self.name_edit.text().strip() or ("预留卡带" if self._item_type == "tape" else "预留驱动")
+        self._result_rule = {
+            "enabled": bool(self.rule.get("enabled", True)),
+            "name": name,
+            "item_type": self._item_type,
+            "action": self._action,
+            "main_stats": main_stats,
+            "sub_stats": sub_stats,
+            "sub_match": self.sub_match_combo.currentData(),
+            "quality_scope": self.quality_combo.currentData(),
+            "shape_ids": self._range_values.get("shape_ids"),
+            "set_names": self._range_values.get("set_names"),
+        }
+        self.accept()
+
+    def result_rule(self) -> dict | None:
+        return copy.deepcopy(self._result_rule)
+
+
 class ScanPostActionDialog(QDialog):
     def __init__(self, parent, user_config_dir: Path, selected_roles: list[str] | None = None):
         super().__init__(parent)
@@ -223,6 +503,7 @@ class ScanPostActionDialog(QDialog):
         self._shape_options = _load_drive_shape_options()
         self._set_options = _load_set_name_options()
         self._range_values = {}
+        self._preserve_rules = copy.deepcopy(self.config.get("preserve_rules", []))
         self._build_ui()
 
     def _style_toggle_button(self, button: QPushButton, checked: bool) -> None:
@@ -252,24 +533,179 @@ class ScanPostActionDialog(QDialog):
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setSpacing(12)
-        modules = QHBoxLayout()
-        modules.setSpacing(14)
-        modules.addWidget(self._build_module_panel("discard", "弃置模块", "最高评分低于等于"), 1)
-        modules.addWidget(self._build_module_panel("lock", "锁定模块", "最高评分高于等于"), 1)
-        root.addLayout(modules)
-
         footer = QHBoxLayout()
         self.hmt_region_check = QCheckBox("港澳台服")
         self.hmt_region_check.setChecked(self.config.get("server_region") == "hmt")
         self.hmt_region_check.setToolTip("开启后，扫描后弃置/锁定使用港澳台服的十字键左右直控方式。")
         footer.addWidget(self.hmt_region_check)
         footer.addStretch()
-        root.addLayout(footer)
+        self._scoring_footer = footer
+
+        self._main_tabs = QTabWidget()
+        self._main_tabs.addTab(self._build_scoring_page(), "评分处理")
+        self._main_tabs.addTab(self._build_preserve_rules_page(), "预留规则")
+        root.addWidget(self._main_tabs, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+    def _build_scoring_page(self) -> QWidget:
+        page = QWidget()
+        root = QVBoxLayout(page)
+        root.setContentsMargins(0, 12, 0, 0)
+        root.setSpacing(12)
+        modules = QHBoxLayout()
+        modules.setSpacing(14)
+        modules.addWidget(self._build_module_panel("discard", "弃置模块", "最高评分低于等于"), 1)
+        modules.addWidget(self._build_module_panel("lock", "锁定模块", "最高评分高于等于"), 1)
+        root.addLayout(modules)
+        root.addLayout(self._scoring_footer)
+        root.addStretch()
+        return page
+
+    def _build_preserve_rules_page(self) -> QWidget:
+        page = QWidget()
+        root = QVBoxLayout(page)
+        root.setContentsMargins(0, 12, 0, 0)
+        root.setSpacing(10)
+
+        header = QHBoxLayout()
+        title = QLabel("命中规则的装备将被保留或直接锁定")
+        title.setStyleSheet("color:#8b949e")
+        add_button = QPushButton("新增规则")
+        add_button.setStyleSheet(
+            "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
+            "border-radius:6px;padding:5px 12px;font-weight:700;}"
+            "QPushButton:hover{background:#388bfd;}"
+        )
+        add_button.clicked.connect(self._add_preserve_rule)
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(add_button)
+        root.addLayout(header)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        self._preserve_rules_layout = QVBoxLayout(content)
+        self._preserve_rules_layout.setContentsMargins(0, 2, 0, 2)
+        self._preserve_rules_layout.setSpacing(8)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+        self._render_preserve_rules()
+        return page
+
+    @staticmethod
+    def _clear_layout(layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _render_preserve_rules(self) -> None:
+        self._clear_layout(self._preserve_rules_layout)
+        if not self._preserve_rules:
+            empty = QLabel("暂未添加预留规则")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet("color:#8b949e;padding:48px 0")
+            self._preserve_rules_layout.addWidget(empty)
+        else:
+            for index, rule in enumerate(self._preserve_rules):
+                self._preserve_rules_layout.addWidget(self._build_preserve_rule_row(index, rule))
+        self._preserve_rules_layout.addStretch()
+
+    def _build_preserve_rule_row(self, index: int, rule: dict) -> QWidget:
+        row = QFrame()
+        row.setObjectName("preserveRuleRow")
+        row.setStyleSheet(themed_style("QFrame#preserveRuleRow{background:#161b22;border:1px solid #30363d;border-radius:6px;}"))
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(12, 10, 10, 10)
+        layout.setSpacing(10)
+        enabled = QCheckBox()
+        enabled.setToolTip("启用此规则")
+        enabled.setChecked(bool(rule.get("enabled", True)))
+        enabled.toggled.connect(lambda checked, current=index: self._set_preserve_rule_enabled(current, checked))
+        layout.addWidget(enabled)
+        details = QVBoxLayout()
+        details.setSpacing(3)
+        name = QLabel(str(rule.get("name") or "未命名规则"))
+        name.setStyleSheet("font-weight:700;color:#c9d1d9")
+        summary = QLabel(_preserve_rule_summary(rule))
+        summary.setStyleSheet("color:#8b949e")
+        summary.setWordWrap(True)
+        details.addWidget(name)
+        details.addWidget(summary)
+        layout.addLayout(details, 1)
+        edit_button = QPushButton("编辑")
+        copy_button = QPushButton("复制")
+        delete_button = QPushButton("删除")
+        compact_height = edit_button.sizeHint().height()
+        item_type = "卡带" if rule.get("item_type") == "tape" else "驱动"
+        type_badge = QLabel(item_type)
+        type_badge.setFixedHeight(compact_height)
+        type_badge.setStyleSheet("color:#58a6ff;border:1px solid #1f6feb;border-radius:6px;padding:1px 7px")
+        action_label = "直接锁定" if rule.get("action") == "lock" else "仅保留"
+        action_badge = QLabel(action_label)
+        action_badge.setFixedHeight(compact_height)
+        action_badge.setStyleSheet(
+            "color:#3fb950;border:1px solid #238636;border-radius:6px;padding:1px 7px"
+            if rule.get("action") != "lock"
+            else "color:#d2a8ff;border:1px solid #8957e5;border-radius:6px;padding:1px 7px"
+        )
+        layout.addWidget(type_badge, 0, Qt.AlignVCenter)
+        layout.addWidget(action_badge, 0, Qt.AlignVCenter)
+        edit_button.clicked.connect(lambda _checked=False, current=index: self._edit_preserve_rule(current))
+        copy_button.clicked.connect(lambda _checked=False, current=index: self._duplicate_preserve_rule(current))
+        delete_button.setStyleSheet("QPushButton{color:#f85149}")
+        delete_button.clicked.connect(lambda _checked=False, current=index: self._delete_preserve_rule(current))
+        layout.addWidget(edit_button)
+        layout.addWidget(copy_button)
+        layout.addWidget(delete_button)
+        return row
+
+    def _set_preserve_rule_enabled(self, index: int, enabled: bool) -> None:
+        if 0 <= index < len(self._preserve_rules):
+            self._preserve_rules[index]["enabled"] = enabled
+
+    def _add_preserve_rule(self) -> None:
+        editor = PreserveRuleEditor(self, DEFAULT_PRESERVE_RULE, self._shape_options, self._set_options)
+        if editor.exec() != QDialog.Accepted:
+            return
+        rule = editor.result_rule()
+        if rule is not None:
+            self._preserve_rules.append(rule)
+            self._render_preserve_rules()
+
+    def _edit_preserve_rule(self, index: int) -> None:
+        if not 0 <= index < len(self._preserve_rules):
+            return
+        editor = PreserveRuleEditor(self, self._preserve_rules[index], self._shape_options, self._set_options)
+        if editor.exec() != QDialog.Accepted:
+            return
+        rule = editor.result_rule()
+        if rule is not None:
+            self._preserve_rules[index] = rule
+            self._render_preserve_rules()
+
+    def _duplicate_preserve_rule(self, index: int) -> None:
+        if not 0 <= index < len(self._preserve_rules):
+            return
+        duplicate = copy.deepcopy(self._preserve_rules[index])
+        duplicate["name"] = f"{duplicate.get('name') or '未命名规则'} 副本"
+        self._preserve_rules.insert(index + 1, duplicate)
+        self._render_preserve_rules()
+
+    def _delete_preserve_rule(self, index: int) -> None:
+        if not 0 <= index < len(self._preserve_rules):
+            return
+        if QMessageBox.question(self, "删除规则", "确定删除这条预留规则？") != QMessageBox.Yes:
+            return
+        del self._preserve_rules[index]
+        self._render_preserve_rules()
 
     def _module_help_text(self, key: str) -> str:
         if key == "discard":
@@ -405,6 +841,7 @@ class ScanPostActionDialog(QDialog):
                 module[field] = widgets[field].currentData()
             module["shape_ids"] = list(self._range_values[key]["shape_ids"])
             module["set_names"] = list(self._range_values[key]["set_names"])
+        config["preserve_rules"] = copy.deepcopy(self._preserve_rules)
         return merge_post_action_config(config)
 
     def _save(self) -> None:
