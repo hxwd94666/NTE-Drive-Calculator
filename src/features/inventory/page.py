@@ -23,7 +23,10 @@ from src.features.drive_assembly.ui_bridge import (
 from src.features.drive_assembly.executor import (
     AssemblyExecutionStopped,
 )
-from src.features.role.equipment_import import equipment_from_saved_state, import_all_role_equipment, import_role_equipment
+from src.features.role.equipment_import import equipment_from_saved_state, import_role_equipment
+from src.features.role.drive_widget import _show_drive_optimization, _show_tape_optimization
+from src.features.role.dao import save_my_roles
+from src.features.role.page import _save_pending_role_equipment_state
 from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.optimizer.contracts import (
     DIFF_ADDED,
@@ -55,7 +58,7 @@ from src.ui.main_window_method_install import install_methods as _install_main_w
 
 __all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equipment', '_refresh_equip',
            '_saved_plan_diff_text', '_show_saved_plan_diff_dialog', '_clear_all_equipment', '_delete_role_equipment',
-           '_import_to_my_role', '_import_all_to_my_roles', '_preview_assemble_role', '_preview_assemble_all_roles',
+           '_optimize_saved_equipment', '_preview_assemble_role', '_preview_assemble_all_roles',
            '_save_eq']
 
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
@@ -80,10 +83,9 @@ def _page_equipment(self):
     self.equip_search.textChanged.connect(self._refresh_equip); sh.addWidget(self.equip_search)
     clear_btn=QPushButton("清空配装"); clear_btn.setObjectName("btnDanger"); clear_btn.clicked.connect(self._clear_all_equipment)
     sh.addWidget(clear_btn)
-    import_all_btn=QPushButton("一键导入"); import_all_btn.setObjectName("btnPrimary"); import_all_btn.clicked.connect(self._import_all_to_my_roles)
+    import_all_btn=QPushButton("一键装配"); import_all_btn.setObjectName("btnPrimary"); import_all_btn.clicked.connect(self._preview_assemble_all_roles)
     sh.addWidget(import_all_btn)
-    assemble_all_btn=QPushButton("一键装配所有角色"); assemble_all_btn.setObjectName("btnAction"); assemble_all_btn.clicked.connect(self._preview_assemble_all_roles)
-    sh.addWidget(assemble_all_btn); l.addLayout(sh)
+    l.addLayout(sh)
     scroll=QScrollArea(); scroll.setWidgetResizable(True)
     self.equip_content=QWidget(); self.equip_content_layout=QVBoxLayout(self.equip_content); scroll.setWidget(self.equip_content)
     l.addWidget(scroll,1); return page
@@ -208,14 +210,10 @@ def _render_equip_role(self, role_name, rd):
     del_btn.setFixedSize(64,32)
     del_btn.clicked.connect(lambda _=False, rn=role_name: self._delete_role_equipment(rn))
     role_hdr.addWidget(del_btn)
-    import_btn = QPushButton("导入")
-    import_btn.setObjectName("btnPrimary")  # 蓝色主按钮样式
-    import_btn.clicked.connect(lambda _, rn=role_name: self._import_to_my_role(rn))
+    import_btn = QPushButton("装配")
+    import_btn.setObjectName("btnPrimary")
+    import_btn.clicked.connect(lambda _, rn=role_name: self._preview_assemble_role(rn))
     role_hdr.addWidget(import_btn)
-    assemble_btn = QPushButton("装配该角色")
-    assemble_btn.setObjectName("btnAction")
-    assemble_btn.clicked.connect(lambda _, rn=role_name: self._preview_assemble_role(rn))
-    role_hdr.addWidget(assemble_btn)
     gl.addLayout(role_hdr); gl.addSpacing(6)
 
     bp=rd.get(ROLE_BLUEPRINT_LAYOUT,[])
@@ -246,7 +244,8 @@ def _render_equip_role(self, role_name, rd):
             t_g=self._calc_grade(t_s,15)
         gl.addWidget(self._section_label("卡带:"))
         tape_changed=bool(tape_data.get(EQUIP_IS_CHANGED))
-        gl.addWidget(self._equip_card(tape_data.get(EQUIP_SET_NAME,""),tape_data.get(EQUIP_MAIN_STATS,""),tape_data.get(EQUIP_SUB_STATS,{}),None,tape_data.get(EQUIP_UID,""),wts,(t_s,t_g),t_q,is_new=bool(tape_data.get(EQUIP_IS_NEW)) and not tape_changed,is_changed=tape_changed,main_weights=main_wts))
+        tape_uid=tape_data.get(EQUIP_UID,"")
+        gl.addWidget(self._equip_card(tape_data.get(EQUIP_SET_NAME,""),tape_data.get(EQUIP_MAIN_STATS,""),tape_data.get(EQUIP_SUB_STATS,{}),None,tape_uid,wts,(t_s,t_g),t_q,is_new=bool(tape_data.get(EQUIP_IS_NEW)) and not tape_changed,is_changed=tape_changed,main_weights=main_wts,replacement_callback=lambda rn=role_name, uid=tape_uid: self._optimize_saved_equipment(rn,"tape",uid),card_variant="inventory"))
     if drives:
         gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
         for d in drives:
@@ -258,7 +257,8 @@ def _render_equip_role(self, role_name, rd):
                 d_s=self._score_drive_dict(d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),wts,d_q)
                 d_g=self._calc_grade(d_s,self._shape_areas.get(d.get(EQUIP_SHAPE_ID,""),3))
             drive_changed=bool(d.get(EQUIP_IS_CHANGED))
-            gl.addWidget(self._equip_card(d.get(EQUIP_SHAPE_ID,""),"",d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),d.get(EQUIP_UID,""),wts,(d_s,d_g),d_q,is_new=bool(d.get(EQUIP_IS_NEW)) and not drive_changed,is_changed=drive_changed))
+            drive_uid=d.get(EQUIP_UID,"")
+            gl.addWidget(self._equip_card(d.get(EQUIP_SHAPE_ID,""),"",d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),drive_uid,wts,(d_s,d_g),d_q,is_new=bool(d.get(EQUIP_IS_NEW)) and not drive_changed,is_changed=drive_changed,replacement_callback=lambda rn=role_name, uid=drive_uid: self._optimize_saved_equipment(rn,"drive",uid),card_variant="inventory"))
     self.equip_content_layout.addWidget(grp)
 
 def _saved_plan_diff_text(self, role_name, diff):
@@ -318,75 +318,56 @@ def _delete_role_equipment(self, role_name: str):
     logger.success(f"已删除角色配装: {role_name}")
 
 
-def _import_to_my_role(self, role_name: str):
-    """将当前角色的配装（蓝图布局和驱动列表）导入到 my_roles.json 的 drive 字段"""
-    eq = self.equipped_state.get(role_name)
-    if not eq:
-        QMessageBox.warning(self, "导入失败", f"未找到角色 [{role_name}] 的配装数据。")
+def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
+    """从配装卡片打开角色功能的优化替换，并将结果立即同步回装备锁定。"""
+    role_state=(getattr(self,"equipped_state",{}) or {}).get(role_name)
+    if not isinstance(role_state,dict):
+        QMessageBox.warning(self,"优化替换","未找到该角色的已保存配装。")
         return
 
-    bp_layout, drives, new_tape = equipment_from_saved_state(eq)
-
-    if not bp_layout and not drives and not new_tape:
-        QMessageBox.information(self, "导入", f"[{role_name}] 当前配装中蓝图和驱动/空幕均为空，无需导入。")
-        return
-
-    try:
-        my_roles = import_role_equipment(role_name, bp_layout, drives, new_tape)
-
-        role_entry = my_roles.get(role_name, {})
-        if hasattr(self, "_my_role_form_data") and self._my_role_form_data is not None:
-            self._my_role_form_data[role_name] = role_entry
-
-        QMessageBox.information(
-            self, "导入成功",
-            f"[{role_name}] 的配装已导入到 my_roles.json\n蓝图数量：{len(bp_layout)}\n驱动数量：{len(drives)}"
-        )
-
-    except Exception as e:
-        QMessageBox.critical(self, "导入错误", f"操作失败：{str(e)}")
-        logger.error(f"导入配装失败: {e}")
-
-
-def _import_all_to_my_roles(self):
-    """将当前所有已保存配装批量覆盖导入角色配置。"""
-    if not self.equipped_state:
-        QMessageBox.information(self, "一键导入", "当前没有已保存的配装。")
-        return
-
-    ret=QMessageBox.question(
-        self,
-        "一键导入配装",
-        "确定要将当前所有已保存配装覆盖导入角色功能吗？\n"
-        "对应角色的图纸、驱动、卡带和套装加成会以当前配装为准；当前配装没有卡带的角色会清除旧卡带。",
-        QMessageBox.Yes | QMessageBox.No,
-        QMessageBox.No,
-    )
-    if ret!=QMessageBox.Yes:
-        return
-
-    try:
-        result=import_all_role_equipment(self.equipped_state)
-        my_roles=result.get("my_roles",{})
-        if hasattr(self,"_my_role_form_data") and self._my_role_form_data is not None:
-            for role_name in self.equipped_state.keys():
-                if role_name in my_roles:
-                    self._my_role_form_data[role_name]=my_roles[role_name]
-
-        imported=result.get("imported",0)
-        skipped=result.get("skipped",0)
-        failed=result.get("failed",[]) or []
-        msg=f"已导入 {imported} 个角色配装。"
-        if skipped:
-            msg+=f"\n跳过 {skipped} 个空配装。"
-        if failed:
-            msg+=f"\n失败 {len(failed)} 个：\n" + "\n".join(f"- {item.get('role')}: {item.get('error')}" for item in failed[:5])
-            QMessageBox.warning(self,"一键导入完成",msg)
+    role_data=(getattr(self,"_my_role_form_data",{}) or {}).get(role_name)
+    current_item=None
+    if isinstance(role_data,dict):
+        if item_kind=="drive":
+            current_item=next((d for d in role_data.get("drive",{}).get("drives",[]) or [] if str(d.get("uid",""))==str(uid)),None)
         else:
-            QMessageBox.information(self,"一键导入完成",msg)
-    except Exception as e:
-        QMessageBox.critical(self,"一键导入失败",f"操作失败：{str(e)}")
-        logger.error(f"批量导入配装失败: {e}")
+            tape=role_data.get("tape",{})
+            current_item=tape if isinstance(tape,dict) and str(tape.get("uid",""))==str(uid) else None
+
+    # 兼容旧的装备锁定：首次优化时补齐角色功能所需的数据结构。
+    if not current_item:
+        try:
+            bp_layout, drives, tape=equipment_from_saved_state(role_state)
+            my_roles=import_role_equipment(role_name,bp_layout,drives,tape)
+            self._my_role_form_data=my_roles
+            role_data=my_roles.get(role_name,{})
+            if item_kind=="drive":
+                current_item=next((d for d in role_data.get("drive",{}).get("drives",[]) or [] if str(d.get("uid",""))==str(uid)),None)
+            else:
+                tape_data=role_data.get("tape",{})
+                current_item=tape_data if isinstance(tape_data,dict) and str(tape_data.get("uid",""))==str(uid) else None
+        except Exception as exc:
+            logger.error(f"准备 {role_name} 的优化替换数据失败: {exc}")
+            QMessageBox.critical(self,"优化替换失败",str(exc))
+            return
+
+    if not current_item:
+        QMessageBox.warning(self,"优化替换","当前装备已变化，请刷新后重试。")
+        return
+
+    def _save_replacement():
+        if not save_my_roles(self._my_role_form_data):
+            QMessageBox.warning(self,"保存失败","无法保存角色功能的替换结果。")
+            return
+        _save_pending_role_equipment_state(self,self._my_role_form_data)
+        self._my_role_dirty=False
+        logger.success(f"已从配装页优化替换 {role_name} 的{item_kind}: {uid}")
+
+    weights=(getattr(self,"roles_db",{}) or {}).get(role_name,{}).get("weights",{})
+    if item_kind=="drive":
+        _show_drive_optimization(self,role_name,current_item,weights,_save_replacement)
+    else:
+        _show_tape_optimization(self,role_name,current_item,weights,_save_replacement)
 
 
 def _assembly_report_dialog(action_name: str, report, expected_role_count: int | None = None):
@@ -490,6 +471,9 @@ def _preview_assemble_role(self, role_name: str):
         )
         if ret!=QMessageBox.Yes:
             return
+        minimize = getattr(self, "showMinimized", None)
+        if callable(minimize):
+            minimize()
         report=execute_selected_role_from_current_game_page(
             self.equipped_state,
             role_name,
@@ -513,7 +497,7 @@ def _preview_assemble_all_roles(self):
     """生成并执行所有已保存角色的游戏内装配动作计划。"""
     _reload_equipped_state_from_disk(self)
     if not self.equipped_state:
-        QMessageBox.information(self,"一键装配所有角色","当前没有已保存的配装。")
+        QMessageBox.information(self,"一键装配","当前没有已保存的配装。")
         return
     try:
         plan=build_all_role_assembly_plan(self.equipped_state)
@@ -524,16 +508,19 @@ def _preview_assemble_all_roles(self):
             return
         ret=QMessageBox.question(
             self,
-            "一键装配所有角色",
+            "一键装配",
             summary + "\n\n确认后将等待 3 秒，请在倒计时内切回游戏的信息页面，并保持右侧角色列表可见。",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if ret!=QMessageBox.Yes:
             return
+        minimize = getattr(self, "showMinimized", None)
+        if callable(minimize):
+            minimize()
         report=execute_all_roles_from_current_game_page(self.equipped_state, role_name_aliases=role_name_aliases)
         title, message, completed = _assembly_report_dialog(
-            "一键装配所有角色",
+            "一键装配",
             report,
             expected_role_count=len(planned_roles),
         )

@@ -230,12 +230,27 @@ def _role_drive_state(window, role_name, role_data, old_role_state):
     weights = getattr(window, "roles_db", {}).get(role_name, {}).get("weights", {})
     for drive in role_data.get("drive", {}).get("drives", []) or []:
         uid = str(drive.get("uid", "") or "")
-        if not uid or uid.startswith("empty_"):
+        if not uid:
             continue
         shape_id = drive.get("shape_id", "")
         quality = drive.get("quality", "Gold")
         sub_stats = drive.get("sub_stats", {}) or {}
         area = int(getattr(window, "_shape_areas", {}).get(shape_id, 3) or 3)
+        if uid.startswith("empty_"):
+            drives.append(
+                {
+                    EQUIP_UID: uid,
+                    EQUIP_DISPLAY_NAME: drive.get(EQUIP_DISPLAY_NAME) or f"{shape_id}-(空位)",
+                    EQUIP_SHAPE_ID: shape_id,
+                    EQUIP_SUB_STATS: {},
+                    EQUIP_QUALITY: quality,
+                    EQUIP_SCORE: 0.0,
+                    EQUIP_GRADE: "D",
+                    EQUIP_SCORE_AREA: area,
+                    EQUIP_IS_CHANGED: True,
+                }
+            )
+            continue
         score = 0.0
         if hasattr(window, "_score_drive_dict"):
             score = window._score_drive_dict(sub_stats, shape_id, weights, quality)
