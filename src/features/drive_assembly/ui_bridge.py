@@ -33,13 +33,9 @@ from src.features.drive_assembly.page_mapping import (
 )
 from src.features.drive_assembly.role_flow import (
     build_role_assembly_payloads,
-    collect_role_roster_with_dpad,
-    collect_role_roster_until_repeat,
-    map_role_page_reset,
-    map_role_page_scroll,
-    plan_role_assembly_from_dpad_roster,
+    collect_role_roster_from_role_list,
+    plan_role_assembly_from_role_list_roster,
     plan_role_assembly_from_observations,
-    plan_role_assembly_from_roster,
     recognize_current_role_from_image,
     recognize_role_slots_from_image,
     required_roles_from_payloads,
@@ -234,21 +230,56 @@ def _execute_roles_from_current_game_page(
     assembly_plan = build_all_role_assembly_plan(equipped_state, screen_size=screen_size, content_rect=action_rect)
     assembly_plan = _filter_assembly_plan_for_roles(assembly_plan, target_roles)
     required_roles = assembly_plan.get("roles", [])
+    _log_assembly_plan_diagnostics(assembly_plan, screen_size, action_rect)
     if not required_roles:
+        logger.warning("驱动装配未启动 | 原因=没有可装配的目标角色")
         return execute_role_traversal_assembly_plan({"plans": []}, assembly_plan, backend=backend)
     recognition_roles = _role_recognition_candidates(required_roles, template_root, equipped_state, role_name_aliases)
+    logger.info(
+        "驱动装配角色扫描开始 | "
+        f"目标角色={required_roles} | 识别候选数={len(recognition_roles)} | "
+        f"窗口尺寸={screen_size} | 操作区域={action_rect} | 向上复位次数=5"
+    )
+    logger.info(
+        "角色列表扫描路径 | 复位=dpad_up×5 | 打开列表=RS | "
+        "逐格移动=左摇杆 | 确认=A | 达成全部目标后保留列表并规划返回首个目标"
+    )
     action_backend = backend or PyAutoGuiMouseBackend()
+    randomization_enabled = _enable_assembly_randomization(action_backend)
+    logger.info(
+        "驱动装配随机化 | "
+        f"鼠标随机化={'已启用' if randomization_enabled else '后端不支持'} | "
+        "点击偏移、拖拽路径与拖拽节奏随机；手柄路径保持固定"
+    )
     ocr_engine = OCREngine()
 
     def press_up():
         execute_action_sequence(
-            [{"name": "role_dpad_reset_to_first", "gamepad_button": "dpad_up"}],
+            [{"name": "role_list_reset_dpad_up", "gamepad_button": "dpad_up"}],
             backend=action_backend,
         )
 
-    def press_down():
+    def open_role_list():
         execute_action_sequence(
-            [{"name": "role_dpad_next", "gamepad_button": "dpad_down"}],
+            [{"name": "open_role_list", "gamepad_button": "rs"}],
+            backend=action_backend,
+        )
+
+    def confirm_role_list_selection():
+        execute_action_sequence(
+            [{"name": "confirm_role_list_selection", "gamepad_button": "a"}],
+            backend=action_backend,
+        )
+
+    def move_role_list_right():
+        execute_action_sequence(
+            [
+                {
+                    "name": "role_list_next",
+                    "gamepad_stick": "left_right",
+                    "post_action_pause_seconds": 0.25,
+                }
+            ],
             backend=action_backend,
         )
 
@@ -271,26 +302,39 @@ def _execute_roles_from_current_game_page(
         )
         return recognition
 
-    role_roster = collect_role_roster_with_dpad(
-        required_roles,
-        current_observer=observe_current,
-        press_up=press_up,
-        press_down=press_down,
-        max_roles=max_pages or max(20, len(recognition_roles) + 6),
-    )
+    try:
+        role_roster = collect_role_roster_from_role_list(
+            required_roles,
+            current_observer=observe_current,
+            press_up=press_up,
+            open_role_list=open_role_list,
+            confirm_selection=confirm_role_list_selection,
+            move_right=move_role_list_right,
+            max_roles=max_pages or max(20, len(recognition_roles) + 6),
+        )
+    except BaseException:
+        _close_assembly_backend(action_backend)
+        raise
     logger.info(
         "驱动装配角色扫描完成："
         f"已识别={role_roster.get('roles', [])}，"
         f"未识别={role_roster.get('unrecognized', [])}，"
         f"重复={role_roster.get('duplicates', [])}"
     )
-    traversal_plan = plan_role_assembly_from_dpad_roster(
+    logger.info(
+        "角色列表扫描结果 | "
+        f"停止原因={role_roster.get('stop_reason', '')} | "
+        f"缺少={role_roster.get('missing_expected_roles', [])} | "
+        f"当前列表索引={role_roster.get('current_index', 0)} | 列表保持打开={role_roster.get('list_open', False)}"
+    )
+    traversal_plan = plan_role_assembly_from_role_list_roster(
         required_roles,
         role_roster,
         screen_size=screen_size,
         content_rect=action_rect,
         current_index=role_roster.get("current_index", max(0, len(role_roster.get("roles", []) or []) - 1)),
     )
+    _log_traversal_plan_diagnostics(traversal_plan)
     checker = f12_stop_checker()
 
     def verifier(role_name: str, role_plan: dict[str, Any]):
@@ -299,13 +343,105 @@ def _execute_roles_from_current_game_page(
         image, rect = _capture_foreground_client_image()
         return verify_blueprint_against_screenshot(image, rect, role_plan)
 
-    return execute_role_traversal_assembly_plan(
-        traversal_plan,
-        assembly_plan,
-        backend=action_backend,
-        should_stop=checker,
-        role_verifier=verifier,
+    try:
+        report = execute_role_traversal_assembly_plan(
+            traversal_plan,
+            assembly_plan,
+            backend=action_backend,
+            should_stop=checker,
+            role_verifier=verifier,
+        )
+    finally:
+        _close_assembly_backend(action_backend)
+    logger.info(
+        "驱动装配总结果 | "
+        f"已执行={report.executed_actions} | 导航={report.navigation_actions} | "
+        f"角色={[(item.role_name, item.executed_actions, len(item.skipped_actions)) for item in report.role_reports]} | "
+        f"跳过角色={report.skipped_roles} | 校验失败={report.verification_failures}"
     )
+    return report
+
+
+def _enable_assembly_randomization(backend: MouseBackend) -> bool:
+    """Enable bounded mouse randomization when the selected backend supports it."""
+
+    enable_randomization = getattr(backend, "enable_randomization", None)
+    if not callable(enable_randomization):
+        return False
+    enable_randomization()
+    return True
+
+
+def _close_assembly_backend(backend: MouseBackend) -> bool:
+    """Close the virtual controller when the backend owns one."""
+
+    close = getattr(backend, "close", None)
+    if not callable(close):
+        return False
+    try:
+        close()
+    except Exception as exc:
+        logger.warning(f"虚拟手柄关闭失败 | {exc}")
+        return False
+    logger.info("虚拟手柄已重置并关闭")
+    return True
+
+
+def _log_assembly_plan_diagnostics(
+    assembly_plan: dict[str, Any],
+    screen_size: tuple[int, int],
+    content_rect: tuple[int, int, int, int],
+) -> None:
+    """Log the planned equipment and target geometry before any UI input."""
+
+    logger.info(
+        "驱动装配计划生成 | "
+        f"角色={assembly_plan.get('roles', [])} | 可执行={assembly_plan.get('ready_count', 0)}/{assembly_plan.get('role_count', 0)} | "
+        f"窗口尺寸={screen_size} | 操作区域={content_rect}"
+    )
+    for role_plan in assembly_plan.get("role_plans", []):
+        role_name = role_plan.get("role_name", "未命名")
+        if not role_plan.get("available"):
+            logger.warning(f"角色装配计划不可用 | 角色={role_name} | 原因={role_plan.get('reason', '未知')}")
+            continue
+        logger.info(
+            "角色装配计划 | "
+            f"角色={role_name} | 卡带={role_plan.get('tape_count', 0)} | 驱动={role_plan.get('drive_count', 0)} | "
+            f"顶层动作={[action.get('name') for action in role_plan.get('actions', [])]}"
+        )
+        for block in role_plan.get("drive_blocks", []) or []:
+            drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
+            logger.info(
+                "驱动装配目标 | "
+                f"角色={role_name} | 块={block.get('block_id')} | uid={drive.get('uid', '未知')} | "
+                f"形状={block.get('drive_type') or drive.get('shape_id', '未知')} | 品质={drive.get('quality', '未知')} | "
+                f"套装={block.get('set_name') or drive.get('set_name', '未筛选')} | 副词条={drive.get('sub_stats', {})} | "
+                f"格子={block.get('cells', [])} | 质心={block.get('grid_centroid') or block.get('shape_centroid')} | "
+                f"目标={block.get('pixel_position')} | 重复={bool(block.get('is_duplicate_drive') or block.get('is_duplicate_equipment'))}"
+            )
+
+
+def _log_traversal_plan_diagnostics(traversal_plan: dict[str, Any]) -> None:
+    """Log the role-recognition result and the exact D-pad route per role."""
+
+    logger.info(
+        "角色路径规划完成 | "
+        f"导航={traversal_plan.get('navigation', '未知')} | 计划={traversal_plan.get('planned_roles', [])} | "
+        f"缺失={traversal_plan.get('missing_roles', [])} | 未识别={traversal_plan.get('unrecognized', [])} | "
+        f"重复={traversal_plan.get('duplicates', [])}"
+    )
+    for step in traversal_plan.get("plans", []):
+        moves = [
+            action.get("gamepad_button") or action.get("gamepad_stick")
+            for action in step.get("action_sequence", [])
+            if action.get("gamepad_button") or action.get("gamepad_stick")
+        ]
+        logger.info(
+            "角色路径 | "
+            f"角色={step.get('role_name')} | 起始索引={step.get('start_roster_index')} | "
+            f"目标索引={step.get('roster_index')} | 手柄路径={moves} | "
+            f"进入动作={[action.get('name') for action in step.get('action_sequence', [])]}"
+        )
 
 
 def _filter_assembly_plan_for_roles(
@@ -455,12 +591,17 @@ def _tape_install_sequence(
     sequence.extend(map_page_controls(screen_size, content_rect)["click_sequence"])
     sequence.extend(map_tape_filter_controls(screen_size, content_rect)["set_filter_sequence"])
     sequence.extend(map_tape_set_selection(tape_filter["set_name"], screen_size, content_rect)["selection_sequence"])
+    quality = str(tape_filter.get("quality") or "").strip()
+    is_duplicate_tape = bool(
+        tape_filter.get("is_duplicate_tape") or tape_filter.get("is_duplicate_equipment")
+    )
     sequence.extend(
         map_tape_filter_refinement(
-            [tape_filter.get("quality", "Gold")],
+            [quality] if quality else [],
             screen_size,
             content_rect,
             include_main_stat_expand=False,
+            include_status_filters=is_duplicate_tape,
         )["refinement_sequence"]
     )
     sequence.extend(map_tape_main_stat_gamepad_open()["open_sequence"])

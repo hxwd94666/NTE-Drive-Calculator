@@ -43,7 +43,8 @@ class PostActionEvaluator:
             return PostActionEvaluation(config=effective_config, enabled=False)
 
         scoring = ScoringEngine(str(self.config_dir or "config"))
-        if not scoring.roles_db:
+        has_preserve_rules = bool(effective_config.get("preserve_rules"))
+        if not scoring.roles_db and not has_preserve_rules:
             return PostActionEvaluation(config=effective_config, enabled=True)
 
         scoring.evaluate_global_inventory(inventory)
@@ -73,14 +74,18 @@ class PostActionEvaluator:
             "[状态管理] 过滤统计: "
             f"品质范围 {filter_summary.get('post_action_quality_filtered_count', 0)} 件，"
             f"处理类别 {filter_summary.get('post_action_type_filtered_count', 0)} 件，"
-            f"类型范围 {filter_summary.get('post_action_type_range_filtered_count', 0)} 件"
+            f"类型范围 {filter_summary.get('post_action_type_range_filtered_count', 0)} 件，"
+            f"预留规则命中 {filter_summary.get('preserve_rule_matched_count', 0)} 件"
         )
         for change in state_changes:
             decision = change.get("decision", {}) or {}
             lock_detail = decision.get("lock", {}) or {}
             discard_detail = decision.get("discard", {}) or {}
+            preserve_detail = decision.get("preserve", {}) or {}
             chosen = lock_detail if change.get("target_state") == "locked" else discard_detail
-            if change.get("target_state") == "normal":
+            if preserve_detail.get("action"):
+                chosen = preserve_detail
+            if change.get("target_state") == "normal" and not preserve_detail.get("action"):
                 chosen = lock_detail if change.get("current_state") == "locked" else discard_detail
             logger.info(
                 f"[状态管理] 目标 raw_drive_{int(change.get('index', 0)):04d} "

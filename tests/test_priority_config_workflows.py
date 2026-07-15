@@ -840,3 +840,30 @@ class UpdateWorkflowTests(unittest.TestCase):
 
         self.assertEqual([], offenders)
 
+
+class ConfigurationRoleOrderTests(unittest.TestCase):
+    def test_new_role_is_inserted_at_the_start_of_role_tabs(self):
+        from src.features.configuration import page as config_page
+
+        class Window:
+            all_set_names = ["套装A"]
+
+        saved = []
+        switched = []
+        old_get_text = config_page.QInputDialog.getText
+        old_save = config_page.save_config_data
+        old_switch = config_page.switch_config_form
+        config_page.QInputDialog.getText = lambda *_args, **_kwargs: ("新角色", True)
+        config_page.save_config_data = lambda _window, data, _config_dir: saved.append(list(data))
+        config_page.switch_config_form = lambda *_args, **kwargs: switched.append(kwargs.get("active_role"))
+        try:
+            data = {"旧角色A": {}, "旧角色B": {}}
+            config_page.add_role(Window(), data, Path("."))
+        finally:
+            config_page.QInputDialog.getText = old_get_text
+            config_page.save_config_data = old_save
+            config_page.switch_config_form = old_switch
+
+        self.assertEqual(["新角色", "旧角色A", "旧角色B"], list(data))
+        self.assertEqual([["新角色", "旧角色A", "旧角色B"]], saved)
+        self.assertEqual(["新角色"], switched)

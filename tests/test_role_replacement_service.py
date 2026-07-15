@@ -1,5 +1,6 @@
 # 测试角色装备替换候选和写回服务。
 import unittest
+from unittest.mock import patch
 
 from src.features.role.replacement_service import (
     apply_drive_replacement_plan,
@@ -9,6 +10,19 @@ from src.features.role.replacement_service import (
 
 
 class DriveReplacementServiceTests(unittest.TestCase):
+    def test_replacement_confirmation_lists_roles_that_will_be_unequipped(self):
+        from PySide6.QtWidgets import QMessageBox
+        from src.features.role.drive_widget import _confirm_equipment_replacement
+
+        with patch("src.features.role.drive_widget.QMessageBox.question", return_value=QMessageBox.Yes) as question:
+            self.assertTrue(_confirm_equipment_replacement(None, "drive", ["角色甲", "角色乙"]))
+
+        _window, _title, message, *_rest = question.call_args.args
+        self.assertIn("驱动", message)
+        self.assertIn("角色甲", message)
+        self.assertIn("角色乙", message)
+        self.assertIn("卸下", message)
+
     def test_build_drive_options_sorts_candidates_and_marks_users(self):
         role_data = {
             "drive": {
