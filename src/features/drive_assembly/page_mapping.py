@@ -81,6 +81,7 @@ DEFAULT_TAPE_MAIN_STAT_SCROLL = {
     "main_stat_scroll_start": (2067.0, 1190.0),
     "main_stat_scroll_end": (2067.0, 395.0),
 }
+TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS = 0.20
 DEFAULT_TAPE_SUB_STAT_FILTER_ENTRY = {
     "sub_stat_scroll_start": (2067.0, 1190.0),
     "sub_stat_scroll_end": (2067.0, 395.0),
@@ -409,6 +410,7 @@ def map_tape_filter_refinement(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
     include_main_stat_expand: bool = True,
+    include_status_filters: bool = False,
 ) -> dict[str, Any]:
     """Return filter positions after the set has been selected."""
 
@@ -418,11 +420,15 @@ def map_tape_filter_refinement(
     result: dict[str, Any] = {}
     for name in ("status_locked", "status_discarded", "status_other"):
         result[name] = status_controls[name]
-    sequence = [
-        {"name": "status_locked", "position": result["status_locked"]},
-        {"name": "status_discarded", "position": result["status_discarded"]},
-        {"name": "status_other", "position": result["status_other"]},
-    ]
+    sequence: list[dict[str, Any]] = []
+    if include_status_filters:
+        sequence.extend(
+            [
+                {"name": "status_locked", "position": result["status_locked"]},
+                {"name": "status_discarded", "position": result["status_discarded"]},
+                {"name": "status_other", "position": result["status_other"]},
+            ]
+        )
     for quality in qualities:
         control_name = _quality_control_name(quality)
         result[control_name] = quality_controls[control_name]
@@ -451,7 +457,7 @@ def map_drive_filter_refinement(
     content_rect: tuple[int, int, int, int] | None = None,
     duration_ms: int = 500,
     include_status_filters: bool = True,
-    bottom_scroll_count: int = 2,
+    bottom_scroll_count: int = 1,
 ) -> dict[str, Any]:
     """Return drive filter positions after the shape has been selected."""
 
@@ -551,12 +557,26 @@ def map_tape_main_stat_gamepad_open() -> dict[str, Any]:
 
     sequence: list[dict[str, Any]] = []
     sequence.extend(
-        {"name": "main_stat_gamepad_down_to_expand", "gamepad_stick": "left_down"}
+        {
+            "name": "main_stat_gamepad_down_to_expand",
+            "gamepad_stick": "left_down",
+            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
+        }
         for _index in range(7)
     )
-    sequence.append({"name": "main_stat_gamepad_confirm_expand", "gamepad_button": "a"})
+    sequence.append(
+        {
+            "name": "main_stat_gamepad_confirm_expand",
+            "gamepad_button": "a",
+            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
+        }
+    )
     sequence.extend(
-        {"name": "main_stat_gamepad_down_to_options", "gamepad_stick": "left_down"}
+        {
+            "name": "main_stat_gamepad_down_to_options",
+            "gamepad_stick": "left_down",
+            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
+        }
         for _index in range(3)
     )
     return {"open_sequence": sequence}
@@ -659,7 +679,7 @@ def map_tape_sub_stat_selection(
 def map_tape_equip_first_result(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    duration_ms: int = 700,
+    duration_ms: int = 1200,
 ) -> dict[str, Any]:
     """Return actions for confirming the filter and equipping the first visible tape."""
 
@@ -695,7 +715,7 @@ def map_drive_block_installation(
     block: dict[str, Any],
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    duration_ms: int = 700,
+    duration_ms: int = 1200,
     cached_set_name: str | None = None,
     open_filter: bool = False,
 ) -> dict[str, Any]:
@@ -794,7 +814,7 @@ def map_drive_blocks_installation(
     blocks: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    duration_ms: int = 700,
+    duration_ms: int = 1200,
 ) -> dict[str, Any]:
     """Return a per-block drive assembly plan.
 

@@ -13,6 +13,7 @@ from src.app.facade import NTEAppFacade
 from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.optimizer.plan_diff import build_plan_diff
+from src.features.role.equipment_import import import_all_role_equipment
 from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
@@ -104,6 +105,7 @@ def _save_alloc(self, show_message=True):
     try:
         self.state_mgr.save_allocation(self.final_plan, mode=getattr(self,'_pending_strat',''))
         self._load_data(reload_priority=False)
+        _sync_saved_allocation_to_roles(self)
         self._allocation_dirty=False
         if show_message:
             QMessageBox.information(self,"保存成功","配装保存成功")
@@ -111,6 +113,28 @@ def _save_alloc(self, show_message=True):
     except Exception as e:
         QMessageBox.critical(self,"失败",str(e))
         return False
+
+
+def _sync_saved_allocation_to_roles(self):
+    """将新保存的装备锁定同步到角色功能，供优化替换直接使用。"""
+    equipped_state = getattr(self, "equipped_state", None)
+    if not isinstance(equipped_state, dict) or not equipped_state:
+        return
+    try:
+        result = import_all_role_equipment(equipped_state)
+        my_roles = result.get("my_roles", {}) if isinstance(result, dict) else {}
+        form_data = getattr(self, "_my_role_form_data", None)
+        if isinstance(form_data, dict):
+            for role_name in equipped_state:
+                if role_name in my_roles:
+                    form_data[role_name] = my_roles[role_name]
+        logger.info(
+            f"保存装备锁定已同步角色功能: 成功 {result.get('imported', 0)}，"
+            f"跳过 {result.get('skipped', 0)}，失败 {len(result.get('failed', []) or [])}"
+        )
+    except Exception as exc:
+        # 已保存的装备锁定不能因角色功能的同步异常而回滚。
+        logger.warning(f"保存装备锁定后同步角色功能失败: {exc}")
 
 def _archive_pending_screenshots(self):
     paths=list(getattr(self,'_pending_archive_paths',[]) or [])
