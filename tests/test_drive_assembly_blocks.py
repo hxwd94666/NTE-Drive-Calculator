@@ -96,6 +96,52 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual(["corner", "vertical"], [block["drive"]["uid"] for block in blocks])
         self.assertEqual(["Gold", "Purple"], [block["drive"]["quality"] for block in blocks])
 
+    def test_skips_empty_replacement_slots_during_game_assembly(self):
+        from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
+
+        state = {
+            "角色A": {
+                "blueprint_layout": [["H_2", "H_2", "V_2"], ["XX", "XX", "V_2"]],
+                "equipped_drives": [
+                    {"uid": "empty_taken_h2", "shape_id": "H_2"},
+                    {"uid": "real_v2", "shape_id": "V_2"},
+                ],
+            }
+        }
+
+        blocks = extract_drive_blocks_from_state(state)
+
+        self.assertEqual(["real_v2"], [block["drive"]["uid"] for block in blocks])
+        self.assertEqual(["V_2"], [block["matrix_name"] for block in blocks])
+
+    def test_splits_multiple_same_name_h2_shapes_into_independent_blocks(self):
+        from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
+        from src.features.drive_assembly.page_mapping import map_blocks_to_page
+
+        state = {
+            "角色A": {
+                "blueprint_layout": [
+                    ["XX", "XX", "XX", "XX", "XX"],
+                    ["XX", "XX", "XX", "H_2", "H_2"],
+                    ["XX", "XX", "XX", "XX", "XX"],
+                    ["XX", "XX", "XX", "XX", "XX"],
+                    ["XX", "XX", "XX", "H_2", "H_2"],
+                ],
+                "equipped_drives": [
+                    {"uid": "upper", "shape_id": "H_2"},
+                    {"uid": "lower", "shape_id": "H_2"},
+                ],
+            }
+        }
+
+        blocks = extract_drive_blocks_from_state(state)
+        mapped = map_blocks_to_page(blocks)
+
+        self.assertEqual(["H_2", "H_2"], [block["matrix_name"] for block in blocks])
+        self.assertEqual([[(2, 4), (2, 5)], [(5, 4), (5, 5)]], [block["cells"] for block in blocks])
+        self.assertEqual(["upper", "lower"], [block["drive"]["uid"] for block in blocks])
+        self.assertEqual([(1406, 455), (1406, 734)], [block["pixel_position"] for block in mapped])
+
     def test_extracts_tape_filter_from_equipped_state_blueprint(self):
         from src.features.drive_assembly.blocks import extract_tape_filters_from_state
 
@@ -453,7 +499,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
     def test_maps_tape_filter_status_quality_and_main_stat_controls(self):
         from src.features.drive_assembly.page_mapping import map_tape_filter_refinement
 
-        controls = map_tape_filter_refinement(["Gold", "Purple"])
+        controls = map_tape_filter_refinement(["Gold", "Purple"], include_status_filters=True)
 
         self.assertEqual((2273, 618), controls["status_locked"])
         self.assertEqual((1861, 704), controls["status_discarded"])
@@ -494,6 +540,13 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         self.assertNotIn("main_stat_expand", [step["name"] for step in controls["refinement_sequence"]])
         self.assertNotIn("wait_after_main_stat_expand", [step["name"] for step in controls["refinement_sequence"]])
+
+    def test_tape_filter_refinement_omits_status_and_quality_when_not_requested(self):
+        from src.features.drive_assembly.page_mapping import map_tape_filter_refinement
+
+        controls = map_tape_filter_refinement([], include_main_stat_expand=False)
+
+        self.assertEqual([], controls["refinement_sequence"])
 
     def test_scales_tape_filter_refinement_to_other_screens(self):
         from src.features.drive_assembly.page_mapping import map_tape_filter_refinement
@@ -544,8 +597,16 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         self.assertEqual(11, len(sequence))
         self.assertEqual(["left_down"] * 7, [step["gamepad_stick"] for step in sequence[:7]])
-        self.assertEqual({"name": "main_stat_gamepad_confirm_expand", "gamepad_button": "a"}, sequence[7])
+        self.assertEqual(
+            {
+                "name": "main_stat_gamepad_confirm_expand",
+                "gamepad_button": "a",
+                "post_action_pause_seconds": 0.2,
+            },
+            sequence[7],
+        )
         self.assertEqual(["left_down"] * 3, [step["gamepad_stick"] for step in sequence[8:]])
+        self.assertEqual([0.2] * 11, [step["post_action_pause_seconds"] for step in sequence])
 
     def test_maps_tape_main_stat_selection_from_blueprint_stat(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
@@ -694,7 +755,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                     "name": "drag_first_tape_to_socket",
                     "from": (126, 430),
                     "to": (1267, 1090),
-                    "duration_ms": 700,
+                    "duration_ms": 1200,
                 },
                 {"name": "wait_for_equipment_reuse_prompt", "wait_seconds": 0.3},
                 {
@@ -816,10 +877,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                 "quality_orange",
                 "verify_quality_selected",
                 "drive_filter_scroll_to_bottom",
-                "drive_filter_scroll_to_bottom",
                 "sub_stat_expand",
                 "wait_after_drive_sub_stat_expand",
-                "drive_sub_stat_scroll_to_bottom",
                 "drive_sub_stat_scroll_to_bottom",
                 "sub_stat_option",
                 "sub_stat_option",
@@ -828,7 +887,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             [step["name"] for step in controls["refinement_sequence"]],
         )
 
-    def test_drive_block_filter_uses_shape_then_two_bottom_scroll_stages(self):
+    def test_drive_block_filter_uses_shape_then_one_scroll_per_filter_stage(self):
         from src.features.drive_assembly.page_mapping import map_drive_block_installation
 
         block = {
@@ -859,8 +918,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         indexes = [names.index(name) for name in expected_order]
         self.assertEqual(sorted(indexes), indexes)
-        self.assertEqual(2, names.count("drive_filter_scroll_to_bottom"))
-        self.assertEqual(2, names.count("drive_sub_stat_scroll_to_bottom"))
+        self.assertEqual(1, names.count("drive_filter_scroll_to_bottom"))
+        self.assertEqual(1, names.count("drive_sub_stat_scroll_to_bottom"))
 
     def test_maps_drive_block_installation_to_precomputed_pixel_position(self):
         from src.features.drive_assembly.page_mapping import map_drive_block_installation
@@ -888,7 +947,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             if step["name"] == "force_drag_first_drive_to_block"
         )
         self.assertEqual(
-            {"name": "force_drag_first_drive_to_block", "block_id": 3, "from": (126, 430), "to": (1205, 393), "duration_ms": 700},
+            {"name": "force_drag_first_drive_to_block", "block_id": 3, "from": (126, 430), "to": (1205, 393), "duration_ms": 1200},
             install["install_sequence"][drag_index],
         )
         self.assertEqual({"name": "wait_for_equipment_reuse_prompt", "wait_seconds": 0.3}, install["install_sequence"][drag_index + 1])
