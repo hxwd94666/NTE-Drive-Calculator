@@ -1,9 +1,4 @@
-# 从 nanoka.cc 静态 JSON 同步角色/武器基础属性。
-"""Sync character/weapon base stats from nanoka static data.
-
-Not a scraper: detects the live dataset version from nte.nanoka.cc, then reads
-versioned JSON from https://static.nanoka.cc/nte/{version}/...
-"""
+# 从 nanoka.cc 静态数据同步角色和武器基础属性。
 
 from __future__ import annotations
 
@@ -25,6 +20,22 @@ from src.features.settings.nanoka_client import (
     resolve_version,
 )
 from src.features.settings.nanoka_weapon_stats import sync_nanoka_weapon_stats
+
+
+SUMMARY_KEYS = {
+    "characters": {
+        "missing": "missing_remote_roles",
+        "added": "added_roles",
+        "skipped": "skipped_roles",
+        "updated": "updated_roles",
+    },
+    "weapons": {
+        "missing": "missing_remote_weapons",
+        "added": "added_weapons",
+        "skipped": "skipped_weapons",
+        "updated": "updated_weapons",
+    },
+}
 
 
 def _parse_levels(raw: str) -> tuple[int, ...]:
@@ -52,13 +63,10 @@ def _report_sync_summary(
     *,
     kind: str,
     summary: dict[str, Any],
-    missing_key: str,
-    added_key: str,
-    skipped_key: str,
-    updated_key: str,
     add_missing: bool,
     show_diffs: bool,
 ) -> int:
+    keys = SUMMARY_KEYS[kind]
     action = "dry-run" if summary.get("dry_run") else ("wrote" if summary.get("wrote") else "no-write")
     build_cli.ok(
         f"{kind} ({action}): version={summary.get('version')}, "
@@ -69,30 +77,33 @@ def _report_sync_summary(
         f"missing_remote={summary.get('missing_remote_count', 0)}"
     )
 
-    missing = summary.get(missing_key) or []
+    missing = summary.get(keys["missing"]) or []
     if missing and not add_missing:
         build_cli.warn(
             f"Remote {kind} not in local config (pass --add-missing to create stubs): "
             + ", ".join(map(str, missing))
         )
-    added = summary.get(added_key) or []
+    added = summary.get(keys["added"]) or []
     if added:
         build_cli.info(f"Added {kind}: " + ", ".join(map(str, added)))
-    skipped = summary.get(skipped_key) or []
+    skipped = summary.get(keys["skipped"]) or []
     if skipped:
         build_cli.warn(f"Skipped local {kind} without nanoka match: " + ", ".join(map(str, skipped)))
 
-    exit_code = 0
-    fetch_errors = summary.get("fetch_errors") or []
-    if fetch_errors:
-        exit_code = 1
-        build_cli.warn(f"{kind.capitalize()} fetch errors:")
-        for item in fetch_errors:
-            build_cli.warn(f"  - {item}")
-
     if show_diffs or summary.get("dry_run"):
-        _print_stat_diffs(kind.rstrip("s"), summary.get(updated_key) or [], summary.get("diffs") or {})
-    return exit_code
+        _print_stat_diffs(
+            kind.rstrip("s"),
+            summary.get(keys["updated"]) or [],
+            summary.get("diffs") or {},
+        )
+
+    fetch_errors = summary.get("fetch_errors") or []
+    if not fetch_errors:
+        return 0
+    build_cli.warn(f"{kind.capitalize()} fetch errors:")
+    for item in fetch_errors:
+        build_cli.warn(f"  - {item}")
+    return 1
 
 
 def _run_sync(
@@ -106,10 +117,6 @@ def _run_sync(
     dry_run: bool,
     add_missing: bool,
     show_diffs: bool,
-    missing_key: str,
-    added_key: str,
-    skipped_key: str,
-    updated_key: str,
 ) -> int:
     try:
         summary = sync_fn(
@@ -126,16 +133,12 @@ def _run_sync(
     return _report_sync_summary(
         kind=kind,
         summary=summary,
-        missing_key=missing_key,
-        added_key=added_key,
-        skipped_key=skipped_key,
-        updated_key=updated_key,
         add_missing=add_missing,
         show_diffs=show_diffs,
     )
 
 
-def main() -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Sync character/weapon base stats from nanoka.cc into "
@@ -187,7 +190,11 @@ def main() -> int:
         action="store_true",
         help="Print per-stat diffs for updated entries.",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    args = _build_parser().parse_args()
 
     if args.characters_only and args.weapons_only:
         build_cli.fail("Use only one of --characters-only / --weapons-only.")
@@ -222,10 +229,6 @@ def main() -> int:
         code = _run_sync(
             kind="characters",
             sync_fn=sync_nanoka_base_stats,
-            missing_key="missing_remote_roles",
-            added_key="added_roles",
-            skipped_key="skipped_roles",
-            updated_key="updated_roles",
             **common,
         )
         exit_code = max(exit_code, code)
@@ -234,10 +237,6 @@ def main() -> int:
         code = _run_sync(
             kind="weapons",
             sync_fn=sync_nanoka_weapon_stats,
-            missing_key="missing_remote_weapons",
-            added_key="added_weapons",
-            skipped_key="skipped_weapons",
-            updated_key="updated_weapons",
             **common,
         )
         exit_code = max(exit_code, code)

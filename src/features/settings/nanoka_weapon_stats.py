@@ -1,5 +1,4 @@
-# 从 nanoka.cc 静态 JSON 同步武器各等级基础属性。
-"""Fetch weapon base stats from nanoka static data and merge into weapons.json."""
+# 从 nanoka.cc 静态数据同步武器基础属性。
 
 from __future__ import annotations
 
@@ -11,15 +10,16 @@ from src.features.settings.nanoka_client import (
     DEFAULT_LEVELS,
     NANOKA_API_TIMEOUT_SECONDS,
     NANOKA_DEFAULT_LOCALE,
+    NANOKA_DEFAULT_VERSION,
     NANOKA_SITE_URL,
     NANOKA_STATIC_BASE,
+    complete_sync_summary,
     extract_level_stats_from_nanoka_stats,
     fetch_id_index,
+    fetch_resource_detail,
     merge_level_sub_stats,
     normalize_display_name,
-    request_json,
     resolve_version,
-    static_url,
 )
 from src.storage.json_store import read_json, write_json_atomic
 
@@ -34,6 +34,7 @@ WEAPON_STAT_ID_TO_KEY = {
     "UnbalIntensityBase": "倾陷强度",
     "ChargeGetEfficiencyBase": "充能效率%",
 }
+WEAPON_STAT_KEYS = tuple(WEAPON_STAT_ID_TO_KEY.values())
 
 
 def fetch_weapon_index(
@@ -58,13 +59,14 @@ def fetch_weapon_detail(
     base_url: str = NANOKA_STATIC_BASE,
     timeout: int = NANOKA_API_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    payload = request_json(
-        static_url(version, locale, "weapon", f"{weapon_id}.json", base_url=base_url),
+    return fetch_resource_detail(
+        "weapon",
+        weapon_id,
+        version=version,
+        locale=locale,
+        base_url=base_url,
         timeout=timeout,
     )
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"nanoka 武器详情格式异常: {weapon_id}")
-    return payload
 
 
 def extract_weapon_level_stats(
@@ -90,8 +92,12 @@ def _local_weapon_lookup(weapons: dict[str, Any]) -> dict[str, str]:
             candidates.add(str(data.get("name")))
         for name in candidates:
             normalized = normalize_display_name(name)
-            if normalized and normalized not in lookup:
-                lookup[normalized] = str(key)
+            if not normalized:
+                continue
+            existing = lookup.get(normalized)
+            if existing is not None and existing != str(key):
+                raise RuntimeError(f"本地武器名称冲突: {existing}, {key}")
+            lookup[normalized] = str(key)
     return lookup
 
 
@@ -149,7 +155,11 @@ def merge_nanoka_weapon_stats(
         if not isinstance(weapon_data, dict):
             continue
 
-        changed, weapon_diffs = merge_level_sub_stats(weapon_data, remote_levels)
+        changed, weapon_diffs = merge_level_sub_stats(
+            weapon_data,
+            remote_levels,
+            managed_keys=WEAPON_STAT_KEYS,
+        )
         type_name = str(type_by_weapon.get(weapon_key) or "").strip()
         if type_name and not str(weapon_data.get("type") or "").strip():
             weapon_data["type"] = type_name
@@ -171,10 +181,120 @@ def merge_nanoka_weapon_stats(
     }
 
 
+def _fetch_existing_weapon_stats(
+    weapons: dict[str, Any],
+    weapon_index: dict[str, dict[str, Any]],
+    lookup: dict[str, str],
+    *,
+    version: str,
+    locale: str,
+    levels: tuple[int, ...],
+    base_url: str,
+    timeout: int,
+) -> tuple[
+    dict[str, dict[str, dict[str, float]]],
+    dict[str, str],
+    set[str],
+    list[str],
+    list[str],
+]:
+    matches: dict[str, list[str]] = {}
+    matched_ids: set[str] = set()
+    for weapon_id, meta in weapon_index.items():
+        remote_name = str(meta.get("zh") or meta.get("name") or "").strip()
+        local_key = resolve_local_weapon_key(remote_name, weapons=weapons, lookup=lookup)
+        if local_key:
+            matches.setdefault(local_key, []).append(weapon_id)
+            matched_ids.add(weapon_id)
+
+    remote_by_weapon: dict[str, dict[str, dict[str, float]]] = {}
+    type_by_weapon: dict[str, str] = {}
+    errors: list[str] = []
+    for local_key, weapon_ids in matches.items():
+        if len(weapon_ids) > 1:
+            errors.append(f"{local_key}: 匹配到多个远端武器 ID: {', '.join(weapon_ids)}")
+            continue
+        weapon_id = weapon_ids[0]
+        try:
+            detail = fetch_weapon_detail(
+                weapon_id,
+                version=version,
+                locale=locale,
+                base_url=base_url,
+                timeout=timeout,
+            )
+            remote_by_weapon[local_key] = extract_weapon_level_stats(detail, levels=levels)
+            type_by_weapon[local_key] = str(detail.get("type_name") or "")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{local_key}({weapon_id}): {exc}")
+
+    skipped = [
+        local_key
+        for local_key, data in weapons.items()
+        if isinstance(data, dict) and local_key not in remote_by_weapon
+    ]
+    return remote_by_weapon, type_by_weapon, matched_ids, skipped, errors
+
+
+def _add_missing_weapons(
+    weapons: dict[str, Any],
+    weapon_index: dict[str, dict[str, Any]],
+    matched_ids: set[str],
+    remote_by_weapon: dict[str, dict[str, dict[str, float]]],
+    type_by_weapon: dict[str, str],
+    *,
+    version: str,
+    locale: str,
+    levels: tuple[int, ...],
+    add_missing: bool,
+    base_url: str,
+    timeout: int,
+) -> tuple[list[str], list[str], list[str]]:
+    missing_by_name: dict[str, list[str]] = {}
+    for weapon_id, meta in weapon_index.items():
+        if weapon_id in matched_ids:
+            continue
+        remote_name = normalize_display_name(str(meta.get("zh") or meta.get("name") or weapon_id))
+        if remote_name and remote_name not in weapons:
+            missing_by_name.setdefault(remote_name, []).append(weapon_id)
+
+    missing = list(missing_by_name)
+    added: list[str] = []
+    errors: list[str] = []
+    if not add_missing:
+        return missing, added, errors
+
+    for remote_name, weapon_ids in missing_by_name.items():
+        if len(weapon_ids) > 1:
+            errors.append(f"{remote_name}: 匹配到多个远端武器 ID: {', '.join(weapon_ids)}")
+            continue
+        weapon_id = weapon_ids[0]
+        try:
+            detail = fetch_weapon_detail(
+                weapon_id,
+                version=version,
+                locale=locale,
+                base_url=base_url,
+                timeout=timeout,
+            )
+            level_sub_stats = extract_weapon_level_stats(detail, levels=levels)
+            weapons[remote_name] = build_weapon_stub(
+                weapon_name=remote_name,
+                detail=detail,
+                level_sub_stats=level_sub_stats,
+            )
+            remote_by_weapon[remote_name] = level_sub_stats
+            type_by_weapon[remote_name] = str(detail.get("type_name") or "")
+            added.append(remote_name)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{remote_name}({weapon_id}): {exc}")
+    return missing, added, errors
+
+
 def sync_nanoka_weapon_stats(
     config_dir: Path,
     *,
-    version: str = "latest",
+    version: str = NANOKA_DEFAULT_VERSION,
     locale: str = NANOKA_DEFAULT_LOCALE,
     levels: tuple[int, ...] = DEFAULT_LEVELS,
     dry_run: bool = False,
@@ -192,93 +312,57 @@ def sync_nanoka_weapon_stats(
     resolved_version = resolve_version(version, site_url=site_url, timeout=timeout)
     weapon_index = fetch_weapon_index(version=resolved_version, base_url=base_url, timeout=timeout)
     lookup = _local_weapon_lookup(weapons)
-
-    remote_by_weapon: dict[str, dict[str, dict[str, float]]] = {}
-    type_by_weapon: dict[str, str] = {}
-    matched_ids: set[str] = set()
-    fetch_errors: list[str] = []
-    added_weapons: list[str] = []
-    missing_remote: list[str] = []
-    skipped_local: list[str] = []
-
-    for weapon_id, meta in weapon_index.items():
-        remote_name = str(meta.get("zh") or meta.get("name") or "").strip()
-        local_key = resolve_local_weapon_key(remote_name, weapons=weapons, lookup=lookup)
-        if not local_key:
-            continue
-        matched_ids.add(str(weapon_id))
-        try:
-            detail = fetch_weapon_detail(
-                weapon_id,
-                version=resolved_version,
-                locale=locale,
-                base_url=base_url,
-                timeout=timeout,
-            )
-            remote_by_weapon[local_key] = extract_weapon_level_stats(detail, levels=levels)
-            type_by_weapon[local_key] = str(detail.get("type_name") or "")
-        except Exception as exc:  # noqa: BLE001
-            fetch_errors.append(f"{local_key}({weapon_id}): {exc}")
-
-    for local_key, data in weapons.items():
-        if isinstance(data, dict) and local_key not in remote_by_weapon:
-            skipped_local.append(local_key)
-
-    for weapon_id, meta in weapon_index.items():
-        if str(weapon_id) in matched_ids:
-            continue
-        remote_name = normalize_display_name(str(meta.get("zh") or meta.get("name") or weapon_id))
-        if not remote_name:
-            continue
-        missing_remote.append(remote_name)
-        if not add_missing or remote_name in weapons:
-            continue
-        try:
-            detail = fetch_weapon_detail(
-                weapon_id,
-                version=resolved_version,
-                locale=locale,
-                base_url=base_url,
-                timeout=timeout,
-            )
-            level_sub_stats = extract_weapon_level_stats(detail, levels=levels)
-            weapons[remote_name] = build_weapon_stub(
-                weapon_name=remote_name,
-                detail=detail,
-                level_sub_stats=level_sub_stats,
-            )
-            remote_by_weapon[remote_name] = level_sub_stats
-            type_by_weapon[remote_name] = str(detail.get("type_name") or "")
-            added_weapons.append(remote_name)
-            lookup[normalize_display_name(remote_name)] = remote_name
-        except Exception as exc:  # noqa: BLE001
-            fetch_errors.append(f"{remote_name}({weapon_id}): {exc}")
+    (
+        remote_by_weapon,
+        type_by_weapon,
+        matched_ids,
+        skipped_local,
+        fetch_errors,
+    ) = _fetch_existing_weapon_stats(
+        weapons,
+        weapon_index,
+        lookup,
+        version=resolved_version,
+        locale=locale,
+        levels=levels,
+        base_url=base_url,
+        timeout=timeout,
+    )
+    missing_remote, added_weapons, add_errors = _add_missing_weapons(
+        weapons,
+        weapon_index,
+        matched_ids,
+        remote_by_weapon,
+        type_by_weapon,
+        version=resolved_version,
+        locale=locale,
+        levels=levels,
+        add_missing=add_missing,
+        base_url=base_url,
+        timeout=timeout,
+    )
+    fetch_errors.extend(add_errors)
 
     merged, summary = merge_nanoka_weapon_stats(
         weapons,
         remote_by_weapon,
         type_by_weapon=type_by_weapon,
     )
-    summary.update(
-        {
-            "api_weapon_count": len(weapon_index),
-            "matched_count": len(remote_by_weapon),
-            "skipped_count": len(skipped_local),
-            "skipped_weapons": skipped_local,
-            "added_count": len(added_weapons),
-            "added_weapons": added_weapons,
-            "missing_remote_count": len(missing_remote),
-            "missing_remote_weapons": missing_remote,
-            "fetch_error_count": len(fetch_errors),
-            "fetch_errors": fetch_errors,
-            "version": resolved_version,
-            "locale": locale,
-            "dry_run": dry_run,
-            "wrote": False,
-        }
+    complete_sync_summary(
+        summary,
+        item_key="weapon",
+        api_count=len(weapon_index),
+        matched_count=len(remote_by_weapon),
+        skipped=skipped_local,
+        added=added_weapons,
+        missing=missing_remote,
+        errors=fetch_errors,
+        version=resolved_version,
+        locale=locale,
+        dry_run=dry_run,
     )
 
-    if dry_run or not (summary["updated_count"] or added_weapons):
+    if dry_run or fetch_errors or not (summary["updated_count"] or added_weapons):
         return summary
 
     write_json_atomic(weapons_path, merged, indent=2)

@@ -1,10 +1,4 @@
-# nanoka.cc 静态数据客户端：请求、版本探测与通用解析。
-"""Shared helpers for reading nanoka.cc versioned static JSON.
-
-Not HTML scraping of page content: version discovery reads the site's embedded
-static data URLs (the live dataset it currently serves), then fetches JSON from
-https://static.nanoka.cc/nte/{version}/...
-"""
+# nanoka.cc 静态数据请求、版本探测与通用解析。
 
 from __future__ import annotations
 
@@ -20,9 +14,11 @@ from src.app.constants import APP_VERSION
 NANOKA_SITE_URL = "https://nte.nanoka.cc/"
 NANOKA_STATIC_BASE = "https://static.nanoka.cc/nte"
 NANOKA_DEFAULT_LOCALE = "zh"
+NANOKA_DEFAULT_VERSION = "latest"
 NANOKA_API_TIMEOUT_SECONDS = 30
 
 DEFAULT_LEVELS = (1, 20, 30, 40, 50, 60, 70, 80)
+STAT_EPSILON = 0.01
 
 _VERSION_RE = re.compile(r"(?:static\.nanoka\.cc)?/nte/(\d+(?:\.\d+)*)/")
 
@@ -75,17 +71,11 @@ def detect_live_version(
     site_url: str = NANOKA_SITE_URL,
     timeout: int = NANOKA_API_TIMEOUT_SECONDS,
 ) -> str:
-    """Detect the dataset version currently served by nte.nanoka.cc.
-
-    The homepage SSR embeds live static URLs like /nte/1.2/character.json.
-    When the site moves to 1.3/2.0, those paths update accordingly.
-    """
     html = request_text(site_url, timeout=timeout)
     versions = _VERSION_RE.findall(html)
     if not versions:
         raise RuntimeError("无法从 nanoka 首页解析数据版本，请改用 --version 指定。")
 
-    # Prefer the most frequently referenced version on the live page.
     counts: dict[str, int] = {}
     for version in versions:
         counts[version] = counts.get(version, 0) + 1
@@ -127,7 +117,6 @@ def extract_level_stats_from_nanoka_stats(
     required_ids: tuple[str, ...] | None = None,
     subject: str = "条目",
 ) -> dict[str, dict[str, float]]:
-    """Build level -> {local_stat: value} from nanoka stats arrays (1-indexed levels)."""
     by_id: dict[str, list[Any]] = {}
     for item in stats or []:
         if not isinstance(item, dict):
@@ -168,8 +157,17 @@ def as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def apply_stats(target: dict[str, Any] | None, incoming: dict[str, float]) -> dict[str, Any]:
+def apply_stats(
+    target: dict[str, Any] | None,
+    incoming: dict[str, float],
+    *,
+    managed_keys: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     merged = dict(target) if isinstance(target, dict) else {}
+    if managed_keys is not None:
+        for key in managed_keys:
+            if key not in incoming:
+                merged.pop(key, None)
     for key, value in incoming.items():
         merged[key] = float(value)
     return merged
@@ -184,7 +182,7 @@ def stats_equal(
     left = left if isinstance(left, dict) else {}
     compare_keys = keys if keys is not None else tuple(right)
     for key in compare_keys:
-        if abs(as_float(left.get(key)) - as_float(right.get(key))) > 0.01:
+        if key not in left or abs(as_float(left.get(key)) - as_float(right.get(key))) > STAT_EPSILON:
             return False
     return True
 
@@ -202,7 +200,7 @@ def diff_stats(
             diffs.append({"level": level_key, "stat": key, "local": None, "remote": float(new_value)})
             continue
         old_value = as_float(local_dict.get(key))
-        if abs(old_value - float(new_value)) > 0.01:
+        if key not in local_dict or abs(old_value - float(new_value)) > STAT_EPSILON:
             diffs.append(
                 {
                     "level": level_key,
@@ -214,16 +212,64 @@ def diff_stats(
     return diffs
 
 
+def _merge_level_row(
+    level_key: str,
+    local_stats: dict[str, Any] | None,
+    remote_stats: dict[str, float],
+    *,
+    equal_keys: tuple[str, ...] | None,
+    managed_keys: tuple[str, ...] | None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    compare_keys = equal_keys if equal_keys is not None else tuple(remote_stats)
+    stale_keys = []
+    if isinstance(local_stats, dict):
+        stale_keys = [
+            key
+            for key in managed_keys or ()
+            if key in local_stats and key not in remote_stats
+        ]
+    if stats_equal(local_stats, remote_stats, keys=compare_keys) and not stale_keys:
+        return None, []
+
+    diffs = diff_stats(local_stats, remote_stats, level_key=level_key)
+    diffs.extend(
+        {
+            "level": level_key,
+            "stat": key,
+            "local": as_float(local_stats[key]),
+            "remote": None,
+        }
+        for key in stale_keys
+        if isinstance(local_stats, dict)
+    )
+    return apply_stats(local_stats, remote_stats, managed_keys=managed_keys), diffs
+
+
+def _refresh_current_stats(
+    entity: dict[str, Any],
+    local_levels: dict[str, Any],
+    managed_keys: tuple[str, ...] | None,
+) -> bool:
+    current_stats = local_levels.get(str(entity.get("level", 80)))
+    if not isinstance(current_stats, dict):
+        return False
+    sub_stats = entity.get("sub_stats")
+    before = dict(sub_stats) if isinstance(sub_stats, dict) else {}
+    entity["sub_stats"] = apply_stats(
+        sub_stats if isinstance(sub_stats, dict) else {},
+        current_stats,
+        managed_keys=managed_keys,
+    )
+    return before != entity["sub_stats"]
+
+
 def merge_level_sub_stats(
     entity: dict[str, Any],
     remote_levels: dict[str, dict[str, float]],
     *,
     equal_keys: tuple[str, ...] | None = None,
+    managed_keys: tuple[str, ...] | None = None,
 ) -> tuple[bool, list[dict[str, Any]]]:
-    """Update entity level_sub_stats/sub_stats from remote level rows.
-
-    Returns (changed, diffs).
-    """
     local_levels = entity.get("level_sub_stats")
     if not isinstance(local_levels, dict):
         local_levels = {}
@@ -233,23 +279,39 @@ def merge_level_sub_stats(
     diffs: list[dict[str, Any]] = []
     for level_key, remote_stats in remote_levels.items():
         local_stats = local_levels.get(level_key)
-        local_dict = local_stats if isinstance(local_stats, dict) else None
-        compare_keys = equal_keys if equal_keys is not None else tuple(remote_stats)
-        if stats_equal(local_dict, remote_stats, keys=compare_keys):
+        merged_row, row_diffs = _merge_level_row(
+            level_key,
+            local_stats if isinstance(local_stats, dict) else None,
+            remote_stats,
+            equal_keys=equal_keys,
+            managed_keys=managed_keys,
+        )
+        if merged_row is None:
             continue
-        diffs.extend(diff_stats(local_dict, remote_stats, level_key=level_key))
-        local_levels[level_key] = apply_stats(local_dict, remote_stats)
+        local_levels[level_key] = merged_row
+        diffs.extend(row_diffs)
         changed = True
 
-    current_level = str(entity.get("level", 80))
-    if current_level in local_levels:
-        current_stats = local_levels[current_level]
-        sub_stats = entity.get("sub_stats")
-        before = dict(sub_stats) if isinstance(sub_stats, dict) else {}
-        entity["sub_stats"] = apply_stats(sub_stats if isinstance(sub_stats, dict) else {}, current_stats)
-        if before != entity["sub_stats"]:
-            changed = True
-    return changed, diffs
+    current_changed = _refresh_current_stats(entity, local_levels, managed_keys)
+    return changed or current_changed, diffs
+
+
+def fetch_resource_detail(
+    resource: str,
+    item_id: str,
+    *,
+    version: str,
+    locale: str = NANOKA_DEFAULT_LOCALE,
+    base_url: str = NANOKA_STATIC_BASE,
+    timeout: int = NANOKA_API_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    payload = request_json(
+        static_url(version, locale, resource, f"{item_id}.json", base_url=base_url),
+        timeout=timeout,
+    )
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"nanoka {resource} 详情格式异常: {item_id}")
+    return payload
 
 
 def fetch_id_index(
@@ -267,3 +329,39 @@ def fetch_id_index(
         for item_id, item in payload.items()
         if isinstance(item, dict)
     }
+
+
+def complete_sync_summary(
+    summary: dict[str, Any],
+    *,
+    item_key: str,
+    api_count: int,
+    matched_count: int,
+    skipped: list[str],
+    added: list[str],
+    missing: list[str],
+    errors: list[str],
+    version: str,
+    locale: str,
+    dry_run: bool,
+) -> None:
+    plural = f"{item_key}s"
+    summary.update(
+        {
+            f"api_{item_key}_count": api_count,
+            "matched_count": matched_count,
+            "skipped_count": len(skipped),
+            f"skipped_{plural}": skipped,
+            "added_count": len(added),
+            f"added_{plural}": added,
+            "missing_remote_count": len(missing),
+            f"missing_remote_{plural}": missing,
+            "fetch_error_count": len(errors),
+            "fetch_errors": errors,
+            "partial": bool(errors),
+            "version": version,
+            "locale": locale,
+            "dry_run": dry_run,
+            "wrote": False,
+        }
+    )

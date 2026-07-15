@@ -1,9 +1,4 @@
-# 从 nanoka.cc 静态 JSON 同步角色各等级基础白值。
-"""Fetch character base white stats from nanoka static data and merge into configs.
-
-This is not HTML scraping: nanoka.cc serves game data as versioned JSON under
-https://static.nanoka.cc/nte/{version}/...
-"""
+# 从 nanoka.cc 静态数据同步角色基础属性。
 
 from __future__ import annotations
 
@@ -15,22 +10,19 @@ from src.features.settings.nanoka_client import (
     DEFAULT_LEVELS,
     NANOKA_API_TIMEOUT_SECONDS,
     NANOKA_DEFAULT_LOCALE,
+    NANOKA_DEFAULT_VERSION,
     NANOKA_SITE_URL,
     NANOKA_STATIC_BASE,
+    complete_sync_summary,
     extract_level_stats_from_nanoka_stats,
     fetch_id_index,
+    fetch_resource_detail,
     merge_level_sub_stats,
     normalize_display_name,
-    request_json,
     resolve_version,
-    static_url,
 )
 from src.storage.json_store import read_json, write_json_atomic
 
-
-NANOKA_DEFAULT_VERSION = "latest"
-
-BASE_STAT_KEYS = ("生命白值", "攻击力白值", "防御力白值", "暴击率%", "暴击伤害%")
 
 STAT_ID_TO_KEY = {
     "HPMaxBase": "生命白值",
@@ -39,6 +31,7 @@ STAT_ID_TO_KEY = {
     "CritBase": "暴击率%",
     "CritDamageBase": "暴击伤害%",
 }
+BASE_STAT_KEYS = tuple(STAT_ID_TO_KEY.values())
 
 ELEMENT_TO_ATK_TYPE = {
     "Cosmos": "光",
@@ -49,7 +42,6 @@ ELEMENT_TO_ATK_TYPE = {
     "Lakshana": "相",
 }
 
-# nanoka display name -> local role key
 CHARACTER_NAME_ALIASES = {
     "「零」": "主角",
     "零": "主角",
@@ -79,13 +71,14 @@ def fetch_character_detail(
     base_url: str = NANOKA_STATIC_BASE,
     timeout: int = NANOKA_API_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    payload = request_json(
-        static_url(version, locale, "character", f"{character_id}.json", base_url=base_url),
+    return fetch_resource_detail(
+        "character",
+        character_id,
+        version=version,
+        locale=locale,
+        base_url=base_url,
         timeout=timeout,
     )
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"nanoka 角色详情格式异常: {character_id}")
-    return payload
 
 
 def extract_level_base_stats(
@@ -133,19 +126,39 @@ def resolve_character_id(
 ) -> str | None:
     role_meta = roles_meta.get(role_name)
     if isinstance(role_meta, dict):
-        for character_id in _workshop_ids_for_role(role_meta):
-            if character_id in character_index:
-                return character_id
+        configured_ids = [
+            character_id
+            for character_id in _workshop_ids_for_role(role_meta)
+            if character_id in character_index
+        ]
+        primary_id = str(role_meta.get("workshop_item_id") or "").strip()
+        if primary_id in configured_ids:
+            return primary_id
+        if len(configured_ids) == 1:
+            return configured_ids[0]
+        if len(configured_ids) > 1:
+            raise RuntimeError(f"{role_name} 匹配到多个配置角色 ID: {', '.join(configured_ids)}")
 
+    matched_ids = []
     for character_id, item in character_index.items():
         zh_name = str(item.get("zh") or "").strip()
         if local_role_name_for_remote(zh_name) == role_name or zh_name == role_name:
-            return character_id
-    return None
+            matched_ids.append(character_id)
+    if len(matched_ids) > 1:
+        raise RuntimeError(f"{role_name} 匹配到多个远端角色 ID: {', '.join(matched_ids)}")
+    return matched_ids[0] if matched_ids else None
+
+
+def _slot_value(row: list[Any], col: int) -> int:
+    if col >= len(row):
+        return 0
+    try:
+        return int(row[col])
+    except (TypeError, ValueError):
+        return 0
 
 
 def board_matrix_from_equip_slots(equip_slots: Any) -> list[list[int]]:
-    """Crop nanoka 7x7 equip slots to local 5x5 board_matrix."""
     slots = equip_slots.get("slots") if isinstance(equip_slots, dict) else None
     if not isinstance(slots, list) or len(slots) < 6:
         return [[0] * 5 for _ in range(5)]
@@ -154,7 +167,7 @@ def board_matrix_from_equip_slots(equip_slots: Any) -> list[list[int]]:
         row = slots[row_index] if row_index < len(slots) else []
         if not isinstance(row, list):
             row = []
-        matrix.append([int(row[col]) if col < len(row) else 0 for col in range(1, 6)])
+        matrix.append([_slot_value(row, col) for col in range(1, 6)])
     return matrix
 
 
@@ -218,6 +231,7 @@ def merge_nanoka_base_stats_into_model(
             role_data,
             remote_levels,
             equal_keys=BASE_STAT_KEYS,
+            managed_keys=BASE_STAT_KEYS,
         )
         if changed:
             updated.append(role_name)
@@ -235,6 +249,135 @@ def merge_nanoka_base_stats_into_model(
     }
 
 
+def _fetch_existing_role_stats(
+    model: dict[str, Any],
+    roles_meta: dict[str, Any],
+    character_index: dict[str, dict[str, Any]],
+    *,
+    version: str,
+    locale: str,
+    levels: tuple[int, ...],
+    base_url: str,
+    timeout: int,
+) -> tuple[dict[str, dict[str, dict[str, float]]], list[str], list[str]]:
+    remote_by_role: dict[str, dict[str, dict[str, float]]] = {}
+    skipped: list[str] = []
+    errors: list[str] = []
+    for role_name, role_data in model.items():
+        if not isinstance(role_data, dict):
+            continue
+        try:
+            character_id = resolve_character_id(
+                role_name,
+                roles_meta=roles_meta,
+                character_index=character_index,
+            )
+            if not character_id:
+                skipped.append(role_name)
+                continue
+            detail = fetch_character_detail(
+                character_id,
+                version=version,
+                locale=locale,
+                base_url=base_url,
+                timeout=timeout,
+            )
+            remote_by_role[role_name] = extract_level_base_stats(detail, levels=levels)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{role_name}: {exc}")
+    return remote_by_role, skipped, errors
+
+
+def _add_missing_roles(
+    model: dict[str, Any],
+    roles_meta: dict[str, Any],
+    character_index: dict[str, dict[str, Any]],
+    remote_by_role: dict[str, dict[str, dict[str, float]]],
+    *,
+    version: str,
+    locale: str,
+    levels: tuple[int, ...],
+    add_missing: bool,
+    base_url: str,
+    timeout: int,
+) -> tuple[list[str], list[str], list[str]]:
+    missing_by_name: dict[str, list[str]] = {}
+    for character_id, meta in character_index.items():
+        role_name = local_role_name_for_remote(str(meta.get("zh") or ""))
+        if role_name and role_name not in model:
+            missing_by_name.setdefault(role_name, []).append(character_id)
+
+    missing = list(missing_by_name)
+    added: list[str] = []
+    errors: list[str] = []
+    if not add_missing:
+        return missing, added, errors
+
+    for role_name, character_ids in missing_by_name.items():
+        if len(character_ids) > 1:
+            errors.append(f"{role_name}: 匹配到多个远端角色 ID: {', '.join(character_ids)}")
+            continue
+        character_id = character_ids[0]
+        try:
+            detail = fetch_character_detail(
+                character_id,
+                version=version,
+                locale=locale,
+                base_url=base_url,
+                timeout=timeout,
+            )
+            level_sub_stats = extract_level_base_stats(detail, levels=levels)
+            model[role_name] = build_role_model_stub(
+                role_name=role_name,
+                detail=detail,
+                level_sub_stats=level_sub_stats,
+            )
+            if not isinstance(roles_meta.get(role_name), dict):
+                roles_meta[role_name] = build_role_meta_stub(
+                    role_name=role_name,
+                    character_id=character_id,
+                    detail=detail,
+                )
+            added.append(role_name)
+            remote_by_role[role_name] = level_sub_stats
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{role_name}({character_id}): {exc}")
+    return missing, added, errors
+
+
+def _restore_file(path: Path, content: bytes | None) -> None:
+    if content is None:
+        path.unlink(missing_ok=True)
+        return
+    rollback_path = path.with_name(f"{path.name}.rollback")
+    rollback_path.write_bytes(content)
+    rollback_path.replace(path)
+
+
+def _write_role_configs(
+    model_path: Path,
+    model: dict[str, Any],
+    roles_path: Path,
+    roles_meta: dict[str, Any],
+    *,
+    write_model: bool,
+    write_roles: bool,
+) -> None:
+    originals = {
+        model_path: model_path.read_bytes() if model_path.exists() else None,
+        roles_path: roles_path.read_bytes() if roles_path.exists() else None,
+    }
+    try:
+        if write_model:
+            write_json_atomic(model_path, model, indent=2)
+        if write_roles:
+            write_json_atomic(roles_path, roles_meta, indent=2)
+    except Exception:
+        for path, content in originals.items():
+            _restore_file(path, content)
+        raise
+
+
 def sync_nanoka_base_stats(
     config_dir: Path,
     *,
@@ -250,7 +393,6 @@ def sync_nanoka_base_stats(
     config_dir = Path(config_dir)
     model_path = config_dir / "my_roles_model.json"
     roles_path = config_dir / "roles.json"
-
     model = read_json(model_path, default={}) or {}
     roles_meta = read_json(roles_path, default={}) or {}
     if not isinstance(model, dict):
@@ -265,99 +407,59 @@ def sync_nanoka_base_stats(
         timeout=timeout,
     )
 
-    remote_by_role: dict[str, dict[str, dict[str, float]]] = {}
-    skipped: list[str] = []
-    fetch_errors: list[str] = []
-    added_roles: list[str] = []
-    missing_remote: list[str] = []
-
-    for role_name in list(model):
-        if not isinstance(model.get(role_name), dict):
-            continue
-        character_id = resolve_character_id(
-            role_name,
-            roles_meta=roles_meta,
-            character_index=character_index,
-        )
-        if not character_id:
-            skipped.append(role_name)
-            continue
-        try:
-            detail = fetch_character_detail(
-                character_id,
-                version=resolved_version,
-                locale=locale,
-                base_url=base_url,
-                timeout=timeout,
-            )
-            remote_by_role[role_name] = extract_level_base_stats(detail, levels=levels)
-        except Exception as exc:  # noqa: BLE001 - collect per-role failures for summary
-            fetch_errors.append(f"{role_name}({character_id}): {exc}")
-
-    seen_local = set(model)
-    for character_id, meta in character_index.items():
-        role_name = local_role_name_for_remote(str(meta.get("zh") or ""))
-        if not role_name or role_name in seen_local:
-            continue
-        missing_remote.append(role_name)
-        if not add_missing:
-            continue
-        try:
-            detail = fetch_character_detail(
-                character_id,
-                version=resolved_version,
-                locale=locale,
-                base_url=base_url,
-                timeout=timeout,
-            )
-            level_sub_stats = extract_level_base_stats(detail, levels=levels)
-            model[role_name] = build_role_model_stub(
-                role_name=role_name,
-                detail=detail,
-                level_sub_stats=level_sub_stats,
-            )
-            if role_name not in roles_meta or not isinstance(roles_meta.get(role_name), dict):
-                roles_meta[role_name] = build_role_meta_stub(
-                    role_name=role_name,
-                    character_id=character_id,
-                    detail=detail,
-                )
-            seen_local.add(role_name)
-            added_roles.append(role_name)
-            remote_by_role[role_name] = level_sub_stats
-        except Exception as exc:  # noqa: BLE001
-            fetch_errors.append(f"{role_name}({character_id}): {exc}")
+    remote_by_role, skipped, fetch_errors = _fetch_existing_role_stats(
+        model,
+        roles_meta,
+        character_index,
+        version=resolved_version,
+        locale=locale,
+        levels=levels,
+        base_url=base_url,
+        timeout=timeout,
+    )
+    missing_remote, added_roles, add_errors = _add_missing_roles(
+        model,
+        roles_meta,
+        character_index,
+        remote_by_role,
+        version=resolved_version,
+        locale=locale,
+        levels=levels,
+        add_missing=add_missing,
+        base_url=base_url,
+        timeout=timeout,
+    )
+    fetch_errors.extend(add_errors)
 
     merged, summary = merge_nanoka_base_stats_into_model(model, remote_by_role)
-    summary.update(
-        {
-            "api_role_count": len(character_index),
-            "matched_count": len(remote_by_role),
-            "skipped_count": len(skipped),
-            "skipped_roles": skipped,
-            "added_count": len(added_roles),
-            "added_roles": added_roles,
-            "missing_remote_count": len(missing_remote),
-            "missing_remote_roles": missing_remote,
-            "fetch_error_count": len(fetch_errors),
-            "fetch_errors": fetch_errors,
-            "version": resolved_version,
-            "locale": locale,
-            "dry_run": dry_run,
-            "wrote": False,
-            "wrote_roles_json": False,
-        }
+    complete_sync_summary(
+        summary,
+        item_key="role",
+        api_count=len(character_index),
+        matched_count=len(remote_by_role),
+        skipped=skipped,
+        added=added_roles,
+        missing=missing_remote,
+        errors=fetch_errors,
+        version=resolved_version,
+        locale=locale,
+        dry_run=dry_run,
     )
+    summary["wrote_roles_json"] = False
 
-    should_write_model = bool(summary["updated_count"] or added_roles)
-    should_write_roles = bool(added_roles)
-    if dry_run or not (should_write_model or should_write_roles):
+    if dry_run or fetch_errors or not (summary["updated_count"] or added_roles):
         return summary
 
-    if should_write_model:
-        write_json_atomic(model_path, merged, indent=2)
-        summary["wrote"] = True
-    if should_write_roles:
-        write_json_atomic(roles_path, roles_meta, indent=2)
-        summary["wrote_roles_json"] = True
+    write_model = bool(summary["updated_count"] or added_roles)
+    write_roles = bool(added_roles)
+    _write_role_configs(
+        model_path,
+        merged,
+        roles_path,
+        roles_meta,
+        write_model=write_model,
+        write_roles=write_roles,
+    )
+    summary["wrote"] = write_model
+    summary["wrote_roles_json"] = write_roles
     return summary
