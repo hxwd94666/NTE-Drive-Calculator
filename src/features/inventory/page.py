@@ -59,7 +59,7 @@ from src.ui.main_window_method_install import install_methods as _install_main_w
 __all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equipment', '_refresh_equip',
            '_saved_plan_diff_text', '_show_saved_plan_diff_dialog', '_clear_all_equipment', '_delete_role_equipment',
            '_optimize_saved_equipment', '_preview_assemble_role', '_preview_assemble_all_roles',
-           '_save_eq']
+           '_return_to_equipment_after_assembly', '_save_eq']
 
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
@@ -430,6 +430,15 @@ def _assembly_report_dialog(action_name: str, report, expected_role_count: int |
     return title, "\n".join(lines), not incomplete
 
 
+def _return_to_equipment_after_assembly(self, completed: bool) -> None:
+    """在装配完整成功后切回配装页面，失败和中止则保留当前上下文。"""
+    if not completed:
+        return
+    go_to_page = getattr(self, "_go", None)
+    if callable(go_to_page):
+        go_to_page("equipment")
+
+
 def _prompt_protagonist_alias_if_needed(self, role_names) -> dict[str, str]:
     roles = {str(role).strip() for role in (role_names or []) if str(role).strip()}
     if "主角" not in roles:
@@ -484,6 +493,7 @@ def _preview_assemble_role(self, role_name: str):
         title, message, completed = _assembly_report_dialog("单角色装配", report, expected_role_count=1)
         if completed:
             QMessageBox.information(self,title,message)
+            _return_to_equipment_after_assembly(self, completed=True)
         else:
             QMessageBox.warning(self,title,message)
         logger.info(f"已执行 [{role_name}] 装配动作：{report.executed_actions}")
@@ -528,12 +538,10 @@ def _preview_assemble_all_roles(self):
         )
         if completed:
             QMessageBox.information(self,title,message)
+            _return_to_equipment_after_assembly(self, completed=True)
         else:
             QMessageBox.warning(self,title,message)
         logger.info(f"Assembly executed: {len(report.role_reports)} roles, {report.executed_actions} actions")
-        return
-        QMessageBox.information(self,"一键装配完成",f"已执行 {len(report.role_reports)} 个角色，{report.executed_actions} 个动作。")
-        logger.info(f"已执行一键装配：{len(report.role_reports)} 个角色，{report.executed_actions} 个动作")
     except AssemblyExecutionStopped:
         QMessageBox.warning(self,"一键装配已停止","装配执行已停止。")
         logger.warning("一键装配执行已停止")

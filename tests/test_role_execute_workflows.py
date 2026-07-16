@@ -240,6 +240,26 @@ class ScanPromptWorkflowTests(unittest.TestCase):
         self.assertNotIn("已入库", message)
 
 
+class DriveAssemblyReturnWorkflowTests(unittest.TestCase):
+    def test_returns_to_equipment_only_after_complete_assembly(self):
+        from src.features.inventory.page import _return_to_equipment_after_assembly
+
+        class Window:
+            def __init__(self):
+                self.pages = []
+
+            def _go(self, page):
+                self.pages.append(page)
+
+        window = Window()
+
+        _return_to_equipment_after_assembly(window, completed=False)
+        self.assertEqual([], window.pages)
+
+        _return_to_equipment_after_assembly(window, completed=True)
+        self.assertEqual(["equipment"], window.pages)
+
+
 class ExecutePageWorkflowTests(unittest.TestCase):
     def setUp(self):
         from src.app import runtime
