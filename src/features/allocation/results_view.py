@@ -770,7 +770,7 @@ def _quality_coef(self, quality):
     return quality_coef(quality)
 
 def _canonical_stat_name(self, stat):
-    return canonical_stat_name(stat, self._bonus_context().stat_alias_mapping)
+    return canonical_stat_name(stat, BonusSummaryContext.from_window(self).stat_alias_mapping)
 
 def _stat_number_value(self, value):
     return stat_number_value(value)
@@ -779,35 +779,32 @@ def _item_value(self, item, key, default=None):
     return item_value(item, key, default)
 
 def _add_stat_total(self, totals, stat, value):
-    add_stat_total(totals, stat, value, self._bonus_context().stat_alias_mapping)
+    add_stat_total(totals, stat, value, BonusSummaryContext.from_window(self).stat_alias_mapping)
 
 def _fallback_tape_main_value(self, main_stat, quality):
-    ctx=self._bonus_context()
+    ctx=BonusSummaryContext.from_window(self)
     return fallback_tape_main_value(main_stat, quality, ctx.stats_config, ctx.stat_alias_mapping)
-
-def _bonus_context(self):
-    return BonusSummaryContext.from_window(self)
 
 def _extra_shape_area(self, role_name):
     return extra_shape_area(role_name, self.roles_db)
 
 def _equipment_bonus_rows(self, role_name, tape, drives):
-    return equipment_bonus_rows(self._bonus_context(), role_name, tape, drives)
+    return equipment_bonus_rows(BonusSummaryContext.from_window(self), role_name, tape, drives)
 
 def _get_my_role_entry(self, role_name):
     return get_my_role_entry(role_name)
 
 def _role_base_bonus_rows(self, role_name):
-    return role_base_bonus_rows(self._bonus_context(), role_name)
+    return role_base_bonus_rows(BonusSummaryContext.from_window(self), role_name)
 
 def _merge_bonus_row_lists(self, *sources):
-    return merge_bonus_row_lists(self._bonus_context(), *sources)
+    return merge_bonus_row_lists(BonusSummaryContext.from_window(self), *sources)
 
 def _synthesize_character_bonus_rows(self, rows):
     return synthesize_character_bonus_rows(rows)
 
 def _bonus_rows_for_mode(self, role_name, tape, drives, mode="equipment"):
-    return bonus_rows_for_mode(self._bonus_context(), role_name, tape, drives, mode)
+    return bonus_rows_for_mode(BonusSummaryContext.from_window(self), role_name, tape, drives, mode)
 
 def _bonus_summary_mode_label(self, mode):
     return bonus_summary_mode_label(mode)
