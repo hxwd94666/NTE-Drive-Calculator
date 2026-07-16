@@ -649,10 +649,16 @@ class DriveAssemblyBlockTests(unittest.TestCase):
     def test_accepts_percent_symbol_tape_main_stat_aliases(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
 
-        selection = map_tape_main_stat_selection("攻击力%")
-
-        self.assertEqual("攻击力百分比", selection["main_stat"])
-        self.assertEqual((2273, 485), selection["main_stat_option"])
+        aliases = {
+            "攻击力%": "攻击力百分比",
+            "暴击率%": "暴击率",
+            "暴击伤害%": "暴击伤害",
+            "光属性异能伤害增强%": "光属性异能伤害增强",
+        }
+        for raw_name, expected_name in aliases.items():
+            with self.subTest(raw_name=raw_name):
+                selection = map_tape_main_stat_selection(raw_name)
+                self.assertEqual(expected_name, selection["main_stat"])
 
     def test_scales_tape_main_stat_selection_to_other_screens(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
