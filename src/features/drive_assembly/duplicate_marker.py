@@ -1,3 +1,4 @@
+# 标记驱动配装规划中的重复装备分组。
 """Mark duplicate equipment groups for drive assembly planning."""
 
 from __future__ import annotations
