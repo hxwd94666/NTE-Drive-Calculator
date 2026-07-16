@@ -6,13 +6,13 @@ from typing import List, Dict
 
 from src.domain.crit_threshold import (
     DEFAULT_CRIT_THRESHOLD,
-    _is_crit_stat,
     crit_floor_enabled,
     crit_rank_adjustment,
     drive_has_crit,
+    is_crit_stat,
     loadout_crit_total,
+    meets_preference_grade_limit,
     normalize_preference_config,
-    preference_config_active,
 )
 from src.domain.grade_limits import meets_min_grade
 from src.domain.stat_catalog import StatCatalog
@@ -44,12 +44,8 @@ class BaseDispatchStrategy:
             raise ValueError(f"错误：指定的套装 {raw_set} 不存在于 sets.json 中！")
         return target_set
 
-    def _preference_config(self, config) -> dict:
-        return normalize_preference_config(config)
-
     def _stat_priority_config(self, config) -> dict:
-        """Stat-priority ranking only; empty when no preferred stats."""
-        normalized = self._preference_config(config)
+        normalized = normalize_preference_config(config)
         if not normalized.get("stats"):
             return {}
         return normalized
@@ -82,21 +78,16 @@ class BaseDispatchStrategy:
         )
 
     def _meets_grade_limit(self, role: str, item, config) -> bool:
-        cfg = self._preference_config(config)
-        if not preference_config_active(config):
-            return False
-        if cfg.get("ignore_grade_limit"):
-            return True
         score = getattr(item, "role_scores", {}).get(role, 0.0)
         area = getattr(item, "area", 1) or 1
-        return meets_min_grade(score, area, cfg.get("min_grade_limit", "A"))
+        return meets_preference_grade_limit(score, area, config, require_active=True)
 
     def _crit_rank_bonus(self, role: str, item, config, current_crit: float | None) -> float:
         if current_crit is None or not crit_floor_enabled(config):
             return 0.0
         if not self._meets_grade_limit(role, item, config):
             return 0.0
-        pref = self._preference_config(config)
+        pref = normalize_preference_config(config)
         return crit_rank_adjustment(
             current_crit,
             drive_has_crit(item),
@@ -372,7 +363,7 @@ class BaseDispatchStrategy:
             return None
 
     def _is_crit_rate_key(self, key: str) -> bool:
-        return _is_crit_stat(key)
+        return is_crit_stat(key)
 
     def _crit_rate_from_stats(self, stats) -> float:
         if not isinstance(stats, dict):
