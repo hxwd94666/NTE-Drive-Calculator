@@ -40,6 +40,7 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
 
         used_indices = set()
         assigned_set, assigned_extra, total_score, total_rank_score = [], [], 0.0, 0.0
+        current_crit = self._current_role_crit(role_name, assigned_tape, [])
 
         set_uses_bonus = self._slot_uses_extra_shape_bonus("set", blueprint)
         for req_shape in set_shapes:
@@ -53,6 +54,7 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 candidates,
                 crit_mode,
                 include_extra_shape_bonus=set_uses_bonus,
+                current_crit=current_crit,
             )
             if picked:
                 best_idx, best_drive, highest_score, rank_score = picked
@@ -60,6 +62,7 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 total_score += highest_score
                 total_rank_score += rank_score
                 used_indices.add(best_idx)
+                current_crit = self._current_role_crit(role_name, assigned_tape, assigned_set + assigned_extra)
             else:
                 return {"valid": False, "score": 0.0}
 
@@ -74,6 +77,7 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 candidates,
                 crit_mode,
                 include_extra_shape_bonus=False,
+                current_crit=current_crit,
             )
             if picked:
                 best_idx, best_drive, highest_score, rank_score = picked
@@ -81,6 +85,7 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 total_score += highest_score
                 total_rank_score += rank_score
                 used_indices.add(best_idx)
+                current_crit = self._current_role_crit(role_name, assigned_tape, assigned_set + assigned_extra)
             else:
                 return {"valid": False, "score": 0.0}
 
@@ -330,6 +335,58 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 improved = True
         return current
 
+    def _assign_group_slots_greedy(
+        self,
+        slots: list[dict],
+        drives_pool: list[Drive],
+        assigned_tapes: Dict[str, Tape],
+        crit_priority_modes: Dict[str, dict],
+        valid_group: list[str],
+    ):
+        used_uids: set[str] = set()
+        role_crit = {
+            role: self._current_role_crit(role, assigned_tapes.get(role), [])
+            for role in valid_group
+        }
+        temp_alloc = self._init_temp_alloc(valid_group, assigned_tapes)
+        for role in valid_group:
+            temp_alloc[role]["rank_score"] = temp_alloc[role]["score"]
+
+        for slot in slots:
+            role = slot["role"]
+            config = crit_priority_modes.get(role)
+            current_crit = role_crit.get(role, 0.0)
+            candidates = [
+                (idx, drive)
+                for idx, drive in enumerate(drives_pool)
+                if drive.uid not in used_uids and drive.shape_id == slot["shape"]
+            ]
+            slot_uses_bonus = self._slot_uses_extra_shape_bonus(slot["type"], slot.get("bp"))
+            picked = self._pick_best_drive(
+                role,
+                candidates,
+                config,
+                include_extra_shape_bonus=slot_uses_bonus,
+                current_crit=current_crit,
+            )
+            if not picked:
+                return None
+            _, drive, score, rank_score = picked
+            used_uids.add(drive.uid)
+            temp_alloc[role]["blueprint"] = slot["bp"]
+            if slot["type"] == "set":
+                temp_alloc[role]["assigned_set_drives"].append(drive)
+            else:
+                temp_alloc[role]["assigned_extra_drives"].append(drive)
+            temp_alloc[role]["score"] += score
+            temp_alloc[role]["rank_score"] += rank_score
+            role_crit[role] = self._current_role_crit(
+                role,
+                assigned_tapes.get(role),
+                temp_alloc[role]["assigned_set_drives"] + temp_alloc[role]["assigned_extra_drives"],
+            )
+        return temp_alloc
+
     def _find_best_group_fit(
         self,
         group: list[str],
@@ -353,6 +410,7 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
         best_rank_score = -1.0
         best_priority_key = ()
         best_allocation = {}
+        use_greedy = self._group_uses_crit_thresholds(valid_group, crit_priority_modes)
         for bp_combo in self._iter_bp_combos(
             role_blueprints,
             valid_group,
@@ -360,11 +418,50 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
             custom_sets,
             crit_priority_modes,
         ):
+            if use_greedy:
+                slots = self._build_group_slots(bp_combo, valid_group, custom_sets)
+                if len(drives_pool) < len(slots):
+                    continue
+                temp_alloc = self._assign_group_slots_greedy(
+                    slots,
+                    drives_pool,
+                    assigned_tapes,
+                    crit_priority_modes,
+                    valid_group,
+                )
+                if temp_alloc is None:
+                    continue
+                is_valid = True
+                for role in valid_group:
+                    plan = temp_alloc.get(role, {})
+                    items = [
+                        plan.get("assigned_tape"),
+                        *(plan.get("assigned_set_drives", []) or []),
+                        *(plan.get("assigned_extra_drives", []) or []),
+                    ]
+                    if not self._within_crit_rate_cap(role, items, crit_rate_caps):
+                        is_valid = False
+                        break
+                if not is_valid:
+                    continue
+                team_score = sum(item["score"] for item in temp_alloc.values())
+                team_rank_score = sum(
+                    item.get("rank_score", item["score"]) for item in temp_alloc.values()
+                )
+                priority_key = self._group_stat_priority_key(temp_alloc, valid_group, crit_priority_modes)
+                if (priority_key, team_rank_score, team_score) > (best_priority_key, best_rank_score, best_score):
+                    best_priority_key = priority_key
+                    best_rank_score = team_rank_score
+                    best_score = team_score
+                    best_allocation = temp_alloc
+                continue
+
             slots, profit_matrix, ranking_matrix = self._build_profit_matrix(
                 bp_combo, valid_group, drives_pool, custom_sets, crit_priority_modes
             )
             if slots is None:
                 continue
+
             row_ind, col_ind = linear_sum_assignment(-ranking_matrix)
             temp_alloc = self._init_temp_alloc(valid_group, assigned_tapes)
             is_valid = True
