@@ -1,3 +1,4 @@
+# 计算角色面板属性并汇总装备加成。
 """Shared, side-effect-free character panel stat calculation.
 
 This module calculates the attributes shown on a character panel.  It does
