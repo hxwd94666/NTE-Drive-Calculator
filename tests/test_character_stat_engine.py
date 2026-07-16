@@ -1,3 +1,4 @@
+# 测试角色面板属性计算引擎。
 import unittest
 
 from src.features.role.stat_engine import CharacterStatContext, build_character_panel
