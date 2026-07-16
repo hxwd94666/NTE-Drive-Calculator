@@ -353,9 +353,9 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
             0,
             Qt.AlignTop
         )
-        if hasattr(window, "_bonus_summary_widget"):
+        if hasattr(window, "_role_bonus_summary_panel"):
             row.addWidget(
-                window._bonus_summary_widget(
+                window._role_bonus_summary_panel(
                     role_name,
                     None,
                     valid_drives
