@@ -208,6 +208,43 @@ def persistable_stat_priority_config(
     }
 
 
+def character_crit_baseline(character_data: dict | None, *, alias_mapping: dict | None = None) -> float:
+    if not isinstance(character_data, dict):
+        return 0.0
+    total = 0.0
+    for stat, value in (character_data.get("sub_stats") or {}).items():
+        if is_crit_stat(stat, alias_mapping):
+            total += _stat_number_value(value)
+    weapon = character_data.get("weapon")
+    if isinstance(weapon, dict):
+        for stat, value in (weapon.get("sub_stats") or {}).items():
+            if is_crit_stat(stat, alias_mapping):
+                total += _stat_number_value(value)
+    return total
+
+
+def character_crit_total(
+    character_data: dict | None,
+    role_data: dict,
+    tape: Any | None,
+    drives: list[Any] | None,
+    *,
+    alias_mapping: dict | None = None,
+    tape_main_values: dict | None = None,
+    shape_areas: dict | None = None,
+) -> float:
+    baseline = character_crit_baseline(character_data, alias_mapping=alias_mapping)
+    loadout = loadout_crit_total(
+        role_data,
+        tape,
+        drives,
+        alias_mapping=alias_mapping,
+        tape_main_values=tape_main_values,
+        shape_areas=shape_areas,
+    )
+    return round(baseline + loadout, 4)
+
+
 def crit_rank_adjustment(
     current_crit: float,
     drive_has_crit_stat: bool,

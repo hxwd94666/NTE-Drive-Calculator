@@ -657,6 +657,12 @@ class RoleSelector(QWidget):
         limits_row.addSpacing(20)
 
         crit_threshold_label = QLabel("暴击率最小值")
+        crit_threshold_help = QPushButton("?")
+        crit_threshold_help.setObjectName("btnHelp")
+        crit_threshold_help.setFixedSize(24, 24)
+        crit_threshold_help.clicked.connect(
+            lambda: self._show_help("暴击率最小值", CRIT_THRESHOLD_HELP)
+        )
         crit_threshold_spin = QSpinBox()
         crit_threshold_spin.setRange(0, 100)
         crit_threshold_spin.setSuffix("%")
@@ -670,6 +676,7 @@ class RoleSelector(QWidget):
         except (TypeError, ValueError):
             crit_threshold_spin.setValue(int(DEFAULT_CRIT_THRESHOLD))
         limits_row.addWidget(crit_threshold_label)
+        limits_row.addWidget(crit_threshold_help)
         limits_row.addWidget(crit_threshold_spin)
         limits_row.addStretch(1)
         stat_layout.addLayout(limits_row)
@@ -982,8 +989,15 @@ STAT_PRIORITY_HELP = (
     "未勾选“不限制评分等级”时，可通过“最低生效等级”选择 D 至 ACE 的门槛；"
     "默认 A 级。词条自选加成与暴击率最小值加成都受该门槛约束。\n"
     "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。\n\n"
-    "暴击率最小值会参考当前配装的累计暴击率：低于该值时，仅对达到最低生效等级的驱动优先选择带暴击词条的；"
-    "达到后取消该加成。暴击率上限会硬性限制配装总暴击。"
+    "暴击率最小值按角色侧累计暴击判断，详见该项旁的 ? 说明。暴击率上限会硬性限制配装总暴击。"
+)
+
+
+CRIT_THRESHOLD_HELP = (
+    "按角色页的基础暴击率累计，并叠加当前配装进度（卡带、驱动、空幕额外形加成）。\n\n"
+    "计入：角色基础属性中的暴击率；弧盘基础属性中的暴击率（若含该词条）。\n\n"
+    "不计入：好感度加成；弧盘混频被动技能；战斗中触发的临时/实战暴击增益。\n\n"
+    "低于设定值时，仅对达到最低生效等级的驱动优先选择带暴击词条的；达到后取消该加成。"
 )
 
 
