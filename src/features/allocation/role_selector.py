@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QMimeData, Qt, Signal
-from PySide6.QtGui import QDrag, QPainter, QPixmap
+from PySide6.QtGui import QDrag, QIntValidator, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
     QLineEdit,
@@ -30,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
 from src.app.theme import current_theme_name, themed_style
-from src.domain.crit_threshold import DEFAULT_CRIT_THRESHOLD, persistable_stat_priority_config
+from src.domain.crit_threshold import persistable_stat_priority_config
 from src.domain.grade_limits import GRADE_LADDER
 from src.features.allocation.priority_groups import (
     cycle_priority_link,
@@ -463,16 +462,18 @@ class RoleSelector(QWidget):
         equal_priority=False,
         ignore_grade_limit=False,
         min_grade_limit="A",
-        crit_threshold=DEFAULT_CRIT_THRESHOLD,
+        crit_threshold=None,
     ):
+        payload = {
+            "stats": stats or [],
+            "equal_priority": equal_priority,
+            "ignore_grade_limit": ignore_grade_limit,
+            "min_grade_limit": min_grade_limit,
+        }
+        if crit_threshold not in (None, ""):
+            payload["crit_threshold"] = crit_threshold
         cfg = persistable_stat_priority_config(
-            {
-                "stats": stats or [],
-                "equal_priority": equal_priority,
-                "ignore_grade_limit": ignore_grade_limit,
-                "min_grade_limit": min_grade_limit,
-                "crit_threshold": crit_threshold,
-            },
+            payload,
             allowed_stats=set(self.drive_sub_stats),
             dedupe_stats=True,
         )
@@ -537,8 +538,7 @@ class RoleSelector(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
         title_label = QLabel(title)
-        title_label.setMinimumWidth(118)
-        title_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         row.addWidget(title_label)
         combo = SearchableComboBox()
         self._fill_search_combo(combo, choices)
@@ -546,8 +546,10 @@ class RoleSelector(QWidget):
 
         add_btn = QPushButton("添加")
         add_btn.setObjectName("btnAction")
+        add_btn.setFixedWidth(60)
         clear_btn = QPushButton("清空")
         clear_btn.setObjectName("btnDanger")
+        clear_btn.setFixedWidth(74)
         row.addWidget(add_btn)
         row.addWidget(clear_btn)
 
@@ -663,21 +665,19 @@ class RoleSelector(QWidget):
         crit_threshold_help.clicked.connect(
             lambda: self._show_help("暴击率最小值", CRIT_THRESHOLD_HELP)
         )
-        crit_threshold_spin = QSpinBox()
-        crit_threshold_spin.setRange(0, 100)
-        crit_threshold_spin.setSuffix("%")
-        crit_threshold_spin.setFixedWidth(84)
-        raw_threshold = current_stat_cfg.get(
-            "crit_threshold",
-            current_stat_cfg.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD),
-        )
-        try:
-            crit_threshold_spin.setValue(int(raw_threshold))
-        except (TypeError, ValueError):
-            crit_threshold_spin.setValue(int(DEFAULT_CRIT_THRESHOLD))
+        crit_threshold_edit = QLineEdit()
+        crit_threshold_edit.setValidator(QIntValidator(0, 100, crit_threshold_edit))
+        crit_threshold_edit.setFixedWidth(84)
+        raw_threshold = current_stat_cfg.get("crit_threshold", current_stat_cfg.get("crit_min_threshold"))
+        if raw_threshold is not None:
+            try:
+                crit_threshold_edit.setText(f"{float(raw_threshold):g}")
+            except (TypeError, ValueError):
+                pass
         limits_row.addWidget(crit_threshold_label)
         limits_row.addWidget(crit_threshold_help)
-        limits_row.addWidget(crit_threshold_spin)
+        limits_row.addWidget(crit_threshold_edit)
+        limits_row.addWidget(QLabel("%"))
         limits_row.addStretch(1)
         stat_layout.addLayout(limits_row)
 
@@ -749,7 +749,7 @@ class RoleSelector(QWidget):
                 stat_equal.isChecked(),
                 ignore_grade_limit.isChecked(),
                 grade_combo.currentData(),
-                crit_threshold_spin.value(),
+                crit_threshold_edit.text().strip(),
             )
             cap_text = crit_cap_edit.text().strip()
             if cap_text or not selected_weapon:
@@ -989,15 +989,16 @@ STAT_PRIORITY_HELP = (
     "未勾选“不限制评分等级”时，可通过“最低生效等级”选择 D 至 ACE 的门槛；"
     "默认 A 级。词条自选加成与暴击率最小值加成都受该门槛约束。\n"
     "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。\n\n"
-    "暴击率最小值按角色侧累计暴击判断，详见该项旁的 ? 说明。暴击率上限会硬性限制配装总暴击。"
+    "暴击率最小值留空时不启用，详见该项旁的 ? 说明。暴击率上限会硬性限制配装总暴击。"
 )
 
 
 CRIT_THRESHOLD_HELP = (
-    "按角色页的基础暴击率累计，并叠加当前配装进度（卡带、驱动、空幕额外形加成）。\n\n"
-    "计入：角色基础属性中的暴击率；弧盘基础属性中的暴击率（若含该词条）。\n\n"
-    "不计入：好感度加成；弧盘混频被动技能；战斗中触发的临时/实战暴击增益。\n\n"
-    "低于设定值时，仅对达到最低生效等级的驱动优先选择带暴击词条的；达到后取消该加成。"
+    "留空时不启用。\n\n"
+    "填写后，当前暴击率低于该值时，会优先选择带暴击率副词条的驱动；达到后恢复正常评分排序。\n\n"
+    "当前暴击率 = 固定基础 5% + 卡带/驱动加成 + 额外形状 buff。\n"
+    "不计角色成长属性、弧盘属性或战斗中的临时加成。\n\n"
+    "该优先仅作用于达到“最低生效等级”的驱动；勾选“不限制评分等级”时则不受等级限制。"
 )
 
 

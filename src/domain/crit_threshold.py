@@ -11,6 +11,7 @@ from src.domain.grade_limits import GRADE_LADDER, meets_min_grade
 CRIT_STAT = "暴击率%"
 CRIT_RANK_BONUS = 100_000.0
 DEFAULT_CRIT_THRESHOLD = 5.0
+BASE_CRIT_RATE = 5.0
 
 
 def _item_value(item: Any, key: str, default=None):
@@ -157,16 +158,15 @@ def _dedupe_stats(stats) -> list[str]:
     return clean
 
 
-def _stat_priority_should_persist(normalized: dict) -> bool:
+def _stat_priority_should_persist(normalized: dict, *, crit_floor_configured: bool = False) -> bool:
     has_custom_grade = (
         not normalized.get("ignore_grade_limit")
         and str(normalized.get("min_grade_limit", "A")).upper() != "A"
     )
-    has_custom_crit = int(normalized.get("crit_threshold", DEFAULT_CRIT_THRESHOLD)) != int(DEFAULT_CRIT_THRESHOLD)
     return bool(
         normalized.get("stats")
         or has_custom_grade
-        or has_custom_crit
+        or crit_floor_configured
         or normalized.get("equal_priority")
         or normalized.get("ignore_grade_limit")
     )
@@ -192,20 +192,23 @@ def persistable_stat_priority_config(
         "ignore_grade_limit": bool(cfg.get("ignore_grade_limit", False)),
         "min_grade_limit": cfg.get("min_grade_limit", "A"),
     }
+    crit_floor_configured = "crit_threshold" in cfg or "crit_min_threshold" in cfg
     if "crit_threshold" in cfg:
         payload["crit_threshold"] = cfg["crit_threshold"]
     elif "crit_min_threshold" in cfg:
         payload["crit_min_threshold"] = cfg["crit_min_threshold"]
     normalized = normalize_preference_config(payload)
-    if not _stat_priority_should_persist(normalized):
+    if not _stat_priority_should_persist(normalized, crit_floor_configured=crit_floor_configured):
         return None
-    return {
+    result = {
         "stats": normalized["stats"],
         "equal_priority": normalized["equal_priority"],
         "ignore_grade_limit": normalized["ignore_grade_limit"],
         "min_grade_limit": normalized["min_grade_limit"],
-        "crit_threshold": int(normalized["crit_threshold"]),
     }
+    if crit_floor_configured:
+        result["crit_threshold"] = int(normalized["crit_threshold"])
+    return result
 
 
 def character_crit_baseline(character_data: dict | None, *, alias_mapping: dict | None = None) -> float:
@@ -243,6 +246,35 @@ def character_crit_total(
         shape_areas=shape_areas,
     )
     return round(baseline + loadout, 4)
+
+
+def minimum_crit_total(
+    role_data: dict,
+    tape: Any | None,
+    drives: list[Any] | None,
+    *,
+    alias_mapping: dict | None = None,
+    tape_main_values: dict | None = None,
+    shape_areas: dict | None = None,
+) -> float:
+    """Crit total used by the minimum-crit preference.
+
+    The game grants every role a fixed 5% base crit rate.  This preference
+    deliberately excludes character growth and weapon/arc stats, then adds
+    only the equipped tape, drives, and extra-shape buff.
+    """
+    return round(
+        BASE_CRIT_RATE
+        + loadout_crit_total(
+            role_data,
+            tape,
+            drives,
+            alias_mapping=alias_mapping,
+            tape_main_values=tape_main_values,
+            shape_areas=shape_areas,
+        ),
+        4,
+    )
 
 
 def crit_rank_adjustment(
