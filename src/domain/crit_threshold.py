@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from src.domain.grade_limits import GRADE_LADDER, meets_min_grade
+
 CRIT_STAT = "暴击率%"
 CRIT_RANK_BONUS = 100_000.0
 DEFAULT_CRIT_THRESHOLD = 5.0
@@ -32,7 +34,7 @@ def _canonical_stat_name(stat: str, alias_mapping: dict | None = None) -> str:
     return aliases.get(stat, stat)
 
 
-def _is_crit_stat(stat: str, alias_mapping: dict | None = None) -> bool:
+def is_crit_stat(stat: str, alias_mapping: dict | None = None) -> bool:
     canonical = _canonical_stat_name(stat, alias_mapping)
     normalized = canonical.replace("%", "")
     return normalized == "暴击率" or canonical == CRIT_STAT
@@ -79,7 +81,7 @@ def _drive_area(drive: Any, shape_areas: dict | None = None) -> int:
 
 def drive_has_crit(item: Any, alias_mapping: dict | None = None) -> bool:
     for stat in (_item_value(item, "sub_stats", {}) or {}).keys():
-        if _is_crit_stat(stat, alias_mapping):
+        if is_crit_stat(stat, alias_mapping):
             return True
     return False
 
@@ -89,7 +91,7 @@ def normalize_preference_config(config: dict | None) -> dict:
         return {}
     stats = [str(s) for s in config.get("stats", []) if s]
     min_grade = str(config.get("min_grade_limit") or "A").upper()
-    if min_grade not in {"D", "C", "B", "A", "S", "SS", "SSS", "ACE"}:
+    if min_grade not in GRADE_LADDER:
         min_grade = "A"
     raw_threshold = config.get("crit_threshold", config.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD))
     try:
@@ -107,7 +109,6 @@ def normalize_preference_config(config: dict | None) -> dict:
 
 
 def preference_config_active(config: dict | None) -> bool:
-    """True when the role has a meaningful preference entry."""
     if not isinstance(config, dict) or not config:
         return False
     normalized = normalize_preference_config(config)
@@ -122,15 +123,89 @@ def preference_config_active(config: dict | None) -> bool:
 
 
 def crit_floor_enabled(config: dict | None) -> bool:
-    """Crit floor / greedy only when an explicit threshold key is present.
-
-    UI always persists ``crit_threshold`` when saving preference configs, so the
-    default (5%) still applies after a normal save. Bare ``{"stats": [...]}``
-    without a threshold key does not switch the multi-role solver to greedy.
-    """
+    # 仅显式写入 crit_threshold / crit_min_threshold 时启用暴击下限与 greedy
     if not isinstance(config, dict) or not config:
         return False
     return "crit_threshold" in config or "crit_min_threshold" in config
+
+
+def meets_preference_grade_limit(
+    score: float,
+    area: int,
+    config: dict | None,
+    *,
+    require_active: bool = False,
+) -> bool:
+    if require_active and not preference_config_active(config):
+        return False
+    if not isinstance(config, dict):
+        return meets_min_grade(score, area, "A")
+    normalized = normalize_preference_config(config)
+    if normalized.get("ignore_grade_limit"):
+        return True
+    return meets_min_grade(score, area, normalized.get("min_grade_limit", "A"))
+
+
+def _dedupe_stats(stats) -> list[str]:
+    clean: list[str] = []
+    seen: set[str] = set()
+    for stat in stats or []:
+        name = str(stat or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            clean.append(name)
+    return clean
+
+
+def _stat_priority_should_persist(normalized: dict) -> bool:
+    has_custom_grade = (
+        not normalized.get("ignore_grade_limit")
+        and str(normalized.get("min_grade_limit", "A")).upper() != "A"
+    )
+    has_custom_crit = int(normalized.get("crit_threshold", DEFAULT_CRIT_THRESHOLD)) != int(DEFAULT_CRIT_THRESHOLD)
+    return bool(
+        normalized.get("stats")
+        or has_custom_grade
+        or has_custom_crit
+        or normalized.get("equal_priority")
+        or normalized.get("ignore_grade_limit")
+    )
+
+
+def persistable_stat_priority_config(
+    cfg: dict,
+    *,
+    allowed_stats: set[str] | frozenset[str] | None = None,
+    dedupe_stats: bool = False,
+) -> dict | None:
+    if not isinstance(cfg, dict):
+        return None
+    if dedupe_stats:
+        stats = _dedupe_stats(cfg.get("stats", []))
+    else:
+        stats = [stat for stat in cfg.get("stats", []) if stat]
+    if allowed_stats is not None:
+        stats = [stat for stat in stats if stat in allowed_stats]
+    payload = {
+        "stats": stats,
+        "equal_priority": bool(cfg.get("equal_priority", False)),
+        "ignore_grade_limit": bool(cfg.get("ignore_grade_limit", False)),
+        "min_grade_limit": cfg.get("min_grade_limit", "A"),
+    }
+    if "crit_threshold" in cfg:
+        payload["crit_threshold"] = cfg["crit_threshold"]
+    elif "crit_min_threshold" in cfg:
+        payload["crit_min_threshold"] = cfg["crit_min_threshold"]
+    normalized = normalize_preference_config(payload)
+    if not _stat_priority_should_persist(normalized):
+        return None
+    return {
+        "stats": normalized["stats"],
+        "equal_priority": normalized["equal_priority"],
+        "ignore_grade_limit": normalized["ignore_grade_limit"],
+        "min_grade_limit": normalized["min_grade_limit"],
+        "crit_threshold": int(normalized["crit_threshold"]),
+    }
 
 
 def crit_rank_adjustment(
@@ -183,12 +258,12 @@ def loadout_crit_total(
             if _drive_area(drive, shape_areas) == target_area:
                 matched_count += 1
     for stat, value in extra_buffs.items():
-        if _is_crit_stat(stat, alias_mapping):
+        if is_crit_stat(stat, alias_mapping):
             _add_crit_total(totals, stat, _stat_number_value(value) * matched_count, alias_mapping)
 
     crit_key = CRIT_STAT
     for stat, value in totals.items():
-        if _is_crit_stat(stat, alias_mapping):
+        if is_crit_stat(stat, alias_mapping):
             crit_key = stat
             break
     return totals.get(crit_key, totals.get(CRIT_STAT, 0.0))

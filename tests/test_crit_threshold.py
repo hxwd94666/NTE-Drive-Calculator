@@ -8,10 +8,14 @@ from src.domain.crit_threshold import (
     crit_rank_adjustment,
     drive_has_crit,
     loadout_crit_total,
+    meets_preference_grade_limit,
     normalize_preference_config,
+    persistable_stat_priority_config,
     preference_config_active,
 )
 from src.domain.grade_limits import meets_min_grade
+
+ALLOWED = frozenset({"攻击力%", "暴击率%", "Crit"})
 
 
 class CritThresholdDomainTests(unittest.TestCase):
@@ -68,6 +72,189 @@ class CritThresholdDomainTests(unittest.TestCase):
         self.assertTrue(meets_min_grade(12.0, 3, "A"))
         self.assertFalse(meets_min_grade(11.9, 3, "A"))
         self.assertTrue(meets_min_grade(0.0, 3, "D"))
+
+    def test_persistable_stat_priority_config(self):
+        self.assertIsNone(persistable_stat_priority_config({"crit_threshold": 5}))
+        cfg = persistable_stat_priority_config({"stats": ["攻击力%"], "crit_threshold": 5})
+        self.assertEqual(["攻击力%"], cfg["stats"])
+        self.assertEqual(5, cfg["crit_threshold"])
+        self.assertIsNone(
+            persistable_stat_priority_config(
+                {"stats": ["未知%"]},
+                allowed_stats={"攻击力%"},
+            )
+        )
+
+    def test_persistable_ui_save(self):
+        cases = [
+            (
+                {
+                    "stats": ["攻击力%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+                {
+                    "stats": ["攻击力%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+            ),
+            (
+                {
+                    "stats": ["攻击力%", "攻击力%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+                {
+                    "stats": ["攻击力%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+            ),
+            (
+                {
+                    "stats": [],
+                    "equal_priority": True,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+                {
+                    "stats": [],
+                    "equal_priority": True,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+            ),
+            (
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "S",
+                    "crit_threshold": 5,
+                },
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "S",
+                    "crit_threshold": 5,
+                },
+            ),
+            (
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 20,
+                },
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 20,
+                },
+            ),
+            (
+                {
+                    "stats": ["未知%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+                None,
+            ),
+            (
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+                None,
+            ),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    expected,
+                    persistable_stat_priority_config(raw, allowed_stats=ALLOWED, dedupe_stats=True),
+                )
+
+    def test_persistable_import(self):
+        cases = [
+            (
+                {"stats": ["攻击力%"]},
+                {
+                    "stats": ["攻击力%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+            ),
+            (
+                {"stats": ["攻击力%", "攻击力%"]},
+                {
+                    "stats": ["攻击力%", "攻击力%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+            ),
+            (
+                {"stats": ["攻击力%"], "crit_min_threshold": 18},
+                {
+                    "stats": ["攻击力%"],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 18,
+                },
+            ),
+            ({"crit_threshold": 5}, None),
+            ({"stats": ["未知%"]}, None),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    expected,
+                    persistable_stat_priority_config(raw, allowed_stats=ALLOWED),
+                )
+
+    def test_meets_preference_grade_limit(self):
+        cases = [
+            ((12.0, 3, None, False), True),
+            ((12.0, 3, {}, False), True),
+            ((11.9, 3, {"stats": ["攻击力%"]}, False), False),
+            ((0.0, 3, {"ignore_grade_limit": True}, False), True),
+            ((0.0, 3, {"min_grade_limit": "S"}, False), False),
+            ((18.0, 3, {"min_grade_limit": "S"}, False), True),
+            ((12.0, 3, {"stats": ["攻击力%"]}, True), True),
+            ((12.0, 3, {}, True), False),
+            ((12.0, 3, {"crit_threshold": 5}, True), True),
+        ]
+        for (score, area, config, require_active), expected in cases:
+            with self.subTest(score=score, config=config, require_active=require_active):
+                self.assertEqual(
+                    expected,
+                    meets_preference_grade_limit(score, area, config, require_active=require_active),
+                )
 
 
 if __name__ == "__main__":

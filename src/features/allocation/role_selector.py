@@ -30,8 +30,8 @@ from PySide6.QtWidgets import (
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
 from src.app.theme import current_theme_name, themed_style
-from src.domain.crit_threshold import DEFAULT_CRIT_THRESHOLD
-from src.domain.grade_limits import STAT_PRIORITY_GRADE_OPTIONS
+from src.domain.crit_threshold import DEFAULT_CRIT_THRESHOLD, persistable_stat_priority_config
+from src.domain.grade_limits import GRADE_LADDER
 from src.features.allocation.priority_groups import (
     cycle_priority_link,
     links_to_priority_groups,
@@ -465,29 +465,19 @@ class RoleSelector(QWidget):
         min_grade_limit="A",
         crit_threshold=DEFAULT_CRIT_THRESHOLD,
     ):
-        clean = []
-        for stat in stats or []:
-            if stat and stat in self.drive_sub_stats and stat not in clean:
-                clean.append(stat)
-        try:
-            crit_value = int(crit_threshold)
-        except (TypeError, ValueError):
-            crit_value = int(DEFAULT_CRIT_THRESHOLD)
-        crit_value = max(0, min(100, crit_value))
-        min_grade = str(min_grade_limit or "A").upper()
-        if min_grade not in STAT_PRIORITY_GRADE_OPTIONS:
-            min_grade = "A"
-        has_custom_grade = not ignore_grade_limit and min_grade != "A"
-        has_custom_crit = crit_value != int(DEFAULT_CRIT_THRESHOLD)
-        has_options = bool(equal_priority or ignore_grade_limit)
-        if clean or has_custom_grade or has_custom_crit or has_options:
-            self.stat_priority_configs[name] = {
-                "stats": clean,
-                "equal_priority": bool(equal_priority),
-                "ignore_grade_limit": bool(ignore_grade_limit),
-                "min_grade_limit": min_grade,
-                "crit_threshold": crit_value,
-            }
+        cfg = persistable_stat_priority_config(
+            {
+                "stats": stats or [],
+                "equal_priority": equal_priority,
+                "ignore_grade_limit": ignore_grade_limit,
+                "min_grade_limit": min_grade_limit,
+                "crit_threshold": crit_threshold,
+            },
+            allowed_stats=set(self.drive_sub_stats),
+            dedupe_stats=True,
+        )
+        if cfg:
+            self.stat_priority_configs[name] = cfg
         else:
             self.stat_priority_configs.pop(name, None)
         self.orderChanged.emit()
@@ -656,7 +646,7 @@ class RoleSelector(QWidget):
         grade_label = QLabel("最低生效等级")
         grade_combo = QComboBox()
         grade_combo.setFixedWidth(84)
-        for grade in STAT_PRIORITY_GRADE_OPTIONS:
+        for grade in GRADE_LADDER:
             grade_combo.addItem(grade, grade)
         current_min_grade = str(current_stat_cfg.get("min_grade_limit") or "A").upper()
         grade_index = grade_combo.findData(current_min_grade)
@@ -937,33 +927,13 @@ class RoleSelector(QWidget):
                 if role in self.all_roles and isinstance(values, list)
             }
             self.stat_priority_configs = {}
+            allowed_stats = set(self.drive_sub_stats)
             for role, cfg_item in data.get("stat_priority_configs", {}).items():
                 if role not in self.all_roles or not isinstance(cfg_item, dict):
                     continue
-                stats = [s for s in cfg_item.get("stats", []) if s in self.drive_sub_stats]
-                min_grade = str(cfg_item.get("min_grade_limit") or "A").upper()
-                if min_grade not in STAT_PRIORITY_GRADE_OPTIONS:
-                    min_grade = "A"
-                try:
-                    raw_threshold = cfg_item.get(
-                        "crit_threshold",
-                        cfg_item.get("crit_min_threshold", DEFAULT_CRIT_THRESHOLD),
-                    )
-                    crit_value = int(raw_threshold)
-                except (TypeError, ValueError):
-                    crit_value = int(DEFAULT_CRIT_THRESHOLD)
-                ignore_grade = bool(cfg_item.get("ignore_grade_limit", False))
-                equal_priority = bool(cfg_item.get("equal_priority", False))
-                has_custom_grade = not ignore_grade and min_grade != "A"
-                has_custom_crit = crit_value != int(DEFAULT_CRIT_THRESHOLD)
-                if stats or has_custom_grade or has_custom_crit or ignore_grade or equal_priority:
-                    self.stat_priority_configs[role] = {
-                        "stats": stats,
-                        "equal_priority": equal_priority,
-                        "ignore_grade_limit": ignore_grade,
-                        "min_grade_limit": min_grade,
-                        "crit_threshold": max(0, min(100, crit_value)),
-                    }
+                cfg = persistable_stat_priority_config(cfg_item, allowed_stats=allowed_stats)
+                if cfg:
+                    self.stat_priority_configs[role] = cfg
             self.set_effect_modes = {}
             for role, mode in data.get("set_effect_modes", {}).items():
                 normalized = normalize_set_effect_mode(mode)
