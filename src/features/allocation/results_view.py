@@ -176,7 +176,7 @@ def _render_results(self,plan):
             tape_uid=str(_diff_value(tape,"uid","") or "")
             tape_changed=bool(_diff_value(tape,"is_changed",False) or tape_uid in changed_uids)
             gl.addWidget(self._section_label("卡带:"))
-            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,main_weights=main_wts))
+            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,main_weights=main_wts,card_variant="result"))
 
         if drives:
             gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
@@ -186,7 +186,7 @@ def _render_results(self,plan):
                 mvp_tag=f" 👑第{d.pick_order}顺位" if getattr(d,'is_mvp',False) else ""
                 drive_uid=str(_diff_value(d,"uid","") or "")
                 drive_changed=bool(_diff_value(d,"is_changed",False) or drive_uid in changed_uids)
-                gl.addWidget(self._equip_card(d.shape_id,"",d.sub_stats,d.shape_id,d.uid+mvp_tag,wts,(score,grade),d.quality,is_new=(drive_uid in added_uids and not drive_changed),is_changed=drive_changed))
+                gl.addWidget(self._equip_card(d.shape_id,"",d.sub_stats,d.shape_id,d.uid+mvp_tag,wts,(score,grade),d.quality,is_new=(drive_uid in added_uids and not drive_changed),is_changed=drive_changed,card_variant="result"))
         self.result_content_layout.addWidget(grp)
     self.result_content_layout.addStretch()
 
@@ -470,6 +470,7 @@ def _diff_item_card(self, role_name, item, is_new=False):
         item.get(EQUIP_QUALITY,"Gold"),
         is_new=is_new,
         main_weights=main_weights,
+        card_variant="result",
     )
 
 def _split_loadout_sources(sources):
@@ -1439,23 +1440,29 @@ def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_
     sub_score=(10.0/max_w)*sub_w*10.0*quality_coef if max_w>0 else 0
     return round(main_score+sub_score, 2)
 
-def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,main_weights=None):
+def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,main_weights=None,replacement_callback=None,card_variant="default"):
     if current_theme_name() == "light":
         QUALITY_COLORS={"Gold":"#9a6700","Purple":"#8250df","Blue":"#0969da"}
     else:
         QUALITY_COLORS={"Gold":"#ffd700","Purple":"#ffe082","Blue":"#58a6ff"}
     QUALITY_LABELS={"Gold":"金","Purple":"紫","Blue":"蓝"}
-    w=QWidget(); w.setStyleSheet(themed_style("QWidget{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:9px 13px;margin:3px 0}"))
-    outer=QHBoxLayout(w); outer.setSpacing(12); outer.setContentsMargins(2,2,2,2)
+    w=QWidget(); w.setObjectName("equipmentCard")
+    w.setStyleSheet(themed_style("QWidget#equipmentCard{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:9px 13px;margin:3px 0}"))
+    outer=QHBoxLayout(w); outer.setSpacing(12); outer.setContentsMargins(14,2,2,2)
 
-    # Shape image (compact)
+    # Shape image: 与首行标签保持均衡，避免图标显得过小。
     if shape_id:
-        pm=_get_shape_pixmap(shape_id,64,quality)
+        # Use a compact frame in both specialised views.  The image label
+        # explicitly has no padding below, so the artwork fills the frame
+        # instead of becoming a small icon inside a large blank box.
+        image_size = {"inventory": 52, "result": 60}.get(card_variant, 64)
+        pm=_get_shape_pixmap(shape_id,image_size,quality)
         if not pm.isNull():
-            img_lbl=QLabel(); img_lbl.setPixmap(pm); img_lbl.setFixedSize(68,68); img_lbl.setScaledContents(True)
-            img_lbl.setStyleSheet(themed_style("border:1px solid #30363d;border-radius:6px;background:#161b22")); outer.addWidget(img_lbl)
+            img_lbl=QLabel(); img_lbl.setPixmap(pm); img_lbl.setFixedSize(image_size,image_size); img_lbl.setScaledContents(True)
+            img_lbl.setStyleSheet(themed_style("border:1px solid #30363d;border-radius:6px;background:#161b22;padding:0px")); outer.addWidget(img_lbl)
 
-    inner=QVBoxLayout(); inner.setSpacing(5); inner.setContentsMargins(0,3,0,3)
+    row_spacing = {"result": 4, "inventory": 5}.get(card_variant, 5)
+    inner=QVBoxLayout(); inner.setSpacing(row_spacing); inner.setContentsMargins(0,3,0,3)
 
     # Header: shape name + quality + main stat block + score|grade
     hdr=QHBoxLayout(); hdr.setSpacing(8)
@@ -1463,53 +1470,87 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
     label_bg = theme_rgba("#4dd0e1", 0.10)
     label_border = label_color
     name_lbl = QLabel(f"<b>{label}</b>")
-    name_size = 12 if shape_id else 13
-    name_pad = "2px 8px" if shape_id else "3px 10px"
+    # Both result and saved-plan cards use a modestly larger, consistent
+    # header line.  The stat line stays at 12px, so the hierarchy is clear
+    # without making the card disproportionately tall.
+    is_feature_card = card_variant in {"result", "inventory"}
+    header_font_size = 16 if is_feature_card else None
+    name_size = header_font_size if header_font_size else (12 if shape_id else 13)
+    name_pad = "5px 10px" if is_feature_card else ("2px 8px" if shape_id else "3px 10px")
     name_lbl.setStyleSheet(f"font-size:{name_size}px;font-weight:800;color:{label_color};border:1px solid {label_border};border-radius:6px;padding:{name_pad};background:{label_bg}")
-    hdr.addWidget(name_lbl)
+    hdr.addWidget(name_lbl, 0, Qt.AlignTop)
+    status_font_size = header_font_size or 10
+    status_pad = "5px 8px" if is_feature_card else "2px 6px"
+
+    def _status_label(text, color, border_color, background):
+        status = QLabel(text)
+        status.setStyleSheet(
+            f"font-size:{status_font_size}px;font-weight:800;color:{color};"
+            f"border:1px solid {border_color};border-radius:5px;padding:{status_pad};background:{background}"
+        )
+        return status
+
     status_labels = []
     if is_new:
-        new_lbl=QLabel("NEW")
-        new_lbl.setStyleSheet(f"font-size:10px;font-weight:800;color:{theme_color('#58a6ff')};border:1px solid {theme_color('#58a6ff')};border-radius:5px;padding:2px 6px;background:{theme_rgba('#58a6ff', 0.10)}")
-        status_labels.append(new_lbl)
+        status_labels.append(_status_label("NEW", theme_color("#58a6ff"), theme_color("#58a6ff"), theme_rgba("#58a6ff", 0.10)))
     if is_changed:
-        change_lbl=QLabel("CHANGE")
-        change_lbl.setStyleSheet(f"font-size:10px;font-weight:800;color:{theme_color('#7ee787')};border:1px solid {theme_color('#2ea043')};border-radius:5px;padding:2px 6px;background:{theme_rgba('#238636', 0.10)}")
-        status_labels.append(change_lbl)
+        status_labels.append(_status_label("CHANGE", theme_color("#7ee787"), theme_color("#2ea043"), theme_rgba("#238636", 0.10)))
     if status_labels and shape_id:
         for status_label in status_labels:
-            hdr.addWidget(status_label)
-    # Quality badge: only tapes show text; drive quality is represented by the icon.
+            hdr.addWidget(status_label, 0, Qt.AlignTop)
+    # 品质标签只在卡带上展示；驱动品质由图标颜色区分。
     if quality and not shape_id:
         qcolor=QUALITY_COLORS.get(quality,theme_color("#8b949e")); qlabel=QUALITY_LABELS.get(quality,quality)
+        if quality == "Purple":
+            qcolor="#a371f7"
         qbg=theme_rgba(qcolor, 0.10)
         q_lbl=QLabel(qlabel)
-        q_lbl.setStyleSheet(f"font-size:11px;font-weight:700;color:{qcolor};border:1px solid {qcolor};border-radius:5px;padding:2px 7px;background:{qbg}")
-        hdr.addWidget(q_lbl)
+        quality_font_size = header_font_size or 11
+        quality_pad = "5px 9px" if is_feature_card else "2px 7px"
+        q_lbl.setStyleSheet(f"font-size:{quality_font_size}px;font-weight:700;color:{qcolor};border:1px solid {qcolor};border-radius:5px;padding:{quality_pad};background:{qbg}")
+        hdr.addWidget(q_lbl, 0, Qt.AlignTop)
     # Main stat as colored block (same style as sub stats)
     if main_stat:
         main_weight_source=main_weights if isinstance(main_weights, dict) else weights
         mw=self._stat_w(main_stat,main_weight_source); mc=self._stat_c(mw); qc=QColor(mc)
         ms_block=QLabel(main_stat); ms_block.setStyleSheet(
             f"border:1px solid {mc};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);"
-            f"border-radius:6px;padding:4px 12px;font-size:13px;color:{mc};font-weight:700"
+            f"border-radius:6px;padding:{'5px 12px' if is_feature_card else '4px 12px'};font-size:{header_font_size or 13}px;color:{mc};font-weight:700"
         )
-        hdr.addWidget(ms_block)
+        hdr.addWidget(ms_block, 0, Qt.AlignTop)
     if status_labels and not shape_id:
         for status_label in status_labels:
-            hdr.addWidget(status_label)
+            hdr.addWidget(status_label, 0, Qt.AlignTop)
     hdr.addStretch()
 
-    # Score | Grade side by side
+    # Score | Grade side by side.
+    score_frame=None
     if score_info is not None:
         score,grade=score_info; gc=GRADE_COLORS.get(grade,"#58a6ff")
-        sf=QFrame()
-        sf.setStyleSheet(f"QFrame{{background:{theme_rgba(gc, 0.10)};border:1px solid {gc};border-radius:6px;padding:2px 10px}}")
-        sf_layout=QHBoxLayout(sf); sf_layout.setSpacing(5); sf_layout.setContentsMargins(4,1,4,1)
-        sl=QLabel(f"{score:.1f}"); sl.setStyleSheet(f"font-size:13px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(sl)
-        gl=QLabel(grade); gl.setStyleSheet(f"font-size:11px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(gl)
-        hdr.addWidget(sf)
-    uid_lbl=QLabel(f"<span style='color:{theme_color('#6e7681')};font-size:10px;'>{uid}</span>"); hdr.addWidget(uid_lbl)
+        score_frame=QFrame()
+        score_pad = "4px 10px" if is_feature_card else "2px 10px"
+        score_frame.setStyleSheet(f"QFrame{{background:{theme_rgba(gc, 0.10)};border:1px solid {gc};border-radius:6px;padding:{score_pad}}}")
+        score_margin = 0 if is_feature_card else 1
+        sf_layout=QHBoxLayout(score_frame); sf_layout.setSpacing(5); sf_layout.setContentsMargins(4,score_margin,4,score_margin)
+        score_font_size = header_font_size or 13
+        sl=QLabel(f"{score:.1f}"); sl.setStyleSheet(f"font-size:{score_font_size}px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(sl)
+        gl=QLabel(grade); gl.setStyleSheet(f"font-size:{score_font_size}px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(gl)
+        if is_feature_card:
+            score_frame.setFixedHeight(name_lbl.sizeHint().height())
+    if score_frame is not None:
+        hdr.addWidget(score_frame, 0, Qt.AlignTop)
+    if replacement_callback:
+        replacement_btn=QPushButton("优化" if shape_id else "替换")
+        replacement_btn.setObjectName("btnAction")
+        if is_feature_card:
+            replacement_btn.setFixedSize(74,33)
+            replacement_btn.setStyleSheet(themed_style(f"font-size:{header_font_size}px;padding:2px 8px"))
+        else:
+            replacement_btn.setFixedSize(60,28)
+        replacement_btn.clicked.connect(lambda _checked=False: replacement_callback())
+        hdr.addWidget(replacement_btn, 0, Qt.AlignTop)
+    elif card_variant != "result":
+        uid_lbl=QLabel(f"<span style='color:{theme_color('#6e7681')};font-size:10px;'>{uid}</span>"); hdr.addWidget(uid_lbl, 0, Qt.AlignTop)
     inner.addLayout(hdr)
 
     # Stat blocks row
@@ -1521,4 +1562,6 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
             block.setStyleSheet(f"border:1px solid {color};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);border-radius:6px;padding:5px 12px;font-size:12px;color:{color};font-weight:600")
             block.setToolTip(f"权重: {sw:.2f}"); br.addWidget(block)
         br.addStretch(); inner.addLayout(br)
+    if card_variant == "result":
+        inner.addStretch(1)
     outer.addLayout(inner,1); return w

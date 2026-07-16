@@ -696,7 +696,7 @@ def add_role(window, data, config_dir):
     name, ok = QInputDialog.getText(window, "添加角色", "角色名称:")
     role_name = name.strip()
     if ok and role_name and role_name not in data:
-        data[role_name] = {
+        new_role = {
             "role_name": role_name,
             "default_set": window.all_set_names[0] if window.all_set_names else "",
             "extra_shape_label": "",
@@ -705,6 +705,11 @@ def add_role(window, data, config_dir):
             "weights": {},
             "main_weights": {},
         }
+        # 角色页顶部标签使用 roles.json 的顺序；新增角色默认放到首位。
+        old_roles = dict(data)
+        data.clear()
+        data[role_name] = new_role
+        data.update(old_roles)
         save_config_data(window, data, config_dir)
         switch_config_form(window, "roles.json", config_dir, use_draft=True, active_role=role_name)
 
