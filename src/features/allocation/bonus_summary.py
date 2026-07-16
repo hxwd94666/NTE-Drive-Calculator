@@ -1,3 +1,4 @@
+# 汇总分配结果中的装备与角色面板属性。
 """Allocation-result stat summaries backed by the shared panel stat engine."""
 
 from __future__ import annotations
