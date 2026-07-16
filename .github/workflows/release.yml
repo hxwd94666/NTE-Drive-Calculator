@@ -21,8 +21,44 @@ permissions:
   contents: write
 
 jobs:
+  tests:
+    name: Run release tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          $stubDir = Join-Path $env:RUNNER_TEMP 'pip-msiexec-stub'
+          New-Item -ItemType Directory -Force -Path $stubDir | Out-Null
+          Set-Content -Path (Join-Path $stubDir 'msiexec.bat') -Encoding ascii -Value @(
+            '@echo off',
+            'echo Skipping vgamepad ViGEmBus driver install during dependency installation.',
+            'exit /b 0'
+          )
+          $env:PATH = "$stubDir;$env:PATH"
+
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run full test suite
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: python -m unittest discover -s tests
+
   windows-installer:
     name: Build Windows installer
+    needs: tests
     runs-on: windows-latest
 
     steps:
