@@ -6,11 +6,11 @@ from typing import List, Dict
 
 from src.domain.crit_threshold import (
     DEFAULT_CRIT_THRESHOLD,
+    character_crit_total,
     crit_floor_enabled,
     crit_rank_adjustment,
     drive_has_crit,
     is_crit_stat,
-    loadout_crit_total,
     meets_preference_grade_limit,
     normalize_preference_config,
 )
@@ -32,6 +32,17 @@ class BaseDispatchStrategy:
         self._max_single_weight_cache = {}
         self._extra_shape_factor_cache = {}
         self._extra_shape_hidden_bonus_cache = {}
+        self._my_roles_data: dict | None = None
+
+    def _character_data(self, role: str) -> dict:
+        if self._my_roles_data is None:
+            try:
+                from src.features.role.dao import load_my_roles
+
+                self._my_roles_data = load_my_roles() or {}
+            except Exception:
+                self._my_roles_data = {}
+        return self._my_roles_data.get(role, {}) or {}
 
     def _resolve_set_name(self, set_name: str) -> str:
         resolved = resolve_name(set_name, self.sets_db.keys(), cutoff=0.78)
@@ -68,7 +79,8 @@ class BaseDispatchStrategy:
 
     def _current_role_crit(self, role: str, tape, drives: list[Drive]) -> float:
         ctx = self._role_crit_context(role)
-        return loadout_crit_total(
+        return character_crit_total(
+            self._character_data(role),
             ctx["role_data"],
             tape,
             drives,
