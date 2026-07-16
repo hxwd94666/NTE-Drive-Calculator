@@ -24,9 +24,9 @@ DEFAULT_PRESERVE_RULE: dict[str, Any] = {
     "action": "keep",
     "main_stats": [],
     "sub_stats": [],
-    # "all" means every selected sub stat must match; otherwise 1/2/3 means
-    # at least that many of the selected sub stats must match.
-    "sub_match": "all",
+    "required_sub_stats": [],
+    # Match any 1-4 selected sub stats.  Required stats are checked separately.
+    "sub_match": 4,
     "quality_scope": "gold_purple",
     "shape_ids": None,
     "set_names": None,
@@ -136,10 +136,9 @@ def _normalize_preserve_rule(raw_rule: Any) -> dict[str, Any] | None:
         rule["item_type"] = "tape"
     if rule.get("action") not in {"keep", "lock"}:
         rule["action"] = "keep"
-    rule["sub_match"] = _normalize_sub_match(rule.get("sub_match"))
     if rule.get("quality_scope") not in {"all", "gold", "gold_purple"}:
         rule["quality_scope"] = "gold_purple"
-    for key in ("main_stats", "sub_stats", "shape_ids", "set_names"):
+    for key in ("main_stats", "sub_stats", "required_sub_stats", "shape_ids", "set_names"):
         values = rule.get(key)
         if key in {"shape_ids", "set_names"} and values is None:
             rule[key] = None
@@ -153,19 +152,22 @@ def _normalize_preserve_rule(raw_rule: Any) -> dict[str, Any] | None:
             return None
     elif not (rule["main_stats"] or rule["sub_stats"]):
         return None
+    rule["sub_match"] = _normalize_sub_match(rule.get("sub_match"), len(rule["sub_stats"]))
     return rule
 
 
-def _normalize_sub_match(value: Any) -> str | int:
-    """Normalize both legacy all/any values and the current match counts."""
+def _normalize_sub_match(value: Any, selected_count: int = 0) -> int:
+    """Normalize legacy values and current match counts to the 1-4 range."""
     if value == "all":
-        return "all"
+        # Preserve legacy semantics for old rules without retaining an invalid
+        # UI option: all selected stats, capped by equipment's four sub stats.
+        return max(1, min(4, int(selected_count or 4)))
     if value == "any":
         return 1
     try:
-        return max(1, min(int(value), 3))
+        return max(1, min(int(value), 4))
     except (TypeError, ValueError):
-        return "all"
+        return 4
 
 
 def _legacy_custom_keep_rules(raw_custom_keep: Any) -> list[dict[str, Any]]:
@@ -195,7 +197,7 @@ def _legacy_custom_keep_rules(raw_custom_keep: Any) -> list[dict[str, Any]]:
                     "action": "lock" if raw_rule.get("action") == "lock" else "keep",
                     "main_stats": main_stats if item_type == "tape" else [],
                     "sub_stats": sub_stats,
-                    "sub_match": "all" if sub_stats and minimum >= len(sub_stats) else max(1, min(minimum, 3)),
+                    "sub_match": min(4, len(sub_stats)) if sub_stats and minimum >= len(sub_stats) else max(1, min(minimum, 4)),
                     "quality_scope": "all",
                     "shape_ids": None,
                     "set_names": None,
@@ -223,6 +225,15 @@ def validate_post_action_config(config: dict[str, Any] | None, selected_roles: l
             return f"{title}：驱动规则至少选择一个副词条。"
         if rule["item_type"] == "tape" and not (rule["main_stats"] or rule["sub_stats"]):
             return f"{title}：卡带规则至少选择主词条或副词条。"
+        selected_count = len(rule["sub_stats"])
+        required_count = len(rule.get("required_sub_stats", []))
+        match_count = _normalize_sub_match(rule.get("sub_match"), selected_count)
+        if not set(rule.get("required_sub_stats", [])).issubset(rule["sub_stats"]):
+            return f"{title}：必须包含的副词条必须同时在副词条命中池中。"
+        if (selected_count or required_count) and selected_count < match_count:
+            return f"{title}：副词条池数量少于命中数量。"
+        if required_count >= match_count:
+            return f"{title}：必须包含的副词条数量必须少于命中数量。"
     return None
 
 
@@ -337,12 +348,19 @@ def _preserve_rule_matches_item(item: BaseEquipment, rule: dict) -> bool:
     if main_stats and str(getattr(item, "main_stats", "") or "") not in main_stats:
         return False
     selected_sub_stats = set(rule.get("sub_stats") or [])
+    required_sub_stats = set(rule.get("required_sub_stats") or [])
+    # The UI only permits required stats from the selected match pool.  Keep
+    # this guard here as well so malformed or hand-edited configs cannot
+    # accidentally broaden a preservation rule.
+    if not required_sub_stats.issubset(selected_sub_stats):
+        return False
+    item_sub_stats = set((getattr(item, "sub_stats", {}) or {}).keys())
+    if not required_sub_stats.issubset(item_sub_stats):
+        return False
     if not selected_sub_stats:
         return True
-    item_sub_stats = set((getattr(item, "sub_stats", {}) or {}).keys())
     match_count = len(item_sub_stats & selected_sub_stats)
-    sub_match = _normalize_sub_match(rule.get("sub_match"))
-    required_count = len(selected_sub_stats) if sub_match == "all" else min(int(sub_match), len(selected_sub_stats))
+    required_count = _normalize_sub_match(rule.get("sub_match"), len(selected_sub_stats))
     return match_count >= required_count
 
 
