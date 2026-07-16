@@ -1,4 +1,3 @@
-# 测试配装方案差异中的驱动配对逻辑。
 import unittest
 
 from src.features.allocation.plan_diff_pairing import (
