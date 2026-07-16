@@ -85,7 +85,6 @@ class AllocationResultsMixin:
     _make_bonus_mode_switch = allocation_results_view._make_bonus_mode_switch
     _clear_layout_widgets = allocation_results_view._clear_layout_widgets
     _format_bonus_value = allocation_results_view._format_bonus_value
-    _bonus_summary_widget = allocation_results_view._bonus_summary_widget
     _role_stat_priority_stats = allocation_results_view._role_stat_priority_stats
     _sort_bonus_aligned_rows = allocation_results_view._sort_bonus_aligned_rows
     _role_bonus_summary_panel = allocation_results_view._role_bonus_summary_panel
@@ -93,8 +92,6 @@ class AllocationResultsMixin:
     _aligned_bonus_comparison_rows = allocation_results_view._aligned_bonus_comparison_rows
     _has_bonus_delta = allocation_results_view._has_bonus_delta
     _bonus_row_widget = allocation_results_view._bonus_row_widget
-    _bonus_placeholder_row_widget = allocation_results_view._bonus_placeholder_row_widget
-    _bonus_spacer_row = allocation_results_view._bonus_spacer_row
     _bonus_comparison_column = allocation_results_view._bonus_comparison_column
     _bonus_delta_row_widget = allocation_results_view._bonus_delta_row_widget
     _bonus_delta_column = allocation_results_view._bonus_delta_column

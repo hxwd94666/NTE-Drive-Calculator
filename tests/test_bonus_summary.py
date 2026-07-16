@@ -1,4 +1,3 @@
-# 测试分配结果属性汇总与对比逻辑。
 import unittest
 
 from src.features.allocation.bonus_summary import (
