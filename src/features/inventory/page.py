@@ -222,8 +222,17 @@ def _render_equip_role(self, role_name, rd):
         gl.addWidget(self._section_label("拼图图纸:"))
         bp_row=QHBoxLayout(); bp_row.setSpacing(44)
         bp_row.addWidget(PuzzleBoardWidget(bp),0,Qt.AlignTop)
-        bp_row.addWidget(self._bonus_summary_widget(role_name,tape_data,drives),0,Qt.AlignTop)
-        bp_row.addStretch(1)
+        bp_row.addWidget(
+            self._role_bonus_summary_panel(
+                role_name,
+                tape_data,
+                drives,
+                compare_with_saved=bool(last_diff.get(DIFF_CHANGED)),
+                priority_stats=self._role_stat_priority_stats(role_name),
+            ),
+            1,
+            Qt.AlignTop,
+        )
         gl.addLayout(bp_row)
     if tape_data:
         t_q=tape_data.get(EQUIP_QUALITY,"Gold")
