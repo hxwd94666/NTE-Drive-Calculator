@@ -41,6 +41,7 @@ class NTEAppFacade:
         set_effect_modes=None,
         priority_groups=None,
         crit_rate_caps=None,
+        custom_weapons=None,
     ):
         if not os.path.exists(inventory_file):
             logger.error(f"找不到 {inventory_file}！")
@@ -70,5 +71,6 @@ class NTEAppFacade:
             set_effect_modes=set_effect_modes or {},
             priority_groups=priority_groups,
             crit_rate_caps=crit_rate_caps or {},
+            custom_weapons=custom_weapons or {},
         )
         return final_plan, state_manager

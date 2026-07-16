@@ -198,13 +198,13 @@ def _render_equip_role(self, role_name, rd):
     sf=QFrame()
     sf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
     slb=QHBoxLayout(sf); slb.setSpacing(6); slb.setContentsMargins(4,0,4,0)
-    sv=QLabel(f"{total_score:.1f}"); sv.setStyleSheet(f"font-size:15px;font-weight:800;color:{gc};border:none")
+    sv=QLabel(f"{total_score:.1f}"); sv.setStyleSheet(f"font-size:14px;font-weight:800;color:{gc};border:none")
     slb.addWidget(QLabel("评分")); slb.addWidget(sv); role_hdr.addWidget(sf)
     # Grade
     gf=QFrame()
     gf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
     glb=QHBoxLayout(gf); glb.setSpacing(6); glb.setContentsMargins(4,0,4,0)
-    gv=QLabel(total_grade); gv.setStyleSheet(f"font-size:15px;font-weight:800;color:{gc};border:none")
+    gv=QLabel(total_grade); gv.setStyleSheet(f"font-size:14px;font-weight:800;color:{gc};border:none")
     glb.addWidget(QLabel("评级")); glb.addWidget(gv); role_hdr.addWidget(gf)
     del_btn=QPushButton("删除"); del_btn.setObjectName("btnDanger")
     del_btn.setFixedSize(64,32)
@@ -220,17 +220,19 @@ def _render_equip_role(self, role_name, rd):
     drives=rd.get(ROLE_EQUIPPED_DRIVES,[])
     if bp:
         gl.addWidget(self._section_label("拼图图纸:"))
-        bp_row=QHBoxLayout(); bp_row.setSpacing(44)
+        compare_with_saved=bool(last_diff.get(DIFF_CHANGED))
+        bp_row=QHBoxLayout(); bp_row.setSpacing(18)
+        bp_row.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         bp_row.addWidget(PuzzleBoardWidget(bp),0,Qt.AlignTop)
         bp_row.addWidget(
             self._role_bonus_summary_panel(
                 role_name,
                 tape_data,
                 drives,
-                compare_with_saved=bool(last_diff.get(DIFF_CHANGED)),
+                compare_with_saved=compare_with_saved,
                 priority_stats=self._role_stat_priority_stats(role_name),
             ),
-            1,
+            1 if compare_with_saved else 0,
             Qt.AlignTop,
         )
         gl.addLayout(bp_row)
