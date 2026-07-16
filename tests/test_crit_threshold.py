@@ -10,6 +10,7 @@ from src.domain.crit_threshold import (
     crit_rank_adjustment,
     drive_has_crit,
     loadout_crit_total,
+    minimum_crit_total,
     meets_preference_grade_limit,
     normalize_preference_config,
     persistable_stat_priority_config,
@@ -68,6 +69,10 @@ class CritThresholdDomainTests(unittest.TestCase):
         total = loadout_crit_total(role_data, tape, drives, tape_main_values={"攻击力%": 37.5})
         # tape 10 + drives 3+1 + extra buff 2 * one matching 3-cell drive
         self.assertAlmostEqual(16.0, total)
+        self.assertAlmostEqual(
+            21.0,
+            minimum_crit_total(role_data, tape, drives, tape_main_values={"攻击力%": 37.5}),
+        )
 
     def test_character_crit_baseline_ignores_weapon_skill(self):
         character = {
@@ -94,7 +99,16 @@ class CritThresholdDomainTests(unittest.TestCase):
         self.assertTrue(meets_min_grade(0.0, 3, "D"))
 
     def test_persistable_stat_priority_config(self):
-        self.assertIsNone(persistable_stat_priority_config({"crit_threshold": 5}))
+        self.assertEqual(
+            {
+                "stats": [],
+                "equal_priority": False,
+                "ignore_grade_limit": False,
+                "min_grade_limit": "A",
+                "crit_threshold": 5,
+            },
+            persistable_stat_priority_config({"crit_threshold": 5}),
+        )
         cfg = persistable_stat_priority_config({"stats": ["攻击力%"], "crit_threshold": 5})
         self.assertEqual(["攻击力%"], cfg["stats"])
         self.assertEqual(5, cfg["crit_threshold"])
@@ -195,7 +209,13 @@ class CritThresholdDomainTests(unittest.TestCase):
                     "min_grade_limit": "A",
                     "crit_threshold": 5,
                 },
-                None,
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
             ),
             (
                 {
@@ -205,7 +225,13 @@ class CritThresholdDomainTests(unittest.TestCase):
                     "min_grade_limit": "A",
                     "crit_threshold": 5,
                 },
-                None,
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
             ),
         ]
         for raw, expected in cases:
@@ -224,7 +250,6 @@ class CritThresholdDomainTests(unittest.TestCase):
                     "equal_priority": False,
                     "ignore_grade_limit": False,
                     "min_grade_limit": "A",
-                    "crit_threshold": 5,
                 },
             ),
             (
@@ -234,7 +259,6 @@ class CritThresholdDomainTests(unittest.TestCase):
                     "equal_priority": False,
                     "ignore_grade_limit": False,
                     "min_grade_limit": "A",
-                    "crit_threshold": 5,
                 },
             ),
             (
@@ -247,7 +271,16 @@ class CritThresholdDomainTests(unittest.TestCase):
                     "crit_threshold": 18,
                 },
             ),
-            ({"crit_threshold": 5}, None),
+            (
+                {"crit_threshold": 5},
+                {
+                    "stats": [],
+                    "equal_priority": False,
+                    "ignore_grade_limit": False,
+                    "min_grade_limit": "A",
+                    "crit_threshold": 5,
+                },
+            ),
             ({"stats": ["未知%"]}, None),
         ]
         for raw, expected in cases:
