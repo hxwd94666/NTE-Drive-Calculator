@@ -22,6 +22,7 @@ PLAN_ASSIGNED_SET_DRIVES = "assigned_set_drives"
 PLAN_ASSIGNED_EXTRA_DRIVES = "assigned_extra_drives"
 PLAN_SCORE = "score"
 PLAN_CHANGED_UIDS = "changed_uids"
+PLAN_CUSTOM_WEAPON = "custom_weapon"
 
 EQUIP_UID = "uid"
 EQUIP_TYPE = "type"
@@ -74,6 +75,7 @@ class AllocationPlan(TypedDict):
     assigned_extra_drives: NotRequired[list[Drive]]
     score: NotRequired[float]
     changed_uids: NotRequired[set[str]]
+    custom_weapon: NotRequired[str]
 
 
 class EquipmentSnapshot(TypedDict, total=False):
