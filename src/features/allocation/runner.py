@@ -26,11 +26,11 @@ def install_methods(app_module, window_cls):
     _install_main_window_methods(app_module, window_cls, __all__, globals())
 
 
-def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes=None,set_effect_modes=None,priority_groups=None,crit_rate_caps=None):
+def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes=None,set_effect_modes=None,priority_groups=None,crit_rate_caps=None,custom_weapons=None):
     try:
         logger.info(f"开始分配计算: 策略={strat}, 角色={sel}")
         a=NTEAppFacade(config_dir=str(runtime.CONFIG_DIR),user_config_dir=str(runtime.USER_CONFIG_DIR))
-        fp,_=a.execute_allocation(str(runtime.OUTPUT_FILE),sel,cs,strat,tape_main_filters=tape_main_filters or {},crit_priority_modes=crit_priority_modes or {},set_effect_modes=set_effect_modes or {},priority_groups=priority_groups,crit_rate_caps=crit_rate_caps or {})
+        fp,_=a.execute_allocation(str(runtime.OUTPUT_FILE),sel,cs,strat,tape_main_filters=tape_main_filters or {},crit_priority_modes=crit_priority_modes or {},set_effect_modes=set_effect_modes or {},priority_groups=priority_groups,crit_rate_caps=crit_rate_caps or {},custom_weapons=custom_weapons or {})
         logger.info(f"分配计算完成: result_type={type(fp).__name__}")
         return fp
     except Exception as e:
@@ -40,7 +40,7 @@ def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes
 
 def _start_allocation_worker(self):
     logger.info("启动分配工作线程...")
-    self._worker=WorkerThread(target=lambda:self._run_allocation(self._pending_strat,self._pending_sel,self._pending_cs,getattr(self,"_pending_tape_main_filters",{}),getattr(self,"_pending_crit_priority_modes",{}),getattr(self,"_pending_set_effect_modes",{}),getattr(self,"_pending_priority_groups",None),getattr(self,"_pending_crit_rate_caps",{})),parent=self)
+    self._worker=WorkerThread(target=lambda:self._run_allocation(self._pending_strat,self._pending_sel,self._pending_cs,getattr(self,"_pending_tape_main_filters",{}),getattr(self,"_pending_crit_priority_modes",{}),getattr(self,"_pending_set_effect_modes",{}),getattr(self,"_pending_priority_groups",None),getattr(self,"_pending_crit_rate_caps",{}),getattr(self,"_pending_custom_weapons",{})),parent=self)
     self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
     logger.info("分配线程已启动")
 
@@ -84,6 +84,7 @@ def _on_done(self,r):
     try:
         logger.info(f"_on_done 收到结果: type={type(r).__name__}, keys={list(r.keys()) if isinstance(r,dict) else 'N/A'}")
         self.final_plan=r; self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self._allocation_custom_weapons=dict(getattr(self,"_pending_custom_weapons",{}) or {})
         if r is None: QMessageBox.warning(self,"提示","计算失败，请检查库存文件是否存在。"); return
         old_state=self.state_mgr.load_state() if hasattr(self.state_mgr,"load_state") else {}
         self.allocation_plan_diff=build_plan_diff(old_state,r)

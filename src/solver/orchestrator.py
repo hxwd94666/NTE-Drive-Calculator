@@ -8,6 +8,7 @@ import time
 from typing import List, Dict
 
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
+from src.optimizer.contracts import PLAN_CUSTOM_WEAPON
 from src.domain.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
@@ -196,12 +197,14 @@ class NTEPipelineOrchestrator:
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
                             crit_priority_modes: Dict[str, str] = None, set_effect_modes: Dict[str, str] = None,
-                            priority_groups: List[List[str]] = None, crit_rate_caps: Dict[str, float] = None):
+                            priority_groups: List[List[str]] = None, crit_rate_caps: Dict[str, float] = None,
+                            custom_weapons: Dict[str, str] = None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
         crit_rate_caps = crit_rate_caps or {}
         set_effect_modes = set_effect_modes or {}
+        custom_weapons = custom_weapons or {}
         priority_groups = priority_groups or None
         if mode != "role_priority":
             tape_main_filters = {}
@@ -278,6 +281,9 @@ class NTEPipelineOrchestrator:
         stage_t0 = time.perf_counter()
         self._render_results(final_plan, scoring_engine, custom_sets)
         logger.info(f"[计时] 日志渲染阶段: {time.perf_counter() - stage_t0:.2f}s")
+        for role_name, plan in final_plan.items():
+            if isinstance(plan, dict) and custom_weapons.get(role_name):
+                plan[PLAN_CUSTOM_WEAPON] = custom_weapons[role_name]
         logger.info(f"[计时] 完整分配流程总耗时: {time.perf_counter() - total_t0:.2f}s")
 
         return final_plan

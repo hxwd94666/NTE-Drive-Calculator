@@ -117,6 +117,7 @@ def _do_exec(self):
             return
     strat=["role_priority","drive_priority","global_optimal","update_mode"][max(0,min(3,self.strategy_group.checkedId()))]
     cs=self.role_selector.get_custom_sets()
+    cw=self.role_selector.get_custom_weapons() if hasattr(self.role_selector,"get_custom_weapons") else {}
     tmf=self.role_selector.get_tape_main_filters()
     cpm=self.role_selector.get_crit_priority_modes()
     crc=self.role_selector.get_crit_rate_caps()
@@ -136,7 +137,7 @@ def _do_exec(self):
             QMessageBox.warning(self, "扫描后管理配置无效", post_action_error)
             return
     self.btn_run.setEnabled(False); self.btn_run.setText("\u23f3 \u6267\u884c\u4e2d..."); self.result_card.setVisible(False)
-    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_crit_rate_caps=crc; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
+    self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_custom_weapons=cw; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_crit_rate_caps=crc; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
 
@@ -168,7 +169,7 @@ def _do_exec(self):
             amd_compatibility=amd_compatibility,
         )
     else:
-        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg,crc),parent=self)
+        self._worker=WorkerThread(target=lambda:self._run_allocation(strat,sel,cs,tmf,cpm,sem,pg,crc,cw),parent=self)
         self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
 
 def _scan_lifecycle(self):

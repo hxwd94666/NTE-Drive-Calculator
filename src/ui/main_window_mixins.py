@@ -86,6 +86,11 @@ class AllocationResultsMixin:
     _clear_layout_widgets = allocation_results_view._clear_layout_widgets
     _format_bonus_value = allocation_results_view._format_bonus_value
     _role_stat_priority_stats = allocation_results_view._role_stat_priority_stats
+    _bonus_stat_weight = allocation_results_view._bonus_stat_weight
+    _sort_bonus_rows_for_role = allocation_results_view._sort_bonus_rows_for_role
+    _sort_bonus_aligned_rows_for_role = allocation_results_view._sort_bonus_aligned_rows_for_role
+    _bonus_stat_label_style = allocation_results_view._bonus_stat_label_style
+    _format_panel_value = allocation_results_view._format_panel_value
     _sort_bonus_aligned_rows = allocation_results_view._sort_bonus_aligned_rows
     _role_bonus_summary_panel = allocation_results_view._role_bonus_summary_panel
     _refresh_bonus_summary_panel = allocation_results_view._refresh_bonus_summary_panel

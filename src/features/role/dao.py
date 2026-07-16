@@ -133,6 +133,19 @@ def load_my_roles() -> dict:
         return {}
 
 
+def load_my_roles_model() -> dict:
+    """Load default profiles without creating or modifying account data."""
+    filepath = get_my_roles_model_path()
+    if not filepath.exists():
+        return {}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
 def save_my_roles(data: dict) -> bool:
     """保存 my_roles.json，返回是否成功"""
     try:
