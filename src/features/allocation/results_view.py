@@ -901,7 +901,7 @@ def _bonus_comparison_column(self, title, aligned_rows, value_key, empty_text="�
     layout.addStretch()
     return column
 
-def _bonus_more_button(self, on_click):
+def _bonus_more_button(on_click):
     more=QPushButton("•••")
     more.setObjectName("btnSm")
     more.setFixedSize(54,22)
@@ -1002,7 +1002,7 @@ def _refresh_bonus_summary_panel(self, box, role_name, tape, drives, compare_wit
             changed_rows=self._aligned_bonus_comparison_rows(old_rows,new_rows,changes_only=True,priority_stats=priority_stats)
             if len(full_rows)>len(changed_rows):
                 content_layout.addWidget(
-                    self._bonus_more_button(
+                    _bonus_more_button(
                         lambda checked=False,role=role_name,old_r=old_rows,new_r=new_rows,stats=list(priority_stats),summary_mode=mode: self._show_bonus_comparison_dialog(role,old_r,new_r,stats,summary_mode)
                     ),
                     0,
@@ -1022,7 +1022,7 @@ def _refresh_bonus_summary_panel(self, box, role_name, tape, drives, compare_wit
         content_layout.addWidget(self._bonus_row_widget(stat,value,priority_stats=priority_stats))
     if len(rows)>len(visible):
         content_layout.addWidget(
-            self._bonus_more_button(
+            _bonus_more_button(
                 lambda checked=False,role=role_name,summary_rows=rows,summary_mode=mode: self._show_bonus_summary_dialog(role,summary_rows,summary_mode)
             ),
             0,
