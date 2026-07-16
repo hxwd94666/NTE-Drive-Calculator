@@ -25,6 +25,8 @@ from .core import (
     get_valid_drives,
 )
 from .dao import load_stats
+from .graduation_model import calculate_graduation_benchmark_from_config
+from .paths import get_config_path
 
 if TYPE_CHECKING:
     pass
@@ -61,6 +63,7 @@ class MarginalBenefitPanel:
 
         # 缓存计算结果
         self.base_damage = 0.0
+        self.graduation_benchmark = None
         self.margins = []
         self.group_box = None
         self.damage_label = None
@@ -87,8 +90,9 @@ class MarginalBenefitPanel:
         header_row = QHBoxLayout()
 
         # 直伤评分
-        self.damage_label = QLabel(f"直伤评分 : {self.base_damage:.2f}")
+        self.damage_label = QLabel(self._damage_label_text())
         self.damage_label.setStyleSheet("font-weight: bold; color: #ffaa00; font-size: 14px;")
+        self.damage_label.setToolTip(self._damage_tooltip())
         header_row.addWidget(self.damage_label)
 
         header_row.addStretch()
@@ -136,6 +140,34 @@ class MarginalBenefitPanel:
         self.base_damage, margins = calc_marginal_benefits(total_stats)
         weights = self.role_data.get("weights", {})
         self.margins = filter_margins_by_weights(margins, weights)
+        try:
+            self.graduation_benchmark = calculate_graduation_benchmark_from_config(
+                self.role_name,
+                self.role_data,
+                get_config_path(),
+            )
+        except (AttributeError, OSError, ValueError):
+            self.graduation_benchmark = None
+
+    def _damage_label_text(self) -> str:
+        benchmark = self.graduation_benchmark
+        if benchmark is None or benchmark.damage <= 0:
+            return f"直伤评分 : {self.base_damage:.2f}"
+        rate = self.base_damage / benchmark.damage * 100
+        return f"直伤评分 : {self.base_damage:.2f} ｜ 直伤毕业率 : {rate:.1f}%"
+
+    def _damage_tooltip(self) -> str:
+        benchmark = self.graduation_benchmark
+        if benchmark is None:
+            return "毕业基准暂不可用：需要完整角色模板、专武和四条有效权重词条。"
+        return (
+            f"理论直伤：{benchmark.damage:.2f}\n"
+            f"基准弧盘：{benchmark.weapon_name}（满级、1精）\n"
+            f"最优卡带主词条：{benchmark.tape_main_stat}\n"
+            f"驱动理想副词条：{'、'.join(benchmark.drive_sub_stats)}\n"
+            f"卡带理想副词条：{'、'.join(benchmark.tape_sub_stats)}\n"
+            f"图纸额外形状数量：{benchmark.extra_shape_count}"
+        )
 
     def _create_table(self) -> QTableWidget:
         """创建边际收益表格"""
@@ -240,7 +272,8 @@ class MarginalBenefitPanel:
 
         # 更新直伤评分
         if self.damage_label:
-            self.damage_label.setText(f"直伤评分 : {self.base_damage:.2f}")
+            self.damage_label.setText(self._damage_label_text())
+            self.damage_label.setToolTip(self._damage_tooltip())
 
         # 更新表格：初始为空、后续出现数据时也要能创建表格。
         if self.table:
