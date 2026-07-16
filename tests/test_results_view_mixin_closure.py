@@ -1,4 +1,3 @@
-# 测试结果视图混入方法的闭包完整性。
 import ast
 import re
 import unittest
