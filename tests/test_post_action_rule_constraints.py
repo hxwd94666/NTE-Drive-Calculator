@@ -1,3 +1,4 @@
+# 测试扫描后处理预留规则的约束校验。
 import unittest
 
 from src.domain.stat_catalog import StatCatalog
