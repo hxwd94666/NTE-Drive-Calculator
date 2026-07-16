@@ -1270,8 +1270,6 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
             replacement_btn.setFixedSize(60,28)
         replacement_btn.clicked.connect(lambda _checked=False: replacement_callback())
         hdr.addWidget(replacement_btn, 0, Qt.AlignTop)
-    elif card_variant != "result":
-        uid_lbl=QLabel(f"<span style='color:{theme_color('#6e7681')};font-size:10px;'>{uid}</span>"); hdr.addWidget(uid_lbl, 0, Qt.AlignTop)
     inner.addLayout(hdr)
 
     # Stat blocks row

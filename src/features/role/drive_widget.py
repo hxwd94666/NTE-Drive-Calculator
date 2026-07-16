@@ -388,6 +388,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
                 tape_data.get("quality", "Gold"),
                 is_changed=bool(tape_data.get("is_changed")),
                 main_weights=main_weights,
+                card_variant="inventory",
             )
             group_layout.addWidget(card)
 
@@ -454,6 +455,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
                     (score, grade),
                     quality,
                     is_changed=bool(d.get("is_changed")),
+                    card_variant="inventory",
                 )
                 drive_container_layout.addWidget(card)
 
@@ -611,10 +613,11 @@ def _add_current_drive_section(window, main_layout, current_shape, current_uid, 
                     else "-",
                 ),
                 current_drive.get("quality", "Gold"),
+                card_variant="inventory",
             )
         )
     else:
-        cur_layout.addWidget(QLabel(f"UID: {current_uid} Score: {current_score:.2f}"))
+        cur_layout.addWidget(QLabel(f"评分: {current_score:.2f}"))
     cur_margin_label = QLabel(f"直伤收益: {current_margin:+.2f}%")
     cur_margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px; margin-top: 4px;")
     cur_layout.addWidget(cur_margin_label)
@@ -655,10 +658,11 @@ def _add_drive_candidate_card(
                 weights,
                 (score, grade),
                 quality,
+                card_variant="inventory",
             )
         )
     else:
-        card_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
+        card_layout.addWidget(QLabel(f"评分: {score:.2f}"))
 
     replace_btn = QPushButton("替换")
     replace_btn.setObjectName("btnAction")
@@ -722,6 +726,7 @@ def _show_tape_optimization(
                 (current_score, current_grade),
                 current_tape.get("quality", "Gold"),
                 main_weights=main_weights,
+                card_variant="inventory",
             )
         )
     main_layout.addWidget(current_group)
@@ -759,6 +764,7 @@ def _show_tape_optimization(
                     (score, grade),
                     tape.get("quality", "Gold"),
                     main_weights=main_weights,
+                    card_variant="inventory",
                 )
             )
         replace_btn = QPushButton("替换")

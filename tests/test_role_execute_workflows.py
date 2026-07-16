@@ -992,6 +992,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         self.assertEqual([True, True], [kwargs.get("is_changed", False) for _args, kwargs in window.cards])
         self.assertEqual([False, False], [kwargs.get("is_new", False) for _args, kwargs in window.cards])
+        self.assertEqual(["inventory", "inventory"], [kwargs.get("card_variant") for _args, kwargs in window.cards])
         app.processEvents()
 
     def test_role_drive_detail_scores_with_dynamic_weights_and_base_fallback_per_stat(self):
