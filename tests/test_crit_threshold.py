@@ -4,6 +4,8 @@ import unittest
 from src.domain.crit_threshold import (
     CRIT_RANK_BONUS,
     DEFAULT_CRIT_THRESHOLD,
+    character_crit_baseline,
+    character_crit_total,
     crit_floor_enabled,
     crit_rank_adjustment,
     drive_has_crit,
@@ -66,6 +68,24 @@ class CritThresholdDomainTests(unittest.TestCase):
         total = loadout_crit_total(role_data, tape, drives, tape_main_values={"攻击力%": 37.5})
         # tape 10 + drives 3+1 + extra buff 2 * one matching 3-cell drive
         self.assertAlmostEqual(16.0, total)
+
+    def test_character_crit_baseline_ignores_weapon_skill(self):
+        character = {
+            "sub_stats": {"暴击率%": 5.0},
+            "weapon": {
+                "sub_stats": {"暴击率%": 24.0},
+                "skill": [{"key": "暴击率%", "value": 50.0, "cover": 1.0}],
+            },
+        }
+        self.assertAlmostEqual(29.0, character_crit_baseline(character))
+
+    def test_character_crit_total_includes_baseline_and_loadout(self):
+        character = {"sub_stats": {"暴击率%": 5.0}, "weapon": {"sub_stats": {"暴击率%": 24.0}}}
+        role_data = {"extra_shape_label": "", "extra_shape_buffs": {}}
+        tape = {"main_stats": "攻击力%", "sub_stats": {"暴击率%": 10.0}, "quality": "Gold"}
+        drives = [{"shape_id": "H_2", "area": 2, "sub_stats": {"暴击率%": 3.0}}]
+        total = character_crit_total(character, role_data, tape, drives, tape_main_values={"攻击力%": 37.5})
+        self.assertAlmostEqual(42.0, total)
 
     def test_meets_min_grade_boundaries(self):
         # area 3 => max 30; A requires >= 0.4 => 12
