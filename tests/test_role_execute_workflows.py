@@ -413,7 +413,8 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             dialog = ScanPostActionDialog(None, Path(tmp))
             self.assertEqual(["评分处理", "预留规则"], [dialog._main_tabs.tabText(index) for index in range(2)])
             dialog._preserve_rules = [rule]
-            self.assertEqual([rule], dialog._collect_config()["preserve_rules"])
+            expected_rule = dict(rule, required_sub_stats=[], sub_match=2)
+            self.assertEqual([expected_rule], dialog._collect_config()["preserve_rules"])
             dialog.close()
         app.processEvents()
 
