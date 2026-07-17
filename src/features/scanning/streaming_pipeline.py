@@ -18,7 +18,7 @@ from src.features.scanning.post_actions import (
     summarize_state_changes,
 )
 from src.features.scanning.scan_parse_coordinator import ScanParseCoordinator
-from src.scanner.window_capture import crop_window_border_from_image
+from src.scanner.window_capture import crop_window_border_from_image, game_content_rect
 from src.utils.image_io import imread_unicode
 from src.utils.logger import logger
 
@@ -40,9 +40,10 @@ def _state_button_is_active(img: np.ndarray, center: tuple[float, float]) -> boo
     height, width = img.shape[:2]
     if height < 100 or width < 100:
         return False
-    cx = int(round(width * center[0]))
-    cy = int(round(height * center[1]))
-    size = max(18, int(round(min(width, height) * STATE_BUTTON_SIZE_RATIO)))
+    left, top, content_width, content_height = game_content_rect(width, height)
+    cx = int(round(left + content_width * center[0]))
+    cy = int(round(top + content_height * center[1]))
+    size = max(18, int(round(min(content_width, content_height) * STATE_BUTTON_SIZE_RATIO)))
     half = max(1, size // 2)
     roi = img[max(0, cy - half) : min(height, cy + half), max(0, cx - half) : min(width, cx + half)]
     if roi.size == 0:
