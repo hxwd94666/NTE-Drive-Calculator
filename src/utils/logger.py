@@ -7,6 +7,30 @@ from datetime import datetime
 from pathlib import Path
 from loguru import logger
 
+
+class _NullTextStream:
+    """Minimal text stream used when a windowed executable has no console."""
+
+    encoding = "utf-8"
+
+    def write(self, text: str) -> int:
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+    def isatty(self) -> bool:
+        return False
+
+
+def _install_missing_standard_streams() -> None:
+    """Provide harmless streams without relying on the platform null device."""
+    if sys.stdout is None:
+        sys.stdout = _NullTextStream()
+    if sys.stderr is None:
+        sys.stderr = _NullTextStream()
+
+
 if getattr(sys, 'frozen', False):
     ROOT_DIR = Path(sys._MEIPASS)
     # 日志写到 exe 同级目录，不写入 _MEIPASS 临时目录
@@ -15,11 +39,9 @@ else:
     ROOT_DIR = Path(__file__).resolve().parent.parent.parent
     EXE_DIR = ROOT_DIR
 
-# windowed 模式下 stdout/stderr 为 None，重定向到 devnull 防止 print() 崩溃
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w", encoding="utf-8")
-if sys.stderr is None:
-    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+# windowed 模式下 stdout/stderr 为 None，安装空输出流防止 print() 崩溃。
+# 不使用 os.devnull：部分安装环境无法解析 Windows 的 ``nul`` 设备名。
+_install_missing_standard_streams()
 
 def _select_log_dir() -> Path:
     candidates = [EXE_DIR / "logs"]
