@@ -13,6 +13,7 @@ import numpy as np
 
 from src.features.drive_assembly.blocks import extract_drive_blocks_from_state, extract_tape_filters_from_state
 from src.features.drive_assembly.page_mapping import map_blocks_to_page
+from src.scanner.window_capture import game_content_rect
 from src.utils.image_io import imread_unicode
 from src.utils.name_resolver import normalize_name, resolve_name
 
@@ -1138,21 +1139,7 @@ def _content_rect_for(
         return content_rect
     if screen_size is None:
         return 0, 0, REFERENCE_SCREEN_SIZE[0], REFERENCE_SCREEN_SIZE[1]
-    base_w, base_h = REFERENCE_SCREEN_SIZE
-    target_w, target_h = screen_size
-    base_aspect = base_w / base_h
-    target_aspect = target_w / target_h
-    if target_aspect >= base_aspect:
-        content_h = target_h
-        content_w = round(content_h * base_aspect)
-        left = round((target_w - content_w) / 2)
-        top = 0
-    else:
-        content_w = target_w
-        content_h = round(content_w / base_aspect)
-        left = 0
-        top = round((target_h - content_h) / 2)
-    return left, top, max(1, content_w), max(1, content_h)
+    return game_content_rect(screen_size[0], screen_size[1], REFERENCE_SCREEN_SIZE)
 
 
 def _round_half_up(value: float) -> int:
