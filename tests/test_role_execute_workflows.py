@@ -241,23 +241,30 @@ class ScanPromptWorkflowTests(unittest.TestCase):
 
 
 class DriveAssemblyReturnWorkflowTests(unittest.TestCase):
-    def test_returns_to_equipment_only_after_complete_assembly(self):
+    def test_restores_calculator_and_returns_to_equipment_page_after_assembly(self):
         from src.features.inventory.page import _return_to_equipment_after_assembly
 
         class Window:
             def __init__(self):
-                self.pages = []
+                self.calls = []
+
+            def showNormal(self):
+                self.calls.append("show_normal")
 
             def _go(self, page):
-                self.pages.append(page)
+                self.calls.append(page)
+
+            def raise_(self):
+                self.calls.append("raise")
+
+            def activateWindow(self):
+                self.calls.append("activate")
 
         window = Window()
 
-        _return_to_equipment_after_assembly(window, completed=False)
-        self.assertEqual([], window.pages)
+        _return_to_equipment_after_assembly(window)
 
-        _return_to_equipment_after_assembly(window, completed=True)
-        self.assertEqual(["equipment"], window.pages)
+        self.assertEqual(["show_normal", "equipment", "raise", "activate"], window.calls)
 
 
 class ExecutePageWorkflowTests(unittest.TestCase):

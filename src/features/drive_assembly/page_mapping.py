@@ -322,6 +322,7 @@ def map_tape_filter_controls(
     controls = _scale_controls(DEFAULT_TAPE_FILTER_CONTROLS, screen_size, content_rect)
     controls["set_filter_sequence"] = [
         {"name": "set_select", "position": controls["set_select"]},
+        {"name": "wait_after_tape_set_dialog_open", "wait_seconds": 0.5},
     ]
     return controls
 
@@ -347,8 +348,10 @@ def map_drive_shape_selection(
     }
     result["selection_sequence"] = [
         {"name": "shape_select", "position": result["shape_select"]},
+        {"name": "wait_after_drive_shape_dialog_open", "wait_seconds": 0.5},
         {"name": "shape_option", "drive_type": normalized, "position": result["shape_option"]},
         {"name": "confirm_shape_filter", "position": result["confirm_filter"]},
+        {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": 0.5},
     ]
     return result
 
@@ -416,6 +419,7 @@ def map_tape_set_selection(
     result["selection_sequence"] = [
         {"name": "set_option", "set_name": normalized_name, "position": result["set_option"]},
         {"name": "confirm_filter", "position": result["confirm_filter"]},
+        {"name": "wait_after_tape_set_dialog_close", "wait_seconds": 0.5},
     ]
     return result
 
@@ -731,7 +735,6 @@ def map_drive_block_installation(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
     duration_ms: int = 1200,
-    cached_set_name: str | None = None,
     open_filter: bool = False,
 ) -> dict[str, Any]:
     """Return the filter and drag actions for installing one drive block."""
@@ -740,12 +743,10 @@ def map_drive_block_installation(
     drive_type = str(block.get("drive_type") or drive.get("shape_id") or "")
     quality = str(drive.get("quality") or "Gold")
     sub_stats = _drive_sub_stat_names(drive.get("sub_stats"))
-    set_name = str(cached_set_name or block.get("set_name") or drive.get("set_name") or "").strip()
     reset = map_filter_reset(screen_size, content_rect)
     page_controls = map_drive_page_controls(screen_size, content_rect)
-    set_selection = map_drive_set_selection(set_name, screen_size, content_rect) if set_name else None
     shape_selection = map_drive_shape_selection(drive_type, screen_size, content_rect)
-    is_duplicate = bool(block.get("is_duplicate_drive") or block.get("is_duplicate_equipment"))
+    is_duplicate = _is_duplicate_drive_block(block)
     refinement = map_drive_filter_refinement(
         [quality],
         sub_stats,
@@ -759,21 +760,26 @@ def map_drive_block_installation(
     result: dict[str, Any] = {
         "block_id": block.get("block_id"),
         "drive_type": shape_selection["drive_type"],
-        "set_name": set_name,
         "shape_option": shape_selection["shape_option"],
         "first_drive": controls["first_drive"],
         "target_position": target_position,
         "confirm_filter": controls["confirm_filter"],
         "reuse_prompt_confirm": prompt["reuse_prompt_confirm"],
         "reuse_prompt_probe": prompt["reuse_prompt_probe"],
+        "duplicate_status_filter_enabled": is_duplicate,
+        "duplicate_group_id": block.get("duplicate_group_id"),
     }
     sequence: list[dict[str, Any]] = []
     if open_filter:
         sequence.append({"name": "filter_button", "position": page_controls["filter_button"]})
     sequence.extend(reset["reset_sequence"])
     sequence.extend(shape_selection["selection_sequence"])
-    if set_selection:
-        sequence.extend(set_selection["selection_sequence"])
+    if is_duplicate:
+        for action in refinement["refinement_sequence"]:
+            if action.get("name") in {"status_locked", "status_discarded", "status_other"}:
+                action["block_id"] = block.get("block_id")
+                action["duplicate_group_id"] = block.get("duplicate_group_id")
+                action["duplicate_status_filter"] = True
     sequence.extend(refinement["refinement_sequence"])
     sequence.append({"name": "confirm_filter", "position": result["confirm_filter"]})
     sequence.append(
@@ -838,14 +844,12 @@ def map_drive_blocks_installation(
     """
 
     page_controls = map_drive_page_controls(screen_size, content_rect)
-    cached_set_name = _drive_blocks_cached_set_name(blocks)
     install_plans = [
         map_drive_block_installation(
             block,
             screen_size,
             content_rect,
             duration_ms,
-            cached_set_name=cached_set_name,
             open_filter=True,
         )
         for block in blocks
@@ -867,13 +871,18 @@ def map_drive_blocks_installation(
     return result
 
 
-def _drive_blocks_cached_set_name(blocks: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> str:
-    for block in blocks:
-        drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
-        set_name = str(block.get("set_name") or drive.get("set_name") or "").strip()
-        if set_name:
-            return set_name
-    return ""
+def _is_duplicate_drive_block(block: dict[str, Any]) -> bool:
+    """Accept both current duplicate flags and persisted group metadata."""
+
+    drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
+    return bool(
+        block.get("is_duplicate_drive")
+        or block.get("is_duplicate_equipment")
+        or drive.get("is_duplicate_drive")
+        or drive.get("is_duplicate_equipment")
+        or int(block.get("duplicate_count") or 0) > 1
+        or int(drive.get("duplicate_count") or 0) > 1
+    )
 
 
 def _quality_control_name(quality: str) -> str:

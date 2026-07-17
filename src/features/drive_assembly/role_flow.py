@@ -273,6 +273,32 @@ def map_role_list_grid_move_sequence(
     return sequence
 
 
+def map_role_list_reverse_left_move_sequence(
+    current_index: int,
+    target_index: int,
+) -> list[dict[str, Any]]:
+    """Return only left-stick moves for reverse traversal of the RS list.
+
+    The roster scan advances to the right and leaves the cursor at its final
+    scanned position.  Planning targets from high to low roster indexes can
+    therefore return to every target solely through left input, avoiding the
+    unreliable assumption that the sidebar and RS-list orders match.
+    """
+
+    current = max(0, int(current_index))
+    target = max(0, int(target_index))
+    if target > current:
+        raise ValueError("reverse role-list traversal cannot move right")
+    return [
+        {
+            "name": "role_list_previous",
+            "gamepad_stick": "left_left",
+            "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
+        }
+        for _index in range(current - target)
+    ]
+
+
 def resolve_role_recognition(
     ocr_texts: list[str] | tuple[str, ...],
     expected_roles: list[str] | tuple[str, ...],
@@ -915,7 +941,8 @@ def plan_role_assembly_from_role_list_roster(
     The initial roster scan leaves the list open. The first target therefore
     only needs grid movement, ``A`` confirmation and ``B`` to close the list;
     every later target reopens the list with ``RS`` before following the same
-    route. Targets are visited in actual list order to avoid backtracking.
+    route. Targets are visited in reverse list order, using only left-stick
+    movement so selection never depends on the unrelated sidebar order.
     """
 
     required = [str(role) for role in required_roles if str(role).strip()]
@@ -930,6 +957,7 @@ def plan_role_assembly_from_role_list_roster(
     ordered_required = sorted(
         (role for role in required if role in role_indexes),
         key=lambda role: role_indexes[role],
+        reverse=True,
     )
     cursor_index = (
         int(current_index)
@@ -941,7 +969,7 @@ def plan_role_assembly_from_role_list_roster(
 
     for plan_index, role_name in enumerate(ordered_required):
         index = role_indexes[role_name]
-        move_sequence = map_role_list_grid_move_sequence(cursor_index, index)
+        move_sequence = map_role_list_reverse_left_move_sequence(cursor_index, index)
         starts_in_open_list = plan_index == 0 and list_is_open
         action_sequence: list[dict[str, Any]] = []
         if not starts_in_open_list:
@@ -961,7 +989,9 @@ def plan_role_assembly_from_role_list_roster(
                 "role_name": role_name,
                 "roster_index": index,
                 "start_roster_index": cursor_index,
-                "navigation": "role_list_grid_from_open" if starts_in_open_list else "rs_role_list_grid",
+                "navigation": "role_list_reverse_left_from_open"
+                if starts_in_open_list
+                else "rs_role_list_reverse_left",
                 "flow": "find_role_then_assemble_blueprint",
                 "action_sequence": action_sequence,
             }
@@ -979,7 +1009,7 @@ def plan_role_assembly_from_role_list_roster(
         "role_roster": roster,
         "plans": plans,
         "complete": not missing and not role_roster.get("unrecognized"),
-        "navigation": "rs_role_list_scan_then_grid",
+        "navigation": "rs_role_list_scan_then_reverse_left",
         "scan_stop_reason": role_roster.get("stop_reason", ""),
     }
 

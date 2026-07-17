@@ -464,6 +464,12 @@ def execute_action_sequence(
             raise AssemblyExecutionStopped("assembly execution stopped")
         if _execute_one_action(action, mouse, should_stop=should_stop, runtime_state=runtime_state):
             report.executed_actions += 1
+            if action.get("duplicate_status_filter"):
+                logger.info(
+                    "重复装备状态筛选已执行 | "
+                    f"角色={role_name or '未指定'} | 块={action.get('block_id', '未指定')} | "
+                    f"分组={action.get('duplicate_group_id') or '未分组'} | 状态={action.get('name')}"
+                )
             action_pause_seconds = float(
                 action.get("post_action_pause_seconds", _default_action_pause_seconds(action, pause_seconds))
             )
@@ -579,7 +585,7 @@ def execute_role_traversal_assembly_plan(
     logger.info(
         "装配遍历执行开始 | "
         f"计划角色={[step.get('role_name') for step in traversal_plan.get('plans', [])]} | "
-        f"缺失={report.missing_roles} | 未识别={report.unrecognized_roles} | 重复={report.duplicate_roles}"
+        f"缺失={report.missing_roles} | 未识别={report.unrecognized_roles} | 重复角色={report.duplicate_roles}"
     )
     for step in traversal_plan.get("plans", []):
         logger.info(
