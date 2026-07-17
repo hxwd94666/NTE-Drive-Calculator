@@ -259,6 +259,43 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertNotIn("duplicate_group_id", blocks[2])
         self.assertNotIn("is_duplicate_equipment", blocks[2])
 
+    def test_marks_drives_with_the_same_filter_fields_even_when_values_differ(self):
+        from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
+
+        state = {
+            "role-a": {
+                "blueprint_layout": [["H_2", "H_2"]],
+                "equipped_drives": [
+                    {
+                        "uid": "drive-a",
+                        "shape_id": "H_2",
+                        "quality": "Gold",
+                        "set_name": "ignored-set-a",
+                        "sub_stats": {"crit_rate": 2.0, "attack": 12.0},
+                        "grade": "ACE",
+                    }
+                ],
+            },
+            "role-b": {
+                "blueprint_layout": [["H_2", "H_2"]],
+                "equipped_drives": [
+                    {
+                        "uid": "drive-b",
+                        "shape_id": "H_2",
+                        "quality": "Gold",
+                        "set_name": "ignored-set-b",
+                        "sub_stats": {"attack": 80.0, "crit_rate": 4.0},
+                        "grade": "SSS",
+                    }
+                ],
+            },
+        }
+
+        blocks = extract_drive_blocks_from_state(state)
+
+        self.assertEqual(["drive_dup_001", "drive_dup_001"], [block["duplicate_group_id"] for block in blocks])
+        self.assertTrue(all(block["is_duplicate_drive"] for block in blocks))
+
     def test_marks_duplicate_tape_filters_by_equipment_content(self):
         from src.features.drive_assembly.blocks import extract_tape_filters_from_state
 
@@ -443,7 +480,10 @@ class DriveAssemblyBlockTests(unittest.TestCase):
 
         self.assertEqual((2067, 393), controls["set_select"])
         self.assertEqual(
-            [{"name": "set_select", "position": (2067, 393)}],
+            [
+                {"name": "set_select", "position": (2067, 393)},
+                {"name": "wait_after_tape_set_dialog_open", "wait_seconds": 0.5},
+            ],
             controls["set_filter_sequence"],
         )
 
@@ -465,6 +505,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             [
                 {"name": "set_option", "set_name": "森林萤火之心", "position": (532, 727)},
                 {"name": "confirm_filter", "position": (1564, 1186)},
+                {"name": "wait_after_tape_set_dialog_close", "wait_seconds": 0.5},
             ],
             selection["selection_sequence"],
         )
@@ -854,8 +895,10 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual(
             [
                 {"name": "shape_select", "position": (2067, 540)},
+                {"name": "wait_after_drive_shape_dialog_open", "wait_seconds": 0.5},
                 {"name": "shape_option", "drive_type": "V_3", "position": (948, 745)},
                 {"name": "confirm_shape_filter", "position": (1564, 1186)},
+                {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": 0.5},
             ],
             selection["selection_sequence"],
         )
@@ -930,8 +973,10 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             "filter_button",
             "reset_filter",
             "shape_select",
+            "wait_after_drive_shape_dialog_open",
             "shape_option",
             "confirm_shape_filter",
+            "wait_after_drive_shape_dialog_close",
             "quality_orange",
             "verify_quality_selected",
             "drive_filter_scroll_to_bottom",
@@ -1010,6 +1055,53 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertIn("status_locked", sequence_names)
         self.assertIn("status_discarded", sequence_names)
         self.assertIn("status_other", sequence_names)
+        self.assertTrue(install["duplicate_status_filter_enabled"])
+        status_steps = [step for step in install["install_sequence"] if step["name"].startswith("status_")]
+        self.assertEqual([4, 4, 4], [step["block_id"] for step in status_steps])
+        self.assertTrue(all(step["duplicate_status_filter"] for step in status_steps))
+        self.assertLess(sequence_names.index("shape_option"), sequence_names.index("status_locked"))
+        self.assertLess(sequence_names.index("status_other"), sequence_names.index("quality_orange"))
+        self.assertFalse(any(name.startswith("set_") for name in sequence_names))
+
+    def test_duplicate_group_metadata_enables_drive_status_filters(self):
+        from src.features.drive_assembly.page_mapping import map_drive_block_installation
+
+        install = map_drive_block_installation(
+            {
+                "block_id": 9,
+                "drive_type": "H_2",
+                "cells": [(1, 1), (1, 2)],
+                "duplicate_count": 2,
+                "drive": {"quality": "Gold", "sub_stats": {}},
+            }
+        )
+
+        self.assertTrue(install["duplicate_status_filter_enabled"])
+        self.assertEqual(
+            ["status_locked", "status_discarded", "status_other"],
+            [step["name"] for step in install["install_sequence"] if step["name"].startswith("status_")],
+        )
+
+    def test_each_duplicate_drive_resets_filters_before_status_selection(self):
+        from src.features.drive_assembly.page_mapping import map_drive_blocks_installation
+
+        blocks = [
+            {
+                "block_id": block_id,
+                "drive_type": "H_2",
+                "cells": [(1, 1), (1, 2)],
+                "is_duplicate_drive": True,
+                "drive": {"uid": "drive-shared", "quality": "Gold", "sub_stats": {}},
+            }
+            for block_id in (1, 2)
+        ]
+
+        plan = map_drive_blocks_installation(blocks)
+
+        for install in plan["install_plans"]:
+            names = [step["name"] for step in install["install_sequence"]]
+            self.assertLess(names.index("reset_filter"), names.index("status_locked"))
+            self.assertEqual(1, names.count("reset_filter"))
 
     def test_maps_drive_block_installation_from_cells_when_pixel_position_missing(self):
         from src.features.drive_assembly.page_mapping import map_drive_block_installation
@@ -1066,7 +1158,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             plan["assembly_sequence"],
         )
 
-    def test_drive_block_installation_resets_filter_and_reuses_cached_set(self):
+    def test_drive_block_installation_resets_filter_without_selecting_a_set(self):
         from src.features.drive_assembly.page_mapping import map_drive_blocks_installation
 
         blocks = [
@@ -1091,12 +1183,15 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual("filter_button", first_sequence[0]["name"])
         self.assertEqual("reset_filter", first_sequence[1]["name"])
         self.assertEqual("shape_select", first_sequence[2]["name"])
-        self.assertEqual("drive_set_select", first_sequence[5]["name"])
-        self.assertEqual("失落光芒", plan["install_plans"][1]["set_name"])
+        self.assertEqual("wait_after_drive_shape_dialog_open", first_sequence[3]["name"])
+        self.assertEqual("quality_orange", first_sequence[7]["name"])
+        self.assertFalse(any(step["name"].startswith("set_") for step in first_sequence))
         self.assertEqual("filter_button", second_sequence[0]["name"])
         self.assertEqual("reset_filter", second_sequence[1]["name"])
         self.assertEqual("shape_select", second_sequence[2]["name"])
-        self.assertEqual("drive_set_select", second_sequence[5]["name"])
+        self.assertEqual("wait_after_drive_shape_dialog_open", second_sequence[3]["name"])
+        self.assertEqual("quality_orange", second_sequence[7]["name"])
+        self.assertFalse(any(step["name"].startswith("set_") for step in second_sequence))
 
     def test_maps_filter_open_before_reset_for_every_drive_block(self):
         from src.features.drive_assembly.page_mapping import map_drive_blocks_installation
