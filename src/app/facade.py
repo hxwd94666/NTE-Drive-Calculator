@@ -7,6 +7,8 @@ import json
 import os
 
 from src.app import runtime
+from src.app.constants import APP_VERSION
+from src.integrations.nte_core import NteCoreClient
 from src.optimizer.state_manager import StateManager
 from src.scanner.batch_processor import BatchProcessor
 from src.solver.orchestrator import NTEPipelineOrchestrator
@@ -74,3 +76,17 @@ class NTEAppFacade:
             custom_weapons=custom_weapons or {},
         )
         return final_plan, state_manager
+
+    def create_nte_core_client(self, **options) -> NteCoreClient:
+        """创建一个尚未启动的 nte-core"""
+        options.setdefault(
+            "data_dir",
+            os.path.join(runtime.LOG_DIR, "nte_core"),
+        )
+        options.setdefault("cwd", runtime.APP_DIR)
+        options.setdefault("client_version", APP_VERSION)
+        options.setdefault(
+            "stderr_handler",
+            lambda message: logger.debug(f"[nte-core] {message}"),
+        )
+        return NteCoreClient(**options)
