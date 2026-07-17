@@ -32,17 +32,19 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual(["ready"], events)
         self.assertEqual([2.0], sleeps)
 
-    def _state_button_image(self, active=None):
+    def _state_button_image(self, active=None, width=2560, height=1440):
         from src.features.scanning import streaming_pipeline
+        from src.scanner.window_capture import game_content_rect
 
-        img = np.full((1440, 2560, 3), 24, dtype=np.uint8)
+        img = np.full((height, width, 3), 24, dtype=np.uint8)
+        left, top, content_width, content_height = game_content_rect(width, height)
         centers = {
             "discarded": streaming_pipeline.TRASH_BUTTON_CENTER,
             "locked": streaming_pipeline.LOCK_BUTTON_CENTER,
         }
         for state, center in centers.items():
-            cx = int(round(img.shape[1] * center[0]))
-            cy = int(round(img.shape[0] * center[1]))
+            cx = int(round(left + content_width * center[0]))
+            cy = int(round(top + content_height * center[1]))
             value = 188 if state == active else 80
             img[cy - 15 : cy + 15, cx - 15 : cx + 15] = value
         return img
@@ -53,6 +55,13 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("normal", _right_panel_button_state_from_image(self._state_button_image()))
         self.assertEqual("locked", _right_panel_button_state_from_image(self._state_button_image("locked")))
         self.assertEqual("discarded", _right_panel_button_state_from_image(self._state_button_image("discarded")))
+
+    def test_equipment_state_uses_top_aligned_canvas_on_16_10(self):
+        from src.features.scanning.streaming_pipeline import _right_panel_button_state_from_image
+
+        image = self._state_button_image("locked", width=2560, height=1600)
+
+        self.assertEqual("locked", _right_panel_button_state_from_image(image))
 
     def test_post_action_thresholds_include_equal_grade(self):
         from src.features.scanning.post_actions import (

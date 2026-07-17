@@ -392,6 +392,16 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((517, 158), mapped[0]["board_origin"])
         self.assertEqual((46.5, 46.5), mapped[0]["cell_size"])
 
+    def test_page_mapping_keeps_16_10_game_controls_top_aligned(self):
+        from src.features.drive_assembly.page_mapping import map_blocks_to_page, map_page_controls
+
+        blocks = [{"block_id": 1, "cells": [(1, 2), (1, 3), (2, 2)], "top_left": (1, 2)}]
+
+        mapped = map_blocks_to_page(blocks, screen_size=(2560, 1600))
+
+        self.assertEqual((1205, 393), mapped[0]["pixel_position"])
+        self.assertEqual((111, 1347), map_page_controls(screen_size=(2560, 1600))["filter_button"])
+
     def test_page_mapping_uses_content_rect_offsets_for_windowed_clients(self):
         from src.features.drive_assembly.page_mapping import map_blocks_to_page
 
@@ -481,6 +491,17 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             expected,
             {set_name: map_tape_set_selection(set_name)["set_option"] for set_name in expected},
         )
+
+    def test_maps_config_set_name_aliases_to_filter_options(self):
+        from src.features.drive_assembly.page_mapping import map_drive_set_selection, map_tape_set_selection
+
+        tape_selection = map_tape_set_selection("恶魔之血：诅咒")
+        drive_selection = map_drive_set_selection("恶魔之血：诅咒")
+
+        self.assertEqual("恶魔之血·诅咒", tape_selection["set_name"])
+        self.assertEqual((532, 960), tape_selection["set_option"])
+        self.assertEqual("恶魔之血·诅咒", drive_selection["set_name"])
+        self.assertEqual((532, 960), drive_selection["set_option"])
 
     def test_scales_tape_set_selection_to_other_screens(self):
         from src.features.drive_assembly.page_mapping import map_tape_set_selection

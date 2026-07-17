@@ -15,6 +15,7 @@ class PostActionRuleConstraintTests(unittest.TestCase):
         catalog = StatCatalog.from_config_dir("config")
         self.assertEqual(set(catalog.tape_main_values), set(catalog.tape_main_stat_pool()))
         self.assertEqual(set(catalog.tape_stat_values), set(catalog.tape_sub_stat_pool()))
+        self.assertIn("防御力", catalog.tape_sub_stat_pool())
         self.assertFalse(any("属性异能伤害" in stat for stat in catalog.tape_sub_stat_pool()))
 
     def test_validation_rejects_insufficient_sub_stat_pool(self):

@@ -55,6 +55,35 @@ class FakeOcrEngine:
 
 
 class DriveAssemblyExecutorTests(unittest.TestCase):
+    def test_action_observer_runs_after_each_successful_action(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        backend = FakeMouseBackend()
+        observed = []
+        execute_action_sequence(
+            [{"name": "filter_button", "position": (10, 20)}],
+            backend=backend,
+            pause_seconds=0.0,
+            role_name="A",
+            on_action_executed=lambda action, role: observed.append((action["name"], role)),
+        )
+
+        self.assertEqual([("filter_button", "A")], observed)
+
+    def test_action_observer_failure_does_not_interrupt_assembly(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        backend = FakeMouseBackend()
+        report = execute_action_sequence(
+            [{"name": "filter_button", "position": (10, 20)}],
+            backend=backend,
+            pause_seconds=0.0,
+            on_action_executed=lambda _action, _role: (_ for _ in ()).throw(RuntimeError("record failure")),
+        )
+
+        self.assertEqual(1, report.executed_actions)
+        self.assertEqual([("click", (10, 20))], backend.calls)
+
     def test_executes_click_and_drag_actions_in_order(self):
         from src.features.drive_assembly.executor import execute_action_sequence
 
@@ -368,6 +397,38 @@ class DriveAssemblyExecutorTests(unittest.TestCase):
         self.assertEqual(["reset", "update"], calls)
         self.assertIsNone(driver._gamepad)
         self.assertIsNone(driver._buttons)
+
+    def test_virtual_gamepad_holds_rs_longer_than_other_buttons(self):
+        from src.features.drive_assembly.executor import _VirtualGamepadDriver
+
+        pauses = []
+
+        class Gamepad:
+            def press_button(self, button):
+                pass
+
+            def release_button(self, button):
+                pass
+
+            def update(self):
+                pass
+
+        class Buttons:
+            XUSB_GAMEPAD_A = object()
+            XUSB_GAMEPAD_RIGHT_THUMB = object()
+
+        driver = _VirtualGamepadDriver.__new__(_VirtualGamepadDriver)
+        driver._gamepad = Gamepad()
+        driver._buttons = Buttons()
+        driver._hold_seconds = 0.08
+        driver._settle_seconds = 0.30
+        driver._sleeper = pauses.append
+        driver._ensure_connected = lambda: None
+
+        driver.press("a")
+        driver.press("rs")
+
+        self.assertEqual([0.08, 0.30, 0.25, 0.30], pauses)
 
     def test_action_can_override_default_post_action_pause(self):
         from src.features.drive_assembly.executor import execute_action_sequence

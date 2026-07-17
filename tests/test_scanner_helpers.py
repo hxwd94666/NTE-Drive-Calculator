@@ -715,6 +715,25 @@ class DroneTemplateTests(unittest.TestCase):
         self.assertEqual((4, 6), loaded.shape)
 
 
+class GameContentRectTests(unittest.TestCase):
+    def test_game_content_rect_supports_standard_and_top_aligned_tall_clients(self):
+        from src.scanner.config import ScannerConfig
+        from src.scanner.window_capture import game_content_rect
+
+        cases = [
+            ((1920, 1080), (0, 0, 1920, 1080)),
+            ((2560, 1440), (0, 0, 2560, 1440)),
+            ((3840, 2160), (0, 0, 3840, 2160)),
+            ((2560, 1600), (0, 0, 2560, 1440)),
+        ]
+        for screen_size, expected in cases:
+            with self.subTest(screen_size=screen_size):
+                self.assertEqual(expected, game_content_rect(*screen_size))
+
+        _name, regions = ScannerConfig.get_region_profiles(2560, 1600)[0]
+        self.assertEqual(ScannerConfig.REGIONS_2K["drive_shape_icon"], regions["drive_shape_icon"])
+
+
 class EquipmentClassifierTests(unittest.TestCase):
     def _processor(self, shape_result, ocr_texts=None, fail_on_ocr=False):
         from types import SimpleNamespace
@@ -1193,7 +1212,7 @@ class GamepadScannerTests(unittest.TestCase):
         finally:
             gamepad_controller.time.sleep = original_sleep
 
-    def test_sync_equipment_states_uses_detail_return_then_moves_by_scan_order(self):
+    def test_sync_equipment_states_moves_backward_from_last_scanned_item(self):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
@@ -1202,12 +1221,8 @@ class GamepadScannerTests(unittest.TestCase):
         moves = []
         presses = []
         scanner._apply_moves = lambda batch: moves.append(batch)
-        scanner._press_y = lambda: presses.append("y")
-        scanner._press_b = lambda: presses.append("b")
         scanner._press_menu = lambda: presses.append("menu")
         scanner._press_a = lambda: presses.append("a")
-        scanner._wait_for_detail_page = lambda: True
-        scanner._wait_for_inventory_first_item = lambda: True
 
         original_sleep = gamepad_controller.time.sleep
         pauses = []
@@ -1224,12 +1239,50 @@ class GamepadScannerTests(unittest.TestCase):
             gamepad_controller.time.sleep = original_sleep
 
         self.assertEqual(2, applied)
-        self.assertEqual(["y", "b", "menu", "a", "menu", "menu", "a", "menu"], presses)
-        self.assertEqual([["D"], ["R"], ["D", "R", "R", "R", "R", "R"], ["R"]], moves)
+        self.assertEqual(["menu", "a", "menu", "menu", "a", "menu"], presses)
+        self.assertEqual([["R", "R", "R", "R", "R", "R"], ["R"], ["U", "L", "L", "L", "L", "L"]], moves)
         self.assertEqual(
-            [0.3, 0.5, 0.5, 0.2, 0.2, 0.3, 0.3, 0.3, 0.2, 0.2, 0.3, 0.15, 0.3, 0.3],
+            [0.2, 0.2, 0.3, 0.15, 0.3, 0.3, 0.2, 0.2, 0.3, 0.3, 0.3],
             pauses,
         )
+
+    def test_sync_equipment_states_starts_from_odd_or_even_final_scan_row(self):
+        from src.scanner import gamepad_controller
+
+        cases = [
+            # 13 items end on the odd second row at column 0.
+            (13, (1, 0), [[], ["R"], ["R", "R", "R", "R", "R"]]),
+            # 15 items end on the even third row at column 0.
+            (15, (2, 0), [[], ["R"], ["U", "R", "R", "R", "R", "R", "R"]]),
+        ]
+        original_sleep = gamepad_controller.time.sleep
+        gamepad_controller.time.sleep = lambda _seconds: None
+        try:
+            for total_drives, expected_last_position, expected_moves in cases:
+                with self.subTest(total_drives=total_drives):
+                    scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+                    scanner.cols = 7
+                    scanner._stopped = False
+                    moves = []
+                    presses = []
+                    scanner._apply_moves = lambda batch: moves.append(list(batch))
+                    scanner._press_menu = lambda: presses.append("menu")
+                    scanner._press_a = lambda: presses.append("a")
+
+                    self.assertEqual(expected_last_position, scanner._scan_positions(total_drives)[-1])
+                    applied = scanner.sync_equipment_states(
+                        total_drives,
+                        [
+                            {"index": total_drives, "current_state": "normal", "target_state": "locked"},
+                            {"index": 8, "current_state": "normal", "target_state": "discarded"},
+                        ],
+                    )
+
+                    self.assertEqual(2, applied)
+                    self.assertEqual(["menu", "a", "menu", "menu", "a", "menu"], presses)
+                    self.assertEqual(expected_moves, moves)
+        finally:
+            gamepad_controller.time.sleep = original_sleep
 
     def test_gamepad_vision_profile_is_bound_to_action_profile(self):
         from src.scanner.gamepad_controller import GamepadActionProfile
@@ -1255,6 +1308,16 @@ class GamepadScannerTests(unittest.TestCase):
 
         self.assertFalse(matched)
         self.assertIn("全黑区域白色占比=0.000gt0.500:fail", reason)
+
+    def test_gamepad_vision_roi_uses_top_aligned_16_9_canvas_on_16_10(self):
+        from src.scanner import gamepad_controller
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        image = np.zeros((1600, 2560, 3), dtype=np.uint8)
+
+        roi = scanner._relative_roi(image, 0.68, 0.20, 0.98, 0.40)
+
+        self.assertEqual((288, 768, 3), roi.shape)
 
     def test_detail_page_detection_accepts_common_max_level_layout(self):
         from src.scanner import gamepad_controller
