@@ -430,13 +430,20 @@ def _assembly_report_dialog(action_name: str, report, expected_role_count: int |
     return title, "\n".join(lines), not incomplete
 
 
-def _return_to_equipment_after_assembly(self, completed: bool) -> None:
-    """在装配完整成功后切回配装页面，失败和中止则保留当前上下文。"""
-    if not completed:
-        return
+def _return_to_equipment_after_assembly(self) -> None:
+    """Restore the calculator window and return to the equipment page."""
+    show_normal = getattr(self, "showNormal", None)
+    if callable(show_normal):
+        show_normal()
     go_to_page = getattr(self, "_go", None)
     if callable(go_to_page):
         go_to_page("equipment")
+    raise_window = getattr(self, "raise_", None)
+    if callable(raise_window):
+        raise_window()
+    activate_window = getattr(self, "activateWindow", None)
+    if callable(activate_window):
+        activate_window()
 
 
 def _prompt_protagonist_alias_if_needed(self, role_names) -> dict[str, str]:
@@ -491,13 +498,14 @@ def _preview_assemble_role(self, role_name: str):
             role_name_aliases=role_name_aliases,
         )
         title, message, completed = _assembly_report_dialog("单角色装配", report, expected_role_count=1)
+        _return_to_equipment_after_assembly(self)
         if completed:
             QMessageBox.information(self,title,message)
-            _return_to_equipment_after_assembly(self, completed=True)
         else:
             QMessageBox.warning(self,title,message)
         logger.info(f"已执行 [{role_name}] 装配动作：{report.executed_actions}")
     except AssemblyExecutionStopped:
+        _return_to_equipment_after_assembly(self)
         QMessageBox.warning(self,"装配已停止",f"[{role_name}] 装配执行已停止。")
         logger.warning(f"[{role_name}] 装配执行已停止")
     except Exception as e:
@@ -536,13 +544,14 @@ def _preview_assemble_all_roles(self):
             report,
             expected_role_count=len(planned_roles),
         )
+        _return_to_equipment_after_assembly(self)
         if completed:
             QMessageBox.information(self,title,message)
-            _return_to_equipment_after_assembly(self, completed=True)
         else:
             QMessageBox.warning(self,title,message)
         logger.info(f"Assembly executed: {len(report.role_reports)} roles, {report.executed_actions} actions")
     except AssemblyExecutionStopped:
+        _return_to_equipment_after_assembly(self)
         QMessageBox.warning(self,"一键装配已停止","装配执行已停止。")
         logger.warning("一键装配执行已停止")
     except Exception as e:
