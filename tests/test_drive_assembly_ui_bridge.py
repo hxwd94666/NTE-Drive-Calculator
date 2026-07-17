@@ -3,11 +3,33 @@
 
 import unittest
 from types import SimpleNamespace
+from pathlib import Path
+import tempfile
 
 import numpy as np
 
 
 class DriveAssemblyUiBridgeTests(unittest.TestCase):
+    def test_startup_guard_rejects_fuzzy_role_matches(self):
+        from src.features.drive_assembly.ui_bridge import _is_role_detail_startup_recognition
+
+        self.assertTrue(_is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr")))
+        self.assertTrue(_is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr_fallback")))
+        self.assertFalse(_is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr_fuzzy")))
+        self.assertFalse(_is_role_detail_startup_recognition(SimpleNamespace(role_name=None, method="ocr")))
+
+    def test_assembly_recorder_writes_pngs_under_record_directory(self):
+        from src.features.drive_assembly.ui_bridge import _AssemblyRunRecorder
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = _AssemblyRunRecorder(Path(temp_dir) / "record")
+            path = recorder.save_image(np.zeros((8, 12, 3), dtype=np.uint8), "startup")
+
+            self.assertIsNotNone(path)
+            self.assertTrue(path.exists())
+            self.assertEqual("record", path.parent.parent.name)
+            self.assertEqual("001_startup.png", path.name)
+
     def test_assembly_report_lists_unrecognized_role_details(self):
         from src.features.inventory.page import _assembly_report_dialog
 
