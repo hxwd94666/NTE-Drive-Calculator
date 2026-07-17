@@ -30,6 +30,21 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             self.assertEqual("record", path.parent.parent.name)
             self.assertEqual("001_startup.png", path.name)
 
+    def test_assembly_recorder_captures_completed_duplicate_status_filters(self):
+        from src.features.drive_assembly.ui_bridge import _AssemblyRunRecorder
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = _AssemblyRunRecorder(Path(temp_dir) / "record")
+            captured_labels = []
+            recorder.capture_foreground = captured_labels.append
+
+            recorder.record_action(
+                {"name": "status_other", "duplicate_status_filter": True, "block_id": 12},
+                "A",
+            )
+
+            self.assertEqual(["duplicate_status_filters_block_12_A"], captured_labels)
+
     def test_assembly_report_lists_unrecognized_role_details(self):
         from src.features.inventory.page import _assembly_report_dialog
 
@@ -215,6 +230,66 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             [name for name in duplicate_names if name.startswith("status_")],
         )
         self.assertFalse(any(name.startswith("quality_") for name in duplicate_names))
+
+    def test_duplicate_tape_filter_order_resets_then_filters_before_equipping(self):
+        from src.features.drive_assembly.ui_bridge import _tape_install_sequence
+
+        sequence = _tape_install_sequence(
+            {
+                "set_name": "失落光芒",
+                "main_stat": "生命值百分比",
+                "sub_stats": ["暴击率%"],
+                "quality": "Gold",
+                "is_duplicate_tape": True,
+            },
+            None,
+            None,
+        )
+        names = [step["name"] for step in sequence]
+
+        expected_order = [
+            "reset_filter",
+            "set_select",
+            "wait_after_tape_set_dialog_open",
+            "set_option",
+            "confirm_filter",
+            "wait_after_tape_set_dialog_close",
+            "status_locked",
+            "status_discarded",
+            "status_other",
+            "quality_orange",
+            "main_stat_gamepad_down_to_expand",
+            "main_stat_option",
+            "sub_stat_scroll_to_expand",
+            "sub_stat_option",
+        ]
+        indexes = [names.index(name) for name in expected_order]
+
+        self.assertEqual(indexes, sorted(indexes))
+        self.assertLess(names.index("sub_stat_option"), len(names) - 1 - names[::-1].index("confirm_filter"))
+
+    def test_full_role_plan_keeps_duplicate_drive_status_filters(self):
+        from src.features.drive_assembly.ui_bridge import build_single_role_assembly_plan
+
+        duplicate_drive = {"uid": "drive-a", "shape_id": "H_2", "quality": "Gold", "sub_stats": {}}
+        state = {
+            "A": {"blueprint_layout": [["H_2", "H_2"]], "equipped_drives": [duplicate_drive]},
+            "B": {
+                "blueprint_layout": [["H_2", "H_2"]],
+                "equipped_drives": [{**duplicate_drive, "uid": "drive-b"}],
+            },
+        }
+
+        plan = build_single_role_assembly_plan(state, "A")
+        drive_action = next(action for action in plan["actions"] if action["name"] == "install_drives")
+        install = drive_action["install_plans"][0]
+
+        self.assertTrue(plan["drive_blocks"][0]["is_duplicate_drive"])
+        self.assertTrue(install["duplicate_status_filter_enabled"])
+        self.assertEqual(
+            ["status_locked", "status_discarded", "status_other"],
+            [step["name"] for step in install["install_sequence"] if step["name"].startswith("status_")],
+        )
 
     def test_drive_install_plan_verifies_each_drive_target_after_drag(self):
         from src.features.drive_assembly.page_mapping import map_drive_block_installation
@@ -471,6 +546,18 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             def showMinimized(self):
                 calls.append("minimized")
 
+            def showNormal(self):
+                calls.append("show_normal")
+
+            def _go(self, page):
+                calls.append(page)
+
+            def raise_(self):
+                calls.append("raise")
+
+            def activateWindow(self):
+                calls.append("activate")
+
         original_reload = page_module._reload_equipped_state_from_disk
         original_build = page_module.build_all_role_assembly_plan
         original_summary = page_module.summarize_assembly_plan
@@ -486,7 +573,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
                 or SimpleNamespace(role_reports=[1], executed_actions=1)
             )
             page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
+            page_module.QMessageBox.information = lambda *_args, **_kwargs: calls.append("dialog")
 
             page_module._preview_assemble_all_roles(FakeWindow())
         finally:
@@ -497,7 +584,118 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             page_module.QMessageBox.question = original_question
             page_module.QMessageBox.information = original_information
 
-        self.assertEqual(["minimized", "executed"], calls)
+        self.assertEqual(
+            ["minimized", "executed", "show_normal", "equipment", "raise", "activate", "dialog"],
+            calls,
+        )
+
+    def test_single_role_f12_stop_restores_equipment_page_before_dialog(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        import src.features.inventory.page as page_module
+
+        calls = []
+        plan = {"role_name": "demo", "available": True, "actions": []}
+
+        class FakeWindow:
+            equipped_state = {"demo": {}}
+
+            def showMinimized(self):
+                calls.append("minimized")
+
+            def showNormal(self):
+                calls.append("show_normal")
+
+            def _go(self, page):
+                calls.append(page)
+
+            def raise_(self):
+                calls.append("raise")
+
+            def activateWindow(self):
+                calls.append("activate")
+
+        def stop_execution(*_args, **_kwargs):
+            raise page_module.AssemblyExecutionStopped()
+
+        original_reload = page_module._reload_equipped_state_from_disk
+        original_build = page_module.build_single_role_assembly_plan
+        original_summary = page_module.summarize_assembly_plan
+        original_execute = page_module.execute_selected_role_from_current_game_page
+        original_question = page_module.QMessageBox.question
+        original_warning = page_module.QMessageBox.warning
+        try:
+            page_module._reload_equipped_state_from_disk = lambda _self: None
+            page_module.build_single_role_assembly_plan = lambda *_args, **_kwargs: plan
+            page_module.summarize_assembly_plan = lambda _plan: "summary"
+            page_module.execute_selected_role_from_current_game_page = stop_execution
+            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
+            page_module.QMessageBox.warning = lambda *_args, **_kwargs: calls.append("dialog")
+
+            page_module._preview_assemble_role(FakeWindow(), "demo")
+        finally:
+            page_module._reload_equipped_state_from_disk = original_reload
+            page_module.build_single_role_assembly_plan = original_build
+            page_module.summarize_assembly_plan = original_summary
+            page_module.execute_selected_role_from_current_game_page = original_execute
+            page_module.QMessageBox.question = original_question
+            page_module.QMessageBox.warning = original_warning
+
+        self.assertEqual(["minimized", "show_normal", "equipment", "raise", "activate", "dialog"], calls)
+
+    def test_all_roles_f12_stop_restores_equipment_page_before_dialog(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        import src.features.inventory.page as page_module
+
+        calls = []
+        plan = {"roles": ["demo"], "role_plans": [{"role_name": "demo", "available": True, "actions": []}]}
+
+        class FakeWindow:
+            equipped_state = {"demo": {}}
+
+            def showMinimized(self):
+                calls.append("minimized")
+
+            def showNormal(self):
+                calls.append("show_normal")
+
+            def _go(self, page):
+                calls.append(page)
+
+            def raise_(self):
+                calls.append("raise")
+
+            def activateWindow(self):
+                calls.append("activate")
+
+        def stop_execution(*_args, **_kwargs):
+            raise page_module.AssemblyExecutionStopped()
+
+        original_reload = page_module._reload_equipped_state_from_disk
+        original_build = page_module.build_all_role_assembly_plan
+        original_summary = page_module.summarize_assembly_plan
+        original_execute = page_module.execute_all_roles_from_current_game_page
+        original_question = page_module.QMessageBox.question
+        original_warning = page_module.QMessageBox.warning
+        try:
+            page_module._reload_equipped_state_from_disk = lambda _self: None
+            page_module.build_all_role_assembly_plan = lambda *_args, **_kwargs: plan
+            page_module.summarize_assembly_plan = lambda _plan: "summary"
+            page_module.execute_all_roles_from_current_game_page = stop_execution
+            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
+            page_module.QMessageBox.warning = lambda *_args, **_kwargs: calls.append("dialog")
+
+            page_module._preview_assemble_all_roles(FakeWindow())
+        finally:
+            page_module._reload_equipped_state_from_disk = original_reload
+            page_module.build_all_role_assembly_plan = original_build
+            page_module.summarize_assembly_plan = original_summary
+            page_module.execute_all_roles_from_current_game_page = original_execute
+            page_module.QMessageBox.question = original_question
+            page_module.QMessageBox.warning = original_warning
+
+        self.assertEqual(["minimized", "show_normal", "equipment", "raise", "activate", "dialog"], calls)
 
     def test_verifies_blueprint_against_screenshot_samples_drive_positions(self):
         from src.features.drive_assembly.ui_bridge import verify_blueprint_against_screenshot

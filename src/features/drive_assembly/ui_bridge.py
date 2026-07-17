@@ -24,6 +24,7 @@ from src.features.drive_assembly.executor import (
 from src.features.drive_assembly.page_mapping import (
     map_assembly_page_prepare_controls,
     map_drive_blocks_installation,
+    map_filter_reset,
     map_page_controls,
     map_tape_equip_first_result,
     map_tape_filter_controls,
@@ -107,9 +108,13 @@ class _AssemblyRunRecorder:
 
     def record_action(self, action: dict[str, Any], role_name: str | None) -> None:
         action_name = str(action.get("name") or "")
-        if action_name not in _RECORDED_ASSEMBLY_ACTIONS:
+        is_duplicate_filter_complete = bool(action.get("duplicate_status_filter")) and action_name == "status_other"
+        if action_name not in _RECORDED_ASSEMBLY_ACTIONS and not is_duplicate_filter_complete:
             return
         role_suffix = f"_{role_name}" if role_name else ""
+        if is_duplicate_filter_complete:
+            self.capture_foreground(f"duplicate_status_filters_block_{action.get('block_id', 'unknown')}{role_suffix}")
+            return
         self.capture_foreground(f"{action_name}{role_suffix}")
 
 
@@ -518,6 +523,7 @@ def _log_assembly_plan_diagnostics(
         logger.info(
             "角色装配计划 | "
             f"角色={role_name} | 卡带={role_plan.get('tape_count', 0)} | 驱动={role_plan.get('drive_count', 0)} | "
+            f"重复驱动={sum(1 for block in role_plan.get('drive_blocks', []) if _is_duplicate_drive_block(block))} | "
             f"顶层动作={[action.get('name') for action in role_plan.get('actions', [])]}"
         )
         for block in role_plan.get("drive_blocks", []) or []:
@@ -528,7 +534,8 @@ def _log_assembly_plan_diagnostics(
                 f"形状={block.get('drive_type') or drive.get('shape_id', '未知')} | 品质={drive.get('quality', '未知')} | "
                 f"套装={block.get('set_name') or drive.get('set_name', '未筛选')} | 副词条={drive.get('sub_stats', {})} | "
                 f"格子={block.get('cells', [])} | 质心={block.get('grid_centroid') or block.get('shape_centroid')} | "
-                f"目标={block.get('pixel_position')} | 重复={bool(block.get('is_duplicate_drive') or block.get('is_duplicate_equipment'))}"
+                f"目标={block.get('pixel_position')} | 重复={_is_duplicate_drive_block(block)} | "
+                f"状态筛选={'锁定/弃置/其他' if _is_duplicate_drive_block(block) else '无'}"
             )
 
 
@@ -687,12 +694,11 @@ def _tape_install_sequence(
 ) -> list[dict[str, Any]]:
     sequence: list[dict[str, Any]] = []
     sequence.extend(map_page_controls(screen_size, content_rect)["click_sequence"])
+    sequence.extend(map_filter_reset(screen_size, content_rect)["reset_sequence"])
     sequence.extend(map_tape_filter_controls(screen_size, content_rect)["set_filter_sequence"])
     sequence.extend(map_tape_set_selection(tape_filter["set_name"], screen_size, content_rect)["selection_sequence"])
     quality = str(tape_filter.get("quality") or "").strip()
-    is_duplicate_tape = bool(
-        tape_filter.get("is_duplicate_tape") or tape_filter.get("is_duplicate_equipment")
-    )
+    is_duplicate_tape = _is_duplicate_tape_filter(tape_filter)
     sequence.extend(
         map_tape_filter_refinement(
             [quality] if quality else [],
@@ -709,3 +715,27 @@ def _tape_install_sequence(
     sequence.extend(map_tape_sub_stat_selection(tape_filter.get("sub_stats", []), screen_size, content_rect)["selection_sequence"])
     sequence.extend(map_tape_equip_first_result(screen_size, content_rect)["equip_sequence"])
     return sequence
+
+
+def _is_duplicate_drive_block(block: dict[str, Any]) -> bool:
+    drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
+    return bool(
+        block.get("is_duplicate_drive")
+        or block.get("is_duplicate_equipment")
+        or drive.get("is_duplicate_drive")
+        or drive.get("is_duplicate_equipment")
+        or int(block.get("duplicate_count") or 0) > 1
+        or int(drive.get("duplicate_count") or 0) > 1
+    )
+
+
+def _is_duplicate_tape_filter(tape_filter: dict[str, Any]) -> bool:
+    tape = tape_filter.get("tape") if isinstance(tape_filter.get("tape"), dict) else {}
+    return bool(
+        tape_filter.get("is_duplicate_tape")
+        or tape_filter.get("is_duplicate_equipment")
+        or tape.get("is_duplicate_tape")
+        or tape.get("is_duplicate_equipment")
+        or int(tape_filter.get("duplicate_count") or 0) > 1
+        or int(tape.get("duplicate_count") or 0) > 1
+    )
