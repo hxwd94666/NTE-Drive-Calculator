@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
+import re
 import time
 from typing import Any
 
+import cv2
 import mss
 import numpy as np
 
@@ -41,8 +44,82 @@ from src.features.drive_assembly.role_flow import (
     required_roles_from_payloads,
 )
 from src.scanner.ocr_engine import OCREngine
-from src.scanner.window_capture import capture_foreground_window
+from src.scanner.window_capture import capture_foreground_window, game_content_rect
 from src.utils.logger import logger
+
+
+_STARTUP_ROLE_RECOGNITION_METHODS = {
+    "ocr",
+    "ocr_fallback",
+    "ocr_correction",
+    "ocr_yi_fallback",
+}
+_RECORDED_ASSEMBLY_ACTIONS = {
+    "open_role_list",
+    "confirm_role_list_selection",
+    "close_role_list_after_confirmation",
+    "left_kongmu_tab",
+    "wait_after_left_kongmu_tab",
+    "assemble_button",
+    "wait_after_assemble_button",
+    "assembly_back_to_role_page",
+}
+
+
+class _AssemblyRunRecorder:
+    """Persist screenshots for the navigation steps of one assembly run."""
+
+    def __init__(self, root: Path | None = None):
+        record_root = root or (runtime.SCREENSHOT_DIR / "record")
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        self.directory = record_root / f"assembly_{run_id}"
+        try:
+            self.directory.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            logger.warning(f"无法创建装配过程截图目录 | 路径={self.directory} | 原因={exc}")
+            self.directory = None
+        self._sequence = 0
+
+    def save_image(self, image: np.ndarray, label: str) -> Path | None:
+        if self.directory is None or image is None or image.size == 0:
+            return None
+        safe_label = re.sub(r"[^A-Za-z0-9_-]+", "_", str(label)).strip("_") or "screen"
+        self._sequence += 1
+        path = self.directory / f"{self._sequence:03d}_{safe_label}.png"
+        try:
+            ok, encoded = cv2.imencode(".png", image)
+            if not ok:
+                raise ValueError("PNG encoding failed")
+            encoded.tofile(str(path))
+            logger.info(f"装配过程截图已保存 | {path}")
+            return path
+        except Exception as exc:
+            logger.warning(f"保存装配过程截图失败 | 标签={safe_label} | 原因={exc}")
+            return None
+
+    def capture_foreground(self, label: str) -> Path | None:
+        try:
+            image, _rect = _capture_foreground_client_image()
+        except Exception as exc:
+            logger.warning(f"截取装配过程页面失败 | 标签={label} | 原因={exc}")
+            return None
+        return self.save_image(image, label)
+
+    def record_action(self, action: dict[str, Any], role_name: str | None) -> None:
+        action_name = str(action.get("name") or "")
+        if action_name not in _RECORDED_ASSEMBLY_ACTIONS:
+            return
+        role_suffix = f"_{role_name}" if role_name else ""
+        self.capture_foreground(f"{action_name}{role_suffix}")
+
+
+def _is_role_detail_startup_recognition(recognition: Any) -> bool:
+    """Accept only high-confidence role-detail OCR before sending navigation input."""
+
+    return bool(
+        getattr(recognition, "role_name", None)
+        and getattr(recognition, "method", "") in _STARTUP_ROLE_RECOGNITION_METHODS
+    )
 
 
 def build_single_role_assembly_plan(
@@ -219,6 +296,8 @@ def _execute_roles_from_current_game_page(
     if startup_delay_seconds > 0:
         time.sleep(startup_delay_seconds)
     first_image, first_rect = _capture_foreground_client_image()
+    recorder = _AssemblyRunRecorder()
+    recorder.save_image(first_image, "startup")
     screen_size = (first_rect.width, first_rect.height)
     image_content_rect = _fit_content_rect(first_rect.width, first_rect.height)
     action_rect = (
@@ -235,6 +314,35 @@ def _execute_roles_from_current_game_page(
         logger.warning("驱动装配未启动 | 原因=没有可装配的目标角色")
         return execute_role_traversal_assembly_plan({"plans": []}, assembly_plan, backend=backend)
     recognition_roles = _role_recognition_candidates(required_roles, template_root, equipped_state, role_name_aliases)
+    ocr_engine = OCREngine()
+    startup_recognition = recognize_current_role_from_image(
+        first_image,
+        recognition_roles,
+        ocr_engine,
+        screen_size=screen_size,
+        content_rect=image_content_rect,
+        role_aliases=role_name_aliases,
+    )
+    logger.info(
+        "Assembly startup page recognition | "
+        f"role={startup_recognition.role_name or 'unrecognized'} | "
+        f"method={startup_recognition.method} | OCR={startup_recognition.raw_text!r} | "
+        f"record_dir={recorder.directory}"
+    )
+    if not _is_role_detail_startup_recognition(startup_recognition):
+        logger.warning(
+            "Assembly was not started because the current page is not a recognized role detail page | "
+            f"OCR={startup_recognition.raw_text!r} | record_dir={recorder.directory}"
+        )
+        return execute_role_traversal_assembly_plan(
+            {
+                "plans": [],
+                "missing_roles": required_roles,
+                "unrecognized": [{"roster_index": 0, "raw_text": startup_recognition.raw_text}],
+            },
+            assembly_plan,
+            backend=backend,
+        )
     logger.info(
         "驱动装配角色扫描开始 | "
         f"目标角色={required_roles} | 识别候选数={len(recognition_roles)} | "
@@ -251,8 +359,6 @@ def _execute_roles_from_current_game_page(
         f"鼠标随机化={'已启用' if randomization_enabled else '后端不支持'} | "
         "点击偏移、拖拽路径与拖拽节奏随机；手柄路径保持固定"
     )
-    ocr_engine = OCREngine()
-
     def press_up():
         execute_action_sequence(
             [{"name": "role_list_reset_dpad_up", "gamepad_button": "dpad_up"}],
@@ -264,6 +370,8 @@ def _execute_roles_from_current_game_page(
             [{"name": "open_role_list", "gamepad_button": "rs"}],
             backend=action_backend,
         )
+        logger.info("角色列表打开指令已发送 | button=RS")
+        recorder.capture_foreground("role_list_opened")
 
     def confirm_role_list_selection():
         execute_action_sequence(
@@ -285,6 +393,7 @@ def _execute_roles_from_current_game_page(
 
     def observe_current(_index: int):
         image, _rect = _capture_foreground_client_image()
+        recorder.save_image(image, f"role_list_scan_{_index + 1:02d}")
         recognition = recognize_current_role_from_image(
             image,
             recognition_roles,
@@ -327,6 +436,7 @@ def _execute_roles_from_current_game_page(
         f"缺少={role_roster.get('missing_expected_roles', [])} | "
         f"当前列表索引={role_roster.get('current_index', 0)} | 列表保持打开={role_roster.get('list_open', False)}"
     )
+    recorder.capture_foreground("role_list_scan_complete")
     traversal_plan = plan_role_assembly_from_role_list_roster(
         required_roles,
         role_roster,
@@ -350,6 +460,7 @@ def _execute_roles_from_current_game_page(
             backend=action_backend,
             should_stop=checker,
             role_verifier=verifier,
+            on_action_executed=recorder.record_action,
         )
     finally:
         _close_assembly_backend(action_backend)
@@ -566,20 +677,7 @@ def _sample_position_looks_occupied(
 
 
 def _fit_content_rect(width: int, height: int, reference_size: tuple[int, int] = (2560, 1440)) -> tuple[int, int, int, int]:
-    base_w, base_h = reference_size
-    base_aspect = base_w / base_h
-    target_aspect = width / height
-    if target_aspect >= base_aspect:
-        content_h = height
-        content_w = round(content_h * base_aspect)
-        left = round((width - content_w) / 2)
-        top = 0
-    else:
-        content_w = width
-        content_h = round(content_w / base_aspect)
-        left = 0
-        top = round((height - content_h) / 2)
-    return left, top, max(1, content_w), max(1, content_h)
+    return game_content_rect(width, height, reference_size)
 
 
 def _tape_install_sequence(
