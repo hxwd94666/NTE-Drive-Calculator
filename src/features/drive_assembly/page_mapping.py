@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from src.scanner.window_capture import game_content_rect
+
 
 REFERENCE_SCREEN_SIZE = (2560, 1440)
 DEFAULT_BOARD_ORIGIN = (1034.0, 315.0)
@@ -215,6 +217,9 @@ DEFAULT_TAPE_SET_OPTIONS = {
     "缇娅的夜间酒馆": (994.0, 960.0),
     "静谧山庄": (1225.0, 960.0),
 }
+TAPE_SET_NAME_ALIASES = {
+    "缇娜的夜间酒馆": "缇娅的夜间酒馆",
+}
 
 
 @dataclass(frozen=True)
@@ -354,7 +359,7 @@ def map_drive_set_selection(
     content_rect: tuple[int, int, int, int] | None = None,
 ) -> dict[str, Any]:
     """Return click positions for selecting a drive set from the filter panel."""
-    normalized_name = str(set_name).strip()
+    normalized_name = _normalize_tape_set_name(set_name)
     if normalized_name not in DEFAULT_TAPE_SET_OPTIONS:
         available = ", ".join(DEFAULT_TAPE_SET_OPTIONS)
         raise ValueError(f"unknown drive set: {set_name}. available sets: {available}")
@@ -395,7 +400,7 @@ def map_tape_set_selection(
 ) -> dict[str, Any]:
     """Return click positions for selecting a tape set in the set filter dialog."""
 
-    normalized_name = str(set_name).strip()
+    normalized_name = _normalize_tape_set_name(set_name)
     if normalized_name not in DEFAULT_TAPE_SET_OPTIONS:
         available = "、".join(DEFAULT_TAPE_SET_OPTIONS)
         raise ValueError(f"未知套装: {set_name}。可用套装: {available}")
@@ -888,6 +893,20 @@ def _normalize_tape_main_stat(main_stat: str) -> str:
     return normalized
 
 
+def _normalize_tape_set_name(set_name: str) -> str:
+    value = str(set_name or "").strip()
+    if value in DEFAULT_TAPE_SET_OPTIONS:
+        return value
+    if value in TAPE_SET_NAME_ALIASES:
+        return TAPE_SET_NAME_ALIASES[value]
+
+    def compact(name: str) -> str:
+        return "".join(char for char in name if char not in {" ", ":", "：", "·"})
+
+    matches = [known_name for known_name in DEFAULT_TAPE_SET_OPTIONS if compact(known_name) == compact(value)]
+    return matches[0] if len(matches) == 1 else value
+
+
 def _normalize_tape_sub_stat(sub_stat: str) -> str:
     normalized = str(sub_stat).strip()
     normalized = TAPE_SUB_STAT_ALIASES.get(normalized, normalized)
@@ -969,20 +988,7 @@ def _content_rect_for(
 
 
 def _fit_content_rect(target_width: int, target_height: int, base_size: tuple[int, int]) -> tuple[int, int, int, int]:
-    base_w, base_h = base_size
-    base_aspect = base_w / base_h
-    target_aspect = target_width / target_height
-    if target_aspect >= base_aspect:
-        content_height = target_height
-        content_width = round(content_height * base_aspect)
-        left = round((target_width - content_width) / 2)
-        top = 0
-    else:
-        content_width = target_width
-        content_height = round(content_width / base_aspect)
-        left = 0
-        top = round((target_height - content_height) / 2)
-    return left, top, max(1, content_width), max(1, content_height)
+    return game_content_rect(target_width, target_height, base_size)
 
 
 def _map_block_to_page(block: dict[str, Any], calibration: PageCalibration) -> dict[str, Any]:
