@@ -25,6 +25,7 @@ DEFAULT_ACTION_PAUSE_SECONDS = 0.5
 FILTER_ACTION_PAUSE_SECONDS = 0.25
 DEFAULT_DRAG_DURATION_MS = 1200
 DEFAULT_CLICK_HOLD_SECONDS = 0.035
+ROLE_LIST_OPEN_RS_HOLD_SECONDS = 0.25
 STOP_POLL_INTERVAL_SECONDS = 0.05
 SENDINPUT_DRAG_HOLD_SECONDS = 0.30
 SENDINPUT_DRAG_RELEASE_SECONDS = 0.20
@@ -398,7 +399,12 @@ class _VirtualGamepadDriver:
         button = getattr(self._buttons, attr_name)
         self._gamepad.press_button(button=button)
         self._gamepad.update()
-        self._sleeper(self._hold_seconds)
+        hold_seconds = (
+            ROLE_LIST_OPEN_RS_HOLD_SECONDS
+            if key == "rs"
+            else self._hold_seconds
+        )
+        self._sleeper(hold_seconds)
         self._gamepad.release_button(button=button)
         self._gamepad.update()
         self._sleeper(self._settle_seconds)
@@ -446,6 +452,7 @@ def execute_action_sequence(
     pause_seconds: float = DEFAULT_ACTION_PAUSE_SECONDS,
     should_stop: Callable[[], bool] | None = None,
     role_name: str | None = None,
+    on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
 ) -> ActionExecutionReport:
     """Execute a flat click/drag sequence."""
 
@@ -462,6 +469,11 @@ def execute_action_sequence(
             )
             if action_pause_seconds > 0:
                 _pause_with_stop(mouse, action_pause_seconds, should_stop)
+            if on_action_executed is not None:
+                try:
+                    on_action_executed(dict(action), role_name)
+                except Exception as exc:
+                    logger.warning(f"装配动作记录回调失败 | {_action_diagnostic(action)} | 原因={exc}")
         else:
             report.skipped_actions.append(dict(action))
             logger.warning(
@@ -487,6 +499,7 @@ def execute_role_assembly_plan(
     should_stop: Callable[[], bool] | None = None,
     startup_delay_seconds: float = 0.0,
     role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
+    on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
 ) -> ActionExecutionReport:
     """Execute all install actions for one role plan."""
 
@@ -508,6 +521,7 @@ def execute_role_assembly_plan(
         pause_seconds=pause_seconds,
         should_stop=should_stop,
         role_name=role_name,
+        on_action_executed=on_action_executed,
     )
     if role_verifier is not None:
         role_verifier(role_name, plan)
@@ -552,6 +566,7 @@ def execute_role_traversal_assembly_plan(
     pause_seconds: float = DEFAULT_ACTION_PAUSE_SECONDS,
     should_stop: Callable[[], bool] | None = None,
     role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
+    on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
 ) -> AssemblyExecutionReport:
     """Execute role-list traversal and run the matching assembly plan for each role."""
 
@@ -585,6 +600,7 @@ def execute_role_traversal_assembly_plan(
                     pause_seconds=pause_seconds,
                     should_stop=should_stop,
                     role_name=step.get("role_name"),
+                    on_action_executed=on_action_executed,
                 )
                 report.navigation_actions += action_report.executed_actions
                 pending_actions = []
@@ -600,6 +616,7 @@ def execute_role_traversal_assembly_plan(
                 backend=mouse,
                 pause_seconds=pause_seconds,
                 should_stop=should_stop,
+                on_action_executed=on_action_executed,
             )
             if role_verifier is not None:
                 verification = role_verifier(role_name, role_plan)
@@ -614,6 +631,7 @@ def execute_role_traversal_assembly_plan(
                 pause_seconds=pause_seconds,
                 should_stop=should_stop,
                 role_name=step.get("role_name"),
+                on_action_executed=on_action_executed,
             )
             report.navigation_actions += action_report.executed_actions
     logger.info(
