@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -18,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.app import runtime
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 
 
@@ -68,6 +71,20 @@ def build_home_page(window) -> QScrollArea:
     title_column.addWidget(window.home_account_label)
     hero_layout.addLayout(title_column)
     hero_layout.addStretch()
+    hero_icon_path = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui").character_icon(1003)
+    if hero_icon_path is not None:
+        hero_icon = QLabel()
+        hero_icon.setFixedSize(72, 72)
+        hero_icon.setPixmap(
+            QPixmap(str(hero_icon_path)).scaled(
+                72,
+                72,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+        )
+        hero_icon.setStyleSheet("background:transparent")
+        hero_layout.addWidget(hero_icon)
     window.home_sync_badge = QLabel("未启动")
     window.home_sync_badge.setAlignment(Qt.AlignCenter)
     set_status_badge(window.home_sync_badge, "未启动", "neutral")

@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "source_data_table": "/Game/DataTable/Character/DT_Character",
+  "characters": [
+    {"character_id": 1003, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_003_256.player_003_256", "output": "characters/player_003_256.png"},
+    {"character_id": 1004, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_004_256.player_004_256", "output": "characters/player_004_256.png"},
+    {"character_id": 1008, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_008_256.player_008_256", "output": "characters/player_008_256.png"},
+    {"character_id": 1010, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_010_256.player_010_256", "output": "characters/player_010_256.png"},
+    {"character_id": 1019, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_019_256.player_019_256", "output": "characters/player_019_256.png"},
+    {"character_id": 1020, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_020_256.player_020_256", "output": "characters/player_020_256.png"},
+    {"character_id": 1021, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_021_256.player_021_256", "output": "characters/player_021_256.png"},
+    {"character_id": 1023, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_028_256.player_028_256", "output": "characters/player_028_256.png"},
+    {"character_id": 1025, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_012_256.player_012_256", "output": "characters/player_012_256.png"},
+    {"character_id": 1033, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_015_256.player_015_256", "output": "characters/player_015_256.png"},
+    {"character_id": 1039, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_027_256.player_027_256", "output": "characters/player_027_256.png"},
+    {"character_id": 1046, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_046_256.player_046_256", "output": "characters/player_046_256.png"},
+    {"character_id": 1051, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_009_256.player_009_256", "output": "characters/player_009_256.png"},
+    {"character_id": 1052, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_013_256.player_013_256", "output": "characters/player_013_256.png"},
+    {"character_id": 1054, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_005_256.player_005_256", "output": "characters/player_005_256.png"},
+    {"character_id": 1055, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_104_256.player_104_256", "output": "characters/player_104_256.png"},
+    {"character_id": 1056, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_004_256.player_004_256", "output": "characters/player_004_256.png"},
+    {"character_id": 1070, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_haiyue_256.player_haiyue_256", "output": "characters/player_haiyue_256.png"},
+    {"character_id": 1071, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_kaesi1_256.player_kaesi1_256", "output": "characters/player_kaesi1_256.png"},
+    {"character_id": 1073, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_073_256.player_073_256", "output": "characters/player_073_256.png"},
+    {"character_id": 1075, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_yiluoyi_256.player_yiluoyi_256", "output": "characters/player_yiluoyi_256.png"},
+    {"character_id": 1076, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_zhenhong_256.player_zhenhong_256", "output": "characters/player_zhenhong_256.png"}
+  ],
+  "attributes": [
+    {"key": "attack", "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_gongji.icon_attri_gongji", "output": "attributes/attack.png"},
+    {"key": "crit_rate", "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_baoji.icon_attri_baoji", "output": "attributes/crit_rate.png"},
+    {"key": "crit_damage", "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_baojishanghai.icon_attri_baojishanghai", "output": "attributes/crit_damage.png"},
+    {"key": "damage_up", "source_asset_path": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_white.Icon_DamageUp_white", "output": "attributes/damage_up.png"},
+    {"key": "def_ignore", "source_asset_path": "/Game/UI/UI_Icon/Attribute/Icon_DefIgnore.Icon_DefIgnore", "output": "attributes/def_ignore.png"},
+    {"key": "inclination_strength", "source_asset_path": "/Game/UI/UI_Icon/Attribute/Icon_attri_strength_qingxian.Icon_attri_strength_qingxian", "output": "attributes/inclination_strength.png"}
+  ]
+}
