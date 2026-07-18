@@ -41,6 +41,15 @@ config/priority_config.json
 config/hotkeys.json
 config/update_config.json
 
+# 开发者本机数据、生成的数据库和本地运行组件
+/config/game_raw/
+/game_dumps/
+/local_game_data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+/nte-core.exe
+
 # Temporary OCR and scan artifacts
 *.log
 *.tmp
