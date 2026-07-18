@@ -28,6 +28,16 @@ ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 SPEC = ROOT / "NTE_Drive_Calc.spec"
+SQLITE_SCHEMA_DIR = ROOT / "src" / "storage" / "sqlite" / "schema"
+NTE_CORE_ENV = "NTE_CORE_EXE"
+STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
+NTE_CORE_RELEASE_FILES = (
+    "LICENSE",
+    "BUILD_VARIANT.md",
+    "CLI_PROTOCOL_ZH.md",
+    "CLI_PROTOCOL.md",
+    "THIRD_PARTY_LICENSES.md",
+)
 
 EXPLICIT_WORKSHOP_ARGS = {"--skip-workshop-sync", "--require-workshop-sync", "--prompt-workshop-key"}
 
@@ -104,6 +114,66 @@ def _append_add_data(src: str | Path, dst: str):
 
 def _append_add_binary(src: str | Path, dst: str):
     args.append(f"--add-binary={Path(src)}{sep}{dst}")
+
+
+def _first_existing_file(*candidates: str | Path | None) -> Path | None:
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate).expanduser().resolve()
+        if path.is_file():
+            return path
+    return None
+
+
+def _required_build_file(label: str, *candidates: str | Path | None) -> Path:
+    path = _first_existing_file(*candidates)
+    if path is None:
+        checked = "、".join(str(candidate) for candidate in candidates if candidate)
+        raise FileNotFoundError(f"打包缺少 {label}；已检查：{checked}")
+    return path
+
+
+# 用户数据库首次运行时需要 SQL 结构文件；PyInstaller 不会自动收集非 Python 文件。
+if not SQLITE_SCHEMA_DIR.is_dir():
+    raise FileNotFoundError(f"SQLite schema 目录不存在：{SQLITE_SCHEMA_DIR}")
+_append_add_data(SQLITE_SCHEMA_DIR, "src/storage/sqlite/schema")
+
+# nte-core 是随应用运行的本地组件。开发机可放在项目根目录，自动构建则通过
+# NTE_CORE_EXE 指向从合作项目固定 Release 下载的文件。
+nte_core_path = _required_build_file(
+    "nte-core.exe",
+    os.environ.get(NTE_CORE_ENV),
+    ROOT / "nte-core.exe",
+    ROOT / "build_resources" / "nte-core" / "nte-core.exe",
+)
+_append_add_binary(nte_core_path, ".")
+
+# Release 目录若提供许可证和协议说明，则一并放入安装包，便于审计和再分发。
+for release_name in NTE_CORE_RELEASE_FILES:
+    release_file = nte_core_path.parent / release_name
+    if release_file.is_file():
+        _append_add_data(release_file, "licenses/nte-core")
+if not (nte_core_path.parent / "LICENSE").is_file():
+    build_cli.warn("nte-core 目录没有 LICENSE；本地测试可继续，正式发布必须使用完整 Release 目录")
+
+# 静态数据库目前尚未接入旧界面：本地发布时可通过环境变量提供，CI 的公开来源
+# 确定后再改成强制依赖。只要提供了路径，路径无效就立即终止，避免悄悄漏打包。
+configured_static_database = os.environ.get(STATIC_DATABASE_ENV)
+static_database_path = _first_existing_file(
+    configured_static_database,
+    ROOT / "build_resources" / "game_static.sqlite3",
+    ROOT / "data" / "game_static.sqlite3",
+)
+if configured_static_database and static_database_path is None:
+    raise FileNotFoundError(
+        f"{STATIC_DATABASE_ENV} 指向的静态数据库不存在：{configured_static_database}"
+    )
+if static_database_path is not None:
+    _append_add_data(static_database_path, "data")
+    build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
+else:
+    build_cli.warn("未提供静态数据库；旧界面仍可运行，新数据页面接入前必须补齐发布来源")
 
 
 def _find_package_dir(package_name: str) -> Path | None:

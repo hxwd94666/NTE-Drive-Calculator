@@ -20,6 +20,11 @@ on:
 permissions:
   contents: write
 
+env:
+  NTE_CORE_RELEASE_TAG: v0.3.3-build-73-65585f1
+  NTE_CORE_ARCHIVE_SHA256: 0988312150E19567B0B76D090E04D8215B69A279C0C8A2F2C13DF9C0B71D6000
+  NTE_CORE_LICENSE_SHA256: E0EEDBA615D5CD1B986AFB6C5B3A4B1AE33713E7E9DC74D19DAEC5E3221F9D2E
+
 jobs:
   tests:
     name: Run release tests
@@ -127,6 +132,55 @@ jobs:
 
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+
+      - name: Prepare pinned nte-core release
+        shell: pwsh
+        run: |
+          $bundleDir = Join-Path $PWD 'build_resources\nte-core'
+          $archive = Join-Path $env:RUNNER_TEMP 'nte-core-windows-x64.zip'
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+
+          $releaseUrl = "https://github.com/kongbaiz/nte-dps-toolkit/releases/download/$env:NTE_CORE_RELEASE_TAG/nte-core-windows-x64.zip"
+          Invoke-WebRequest -Uri $releaseUrl -OutFile $archive
+          $archiveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
+          if ($archiveHash -ne $env:NTE_CORE_ARCHIVE_SHA256) {
+            throw "nte-core archive SHA-256 mismatch: $archiveHash"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $bundleDir -Force
+
+          $licensePath = Join-Path $bundleDir 'LICENSE'
+          $licenseUrl = "https://raw.githubusercontent.com/kongbaiz/nte-dps-toolkit/$env:NTE_CORE_RELEASE_TAG/LICENSE"
+          Invoke-WebRequest -Uri $licenseUrl -OutFile $licensePath
+          $licenseHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $licensePath).Hash
+          if ($licenseHash -ne $env:NTE_CORE_LICENSE_SHA256) {
+            throw "nte-core LICENSE SHA-256 mismatch: $licenseHash"
+          }
+
+          $coreExe = Join-Path $bundleDir 'nte-core.exe'
+          if (-not (Test-Path $coreExe)) {
+            throw "nte-core.exe is missing from the pinned release archive."
+          }
+          "NTE_CORE_EXE=$coreExe" >> $env:GITHUB_ENV
+
+      - name: Prepare optional static game database
+        if: ${{ vars.NTE_GAME_STATIC_DB_URL != '' }}
+        shell: pwsh
+        env:
+          STATIC_DATABASE_URL: ${{ vars.NTE_GAME_STATIC_DB_URL }}
+          STATIC_DATABASE_SHA256: ${{ vars.NTE_GAME_STATIC_DB_SHA256 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:STATIC_DATABASE_SHA256)) {
+            throw 'NTE_GAME_STATIC_DB_SHA256 must be configured with NTE_GAME_STATIC_DB_URL.'
+          }
+          $databaseDir = Join-Path $PWD 'build_resources'
+          $databasePath = Join-Path $databaseDir 'game_static.sqlite3'
+          New-Item -ItemType Directory -Force -Path $databaseDir | Out-Null
+          Invoke-WebRequest -Uri $env:STATIC_DATABASE_URL -OutFile $databasePath
+          $databaseHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $databasePath).Hash
+          if ($databaseHash -ne $env:STATIC_DATABASE_SHA256) {
+            throw "Static database SHA-256 mismatch: $databaseHash"
+          }
+          "NTE_GAME_STATIC_DB=$databasePath" >> $env:GITHUB_ENV
 
       - name: Install Inno Setup
         shell: pwsh
