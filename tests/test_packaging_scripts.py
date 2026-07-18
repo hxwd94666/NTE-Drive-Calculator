@@ -46,6 +46,8 @@ class PackagingScriptTests(unittest.TestCase):
             core.touch()
             schema.parent.mkdir(parents=True)
             schema.touch()
+            static_database.parent.mkdir(parents=True)
+            static_database.touch()
 
             with (
                 patch.object(build_installer, "APP_EXE", app_exe),
@@ -55,17 +57,26 @@ class PackagingScriptTests(unittest.TestCase):
                 patch.object(build_installer, "APP_STATIC_DATABASE", static_database),
             ):
                 build_installer._validate_app_bundle()
+                static_database.unlink()
+                with self.assertRaisesRegex(RuntimeError, "静态数据库"):
+                    build_installer._validate_app_bundle()
+                static_database.touch()
                 core.unlink()
                 with self.assertRaisesRegex(RuntimeError, "nte-core"):
                     build_installer._validate_app_bundle()
 
-    def test_pyinstaller_collects_core_schema_and_optional_static_database(self):
+    def test_pyinstaller_collects_core_schema_and_required_static_database(self):
         source = Path("build_exe.py").read_text(encoding="utf-8")
 
         self.assertIn('NTE_CORE_ENV = "NTE_CORE_EXE"', source)
         self.assertIn('_append_add_data(SQLITE_SCHEMA_DIR, "src/storage/sqlite/schema")', source)
         self.assertIn('_append_add_binary(nte_core_path, ".")', source)
+        self.assertIn('STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"', source)
+        self.assertIn('_required_build_file("发行版静态数据库", STATIC_DATABASE_PATH)', source)
         self.assertIn('_append_add_data(static_database_path, "data")', source)
+
+        workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertNotIn("NTE_GAME_STATIC_DB_URL", workflow)
 
     def test_release_workflow_downloads_pinned_nte_core_with_hash_check(self):
         workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")

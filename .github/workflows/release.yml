@@ -162,26 +162,6 @@ jobs:
           }
           "NTE_CORE_EXE=$coreExe" >> $env:GITHUB_ENV
 
-      - name: Prepare optional static game database
-        if: ${{ vars.NTE_GAME_STATIC_DB_URL != '' }}
-        shell: pwsh
-        env:
-          STATIC_DATABASE_URL: ${{ vars.NTE_GAME_STATIC_DB_URL }}
-          STATIC_DATABASE_SHA256: ${{ vars.NTE_GAME_STATIC_DB_SHA256 }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:STATIC_DATABASE_SHA256)) {
-            throw 'NTE_GAME_STATIC_DB_SHA256 must be configured with NTE_GAME_STATIC_DB_URL.'
-          }
-          $databaseDir = Join-Path $PWD 'build_resources'
-          $databasePath = Join-Path $databaseDir 'game_static.sqlite3'
-          New-Item -ItemType Directory -Force -Path $databaseDir | Out-Null
-          Invoke-WebRequest -Uri $env:STATIC_DATABASE_URL -OutFile $databasePath
-          $databaseHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $databasePath).Hash
-          if ($databaseHash -ne $env:STATIC_DATABASE_SHA256) {
-            throw "Static database SHA-256 mismatch: $databaseHash"
-          }
-          "NTE_GAME_STATIC_DB=$databasePath" >> $env:GITHUB_ENV
-
       - name: Install Inno Setup
         shell: pwsh
         run: |

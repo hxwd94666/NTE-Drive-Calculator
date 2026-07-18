@@ -179,6 +179,16 @@ class StaticGameDataDaoTest(unittest.TestCase):
             payload = dao.get_source_payload("DataTable/Test.json", "row")
         self.assertEqual(payload, {"RawField": "RawValue"})
 
+    def test_distribution_database_can_omit_raw_source_payload(self):
+        connection = sqlite3.connect(self.database_path)
+        connection.execute("UPDATE source_row SET payload_json = NULL")
+        connection.commit()
+        connection.close()
+
+        with StaticGameDataDao(self.database_path) as dao:
+            payload = dao.get_source_payload("DataTable/Test.json", "row")
+        self.assertIsNone(payload)
+
 
 if __name__ == "__main__":
     unittest.main()

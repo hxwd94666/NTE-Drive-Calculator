@@ -34,7 +34,23 @@ python tools/game_data/build_static_database.py `
   --as-of 2026-07-18
 ```
 
-生成的数据库放在项目外。每次游戏版本更新时，开发者从本机游戏官方数据文件重新整理数据库，检查来源哈希、数量和外键后再发布允许分发的数据集。游戏官方文件和中间数据不进入开源仓库。
+提交到项目并随安装包分发的数据库必须省略来源行原文：
+
+```powershell
+python tools/game_data/build_static_database.py `
+  --source $gameDataSource `
+  --output "data\game_static.sqlite3" `
+  --report-dir "$gameDataWorkspace\reports\distribution_database" `
+  --dataset-id "unversioned_20260718" `
+  --as-of 2026-07-18 `
+  --omit-source-payloads
+```
+
+发行数据库仍保留来源文件相对路径、文件哈希、来源行键和内容哈希，但
+`source_row.payload_json` 为 `NULL`。完整来源内容只保留在开发者工作区。
+
+完整审计数据库放在项目外；省略来源行原文的发行数据库放在
+`data/game_static.sqlite3`。每次游戏版本更新时，开发者从本机游戏官方数据文件重新整理数据库，检查来源哈希、数量和外键后再更新发行数据库。游戏官方文件和中间数据不进入开源仓库。
 
 当前旧版应用仍读取旧 JSON。后续 SQLite DAO、新主页和 nte-core 同步链路只使用 v2 数据库与原始游戏/nte-core ID，不经过旧格式转换。
 

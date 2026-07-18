@@ -23,7 +23,7 @@ CREATE TABLE source_row (
     source_row_id INTEGER PRIMARY KEY,
     source_file_id INTEGER NOT NULL REFERENCES source_file(source_file_id),
     row_key TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
+    payload_json TEXT,
     content_sha256 TEXT NOT NULL,
     UNIQUE (source_file_id, row_key)
 );

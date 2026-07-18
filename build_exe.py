@@ -30,7 +30,7 @@ BUILD = ROOT / "build"
 SPEC = ROOT / "NTE_Drive_Calc.spec"
 SQLITE_SCHEMA_DIR = ROOT / "src" / "storage" / "sqlite" / "schema"
 NTE_CORE_ENV = "NTE_CORE_EXE"
-STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
+STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
 NTE_CORE_RELEASE_FILES = (
     "LICENSE",
     "BUILD_VARIANT.md",
@@ -157,23 +157,10 @@ for release_name in NTE_CORE_RELEASE_FILES:
 if not (nte_core_path.parent / "LICENSE").is_file():
     build_cli.warn("nte-core 目录没有 LICENSE；本地测试可继续，正式发布必须使用完整 Release 目录")
 
-# 静态数据库目前尚未接入旧界面：本地发布时可通过环境变量提供，CI 的公开来源
-# 确定后再改成强制依赖。只要提供了路径，路径无效就立即终止，避免悄悄漏打包。
-configured_static_database = os.environ.get(STATIC_DATABASE_ENV)
-static_database_path = _first_existing_file(
-    configured_static_database,
-    ROOT / "build_resources" / "game_static.sqlite3",
-    ROOT / "data" / "game_static.sqlite3",
-)
-if configured_static_database and static_database_path is None:
-    raise FileNotFoundError(
-        f"{STATIC_DATABASE_ENV} 指向的静态数据库不存在：{configured_static_database}"
-    )
-if static_database_path is not None:
-    _append_add_data(static_database_path, "data")
-    build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
-else:
-    build_cli.warn("未提供静态数据库；旧界面仍可运行，新数据页面接入前必须补齐发布来源")
+# 发行版静态数据库直接随源码仓库维护，确保本地构建和 GitHub Release 使用同一数据集。
+static_database_path = _required_build_file("发行版静态数据库", STATIC_DATABASE_PATH)
+_append_add_data(static_database_path, "data")
+build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
 
 
 def _find_package_dir(package_name: str) -> Path | None:

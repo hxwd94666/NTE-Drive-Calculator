@@ -350,4 +350,6 @@ class StaticGameDataDao:
             """,
             (relative_path, str(row_key)),
         )
-        return json.loads(row["payload_json"]) if row is not None else None
+        if row is None or row["payload_json"] is None:
+            return None
+        return json.loads(row["payload_json"])

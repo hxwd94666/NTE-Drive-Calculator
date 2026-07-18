@@ -183,6 +183,7 @@ class StaticDatabaseBuilder:
         game_version: str | None,
         as_of: date,
         overrides_path: Path,
+        include_source_payloads: bool = True,
     ) -> None:
         self.connection = connection
         self.content_root = content_root
@@ -190,6 +191,7 @@ class StaticDatabaseBuilder:
         self.game_version = game_version
         self.as_of = as_of
         self.overrides_path = overrides_path
+        self.include_source_payloads = include_source_payloads
         self.rows: dict[str, dict[str, Any]] = {}
         self.source_row_ids: dict[tuple[str, str], int] = {}
 
@@ -245,7 +247,7 @@ class StaticDatabaseBuilder:
                     (
                         source_file_id,
                         str(row_key),
-                        payload_json,
+                        payload_json if self.include_source_payloads else None,
                         sha256_bytes(payload_json.encode("utf-8")),
                     ),
                 )
@@ -696,6 +698,7 @@ def build_database(
     game_version: str | None,
     as_of: date,
     overrides_path: Path = DEFAULT_OVERRIDES,
+    include_source_payloads: bool = True,
 ) -> dict[str, Any]:
     content_root = resolve_content_root(source)
     output = output.expanduser().resolve()
@@ -718,6 +721,7 @@ def build_database(
                 game_version=game_version,
                 as_of=as_of,
                 overrides_path=overrides_path,
+                include_source_payloads=include_source_payloads,
             )
             counts = builder.build()
         finally:
@@ -734,6 +738,7 @@ def build_database(
         "built_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "database_path": str(output),
         "database_sha256": file_sha256(output),
+        "source_payloads_included": include_source_payloads,
         "database_counts": counts,
         "foreign_key_violations": [],
     }
@@ -756,6 +761,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--game-version", default=None)
     parser.add_argument("--as-of", type=date.fromisoformat, default=date.today())
     parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
+    parser.add_argument(
+        "--omit-source-payloads",
+        action="store_true",
+        help="发行数据库不保存来源行原文，只保留行键和 SHA-256",
+    )
     return parser.parse_args()
 
 
@@ -769,6 +779,7 @@ def main() -> int:
         game_version=args.game_version,
         as_of=args.as_of,
         overrides_path=args.overrides,
+        include_source_payloads=not args.omit_source_payloads,
     )
     print(f"SQLite: {Path(args.output).resolve()}")
     print(f"Report: {Path(args.report_dir).resolve()}")

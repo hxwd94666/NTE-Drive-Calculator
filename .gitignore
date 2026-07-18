@@ -46,6 +46,7 @@ config/update_config.json
 /game_dumps/
 /local_game_data/
 *.sqlite3
+!/data/game_static.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
 /nte-core.exe

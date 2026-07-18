@@ -17,6 +17,7 @@ SCHEMA_PATH = (
     / "schema"
     / "002_game_static.sql"
 )
+PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
 
 def load_builder_module():
@@ -32,6 +33,35 @@ def load_builder_module():
 
 
 class StaticGameDatabaseTests(unittest.TestCase):
+    def test_checked_in_distribution_database_has_no_source_payloads(self):
+        self.assertTrue(PROJECT_DATABASE_PATH.is_file())
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            payload_count = connection.execute(
+                "SELECT COUNT(*) FROM source_row WHERE payload_json IS NOT NULL"
+            ).fetchone()[0]
+            character_count = connection.execute(
+                "SELECT COUNT(*) FROM character"
+            ).fetchone()[0]
+            source_row_count = connection.execute(
+                "SELECT COUNT(*) FROM source_row"
+            ).fetchone()[0]
+            source_hash_count = connection.execute(
+                "SELECT COUNT(*) FROM source_row WHERE LENGTH(content_sha256) = 64"
+            ).fetchone()[0]
+            absolute_path_count = connection.execute(
+                "SELECT COUNT(*) FROM source_file WHERE INSTR(relative_path, ':') > 0"
+            ).fetchone()[0]
+            violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        finally:
+            connection.close()
+
+        self.assertEqual(0, payload_count)
+        self.assertGreater(character_count, 0)
+        self.assertEqual(source_row_count, source_hash_count)
+        self.assertEqual(0, absolute_path_count)
+        self.assertEqual([], violations)
+
     def test_schema_can_be_created_with_foreign_keys_enabled(self):
         connection = sqlite3.connect(":memory:")
         connection.execute("PRAGMA foreign_keys = ON")
@@ -52,6 +82,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
         self.assertNotIn("legacy_shape_id", schema)
         self.assertIn("character_annotation", schema)
+        self.assertIn("payload_json TEXT,", schema)
+        self.assertNotIn("payload_json TEXT NOT NULL", schema)
 
     def test_plan_grid_discards_border_and_keeps_playable_anchor_cells(self):
         module = load_builder_module()

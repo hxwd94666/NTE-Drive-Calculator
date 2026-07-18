@@ -132,12 +132,11 @@ def _validate_app_bundle() -> None:
         "PyInstaller 运行目录": APP_INTERNAL,
         "nte-core 本地组件": APP_NTE_CORE,
         "用户数据库结构": APP_USER_SCHEMA,
+        "发行版静态数据库": APP_STATIC_DATABASE,
     }
     missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]
     if missing:
         raise RuntimeError("PyInstaller 产物不完整，缺少：\n" + "\n".join(missing))
-    if not APP_STATIC_DATABASE.is_file():
-        build_cli.warn("安装包未包含静态数据库；旧界面可运行，新数据页面暂不可用")
 
 
 def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False, require_workshop_sync: bool = False) -> None:
