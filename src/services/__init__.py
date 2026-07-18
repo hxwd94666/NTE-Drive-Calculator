@@ -7,6 +7,11 @@ from .inventory_snapshot_stabilizer import (
     StableInventorySnapshot,
 )
 from .inventory_sync_service import InventorySyncService, InventorySyncState
+from .sqlite_loadout_optimizer import (
+    LoadoutOptimizationError,
+    LoadoutOptimizationResult,
+    SqliteLoadoutOptimizer,
+)
 
 __all__ = [
     "InventorySnapshotStabilizer",
@@ -14,4 +19,7 @@ __all__ = [
     "StableInventorySnapshot",
     "InventorySyncService",
     "InventorySyncState",
+    "LoadoutOptimizationError",
+    "LoadoutOptimizationResult",
+    "SqliteLoadoutOptimizer",
 ]

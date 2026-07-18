@@ -30,9 +30,11 @@ def item(serial: int, slot: int, kind: str = "module") -> dict:
         "level": 20,
         "max_level": 20,
         "locked": serial % 2 == 0,
+        "discarded": False,
         "equipped": False,
         "equipped_character_uid": None,
         "equipped_character_id": None,
+        "equipped_placement": None,
         "names": {"zh_cn": "测试驱动"},
         "suit_names": {"zh_cn": "测试空幕"},
         "main_stats": [stat("AtkUp", 0.1, True)],
@@ -129,6 +131,8 @@ class UserDataDaoTest(unittest.TestCase):
         modules = self.dao.list_current_inventory_items(kind="module")
         self.assertEqual(modules[0]["item_id"], "cell3_style1_1_Orange")
         self.assertEqual(modules[0]["geometry"], "ZhiJiao1")
+        self.assertFalse(modules[0]["discarded"])
+        self.assertIsNone(modules[0]["equipped_placement"])
         self.assertEqual(modules[0]["main_stats"][0]["property_id"], "AtkUp")
         self.assertEqual(
             self.dao.raw_snapshot(snapshot_id)["method"], "event.inventory.snapshot"
@@ -189,6 +193,8 @@ class UserDataDaoTest(unittest.TestCase):
         self.assertEqual(plans[0]["character_id"], 1003)
         self.assertEqual(plans[0]["assignments"][0]["uid_serial"], 11)
         self.assertTrue(plans[0]["is_active"])
+        self.assertEqual(self.dao.get_loadout_plan(plan_id)["plan_id"], plan_id)
+        self.assertIsNone(self.dao.get_loadout_plan(plan_id + 1000))
 
     def test_foreign_keys_are_enabled(self) -> None:
         with self.assertRaises(sqlite3.IntegrityError):

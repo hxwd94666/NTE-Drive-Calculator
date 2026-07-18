@@ -264,6 +264,21 @@ class StaticGameDataDao:
             row["is_guide_item"] = bool(row["is_guide_item"])
         return rows
 
+    def get_equipment_item(self, item_id: str) -> dict[str, Any] | None:
+        """按游戏官方物品 ID 返回一条装备模板。"""
+
+        raw_item_id = str(item_id).strip()
+        if not raw_item_id:
+            raise ValueError("item_id 不能为空")
+        return next(
+            (
+                item
+                for item in self.list_equipment_items()
+                if item["item_id"] == raw_item_id
+            ),
+            None,
+        )
+
     def list_forks(self) -> list[dict[str, Any]]:
         rows = self._rows(
             """

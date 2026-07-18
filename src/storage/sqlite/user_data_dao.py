@@ -539,7 +539,7 @@ class UserDataDao:
             SELECT snapshot_id, uid_serial, uid_slot, kind, item_id, suit_id,
                    geometry, grid_count, quality, level, max_level, locked,
                    equipped, equipped_character_uid_json, equipped_character_id,
-                   names_json, suit_names_json
+                   names_json, suit_names_json, raw_item_json
             FROM inventory_item
             {where}
             ORDER BY kind, uid_slot, uid_serial{limit_sql}
@@ -576,6 +576,12 @@ class UserDataDao:
             )
             row["names"] = _decoded(row.pop("names_json"), {})
             row["suit_names"] = _decoded(row.pop("suit_names_json"), {})
+            raw_item = _decoded(row.pop("raw_item_json"), {})
+            row["discarded"] = bool(raw_item.get("discarded", False))
+            placement = raw_item.get("equipped_placement")
+            row["equipped_placement"] = (
+                dict(placement) if isinstance(placement, Mapping) else None
+            )
             item_stats = stats_by_uid.get(
                 (row["uid_serial"], row["uid_slot"]), {"main": [], "sub": []}
             )
@@ -747,6 +753,19 @@ class UserDataDao:
                     assignment.pop("raw_assignment_json"), {}
                 )
         return rows
+
+    def get_loadout_plan(self, plan_id: int) -> dict[str, Any] | None:
+        """按方案 ID 返回完整方案；读取格式与 ``list_loadout_plans`` 一致。"""
+
+        raw_plan_id = _integer(plan_id, "plan_id", minimum=1)
+        return next(
+            (
+                plan
+                for plan in self.list_loadout_plans()
+                if plan["plan_id"] == raw_plan_id
+            ),
+            None,
+        )
 
     def summary(self) -> dict[str, Any]:
         return {
