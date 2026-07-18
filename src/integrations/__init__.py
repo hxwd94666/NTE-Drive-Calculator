@@ -9,6 +9,7 @@ from src.integrations.nte_core import (
     NteCoreRpcError,
     NteCoreTimeoutError,
     group_inventory_items_by_character,
+    inventory_item_placement,
     resolve_nte_core_executable,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "NteCoreRpcError",
     "NteCoreTimeoutError",
     "group_inventory_items_by_character",
+    "inventory_item_placement",
     "resolve_nte_core_executable",
 ]
