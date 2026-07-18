@@ -155,6 +155,8 @@
 
 ## 🧑‍💻本地开发
 
+`2.0.0` 分支正在把运行数据迁移到 SQLite，并以游戏官方 ID 作为新服务层的数据边界。当前已提供主页工作台、后台稳定背包同步、官方蓝图配装基线和带新快照验证的一键装配服务。详细设计见 [架构说明](docs/architecture.md) 与 [扩展指南](docs/extension-guide.md)。
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate

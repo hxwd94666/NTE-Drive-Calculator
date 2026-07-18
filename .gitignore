@@ -23,7 +23,6 @@ Thumbs.db
 build/
 dist/
 *.spec
-docs/
 
 # Installer generated files with local absolute paths
 installer/*.iss
