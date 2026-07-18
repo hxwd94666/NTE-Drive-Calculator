@@ -11,8 +11,12 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
+USER_MIGRATIONS = {
+    2: Path(__file__).with_name("schema") / "003_user_data_v2.sql",
+}
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
 
@@ -90,6 +94,7 @@ class UserDataDao:
                 self.close()
                 self.database_path.unlink(missing_ok=True)
                 raise
+        self._migrate_schema()
         self._validate_schema()
 
     def __enter__(self) -> "UserDataDao":
@@ -118,7 +123,7 @@ class UserDataDao:
             now = _utc_now()
             connection.execute(
                 "INSERT INTO schema_migration(version, applied_at_utc) VALUES (?, ?)",
-                (SCHEMA_VERSION, now),
+                (BASE_SCHEMA_VERSION, now),
             )
             connection.execute(
                 """
@@ -134,7 +139,7 @@ class UserDataDao:
                     singleton_id, inventory_sync_method, equipment_apply_method,
                     capture_device_id, raw_capture_enabled,
                     inventory_settle_seconds, updated_at_utc
-                ) VALUES (1, 'nte_core', 'nte_core', NULL, 0, 15.0, ?)
+                ) VALUES (1, 'nte_core', 'nte_core', NULL, 0, 5.0, ?)
                 """,
                 (now,),
             )
@@ -142,6 +147,34 @@ class UserDataDao:
             connection.execute("PRAGMA journal_mode = WAL")
         except (OSError, sqlite3.Error) as exc:
             raise UserDataError("无法初始化用户数据库") from exc
+
+    def _migrate_schema(self) -> None:
+        connection = self._db()
+        try:
+            row = connection.execute(
+                "SELECT MAX(version) AS version FROM schema_migration"
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise UserDataError("文件不是 NTE 用户数据库") from exc
+        version = int(row["version"] or 0) if row is not None else 0
+        if version > SCHEMA_VERSION:
+            raise UserDataError(
+                f"用户数据库结构版本 {version} 高于当前程序支持的 {SCHEMA_VERSION}"
+            )
+        try:
+            for target_version in range(version + 1, SCHEMA_VERSION + 1):
+                migration_path = USER_MIGRATIONS.get(target_version)
+                if migration_path is None or not migration_path.is_file():
+                    raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")
+                connection.executescript(migration_path.read_text(encoding="utf-8"))
+                connection.execute(
+                    "INSERT INTO schema_migration(version, applied_at_utc) VALUES (?, ?)",
+                    (target_version, _utc_now()),
+                )
+                connection.commit()
+        except (OSError, sqlite3.Error) as exc:
+            connection.rollback()
+            raise UserDataError("无法升级用户数据库结构") from exc
 
     def _validate_schema(self) -> None:
         try:
@@ -186,6 +219,7 @@ class UserDataDao:
             raise UserDataError("用户数据库缺少同步设置")
         settings.pop("singleton_id", None)
         settings["raw_capture_enabled"] = bool(settings["raw_capture_enabled"])
+        settings["auto_start_inventory_sync"] = bool(settings["auto_start_inventory_sync"])
         return settings
 
     def update_sync_settings(
@@ -196,6 +230,7 @@ class UserDataDao:
         capture_device_id: str | None = None,
         raw_capture_enabled: bool | None = None,
         inventory_settle_seconds: float | None = None,
+        auto_start_inventory_sync: bool | None = None,
     ) -> dict[str, Any]:
         current = self.get_sync_settings()
         inventory_method = inventory_sync_method or current["inventory_sync_method"]
@@ -207,17 +242,31 @@ class UserDataDao:
         device_id = current["capture_device_id"] if capture_device_id is None else str(capture_device_id).strip() or None
         raw_enabled = current["raw_capture_enabled"] if raw_capture_enabled is None else bool(raw_capture_enabled)
         settle = current["inventory_settle_seconds"] if inventory_settle_seconds is None else float(inventory_settle_seconds)
-        if settle < 0:
-            raise UserDataValidationError("inventory_settle_seconds 不能为负数")
+        if settle <= 0:
+            raise UserDataValidationError("inventory_settle_seconds 必须大于 0")
+        auto_start = (
+            current["auto_start_inventory_sync"]
+            if auto_start_inventory_sync is None
+            else bool(auto_start_inventory_sync)
+        )
         self._db().execute(
             """
             UPDATE sync_settings
             SET inventory_sync_method = ?, equipment_apply_method = ?,
                 capture_device_id = ?, raw_capture_enabled = ?,
-                inventory_settle_seconds = ?, updated_at_utc = ?
+                inventory_settle_seconds = ?, auto_start_inventory_sync = ?,
+                updated_at_utc = ?
             WHERE singleton_id = 1
             """,
-            (inventory_method, apply_method, device_id, int(raw_enabled), settle, _utc_now()),
+            (
+                inventory_method,
+                apply_method,
+                device_id,
+                int(raw_enabled),
+                settle,
+                int(auto_start),
+                _utc_now(),
+            ),
         )
         self._db().commit()
         return self.get_sync_settings()

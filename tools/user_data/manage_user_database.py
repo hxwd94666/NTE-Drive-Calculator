@@ -53,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     set_parser.add_argument("--capture-device")
     set_parser.add_argument("--raw-capture", choices=("enabled", "disabled"))
     set_parser.add_argument("--settle-seconds", type=float)
+    set_parser.add_argument("--auto-start", choices=("yes", "no"))
 
     plans_parser = subparsers.add_parser("plans", help="列出已保存的装配方案")
     plans_parser.add_argument("--character-id", type=int)
@@ -103,6 +104,8 @@ def main() -> int:
                 capture_device_id=args.capture_device,
                 raw_capture_enabled=raw_capture,
                 inventory_settle_seconds=args.settle_seconds,
+                auto_start_inventory_sync=(args.auto_start == "yes")
+                if args.auto_start is not None else None,
             )
         elif args.command == "plans":
             result = dao.list_loadout_plans(args.character_id)

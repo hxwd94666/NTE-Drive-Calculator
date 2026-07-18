@@ -24,7 +24,7 @@ CREATE TABLE sync_settings (
     capture_device_id TEXT,
     raw_capture_enabled INTEGER NOT NULL DEFAULT 0
         CHECK (raw_capture_enabled IN (0, 1)),
-    inventory_settle_seconds REAL NOT NULL DEFAULT 15.0
+    inventory_settle_seconds REAL NOT NULL DEFAULT 5.0
         CHECK (inventory_settle_seconds >= 0),
     updated_at_utc TEXT NOT NULL
 );

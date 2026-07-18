@@ -69,20 +69,52 @@ class UserDataDaoTest(unittest.TestCase):
 
     def test_initializes_profile_and_typed_sync_settings(self) -> None:
         summary = self.dao.summary()
-        self.assertEqual(summary["schema_version"], 1)
+        self.assertEqual(summary["schema_version"], 2)
         self.assertEqual(summary["profile"]["account_id"], "default")
         self.assertEqual(summary["sync_settings"]["inventory_sync_method"], "nte_core")
+        self.assertEqual(summary["sync_settings"]["inventory_settle_seconds"], 5.0)
+        self.assertFalse(summary["sync_settings"]["auto_start_inventory_sync"])
 
         settings = self.dao.update_sync_settings(
             inventory_sync_method="gamepad",
             equipment_apply_method="nte_core",
             raw_capture_enabled=True,
             inventory_settle_seconds=8.5,
+            auto_start_inventory_sync=True,
         )
         self.assertEqual(settings["inventory_sync_method"], "gamepad")
         self.assertTrue(settings["raw_capture_enabled"])
+        self.assertTrue(settings["auto_start_inventory_sync"])
         with self.assertRaises(UserDataValidationError):
             self.dao.update_sync_settings(inventory_sync_method="legacy_json")
+
+    def test_migrates_existing_v1_database_without_losing_profile(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_v1.sqlite3"
+        schema_path = Path(__file__).resolve().parents[1] / "src" / "storage" / "sqlite" / "schema" / "001_user_data.sql"
+        connection = sqlite3.connect(legacy_path)
+        connection.executescript(schema_path.read_text(encoding="utf-8"))
+        connection.execute("INSERT INTO schema_migration VALUES (1, '2026-07-18')")
+        connection.execute(
+            "INSERT INTO database_profile VALUES (1, 'legacy', '旧账号', 'now', 'now')"
+        )
+        connection.execute(
+            """
+            INSERT INTO sync_settings(
+                singleton_id, inventory_sync_method, equipment_apply_method,
+                capture_device_id, raw_capture_enabled,
+                inventory_settle_seconds, updated_at_utc
+            ) VALUES (1, 'nte_core', 'nte_core', NULL, 0, 15.0, 'now')
+            """
+        )
+        connection.commit()
+        connection.close()
+
+        with UserDataDao(legacy_path) as migrated:
+            settings = migrated.get_sync_settings()
+            self.assertEqual(2, migrated.summary()["schema_version"])
+            self.assertEqual("旧账号", migrated.profile()["account_name"])
+            self.assertEqual(5.0, settings["inventory_settle_seconds"])
+            self.assertFalse(settings["auto_start_inventory_sync"])
 
     def test_imports_complete_snapshot_and_keeps_raw_ids_and_stats(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
