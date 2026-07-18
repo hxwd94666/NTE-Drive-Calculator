@@ -1,3 +1,4 @@
+# 测试后台背包同步的持续监听、稳定写入和安全停止。
 from __future__ import annotations
 
 import tempfile

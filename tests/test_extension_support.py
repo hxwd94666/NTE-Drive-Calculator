@@ -11,9 +11,9 @@ class NavigationSupportTests(unittest.TestCase):
 
         keys = [item.key for item in NAV_ITEMS]
 
-        self.assertEqual(["execute", "equipment", "my_role", "identify", "blueprint", "config", "settings"], keys)
+        self.assertEqual(["home", "execute", "equipment", "my_role", "identify", "blueprint", "config", "settings"], keys)
         self.assertEqual(
-            {"execute": 0, "equipment": 1, "my_role": 2, "identify": 3, "blueprint": 4, "config": 5, "settings": 6},
+            {"home": 0, "execute": 1, "equipment": 2, "my_role": 3, "identify": 4, "blueprint": 5, "config": 6, "settings": 7},
             nav_index_map(),
         )
         self.assertEqual("⚙  配置", nav_title_map()["config"])

@@ -1,3 +1,4 @@
+# 在应用生命周期内持续接收、稳定并保存本地核心组件的背包快照。
 """在应用生命周期内持续接收、稳定并保存 nte-core 背包快照。"""
 
 from __future__ import annotations

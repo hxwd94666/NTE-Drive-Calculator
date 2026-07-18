@@ -1,3 +1,4 @@
+# 测试连续背包快照的稳定判定和任意账号数量兼容性。
 from __future__ import annotations
 
 import unittest
