@@ -115,6 +115,23 @@ class UserDataDaoTest(unittest.TestCase):
             self.dao.import_inventory_snapshot(invalid)
         self.assertEqual(self.dao.current_inventory_summary()["snapshot_id"], second_id)
 
+    def test_calculation_can_pin_an_immutable_snapshot_while_current_changes(self) -> None:
+        first_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
+        pinned = self.dao.list_inventory_items(first_id)
+        second_id = self.dao.import_inventory_snapshot(
+            snapshot(2, [item(1, 1), item(2, 2)])
+        )
+
+        self.assertEqual(first_id, pinned[0]["snapshot_id"])
+        self.assertEqual(1, len(self.dao.list_inventory_items(first_id)))
+        self.assertEqual(2, len(self.dao.list_inventory_items(second_id)))
+        self.assertEqual(second_id, self.dao.current_inventory_snapshot_id())
+        self.assertEqual(first_id, self.dao.inventory_snapshot_summary(first_id)["snapshot_id"])
+
+        diff = self.dao.inventory_snapshot_diff(first_id, second_id)
+        self.assertEqual(1, diff["added_count"])
+        self.assertEqual(0, diff["removed_count"])
+
     def test_saves_loadout_using_native_uid_and_character_id(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
         plan_id = self.dao.save_loadout_plan(

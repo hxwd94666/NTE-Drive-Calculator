@@ -399,6 +399,21 @@ class UserDataDao:
         return rows
 
     def current_inventory_summary(self) -> dict[str, Any] | None:
+        snapshot_id = self.current_inventory_snapshot_id()
+        return self.inventory_snapshot_summary(snapshot_id) if snapshot_id is not None else None
+
+    def current_inventory_snapshot_id(self) -> int | None:
+        """返回当前稳定背包快照 ID；尚未同步时返回 ``None``。"""
+
+        row = self._one(
+            "SELECT snapshot_id FROM inventory_snapshot WHERE is_current = 1"
+        )
+        return int(row["snapshot_id"]) if row is not None else None
+
+    def inventory_snapshot_summary(self, snapshot_id: int) -> dict[str, Any] | None:
+        """读取指定不可变快照的摘要，供计算任务固定输入版本。"""
+
+        raw_snapshot_id = _integer(snapshot_id, "snapshot_id", minimum=1)
         row = self._one(
             """
             SELECT s.snapshot_id, s.source, s.generation, s.sequence,
@@ -410,9 +425,10 @@ class UserDataDao:
                    SUM(CASE WHEN i.locked = 1 THEN 1 ELSE 0 END) AS locked_count
             FROM inventory_snapshot AS s
             LEFT JOIN inventory_item AS i USING (snapshot_id)
-            WHERE s.is_current = 1
+            WHERE s.snapshot_id = ?
             GROUP BY s.snapshot_id
-            """
+            """,
+            (raw_snapshot_id,),
         )
         if row is not None:
             for field in ("module_count", "core_count", "equipped_count", "locked_count"):
@@ -427,10 +443,33 @@ class UserDataDao:
         character_id: int | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        snapshot_id = self.current_inventory_snapshot_id()
+        if snapshot_id is None:
+            return []
+        return self.list_inventory_items(
+            snapshot_id,
+            kind=kind,
+            equipped=equipped,
+            character_id=character_id,
+            limit=limit,
+        )
+
+    def list_inventory_items(
+        self,
+        snapshot_id: int,
+        *,
+        kind: str | None = None,
+        equipped: bool | None = None,
+        character_id: int | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """读取指定快照，而不是在长时间计算中跟随 ``is_current`` 漂移。"""
+
+        raw_snapshot_id = _integer(snapshot_id, "snapshot_id", minimum=1)
         if kind not in (None, "module", "core"):
             raise UserDataValidationError("kind 必须是 module、core 或 None")
-        conditions: list[str] = []
-        parameters: list[Any] = []
+        conditions: list[str] = ["snapshot_id = ?"]
+        parameters: list[Any] = [raw_snapshot_id]
         if kind is not None:
             conditions.append("kind = ?")
             parameters.append(kind)
@@ -452,7 +491,7 @@ class UserDataDao:
                    geometry, grid_count, quality, level, max_level, locked,
                    equipped, equipped_character_uid_json, equipped_character_id,
                    names_json, suit_names_json
-            FROM current_inventory_item
+            FROM inventory_item
             {where}
             ORDER BY kind, uid_slot, uid_serial{limit_sql}
             """,
@@ -460,7 +499,6 @@ class UserDataDao:
         )
         if not rows:
             return rows
-        snapshot_id = rows[0]["snapshot_id"]
         stats = self._rows(
             """
             SELECT uid_serial, uid_slot, stat_group, ordinal, property_id,
@@ -469,7 +507,7 @@ class UserDataDao:
             WHERE snapshot_id = ?
             ORDER BY uid_slot, uid_serial, stat_group, ordinal
             """,
-            (snapshot_id,),
+            (raw_snapshot_id,),
         )
         stats_by_uid: dict[tuple[int, int], dict[str, list[dict[str, Any]]]] = {}
         selected_uids = {(row["uid_serial"], row["uid_slot"]) for row in rows}
@@ -495,6 +533,56 @@ class UserDataDao:
             row["main_stats"] = item_stats["main"]
             row["sub_stats"] = item_stats["sub"]
         return rows
+
+    def inventory_snapshot_diff(self, before_snapshot_id: int, after_snapshot_id: int) -> dict[str, Any]:
+        """按原始 UID 比较两个稳定快照，并区分新增、移除和内容变化。"""
+
+        before_id = _integer(before_snapshot_id, "before_snapshot_id", minimum=1)
+        after_id = _integer(after_snapshot_id, "after_snapshot_id", minimum=1)
+        before = {
+            (row["uid_slot"], row["uid_serial"]): row
+            for row in self._rows(
+                """
+                SELECT uid_slot, uid_serial, raw_item_json
+                FROM inventory_item WHERE snapshot_id = ?
+                """,
+                (before_id,),
+            )
+        }
+        after = {
+            (row["uid_slot"], row["uid_serial"]): row
+            for row in self._rows(
+                """
+                SELECT uid_slot, uid_serial, raw_item_json
+                FROM inventory_item WHERE snapshot_id = ?
+                """,
+                (after_id,),
+            )
+        }
+        added = sorted(after.keys() - before.keys())
+        removed = sorted(before.keys() - after.keys())
+        changed = sorted(
+            uid
+            for uid in before.keys() & after.keys()
+            if before[uid]["raw_item_json"] != after[uid]["raw_item_json"]
+        )
+
+        def rows(values: list[tuple[int, int]]) -> list[dict[str, int]]:
+            return [
+                {"uid_slot": slot, "uid_serial": serial}
+                for slot, serial in values
+            ]
+
+        return {
+            "before_snapshot_id": before_id,
+            "after_snapshot_id": after_id,
+            "added": rows(added),
+            "removed": rows(removed),
+            "changed": rows(changed),
+            "added_count": len(added),
+            "removed_count": len(removed),
+            "changed_count": len(changed),
+        }
 
     def raw_snapshot(self, snapshot_id: int) -> dict[str, Any] | None:
         row = self._one(
