@@ -64,6 +64,7 @@ ACCOUNTS_INDEX_FILE = ACCOUNTS_DIR / "accounts.json"
 ACTIVE_ACCOUNT_ID = "default"
 ACTIVE_ACCOUNT_NAME = "默认账号"
 ACCOUNT_DATA_ROOT = ACCOUNTS_DIR / ACTIVE_ACCOUNT_ID
+USER_DATABASE_PATH = ACCOUNT_DATA_ROOT / "user_data.sqlite3"
 USER_CONFIG_DIR = ACCOUNT_DATA_ROOT / "config"
 TEMPLATE_DIR = CONFIG_DIR / "templates"
 OUTPUT_FILE = USER_CONFIG_DIR / "real_inventory.json"
@@ -80,10 +81,11 @@ runtime.configure(
 )
 
 def _apply_account_state(state):
-    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_CONFIG_DIR, OUTPUT_FILE, SCREENSHOT_DIR, LOG_DIR
+    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_DATABASE_PATH, USER_CONFIG_DIR, OUTPUT_FILE, SCREENSHOT_DIR, LOG_DIR
     ACTIVE_ACCOUNT_ID = state.active_account_id
     ACTIVE_ACCOUNT_NAME = state.active_account_name
     ACCOUNT_DATA_ROOT = state.account_data_root
+    USER_DATABASE_PATH = state.user_database_path
     USER_CONFIG_DIR = state.user_config_dir
     OUTPUT_FILE = state.output_file
     SCREENSHOT_DIR = state.screenshot_dir
