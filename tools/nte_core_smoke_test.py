@@ -23,6 +23,10 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CORE_PATH = PROJECT_ROOT / "nte-core.exe"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "logs" / "nte_core"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.services.inventory_snapshot_stabilizer import InventorySnapshotStabilizer
 
 
 class NteCoreClient:
@@ -185,36 +189,23 @@ def wait_for_inventory_snapshots(
     client: NteCoreClient,
     *,
     timeout: float,
-    expected_min_items: int,
     settle_seconds: float,
 ) -> tuple[dict[str, Any] | None, int, bool]:
-    """登录后保留最大完整快照，直到背包事件稳定。
+    """等待最新完整背包内容在静默期内不再变化。
 
-    nte-core 会发送完整快照，但登录背包数据流目前没有单独的结束事件，因此使用
-    一段无新事件的静默期作为完成信号。已知背包大致数量时，调用方还可以要求最小
-    数量，避免过早结束。
+    此工具和正式后台服务共用同一稳定器：不猜测玩家应有多少件物品，也不保留
+    历史最大数量。后续更小但确实稳定的快照同样有效。
     """
     deadline = time.monotonic() + timeout
-    largest_event: dict[str, Any] | None = None
-    largest_count = 0
-    last_complete_snapshot_at: float | None = None
-    waiting_for_minimum_reported = False
+    stabilizer = InventorySnapshotStabilizer(settle_seconds)
+    latest_event: dict[str, Any] | None = None
+    latest_count = 0
 
     while time.monotonic() < deadline:
         print_new_diagnostics(client)
-        now = time.monotonic()
-        if largest_event is not None and last_complete_snapshot_at is not None:
-            quiet_seconds = now - last_complete_snapshot_at
-            if quiet_seconds >= settle_seconds:
-                if largest_count >= expected_min_items:
-                    return largest_event, largest_count, True
-                if not waiting_for_minimum_reported:
-                    print(
-                        f"已连续 {settle_seconds:.0f} 秒没有新快照，但当前最大快照仅 "
-                        f"{largest_count} 件，仍在等待至少 {expected_min_items} 件。",
-                        file=sys.stderr,
-                    )
-                    waiting_for_minimum_reported = True
+        stable = stabilizer.ready()
+        if stable is not None:
+            return stable.message, stable.item_count, True
 
         remaining = max(0.1, deadline - time.monotonic())
         try:
@@ -237,25 +228,19 @@ def wait_for_inventory_snapshots(
         if not payload:
             print_json(method, event)
             continue
-        if payload.get("complete") is not True:
-            print(
-                "收到尚未完成的背包快照；继续等待。"
-            )
+        result = stabilizer.offer(event)
+        if result.status == "ignored":
+            print(f"忽略无效背包快照：{result.reason}", file=sys.stderr)
             continue
-
-        count = inventory_item_count(payload)
-        last_complete_snapshot_at = time.monotonic()
-        waiting_for_minimum_reported = False
+        latest_event = event
+        latest_count = int(result.item_count or 0)
         generation = payload.get("generation", "?")
         print(
-            f"已收到完整背包快照：{count} 件（generation={generation}）；"
-            "继续等待后续快照稳定。"
+            f"已收到背包快照：{latest_count} 件（generation={generation}，"
+            f"状态={result.status}）；继续等待内容稳定。"
         )
-        if largest_event is None or count >= largest_count:
-            largest_event = event
-            largest_count = count
 
-    return largest_event, largest_count, False
+    return latest_event, latest_count, False
 
 
 def parse_args() -> argparse.Namespace:
@@ -274,16 +259,10 @@ def parse_args() -> argparse.Namespace:
         help="数据同步启动后的最长等待秒数（默认：240）",
     )
     parser.add_argument(
-        "--expected-min-items",
-        type=int,
-        default=0,
-        help="不接受低于此数量的快照（默认：0）",
-    )
-    parser.add_argument(
         "--settle-seconds",
         type=float,
-        default=15.0,
-        help="最后一个完整快照后等待的静默秒数（默认：15）",
+        default=5.0,
+        help="最后一次背包内容变化后等待的静默秒数（默认：5）",
     )
     parser.add_argument(
         "--raw-capture",
@@ -299,9 +278,6 @@ def main() -> int:
     executable = args.core.resolve()
     if not executable.is_file():
         print(f"找不到 nte-core.exe：{executable}", file=sys.stderr)
-        return 2
-    if args.expected_min_items < 0:
-        print("--expected-min-items 不能小于 0。", file=sys.stderr)
         return 2
     if args.settle_seconds <= 0:
         print("--settle-seconds 必须大于 0。", file=sys.stderr)
@@ -354,7 +330,6 @@ def main() -> int:
             event, item_count, settled = wait_for_inventory_snapshots(
                 client,
                 timeout=args.timeout,
-                expected_min_items=args.expected_min_items,
                 settle_seconds=args.settle_seconds,
             )
             if event is None:
@@ -363,7 +338,7 @@ def main() -> int:
             if not settled:
                 print(
                     f"在 {args.timeout:.0f} 秒内未等到背包数据稳定；"
-                    f"最大完整快照为 {item_count} 件，未保存为最终结果。",
+                    f"最后完整快照为 {item_count} 件，未保存为最终结果。",
                     file=sys.stderr,
                 )
                 return 1

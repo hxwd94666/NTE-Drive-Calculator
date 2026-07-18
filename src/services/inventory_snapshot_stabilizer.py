@@ -277,10 +277,12 @@ class InventorySnapshotStabilizer:
     def seed_committed(self, snapshot: Mapping[str, Any]) -> None:
         """用数据库中的当前快照初始化去重基线，不开启新的稳定周期。"""
 
-        _message, payload, _count, uids, fingerprint = _validated_content(snapshot)
+        _message, _payload, _count, uids, fingerprint = _validated_content(snapshot)
         self._committed_fingerprint = fingerprint
         self._committed_uids = uids
         self._candidate = None
         self._candidate_uids = frozenset()
-        self._last_generation = _integer_or_none(payload.get("generation"))
-        self._last_sequence = _integer_or_none(payload.get("sequence"))
+        # generation/sequence 只在当前 nte-core 进程会话内有序。应用重启后新会话可能
+        # 从较小的序号重新开始，因此数据库中的旧序号不能作为乱序过滤基线。
+        self._last_generation = None
+        self._last_sequence = None

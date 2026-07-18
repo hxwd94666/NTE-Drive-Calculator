@@ -5,9 +5,12 @@ from .inventory_snapshot_stabilizer import (
     SnapshotOfferResult,
     StableInventorySnapshot,
 )
+from .inventory_sync_service import InventorySyncService, InventorySyncState
 
 __all__ = [
     "InventorySnapshotStabilizer",
     "SnapshotOfferResult",
     "StableInventorySnapshot",
+    "InventorySyncService",
+    "InventorySyncState",
 ]
