@@ -11,9 +11,12 @@ import os
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -111,6 +114,69 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     theme_row.addStretch()
     log_card.layout().addLayout(theme_row)
     layout.addWidget(log_card)
+
+    sync_card = window._card("背包同步与装配")
+    sync_description = QLabel(
+        "流式同步会在背包内容连续数秒没有变化后写入 SQLite，并继续后台监听。"
+        "原始诊断文件默认关闭。"
+    )
+    sync_description.setWordWrap(True)
+    sync_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+    sync_card.layout().addWidget(sync_description)
+    sync_form = QFormLayout()
+    sync_form.setSpacing(10)
+
+    settings = window._get_sync_settings()
+    window._sync_inventory_method_combo = QComboBox()
+    window._sync_inventory_method_combo.addItem("本地核心组件流式同步", "nte_core")
+    window._sync_inventory_method_combo.addItem("手柄扫描", "gamepad")
+    inventory_index = window._sync_inventory_method_combo.findData(
+        settings["inventory_sync_method"]
+    )
+    window._sync_inventory_method_combo.setCurrentIndex(max(0, inventory_index))
+    sync_form.addRow("背包获取方式:", window._sync_inventory_method_combo)
+
+    window._sync_apply_method_combo = QComboBox()
+    window._sync_apply_method_combo.addItem("本地核心组件一键装配", "nte_core")
+    window._sync_apply_method_combo.addItem("手柄装配", "gamepad")
+    apply_index = window._sync_apply_method_combo.findData(
+        settings["equipment_apply_method"]
+    )
+    window._sync_apply_method_combo.setCurrentIndex(max(0, apply_index))
+    sync_form.addRow("装配执行方式:", window._sync_apply_method_combo)
+
+    window._sync_settle_spin = QDoubleSpinBox()
+    window._sync_settle_spin.setRange(1.0, 30.0)
+    window._sync_settle_spin.setDecimals(1)
+    window._sync_settle_spin.setSingleStep(0.5)
+    window._sync_settle_spin.setSuffix(" 秒")
+    window._sync_settle_spin.setValue(float(settings["inventory_settle_seconds"]))
+    sync_form.addRow("内容稳定等待:", window._sync_settle_spin)
+
+    window._sync_capture_device_edit = QLineEdit()
+    window._sync_capture_device_edit.setPlaceholderText("留空表示自动选择网卡")
+    window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
+    sync_form.addRow("抓取网卡:", window._sync_capture_device_edit)
+
+    window._sync_auto_start_toggle = QCheckBox("软件启动后自动在后台等待背包")
+    window._sync_auto_start_toggle.setChecked(
+        bool(settings["auto_start_inventory_sync"])
+    )
+    sync_form.addRow("自动启动:", window._sync_auto_start_toggle)
+
+    window._sync_raw_capture_toggle = QCheckBox("保存底层诊断文件（排错时才开启）")
+    window._sync_raw_capture_toggle.setChecked(bool(settings["raw_capture_enabled"]))
+    sync_form.addRow("诊断文件:", window._sync_raw_capture_toggle)
+    sync_card.layout().addLayout(sync_form)
+
+    save_sync_button = QPushButton("保存同步设置")
+    save_sync_button.setObjectName("btnPrimary")
+    save_sync_button.clicked.connect(window._save_sync_settings)
+    sync_actions = QHBoxLayout()
+    sync_actions.addWidget(save_sync_button)
+    sync_actions.addStretch()
+    sync_card.layout().addLayout(sync_actions)
+    layout.addWidget(sync_card)
 
     hotkey_card = window._card("快捷键绑定")
     save_hotkeys = QPushButton("保存快捷键")
