@@ -56,6 +56,7 @@ class FakeCoreClient:
         self.closed = False
         self.capture_params: dict | None = None
         self.capture_stopped = False
+        self.equipment_params = None
         self._lock = threading.Lock()
 
     def start(self):
@@ -79,6 +80,10 @@ class FakeCoreClient:
     def stop_capture(self):
         self.capture_stopped = True
         return {"capturing": False}
+
+    def equip_one_key(self, **kwargs):
+        self.equipment_params = kwargs
+        return {"status": "dry_run_ok"}
 
     def close(self) -> None:
         self.closed = True
@@ -118,6 +123,19 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.assertTrue(self.core.started)
         self.assertEqual("inventory", self.core.capture_params["profile"])
         self.assertEqual("disabled", self.core.capture_params["raw_capture"])
+
+    def test_reuses_running_core_process_for_one_key_equipment(self) -> None:
+        self._start()
+        result = self.service.equip_one_key(
+            character={"slot": 1, "serial": 2},
+            placements=[
+                {"equipment": {"slot": 3, "serial": 4}, "row": 2, "column": 3}
+            ],
+            core={"slot": 5, "serial": 6},
+        )
+
+        self.assertEqual(result, {"status": "dry_run_ok"})
+        self.assertEqual(self.core.equipment_params["character"]["serial"], 2)
 
     def test_commits_any_stable_count_and_keeps_listening(self) -> None:
         self._start()

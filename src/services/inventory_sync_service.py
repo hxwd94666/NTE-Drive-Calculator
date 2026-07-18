@@ -59,6 +59,7 @@ class _CoreClient(Protocol):
     def remove_event_handler(self, method: str | None, handler: Callable[[dict[str, Any]], None]) -> None: ...
     def start_capture(self, **kwargs: Any) -> Mapping[str, Any]: ...
     def stop_capture(self) -> Mapping[str, Any]: ...
+    def equip_one_key(self, **kwargs: Any) -> Any: ...
     def close(self) -> None: ...
 
 
@@ -116,6 +117,35 @@ class InventorySyncService:
     def is_running(self) -> bool:
         thread = self._thread
         return thread is not None and thread.is_alive()
+
+    @property
+    def core_hello_result(self) -> dict[str, Any] | None:
+        """返回握手能力的副本，供装配等上层服务做调用前检查。"""
+
+        client = self._client
+        if client is None or client.hello_result is None:
+            return None
+        return dict(client.hello_result)
+
+    def equip_one_key(
+        self,
+        *,
+        character: Mapping[str, Any],
+        placements: list[Mapping[str, Any]],
+        core: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> Any:
+        """复用正在持续抓取的核心进程执行一键装配。"""
+
+        client = self._client
+        if client is None or not self.is_running:
+            raise RuntimeError("背包同步服务未运行，不能调用一键装配")
+        return client.equip_one_key(
+            character=character,
+            placements=placements,
+            core=core,
+            timeout=timeout,
+        )
 
     def add_state_handler(self, handler: StateHandler) -> None:
         with self._handlers_lock:

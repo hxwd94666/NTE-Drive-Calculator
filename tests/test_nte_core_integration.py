@@ -39,7 +39,7 @@ for line in sys.stdin:
                 "core_version": "test",
                 "protocol_version": 1,
                 "data_version": "test",
-                "capabilities": ["capture", "inventory", "battle_summary"],
+                "capabilities": ["capture", "inventory", "battle_summary", "equipment"],
                 "raw_capture_default": True,
             },
         })
@@ -75,6 +75,8 @@ for line in sys.stdin:
                 ],
             },
         })
+    elif method == "equipment.equip_one_key":
+        send({"jsonrpc": "2.0", "id": request_id, "result": request["params"]})
     elif method == "test.defer":
         deferred = request_id
         send({"jsonrpc": "2.0", "method": "event.test.deferred", "params": {}})
@@ -149,6 +151,24 @@ class NteCoreClientTests(unittest.TestCase):
         self.assertEqual(client.status(), {"core_state": "idle"})
         self.assertEqual(client.shutdown(), {"shutting_down": True})
         self.assertFalse(client.is_running)
+
+    def test_one_key_wrapper_uses_protocol_native_uid_payload(self):
+        with fake_client() as client:
+            result = client.equip_one_key(
+                character={"slot": 1, "serial": 2},
+                placements=[
+                    {
+                        "equipment": {"slot": 3, "serial": 4},
+                        "row": 2,
+                        "column": 3,
+                    }
+                ],
+                core={"slot": 5, "serial": 6},
+            )
+
+        self.assertEqual(result["character"], {"slot": 1, "serial": 2})
+        self.assertEqual(result["placements"][0]["row"], 2)
+        self.assertEqual(result["core"], {"slot": 5, "serial": 6})
 
     def test_start_rejects_unsupported_negotiated_version(self):
         client = fake_client(VERSION_MISMATCH_CORE)

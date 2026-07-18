@@ -6,6 +6,11 @@ from .inventory_snapshot_stabilizer import (
     SnapshotOfferResult,
     StableInventorySnapshot,
 )
+from .equipment_apply_service import (
+    EquipmentApplyError,
+    EquipmentApplyResult,
+    EquipmentApplyService,
+)
 from .inventory_sync_service import InventorySyncService, InventorySyncState
 from .sqlite_loadout_optimizer import (
     LoadoutOptimizationError,
@@ -14,6 +19,9 @@ from .sqlite_loadout_optimizer import (
 )
 
 __all__ = [
+    "EquipmentApplyError",
+    "EquipmentApplyResult",
+    "EquipmentApplyService",
     "InventorySnapshotStabilizer",
     "SnapshotOfferResult",
     "StableInventorySnapshot",
