@@ -29,6 +29,16 @@ from src.app.constants import BILIBILI_HOME_URL, NETDISK_DOWNLOAD_LINKS
 from src.app.theme import THEME_LABELS, themed_style
 
 
+DEFAULT_SYNC_SETTINGS = {
+    "inventory_sync_method": "nte_core",
+    "equipment_apply_method": "nte_core",
+    "inventory_settle_seconds": 5.0,
+    "capture_device_id": None,
+    "auto_start_inventory_sync": False,
+    "raw_capture_enabled": False,
+}
+
+
 def _normalize_netdisk_links(netdisk_links=None):
     if netdisk_links is None:
         return tuple(NETDISK_DOWNLOAD_LINKS)
@@ -126,7 +136,9 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     sync_form = QFormLayout()
     sync_form.setSpacing(10)
 
-    settings = window._get_sync_settings()
+    settings_reader = getattr(window, "_get_sync_settings", None)
+    loaded_settings = settings_reader() if callable(settings_reader) else {}
+    settings = {**DEFAULT_SYNC_SETTINGS, **(loaded_settings or {})}
     window._sync_inventory_method_combo = QComboBox()
     window._sync_inventory_method_combo.addItem("本地核心组件流式同步", "nte_core")
     window._sync_inventory_method_combo.addItem("手柄扫描", "gamepad")
@@ -171,7 +183,12 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
 
     save_sync_button = QPushButton("保存同步设置")
     save_sync_button.setObjectName("btnPrimary")
-    save_sync_button.clicked.connect(window._save_sync_settings)
+    save_sync_handler = getattr(window, "_save_sync_settings", None)
+    if callable(save_sync_handler):
+        save_sync_button.clicked.connect(save_sync_handler)
+    else:
+        save_sync_button.setEnabled(False)
+        save_sync_button.setToolTip("当前页面宿主未启用 SQLite 同步设置")
     sync_actions = QHBoxLayout()
     sync_actions.addWidget(save_sync_button)
     sync_actions.addStretch()
