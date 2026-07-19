@@ -20,6 +20,8 @@ from typing import Any, Literal
 PROTOCOL_VERSION = 1
 NTE_CORE_ENV = "NTE_CORE_EXE"
 _CALLBACK_STOP = object()
+_U32_MAX = (1 << 32) - 1
+_MAX_EQUIPMENT_PLACEMENTS = 64
 
 JsonObject = dict[str, Any]
 EventHandler = Callable[[JsonObject], None]
@@ -115,6 +117,32 @@ class NteCoreRpcError(NteCoreError):
         super().__init__(f"nte-core RPC error {self.code}{suffix}: {self.message}")
 
 
+def inventory_item_placement(item: Mapping[str, Any]) -> tuple[int, int] | None:
+    """返回驱动块从 1 开始的装备锚点；兼容旧版 core 的缺失字段。"""
+
+    placement = item.get("equipped_placement")
+    if placement is None:
+        return None
+    if not isinstance(placement, Mapping):
+        raise NteCoreProtocolError(
+            "inventory equipped_placement must be an object or null"
+        )
+    row = placement.get("row")
+    column = placement.get("column")
+    if (
+        isinstance(row, bool)
+        or not isinstance(row, int)
+        or isinstance(column, bool)
+        or not isinstance(column, int)
+        or not 1 <= row <= 5
+        or not 1 <= column <= 5
+    ):
+        raise NteCoreProtocolError(
+            "inventory equipped_placement row and column must be integers in 1..5"
+        )
+    return row, column
+
+
 def group_inventory_items_by_character(
     snapshot: Mapping[str, Any],
 ) -> dict[int, list[JsonObject]]:
@@ -133,6 +161,7 @@ def group_inventory_items_by_character(
     for item in items:
         if not isinstance(item, Mapping):
             raise NteCoreProtocolError("inventory snapshot item must be an object")
+        inventory_item_placement(item)
         character_id = item.get("equipped_character_id")
         if character_id is None:
             continue
@@ -142,6 +171,43 @@ def group_inventory_items_by_character(
             )
         grouped.setdefault(character_id, []).append(dict(item))
     return grouped
+
+
+def _equipment_uid(uid: Mapping[str, Any], field: str) -> JsonObject:
+    if not isinstance(uid, Mapping):
+        raise ValueError(f"{field} must be an item UID object")
+    slot = uid.get("slot")
+    serial = uid.get("serial")
+    for component, value in (("slot", slot), ("serial", serial)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value <= 0
+            or value >= _U32_MAX
+        ):
+            raise ValueError(
+                f"{field}.{component} must be an integer in 1..4294967294"
+            )
+    return {"slot": slot, "serial": serial}
+
+
+def _equipment_grid_position(row: int, column: int) -> tuple[int, int]:
+    if (
+        isinstance(row, bool)
+        or not isinstance(row, int)
+        or isinstance(column, bool)
+        or not isinstance(column, int)
+        or not 1 <= row <= 5
+        or not 1 <= column <= 5
+    ):
+        raise ValueError("row and column must be integers in 1..5")
+    return row, column
+
+
+def _equipment_state(value: bool, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a boolean")
+    return value
 
 
 def _deduplicated_paths(paths: Sequence[Path]) -> list[Path]:
@@ -596,6 +662,167 @@ class NteCoreClient:
         """取得最新背包，并按 characters.json 的稳定角色 ID 分组已装备条目。"""
 
         return group_inventory_items_by_character(self.get_latest_inventory())
+
+    def _equipment_request(self, method: str, params: JsonObject) -> JsonObject:
+        """提交装备插件 RPC；最终状态应以之后的背包快照为准。"""
+
+        return self.call(f"equipment.{method}", params)
+
+    def equip_module(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+        row: int,
+        column: int,
+    ) -> JsonObject:
+        row, column = _equipment_grid_position(row, column)
+        return self._equipment_request(
+            "equip_module",
+            {
+                "character": _equipment_uid(character, "character"),
+                "equipment": _equipment_uid(equipment, "equipment"),
+                "row": row,
+                "column": column,
+            },
+        )
+
+    def equip_core(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> JsonObject:
+        return self._equipment_request(
+            "equip_core",
+            {
+                "character": _equipment_uid(character, "character"),
+                "equipment": _equipment_uid(equipment, "equipment"),
+            },
+        )
+
+    def unequip_module(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> JsonObject:
+        return self._equipment_request(
+            "unequip_module",
+            {
+                "character": _equipment_uid(character, "character"),
+                "equipment": _equipment_uid(equipment, "equipment"),
+            },
+        )
+
+    def unequip_core(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> JsonObject:
+        return self._equipment_request(
+            "unequip_core",
+            {
+                "character": _equipment_uid(character, "character"),
+                "equipment": _equipment_uid(equipment, "equipment"),
+            },
+        )
+
+    def unequip_all(self, *, character: Mapping[str, Any]) -> JsonObject:
+        return self._equipment_request(
+            "unequip_all",
+            {"character": _equipment_uid(character, "character")},
+        )
+
+    def equip_one_key(
+        self,
+        *,
+        character: Mapping[str, Any],
+        placements: Sequence[Mapping[str, Any]],
+        core: Mapping[str, Any],
+    ) -> JsonObject:
+        if not 1 <= len(placements) <= _MAX_EQUIPMENT_PLACEMENTS:
+            raise ValueError("placements must contain 1..64 entries")
+        normalized_placements = []
+        for index, placement in enumerate(placements):
+            if not isinstance(placement, Mapping):
+                raise ValueError(f"placements[{index}] must be an object")
+            row, column = _equipment_grid_position(
+                placement.get("row"), placement.get("column")
+            )
+            normalized_placements.append(
+                {
+                    "equipment": _equipment_uid(
+                        placement.get("equipment"), f"placements[{index}].equipment"
+                    ),
+                    "row": row,
+                    "column": column,
+                }
+            )
+        return self._equipment_request(
+            "equip_one_key",
+            {
+                "character": _equipment_uid(character, "character"),
+                "placements": normalized_placements,
+                "core": _equipment_uid(core, "core"),
+            },
+        )
+
+    def move_module_to_character(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+        row: int,
+        column: int,
+    ) -> JsonObject:
+        row, column = _equipment_grid_position(row, column)
+        return self._equipment_request(
+            "move_module_to_character",
+            {
+                "character": _equipment_uid(character, "character"),
+                "equipment": _equipment_uid(equipment, "equipment"),
+                "row": row,
+                "column": column,
+            },
+        )
+
+    def move_core_to_character(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> JsonObject:
+        return self._equipment_request(
+            "move_core_to_character",
+            {
+                "character": _equipment_uid(character, "character"),
+                "equipment": _equipment_uid(equipment, "equipment"),
+            },
+        )
+
+    def set_item_discarded(
+        self, *, equipment: Mapping[str, Any], discarded: bool
+    ) -> JsonObject:
+        return self._equipment_request(
+            "set_item_discarded",
+            {
+                "equipment": _equipment_uid(equipment, "equipment"),
+                "discarded": _equipment_state(discarded, "discarded"),
+            },
+        )
+
+    def set_item_locked(
+        self, *, equipment: Mapping[str, Any], locked: bool
+    ) -> JsonObject:
+        return self._equipment_request(
+            "set_item_locked",
+            {
+                "equipment": _equipment_uid(equipment, "equipment"),
+                "locked": _equipment_state(locked, "locked"),
+            },
+        )
 
     def get_battle_summary(self, *, subtract_time_stop: bool = True) -> JsonObject | None:
         return self.call(

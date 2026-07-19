@@ -11,6 +11,7 @@ from src.integrations.nte_core import (
     NteCoreRpcError,
     NteCoreTimeoutError,
     group_inventory_items_by_character,
+    inventory_item_placement,
 )
 
 
@@ -60,12 +61,14 @@ for line in sys.stdin:
                         "equipped": True,
                         "equipped_character_uid": {"slot": 3, "serial": 4},
                         "equipped_character_id": 1020,
+                        "equipped_placement": {"row": 2, "column": 3},
                     },
                     {
                         "uid": {"slot": 5, "serial": 6},
                         "equipped": True,
                         "equipped_character_uid": {"slot": 7, "serial": 8},
                         "equipped_character_id": None,
+                        "equipped_placement": None,
                     },
                     {
                         "uid": {"slot": 9, "serial": 10},
@@ -213,8 +216,12 @@ class NteCoreClientTests(unittest.TestCase):
             grouped_from_client = client.get_latest_inventory_by_character()
 
         self.assertEqual(snapshot["items"][0]["equipped_character_id"], 1020)
+        self.assertEqual(inventory_item_placement(snapshot["items"][0]), (2, 3))
         self.assertEqual(list(grouped), [1020])
         self.assertEqual(grouped[1020][0]["uid"], {"slot": 1, "serial": 2})
+        self.assertEqual(
+            grouped[1020][0]["equipped_placement"], {"row": 2, "column": 3}
+        )
         self.assertEqual(grouped_from_client, grouped)
 
     def test_inventory_grouping_keeps_old_core_items_unresolved(self):
@@ -228,12 +235,100 @@ class NteCoreClientTests(unittest.TestCase):
         }
 
         self.assertEqual(group_inventory_items_by_character(snapshot), {})
+        self.assertIsNone(inventory_item_placement(snapshot["items"][0]))
 
     def test_inventory_grouping_rejects_invalid_stable_character_id(self):
         with self.assertRaises(NteCoreProtocolError):
             group_inventory_items_by_character(
                 {"items": [{"equipped_character_id": "1020"}]}
             )
+
+    def test_inventory_placement_rejects_invalid_protocol_values(self):
+        invalid = [
+            {"equipped_placement": []},
+            {"equipped_placement": {"row": True, "column": 2}},
+            {"equipped_placement": {"row": 0, "column": 2}},
+            {"equipped_placement": {"row": 2, "column": 6}},
+        ]
+
+        for item in invalid:
+            with self.subTest(item=item), self.assertRaises(NteCoreProtocolError):
+                inventory_item_placement(item)
+
+    def test_equipment_methods_map_all_core_operations(self):
+        character = {"slot": 1, "serial": 2}
+        module = {"slot": 3, "serial": 4}
+        core = {"slot": 5, "serial": 6}
+        placement = {"equipment": module, "row": 2, "column": 3}
+
+        with fake_client() as client:
+            results = [
+                client.equip_module(
+                    character=character, equipment=module, row=2, column=3
+                ),
+                client.equip_core(character=character, equipment=core),
+                client.unequip_module(character=character, equipment=module),
+                client.unequip_core(character=character, equipment=core),
+                client.unequip_all(character=character),
+                client.equip_one_key(
+                    character=character, placements=[placement], core=core
+                ),
+                client.move_module_to_character(
+                    character=character, equipment=module, row=4, column=5
+                ),
+                client.move_core_to_character(character=character, equipment=core),
+                client.set_item_discarded(equipment=module, discarded=True),
+                client.set_item_locked(equipment=module, locked=False),
+            ]
+
+        self.assertEqual(
+            [result["method"] for result in results],
+            [
+                "equipment.equip_module",
+                "equipment.equip_core",
+                "equipment.unequip_module",
+                "equipment.unequip_core",
+                "equipment.unequip_all",
+                "equipment.equip_one_key",
+                "equipment.move_module_to_character",
+                "equipment.move_core_to_character",
+                "equipment.set_item_discarded",
+                "equipment.set_item_locked",
+            ],
+        )
+        self.assertEqual(
+            results[0]["params"],
+            {
+                "character": character,
+                "equipment": module,
+                "row": 2,
+                "column": 3,
+            },
+        )
+        self.assertEqual(results[5]["params"]["placements"], [placement])
+        self.assertTrue(results[8]["params"]["discarded"])
+        self.assertFalse(results[9]["params"]["locked"])
+
+    def test_equipment_methods_reject_invalid_client_values(self):
+        client = fake_client()
+        character = {"slot": 1, "serial": 2}
+        equipment = {"slot": 3, "serial": 4}
+
+        with self.assertRaises(ValueError):
+            client.equip_module(
+                character={"slot": 0, "serial": 2},
+                equipment=equipment,
+                row=1,
+                column=1,
+            )
+        with self.assertRaises(ValueError):
+            client.equip_module(
+                character=character, equipment=equipment, row=1, column=6
+            )
+        with self.assertRaises(ValueError):
+            client.equip_one_key(character=character, placements=[], core=equipment)
+        with self.assertRaises(ValueError):
+            client.set_item_locked(equipment=equipment, locked=1)
 
     def test_polling_coalesces_battle_summaries_and_preserves_reliable_order(self):
         with fake_client() as client:
