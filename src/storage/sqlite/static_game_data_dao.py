@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 
 SUMMARY_TABLES = (
@@ -83,7 +83,7 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
 
 
 class StaticGameDataDao:
-    """面向 schema v2 静态数据库的轻量查询边界。
+    """面向 schema v3 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """
@@ -135,7 +135,7 @@ class StaticGameDataDao:
 
     def summary(self) -> dict[str, Any]:
         dataset = self._one(
-            "SELECT dataset_id, game_version, importer_version, built_at_utc FROM dataset"
+            "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
         )
         if dataset is None:
             raise StaticGameDataError("静态数据库缺少数据集元信息")

@@ -36,8 +36,12 @@ except ImportError:  # 支持直接运行：python tools/game_data/build_static_
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql"
-IMPORTER_VERSION = 2
+SCHEMA_PATHS = (
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
+)
+SCHEMA_VERSION = 3
+IMPORTER_VERSION = 3
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -180,7 +184,6 @@ class StaticDatabaseBuilder:
         content_root: Path,
         *,
         dataset_id: str,
-        game_version: str | None,
         as_of: date,
         overrides_path: Path,
         include_source_payloads: bool = True,
@@ -188,7 +191,6 @@ class StaticDatabaseBuilder:
         self.connection = connection
         self.content_root = content_root
         self.dataset_id = dataset_id
-        self.game_version = game_version
         self.as_of = as_of
         self.overrides_path = overrides_path
         self.include_source_payloads = include_source_payloads
@@ -196,15 +198,17 @@ class StaticDatabaseBuilder:
         self.source_row_ids: dict[tuple[str, str], int] = {}
 
     def build(self) -> dict[str, Any]:
-        self.connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        for schema_path in SCHEMA_PATHS:
+            self.connection.executescript(schema_path.read_text(encoding="utf-8"))
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.connection.execute(
             "INSERT INTO schema_migration VALUES (2, ?)",
             (now,),
         )
+        self.connection.execute("INSERT INTO schema_migration VALUES (3, ?)", (now,))
         self.connection.execute(
-            "INSERT INTO dataset VALUES (?, ?, ?, ?)",
-            (self.dataset_id, self.game_version, IMPORTER_VERSION, now),
+            "INSERT INTO dataset VALUES (?, ?, ?)",
+            (self.dataset_id, IMPORTER_VERSION, now),
         )
         self._mirror_sources()
         self._import_characters()
@@ -695,7 +699,6 @@ def build_database(
     report_dir: Path,
     *,
     dataset_id: str,
-    game_version: str | None,
     as_of: date,
     overrides_path: Path = DEFAULT_OVERRIDES,
     include_source_payloads: bool = True,
@@ -718,7 +721,6 @@ def build_database(
                 connection,
                 content_root,
                 dataset_id=dataset_id,
-                game_version=game_version,
                 as_of=as_of,
                 overrides_path=overrides_path,
                 include_source_payloads=include_source_payloads,
@@ -732,9 +734,8 @@ def build_database(
         raise
 
     report = {
-        "schema_version": 2,
+        "schema_version": SCHEMA_VERSION,
         "dataset_id": dataset_id,
-        "game_version": game_version,
         "built_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "database_path": str(output),
         "database_sha256": file_sha256(output),
@@ -758,7 +759,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--report-dir", type=Path, required=True)
     parser.add_argument("--dataset-id", required=True)
-    parser.add_argument("--game-version", default=None)
     parser.add_argument("--as-of", type=date.fromisoformat, default=date.today())
     parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     parser.add_argument(
@@ -776,7 +776,6 @@ def main() -> int:
         args.output,
         args.report_dir,
         dataset_id=args.dataset_id,
-        game_version=args.game_version,
         as_of=args.as_of,
         overrides_path=args.overrides,
         include_source_payloads=not args.omit_source_payloads,

@@ -9,13 +9,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_DIR = PROJECT_ROOT / "tools" / "game_data"
 MODULE_PATH = TOOLS_DIR / "build_static_database.py"
-SCHEMA_PATH = (
-    PROJECT_ROOT
-    / "src"
-    / "storage"
-    / "sqlite"
-    / "schema"
-    / "002_game_static.sql"
+SCHEMA_PATHS = (
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -65,7 +61,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
     def test_schema_can_be_created_with_foreign_keys_enabled(self):
         connection = sqlite3.connect(":memory:")
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        for schema_path in SCHEMA_PATHS:
+            connection.executescript(schema_path.read_text(encoding="utf-8"))
 
         tables = {
             row[0]
@@ -78,12 +75,13 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("fork_item", tables)
 
     def test_schema_uses_source_shape_ids_without_legacy_aliases(self):
-        schema = SCHEMA_PATH.read_text(encoding="utf-8")
+        schema = "\n".join(path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)
 
         self.assertNotIn("legacy_shape_id", schema)
         self.assertIn("character_annotation", schema)
         self.assertIn("payload_json TEXT,", schema)
         self.assertNotIn("payload_json TEXT NOT NULL", schema)
+        self.assertIn("DROP COLUMN game_version", schema)
 
     def test_plan_grid_discards_border_and_keeps_playable_anchor_cells(self):
         module = load_builder_module()

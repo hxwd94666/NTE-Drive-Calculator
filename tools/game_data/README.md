@@ -30,7 +30,7 @@ python tools/game_data/build_static_database.py `
   --source $gameDataSource `
   --output "$gameDataWorkspace\build\game_static.sqlite3" `
   --report-dir "$gameDataWorkspace\reports\static_database" `
-  --dataset-id "unversioned_20260718" `
+  --dataset-id "release_20260718" `
   --as-of 2026-07-18
 ```
 
@@ -41,7 +41,7 @@ python tools/game_data/build_static_database.py `
   --source $gameDataSource `
   --output "data\game_static.sqlite3" `
   --report-dir "$gameDataWorkspace\reports\distribution_database" `
-  --dataset-id "unversioned_20260718" `
+  --dataset-id "release_20260718" `
   --as-of 2026-07-18 `
   --omit-source-payloads
 ```

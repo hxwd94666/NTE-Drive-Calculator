@@ -10,13 +10,9 @@ from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticG
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = (
-    PROJECT_ROOT
-    / "src"
-    / "storage"
-    / "sqlite"
-    / "schema"
-    / "002_game_static.sql"
+SCHEMA_PATHS = (
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
 )
 
 
@@ -25,10 +21,12 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.database_path = Path(self.temporary_directory.name) / "game_static.sqlite3"
         connection = sqlite3.connect(self.database_path)
-        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        for schema_path in SCHEMA_PATHS:
+            connection.executescript(schema_path.read_text(encoding="utf-8"))
         connection.execute("INSERT INTO schema_migration VALUES (2, '2026-07-18')")
+        connection.execute("INSERT INTO schema_migration VALUES (3, '2026-07-18')")
         connection.execute(
-            "INSERT INTO dataset VALUES ('fixture', 'test', 2, '2026-07-18')"
+            "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
         connection.execute(
             "INSERT INTO source_file VALUES (1, 'DataTable/Test.json', 'hash', 1)"
@@ -143,7 +141,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 2)
+            self.assertEqual(summary["schema_version"], 3)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")

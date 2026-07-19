@@ -188,9 +188,8 @@ def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
     static = dashboard["static"]
     dataset = static["dataset"]
     counts = static["counts"]
-    version = dataset.get("game_version") or "版本待开发者确认"
     window.home_static_label.setText(
-        f"静态数据集：{dataset['dataset_id']} · {version} · "
+        f"静态数据集：{dataset['dataset_id']} · "
         f"空幕套装 {counts['equipment_suit']} · 装备模板 {counts['equipment_item']} · "
         f"驱动形状 {counts['equipment_shape']}"
     )
