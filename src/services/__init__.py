@@ -17,6 +17,11 @@ from .sqlite_loadout_optimizer import (
     LoadoutOptimizationResult,
     SqliteLoadoutOptimizer,
 )
+from .sqlite_allocation_inventory import (
+    AllocationInventoryProjection,
+    AllocationInventoryProjectionError,
+    SqliteAllocationInventory,
+)
 
 __all__ = [
     "EquipmentApplyError",
@@ -30,4 +35,7 @@ __all__ = [
     "LoadoutOptimizationError",
     "LoadoutOptimizationResult",
     "SqliteLoadoutOptimizer",
+    "AllocationInventoryProjection",
+    "AllocationInventoryProjectionError",
+    "SqliteAllocationInventory",
 ]

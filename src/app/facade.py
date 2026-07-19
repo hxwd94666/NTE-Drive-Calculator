@@ -50,6 +50,34 @@ class NTEAppFacade:
             return None, None
         with open(inventory_file, "r", encoding="utf-8") as file:
             inventory = json.load(file)
+        return self.execute_allocation_inventory(
+            inventory,
+            priority_list,
+            custom_sets,
+            mode,
+            tape_main_filters,
+            crit_priority_modes,
+            set_effect_modes,
+            priority_groups,
+            crit_rate_caps,
+            custom_weapons,
+        )
+
+    def execute_allocation_inventory(
+        self,
+        inventory,
+        priority_list,
+        custom_sets=None,
+        mode="role_priority",
+        tape_main_filters=None,
+        crit_priority_modes=None,
+        set_effect_modes=None,
+        priority_groups=None,
+        crit_rate_caps=None,
+        custom_weapons=None,
+    ):
+        """使用已经固定的数据集合计算，不要求生成中间库存文件。"""
+
         orchestrator = NTEPipelineOrchestrator(config_dir=self.config_dir)
         state_manager = StateManager(config_dir=self.user_config_dir)
         locked_uids = set()

@@ -14,6 +14,9 @@ from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.optimizer.plan_diff import build_plan_diff
 from src.features.role.equipment_import import import_all_role_equipment
+from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
@@ -30,7 +33,38 @@ def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes
     try:
         logger.info(f"开始分配计算: 策略={strat}, 角色={sel}")
         a=NTEAppFacade(config_dir=str(runtime.CONFIG_DIR),user_config_dir=str(runtime.USER_CONFIG_DIR))
-        fp,_=a.execute_allocation(str(runtime.OUTPUT_FILE),sel,cs,strat,tape_main_filters=tape_main_filters or {},crit_priority_modes=crit_priority_modes or {},set_effect_modes=set_effect_modes or {},priority_groups=priority_groups,crit_rate_caps=crit_rate_caps or {},custom_weapons=custom_weapons or {})
+        use_sqlite_inventory = False
+        projection = None
+        if runtime.USER_DATABASE_PATH.is_file():
+            with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
+                use_sqlite_inventory = (
+                    user_dao.get_sync_settings().get("inventory_sync_method") == "nte_core"
+                )
+                if use_sqlite_inventory:
+                    with StaticGameDataDao() as static_dao:
+                        projection = SqliteAllocationInventory(
+                            user_dao, static_dao
+                        ).build()
+        allocation_options = {
+            "tape_main_filters": tape_main_filters or {},
+            "crit_priority_modes": crit_priority_modes or {},
+            "set_effect_modes": set_effect_modes or {},
+            "priority_groups": priority_groups,
+            "crit_rate_caps": crit_rate_caps or {},
+            "custom_weapons": custom_weapons or {},
+        }
+        if use_sqlite_inventory and projection is not None:
+            logger.info(
+                f"使用 SQLite 稳定背包快照 {projection.snapshot_id} 计算："
+                f"可用 {len(projection.items)} 件，忽略已弃置 {projection.discarded_count} 件"
+            )
+            fp,_=a.execute_allocation_inventory(
+                list(projection.items),sel,cs,strat,**allocation_options
+            )
+        else:
+            fp,_=a.execute_allocation(
+                str(runtime.OUTPUT_FILE),sel,cs,strat,**allocation_options
+            )
         logger.info(f"分配计算完成: result_type={type(fp).__name__}")
         return fp
     except Exception as e:
