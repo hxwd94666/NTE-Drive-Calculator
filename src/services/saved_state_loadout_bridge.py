@@ -32,25 +32,87 @@ class SavedLoadoutPlan:
     module_count: int
 
 
-def character_id_for_saved_role(
+def character_ids_for_saved_role(
     role_name: str,
     roles_db: Mapping[str, Any],
-) -> int:
-    """在旧 UI 边界读取角色 ID；进入服务层后只使用官方 character_id。"""
+) -> tuple[int, ...]:
+    """读取角色的全部官方 ID；主角会同时返回男性与女性 ID。"""
 
     role = roles_db.get(role_name)
     if not isinstance(role, Mapping):
         raise SavedStateLoadoutError(f"角色 [{role_name}] 缺少配置，无法确定官方角色 ID")
-    raw_character_id = role.get("workshop_item_id")
-    try:
-        character_id = int(raw_character_id)
-    except (TypeError, ValueError) as exc:
+    raw_ids = role.get("workshop_item_ids")
+    values = list(raw_ids) if isinstance(raw_ids, (list, tuple)) else []
+    if role.get("workshop_item_id") is not None:
+        values.append(role["workshop_item_id"])
+
+    character_ids: list[int] = []
+    for raw_value in values:
+        try:
+            character_id = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if character_id > 0 and character_id not in character_ids:
+            character_ids.append(character_id)
+    if not character_ids:
+        raise SavedStateLoadoutError(f"角色 [{role_name}] 缺少有效的官方角色 ID")
+    return tuple(character_ids)
+
+
+def character_id_for_saved_role(
+    role_name: str,
+    roles_db: Mapping[str, Any],
+) -> int:
+    """兼容单 ID 调用方；多 ID 角色应使用当前背包自动解析。"""
+
+    return character_ids_for_saved_role(role_name, roles_db)[0]
+
+
+def resolve_character_id_for_saved_role(
+    role_name: str,
+    roles_db: Mapping[str, Any],
+    user_dao: UserDataDao,
+) -> int:
+    """用稳定背包中的角色实例 UID 选择当前账号实际使用的官方角色 ID。"""
+
+    candidates = character_ids_for_saved_role(role_name, roles_db)
+    if len(candidates) == 1:
+        return candidates[0]
+    snapshot_id = user_dao.current_inventory_snapshot_id()
+    if snapshot_id is None:
+        raise SavedStateLoadoutError("用户数据库中还没有稳定背包快照")
+
+    candidate_set = set(candidates)
+    instance_uids: dict[int, set[tuple[int, int]]] = {}
+    for item in user_dao.list_inventory_items(snapshot_id, equipped=True):
+        character_id = item.get("equipped_character_id")
+        character_uid = item.get("equipped_character_uid")
+        if character_id not in candidate_set or not isinstance(character_uid, Mapping):
+            continue
+        try:
+            uid = (int(character_uid["slot"]), int(character_uid["serial"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if uid[0] > 0 and uid[1] > 0:
+            instance_uids.setdefault(character_id, set()).add(uid)
+
+    if len(instance_uids) == 1:
+        character_id, uids = next(iter(instance_uids.items()))
+        if len(uids) == 1:
+            return character_id
         raise SavedStateLoadoutError(
-            f"角色 [{role_name}] 缺少有效的官方角色 ID"
-        ) from exc
-    if character_id <= 0:
-        raise SavedStateLoadoutError(f"角色 [{role_name}] 的官方角色 ID 无效")
-    return character_id
+            f"角色 [{role_name}] 的官方 ID {character_id} 对应多个角色实例 UID"
+        )
+    candidate_text = "、".join(str(value) for value in candidates)
+    if not instance_uids:
+        raise SavedStateLoadoutError(
+            f"角色 [{role_name}] 有多个候选官方 ID（{candidate_text}），"
+            "但当前稳定背包没有可用于判断的已装备物品"
+        )
+    matched_text = "、".join(str(value) for value in sorted(instance_uids))
+    raise SavedStateLoadoutError(
+        f"角色 [{role_name}] 的多个候选 ID 同时存在角色实例（{matched_text}），无法自动选择"
+    )
 
 
 def _saved_uid(value: Any, *, expected_kind: str) -> tuple[int, int]:

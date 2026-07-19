@@ -11,13 +11,21 @@ from src.services.saved_state_loadout_bridge import (
     SavedStateLoadoutBridge,
     SavedStateLoadoutError,
     character_id_for_saved_role,
+    character_ids_for_saved_role,
+    resolve_character_id_for_saved_role,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 def _inventory_item(
-    *, slot: int, serial: int, kind: str, geometry: str | None = None
+    *,
+    slot: int,
+    serial: int,
+    kind: str,
+    geometry: str | None = None,
+    equipped_character_id: int | None = None,
+    equipped_character_uid: dict | None = None,
 ) -> dict:
     return {
         "uid": {"slot": slot, "serial": serial},
@@ -31,9 +39,9 @@ def _inventory_item(
         "max_level": 20,
         "locked": False,
         "discarded": False,
-        "equipped": False,
-        "equipped_character_uid": None,
-        "equipped_character_id": None,
+        "equipped": equipped_character_id is not None,
+        "equipped_character_uid": equipped_character_uid,
+        "equipped_character_id": equipped_character_id,
         "equipped_placement": None,
         "names": {},
         "suit_names": {},
@@ -42,14 +50,14 @@ def _inventory_item(
     }
 
 
-def _snapshot(items: list[dict]) -> dict:
+def _snapshot(items: list[dict], *, generation: int = 1) -> dict:
     return {
         "method": "event.inventory.snapshot",
         "params": {
             "complete": True,
-            "generation": 1,
-            "sequence": 1,
-            "observed_at_unix_ms": 1_800_000_000_000,
+            "generation": generation,
+            "sequence": generation,
+            "observed_at_unix_ms": 1_800_000_000_000 + generation,
             "item_count": len(items),
             "items": items,
         },
@@ -152,6 +160,82 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
         self.assertEqual(
             1003,
             character_id_for_saved_role("测试角色", {"测试角色": {"workshop_item_id": "1003"}}),
+        )
+
+    def test_protagonist_exposes_both_official_character_ids(self) -> None:
+        roles = {
+            "主角": {
+                "workshop_item_id": "1046",
+                "workshop_item_ids": ["1046", "1051"],
+            }
+        }
+
+        self.assertEqual((1046, 1051), character_ids_for_saved_role("主角", roles))
+
+    def test_protagonist_selects_character_id_from_current_equipped_instance(self) -> None:
+        character_uid = {"slot": 160762209, "serial": 347096673}
+        self.user_dao.import_inventory_snapshot(
+            _snapshot(
+                [
+                    _inventory_item(
+                        slot=41,
+                        serial=410,
+                        kind="module",
+                        geometry="ZhiJiao2",
+                        equipped_character_id=1051,
+                        equipped_character_uid=character_uid,
+                    ),
+                    _inventory_item(
+                        slot=51,
+                        serial=510,
+                        kind="core",
+                        equipped_character_id=1051,
+                        equipped_character_uid=character_uid,
+                    ),
+                ],
+                generation=2,
+            )
+        )
+        roles = {
+            "主角": {
+                "workshop_item_id": "1046",
+                "workshop_item_ids": ["1046", "1051"],
+            }
+        }
+
+        self.assertEqual(
+            1051,
+            resolve_character_id_for_saved_role("主角", roles, self.user_dao),
+        )
+
+    def test_male_protagonist_selects_1046_from_current_instance(self) -> None:
+        character_uid = {"slot": 71, "serial": 710}
+        self.user_dao.import_inventory_snapshot(
+            _snapshot(
+                [
+                    _inventory_item(
+                        slot=41,
+                        serial=410,
+                        kind="module",
+                        geometry="ZhiJiao2",
+                        equipped_character_id=1046,
+                        equipped_character_uid=character_uid,
+                    ),
+                    _inventory_item(slot=51, serial=510, kind="core"),
+                ],
+                generation=2,
+            )
+        )
+        roles = {
+            "主角": {
+                "workshop_item_id": "1046",
+                "workshop_item_ids": ["1046", "1051"],
+            }
+        }
+
+        self.assertEqual(
+            1046,
+            resolve_character_id_for_saved_role("主角", roles, self.user_dao),
         )
 
 

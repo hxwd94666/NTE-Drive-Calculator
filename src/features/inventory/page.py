@@ -32,7 +32,7 @@ from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.services.equipment_apply_service import EquipmentApplyService
 from src.services.saved_state_loadout_bridge import (
     SavedStateLoadoutBridge,
-    character_id_for_saved_role,
+    resolve_character_id_for_saved_role,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -503,7 +503,11 @@ def _run_nte_core_equipment_apply(self, role_names: list[str]) -> dict:
                 role_state = self.equipped_state.get(role_name)
                 if not isinstance(role_state, dict):
                     raise RuntimeError(f"角色 [{role_name}] 没有已保存的配装")
-                character_id = character_id_for_saved_role(role_name, self.roles_db)
+                character_id = resolve_character_id_for_saved_role(
+                    role_name,
+                    self.roles_db,
+                    user_dao,
+                )
                 plan = bridge.save_role_plan(
                     role_name=role_name,
                     role_state=role_state,
