@@ -77,30 +77,55 @@ class EquipmentApplyService:
         self.user_dao = user_dao
         self.sync_service = sync_service
 
-    def _resolve_character_uid(
+    def resolve_character_uid(
         self,
         character_id: int,
         snapshot_id: int,
-        explicit_uid: Mapping[str, Any] | None,
+        explicit_uid: Mapping[str, Any] | None = None,
     ) -> dict[str, int]:
+        """解析账号内角色实例 UID；当前为空时回查该账号的稳定历史快照。"""
+
         if explicit_uid is not None:
             return _uid(explicit_uid, "character")
-        candidates: set[tuple[int, int]] = set()
-        for item in self.user_dao.list_inventory_items(
-            snapshot_id,
-            equipped=True,
-            character_id=character_id,
-        ):
-            raw_uid = item.get("equipped_character_uid")
-            if isinstance(raw_uid, Mapping):
-                validated = _uid(raw_uid, "equipped_character_uid")
-                candidates.add((validated["slot"], validated["serial"]))
-        if len(candidates) != 1:
+
+        def candidates_for(candidate_snapshot_id: int) -> set[tuple[int, int]]:
+            candidates: set[tuple[int, int]] = set()
+            for item in self.user_dao.list_inventory_items(
+                candidate_snapshot_id,
+                equipped=True,
+                character_id=character_id,
+            ):
+                raw_uid = item.get("equipped_character_uid")
+                if isinstance(raw_uid, Mapping):
+                    validated = _uid(raw_uid, "equipped_character_uid")
+                    candidates.add((validated["slot"], validated["serial"]))
+            return candidates
+
+        current_candidates = candidates_for(snapshot_id)
+        if len(current_candidates) == 1:
+            slot, serial = next(iter(current_candidates))
+            return {"slot": slot, "serial": serial}
+        if len(current_candidates) > 1:
             raise EquipmentApplyError(
-                "无法从当前背包唯一确定角色实例 UID，请先给该角色装备一件物品或显式传入 UID"
+                f"当前稳定背包中角色 {character_id} 对应多个角色实例 UID"
             )
-        slot, serial = next(iter(candidates))
-        return {"slot": slot, "serial": serial}
+
+        historical_candidates: set[tuple[int, int]] = set()
+        for summary in self.user_dao.list_inventory_snapshots():
+            historical_snapshot_id = int(summary["snapshot_id"])
+            if historical_snapshot_id == snapshot_id:
+                continue
+            historical_candidates.update(candidates_for(historical_snapshot_id))
+        if len(historical_candidates) == 1:
+            slot, serial = next(iter(historical_candidates))
+            return {"slot": slot, "serial": serial}
+        if len(historical_candidates) > 1:
+            raise EquipmentApplyError(
+                f"角色 {character_id} 在历史稳定背包中对应多个实例 UID，无法安全选择"
+            )
+        raise EquipmentApplyError(
+            "无法从当前或历史稳定背包确定角色实例 UID，请先给该角色装备一件物品"
+        )
 
     @staticmethod
     def _plan_mismatch(
@@ -228,7 +253,7 @@ class EquipmentApplyService:
         if core_assignment.get("rotation") not in (None, 0):
             raise EquipmentApplyError("核心不能包含旋转参数")
 
-        resolved_character_uid = self._resolve_character_uid(
+        resolved_character_uid = self.resolve_character_uid(
             plan["character_id"], before_snapshot_id, character_uid
         )
         current_mismatch = self._plan_mismatch(

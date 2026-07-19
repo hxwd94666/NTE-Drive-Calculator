@@ -498,6 +498,13 @@ def _run_nte_core_equipment_apply(self, role_names: list[str]) -> dict:
     with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao, StaticGameDataDao() as static_dao:
         bridge = SavedStateLoadoutBridge(user_dao, static_dao)
         apply_service = EquipmentApplyService(user_dao, sync_service)
+        initial_snapshot_id = user_dao.current_inventory_snapshot_id()
+        if initial_snapshot_id is None:
+            raise RuntimeError("用户数据库中还没有稳定背包快照")
+
+        # 必须在第一条装配指令前缓存全部角色 UID。后续角色可能因装备被前面的
+        # 方案移走而暂时全身为空，此时再从当前快照解析会失败。
+        prepared: list[dict] = []
         for role_name in role_names:
             try:
                 role_state = self.equipped_state.get(role_name)
@@ -508,16 +515,41 @@ def _run_nte_core_equipment_apply(self, role_names: list[str]) -> dict:
                     self.roles_db,
                     user_dao,
                 )
+                character_uid = apply_service.resolve_character_uid(
+                    character_id,
+                    initial_snapshot_id,
+                )
                 plan = bridge.save_role_plan(
                     role_name=role_name,
                     role_state=role_state,
                     character_id=character_id,
                 )
-                result = apply_service.apply_plan(plan.plan_id, timeout=30.0)
-                applied.append(
+                prepared.append(
                     {
                         "role_name": role_name,
                         "character_id": character_id,
+                        "character_uid": character_uid,
+                        "plan": plan,
+                    }
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"装配前检查 [{role_name}] 失败，尚未发送任何装配指令：{exc}"
+                ) from exc
+
+        for prepared_role in prepared:
+            role_name = prepared_role["role_name"]
+            plan = prepared_role["plan"]
+            try:
+                result = apply_service.apply_plan(
+                    plan.plan_id,
+                    character_uid=prepared_role["character_uid"],
+                    timeout=30.0,
+                )
+                applied.append(
+                    {
+                        "role_name": role_name,
+                        "character_id": prepared_role["character_id"],
                         "plan_id": plan.plan_id,
                         "module_count": plan.module_count,
                         "snapshot_id": result.after_snapshot_id,

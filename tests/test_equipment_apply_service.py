@@ -168,6 +168,17 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.assertEqual(result.rpc_result, {"status": "already_applied"})
         self.assertIsNone(self.sync.params)
 
+    def test_resolves_uid_from_history_when_character_is_currently_empty(self) -> None:
+        current = self.dao.import_inventory_snapshot(
+            snapshot(4, [item(11, "module"), item(22, "core")])
+        )
+
+        resolved = EquipmentApplyService(
+            self.dao, self.sync
+        ).resolve_character_uid(1003, current)
+
+        self.assertEqual(resolved, CHARACTER_UID)
+
     def test_rejects_missing_equipment_capability_before_rpc(self) -> None:
         self.sync.core_hello_result = {"capabilities": ["inventory"]}
         with self.assertRaisesRegex(EquipmentApplyError, "equipment"):
