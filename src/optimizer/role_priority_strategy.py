@@ -556,6 +556,33 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                     crit_priority_modes,
                     crit_rate_caps,
                 )
+                # 同级组是一种“尽量共同最优”的偏好，不应让一个缺少必要驱动的角色
+                # 把其余可行角色一并标记为无解。先探测各角色的独立可行性，再只对
+                # 可行子集执行联合分配；仍保持子集内 UID 不重复。
+                failed_roles = [
+                    role for role in group
+                    if not group_allocation.get(role, {}).get("valid")
+                ]
+                if failed_roles:
+                    individually_valid = []
+                    for role in group:
+                        probe = self._find_best_group_fit(
+                            [role], drives_pool, custom_sets, assigned_tapes,
+                            crit_priority_modes, crit_rate_caps,
+                        )
+                        if probe.get(role, {}).get("valid"):
+                            individually_valid.append(role)
+                    if individually_valid and len(individually_valid) < len(group):
+                        logger.warning(
+                            "同级组存在无解角色，将其隔离后继续分配其余角色：{}",
+                            "、".join(role for role in group if role not in individually_valid),
+                        )
+                        group_allocation = self._find_best_group_fit(
+                            individually_valid, drives_pool, custom_sets, assigned_tapes,
+                            crit_priority_modes, crit_rate_caps,
+                        )
+                        for role in group:
+                            group_allocation.setdefault(role, {"valid": False})
                 final_allocation.update(group_allocation)
                 used_uids = set()
                 for plan in group_allocation.values():
@@ -622,4 +649,3 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 final_allocation[role_name] = {"valid": False}
 
         return final_allocation
-

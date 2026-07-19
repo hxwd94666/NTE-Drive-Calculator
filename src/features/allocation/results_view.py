@@ -208,7 +208,7 @@ def _render_results(self,plan):
             tape_uid=str(_diff_value(tape,"uid","") or "")
             tape_changed=bool(_diff_value(tape,"is_changed",False) or tape_uid in changed_uids)
             gl.addWidget(self._section_label("卡带:"))
-            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,main_weights=main_wts,card_variant="result"))
+            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,is_discarded=bool(getattr(tape,"discarded",False)),main_weights=main_wts,card_variant="result"))
 
         if drives:
             gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
@@ -218,7 +218,7 @@ def _render_results(self,plan):
                 mvp_tag=f" 👑第{d.pick_order}顺位" if getattr(d,'is_mvp',False) else ""
                 drive_uid=str(_diff_value(d,"uid","") or "")
                 drive_changed=bool(_diff_value(d,"is_changed",False) or drive_uid in changed_uids)
-                gl.addWidget(self._equip_card(d.shape_id,"",d.sub_stats,d.shape_id,d.uid+mvp_tag,wts,(score,grade),d.quality,is_new=(drive_uid in added_uids and not drive_changed),is_changed=drive_changed,card_variant="result"))
+                gl.addWidget(self._equip_card(d.shape_id,"",d.sub_stats,d.shape_id,d.uid+mvp_tag,wts,(score,grade),d.quality,is_new=(drive_uid in added_uids and not drive_changed),is_changed=drive_changed,is_discarded=bool(getattr(d,"discarded",False)),card_variant="result"))
         self.result_content_layout.addWidget(grp)
     self.result_content_layout.addStretch()
 
@@ -1161,7 +1161,7 @@ def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_
     sub_score=(10.0/max_w)*sub_w*10.0*quality_coef if max_w>0 else 0
     return round(main_score+sub_score, 2)
 
-def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,main_weights=None,replacement_callback=None,card_variant="default"):
+def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,is_discarded=False,main_weights=None,replacement_callback=None,card_variant="default"):
     if current_theme_name() == "light":
         QUALITY_COLORS={"Gold":"#9a6700","Purple":"#8250df","Blue":"#0969da"}
     else:
@@ -1216,6 +1216,8 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
         status_labels.append(_status_label("NEW", theme_color("#58a6ff"), theme_color("#58a6ff"), theme_rgba("#58a6ff", 0.10)))
     if is_changed:
         status_labels.append(_status_label("CHANGE", theme_color("#7ee787"), theme_color("#2ea043"), theme_rgba("#238636", 0.10)))
+    if is_discarded:
+        status_labels.append(_status_label("弃置", "#ff7b72", "#ff7b72", "rgba(218,54,51,0.16)"))
     if status_labels and shape_id:
         for status_label in status_labels:
             hdr.addWidget(status_label, 0, Qt.AlignTop)

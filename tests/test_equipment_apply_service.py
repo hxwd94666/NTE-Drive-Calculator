@@ -179,6 +179,16 @@ class EquipmentApplyServiceTests(unittest.TestCase):
 
         self.assertEqual(resolved, CHARACTER_UID)
 
+    def test_resolves_uid_from_persisted_manual_mapping_when_no_equipment_exists(self) -> None:
+        self.dao.upsert_character_instance_mapping(2000, {"slot": 300, "serial": 301})
+        current = self.dao.import_inventory_snapshot(
+            snapshot(5, [item(11, "module"), item(22, "core")])
+        )
+        self.assertEqual(
+            {"slot": 300, "serial": 301},
+            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current),
+        )
+
     def test_rejects_missing_equipment_capability_before_rpc(self) -> None:
         self.sync.core_hello_result = {"capabilities": ["inventory"]}
         with self.assertRaisesRegex(EquipmentApplyError, "equipment"):

@@ -24,6 +24,11 @@
 
 用户库变更要新增迁移 SQL，不能修改已发布迁移的含义。迁移后同时更新 schema 版本、旧库迁移测试、新库初始化测试和打包资源测试。
 
+快照清理必须通过 `UserDataDao.prune_inventory_snapshots`，不得直接删除表记录。
+该方法会保护当前快照、最近保留窗口、所有装配方案引用的来源快照和未完成装配任务
+的来源快照；需要新策略时
+应先扩展保护条件与测试，避免使已保存方案失去可复现输入。
+
 ## 扩展新配装算法
 
 现有兼容算法协议在 `src/optimizer/contracts.py`。2.0 新算法优先复用 `SqliteLoadoutOptimizer` 已建立的官方 ID 输入与输出格式：
@@ -53,6 +58,10 @@
 - 失败时返回可展示的错误，不静默假定成功。
 
 `EquipmentApplyService` 已实现 nte-core 一键装配的这一闭环。手柄方式可以保留为另一实现，但应输出相同的验证结果结构。
+
+批量装配必须使用 `equipment_apply_job`、`equipment_apply_job_item` 和
+`equipment_apply_job_log` 持久化进度。失败时只可重试失败项及其后的 pending 项，不能把
+“已发送指令”误记为成功；回滚必须作为独立、可验证的后续能力实现。
 
 ## 测试与提交
 

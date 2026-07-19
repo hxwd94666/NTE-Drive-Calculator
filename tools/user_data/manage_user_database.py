@@ -57,6 +57,15 @@ def parse_args() -> argparse.Namespace:
 
     plans_parser = subparsers.add_parser("plans", help="列出已保存的装配方案")
     plans_parser.add_argument("--character-id", type=int)
+    prune_parser = subparsers.add_parser(
+        "prune-snapshots",
+        help="安全清理未被当前快照或装配方案引用的历史快照",
+    )
+    prune_parser.add_argument(
+        "--retain-recent",
+        type=int,
+        help="至少保留最近的稳定快照数量；省略时读取数据库设置",
+    )
     return parser.parse_args()
 
 
@@ -83,7 +92,11 @@ def main() -> int:
             snapshot_id = dao.import_inventory_snapshot(
                 raw, source="nte_core", protocol_version=args.protocol_version
             )
-            result = {"imported_snapshot_id": snapshot_id, "inventory": dao.current_inventory_summary()}
+            result = {
+                "imported_snapshot_id": snapshot_id,
+                "inventory": dao.current_inventory_summary(),
+                "retention": dao.prune_inventory_snapshots(),
+            }
         elif args.command == "inventory":
             equipped = None if args.equipped is None else args.equipped == "yes"
             result = dao.list_current_inventory_items(
@@ -109,6 +122,10 @@ def main() -> int:
             )
         elif args.command == "plans":
             result = dao.list_loadout_plans(args.character_id)
+        elif args.command == "prune-snapshots":
+            result = dao.prune_inventory_snapshots(
+                retain_recent=args.retain_recent
+            )
         else:
             raise AssertionError(args.command)
     _print_json(result)

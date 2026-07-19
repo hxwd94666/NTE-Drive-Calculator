@@ -171,6 +171,23 @@ class InventorySyncServiceTests(unittest.TestCase):
             self.assertEqual(1, diff["added_count"])
             self.assertEqual(0, diff["removed_count"])
 
+    def test_applies_configured_snapshot_retention_after_sync(self) -> None:
+        self._start()
+        with UserDataDao(self.database_path) as dao:
+            dao.update_sync_settings(inventory_snapshot_retention_count=1)
+
+        self.core.emit(snapshot(item(1), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.core.emit(snapshot(item(1), item(2), sequence=2))
+        second = self.service.wait_for_snapshot(
+            after_snapshot_id=first.last_snapshot_id,
+            timeout=2.0,
+        )
+
+        with UserDataDao(self.database_path) as dao:
+            self.assertEqual(1, dao.summary()["snapshot_count"])
+            self.assertEqual(second.last_snapshot_id, dao.current_inventory_snapshot_id())
+
     def test_duplicate_events_do_not_create_duplicate_database_snapshots(self) -> None:
         self._start()
         self.core.emit(snapshot(item(1), sequence=1))

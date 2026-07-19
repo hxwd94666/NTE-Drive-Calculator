@@ -29,10 +29,9 @@ class InventoryPageMixin:
     _show_saved_plan_diff_dialog = inventory_page._show_saved_plan_diff_dialog
     _clear_all_equipment = inventory_page._clear_all_equipment
     _delete_role_equipment = inventory_page._delete_role_equipment
-    _optimize_saved_equipment = inventory_page._optimize_saved_equipment
     _preview_assemble_role = inventory_page._preview_assemble_role
     _preview_assemble_all_roles = inventory_page._preview_assemble_all_roles
-    _save_eq = inventory_page._save_eq
+    _resume_nte_core_equipment_apply = inventory_page._resume_nte_core_equipment_apply
 
 
 class BlueprintPageMixin:

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
     QKeySequenceEdit,
@@ -36,6 +37,7 @@ DEFAULT_SYNC_SETTINGS = {
     "capture_device_id": None,
     "auto_start_inventory_sync": False,
     "raw_capture_enabled": False,
+    "inventory_snapshot_retention_count": 20,
 }
 
 
@@ -165,6 +167,17 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     window._sync_settle_spin.setValue(float(settings["inventory_settle_seconds"]))
     sync_form.addRow("内容稳定等待:", window._sync_settle_spin)
 
+    window._snapshot_retention_spin = QSpinBox()
+    window._snapshot_retention_spin.setRange(1, 365)
+    window._snapshot_retention_spin.setValue(
+        int(settings["inventory_snapshot_retention_count"])
+    )
+    window._snapshot_retention_spin.setSuffix(" 份")
+    window._snapshot_retention_spin.setToolTip(
+        "始终保留当前快照和已保存装配方案引用的快照。"
+    )
+    sync_form.addRow("历史快照保留:", window._snapshot_retention_spin)
+
     window._sync_capture_device_edit = QLineEdit()
     window._sync_capture_device_edit.setPlaceholderText("留空表示自动选择网卡")
     window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
@@ -189,8 +202,18 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     else:
         save_sync_button.setEnabled(False)
         save_sync_button.setToolTip("当前页面宿主未启用 SQLite 同步设置")
+    prune_snapshots_button = QPushButton("清理历史快照")
+    prune_snapshots_button.setObjectName("btnDanger")
+    prune_snapshots_handler = getattr(window, "_prune_inventory_snapshots", None)
+    if callable(prune_snapshots_handler):
+        prune_snapshots_button.clicked.connect(prune_snapshots_handler)
+    else:
+        prune_snapshots_button.setEnabled(False)
+        prune_snapshots_button.setToolTip("当前页面宿主未启用 SQLite 快照维护")
+    window._prune_snapshots_button = prune_snapshots_button
     sync_actions = QHBoxLayout()
     sync_actions.addWidget(save_sync_button)
+    sync_actions.addWidget(prune_snapshots_button)
     sync_actions.addStretch()
     sync_card.layout().addLayout(sync_actions)
     layout.addWidget(sync_card)

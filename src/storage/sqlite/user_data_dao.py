@@ -11,14 +11,17 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
     2: Path(__file__).with_name("schema") / "003_user_data_v2.sql",
+    3: Path(__file__).with_name("schema") / "004_user_data_v3.sql",
+    4: Path(__file__).with_name("schema") / "005_user_data_v4.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
+DEFAULT_SNAPSHOT_RETENTION_COUNT = 20
 
 
 class UserDataError(RuntimeError):
@@ -231,6 +234,7 @@ class UserDataDao:
         raw_capture_enabled: bool | None = None,
         inventory_settle_seconds: float | None = None,
         auto_start_inventory_sync: bool | None = None,
+        inventory_snapshot_retention_count: int | None = None,
     ) -> dict[str, Any]:
         current = self.get_sync_settings()
         inventory_method = inventory_sync_method or current["inventory_sync_method"]
@@ -249,12 +253,22 @@ class UserDataDao:
             if auto_start_inventory_sync is None
             else bool(auto_start_inventory_sync)
         )
+        retention_count = (
+            current["inventory_snapshot_retention_count"]
+            if inventory_snapshot_retention_count is None
+            else _integer(
+                inventory_snapshot_retention_count,
+                "inventory_snapshot_retention_count",
+                minimum=1,
+            )
+        )
         self._db().execute(
             """
             UPDATE sync_settings
             SET inventory_sync_method = ?, equipment_apply_method = ?,
                 capture_device_id = ?, raw_capture_enabled = ?,
                 inventory_settle_seconds = ?, auto_start_inventory_sync = ?,
+                inventory_snapshot_retention_count = ?,
                 updated_at_utc = ?
             WHERE singleton_id = 1
             """,
@@ -265,6 +279,7 @@ class UserDataDao:
                 int(raw_enabled),
                 settle,
                 int(auto_start),
+                retention_count,
                 _utc_now(),
             ),
         )
@@ -421,6 +436,31 @@ class UserDataDao:
                             _json(stat),
                         ),
                     )
+                character_id = item.get("equipped_character_id")
+                character_uid = item.get("equipped_character_uid")
+                if character_id is not None and isinstance(character_uid, Mapping):
+                    try:
+                        character_slot = _integer(character_uid.get("slot"), "equipped_character_uid.slot", minimum=1)
+                        character_serial = _integer(character_uid.get("serial"), "equipped_character_uid.serial", minimum=1)
+                    except UserDataValidationError:
+                        # 背包条目仍完整保存；不把不合法的角色实例写入可执行映射。
+                        continue
+                    connection.execute(
+                        """
+                        INSERT INTO character_instance_mapping(
+                            character_id, uid_slot, uid_serial, source,
+                            first_seen_snapshot_id, last_seen_snapshot_id,
+                            created_at_utc, updated_at_utc
+                        ) VALUES (?, ?, ?, 'snapshot', ?, ?, ?, ?)
+                        ON CONFLICT(character_id, uid_slot, uid_serial) DO UPDATE SET
+                            last_seen_snapshot_id = excluded.last_seen_snapshot_id,
+                            updated_at_utc = excluded.updated_at_utc
+                        """,
+                        (
+                            character_id, character_slot, character_serial,
+                            snapshot_id, snapshot_id, now, now,
+                        ),
+                    )
             connection.execute("UPDATE inventory_snapshot SET is_current = 0 WHERE is_current = 1")
             connection.execute(
                 "UPDATE inventory_snapshot SET is_current = 1 WHERE snapshot_id = ?",
@@ -446,6 +486,242 @@ class UserDataDao:
             row["complete"] = bool(row["complete"])
             row["is_current"] = bool(row["is_current"])
         return rows
+
+    def prune_inventory_snapshots(
+        self,
+        *,
+        retain_recent: int | None = None,
+    ) -> dict[str, Any]:
+        """安全删除未受保护的历史稳定快照。
+
+        始终保留当前快照、已保存装配方案引用的快照，以及按时间最近的若干份。
+        删除依靠外键级联清理对应的背包物品和词条；不会修改任何装配方案。
+        """
+
+        if retain_recent is None:
+            retain_recent = self.get_sync_settings()[
+                "inventory_snapshot_retention_count"
+            ]
+        raw_retain_recent = _integer(
+            retain_recent, "retain_recent", minimum=1
+        )
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            all_rows = connection.execute(
+                "SELECT snapshot_id FROM inventory_snapshot"
+            ).fetchall()
+            total_before = len(all_rows)
+            current_rows = connection.execute(
+                "SELECT snapshot_id FROM inventory_snapshot WHERE is_current = 1"
+            ).fetchall()
+            current_snapshot_ids = {
+                int(row["snapshot_id"]) for row in current_rows
+            }
+            referenced_rows = connection.execute(
+                """
+                SELECT DISTINCT source_snapshot_id AS snapshot_id
+                FROM loadout_plan
+                WHERE source_snapshot_id IS NOT NULL
+                """
+            ).fetchall()
+            referenced_snapshot_ids = {
+                int(row["snapshot_id"]) for row in referenced_rows
+            }
+            job_rows = connection.execute(
+                "SELECT DISTINCT source_snapshot_id AS snapshot_id FROM equipment_apply_job"
+            ).fetchall()
+            job_snapshot_ids = {int(row["snapshot_id"]) for row in job_rows}
+            recent_rows = connection.execute(
+                """
+                SELECT snapshot_id
+                FROM inventory_snapshot
+                ORDER BY captured_at_utc DESC, snapshot_id DESC
+                LIMIT ?
+                """,
+                (raw_retain_recent,),
+            ).fetchall()
+            recent_snapshot_ids = {
+                int(row["snapshot_id"]) for row in recent_rows
+            }
+            protected_ids = (
+                current_snapshot_ids
+                | referenced_snapshot_ids
+                | job_snapshot_ids
+                | recent_snapshot_ids
+            )
+            deleted_snapshot_ids = sorted(
+                int(row["snapshot_id"])
+                for row in all_rows
+                if int(row["snapshot_id"]) not in protected_ids
+            )
+            if deleted_snapshot_ids:
+                placeholders = ", ".join("?" for _ in deleted_snapshot_ids)
+                connection.execute(
+                    f"DELETE FROM inventory_snapshot WHERE snapshot_id IN ({placeholders})",
+                    deleted_snapshot_ids,
+                )
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法清理历史背包快照") from exc
+
+        return {
+            "retain_recent": raw_retain_recent,
+            "total_before": total_before,
+            "total_after": total_before - len(deleted_snapshot_ids),
+            "deleted_snapshot_ids": deleted_snapshot_ids,
+            "deleted_snapshot_count": len(deleted_snapshot_ids),
+            "current_snapshot_ids": sorted(current_snapshot_ids),
+            "referenced_snapshot_ids": sorted(referenced_snapshot_ids),
+            "job_snapshot_ids": sorted(job_snapshot_ids),
+            "recent_snapshot_ids": sorted(recent_snapshot_ids),
+        }
+
+    @staticmethod
+    def _character_uid(value: Mapping[str, Any], label: str = "character_uid") -> dict[str, int]:
+        return {
+            "slot": _integer(value.get("slot"), f"{label}.slot", minimum=1),
+            "serial": _integer(value.get("serial"), f"{label}.serial", minimum=1),
+        }
+
+    def upsert_character_instance_mapping(
+        self, character_id: int, character_uid: Mapping[str, Any], *, source: str = "manual"
+    ) -> dict[str, Any]:
+        if source not in {"snapshot", "manual"}:
+            raise UserDataValidationError("角色实例映射 source 必须是 snapshot 或 manual")
+        raw_character_id = _integer(character_id, "character_id", minimum=1)
+        uid = self._character_uid(character_uid)
+        now = _utc_now()
+        try:
+            self._db().execute(
+                """
+                INSERT INTO character_instance_mapping(
+                    character_id, uid_slot, uid_serial, source,
+                    first_seen_snapshot_id, last_seen_snapshot_id, created_at_utc, updated_at_utc
+                ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
+                ON CONFLICT(character_id, uid_slot, uid_serial) DO UPDATE SET
+                    source = excluded.source, updated_at_utc = excluded.updated_at_utc
+                """,
+                (raw_character_id, uid["slot"], uid["serial"], source, now, now),
+            )
+            self._db().commit()
+        except sqlite3.Error as exc:
+            self._db().rollback()
+            raise UserDataError("无法保存角色实例映射") from exc
+        return self.list_character_instance_mappings(raw_character_id)[0]
+
+    def list_character_instance_mappings(self, character_id: int | None = None) -> list[dict[str, Any]]:
+        where = "" if character_id is None else "WHERE character_id = ?"
+        parameters = () if character_id is None else (_integer(character_id, "character_id", minimum=1),)
+        return self._rows(
+            f"""SELECT character_id, uid_slot, uid_serial, source, first_seen_snapshot_id,
+                       last_seen_snapshot_id, created_at_utc, updated_at_utc
+                FROM character_instance_mapping {where}
+                ORDER BY character_id, updated_at_utc DESC, uid_slot, uid_serial""",
+            parameters,
+        )
+
+    def create_equipment_apply_job(
+        self, source_snapshot_id: int, prepared_roles: Sequence[Mapping[str, Any]]
+    ) -> int:
+        raw_snapshot_id = _integer(source_snapshot_id, "source_snapshot_id", minimum=1)
+        if self.inventory_snapshot_summary(raw_snapshot_id) is None:
+            raise UserDataValidationError("装配任务引用的稳定背包快照不存在")
+        if not prepared_roles:
+            raise UserDataValidationError("装配任务至少需要一个角色")
+        now = _utc_now()
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                "INSERT INTO equipment_apply_job(source_snapshot_id, status, created_at_utc) VALUES (?, 'prepared', ?)",
+                (raw_snapshot_id, now),
+            )
+            job_id = int(cursor.lastrowid)
+            for ordinal, raw_role in enumerate(prepared_roles):
+                role = _plain_object(raw_role, f"prepared_roles[{ordinal}]")
+                uid = self._character_uid(_plain_object(role.get("character_uid"), "character_uid"))
+                role_name = str(role.get("role_name") or "").strip()
+                if not role_name:
+                    raise UserDataValidationError("装配任务角色名称不能为空")
+                plan_id = _integer(role.get("plan_id"), "plan_id", minimum=1)
+                connection.execute(
+                    """INSERT INTO equipment_apply_job_item(
+                        job_id, ordinal, role_name, character_id, character_uid_json, plan_id, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'pending')""",
+                    (job_id, ordinal, role_name, _integer(role.get("character_id"), "character_id", minimum=1), _json(uid), plan_id),
+                )
+            connection.execute(
+                "INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)",
+                (job_id, now, "任务已创建，等待执行"),
+            )
+            connection.commit()
+            return job_id
+        except (sqlite3.Error, UserDataValidationError) as exc:
+            connection.rollback()
+            if isinstance(exc, UserDataValidationError):
+                raise
+            raise UserDataError("无法创建一键装配任务") from exc
+
+    def get_equipment_apply_job(self, job_id: int) -> dict[str, Any] | None:
+        raw_job_id = _integer(job_id, "job_id", minimum=1)
+        job = self._one("SELECT * FROM equipment_apply_job WHERE job_id = ?", (raw_job_id,))
+        if job is None:
+            return None
+        items = self._rows("SELECT * FROM equipment_apply_job_item WHERE job_id = ? ORDER BY ordinal", (raw_job_id,))
+        for item in items:
+            item["character_uid"] = _decoded(item.pop("character_uid_json"), {})
+        job["items"] = items
+        job["logs"] = self._rows("SELECT * FROM equipment_apply_job_log WHERE job_id = ? ORDER BY log_id", (raw_job_id,))
+        return job
+
+    def latest_resumable_equipment_apply_job(self) -> dict[str, Any] | None:
+        row = self._one("SELECT job_id FROM equipment_apply_job WHERE status IN ('prepared', 'running', 'failed') ORDER BY job_id DESC LIMIT 1")
+        return self.get_equipment_apply_job(int(row["job_id"])) if row else None
+
+    def reset_failed_equipment_apply_job_items(self, job_id: int) -> None:
+        raw_job_id = _integer(job_id, "job_id", minimum=1)
+        now = _utc_now()
+        self._db().execute("UPDATE equipment_apply_job_item SET status = 'pending', last_error = NULL WHERE job_id = ? AND status = 'failed'", (raw_job_id,))
+        self._db().execute("UPDATE equipment_apply_job SET status = 'prepared', last_error = NULL WHERE job_id = ?", (raw_job_id,))
+        self._db().execute("INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)", (raw_job_id, now, "失败角色已重置，等待重试"))
+        self._db().commit()
+
+    def mark_equipment_apply_job_item(self, job_item_id: int, *, status: str, error: str | None = None, before_snapshot_id: int | None = None, after_snapshot_id: int | None = None) -> None:
+        if status not in {"running", "succeeded", "failed"}:
+            raise UserDataValidationError("装配任务项状态无效")
+        raw_item_id = _integer(job_item_id, "job_item_id", minimum=1)
+        item = self._one("SELECT job_id, role_name FROM equipment_apply_job_item WHERE job_item_id = ?", (raw_item_id,))
+        if item is None:
+            raise UserDataValidationError("装配任务项不存在")
+        now = _utc_now()
+        connection = self._db()
+        connection.execute("BEGIN IMMEDIATE")
+        if status == "running":
+            connection.execute("UPDATE equipment_apply_job_item SET status = 'running', attempt_count = attempt_count + 1, started_at_utc = ?, last_error = NULL WHERE job_item_id = ?", (now, raw_item_id))
+            connection.execute("UPDATE equipment_apply_job SET status = 'running', started_at_utc = COALESCE(started_at_utc, ?), last_error = NULL WHERE job_id = ?", (now, item["job_id"]))
+            message, level = f"开始处理角色 [{item['role_name']}]", "info"
+        elif status == "succeeded":
+            connection.execute("UPDATE equipment_apply_job_item SET status = 'succeeded', before_snapshot_id = ?, after_snapshot_id = ?, completed_at_utc = ?, last_error = NULL WHERE job_item_id = ?", (before_snapshot_id, after_snapshot_id, now, raw_item_id))
+            message, level = f"角色 [{item['role_name']}] 装配已确认", "info"
+        else:
+            connection.execute("UPDATE equipment_apply_job_item SET status = 'failed', completed_at_utc = ?, last_error = ? WHERE job_item_id = ?", (now, str(error or "未知错误"), raw_item_id))
+            connection.execute("UPDATE equipment_apply_job SET status = 'failed', last_error = ? WHERE job_id = ?", (str(error or "未知错误"), item["job_id"]))
+            message, level = f"角色 [{item['role_name']}] 失败：{error or '未知错误'}", "error"
+        connection.execute("INSERT INTO equipment_apply_job_log(job_id, job_item_id, created_at_utc, level, message) VALUES (?, ?, ?, ?, ?)", (item["job_id"], raw_item_id, now, level, message))
+        connection.commit()
+
+    def complete_equipment_apply_job_if_done(self, job_id: int) -> bool:
+        raw_job_id = _integer(job_id, "job_id", minimum=1)
+        remaining = self._one("SELECT COUNT(*) AS count FROM equipment_apply_job_item WHERE job_id = ? AND status != 'succeeded'", (raw_job_id,))
+        if int(remaining["count"]) != 0:
+            return False
+        now = _utc_now()
+        self._db().execute("UPDATE equipment_apply_job SET status = 'completed', completed_at_utc = ?, last_error = NULL WHERE job_id = ?", (now, raw_job_id))
+        self._db().execute("INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)", (raw_job_id, now, "全部角色装配已确认"))
+        self._db().commit()
+        return True
 
     def current_inventory_summary(self) -> dict[str, Any] | None:
         snapshot_id = self.current_inventory_snapshot_id()
@@ -766,6 +1042,52 @@ class UserDataDao:
             ),
             None,
         )
+
+    def get_active_loadout_plan_for_role(self, role_name: str) -> dict[str, Any] | None:
+        """返回指定显示角色名当前可执行的 SQLite 方案。"""
+
+        raw_role_name = str(role_name).strip()
+        if not raw_role_name:
+            raise UserDataValidationError("角色名称不能为空")
+        return next(
+            (
+                plan
+                for plan in self.list_loadout_plans()
+                if plan["is_active"]
+                and isinstance(plan.get("payload"), Mapping)
+                and plan["payload"].get("schema") == "allocation-official-snapshot-v1"
+                and plan["payload"].get("source_role_name") == raw_role_name
+            ),
+            None,
+        )
+
+    def list_active_loadout_plans_by_role(self) -> dict[str, dict[str, Any]]:
+        """返回当前所有带显示角色名的可执行 SQLite 方案。"""
+
+        plans: dict[str, dict[str, Any]] = {}
+        for plan in self.list_loadout_plans():
+            payload = plan.get("payload")
+            role_name = payload.get("source_role_name") if isinstance(payload, Mapping) else None
+            if (
+                plan["is_active"]
+                and isinstance(payload, Mapping)
+                and payload.get("schema") == "allocation-official-snapshot-v1"
+                and isinstance(role_name, str)
+                and role_name.strip()
+            ):
+                plans.setdefault(role_name, plan)
+        return plans
+
+    def deactivate_loadout_plan(self, plan_id: int) -> bool:
+        """从当前 UI 和新装配入口移除方案，但保留历史记录和任务审计。"""
+
+        raw_plan_id = _integer(plan_id, "plan_id", minimum=1)
+        cursor = self._db().execute(
+            "UPDATE loadout_plan SET is_active = 0, updated_at_utc = ? WHERE plan_id = ? AND is_active = 1",
+            (_utc_now(), raw_plan_id),
+        )
+        self._db().commit()
+        return cursor.rowcount > 0
 
     def summary(self) -> dict[str, Any]:
         return {

@@ -97,7 +97,7 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
 
         self.assertEqual(result.snapshot_id, snapshot_id)
         self.assertEqual(result.discarded_count, 1)
-        self.assertEqual(len(result.items), 2)
+        self.assertEqual(len(result.items), 3)
         drive = next(row for row in result.items if row["item_type"] == "drive")
         self.assertEqual(drive["uid"], "nte-module-11-101")
         self.assertEqual(drive["shape_id"], "L_3_BL")
@@ -105,6 +105,8 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
         self.assertEqual(drive["quality"], "Gold")
         self.assertEqual(drive["main_stats"], {"攻击力": 63.0, "生命值": 840.0})
         self.assertEqual(drive["sub_stats"], {"暴击伤害%": 6.0})
+        discarded_drive = next(row for row in result.items if row["uid"] == "nte-module-33-303")
+        self.assertTrue(discarded_drive["discarded"])
         core = next(row for row in result.items if row["item_type"] == "tape")
         self.assertEqual(core["uid"], "nte-core-22-202")
         self.assertEqual(core["shape_id"], "TAPE_15")

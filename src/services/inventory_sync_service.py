@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol
 
 from src.integrations.nte_core import NteCoreClient
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.utils.logger import logger
 
 from .inventory_snapshot_stabilizer import InventorySnapshotStabilizer
 
@@ -336,6 +337,17 @@ class InventorySyncService:
                         )
                         continue
                     stabilizer.mark_committed(stable.fingerprint)
+                    try:
+                        retention = dao.prune_inventory_snapshots()
+                        if retention["deleted_snapshot_count"]:
+                            logger.info(
+                                "已按保留策略清理 "
+                                f"{retention['deleted_snapshot_count']} 份历史背包快照；"
+                                f"当前共 {retention['total_after']} 份"
+                            )
+                    except Exception as exc:
+                        # 新快照已经安全提交，清理失败不能让同步服务重新导入同一份数据。
+                        logger.warning(f"历史背包快照清理失败，将在下次同步或手动维护时重试：{exc}")
                     retry_save_at = 0.0
                     self._publish(
                         "listening",

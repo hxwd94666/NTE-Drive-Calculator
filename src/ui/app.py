@@ -724,6 +724,7 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
                     raw_capture_enabled=self._sync_raw_capture_toggle.isChecked(),
                     inventory_settle_seconds=self._sync_settle_spin.value(),
                     auto_start_inventory_sync=self._sync_auto_start_toggle.isChecked(),
+                    inventory_snapshot_retention_count=self._snapshot_retention_spin.value(),
                 )
             if was_running:
                 self._stop_inventory_sync()
@@ -733,6 +734,65 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self,"同步设置",f"保存失败：{exc}")
             return None
+
+    def _prune_inventory_snapshots(self):
+        current_worker = getattr(self, "_snapshot_prune_worker", None)
+        if current_worker is not None and current_worker.isRunning():
+            QMessageBox.information(self, "快照维护", "历史快照正在清理，请等待当前任务完成。")
+            return
+        retain_recent = self._snapshot_retention_spin.value()
+        message = (
+            f"将保留最近 {retain_recent} 份稳定背包快照。\n\n"
+            "当前快照和所有已保存装配方案引用的快照会始终保留；"
+            "其他历史快照及其背包物品、词条记录将被删除。\n\n"
+            "此操作不会修改装配方案。是否继续？"
+        )
+        if QMessageBox.question(
+            self,
+            "确认清理历史快照",
+            message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        database_path = USER_DATABASE_PATH
+        if hasattr(self, "_prune_snapshots_button"):
+            self._prune_snapshots_button.setEnabled(False)
+        worker = WorkerThread(
+            target=lambda: self._prune_inventory_snapshots_task(
+                database_path, retain_recent
+            ),
+            parent=self,
+        )
+        self._snapshot_prune_worker = worker
+        worker.result_ready.connect(self._on_inventory_snapshots_pruned)
+        worker.error.connect(self._on_inventory_snapshot_prune_error)
+        worker.start()
+
+    @staticmethod
+    def _prune_inventory_snapshots_task(database_path, retain_recent):
+        with UserDataDao(database_path) as dao:
+            return dao.prune_inventory_snapshots(retain_recent=retain_recent)
+
+    def _on_inventory_snapshots_pruned(self, result):
+        if hasattr(self, "_prune_snapshots_button"):
+            self._prune_snapshots_button.setEnabled(True)
+        self._refresh_home()
+        QMessageBox.information(
+            self,
+            "快照维护完成",
+            "已清理 "
+            f"{result['deleted_snapshot_count']} 份历史快照，"
+            f"当前保留 {result['total_after']} 份。\n\n"
+            "当前快照和被装配方案引用的快照未被删除。"
+            "SQLite 数据库文件大小可能不会立刻缩小，但空间会供后续同步复用。",
+        )
+
+    def _on_inventory_snapshot_prune_error(self, error):
+        if hasattr(self, "_prune_snapshots_button"):
+            self._prune_snapshots_button.setEnabled(True)
+        QMessageBox.warning(self, "快照维护", f"清理失败：{error}")
 
     def _maybe_auto_start_inventory_sync(self):
         try:

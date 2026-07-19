@@ -124,7 +124,10 @@ class SqliteAllocationInventory:
         return shape_id
 
     def build(self, snapshot_id: int | None = None) -> AllocationInventoryProjection:
-        """固定一个快照并过滤已弃置物品，返回纯内存求解输入。"""
+        """固定一个快照并投影全部物品，返回纯内存求解输入。
+
+        弃置状态是游戏内标记，不是“不可装配”状态；因此保留在候选集中并透传给结果 UI。
+        """
 
         pinned_snapshot_id = (
             self.user_dao.current_inventory_snapshot_id()
@@ -146,7 +149,6 @@ class SqliteAllocationInventory:
         for item in self.user_dao.list_inventory_items(pinned_snapshot_id):
             if item.get("discarded"):
                 discarded_count += 1
-                continue
             kind = item.get("kind")
             uid_prefix = "module" if kind == "module" else "core"
             base = {
@@ -155,6 +157,7 @@ class SqliteAllocationInventory:
                 "quality": self._quality(item.get("quality")),
                 "area": int(item.get("grid_count") or 15),
                 "sub_stats": _stats(item.get("sub_stats") or []),
+                "discarded": bool(item.get("discarded")),
             }
             if kind == "module":
                 base.update(
