@@ -4,6 +4,17 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 
+from src.domain.crit_threshold import (
+    DEFAULT_CRIT_THRESHOLD,
+    minimum_crit_total,
+    crit_floor_enabled,
+    crit_rank_adjustment,
+    drive_has_crit,
+    is_crit_stat,
+    meets_preference_grade_limit,
+    normalize_preference_config,
+)
+from src.domain.grade_limits import meets_min_grade
 from src.domain.stat_catalog import StatCatalog
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
@@ -21,7 +32,6 @@ class BaseDispatchStrategy:
         self._max_single_weight_cache = {}
         self._extra_shape_factor_cache = {}
         self._extra_shape_hidden_bonus_cache = {}
-
     def _resolve_set_name(self, set_name: str) -> str:
         resolved = resolve_name(set_name, self.sets_db.keys(), cutoff=0.78)
         return resolved or set_name
@@ -34,16 +44,54 @@ class BaseDispatchStrategy:
         return target_set
 
     def _stat_priority_config(self, config) -> dict:
-        if not isinstance(config, dict):
+        normalized = normalize_preference_config(config)
+        if not normalized.get("stats"):
             return {}
-        stats = [str(s) for s in config.get("stats", []) if s]
-        if not stats:
-            return {}
+        return normalized
+
+    def _group_uses_crit_thresholds(self, group: list[str], crit_priority_modes: Dict[str, dict]) -> bool:
+        return any(crit_floor_enabled(crit_priority_modes.get(role)) for role in group)
+
+    def _role_crit_context(self, role: str) -> dict:
+        role_data = self.roles_db.get(role, {}) or {}
+        catalog = self.stat_catalog
+        shape_areas = getattr(self, "_shape_areas", None)
+        if not isinstance(shape_areas, dict):
+            shape_areas = {}
         return {
-            "stats": stats,
-            "equal_priority": bool(config.get("equal_priority", False)),
-            "ignore_grade_limit": bool(config.get("ignore_grade_limit", False)),
+            "role_data": role_data,
+            "alias_mapping": dict(getattr(catalog, "stat_alias_mapping", {}) or {}),
+            "tape_main_values": dict(getattr(catalog, "tape_main_values", {}) or {}),
+            "shape_areas": shape_areas,
         }
+
+    def _current_role_crit(self, role: str, tape, drives: list[Drive]) -> float:
+        ctx = self._role_crit_context(role)
+        return minimum_crit_total(
+            ctx["role_data"],
+            tape,
+            drives,
+            alias_mapping=ctx["alias_mapping"],
+            tape_main_values=ctx["tape_main_values"],
+            shape_areas=ctx["shape_areas"],
+        )
+
+    def _meets_grade_limit(self, role: str, item, config) -> bool:
+        score = getattr(item, "role_scores", {}).get(role, 0.0)
+        area = getattr(item, "area", 1) or 1
+        return meets_preference_grade_limit(score, area, config, require_active=True)
+
+    def _crit_rank_bonus(self, role: str, item, config, current_crit: float | None) -> float:
+        if current_crit is None or not crit_floor_enabled(config):
+            return 0.0
+        if not self._meets_grade_limit(role, item, config):
+            return 0.0
+        pref = normalize_preference_config(config)
+        return crit_rank_adjustment(
+            current_crit,
+            drive_has_crit(item),
+            pref.get("crit_threshold", DEFAULT_CRIT_THRESHOLD),
+        )
 
     def _item_has_stat(self, item, stat_key: str) -> bool:
         target_raw = str(stat_key or "").strip()
@@ -191,7 +239,7 @@ class BaseDispatchStrategy:
         cfg = self._stat_priority_config(config)
         if not cfg.get("stats"):
             return False
-        return bool(cfg.get("ignore_grade_limit")) or self._is_a_grade_item(role, item)
+        return self._meets_grade_limit(role, item, config)
 
     def _stat_priority_depth(self, role: str, item, config) -> int:
         cfg = self._stat_priority_config(config)
@@ -229,6 +277,7 @@ class BaseDispatchStrategy:
         base_score: float,
         config,
         include_extra_shape_bonus: bool = True,
+        current_crit: float | None = None,
     ) -> tuple:
         rank_score = self._drive_ranking_score(
             role,
@@ -236,6 +285,7 @@ class BaseDispatchStrategy:
             base_score,
             include_extra_shape_bonus=include_extra_shape_bonus,
         )
+        rank_score += self._crit_rank_bonus(role, drive, config, current_crit)
         if self._stat_priority_enabled(config):
             return (self._stat_priority_depth(role, drive, config), rank_score)
         return (rank_score,)
@@ -257,22 +307,33 @@ class BaseDispatchStrategy:
     def _is_a_grade_item(self, role: str, item) -> bool:
         score = getattr(item, "role_scores", {}).get(role, 0.0)
         area = getattr(item, "area", 1) or 1
-        return score >= area * 10.0 * 0.4
+        return meets_min_grade(score, area, "A")
 
-    def _rank_score_for_item(self, role: str, item, base_score: float, config) -> float:
+    def _rank_score_for_item(
+        self,
+        role: str,
+        item,
+        base_score: float,
+        config,
+        current_crit: float | None = None,
+    ) -> float:
         if base_score < 0:
             return base_score
+        score = float(base_score)
         cfg = self._stat_priority_config(config)
         stats = cfg.get("stats", [])
-        if not stats or (not cfg.get("ignore_grade_limit") and not self._is_a_grade_item(role, item)):
-            return base_score
-        if cfg.get("equal_priority"):
-            covered = self._covered_stat_count(item, stats)
-            return base_score + covered * 100000.0 if covered else base_score
-        for tier, stat_key in enumerate(stats):
-            if self._item_has_stat(item, stat_key):
-                return base_score + (len(stats) - tier) * 100000.0
-        return base_score
+        if stats and self._meets_grade_limit(role, item, config):
+            if cfg.get("equal_priority"):
+                covered = self._covered_stat_count(item, stats)
+                if covered:
+                    score = base_score + covered * 100000.0
+            else:
+                for tier, stat_key in enumerate(stats):
+                    if self._item_has_stat(item, stat_key):
+                        score = base_score + (len(stats) - tier) * 100000.0
+                        break
+        score += self._crit_rank_bonus(role, item, config, current_crit)
+        return score
 
     def _rank_score_for_drive(
         self,
@@ -282,6 +343,7 @@ class BaseDispatchStrategy:
         config,
         *,
         include_extra_shape_bonus: bool = True,
+        current_crit: float | None = None,
     ) -> float:
         rank_score = self._drive_ranking_score(
             role,
@@ -289,7 +351,7 @@ class BaseDispatchStrategy:
             base_score,
             include_extra_shape_bonus=include_extra_shape_bonus,
         )
-        return self._rank_score_for_item(role, drive, rank_score, config)
+        return self._rank_score_for_item(role, drive, rank_score, config, current_crit=current_crit)
 
     def _crit_rate_cap(self, role: str, crit_rate_caps: Dict[str, float] | None):
         if not crit_rate_caps or role not in crit_rate_caps:
@@ -300,8 +362,7 @@ class BaseDispatchStrategy:
             return None
 
     def _is_crit_rate_key(self, key: str) -> bool:
-        normalized = str(key or "").replace("%", "")
-        return "暴击率" in normalized or "鏆村嚮鐜" in normalized
+        return is_crit_stat(key)
 
     def _crit_rate_from_stats(self, stats) -> float:
         if not isinstance(stats, dict):
@@ -385,6 +446,7 @@ class BaseDispatchStrategy:
         candidates: list[tuple[int, Drive]],
         config=None,
         include_extra_shape_bonus: bool = True,
+        current_crit: float | None = None,
     ) -> tuple[int, Drive, float, float] | None:
         if not candidates:
             return None
@@ -396,14 +458,17 @@ class BaseDispatchStrategy:
                     drive.role_scores.get(role, 0.0),
                     config,
                     include_extra_shape_bonus=include_extra_shape_bonus,
+                    current_crit=current_crit,
                 ),
                 idx,
                 drive,
-                self._drive_ranking_score(
+                self._rank_score_for_drive(
                     role,
                     drive,
                     drive.role_scores.get(role, 0.0),
+                    config,
                     include_extra_shape_bonus=include_extra_shape_bonus,
+                    current_crit=current_crit,
                 ),
             )
             for idx, drive in candidates

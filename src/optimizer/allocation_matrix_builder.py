@@ -8,6 +8,17 @@ from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMa
 
 
 class AllocationMatrixBuilder(BlueprintCandidateBuilder):
+    def _build_group_slots(self, bp_combo, valid_roles, custom_sets):
+        slots = []
+        for role_idx, role in enumerate(valid_roles):
+            bp = bp_combo[role_idx]
+            target_set = self._target_set(role, custom_sets)
+            for shape in self._set_pieces_for_blueprint(bp, target_set):
+                slots.append({"role": role, "type": "set", "shape": shape, "set_name": target_set, "bp": bp})
+            for shape in bp["extra_pieces"]:
+                slots.append({"role": role, "type": "extra", "shape": shape, "set_name": None, "bp": bp})
+        return slots
+
     def _build_profit_matrix(
         self,
         bp_combo,
@@ -18,14 +29,7 @@ class AllocationMatrixBuilder(BlueprintCandidateBuilder):
         include_extra_shape_bonus: bool = True,
     ):
         crit_priority_modes = crit_priority_modes or {}
-        slots = []
-        for role_idx, role in enumerate(valid_roles):
-            bp = bp_combo[role_idx]
-            target_set = self._target_set(role, custom_sets)
-            for shape in self._set_pieces_for_blueprint(bp, target_set):
-                slots.append({"role": role, "type": "set", "shape": shape, "set_name": target_set, "bp": bp})
-            for shape in bp["extra_pieces"]:
-                slots.append({"role": role, "type": "extra", "shape": shape, "set_name": None, "bp": bp})
+        slots = self._build_group_slots(bp_combo, valid_roles, custom_sets)
 
         if len(drives_pool) < len(slots): return None, None, None
 

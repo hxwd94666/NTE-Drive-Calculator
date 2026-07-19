@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "name_aliases": {},
+  "character_overrides": {
+    "1046": {
+      "logical_character_key": "protagonist",
+      "classification": "available_avatar_variant",
+      "variant_key": "avatar_1046",
+      "confidence": "confirmed",
+      "reason": "DT_Character 中的「零」形象之一；项目模型把两个形象合并为主角。"
+    },
+    "1051": {
+      "logical_character_key": "protagonist",
+      "classification": "available_avatar_variant",
+      "variant_key": "avatar_1051",
+      "confidence": "confirmed",
+      "reason": "DT_Character 中的「零」形象之一；项目模型把两个形象合并为主角。"
+    },
+    "1056": {
+      "logical_character_key": "character:1004",
+      "classification": "combat_transformation",
+      "canonical_character_id": "1004",
+      "variant_key": "bat_form",
+      "confidence": "confirmed",
+      "reason": "安魂曲长按 E 技能后变成的蝙蝠战斗形象；与 1004 共用角色身份、属性包和养成配置，不是独立角色。"
+    }
+  },
+  "ability_profile_overrides": {
+    "ft_character_1046": {
+      "character_id": "1046",
+      "logical_character_key": "protagonist",
+      "display_name": "「零」1046",
+      "profile_kind": "minigame_variant",
+      "scope": "999_nights",
+      "included_by_default": false,
+      "confidence": "confirmed"
+    },
+    "ft_character_1051": {
+      "character_id": "1051",
+      "logical_character_key": "protagonist",
+      "display_name": "「零」1051",
+      "profile_kind": "minigame_variant",
+      "scope": "999_nights",
+      "included_by_default": false,
+      "confidence": "confirmed"
+    },
+    "ft_character_1075": {
+      "character_id": "1075",
+      "logical_character_key": "character:1075",
+      "display_name": "伊洛伊",
+      "profile_kind": "minigame_variant",
+      "scope": "999_nights",
+      "included_by_default": false,
+      "confidence": "confirmed"
+    },
+    "ft_character_1076": {
+      "character_id": "1076",
+      "logical_character_key": "character:1076",
+      "display_name": "真红",
+      "profile_kind": "minigame_variant",
+      "scope": "999_nights",
+      "included_by_default": false,
+      "confidence": "confirmed"
+    },
+    "ft_character_mint": {
+      "character_id": "1019",
+      "logical_character_key": "character:1019",
+      "display_name": "薄荷",
+      "profile_kind": "minigame_variant",
+      "scope": "999_nights",
+      "included_by_default": false,
+      "confidence": "confirmed"
+    }
+  }
+}

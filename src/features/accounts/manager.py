@@ -25,11 +25,13 @@ from PySide6.QtWidgets import (
 )
 
 from src.storage.config_migration import migrate_core_config_dir
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
 
 TRANSFER_FORMAT_VERSION = 1
 TRANSFER_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp"}
+USER_DATABASE_FILENAME = "user_data.sqlite3"
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class AccountState:
     active_account_id: str
     active_account_name: str
     account_data_root: Path
+    user_database_path: Path
     user_config_dir: Path
     output_file: Path
     screenshot_dir: Path
@@ -111,6 +114,17 @@ class AccountManager:
         for subdir in (account_config, account_root / "scanned_images", account_root / "logs"):
             subdir.mkdir(parents=True, exist_ok=True)
 
+        # 用户数据库属于账号运行数据：首次创建账号时生成，不随安装包覆盖。
+        account = self.account_meta(account_id)
+        account_name = str(account.get("name") or account_id)
+        with UserDataDao(
+            account_root / USER_DATABASE_FILENAME,
+            account_id=account_id,
+            account_name=account_name,
+        ) as user_database:
+            if user_database.profile()["account_name"] != account_name:
+                user_database.rename_account(account_name)
+
         legacy_config = self.data_root / "config"
         for fname in self.account_user_files:
             dst = account_config / fname
@@ -147,6 +161,7 @@ class AccountManager:
             active_account_id=active_id,
             active_account_name=active_name,
             account_data_root=account_root,
+            user_database_path=account_root / USER_DATABASE_FILENAME,
             user_config_dir=account_root / "config",
             output_file=(account_root / "config" / "real_inventory.json"),
             screenshot_dir=account_root / "scanned_images",
@@ -198,6 +213,10 @@ class AccountManager:
             if account.get("id") == account_id:
                 account["name"] = name
         self.write_index(data)
+        database_path = self.account_dir(account_id) / USER_DATABASE_FILENAME
+        if database_path.is_file():
+            with UserDataDao(database_path) as user_database:
+                user_database.rename_account(name)
 
     def delete_account(self, account_id: str) -> str | None:
         data = self.read_index()

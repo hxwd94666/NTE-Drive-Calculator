@@ -11,12 +11,16 @@ import os
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
     QKeySequenceEdit,
@@ -24,6 +28,17 @@ from PySide6.QtWidgets import (
 
 from src.app.constants import BILIBILI_HOME_URL, NETDISK_DOWNLOAD_LINKS
 from src.app.theme import THEME_LABELS, themed_style
+
+
+DEFAULT_SYNC_SETTINGS = {
+    "inventory_sync_method": "nte_core",
+    "equipment_apply_method": "nte_core",
+    "inventory_settle_seconds": 5.0,
+    "capture_device_id": None,
+    "auto_start_inventory_sync": False,
+    "raw_capture_enabled": False,
+    "inventory_snapshot_retention_count": 20,
+}
 
 
 def _normalize_netdisk_links(netdisk_links=None):
@@ -111,6 +126,97 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     theme_row.addStretch()
     log_card.layout().addLayout(theme_row)
     layout.addWidget(log_card)
+
+    sync_card = window._card("背包同步与装配")
+    sync_description = QLabel(
+        "流式同步会在背包内容连续数秒没有变化后写入 SQLite，并继续后台监听。"
+        "原始诊断文件默认关闭。"
+    )
+    sync_description.setWordWrap(True)
+    sync_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+    sync_card.layout().addWidget(sync_description)
+    sync_form = QFormLayout()
+    sync_form.setSpacing(10)
+
+    settings_reader = getattr(window, "_get_sync_settings", None)
+    loaded_settings = settings_reader() if callable(settings_reader) else {}
+    settings = {**DEFAULT_SYNC_SETTINGS, **(loaded_settings or {})}
+    window._sync_inventory_method_combo = QComboBox()
+    window._sync_inventory_method_combo.addItem("本地核心组件流式同步", "nte_core")
+    window._sync_inventory_method_combo.addItem("手柄扫描", "gamepad")
+    inventory_index = window._sync_inventory_method_combo.findData(
+        settings["inventory_sync_method"]
+    )
+    window._sync_inventory_method_combo.setCurrentIndex(max(0, inventory_index))
+    sync_form.addRow("背包获取方式:", window._sync_inventory_method_combo)
+
+    window._sync_apply_method_combo = QComboBox()
+    window._sync_apply_method_combo.addItem("本地核心组件一键装配", "nte_core")
+    window._sync_apply_method_combo.addItem("手柄装配", "gamepad")
+    apply_index = window._sync_apply_method_combo.findData(
+        settings["equipment_apply_method"]
+    )
+    window._sync_apply_method_combo.setCurrentIndex(max(0, apply_index))
+    sync_form.addRow("装配执行方式:", window._sync_apply_method_combo)
+
+    window._sync_settle_spin = QDoubleSpinBox()
+    window._sync_settle_spin.setRange(1.0, 30.0)
+    window._sync_settle_spin.setDecimals(1)
+    window._sync_settle_spin.setSingleStep(0.5)
+    window._sync_settle_spin.setSuffix(" 秒")
+    window._sync_settle_spin.setValue(float(settings["inventory_settle_seconds"]))
+    sync_form.addRow("内容稳定等待:", window._sync_settle_spin)
+
+    window._snapshot_retention_spin = QSpinBox()
+    window._snapshot_retention_spin.setRange(1, 365)
+    window._snapshot_retention_spin.setValue(
+        int(settings["inventory_snapshot_retention_count"])
+    )
+    window._snapshot_retention_spin.setSuffix(" 份")
+    window._snapshot_retention_spin.setToolTip(
+        "始终保留当前快照和已保存装配方案引用的快照。"
+    )
+    sync_form.addRow("历史快照保留:", window._snapshot_retention_spin)
+
+    window._sync_capture_device_edit = QLineEdit()
+    window._sync_capture_device_edit.setPlaceholderText("留空表示自动选择网卡")
+    window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
+    sync_form.addRow("抓取网卡:", window._sync_capture_device_edit)
+
+    window._sync_auto_start_toggle = QCheckBox("软件启动后自动在后台等待背包")
+    window._sync_auto_start_toggle.setChecked(
+        bool(settings["auto_start_inventory_sync"])
+    )
+    sync_form.addRow("自动启动:", window._sync_auto_start_toggle)
+
+    window._sync_raw_capture_toggle = QCheckBox("保存底层诊断文件（排错时才开启）")
+    window._sync_raw_capture_toggle.setChecked(bool(settings["raw_capture_enabled"]))
+    sync_form.addRow("诊断文件:", window._sync_raw_capture_toggle)
+    sync_card.layout().addLayout(sync_form)
+
+    save_sync_button = QPushButton("保存同步设置")
+    save_sync_button.setObjectName("btnPrimary")
+    save_sync_handler = getattr(window, "_save_sync_settings", None)
+    if callable(save_sync_handler):
+        save_sync_button.clicked.connect(save_sync_handler)
+    else:
+        save_sync_button.setEnabled(False)
+        save_sync_button.setToolTip("当前页面宿主未启用 SQLite 同步设置")
+    prune_snapshots_button = QPushButton("清理历史快照")
+    prune_snapshots_button.setObjectName("btnDanger")
+    prune_snapshots_handler = getattr(window, "_prune_inventory_snapshots", None)
+    if callable(prune_snapshots_handler):
+        prune_snapshots_button.clicked.connect(prune_snapshots_handler)
+    else:
+        prune_snapshots_button.setEnabled(False)
+        prune_snapshots_button.setToolTip("当前页面宿主未启用 SQLite 快照维护")
+    window._prune_snapshots_button = prune_snapshots_button
+    sync_actions = QHBoxLayout()
+    sync_actions.addWidget(save_sync_button)
+    sync_actions.addWidget(prune_snapshots_button)
+    sync_actions.addStretch()
+    sync_card.layout().addLayout(sync_actions)
+    layout.addWidget(sync_card)
 
     hotkey_card = window._card("快捷键绑定")
     save_hotkeys = QPushButton("保存快捷键")

@@ -1,5 +1,6 @@
 # 验证常驻日志与用户启用的时间戳运行日志生命周期。
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
@@ -83,6 +84,26 @@ class RuntimeLoggingTests(unittest.TestCase):
             )
             disable_session_log()
             set_log_dir(self.log_dir)
+
+    def test_windowed_runtime_installs_device_independent_null_streams(self):
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        try:
+            sys.stdout = None
+            sys.stderr = None
+
+            logger_module._install_missing_standard_streams()
+            replacement_stdout = sys.stdout
+            replacement_stderr = sys.stderr
+        finally:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+
+        self.assertIsInstance(replacement_stdout, logger_module._NullTextStream)
+        self.assertIsInstance(replacement_stderr, logger_module._NullTextStream)
+        self.assertEqual(replacement_stdout.write("discarded"), len("discarded"))
+        self.assertIsNone(replacement_stdout.flush())
+        self.assertFalse(replacement_stdout.isatty())
 
 
 if __name__ == "__main__":

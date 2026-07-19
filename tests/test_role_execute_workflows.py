@@ -240,6 +240,33 @@ class ScanPromptWorkflowTests(unittest.TestCase):
         self.assertNotIn("已入库", message)
 
 
+class DriveAssemblyReturnWorkflowTests(unittest.TestCase):
+    def test_restores_calculator_and_returns_to_equipment_page_after_assembly(self):
+        from src.features.inventory.page import _return_to_equipment_after_assembly
+
+        class Window:
+            def __init__(self):
+                self.calls = []
+
+            def showNormal(self):
+                self.calls.append("show_normal")
+
+            def _go(self, page):
+                self.calls.append(page)
+
+            def raise_(self):
+                self.calls.append("raise")
+
+            def activateWindow(self):
+                self.calls.append("activate")
+
+        window = Window()
+
+        _return_to_equipment_after_assembly(window)
+
+        self.assertEqual(["show_normal", "equipment", "raise", "activate"], window.calls)
+
+
 class ExecutePageWorkflowTests(unittest.TestCase):
     def setUp(self):
         from src.app import runtime
@@ -281,6 +308,42 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertFalse(window._allocation_dirty)
         self.assertEqual([({"A": {"valid": True}}, "role_priority")], window.state_mgr.saved)
         self.assertEqual([False], window.reload_priority_args)
+
+    def test_save_allocation_syncs_equipment_lock_to_role_feature(self):
+        from src.features.allocation import runner
+
+        class StateManager:
+            def save_allocation(self, _final_plan, mode=""):
+                self.mode = mode
+
+        class Window:
+            def __init__(self):
+                self.final_plan = {"A": {"valid": True}}
+                self.state_mgr = StateManager()
+                self._pending_strat = "role_priority"
+                self._allocation_dirty = True
+                self.equipped_state = {"A": {"equipped_drives": [{"uid": "d1"}]}}
+                self._my_role_form_data = {"A": {"old": True}}
+
+            def _load_data(self, reload_priority=True):
+                self.reload_priority = reload_priority
+
+        calls = []
+        old_import = runner.import_all_role_equipment
+        runner.import_all_role_equipment = lambda state: calls.append(state) or {
+            "imported": 1,
+            "skipped": 0,
+            "failed": [],
+            "my_roles": {"A": {"drive": {"drives": [{"uid": "d1"}]}}},
+        }
+        try:
+            window = Window()
+            self.assertTrue(runner._save_alloc(window, show_message=False))
+        finally:
+            runner.import_all_role_equipment = old_import
+
+        self.assertEqual([{"A": {"equipped_drives": [{"uid": "d1"}]}}], calls)
+        self.assertEqual({"drive": {"drives": [{"uid": "d1"}]}}, window._my_role_form_data["A"])
 
     def test_execute_page_shows_post_action_manager_only_for_full_scan(self):
         from PySide6.QtCore import Signal
@@ -354,6 +417,33 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertIsNone(config["lock"]["set_names"])
         self.assertEqual("skip", config["lock"]["on_locked"])
         self.assertEqual("normal", config["lock"]["on_discarded"])
+
+    def test_scan_post_action_dialog_collects_preserve_rules(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.scanning.post_action_dialog import ScanPostActionDialog
+
+        app = QApplication.instance() or QApplication([])
+        rule = {
+            "enabled": True,
+            "name": "双爆卡带",
+            "item_type": "tape",
+            "action": "keep",
+            "main_stats": ["攻击力%"],
+            "sub_stats": ["暴击率%", "暴击伤害%"],
+            "sub_match": "all",
+            "quality_scope": "gold_purple",
+            "shape_ids": None,
+            "set_names": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            dialog = ScanPostActionDialog(None, Path(tmp))
+            self.assertEqual(["评分处理", "预留规则"], [dialog._main_tabs.tabText(index) for index in range(2)])
+            dialog._preserve_rules = [rule]
+            expected_rule = dict(rule, required_sub_stats=[], sub_match=2)
+            self.assertEqual([expected_rule], dialog._collect_config()["preserve_rules"])
+            dialog.close()
+        app.processEvents()
 
     def test_scan_post_action_config_passes_to_full_scan(self):
         from src.features.scanning import controller
@@ -704,7 +794,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         app.processEvents()
 
     def test_result_view_marks_added_equipment_from_plan_diff(self):
-        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
 
         from src.features.allocation import results_view
 
@@ -735,7 +825,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     }
                 }
                 self.new_flags = []
-                self.header_widgets = []
 
             def _calc_grade(self, *_args):
                 return "A"
@@ -749,7 +838,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **kwargs):
@@ -775,15 +867,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual([True], window.new_flags)
-        header_layout = window.result_content_layout.itemAt(0).widget().layout().itemAt(0).layout()
-        window.header_widgets = [header_layout.itemAt(i).widget() for i in range(header_layout.count()) if header_layout.itemAt(i).widget()]
-        diff_button_index = next(i for i, widget in enumerate(window.header_widgets) if isinstance(widget, QPushButton))
-        mode_label_index = next(i for i, widget in enumerate(window.header_widgets) if isinstance(widget, QLabel) and widget.text() == "角色优先")
-        score_badge_index = next(i for i, widget in enumerate(window.header_widgets) if isinstance(widget, QFrame) and not isinstance(widget, QLabel) and i > diff_button_index)
-        self.assertLess(diff_button_index, mode_label_index)
-        self.assertLess(mode_label_index, score_badge_index)
-        self.assertLess(diff_button_index, score_badge_index)
-        self.assertEqual(window.header_widgets[diff_button_index].sizeHint(), window.header_widgets[diff_button_index].minimumSizeHint())
         app.processEvents()
 
     def test_result_view_passes_role_replacement_change_marker_to_cards(self):
@@ -835,7 +918,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **kwargs):
@@ -888,7 +974,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _calc_grade(self, *_args, **_kwargs):
                 return "A"
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
         window = Window()
@@ -930,6 +1019,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         self.assertEqual([True, True], [kwargs.get("is_changed", False) for _args, kwargs in window.cards])
         self.assertEqual([False, False], [kwargs.get("is_new", False) for _args, kwargs in window.cards])
+        self.assertEqual(["inventory", "inventory"], [kwargs.get("card_variant") for _args, kwargs in window.cards])
         app.processEvents()
 
     def test_role_drive_detail_scores_with_dynamic_weights_and_base_fallback_per_stat(self):
@@ -1118,8 +1208,41 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(["H_2"], window.card_labels)
+        self.assertEqual(["H_2", "V_2"], window.card_labels)
         self.assertIn("配装变动", dialog.windowTitle())
+        app.processEvents()
+
+    def test_result_diff_dialog_pairs_drives_by_area_when_families_differ(self):
+        from PySide6.QtWidgets import QApplication, QLabel, QWidget
+
+        from src.features.allocation import results_view
+
+        app = QApplication.instance() or QApplication([])
+
+        class Window:
+            def __init__(self):
+                self.roles_db = {"A": {"weights": {}}}
+                self._shape_areas = {"L_3_TR": 3, "V_3": 3}
+                self.card_labels = []
+
+            def _equip_card(self, label, *_args, **_kwargs):
+                self.card_labels.append(label)
+                return QWidget()
+
+        window = Window()
+        dialog = results_view._build_plan_diff_dialog(
+            window,
+            "A",
+            {
+                "removed": [{"uid": "old", "type": "drive", "shape_id": "L_3_TR", "sub_stats": {}, "quality": "Gold", "area": 3}],
+                "added": [{"uid": "new", "type": "drive", "shape_id": "V_3", "sub_stats": {}, "quality": "Gold", "area": 3}],
+            },
+        )
+
+        self.assertEqual(["L_3_TR", "V_3"], window.card_labels)
+        titles = [label.text() for label in dialog.findChildren(QLabel) if "变动" in label.text()]
+        self.assertTrue(any("L_3_TR → V_3" in title for title in titles), titles)
+        self.assertFalse(any("卸下 L_3_TR" == title.split("：")[-1] for title in titles))
         app.processEvents()
 
     def test_result_diff_card_hydrates_compact_item_from_saved_equipment(self):
@@ -1250,7 +1373,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *_args, **_kwargs):
@@ -1306,7 +1432,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *_args, **_kwargs):
@@ -1371,7 +1500,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, _label, _main_stat, _sub_stats, _shape_id, uid, *_args, **_kwargs):
@@ -1441,7 +1573,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **kwargs):
@@ -1890,7 +2025,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QWidget()
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **kwargs):
@@ -1987,7 +2125,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **kwargs):
@@ -2041,6 +2182,45 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         drive = role_state["equipped_drives"][0]
         self.assertTrue(drive["is_changed"])
         self.assertNotIn("is_new", drive)
+
+    def test_role_equipment_state_preserves_empty_drive_slot_for_refill(self):
+        from src.features.role import page as role_page
+
+        class Window:
+            roles_db = {"A": {"weights": {}}}
+            _shape_areas = {"H_2": 2}
+
+            def _score_drive_dict(self, *_args, **_kwargs):
+                return 7.0
+
+            def _calc_grade(self, *_args, **_kwargs):
+                return "A"
+
+        role_state = role_page._role_drive_state(
+            Window(),
+            "A",
+            {
+                "drive": {
+                    "blueprint_layout": [["H_2", "H_2"]],
+                    "drives": [
+                        {
+                            "uid": "empty_taken_drive",
+                            "shape_id": "H_2",
+                            "sub_stats": {},
+                            "quality": "Gold",
+                        }
+                    ],
+                }
+            },
+            {},
+        )
+
+        empty_slot = role_state["equipped_drives"][0]
+        self.assertEqual("empty_taken_drive", empty_slot["uid"])
+        self.assertEqual("H_2", empty_slot["shape_id"])
+        self.assertEqual({}, empty_slot["sub_stats"])
+        self.assertEqual(0.0, empty_slot["score"])
+        self.assertTrue(empty_slot["is_changed"])
 
     def test_import_all_saved_equipment_overwrites_my_roles_once(self):
         from src.app import runtime
@@ -2159,66 +2339,8 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             self.assertNotIn("set_bonus", saved["B"])
             self.assertEqual({"name": "C"}, saved["C"])
 
-    def test_inventory_import_all_saved_equipment_updates_loaded_role_form_data(self):
-        from src.features.inventory import page as inventory_page
-
-        class FakeMessageBox:
-            Yes = 1
-            No = 2
-            records = []
-
-            @classmethod
-            def question(cls, *_args, **_kwargs):
-                return cls.Yes
-
-            @classmethod
-            def information(cls, _parent, title, text):
-                cls.records.append(("information", title, text))
-
-            @classmethod
-            def warning(cls, _parent, title, text):
-                cls.records.append(("warning", title, text))
-
-            @classmethod
-            def critical(cls, _parent, title, text):
-                cls.records.append(("critical", title, text))
-
-        class Window:
-            def __init__(self):
-                self.equipped_state = {"A": {"equipped_drives": [{"uid": "d1"}]}}
-                self._my_role_form_data = {"A": {"old": True}}
-
-        calls = []
-
-        def fake_import_all(equipped_state):
-            calls.append(equipped_state)
-            return {
-                "imported": 1,
-                "skipped": 0,
-                "failed": [],
-                "my_roles": {"A": {"drive": {"drives": [{"uid": "d1"}]}}},
-            }
-
-        old_message_box = inventory_page.QMessageBox
-        old_import_all = getattr(inventory_page, "import_all_role_equipment", None)
-        inventory_page.QMessageBox = FakeMessageBox
-        inventory_page.import_all_role_equipment = fake_import_all
-        try:
-            window = Window()
-            inventory_page._import_all_to_my_roles(window)
-        finally:
-            inventory_page.QMessageBox = old_message_box
-            if old_import_all is None:
-                delattr(inventory_page, "import_all_role_equipment")
-            else:
-                inventory_page.import_all_role_equipment = old_import_all
-
-        self.assertEqual([{"A": {"equipped_drives": [{"uid": "d1"}]}}], calls)
-        self.assertEqual({"drive": {"drives": [{"uid": "d1"}]}}, window._my_role_form_data["A"])
-        self.assertIn("已导入 1 个角色配装", FakeMessageBox.records[-1][2])
-
     def test_saved_equipment_prefers_saved_score_snapshot(self):
-        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+        from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
 
         from src.features.inventory import page as inventory_page
 
@@ -2272,7 +2394,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _section_label(self, text):
                 return QLabel(text)
 
-            def _bonus_summary_widget(self, *_args, **_kwargs):
+            def _role_stat_priority_stats(self, *_args, **_kwargs):
+                return []
+
+            def _role_bonus_summary_panel(self, *_args, **_kwargs):
                 return QWidget()
 
             def _equip_card(self, *args, **_kwargs):
@@ -2286,14 +2411,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         self.assertEqual((18.8, "S"), window.equip_cards[0][6])
         self.assertEqual([True], window.new_flags)
-        header_layout = window.equip_content_layout.itemAt(0).widget().layout().itemAt(0).layout()
-        widgets = [header_layout.itemAt(i).widget() for i in range(header_layout.count()) if header_layout.itemAt(i).widget()]
-        diff_button_index = next(i for i, widget in enumerate(widgets) if isinstance(widget, QPushButton) and widget.text() == "变动")
-        mode_label_index = next(i for i, widget in enumerate(widgets) if isinstance(widget, QLabel) and widget.text() == "角色优先")
-        score_badge_index = next(i for i, widget in enumerate(widgets) if isinstance(widget, QFrame) and not isinstance(widget, QLabel) and i > diff_button_index)
-        self.assertLess(diff_button_index, mode_label_index)
-        self.assertLess(mode_label_index, score_badge_index)
-        self.assertLess(diff_button_index, score_badge_index)
         app.processEvents()
 
     def test_state_manager_saves_score_snapshot_for_new_allocations(self):

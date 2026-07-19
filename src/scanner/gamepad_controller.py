@@ -12,7 +12,7 @@ import mss
 import mss.tools
 import numpy as np
 
-from src.scanner.window_capture import capture_foreground_window
+from src.scanner.window_capture import capture_foreground_window, game_content_rect
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -387,10 +387,11 @@ class GamepadScanner:
 
     def _relative_roi(self, image: np.ndarray, x1: float, y1: float, x2: float, y2: float) -> np.ndarray:
         height, width = image.shape[:2]
-        left = max(0, min(width, int(round(width * x1))))
-        top = max(0, min(height, int(round(height * y1))))
-        right = max(left + 1, min(width, int(round(width * x2))))
-        bottom = max(top + 1, min(height, int(round(height * y2))))
+        content_left, content_top, content_width, content_height = game_content_rect(width, height)
+        left = max(0, min(width, int(round(content_left + content_width * x1))))
+        top = max(0, min(height, int(round(content_top + content_height * y1))))
+        right = max(left + 1, min(width, int(round(content_left + content_width * x2))))
+        bottom = max(top + 1, min(height, int(round(content_top + content_height * y2))))
         return image[top:bottom, left:right]
 
     def _white_fraction(self, roi: np.ndarray, threshold: int = 185) -> float:
@@ -603,6 +604,7 @@ class GamepadScanner:
                 and change.get("current_state") != change.get("target_state")
             ),
             key=lambda change: int(change["index"]),
+            reverse=True,
         )
         if not changes:
             return 0
@@ -610,9 +612,8 @@ class GamepadScanner:
         previous_profile = getattr(self, "action_profile", DEFAULT_SCAN_PROFILE)
         self.action_profile = profile
         try:
-            self._refresh_to_first_item()
             positions = self._scan_positions(int(total_drives))
-            curr_row, curr_col = 0, 0
+            curr_row, curr_col = positions[-1]
             applied = 0
 
             def moves_to(index: int) -> list[str]:
@@ -633,7 +634,9 @@ class GamepadScanner:
                     curr_col -= 1
                 return moves
 
-            logger.warning(f"准备同步 {len(changes)} 个装备状态，请保持游戏背包界面不动。")
+            logger.warning(
+                f"准备倒序同步 {len(changes)} 个装备状态，将从扫描结束时的最后一件装备开始，请保持游戏背包界面不动。"
+            )
             for change in changes:
                 if self._stopped:
                     logger.warning(f"状态同步已停止，本次已处理 {applied}/{len(changes)} 个目标。")

@@ -4,9 +4,9 @@
 <h1>异环驱动计算器</h1>
 <p><strong>NTE Drive Calc</strong></p>
 
-把《异环》背包截图变成可计算库存，用算法完成驱动、卡带鉴定与全角色配装。
+把《异环》背包截图变成可计算库存，用算法完成驱动卡带鉴定与全角色配装，并实现自动装配。
 
-[![Version](https://img.shields.io/badge/version-1.2.2-2f81f7)](https://github.com/hxwd94666/NTE-Drive-Calc/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-2f81f7)](https://github.com/hxwd94666/NTE-Drive-Calc/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)](#environment)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)](#development)
 [![UI](https://img.shields.io/badge/UI-PySide6-41cd52)](#intro)
@@ -29,20 +29,21 @@
 - 新刷出的驱动、卡带到底值不值得留，缺少统一标准
 - 想长期管理账号库存，但不想一直靠自己计算和记忆
 
-本工具通过截图识别生成本地库存，再结合角色图纸、套装需求、词条权重和角色优先级，给出可落地的配装与整理建议。
+本工具通过截图识别生成本地库存，再结合角色图纸、套装需求、词条权重和角色优先级，给出可落地的配装与自动化装配。
 
 <a id="features"></a>
 
 ## ⭐️功能亮点
 
-| 能力 | 解决什么问题 |
-| --- | --- |
+| 能力      | 解决什么问题                       |
+|---------|------------------------------|
 | 📷 背包扫描 | 全量扫描、增量扫描、离线解析，把驱动和卡带转成可计算库存 |
-| 🔍 单件鉴定 | 看一件装备适合谁、评分多少、是否值得留下 |
-| 🧮 自动配装 | 按角色图纸、套装、权重和优先级生成驱动与卡带方案 |
-| 👥 角色管理 | 管理角色套装、弧盘、词条偏好、已装备状态和自定义规则 |
-| 📈 角色边际 | 计算当前角色最缺哪些属性，辅助调整词条权重 |
-| 🧹 扫描后管理 | 扫描完成后按评分、品质、类型自动锁定或弃置装备 |
+| 🔍 单件鉴定 | 看一件装备适合谁、评分多少、是否值得留下         |
+| 🧮 生成配装 | 按角色图纸、套装、权重和优先级生成驱动与卡带方案     |
+| 📐 自动装配 | 根据生成的配装去游戏内实现自动化的装配          |
+| 👥 角色管理 | 管理角色套装、弧盘、词条偏好、已装备状态和自定义规则   |
+| 📈 角色边际 | 计算当前角色最缺哪些属性，辅助调整词条权重        |
+| 🧹 驱动处理 | 扫描完成后按评分、品质、类型自动锁定或弃置装备      |
 
 <a id="preview"></a>
 
@@ -63,14 +64,26 @@
   </tr>
   <tr>
     <td align="center" width="50%">
-      <strong>扫描后管理</strong><br>
+      <strong>驱动处理</strong><br>
       <sub>按规则自动锁定、弃置或取消状态</sub><br><br>
-      <img src="config/github/img_6.png" alt="扫描后管理">
+      <img src="config/github/img_3.png" alt="驱动处理">
     </td>
     <td align="center" width="50%">
       <strong>角色边际</strong><br>
       <sub>看清当前角色下一条词条选什么更赚</sub><br><br>
-      <img src="config/github/img_7.png" alt="角色边际">
+      <img src="config/github/img_4.png" alt="角色边际">
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <strong>配装优化</strong><br>
+      <sub>对配装中不满意的驱动卡带进行替换优化</sub><br><br>
+      <img src="config/github/img_5.png" alt="配装优化">
+    </td>
+    <td align="center" width="50%">
+      <strong>角色管理</strong><br>
+      <sub>自定义角色养成方向来影响配装分配</sub><br><br>
+      <img src="config/github/img_6.png" alt="角色管理">
     </td>
   </tr>
 </table>
@@ -85,6 +98,7 @@
 - 夸克网盘: <https://pan.quark.cn/s/82f16b845aec>
 - 百度网盘: <https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke>
 - B站主页: <https://b23.tv/nXJGdh3>
+> 每次更新使用网盘转存会有一定收益，手机转存收益更高，大家可以支持一下。
 
 安装时建议保留 `Install ViGEmBus virtual gamepad driver` 勾选。扫描功能需要虚拟手柄驱动来模拟背包翻页操作。
 
@@ -98,6 +112,7 @@
 4. 扫描完成后选择需要配装的角色。
 5. 选择分配策略，点击开始执行。
 6. 查看配装结果，确认后保存装备锁定。
+7. 游戏进入角色页面，进入配装页面点击装配
 
 日常刷到新装备后，可以使用增量扫描和增量更新，不需要每次重建全部库存。
 
@@ -108,9 +123,7 @@
 - 第一次使用：全量扫描背包，生成本地装备库存。
 - 刷到新装备：用增量扫描补录，不用重扫全部背包。
 - 想知道装备值不值：用鉴定看评分、适配角色和保留价值。
-- 想给多个角色配装：选择角色和优先级，让工具自动分配驱动与卡带。
 - 想知道角色缺什么：用角色边际查看当前属性收益排序。
-- 怕误分解好装备：扫描后管理会按规则自动锁定高价值装备。
 - 背包太满：扫描后管理可按评分、品质、类型自动弃置低价值装备。
 - 多账号使用：账号数据独立保存，可导入导出备份。
 
@@ -141,6 +154,8 @@
 <a id="development"></a>
 
 ## 🧑‍💻本地开发
+
+`2.0.0` 分支正在把运行数据迁移到 SQLite，并以游戏官方 ID 作为新服务层的数据边界。当前已提供主页工作台、后台稳定背包同步、官方蓝图配装基线和带新快照验证的一键装配服务。详细设计见 [架构说明](docs/architecture.md) 与 [扩展指南](docs/extension-guide.md)。
 
 ```powershell
 python -m venv .venv

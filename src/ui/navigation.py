@@ -16,6 +16,7 @@ class NavItem:
 
 
 NAV_ITEMS = (
+    NavItem("home", "⌂  工作台", "btn_home", "_page_home", "_refresh_home"),
     NavItem("execute", "⚡  执行", "btn_exec", "_page_execute"),
     NavItem("equipment", "💎  配装", "btn_equip", "_page_equipment", "_refresh_equip"),
     NavItem("my_role", "👤  角色", "btn_my_role", "_page_my_role", "_refresh_my_role"),

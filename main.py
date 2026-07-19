@@ -27,6 +27,7 @@ CONFIG_DIR = ROOT_DIR / "config"
 OUTPUT_FILE = CONFIG_DIR / "real_inventory.json"
 
 
+
 class NTEApplication:
 
     def __init__(self, config_dir=str(CONFIG_DIR)):

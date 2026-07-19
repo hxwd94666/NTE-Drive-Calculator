@@ -29,6 +29,8 @@ class BaseEquipment(BaseModel):
     quality: Literal["Gold", "Purple", "Blue"]
     area: int
     sub_stats: Dict[str, float] = Field(default_factory=dict)
+    # 官方背包的弃置状态只用于展示；弃置装备仍可参与方案计算。
+    discarded: bool = False
 
     role_scores: Dict[str, float] = Field(default_factory=dict)
     max_score: float = Field(default=0.0)

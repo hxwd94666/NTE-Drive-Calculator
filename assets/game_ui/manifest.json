@@ -1,0 +1,229 @@
+{
+  "manifest_version": 1,
+  "source_data_table": "/Game/DataTable/Character/DT_Character",
+  "characters": {
+    "1003": "characters/player_003_256.png",
+    "1004": "characters/player_004_256.png",
+    "1008": "characters/player_008_256.png",
+    "1010": "characters/player_010_256.png",
+    "1019": "characters/player_019_256.png",
+    "1020": "characters/player_020_256.png",
+    "1021": "characters/player_021_256.png",
+    "1023": "characters/player_028_256.png",
+    "1025": "characters/player_012_256.png",
+    "1033": "characters/player_015_256.png",
+    "1039": "characters/player_027_256.png",
+    "1046": "characters/player_046_256.png",
+    "1051": "characters/player_009_256.png",
+    "1052": "characters/player_013_256.png",
+    "1054": "characters/player_005_256.png",
+    "1055": "characters/player_104_256.png",
+    "1056": "characters/player_004_256.png",
+    "1070": "characters/player_haiyue_256.png",
+    "1071": "characters/player_kaesi1_256.png",
+    "1073": "characters/player_073_256.png",
+    "1075": "characters/player_yiluoyi_256.png",
+    "1076": "characters/player_zhenhong_256.png"
+  },
+  "attributes": {
+    "attack": "attributes/attack.png",
+    "crit_rate": "attributes/crit_rate.png",
+    "crit_damage": "attributes/crit_damage.png",
+    "damage_up": "attributes/damage_up.png",
+    "def_ignore": "attributes/def_ignore.png",
+    "inclination_strength": "attributes/inclination_strength.png"
+  },
+  "files": {
+    "characters/player_003_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_003_256.player_003_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 101880,
+      "sha256": "955FEF2B58BA0C7A8CD8628A62E76A486478E927B7D5C408F9506CCA064DB548"
+    },
+    "characters/player_004_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_004_256.player_004_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 116879,
+      "sha256": "8E7545D379D687AB152FCEFE3F9A966A0437B3E09B3A0C5CAEC3147F8B16AE5C"
+    },
+    "characters/player_008_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_008_256.player_008_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 114716,
+      "sha256": "5147FF2DC439DEAEF084690FED53F091D254B485342F127FA72DEA934D40489D"
+    },
+    "characters/player_010_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_010_256.player_010_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 113341,
+      "sha256": "87520B72D0CD6471A09352F67548B0C3F825C9A91FEDD25393142115238B3776"
+    },
+    "characters/player_019_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_019_256.player_019_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 126277,
+      "sha256": "9F0A7D8C514367F7DA8EBDF795E51E1A35D77382D21A3C660B1C5185EE966133"
+    },
+    "characters/player_020_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_020_256.player_020_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 128309,
+      "sha256": "D117E52AECA3139BE416EC4173B02C20764B17E98EB60456A9D00FD918B37BC2"
+    },
+    "characters/player_021_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_021_256.player_021_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 130895,
+      "sha256": "EF308FB81A280DE3E4CDC0AB0667B12BF94A3D8045E8B484C997039B203A6DA7"
+    },
+    "characters/player_028_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_028_256.player_028_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 118818,
+      "sha256": "F4B15C9DD59635916C42CD0380C38A75246F44D9D71251EEA56896C550E43C04"
+    },
+    "characters/player_012_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_012_256.player_012_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 107193,
+      "sha256": "FCC6FD3FA3916ADBBDE9636E56F606C678858C332CBE72DCEF92F3181DF07251"
+    },
+    "characters/player_015_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_015_256.player_015_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 88207,
+      "sha256": "7037C462E630D4F9ACD57830A1AA778DCE1B7C592BFC8D92AD4624A26F38B0E2"
+    },
+    "characters/player_027_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_027_256.player_027_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 128059,
+      "sha256": "3F4759D147A59FDDD2F549EA3ED462028CCF5DCF71EC3D59E46CC9D281E12D9F"
+    },
+    "characters/player_046_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_046_256.player_046_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 84983,
+      "sha256": "700F2607ECE6ECB963B957184F6222C6BB2C035C2DF708E98360C0BEAFEAAA49"
+    },
+    "characters/player_009_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_009_256.player_009_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 117216,
+      "sha256": "30FE2399A1D602771A3C6C32C7AD561182A9816AE5C8D78FF013ABB65FFE8A40"
+    },
+    "characters/player_013_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_013_256.player_013_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 172565,
+      "sha256": "9BDD763C1D093F450F0C2D8843145F5FC91B154DFDFAC9614F02600D05E8CFE6"
+    },
+    "characters/player_005_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_005_256.player_005_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 116976,
+      "sha256": "50106CD83E31CA9E8AFF8F2AF0944033CBC9407338159598E481457EB8FDD068"
+    },
+    "characters/player_104_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_104_256.player_104_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 139176,
+      "sha256": "C734B1CEC41E28C94D337995352983A5903C87E67324ADE1BD287288F53FA577"
+    },
+    "characters/player_haiyue_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_haiyue_256.player_haiyue_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 123402,
+      "sha256": "71D361B3488E11955BB9079BE78F9CCF91F0B286C4FBD3CF4DC0D7EB65B70394"
+    },
+    "characters/player_kaesi1_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_kaesi1_256.player_kaesi1_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 129446,
+      "sha256": "E43DF83046D0EDB7D1E67D1EAB15FB160E676A5CDAFA7BB02E54232CAF2CDBEF"
+    },
+    "characters/player_073_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_073_256.player_073_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 113383,
+      "sha256": "46DE070600B9F751F5D32EDE98BF649A2F6682FE212239F745EC0343F9C42AF5"
+    },
+    "characters/player_yiluoyi_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_yiluoyi_256.player_yiluoyi_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 135881,
+      "sha256": "A5469CB19DC6090816CB657BEF6C9F30ED0200827B82D81B41B513C5A121BEB3"
+    },
+    "characters/player_zhenhong_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_zhenhong_256.player_zhenhong_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 148680,
+      "sha256": "008323904CD941E789364F1BF7AE3C6FA9DDB2D11DDBCBE0CCB6441E18A96A6A"
+    },
+    "attributes/attack.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_gongji.icon_attri_gongji",
+      "width": 96,
+      "height": 96,
+      "bytes": 2735,
+      "sha256": "B883E4BD77A7794B0A248E9EB7351F55C6FEAC4EA0EF8E50C741E848044F4D0D"
+    },
+    "attributes/crit_rate.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_baoji.icon_attri_baoji",
+      "width": 96,
+      "height": 96,
+      "bytes": 3474,
+      "sha256": "39910842299B7D1EBD67A34DA2E03AA4D6556E9412E102D0C4F9F2D87E97DCCB"
+    },
+    "attributes/crit_damage.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_baojishanghai.icon_attri_baojishanghai",
+      "width": 96,
+      "height": 96,
+      "bytes": 3014,
+      "sha256": "4C2126FE6DDFC72A2FA4D2ABB13D06080D771A7441DABC4D056D3847FD1F51BC"
+    },
+    "attributes/damage_up.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_white.Icon_DamageUp_white",
+      "width": 96,
+      "height": 96,
+      "bytes": 3089,
+      "sha256": "A986DC78FF14347F169AF34E09816C29E4E502D94BDD3D2E52CED295AD84BB9B"
+    },
+    "attributes/def_ignore.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Attribute/Icon_DefIgnore.Icon_DefIgnore",
+      "width": 96,
+      "height": 96,
+      "bytes": 3552,
+      "sha256": "BF616CF33A4799C678ACFA5D910C40E9B3E9E5B5E0ECB5B29A4DCBE017CCC9D9"
+    },
+    "attributes/inclination_strength.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Attribute/Icon_attri_strength_qingxian.Icon_attri_strength_qingxian",
+      "width": 96,
+      "height": 96,
+      "bytes": 2933,
+      "sha256": "8F07183E9687B2514B553B9149F9C6F1D8B6A10F86A92B4A0AFFEDC6808790E5"
+    }
+  },
+  "total_files": 27,
+  "total_bytes": 2575079
+}

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QMimeData, Qt, Signal
-from PySide6.QtGui import QDrag, QPainter, QPixmap
+from PySide6.QtGui import QDrag, QIntValidator, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
 from src.app.theme import current_theme_name, themed_style
+from src.domain.crit_threshold import persistable_stat_priority_config
+from src.domain.grade_limits import GRADE_LADDER
 from src.features.allocation.priority_groups import (
     cycle_priority_link,
     links_to_priority_groups,
@@ -453,17 +455,30 @@ class RoleSelector(QWidget):
             self.tape_main_filters.pop(name, None)
         self.orderChanged.emit()
 
-    def _set_stat_priority_config(self, name, stats, equal_priority=False, ignore_grade_limit=False):
-        clean = []
-        for stat in stats or []:
-            if stat and stat in self.drive_sub_stats and stat not in clean:
-                clean.append(stat)
-        if clean:
-            self.stat_priority_configs[name] = {
-                "stats": clean,
-                "equal_priority": bool(equal_priority),
-                "ignore_grade_limit": bool(ignore_grade_limit),
-            }
+    def _set_stat_priority_config(
+        self,
+        name,
+        stats,
+        equal_priority=False,
+        ignore_grade_limit=False,
+        min_grade_limit="A",
+        crit_threshold=None,
+    ):
+        payload = {
+            "stats": stats or [],
+            "equal_priority": equal_priority,
+            "ignore_grade_limit": ignore_grade_limit,
+            "min_grade_limit": min_grade_limit,
+        }
+        if crit_threshold not in (None, ""):
+            payload["crit_threshold"] = crit_threshold
+        cfg = persistable_stat_priority_config(
+            payload,
+            allowed_stats=set(self.drive_sub_stats),
+            dedupe_stats=True,
+        )
+        if cfg:
+            self.stat_priority_configs[name] = cfg
         else:
             self.stat_priority_configs.pop(name, None)
         self.orderChanged.emit()
@@ -522,15 +537,19 @@ class RoleSelector(QWidget):
 
         row = QHBoxLayout()
         row.setSpacing(6)
-        row.addWidget(QLabel(title))
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        row.addWidget(title_label)
         combo = SearchableComboBox()
         self._fill_search_combo(combo, choices)
         row.addWidget(combo, 1)
 
         add_btn = QPushButton("添加")
         add_btn.setObjectName("btnAction")
+        add_btn.setFixedWidth(60)
         clear_btn = QPushButton("清空")
         clear_btn.setObjectName("btnDanger")
+        clear_btn.setFixedWidth(74)
         row.addWidget(add_btn)
         row.addWidget(clear_btn)
 
@@ -606,21 +625,66 @@ class RoleSelector(QWidget):
         stat_layout = stat_box.layout()
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
+        help_btn.setFixedSize(24, 24)
         help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
 
         stat_option_row = QHBoxLayout()
-        stat_option_row.setSpacing(14)
+        stat_option_row.setContentsMargins(0, 4, 0, 0)
+        stat_option_row.setSpacing(16)
         stat_equal = QCheckBox("词条自选优先级一致")
-        stat_equal.setMinimumWidth(160)
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
         ignore_grade_limit = QCheckBox("不限制评分等级")
-        ignore_grade_limit.setMinimumWidth(130)
         ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
         stat_option_row.addWidget(stat_equal)
         stat_option_row.addWidget(ignore_grade_limit)
         stat_option_row.addWidget(help_btn)
         stat_option_row.addStretch(1)
         stat_layout.addLayout(stat_option_row)
+
+        limits_row = QHBoxLayout()
+        limits_row.setContentsMargins(0, 2, 0, 0)
+        limits_row.setSpacing(8)
+
+        grade_label = QLabel("最低生效等级")
+        grade_combo = QComboBox()
+        grade_combo.setFixedWidth(84)
+        for grade in GRADE_LADDER:
+            grade_combo.addItem(grade, grade)
+        current_min_grade = str(current_stat_cfg.get("min_grade_limit") or "A").upper()
+        grade_index = grade_combo.findData(current_min_grade)
+        grade_combo.setCurrentIndex(grade_index if grade_index >= 0 else grade_combo.findData("A"))
+        grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+        limits_row.addWidget(grade_label)
+        limits_row.addWidget(grade_combo)
+        limits_row.addSpacing(20)
+
+        crit_threshold_label = QLabel("暴击率最小值")
+        crit_threshold_help = QPushButton("?")
+        crit_threshold_help.setObjectName("btnHelp")
+        crit_threshold_help.setFixedSize(24, 24)
+        crit_threshold_help.clicked.connect(
+            lambda: self._show_help("暴击率最小值", CRIT_THRESHOLD_HELP)
+        )
+        crit_threshold_edit = QLineEdit()
+        crit_threshold_edit.setValidator(QIntValidator(0, 100, crit_threshold_edit))
+        crit_threshold_edit.setFixedWidth(84)
+        raw_threshold = current_stat_cfg.get("crit_threshold", current_stat_cfg.get("crit_min_threshold"))
+        if raw_threshold is not None:
+            try:
+                crit_threshold_edit.setText(f"{float(raw_threshold):g}")
+            except (TypeError, ValueError):
+                pass
+        limits_row.addWidget(crit_threshold_label)
+        limits_row.addWidget(crit_threshold_help)
+        limits_row.addWidget(crit_threshold_edit)
+        limits_row.addWidget(QLabel("%"))
+        limits_row.addStretch(1)
+        stat_layout.addLayout(limits_row)
+
+        def sync_grade_combo_enabled(checked=False):
+            grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+
+        ignore_grade_limit.toggled.connect(sync_grade_combo_enabled)
         template_layout.addWidget(stat_box)
         layout.addWidget(template_box)
 
@@ -684,6 +748,8 @@ class RoleSelector(QWidget):
                 selected_stats,
                 stat_equal.isChecked(),
                 ignore_grade_limit.isChecked(),
+                grade_combo.currentData(),
+                crit_threshold_edit.text().strip(),
             )
             cap_text = crit_cap_edit.text().strip()
             if cap_text or not selected_weapon:
@@ -868,16 +934,13 @@ class RoleSelector(QWidget):
                 if role in self.all_roles and isinstance(values, list)
             }
             self.stat_priority_configs = {}
+            allowed_stats = set(self.drive_sub_stats)
             for role, cfg_item in data.get("stat_priority_configs", {}).items():
                 if role not in self.all_roles or not isinstance(cfg_item, dict):
                     continue
-                stats = [s for s in cfg_item.get("stats", []) if s in self.drive_sub_stats]
-                if stats:
-                    self.stat_priority_configs[role] = {
-                        "stats": stats,
-                        "equal_priority": bool(cfg_item.get("equal_priority", False)),
-                        "ignore_grade_limit": bool(cfg_item.get("ignore_grade_limit", False)),
-                    }
+                cfg = persistable_stat_priority_config(cfg_item, allowed_stats=allowed_stats)
+                if cfg:
+                    self.stat_priority_configs[role] = cfg
             self.set_effect_modes = {}
             for role, mode in data.get("set_effect_modes", {}).items():
                 normalized = normalize_set_effect_mode(mode)
@@ -923,8 +986,19 @@ STAT_PRIORITY_HELP = (
     "卡带/驱动副词条：让该角色优先使用带有所选副词条的驱动。\n"
     "关闭“优先级一致”时，按选择顺序逐层优先，例如 A > B > C 会优先使用同时含 A+B+C、再含 A+B、再含 A 的驱动。\n"
     "开启“优先级一致”时，优先使用命中副词条数量更多的驱动。\n\n"
-    "默认只对评分达到 A 级的驱动生效。\n"
-    "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。"
+    "未勾选“不限制评分等级”时，可通过“最低生效等级”选择 D 至 ACE 的门槛；"
+    "默认 A 级。词条自选加成与暴击率最小值加成都受该门槛约束。\n"
+    "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。\n\n"
+    "暴击率最小值留空时不启用，详见该项旁的 ? 说明。暴击率上限会硬性限制配装总暴击。"
+)
+
+
+CRIT_THRESHOLD_HELP = (
+    "留空时不启用。\n\n"
+    "填写后，当前暴击率低于该值时，会优先选择带暴击率副词条的驱动；达到后恢复正常评分排序。\n\n"
+    "当前暴击率 = 固定基础 5% + 卡带/驱动加成 + 额外形状 buff。\n"
+    "不计角色成长属性、弧盘属性或战斗中的临时加成。\n\n"
+    "该优先仅作用于达到“最低生效等级”的驱动；勾选“不限制评分等级”时则不受等级限制。"
 )
 
 

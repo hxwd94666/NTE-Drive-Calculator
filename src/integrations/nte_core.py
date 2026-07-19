@@ -562,6 +562,26 @@ class NteCoreClient:
             raise NteCoreProtocolError("JSON-RPC response has neither result nor error")
         return response["result"]
 
+    def equip_one_key(
+        self,
+        *,
+        character: Mapping[str, Any],
+        placements: Sequence[Mapping[str, Any]],
+        core: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> Any:
+        """调用本地装备桥，一次提交角色、驱动位置和核心实例 UID。"""
+
+        return self.call(
+            "equipment.equip_one_key",
+            {
+                "character": dict(character),
+                "placements": [dict(placement) for placement in placements],
+                "core": dict(core),
+            },
+            timeout=timeout,
+        )
+
     def add_event_handler(self, method: str | None, handler: EventHandler) -> None:
         """把后续匹配事件分发给后台回调。
 

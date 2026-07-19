@@ -29,6 +29,9 @@ ROOT = Path(__file__).parent.resolve()
 DIST_APP = ROOT / "dist" / "NTE_Drive_Calc"
 APP_EXE = DIST_APP / "NTE_Drive_Calc.exe"
 APP_INTERNAL = DIST_APP / "_internal"
+APP_NTE_CORE = APP_INTERNAL / "nte-core.exe"
+APP_USER_SCHEMA = APP_INTERNAL / "src" / "storage" / "sqlite" / "schema" / "001_user_data.sql"
+APP_STATIC_DATABASE = APP_INTERNAL / "data" / "game_static.sqlite3"
 INSTALLER_DIR = ROOT / "installer"
 OUTPUT_DIR = INSTALLER_DIR / "output"
 ISS_PATH = INSTALLER_DIR / "NTE_Drive_Calc.iss"
@@ -121,6 +124,21 @@ def _app_process_running() -> bool:
     return APP_EXE_NAME.lower() in result.stdout.lower()
 
 
+def _validate_app_bundle() -> None:
+    """安装前检查 PyInstaller 产物，避免生成启动后才报缺文件的安装包。"""
+
+    required = {
+        "主程序": APP_EXE,
+        "PyInstaller 运行目录": APP_INTERNAL,
+        "nte-core 本地组件": APP_NTE_CORE,
+        "用户数据库结构": APP_USER_SCHEMA,
+        "发行版静态数据库": APP_STATIC_DATABASE,
+    }
+    missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]
+    if missing:
+        raise RuntimeError("PyInstaller 产物不完整，缺少：\n" + "\n".join(missing))
+
+
 def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False, require_workshop_sync: bool = False) -> None:
     if skip_app_build:
         if require_workshop_sync:
@@ -129,22 +147,21 @@ def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False
             raise RuntimeError(
                 "dist/NTE_Drive_Calc is missing. Run build_exe.py first or omit --skip-app-build."
             )
-        return
+    else:
+        if _app_process_running():
+            raise RuntimeError(
+                f"{APP_EXE_NAME} is currently running. Close it before rebuilding dist/NTE_Drive_Calc, "
+                "or use --skip-app-build to package the existing app bundle."
+            )
 
-    if _app_process_running():
-        raise RuntimeError(
-            f"{APP_EXE_NAME} is currently running. Close it before rebuilding dist/NTE_Drive_Calc, "
-            "or use --skip-app-build to package the existing app bundle."
-        )
+        build_cmd = [sys.executable, str(ROOT / "build_exe.py")]
+        if skip_workshop_sync:
+            build_cmd.append("--skip-workshop-sync")
+        if require_workshop_sync:
+            build_cmd.append("--require-workshop-sync")
+        _run(build_cmd)
 
-    build_cmd = [sys.executable, str(ROOT / "build_exe.py")]
-    if skip_workshop_sync:
-        build_cmd.append("--skip-workshop-sync")
-    if require_workshop_sync:
-        build_cmd.append("--require-workshop-sync")
-    _run(build_cmd)
-    if not APP_EXE.exists() or not APP_INTERNAL.exists():
-        raise RuntimeError("PyInstaller build finished, but dist/NTE_Drive_Calc is incomplete.")
+    _validate_app_bundle()
 
 
 def _inno_path(path: Path) -> str:

@@ -32,17 +32,19 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual(["ready"], events)
         self.assertEqual([2.0], sleeps)
 
-    def _state_button_image(self, active=None):
+    def _state_button_image(self, active=None, width=2560, height=1440):
         from src.features.scanning import streaming_pipeline
+        from src.scanner.window_capture import game_content_rect
 
-        img = np.full((1440, 2560, 3), 24, dtype=np.uint8)
+        img = np.full((height, width, 3), 24, dtype=np.uint8)
+        left, top, content_width, content_height = game_content_rect(width, height)
         centers = {
             "discarded": streaming_pipeline.TRASH_BUTTON_CENTER,
             "locked": streaming_pipeline.LOCK_BUTTON_CENTER,
         }
         for state, center in centers.items():
-            cx = int(round(img.shape[1] * center[0]))
-            cy = int(round(img.shape[0] * center[1]))
+            cx = int(round(left + content_width * center[0]))
+            cy = int(round(top + content_height * center[1]))
             value = 188 if state == active else 80
             img[cy - 15 : cy + 15, cx - 15 : cx + 15] = value
         return img
@@ -53,6 +55,13 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("normal", _right_panel_button_state_from_image(self._state_button_image()))
         self.assertEqual("locked", _right_panel_button_state_from_image(self._state_button_image("locked")))
         self.assertEqual("discarded", _right_panel_button_state_from_image(self._state_button_image("discarded")))
+
+    def test_equipment_state_uses_top_aligned_canvas_on_16_10(self):
+        from src.features.scanning.streaming_pipeline import _right_panel_button_state_from_image
+
+        image = self._state_button_image("locked", width=2560, height=1600)
+
+        self.assertEqual("locked", _right_panel_button_state_from_image(image))
 
     def test_post_action_thresholds_include_equal_grade(self):
         from src.features.scanning.post_actions import (
@@ -78,6 +87,77 @@ class StreamingScanPipelineTests(unittest.TestCase):
         config["lock"]["enabled"] = True
         config["lock"]["grade"] = "SSS"
         self.assertEqual("locked", target_state_for_item(item, "normal", config, FakeScoring()))
+
+    def test_post_action_preserve_rules_keep_or_lock_matching_tape(self):
+        from src.features.scanning.post_actions import default_post_action_config, target_state_for_item
+        from src.models.equipment import Tape
+
+        class FakeScoring:
+            roles_db = {"A": {}}
+
+            def get_grade_tag(self, _score, _area):
+                return "D"
+
+        tape = Tape(
+            uid="reserved-tape",
+            quality="Purple",
+            area=15,
+            set_name="森林萤火之心",
+            main_stats="攻击力%",
+            sub_stats={"暴击率%": 8.0, "暴击伤害%": 16.0},
+            role_scores={"A": 0.0},
+        )
+        rule = {
+            "enabled": True,
+            "name": "双爆输出卡带",
+            "item_type": "tape",
+            "action": "keep",
+            "main_stats": ["攻击力%"],
+            "sub_stats": ["暴击率%", "暴击伤害%"],
+            "sub_match": "all",
+            "quality_scope": "gold_purple",
+            "shape_ids": None,
+            "set_names": None,
+        }
+        config = default_post_action_config()
+        config["discard"].update({"enabled": True, "grade": "S"})
+        config["preserve_rules"] = [rule]
+
+        self.assertEqual("normal", target_state_for_item(tape, "normal", config, FakeScoring()))
+        self.assertEqual("normal", target_state_for_item(tape, "discarded", config, FakeScoring()))
+
+        rule["action"] = "lock"
+        self.assertEqual("locked", target_state_for_item(tape, "normal", config, FakeScoring()))
+
+    def test_preserve_rule_sub_stat_match_counts(self):
+        from src.features.scanning.post_actions import _preserve_rule_matches_item
+        from src.models.equipment import Drive
+
+        drive = Drive(
+            uid="sub-stat-counts",
+            quality="Gold",
+            area=3,
+            shape_id="H_3",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"攻击力%": 1.0, "暴击率%": 2.0},
+        )
+        rule = {
+            "enabled": True,
+            "item_type": "drive",
+            "quality_scope": "all",
+            "shape_ids": ["H_3"],
+            "set_names": None,
+            "sub_stats": ["攻击力%", "暴击率%", "暴击伤害%"],
+        }
+
+        rule["sub_match"] = 1
+        self.assertTrue(_preserve_rule_matches_item(drive, rule))
+        rule["sub_match"] = 2
+        self.assertTrue(_preserve_rule_matches_item(drive, rule))
+        rule["sub_match"] = 3
+        self.assertFalse(_preserve_rule_matches_item(drive, rule))
+        rule["sub_match"] = "all"
+        self.assertFalse(_preserve_rule_matches_item(drive, rule))
 
     def test_post_action_type_range_filters_default_drive_shapes_and_tape_sets(self):
         from src.features.scanning.post_actions import (
@@ -145,6 +225,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
                 "post_action_quality_filtered_count": 0,
                 "post_action_type_filtered_count": 0,
                 "post_action_type_range_filtered_count": 2,
+                "preserve_rule_matched_count": 0,
             },
             summarize_post_action_filtering(
                 [
@@ -186,6 +267,47 @@ class StreamingScanPipelineTests(unittest.TestCase):
         context = PostActionScoreContext(strict=True, drive_roles_by_shape={"S1": {"usable"}})
 
         self.assertEqual("normal", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
+
+    def test_custom_keep_rules_override_score_based_discard_and_can_lock(self):
+        from src.features.scanning.post_actions import default_post_action_config, target_state_for_item
+        from src.models.equipment import Drive, Tape
+
+        class FakeScoring:
+            roles_db = {"A": {}}
+
+            def get_grade_tag(self, _score, _area):
+                return "D"
+
+        config = default_post_action_config()
+        config["discard"].update({"enabled": True, "grade": "S"})
+        config["custom_keep"] = {
+            "tape_rules": [
+                {
+                    "main_stats": ["攻击力%"],
+                    "sub_stats": ["暴击率%", "暴击伤害%"],
+                    "minimum_sub_matches": 2,
+                    "action": "keep",
+                }
+            ],
+            "drive_rules": [
+                {
+                    "sub_stats": ["攻击力%", "暴击率%"],
+                    "minimum_sub_matches": 2,
+                    "action": "lock",
+                }
+            ],
+        }
+        tape = Tape(
+            uid="future-tape", quality="Purple", area=15, set_name="Set", main_stats="攻击力%",
+            sub_stats={"暴击率%": 1.0, "暴击伤害%": 2.0},
+        )
+        drive = Drive(
+            uid="future-drive", quality="Purple", area=3, shape_id="H_3",
+            main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={"攻击力%": 1.0, "暴击率%": 1.0},
+        )
+
+        self.assertEqual("normal", target_state_for_item(tape, "discarded", config, FakeScoring()))
+        self.assertEqual("locked", target_state_for_item(drive, "normal", config, FakeScoring()))
 
     def test_parser_consumes_first_capture_before_scan_finishes(self):
         from src.features.scanning.streaming_pipeline import run_streaming_scan_parse

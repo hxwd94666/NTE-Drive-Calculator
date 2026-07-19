@@ -64,6 +64,7 @@ ACCOUNTS_INDEX_FILE = ACCOUNTS_DIR / "accounts.json"
 ACTIVE_ACCOUNT_ID = "default"
 ACTIVE_ACCOUNT_NAME = "默认账号"
 ACCOUNT_DATA_ROOT = ACCOUNTS_DIR / ACTIVE_ACCOUNT_ID
+USER_DATABASE_PATH = ACCOUNT_DATA_ROOT / "user_data.sqlite3"
 USER_CONFIG_DIR = ACCOUNT_DATA_ROOT / "config"
 TEMPLATE_DIR = CONFIG_DIR / "templates"
 OUTPUT_FILE = USER_CONFIG_DIR / "real_inventory.json"
@@ -80,10 +81,11 @@ runtime.configure(
 )
 
 def _apply_account_state(state):
-    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_CONFIG_DIR, OUTPUT_FILE, SCREENSHOT_DIR, LOG_DIR
+    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_DATABASE_PATH, USER_CONFIG_DIR, OUTPUT_FILE, SCREENSHOT_DIR, LOG_DIR
     ACTIVE_ACCOUNT_ID = state.active_account_id
     ACTIVE_ACCOUNT_NAME = state.active_account_name
     ACCOUNT_DATA_ROOT = state.account_data_root
+    USER_DATABASE_PATH = state.user_database_path
     USER_CONFIG_DIR = state.user_config_dir
     OUTPUT_FILE = state.output_file
     SCREENSHOT_DIR = state.screenshot_dir
@@ -167,6 +169,7 @@ from src.features.configuration.page import (
     switch_config_form as config_switch_config_form,
 )
 from src.features.settings.page import build_settings_page
+from src.features.home.page import build_home_page, refresh_home_page
 from src.features.settings.updates import (
     fetch_update_info,
     is_newer_version,
@@ -176,6 +179,9 @@ from src.features.settings.updates import (
     show_update_dialog,
 )
 from src.app.workers import WorkerThread
+from src.services.dashboard_service import DashboardService
+from src.services.inventory_sync_service import InventorySyncService, InventorySyncState
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 
 ACCOUNT_MANAGER = AccountManager(
@@ -224,7 +230,7 @@ class QtLogSink:
 
 # ── Main Window
 class MainWindow(FeatureMainWindowMixin, QMainWindow):
-    log_signal=Signal(str); identify_capture_signal=Signal(str); identify_capture_done_signal=Signal(); W,H=1260,860
+    log_signal=Signal(str); identify_capture_signal=Signal(str); identify_capture_done_signal=Signal(); inventory_sync_state_signal=Signal(object); W,H=1260,860
 
     def __init__(self):
         super().__init__(); self.setWindowTitle("NTE Drive Calc")
@@ -248,6 +254,7 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self._pending_scan_mode=None
         self._pending_delete_after_parse=[]
         self._identify_blueprint_cache=None
+        self._inventory_sync_service=None
         self.state_mgr=StateManager(config_dir=str(USER_CONFIG_DIR)); self._log_enabled=False
         set_log_dir(LOG_DIR)
 
@@ -259,13 +266,13 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self._apply_theme_preference()
         self._update_check_manual=True
 
-        self.log_signal.connect(self._on_log); self.identify_capture_signal.connect(self._add_identify_capture_path); self.identify_capture_done_signal.connect(self._finish_identify_capture_mode); self._log_sink=QtLogSink(self.log_signal)
+        self.log_signal.connect(self._on_log); self.identify_capture_signal.connect(self._add_identify_capture_path); self.identify_capture_done_signal.connect(self._finish_identify_capture_mode); self.inventory_sync_state_signal.connect(self._on_inventory_sync_state); self._log_sink=QtLogSink(self.log_signal)
         try:
             from loguru import logger as lu
             lu.add(self._log_sink,format="{time:HH:mm:ss} | {level: <8} | {message}",level="INFO",colorize=False)
         except Exception as exc:
             logger.debug(f"注册界面日志输出失败，仅写入文件日志: {exc}")
-        self._build_ui(); self._load_data(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
+        self._build_ui(); self._load_data(); self._refresh_home(); self._maybe_auto_start_inventory_sync(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
 
     def _load_hotkey_config(self):
         hotkeys=load_hotkey_config(USER_CONFIG_DIR)
@@ -412,6 +419,10 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
                 self.role_selector.save_temporary_priority_config()
             except Exception as exc:
                 logger.warning(f"保存临时优先级失败: {exc}")
+        try:
+            self._stop_inventory_sync()
+        except Exception as exc:
+            logger.warning(f"停止背包同步失败: {exc}")
         if self._log_enabled:
             logger.info("运行日志已随程序退出而停止")
             disable_session_log()
@@ -523,6 +534,9 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         data=ACCOUNT_MANAGER.read_index()
         if not any(a.get("id")==account_id for a in data.get("accounts",[])):
             return False
+        sync_was_running=bool(self._inventory_sync_service and self._inventory_sync_service.is_running)
+        if sync_was_running:
+            self._stop_inventory_sync()
         ACCOUNT_MANAGER.set_active_account_id(account_id)
         _set_active_account(account_id)
         set_log_dir(LOG_DIR)
@@ -538,6 +552,11 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self._refresh_account_combo()
         if hasattr(self,"_ss_info"):
             self._refresh_ss()
+        self._refresh_home()
+        if sync_was_running:
+            self._start_inventory_sync()
+        else:
+            self._maybe_auto_start_inventory_sync()
         logger.info(f"已切换账号: {ACTIVE_ACCOUNT_NAME}")
         return True
 
@@ -638,6 +657,17 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
                 logger.warning(f"默认套装名已在内存中修正，但写回 roles.json 失败: {e}")
 
     def _update_inventory_status(self):
+        try:
+            if USER_DATABASE_PATH.is_file():
+                with UserDataDao(USER_DATABASE_PATH) as dao:
+                    summary=dao.current_inventory_summary()
+                if summary is not None:
+                    count=int(summary["stored_item_count"])
+                    self.status_lbl.setText(f"稳定背包 {count} 件")
+                    self.status_lbl.setStyleSheet("color:#3fb950;font-size:12px")
+                    return
+        except Exception as exc:
+            logger.debug(f"读取 SQLite 背包状态失败，回退旧库存文件: {exc}")
         if not OUTPUT_FILE.exists():
             self.status_lbl.setText("库存为空")
             self.status_lbl.setStyleSheet("color:#d2991d;font-size:12px")
@@ -654,6 +684,172 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         c=QFrame(); c.setObjectName("card")
         l=QVBoxLayout(c); l.setContentsMargins(20,16,20,16); l.setSpacing(8)
         lb=QLabel(title); lb.setObjectName("cardTitle"); l.addWidget(lb); return c
+
+    # ── Page: Home / 2.0 Dashboard
+    def _page_home(self):
+        return build_home_page(self)
+
+    def _refresh_home(self):
+        if not hasattr(self,"home_account_label"):
+            return
+        try:
+            dashboard=DashboardService(USER_DATABASE_PATH).load()
+            refresh_home_page(self,dashboard)
+        except Exception as exc:
+            self.home_account_label.setText(f"工作台数据暂时不可用：{exc}")
+            self.home_static_label.setText("请检查用户数据库和随程序静态数据库。")
+            logger.warning(f"刷新 2.0 工作台失败: {exc}")
+
+    def _start_inventory_sync(self):
+        service=self._inventory_sync_service
+        if service is not None and service.is_running:
+            return
+        service=InventorySyncService(USER_DATABASE_PATH)
+        service.add_state_handler(self.inventory_sync_state_signal.emit)
+        self._inventory_sync_service=service
+        service.start()
+
+    def _get_sync_settings(self):
+        with UserDataDao(USER_DATABASE_PATH) as dao:
+            return dao.get_sync_settings()
+
+    def _save_sync_settings(self):
+        try:
+            was_running=bool(self._inventory_sync_service and self._inventory_sync_service.is_running)
+            with UserDataDao(USER_DATABASE_PATH) as dao:
+                settings=dao.update_sync_settings(
+                    inventory_sync_method=self._sync_inventory_method_combo.currentData(),
+                    equipment_apply_method=self._sync_apply_method_combo.currentData(),
+                    capture_device_id=self._sync_capture_device_edit.text(),
+                    raw_capture_enabled=self._sync_raw_capture_toggle.isChecked(),
+                    inventory_settle_seconds=self._sync_settle_spin.value(),
+                    auto_start_inventory_sync=self._sync_auto_start_toggle.isChecked(),
+                    inventory_snapshot_retention_count=self._snapshot_retention_spin.value(),
+                )
+            if was_running:
+                self._stop_inventory_sync()
+                self._start_inventory_sync()
+            QMessageBox.information(self,"同步设置","同步和装配设置已保存。")
+            return settings
+        except Exception as exc:
+            QMessageBox.warning(self,"同步设置",f"保存失败：{exc}")
+            return None
+
+    def _prune_inventory_snapshots(self):
+        current_worker = getattr(self, "_snapshot_prune_worker", None)
+        if current_worker is not None and current_worker.isRunning():
+            QMessageBox.information(self, "快照维护", "历史快照正在清理，请等待当前任务完成。")
+            return
+        retain_recent = self._snapshot_retention_spin.value()
+        message = (
+            f"将保留最近 {retain_recent} 份稳定背包快照。\n\n"
+            "当前快照和所有已保存装配方案引用的快照会始终保留；"
+            "其他历史快照及其背包物品、词条记录将被删除。\n\n"
+            "此操作不会修改装配方案。是否继续？"
+        )
+        if QMessageBox.question(
+            self,
+            "确认清理历史快照",
+            message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        database_path = USER_DATABASE_PATH
+        if hasattr(self, "_prune_snapshots_button"):
+            self._prune_snapshots_button.setEnabled(False)
+        worker = WorkerThread(
+            target=lambda: self._prune_inventory_snapshots_task(
+                database_path, retain_recent
+            ),
+            parent=self,
+        )
+        self._snapshot_prune_worker = worker
+        worker.result_ready.connect(self._on_inventory_snapshots_pruned)
+        worker.error.connect(self._on_inventory_snapshot_prune_error)
+        worker.start()
+
+    @staticmethod
+    def _prune_inventory_snapshots_task(database_path, retain_recent):
+        with UserDataDao(database_path) as dao:
+            return dao.prune_inventory_snapshots(retain_recent=retain_recent)
+
+    def _on_inventory_snapshots_pruned(self, result):
+        if hasattr(self, "_prune_snapshots_button"):
+            self._prune_snapshots_button.setEnabled(True)
+        self._refresh_home()
+        QMessageBox.information(
+            self,
+            "快照维护完成",
+            "已清理 "
+            f"{result['deleted_snapshot_count']} 份历史快照，"
+            f"当前保留 {result['total_after']} 份。\n\n"
+            "当前快照和被装配方案引用的快照未被删除。"
+            "SQLite 数据库文件大小可能不会立刻缩小，但空间会供后续同步复用。",
+        )
+
+    def _on_inventory_snapshot_prune_error(self, error):
+        if hasattr(self, "_prune_snapshots_button"):
+            self._prune_snapshots_button.setEnabled(True)
+        QMessageBox.warning(self, "快照维护", f"清理失败：{error}")
+
+    def _maybe_auto_start_inventory_sync(self):
+        try:
+            settings=self._get_sync_settings()
+        except Exception as exc:
+            logger.debug(f"读取自动同步设置失败: {exc}")
+            return
+        if (
+            settings.get("inventory_sync_method")=="nte_core"
+            and settings.get("auto_start_inventory_sync")
+        ):
+            self._start_inventory_sync()
+
+    def _stop_inventory_sync(self):
+        service=self._inventory_sync_service
+        if service is None:
+            return
+        service.remove_state_handler(self.inventory_sync_state_signal.emit)
+        if service.is_running:
+            service.stop()
+        self._inventory_sync_service=None
+        if hasattr(self,"home_sync_badge"):
+            from src.ui.dashboard_widgets import set_status_badge
+            set_status_badge(self.home_sync_badge,"已停止","neutral")
+            self.home_sync_detail.setText("后台背包同步已停止，数据库中的稳定快照仍可用于计算。")
+            self.home_start_sync_button.setEnabled(True)
+            self.home_stop_sync_button.setEnabled(False)
+
+    def _on_inventory_sync_state(self,state):
+        if not isinstance(state,InventorySyncState) or not hasattr(self,"home_sync_badge"):
+            return
+        from src.ui.dashboard_widgets import set_status_badge
+        tone={
+            "starting":"active","waiting":"warning","collecting":"active",
+            "saving":"active","listening":"success","error":"error","stopped":"neutral",
+        }.get(state.phase,"neutral")
+        label={
+            "starting":"启动中","waiting":"等待进入游戏","collecting":"接收中",
+            "saving":"保存中","listening":"后台监听","error":"同步异常","stopped":"已停止",
+        }.get(state.phase,state.phase)
+        set_status_badge(self.home_sync_badge,label,tone)
+        detail=state.message
+        if state.pending_item_count is not None:
+            detail+=f" · 当前 {state.pending_item_count} 件"
+        if state.error:
+            detail+=f"\n{state.error}"
+        self.home_sync_detail.setText(detail)
+        self.home_start_sync_button.setEnabled(not state.running)
+        self.home_stop_sync_button.setEnabled(state.running)
+        self.status_lbl.setText(label)
+        self.status_lbl.setStyleSheet(
+            "color:#f85149;font-size:12px" if state.phase=="error"
+            else "color:#3fb950;font-size:12px" if state.phase=="listening"
+            else "color:#d2991d;font-size:12px"
+        )
+        if state.phase=="listening" and state.last_snapshot_id is not None:
+            self._refresh_home()
 
     # ── Page: Execute
 

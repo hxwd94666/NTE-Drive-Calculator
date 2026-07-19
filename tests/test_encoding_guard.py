@@ -37,6 +37,7 @@ LEGACY_SHIM_PATHS = [
 FEATURE_STATIC_ALLOWLIST = {
     "src/features/configuration/page.py": {"NoWheelComboBox", "NoWheelDoubleSpinBox"},
     "src/integrations/nte_core.py": {"__file__"},
+    "src/storage/sqlite/static_game_data_dao.py": {"__file__"},
     "src/utils/path_helper.py": {"__file__"},
 }
 

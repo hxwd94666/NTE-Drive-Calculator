@@ -29,9 +29,9 @@ class InventoryPageMixin:
     _show_saved_plan_diff_dialog = inventory_page._show_saved_plan_diff_dialog
     _clear_all_equipment = inventory_page._clear_all_equipment
     _delete_role_equipment = inventory_page._delete_role_equipment
-    _import_to_my_role = inventory_page._import_to_my_role
-    _import_all_to_my_roles = inventory_page._import_all_to_my_roles
-    _save_eq = inventory_page._save_eq
+    _preview_assemble_role = inventory_page._preview_assemble_role
+    _preview_assemble_all_roles = inventory_page._preview_assemble_all_roles
+    _resume_nte_core_equipment_apply = inventory_page._resume_nte_core_equipment_apply
 
 
 class BlueprintPageMixin:
@@ -75,10 +75,33 @@ class AllocationResultsMixin:
     _fallback_tape_main_value = allocation_results_view._fallback_tape_main_value
     _extra_shape_area = allocation_results_view._extra_shape_area
     _equipment_bonus_rows = allocation_results_view._equipment_bonus_rows
+    _get_my_role_entry = allocation_results_view._get_my_role_entry
+    _role_base_bonus_rows = allocation_results_view._role_base_bonus_rows
+    _merge_bonus_row_lists = allocation_results_view._merge_bonus_row_lists
+    _synthesize_character_bonus_rows = allocation_results_view._synthesize_character_bonus_rows
+    _bonus_rows_for_mode = allocation_results_view._bonus_rows_for_mode
+    _bonus_summary_mode_label = allocation_results_view._bonus_summary_mode_label
+    _make_bonus_mode_switch = allocation_results_view._make_bonus_mode_switch
+    _clear_layout_widgets = allocation_results_view._clear_layout_widgets
     _format_bonus_value = allocation_results_view._format_bonus_value
-    _bonus_summary_widget = allocation_results_view._bonus_summary_widget
+    _role_stat_priority_stats = allocation_results_view._role_stat_priority_stats
+    _bonus_stat_weight = allocation_results_view._bonus_stat_weight
+    _sort_bonus_rows_for_role = allocation_results_view._sort_bonus_rows_for_role
+    _sort_bonus_aligned_rows_for_role = allocation_results_view._sort_bonus_aligned_rows_for_role
+    _bonus_stat_label_style = allocation_results_view._bonus_stat_label_style
+    _format_panel_value = allocation_results_view._format_panel_value
+    _sort_bonus_aligned_rows = allocation_results_view._sort_bonus_aligned_rows
+    _role_bonus_summary_panel = allocation_results_view._role_bonus_summary_panel
+    _refresh_bonus_summary_panel = allocation_results_view._refresh_bonus_summary_panel
+    _aligned_bonus_comparison_rows = allocation_results_view._aligned_bonus_comparison_rows
+    _has_bonus_delta = allocation_results_view._has_bonus_delta
     _bonus_row_widget = allocation_results_view._bonus_row_widget
+    _bonus_comparison_column = allocation_results_view._bonus_comparison_column
+    _bonus_delta_row_widget = allocation_results_view._bonus_delta_row_widget
+    _bonus_delta_column = allocation_results_view._bonus_delta_column
+    _bonus_comparison_widget = allocation_results_view._bonus_comparison_widget
     _show_bonus_summary_dialog = allocation_results_view._show_bonus_summary_dialog
+    _show_bonus_comparison_dialog = allocation_results_view._show_bonus_comparison_dialog
     _score_drive_dict = allocation_results_view._score_drive_dict
     _score_tape_dict = allocation_results_view._score_tape_dict
     _equip_card = allocation_results_view._equip_card

@@ -158,5 +158,18 @@ class StatCatalog:
 
         return sorted(stat for stat in pool if stat)
 
+    def tape_main_stat_pool(self) -> list[str]:
+        """Strict card-tape main-stat pool, excluding aliases and sub stats."""
+        return list(dict.fromkeys(str(stat).strip() for stat in self.tape_main_values if str(stat).strip()))
+
+    def tape_sub_stat_pool(self) -> list[str]:
+        """Strict card-tape sub-stat pool, never including main-only stats."""
+        main_only = tuple(str(keyword).strip() for keyword in self.main_only_keywords if str(keyword).strip())
+        return list(dict.fromkeys(
+            stat
+            for stat in (str(raw_stat).strip() for raw_stat in self.tape_stat_values)
+            if stat and not any(keyword in stat for keyword in main_only)
+        ))
+
     def flexible_weight_name(self, stat_name: str) -> str:
         return self._weight_aliases().get(stat_name, stat_name)

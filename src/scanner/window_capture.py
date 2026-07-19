@@ -156,6 +156,30 @@ def fit_content_rect(target_width: int, target_height: int, base_size: tuple[int
     return left, top, max(1, content_width), max(1, content_height)
 
 
+def game_content_rect(
+    target_width: int,
+    target_height: int,
+    base_size: tuple[int, int] = (2560, 1440),
+) -> tuple[int, int, int, int]:
+    """Map the game's 16:9 UI canvas inside a captured client image.
+
+    On taller client areas such as 2560x1600, the game keeps its 16:9 UI
+    anchored to the top and extends the scene below it. Wider client areas
+    retain the existing horizontally centered behavior.
+    """
+    base_width, base_height = base_size
+    base_aspect = base_width / base_height
+    target_aspect = target_width / max(1, target_height)
+    if target_aspect < base_aspect:
+        content_width = target_width
+        content_height = min(target_height, round(target_width / base_aspect))
+        return 0, 0, max(1, content_width), max(1, content_height)
+    content_height = target_height
+    content_width = min(target_width, round(target_height * base_aspect))
+    left = round((target_width - content_width) / 2)
+    return left, 0, max(1, content_width), max(1, content_height)
+
+
 def crop_window_border_from_image(image: np.ndarray, target_aspect: float = BASE_GAME_ASPECT) -> np.ndarray:
     """Crop common Windows non-client borders from already captured screenshots.
 

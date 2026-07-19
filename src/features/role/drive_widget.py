@@ -353,9 +353,9 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
             0,
             Qt.AlignTop
         )
-        if hasattr(window, "_bonus_summary_widget"):
+        if hasattr(window, "_role_bonus_summary_panel"):
             row.addWidget(
-                window._bonus_summary_widget(
+                window._role_bonus_summary_panel(
                     role_name,
                     None,
                     valid_drives
@@ -388,6 +388,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
                 tape_data.get("quality", "Gold"),
                 is_changed=bool(tape_data.get("is_changed")),
                 main_weights=main_weights,
+                card_variant="inventory",
             )
             group_layout.addWidget(card)
 
@@ -454,6 +455,7 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
                     (score, grade),
                     quality,
                     is_changed=bool(d.get("is_changed")),
+                    card_variant="inventory",
                 )
                 drive_container_layout.addWidget(card)
 
@@ -545,6 +547,23 @@ def _build_tape_replacement_candidates(window, role_name, current_tape, weights,
     return _keep_top_candidates_with_unassigned(candidates, user_map, lambda entry: entry[1].get("uid", ""))
 
 
+def _confirm_equipment_replacement(window, item_kind, displaced_roles=()):
+    """Ask for final confirmation and make cross-role removal explicit."""
+    item_label = "驱动" if item_kind == "drive" else "卡带"
+    message = f"确认替换当前{item_label}吗？"
+    roles = tuple(dict.fromkeys(displaced_roles or ()))
+    if roles:
+        affected = "\n".join(f"• {role}：该{item_label}将被卸下" for role in roles)
+        message += f"\n\n所选{item_label}当前已装配在其他角色上：\n{affected}\n\n确认后将为这些角色保留空位。"
+    return QMessageBox.question(
+        window,
+        "确认替换",
+        message,
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    ) == QMessageBox.Yes
+
+
 def _apply_tape_replacement(window, role_name, role_data, new_tape, user_map):
     new_tape["is_changed"] = True
     role_data["tape"] = new_tape
@@ -594,10 +613,11 @@ def _add_current_drive_section(window, main_layout, current_shape, current_uid, 
                     else "-",
                 ),
                 current_drive.get("quality", "Gold"),
+                card_variant="inventory",
             )
         )
     else:
-        cur_layout.addWidget(QLabel(f"UID: {current_uid} Score: {current_score:.2f}"))
+        cur_layout.addWidget(QLabel(f"评分: {current_score:.2f}"))
     cur_margin_label = QLabel(f"直伤收益: {current_margin:+.2f}%")
     cur_margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 13px; margin-top: 4px;")
     cur_layout.addWidget(cur_margin_label)
@@ -638,10 +658,11 @@ def _add_drive_candidate_card(
                 weights,
                 (score, grade),
                 quality,
+                card_variant="inventory",
             )
         )
     else:
-        card_layout.addWidget(QLabel(f"UID: {uid} Score: {score:.2f}"))
+        card_layout.addWidget(QLabel(f"评分: {score:.2f}"))
 
     replace_btn = QPushButton("替换")
     replace_btn.setObjectName("btnAction")
@@ -705,6 +726,7 @@ def _show_tape_optimization(
                 (current_score, current_grade),
                 current_tape.get("quality", "Gold"),
                 main_weights=main_weights,
+                card_variant="inventory",
             )
         )
     main_layout.addWidget(current_group)
@@ -714,13 +736,16 @@ def _show_tape_optimization(
     scroll_widget = QWidget()
     scroll_layout = QVBoxLayout(scroll_widget)
 
-    def _replace_tape(new_tape, raw_item):
+    def _replace_tape(new_tape):
+        displaced_roles = user_map.get(new_tape.get("uid", ""), [])
+        if not _confirm_equipment_replacement(window, "tape", displaced_roles):
+            return
         _apply_tape_replacement(window, role_name, role_data, new_tape, user_map)
         dlg.accept()
         on_save_refresh_callback()
         refresh_drive_detail_content(window)
 
-    for score, tape, raw_item in final:
+    for score, tape, _raw_item in final:
         grade = window._calc_grade(score, 15) if hasattr(window, "_calc_grade") else "-"
         tape_margin = _calc_tape_replacement_margin(role_data, tape)
         card_container = QWidget()
@@ -739,11 +764,12 @@ def _show_tape_optimization(
                     (score, grade),
                     tape.get("quality", "Gold"),
                     main_weights=main_weights,
+                    card_variant="inventory",
                 )
             )
         replace_btn = QPushButton("替换")
         replace_btn.setObjectName("btnAction")
-        replace_btn.clicked.connect(lambda checked=False, t=tape, r=raw_item: _replace_tape(t, r))
+        replace_btn.clicked.connect(lambda checked=False, t=tape: _replace_tape(t))
         action_row = QHBoxLayout()
         margin_label = QLabel(f"直伤收益: {tape_margin:+.2f}%")
         margin_label.setStyleSheet("color: #ffaa00; font-weight: bold; font-size: 12px;")
@@ -796,6 +822,8 @@ def _show_drive_optimization(
 
     def _replace_drive(new_drive):
         plan = build_drive_replacement_plan(role_name, options.current_uid, new_drive, options.user_map)
+        if not _confirm_equipment_replacement(window, "drive", plan.displaced_roles):
+            return
         applied, dirty_roles = apply_drive_replacement_plan(window._my_role_form_data, role_data, plan)
         if not applied:
             QMessageBox.warning(window, "替换失败", "当前驱动已不存在，请刷新后重试。")
