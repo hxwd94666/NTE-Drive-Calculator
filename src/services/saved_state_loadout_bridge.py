@@ -83,35 +83,57 @@ def resolve_character_id_for_saved_role(
         raise SavedStateLoadoutError("用户数据库中还没有稳定背包快照")
 
     candidate_set = set(candidates)
-    instance_uids: dict[int, set[tuple[int, int]]] = {}
-    for item in user_dao.list_inventory_items(snapshot_id, equipped=True):
-        character_id = item.get("equipped_character_id")
-        character_uid = item.get("equipped_character_uid")
-        if character_id not in candidate_set or not isinstance(character_uid, Mapping):
-            continue
-        try:
-            uid = (int(character_uid["slot"]), int(character_uid["serial"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-        if uid[0] > 0 and uid[1] > 0:
-            instance_uids.setdefault(character_id, set()).add(uid)
 
-    if len(instance_uids) == 1:
-        character_id, uids = next(iter(instance_uids.items()))
-        if len(uids) == 1:
-            return character_id
+    def instances_in(candidate_snapshot_id: int) -> dict[int, set[tuple[int, int]]]:
+        instance_uids: dict[int, set[tuple[int, int]]] = {}
+        for item in user_dao.list_inventory_items(candidate_snapshot_id, equipped=True):
+            character_id = item.get("equipped_character_id")
+            character_uid = item.get("equipped_character_uid")
+            if character_id not in candidate_set or not isinstance(character_uid, Mapping):
+                continue
+            try:
+                uid = (int(character_uid["slot"]), int(character_uid["serial"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if uid[0] > 0 and uid[1] > 0:
+                instance_uids.setdefault(character_id, set()).add(uid)
+        return instance_uids
+
+    def resolve_instances(
+        instance_uids: dict[int, set[tuple[int, int]]],
+    ) -> int | None:
+        if not instance_uids:
+            return None
+        if len(instance_uids) == 1:
+            character_id, uids = next(iter(instance_uids.items()))
+            if len(uids) == 1:
+                return character_id
+            raise SavedStateLoadoutError(
+                f"角色 [{role_name}] 的官方 ID {character_id} 对应多个角色实例 UID"
+            )
+        matched_text = "、".join(str(value) for value in sorted(instance_uids))
         raise SavedStateLoadoutError(
-            f"角色 [{role_name}] 的官方 ID {character_id} 对应多个角色实例 UID"
+            f"角色 [{role_name}] 的多个候选 ID 同时存在角色实例（{matched_text}），无法自动选择"
         )
+
+    resolved = resolve_instances(instances_in(snapshot_id))
+    if resolved is not None:
+        return resolved
+
+    # 批量装配可能把主角当前装备全部移走；官方角色 ID（如 1046/1051）仍可从
+    # 最近一份包含该角色装备的稳定快照可靠恢复。
+    for summary in user_dao.list_inventory_snapshots():
+        historical_snapshot_id = int(summary["snapshot_id"])
+        if historical_snapshot_id == snapshot_id:
+            continue
+        resolved = resolve_instances(instances_in(historical_snapshot_id))
+        if resolved is not None:
+            return resolved
+
     candidate_text = "、".join(str(value) for value in candidates)
-    if not instance_uids:
-        raise SavedStateLoadoutError(
-            f"角色 [{role_name}] 有多个候选官方 ID（{candidate_text}），"
-            "但当前稳定背包没有可用于判断的已装备物品"
-        )
-    matched_text = "、".join(str(value) for value in sorted(instance_uids))
     raise SavedStateLoadoutError(
-        f"角色 [{role_name}] 的多个候选 ID 同时存在角色实例（{matched_text}），无法自动选择"
+        f"角色 [{role_name}] 有多个候选官方 ID（{candidate_text}），"
+        "但当前和历史稳定背包都没有可用于判断的已装备物品"
     )
 
 

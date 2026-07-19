@@ -238,6 +238,41 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
             resolve_character_id_for_saved_role("主角", roles, self.user_dao),
         )
 
+    def test_protagonist_uses_history_when_current_instance_is_empty(self) -> None:
+        character_uid = {"slot": 160762209, "serial": 347096673}
+        self.user_dao.import_inventory_snapshot(
+            _snapshot(
+                [
+                    _inventory_item(
+                        slot=41,
+                        serial=410,
+                        kind="module",
+                        geometry="ZhiJiao2",
+                        equipped_character_id=1051,
+                        equipped_character_uid=character_uid,
+                    )
+                ],
+                generation=2,
+            )
+        )
+        self.user_dao.import_inventory_snapshot(
+            _snapshot(
+                [_inventory_item(slot=41, serial=410, kind="module")],
+                generation=3,
+            )
+        )
+        roles = {
+            "主角": {
+                "workshop_item_id": "1046",
+                "workshop_item_ids": ["1046", "1051"],
+            }
+        }
+
+        self.assertEqual(
+            1051,
+            resolve_character_id_for_saved_role("主角", roles, self.user_dao),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
