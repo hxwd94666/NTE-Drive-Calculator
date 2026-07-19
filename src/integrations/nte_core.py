@@ -562,26 +562,6 @@ class NteCoreClient:
             raise NteCoreProtocolError("JSON-RPC response has neither result nor error")
         return response["result"]
 
-    def equip_one_key(
-        self,
-        *,
-        character: Mapping[str, Any],
-        placements: Sequence[Mapping[str, Any]],
-        core: Mapping[str, Any],
-        timeout: float | None = None,
-    ) -> Any:
-        """调用本地装备桥，一次提交角色、驱动位置和核心实例 UID。"""
-
-        return self.call(
-            "equipment.equip_one_key",
-            {
-                "character": dict(character),
-                "placements": [dict(placement) for placement in placements],
-                "core": dict(core),
-            },
-            timeout=timeout,
-        )
-
     def add_event_handler(self, method: str | None, handler: EventHandler) -> None:
         """把后续匹配事件分发给后台回调。
 
@@ -663,10 +643,16 @@ class NteCoreClient:
 
         return group_inventory_items_by_character(self.get_latest_inventory())
 
-    def _equipment_request(self, method: str, params: JsonObject) -> JsonObject:
+    def _equipment_request(
+        self,
+        method: str,
+        params: JsonObject,
+        *,
+        timeout: float | None = None,
+    ) -> JsonObject:
         """提交装备插件 RPC；最终状态应以之后的背包快照为准。"""
 
-        return self.call(f"equipment.{method}", params)
+        return self.call(f"equipment.{method}", params, timeout=timeout)
 
     def equip_module(
         self,
@@ -741,6 +727,7 @@ class NteCoreClient:
         character: Mapping[str, Any],
         placements: Sequence[Mapping[str, Any]],
         core: Mapping[str, Any],
+        timeout: float | None = None,
     ) -> JsonObject:
         if not 1 <= len(placements) <= _MAX_EQUIPMENT_PLACEMENTS:
             raise ValueError("placements must contain 1..64 entries")
@@ -767,6 +754,7 @@ class NteCoreClient:
                 "placements": normalized_placements,
                 "core": _equipment_uid(core, "core"),
             },
+            timeout=timeout,
         )
 
     def move_module_to_character(

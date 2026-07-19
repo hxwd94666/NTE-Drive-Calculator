@@ -78,8 +78,12 @@ for line in sys.stdin:
                 ],
             },
         })
-    elif method == "equipment.equip_one_key":
-        send({"jsonrpc": "2.0", "id": request_id, "result": request["params"]})
+    elif method.startswith("equipment."):
+        send({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {"method": method, "params": request["params"]},
+        })
     elif method == "test.defer":
         deferred = request_id
         send({"jsonrpc": "2.0", "method": "event.test.deferred", "params": {}})
@@ -167,11 +171,13 @@ class NteCoreClientTests(unittest.TestCase):
                     }
                 ],
                 core={"slot": 5, "serial": 6},
+                timeout=0.5,
             )
 
-        self.assertEqual(result["character"], {"slot": 1, "serial": 2})
-        self.assertEqual(result["placements"][0]["row"], 2)
-        self.assertEqual(result["core"], {"slot": 5, "serial": 6})
+        self.assertEqual(result["method"], "equipment.equip_one_key")
+        self.assertEqual(result["params"]["character"], {"slot": 1, "serial": 2})
+        self.assertEqual(result["params"]["placements"][0]["row"], 2)
+        self.assertEqual(result["params"]["core"], {"slot": 5, "serial": 6})
 
     def test_start_rejects_unsupported_negotiated_version(self):
         client = fake_client(VERSION_MISMATCH_CORE)
