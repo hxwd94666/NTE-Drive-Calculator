@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QInputDial
 from src.app import runtime
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
+from src.app.workers import WorkerThread
 from src.features.drive_assembly.ui_bridge import (
     build_all_role_assembly_plan,
     build_single_role_assembly_plan,
@@ -28,6 +29,13 @@ from src.features.role.drive_widget import _show_drive_optimization, _show_tape_
 from src.features.role.dao import save_my_roles
 from src.features.role.page import _save_pending_role_equipment_state
 from src.features.scanning.file_lifecycle import equipment_compare_signature
+from src.services.equipment_apply_service import EquipmentApplyService
+from src.services.saved_state_loadout_bridge import (
+    SavedStateLoadoutBridge,
+    character_id_for_saved_role,
+)
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.optimizer.contracts import (
     DIFF_ADDED,
     DIFF_CHANGED,
@@ -468,9 +476,136 @@ def _prompt_protagonist_alias_if_needed(self, role_names) -> dict[str, str]:
     return {"主角": player_name}
 
 
+def _uses_nte_core_equipment_apply(self) -> bool:
+    """无新设置接口的旧测试对象继续走原有手柄流程。"""
+
+    settings_reader = getattr(self, "_get_sync_settings", None)
+    if not callable(settings_reader):
+        return False
+    try:
+        return settings_reader().get("equipment_apply_method") == "nte_core"
+    except Exception as exc:
+        logger.warning(f"读取装配方式失败，回退到手柄流程：{exc}")
+        return False
+
+
+def _run_nte_core_equipment_apply(self, role_names: list[str]) -> dict:
+    sync_service = getattr(self, "_inventory_sync_service", None)
+    if sync_service is None:
+        raise RuntimeError("背包同步服务尚未启动，请先在首页启动后台同步")
+
+    applied: list[dict] = []
+    with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao, StaticGameDataDao() as static_dao:
+        bridge = SavedStateLoadoutBridge(user_dao, static_dao)
+        apply_service = EquipmentApplyService(user_dao, sync_service)
+        for role_name in role_names:
+            try:
+                role_state = self.equipped_state.get(role_name)
+                if not isinstance(role_state, dict):
+                    raise RuntimeError(f"角色 [{role_name}] 没有已保存的配装")
+                character_id = character_id_for_saved_role(role_name, self.roles_db)
+                plan = bridge.save_role_plan(
+                    role_name=role_name,
+                    role_state=role_state,
+                    character_id=character_id,
+                )
+                result = apply_service.apply_plan(plan.plan_id, timeout=30.0)
+                applied.append(
+                    {
+                        "role_name": role_name,
+                        "character_id": character_id,
+                        "plan_id": plan.plan_id,
+                        "module_count": plan.module_count,
+                        "snapshot_id": result.after_snapshot_id,
+                    }
+                )
+            except Exception as exc:
+                if applied:
+                    completed = "、".join(row["role_name"] for row in applied)
+                    raise RuntimeError(
+                        f"处理 [{role_name}] 时停止；此前已完成：{completed}。原始错误：{exc}"
+                    ) from exc
+                raise
+    return {"applied": applied}
+
+
+def _start_nte_core_equipment_apply(self, role_names: list[str]) -> None:
+    current_worker = getattr(self, "_equipment_apply_worker", None)
+    if current_worker is not None and current_worker.isRunning():
+        QMessageBox.information(self, "正在装配", "已有装配任务正在执行，请等待结果验证完成。")
+        return
+
+    worker = WorkerThread(
+        target=lambda: _run_nte_core_equipment_apply(self, role_names),
+        parent=self,
+    )
+    self._equipment_apply_worker = worker
+
+    def on_result(report: dict) -> None:
+        applied = report.get("applied") or []
+        details = "\n".join(
+            f"• {row['role_name']}：{row['module_count']} 个驱动 + 1 个核心"
+            for row in applied
+        )
+        QMessageBox.information(
+            self,
+            "装配完成",
+            f"已通过本地组件装配并由新稳定背包快照确认 {len(applied)} 个角色。\n\n{details}",
+        )
+        _reload_equipped_state_from_disk(self)
+        refresh = getattr(self, "_refresh_equip", None)
+        if callable(refresh):
+            refresh()
+
+    def on_error(message: str) -> None:
+        QMessageBox.critical(
+            self,
+            "装配失败",
+            f"本地组件未能完成装配：\n{message}\n\n"
+            "请确认游戏已登录、插件已加载，且首页背包同步处于“后台监听”。",
+        )
+
+    worker.result_ready.connect(on_result)
+    worker.error.connect(on_error)
+    worker.start()
+
+
+def _preview_nte_core_assemble_role(self, role_name: str) -> None:
+    ret = QMessageBox.question(
+        self,
+        "瞬间装配",
+        f"将通过本地组件把 [{role_name}] 的已保存方案直接装入游戏。\n\n"
+        "指令会立即发送，随后等待新的稳定背包快照确认结果；不需要切换到游戏配装页面。是否继续？",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+    if ret == QMessageBox.Yes:
+        _start_nte_core_equipment_apply(self, [role_name])
+
+
+def _preview_nte_core_assemble_all_roles(self) -> None:
+    role_names = sorted(self.equipped_state)
+    if not role_names:
+        QMessageBox.information(self, "一键装配", "当前没有已保存的配装。")
+        return
+    ret = QMessageBox.question(
+        self,
+        "一键瞬间装配",
+        f"将依次向本地组件发送 {len(role_names)} 个角色的装配指令，"
+        "每个角色都经过新稳定背包快照确认后再处理下一个。\n\n是否继续？",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+    if ret == QMessageBox.Yes:
+        _start_nte_core_equipment_apply(self, role_names)
+
+
 def _preview_assemble_role(self, role_name: str):
     """生成并执行单个角色的游戏内装配动作计划。"""
     _reload_equipped_state_from_disk(self)
+    if _uses_nte_core_equipment_apply(self):
+        _preview_nte_core_assemble_role(self, role_name)
+        return
     try:
         plan=build_single_role_assembly_plan(self.equipped_state, role_name)
         summary=summarize_assembly_plan(plan)
@@ -516,6 +651,9 @@ def _preview_assemble_role(self, role_name: str):
 def _preview_assemble_all_roles(self):
     """生成并执行所有已保存角色的游戏内装配动作计划。"""
     _reload_equipped_state_from_disk(self)
+    if _uses_nte_core_equipment_apply(self):
+        _preview_nte_core_assemble_all_roles(self)
+        return
     if not self.equipped_state:
         QMessageBox.information(self,"一键装配","当前没有已保存的配装。")
         return
