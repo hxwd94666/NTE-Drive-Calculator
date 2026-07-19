@@ -521,6 +521,7 @@ def _run_nte_core_equipment_apply(self, role_names: list[str]) -> dict:
                         "plan_id": plan.plan_id,
                         "module_count": plan.module_count,
                         "snapshot_id": result.after_snapshot_id,
+                        "already_applied": result.already_applied,
                     }
                 )
             except Exception as exc:
@@ -549,12 +550,18 @@ def _start_nte_core_equipment_apply(self, role_names: list[str]) -> None:
         applied = report.get("applied") or []
         details = "\n".join(
             f"• {row['role_name']}：{row['module_count']} 个驱动 + 1 个核心"
+            + ("（原本已装好）" if row.get("already_applied") else "")
             for row in applied
         )
+        changed_count = sum(not row.get("already_applied") for row in applied)
+        unchanged_count = len(applied) - changed_count
+        summary = f"已确认 {len(applied)} 个角色的配装"
+        if unchanged_count:
+            summary += f"（实际装配 {changed_count} 个，原本已装好 {unchanged_count} 个）"
         QMessageBox.information(
             self,
             "装配完成",
-            f"已通过本地组件装配并由新稳定背包快照确认 {len(applied)} 个角色。\n\n{details}",
+            f"{summary}。\n\n{details}",
         )
         _reload_equipped_state_from_disk(self)
         refresh = getattr(self, "_refresh_equip", None)
@@ -579,7 +586,8 @@ def _preview_nte_core_assemble_role(self, role_name: str) -> None:
         self,
         "瞬间装配",
         f"将通过本地组件把 [{role_name}] 的已保存方案直接装入游戏。\n\n"
-        "指令会立即发送，随后等待新的稳定背包快照确认结果；不需要切换到游戏配装页面。是否继续？",
+        "若当前已经是目标配装会立即完成，否则发送指令并等待稳定背包快照确认；"
+        "不需要切换到游戏配装页面。是否继续？",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )
@@ -596,7 +604,8 @@ def _preview_nte_core_assemble_all_roles(self) -> None:
         self,
         "一键瞬间装配",
         f"将依次向本地组件发送 {len(role_names)} 个角色的装配指令，"
-        "每个角色都经过新稳定背包快照确认后再处理下一个。\n\n是否继续？",
+        "已经正确装配的角色会直接跳过，其余角色在稳定背包快照确认后再处理下一个。"
+        "\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )

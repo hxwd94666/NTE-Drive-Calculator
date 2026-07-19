@@ -135,6 +135,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         result = EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
 
         self.assertTrue(result.verified)
+        self.assertFalse(result.already_applied)
         self.assertGreater(result.after_snapshot_id, result.before_snapshot_id)
         self.assertEqual(self.sync.params["character"], CHARACTER_UID)
         self.assertEqual(
@@ -142,6 +143,30 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             [{"equipment": {"slot": 11, "serial": 11}, "row": 2, "column": 3}],
         )
         self.assertEqual(self.sync.params["core"], {"slot": 22, "serial": 22})
+
+    def test_already_applied_plan_returns_immediately_without_rpc(self) -> None:
+        rows = [copy.deepcopy(item(11, "module")), copy.deepcopy(item(22, "core"))]
+        for row in rows:
+            row["equipped"] = True
+            row["equipped_character_uid"] = dict(CHARACTER_UID)
+            row["equipped_character_id"] = 1003
+            if row["kind"] == "module":
+                row["equipped_placement"] = {"row": 2, "column": 3}
+        current = self.dao.import_inventory_snapshot(snapshot(3, rows))
+        self.sync.state = InventorySyncState(
+            phase="listening",
+            running=True,
+            last_snapshot_id=current,
+            last_item_count=2,
+        )
+
+        result = EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
+
+        self.assertTrue(result.verified)
+        self.assertTrue(result.already_applied)
+        self.assertEqual(result.before_snapshot_id, result.after_snapshot_id)
+        self.assertEqual(result.rpc_result, {"status": "already_applied"})
+        self.assertIsNone(self.sync.params)
 
     def test_rejects_missing_equipment_capability_before_rpc(self) -> None:
         self.sync.core_hello_result = {"capabilities": ["inventory"]}
@@ -151,7 +176,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
 
     def test_rejects_snapshot_that_does_not_confirm_target_position(self) -> None:
         self.sync.verify_correctly = False
-        with self.assertRaisesRegex(EquipmentApplyError, "装配位置"):
+        with self.assertRaisesRegex(EquipmentApplyError, "装配位置不一致"):
             EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
 
 

@@ -38,7 +38,7 @@ class _LiveInventorySync(Protocol):
 
 @dataclass(frozen=True)
 class EquipmentApplyResult:
-    """经过新稳定背包快照确认的一键装配结果。"""
+    """由当前或后续稳定背包快照确认的一键装配结果。"""
 
     plan_id: int
     before_snapshot_id: int
@@ -46,6 +46,7 @@ class EquipmentApplyResult:
     character_uid: dict[str, int]
     rpc_result: Any
     verified: bool = True
+    already_applied: bool = False
 
 
 def _uid(value: Mapping[str, Any], field: str) -> dict[str, int]:
@@ -100,6 +101,64 @@ class EquipmentApplyService:
             )
         slot, serial = next(iter(candidates))
         return {"slot": slot, "serial": serial}
+
+    @staticmethod
+    def _plan_mismatch(
+        *,
+        items: list[dict[str, Any]],
+        modules: list[dict[str, Any]],
+        core_assignment: dict[str, Any],
+        character_id: int,
+        character_uid: dict[str, int],
+    ) -> str | None:
+        """返回方案与稳定快照的首个差异；完全一致时返回 ``None``。"""
+
+        by_uid = {(item["uid_serial"], item["uid_slot"]): item for item in items}
+        expected_uids = {
+            (assignment["uid_serial"], assignment["uid_slot"])
+            for assignment in modules
+        }
+        core_pair = (
+            core_assignment["uid_serial"],
+            core_assignment["uid_slot"],
+        )
+        expected_uids.add(core_pair)
+
+        for assignment in modules:
+            uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
+            item = by_uid.get(uid_pair)
+            expected_placement = {
+                "row": assignment["target_row"],
+                "column": assignment["target_column"],
+            }
+            if (
+                item is None
+                or not item["equipped"]
+                or item["equipped_character_uid"] != character_uid
+                or item["equipped_character_id"] != character_id
+                or item["equipped_placement"] != expected_placement
+            ):
+                return f"驱动 UID {uid_pair} 的装配位置不一致"
+
+        verified_core = by_uid.get(core_pair)
+        if (
+            verified_core is None
+            or not verified_core["equipped"]
+            or verified_core["equipped_character_uid"] != character_uid
+            or verified_core["equipped_character_id"] != character_id
+        ):
+            return f"核心 UID {core_pair} 的装备状态不一致"
+
+        actual_uids = {
+            (item["uid_serial"], item["uid_slot"])
+            for item in items
+            if item["equipped"]
+            and item["equipped_character_uid"] == character_uid
+            and item["equipped_character_id"] == character_id
+        }
+        if actual_uids != expected_uids:
+            return "角色当前装备数量或装备 UID 与方案不一致"
+        return None
 
     def apply_plan(
         self,
@@ -172,6 +231,23 @@ class EquipmentApplyService:
         resolved_character_uid = self._resolve_character_uid(
             plan["character_id"], before_snapshot_id, character_uid
         )
+        current_mismatch = self._plan_mismatch(
+            items=current_items,
+            modules=modules,
+            core_assignment=core_assignment,
+            character_id=plan["character_id"],
+            character_uid=resolved_character_uid,
+        )
+        if current_mismatch is None:
+            return EquipmentApplyResult(
+                plan_id=plan["plan_id"],
+                before_snapshot_id=before_snapshot_id,
+                after_snapshot_id=before_snapshot_id,
+                character_uid=resolved_character_uid,
+                rpc_result={"status": "already_applied"},
+                already_applied=True,
+            )
+
         rpc_result = self.sync_service.equip_one_key(
             character=resolved_character_uid,
             placements=placements,
@@ -186,34 +262,15 @@ class EquipmentApplyService:
         if after_snapshot_id is None or after_snapshot_id <= before_snapshot_id:
             raise EquipmentApplyError("核心组件没有返回装配后的新稳定快照")
 
-        after_items = {
-            (item["uid_serial"], item["uid_slot"]): item
-            for item in self.user_dao.list_inventory_items(after_snapshot_id)
-        }
-        expected_character_id = plan["character_id"]
-        for assignment in modules:
-            uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
-            item = after_items.get(uid_pair)
-            expected_placement = {
-                "row": assignment["target_row"],
-                "column": assignment["target_column"],
-            }
-            if (
-                item is None
-                or not item["equipped"]
-                or item["equipped_character_uid"] != resolved_character_uid
-                or item["equipped_character_id"] != expected_character_id
-                or item["equipped_placement"] != expected_placement
-            ):
-                raise EquipmentApplyError(f"新快照未确认驱动 UID {uid_pair} 的装配位置")
-        verified_core = after_items.get(core_pair)
-        if (
-            verified_core is None
-            or not verified_core["equipped"]
-            or verified_core["equipped_character_uid"] != resolved_character_uid
-            or verified_core["equipped_character_id"] != expected_character_id
-        ):
-            raise EquipmentApplyError(f"新快照未确认核心 UID {core_pair} 的装备状态")
+        mismatch = self._plan_mismatch(
+            items=self.user_dao.list_inventory_items(after_snapshot_id),
+            modules=modules,
+            core_assignment=core_assignment,
+            character_id=plan["character_id"],
+            character_uid=resolved_character_uid,
+        )
+        if mismatch is not None:
+            raise EquipmentApplyError(f"新快照未确认目标配装：{mismatch}")
         return EquipmentApplyResult(
             plan_id=plan["plan_id"],
             before_snapshot_id=before_snapshot_id,
