@@ -46,6 +46,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.optimizer.contracts import (
     DIFF_ADDED,
+    DIFF_ADDED_UIDS,
     DIFF_CHANGED,
     DIFF_REMOVED,
     EQUIP_DISPLAY_NAME,
@@ -855,6 +856,10 @@ def _sqlite_plan_display_state(plan, user_dao, static_dao):
     items={(row["uid_serial"],row["uid_slot"]): row for row in user_dao.list_inventory_items(snapshot_id)}
     shape_cells={shape["shape_id"]: shape.get("cells") or [] for shape in static_dao.list_shapes()}
     suit_names={str(suit["suit_id"]): str(suit.get("name_zh") or suit["suit_id"]) for suit in static_dao.list_suits()}
+    payload=plan.get("payload") or {}
+    last_diff=dict(payload.get("last_diff") or {})
+    added_uids={str(uid) for uid in (last_diff.get(DIFF_ADDED_UIDS) or ()) if uid}
+    changed_uids={str(uid) for uid in (payload.get("changed_uids") or ()) if uid}
     board=[["0" for _ in range(5)] for _ in range(5)]
     drives=[]
     tape=None
@@ -872,6 +877,8 @@ def _sqlite_plan_display_state(plan, user_dao, static_dao):
                 EQUIP_MAIN_STATS: next(iter(main_stats), "未知主词条"), EQUIP_SUB_STATS: _official_stat_values(item.get("sub_stats")),
                 EQUIP_QUALITY: {"orange":"Gold","purple":"Purple","blue":"Blue"}.get(str(item.get("quality")).casefold(),"Gold"),
                 "discarded": bool(item.get("discarded")),
+                EQUIP_IS_CHANGED: uid in changed_uids,
+                EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
             }
             continue
         geometry=item.get("geometry")
@@ -880,6 +887,15 @@ def _sqlite_plan_display_state(plan, user_dao, static_dao):
             EQUIP_UID: uid, EQUIP_SHAPE_ID: shape_id, EQUIP_SUB_STATS: _official_stat_values(item.get("sub_stats")),
             EQUIP_QUALITY: {"orange":"Gold","purple":"Purple","blue":"Blue"}.get(str(item.get("quality")).casefold(),"Gold"),
             "discarded": bool(item.get("discarded")),
+            # Snapshot ingestion derives duplicate state for modules.  Keep it
+            # on the saved-plan view model so the card can show it alongside
+            # discard/new/change state.
+            "is_duplicate_drive": bool(item.get("is_duplicate_drive")),
+            "duplicate_group_id": item.get("duplicate_group_id"),
+            "duplicate_index": item.get("duplicate_index"),
+            "duplicate_count": item.get("duplicate_count"),
+            EQUIP_IS_CHANGED: uid in changed_uids,
+            EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
         })
         row,column=assignment.get("target_row"),assignment.get("target_column")
         official_shape="EquipmentGeometry_" + str(geometry or "").removeprefix("EquipmentGeometry_")
@@ -888,12 +904,12 @@ def _sqlite_plan_display_state(plan, user_dao, static_dao):
             target_column=int(column)+int(cell["y"])-1
             if 0 <= target_row < 5 and 0 <= target_column < 5:
                 board[target_row][target_column]=shape_id
-    payload=plan.get("payload") or {}
     return {
         ROLE_BLUEPRINT_LAYOUT: board, ROLE_EQUIPPED_TAPE: tape, ROLE_EQUIPPED_DRIVES: drives,
         ROLE_TOTAL_SCORE: float(plan.get("score") or 0.0), ROLE_TOTAL_GRADE: "",
         "strategy_mode": payload.get("strategy", ""), "_sqlite_plan_id": plan["plan_id"],
         "_sqlite_source_snapshot_id": snapshot_id,
+        ROLE_LAST_DIFF: last_diff,
     }
 
 
@@ -921,6 +937,10 @@ def _sqlite_inventory_item_display(row, suit_names):
         EQUIP_SHAPE_ID: _display_shape_id(row.get("geometry")),
         EQUIP_SUB_STATS: _official_stat_values(row.get("sub_stats")),
         EQUIP_QUALITY: quality,
+        "is_duplicate_drive": bool(row.get("is_duplicate_drive")),
+        "duplicate_group_id": row.get("duplicate_group_id"),
+        "duplicate_index": row.get("duplicate_index"),
+        "duplicate_count": row.get("duplicate_count"),
         "_uid_serial": int(row.get("uid_serial") or 0),
         "_uid_slot": int(row.get("uid_slot") or 0),
     }
@@ -1019,6 +1039,31 @@ def _sqlite_replacement_candidates(database_path, role_name, item_kind, old_uid)
         return plan, current, candidates, plan_drives, plan_tape
 
 
+def _saved_plan_optimization_role_context(self, role_name: str) -> dict:
+    """Load the same role-page panel context before evaluating replacement DPS."""
+
+    form_data = getattr(self, "_my_role_form_data", None)
+    if not getattr(self, "_my_role_dirty", False):
+        # The role page owns the captured account panel/base/weapon data.  It is
+        # lazily loaded, so a user who opens 配装 first previously got an empty
+        # context and severely inflated flat-attack candidates.
+        refresh = getattr(self, "_refresh_my_role", None)
+        if callable(refresh):
+            refresh()
+        form_data = getattr(self, "_my_role_form_data", None)
+    else:
+        # Preserve unsaved edits while ensuring focused numeric text is applied.
+        flush = getattr(self, "_flush_role_widgets", None)
+        if callable(flush):
+            flush()
+        form_data = getattr(self, "_my_role_form_data", None)
+
+    role_context = form_data.get(role_name) if isinstance(form_data, dict) else None
+    if not isinstance(role_context, dict):
+        raise ValueError(f"角色 [{role_name}] 的角色面板尚未加载，无法计算直伤收益")
+    return role_context
+
+
 def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
     """Restore per-card optimization using only the active SQLite plan snapshot."""
     try:
@@ -1038,7 +1083,11 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
         score = lambda item: float(self._score_tape_dict(item.get(EQUIP_MAIN_STATS, ""), item.get(EQUIP_SUB_STATS, {}), weights, item.get(EQUIP_QUALITY, "Gold"), main_weights))
         title = f"替换卡带 - {current.get(EQUIP_SET_NAME) or '卡带'}"
     current_score = score(current)
-    role_base = (getattr(self, "_my_role_form_data", {}) or {}).get(role_name, {})
+    try:
+        role_base = _saved_plan_optimization_role_context(self, role_name)
+    except ValueError as exc:
+        QMessageBox.warning(self, "优化替换", str(exc))
+        return
     role_drives = [
         {
             "uid": item.get(EQUIP_UID, ""),
@@ -1116,7 +1165,9 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
         item_label or "卡带", current.get(EQUIP_MAIN_STATS, ""),
         current.get(EQUIP_SUB_STATS, {}), current.get(EQUIP_SHAPE_ID), current.get(EQUIP_UID, ""), weights,
         (current_score, self._calc_grade(current_score, 15 if item_kind == "tape" else self._shape_areas.get(current.get(EQUIP_SHAPE_ID, ""), 3))),
-        current.get(EQUIP_QUALITY, "Gold"), main_weights=main_weights, card_variant="inventory",
+        current.get(EQUIP_QUALITY, "Gold"),
+        is_duplicate_drive=item_kind == "drive" and bool(current.get("is_duplicate_drive")),
+        main_weights=main_weights, card_variant="inventory",
     ))
     layout.addWidget(current_group)
     candidates_group = QGroupBox(f"可替换{'驱动' if item_kind == 'drive' else '卡带'} ({len(ranked)}个)")
@@ -1136,7 +1187,9 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
             candidate.get(EQUIP_SHAPE_ID) or candidate.get(EQUIP_SET_NAME, "卡带"), candidate.get(EQUIP_MAIN_STATS, ""),
             candidate.get(EQUIP_SUB_STATS, {}), candidate.get(EQUIP_SHAPE_ID), candidate.get(EQUIP_UID, ""), weights,
             (candidate_score, self._calc_grade(candidate_score, 15 if item_kind == "tape" else self._shape_areas.get(candidate.get(EQUIP_SHAPE_ID, ""), 3))),
-            candidate.get(EQUIP_QUALITY, "Gold"), main_weights=main_weights, card_variant="inventory",
+            candidate.get(EQUIP_QUALITY, "Gold"),
+            is_duplicate_drive=item_kind == "drive" and bool(candidate.get("is_duplicate_drive")),
+            main_weights=main_weights, card_variant="inventory",
         ))
         action_row = QHBoxLayout()
         margin = QLabel(f"直伤收益：{candidate_margin:+.2f}%")
@@ -1148,12 +1201,24 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
         def apply_replacement(_checked=False, selected=candidate, selected_score=candidate_score):
             try:
                 assignments = _replacement_assignments(plan, uid, selected)
+                # This is an explicit user replacement: show green CHANGE for
+                # the incoming item, and keep a complete SQLite diff for the
+                # button/dialog after the page is refreshed.
+                replacement_diff = {
+                    DIFF_CHANGED: True,
+                    DIFF_ADDED_UIDS: [str(selected.get(EQUIP_UID) or "")],
+                    DIFF_ADDED: [{EQUIP_UID: str(selected.get(EQUIP_UID) or "")}],
+                    DIFF_REMOVED: [{EQUIP_UID: str(current.get(EQUIP_UID) or "")}],
+                }
+                replacement_payload = dict(plan.get("payload") or {})
+                replacement_payload["last_diff"] = replacement_diff
+                replacement_payload["changed_uids"] = [str(selected.get(EQUIP_UID) or "")]
                 with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
                     dao.save_loadout_plan(
                         name=str(plan.get("name") or f"优化方案：{role_name}"), character_id=int(plan["character_id"]),
                         assignments=assignments, source_snapshot_id=int(plan["source_snapshot_id"]), status="saved",
                         score=float(plan.get("score") or 0.0) - current_score + selected_score,
-                        payload=dict(plan.get("payload") or {}), is_active=True,
+                        payload=replacement_payload, is_active=True,
                     )
             except Exception as exc:
                 QMessageBox.warning(dialog, "替换失败", str(exc))
@@ -1279,6 +1344,7 @@ def _render_equip_role(self, role_name, rd):
                 drives,
                 compare_with_saved=compare_with_saved,
                 priority_stats=self._role_stat_priority_stats(role_name),
+                role_diff=last_diff,
             ),
             1 if compare_with_saved else 0,
             Qt.AlignTop,
@@ -1308,7 +1374,7 @@ def _render_equip_role(self, role_name, rd):
                 d_g=self._calc_grade(d_s,self._shape_areas.get(d.get(EQUIP_SHAPE_ID,""),3))
             drive_changed=bool(d.get(EQUIP_IS_CHANGED))
             drive_uid=d.get(EQUIP_UID,"")
-            gl.addWidget(self._equip_card(d.get(EQUIP_SHAPE_ID,""),"",d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),drive_uid,wts,(d_s,d_g),d_q,is_new=bool(d.get(EQUIP_IS_NEW)) and not drive_changed,is_changed=drive_changed,is_discarded=bool(d.get("discarded")),replacement_callback=lambda rn=role_name, item_uid=drive_uid: self._optimize_saved_equipment(rn,"drive",item_uid),card_variant="inventory"))
+            gl.addWidget(self._equip_card(d.get(EQUIP_SHAPE_ID,""),"",d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),drive_uid,wts,(d_s,d_g),d_q,is_new=bool(d.get(EQUIP_IS_NEW)) and not drive_changed,is_changed=drive_changed,is_discarded=bool(d.get("discarded")),is_duplicate_drive=bool(d.get("is_duplicate_drive")),replacement_callback=lambda rn=role_name, item_uid=drive_uid: self._optimize_saved_equipment(rn,"drive",item_uid),card_variant="inventory"))
     self.equip_content_layout.addWidget(grp)
 
 def _saved_plan_diff_text(self, role_name, diff):

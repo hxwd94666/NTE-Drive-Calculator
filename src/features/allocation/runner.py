@@ -12,9 +12,11 @@ from src.app import runtime
 from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.optimizer.contracts import (
-    EQUIP_UID, PLAN_ASSIGNED_TAPE, PLAN_BLUEPRINT, PLAN_SCORE, PLAN_VALID,
+    DIFF_ADDED, DIFF_ADDED_UIDS, DIFF_CHANGED, DIFF_REMOVED,
+    EQUIP_IS_CHANGED, EQUIP_UID, PLAN_ASSIGNED_TAPE, PLAN_BLUEPRINT, PLAN_CHANGED_UIDS, PLAN_SCORE, PLAN_VALID,
     ROLE_BLUEPRINT_LAYOUT, ROLE_EQUIPPED_DRIVES, ROLE_EQUIPPED_TAPE, plan_drives,
 )
+from src.optimizer.plan_diff import build_plan_diff
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
 from src.services.saved_state_loadout_bridge import (
     SavedStateLoadoutBridge, resolve_character_id_for_static_role,
@@ -70,6 +72,79 @@ def _start_allocation_worker(self):
     self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
     logger.info("分配线程已启动")
 
+
+def _active_sqlite_loadout_state(database_path) -> dict:
+    """Build the diff baseline from active official SQLite plans only."""
+
+    state = {}
+    with UserDataDao(database_path) as user_dao:
+        for role_name, plan in user_dao.list_active_loadout_plans_by_role().items():
+            tape = None
+            drives = []
+            for assignment in plan.get("assignments") or []:
+                kind = str(assignment.get("kind") or "")
+                try:
+                    uid = f"nte-{'module' if kind == 'module' else 'core'}-{int(assignment['uid_slot'])}-{int(assignment['uid_serial'])}"
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if kind == "core":
+                    tape = {EQUIP_UID: uid}
+                elif kind == "module":
+                    drives.append({EQUIP_UID: uid})
+            state[role_name] = {
+                ROLE_EQUIPPED_TAPE: tape,
+                ROLE_EQUIPPED_DRIVES: drives,
+            }
+    return state
+
+
+def _sqlite_allocation_plan_diff(database_path, final_plan: dict) -> dict:
+    """Compare a calculation with the currently displayed SQLite loadouts."""
+
+    return build_plan_diff(_active_sqlite_loadout_state(database_path), final_plan)
+
+
+def _calculation_plan_diff(self, final_plan: dict) -> dict:
+    """Prefer active SQLite plans; retain a no-database test-host fallback."""
+
+    database_path = getattr(runtime, "USER_DATABASE_PATH", None)
+    if database_path:
+        try:
+            return _sqlite_allocation_plan_diff(database_path, final_plan)
+        except Exception as exc:
+            logger.warning(f"读取 SQLite 配装差异失败，改用无数据库兼容基线：{exc}")
+    state_manager = getattr(self, "state_mgr", None)
+    if state_manager is not None and hasattr(state_manager, "load_state"):
+        try:
+            return build_plan_diff(state_manager.load_state() or {}, final_plan)
+        except Exception:
+            pass
+    return build_plan_diff({}, final_plan)
+
+
+def _persistable_plan_diff(role_diff: dict | None) -> dict:
+    """Convert in-memory diff sets to JSON-compatible plan payload data."""
+
+    source = role_diff or {}
+    return {
+        DIFF_CHANGED: bool(source.get(DIFF_CHANGED)),
+        DIFF_ADDED_UIDS: sorted(str(uid) for uid in (source.get(DIFF_ADDED_UIDS) or ()) if uid),
+        DIFF_ADDED: [dict(item) for item in (source.get(DIFF_ADDED) or ()) if isinstance(item, dict)],
+        DIFF_REMOVED: [dict(item) for item in (source.get(DIFF_REMOVED) or ()) if isinstance(item, dict)],
+    }
+
+
+def _plan_changed_uids(plan: dict) -> set[str]:
+    """Collect explicit green CHANGE markers from a calculated plan."""
+
+    changed = {str(uid) for uid in (plan.get(PLAN_CHANGED_UIDS, set()) or ()) if uid}
+    for item in [plan.get(PLAN_ASSIGNED_TAPE), *plan_drives(plan)]:
+        value = item.get(EQUIP_IS_CHANGED) if isinstance(item, dict) else getattr(item, EQUIP_IS_CHANGED, False)
+        uid = item.get(EQUIP_UID) if isinstance(item, dict) else getattr(item, EQUIP_UID, "")
+        if value and uid:
+            changed.add(str(uid))
+    return changed
+
 def _confirm_unsaved_allocation_before_recompute(self):
     if not self.final_plan or not self._allocation_dirty:
         return True
@@ -112,7 +187,9 @@ def _on_done(self,r):
         self.final_plan=r; self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
         self._allocation_custom_weapons=dict(getattr(self,"_pending_custom_weapons",{}) or {})
         if r is None: QMessageBox.warning(self,"提示","计算失败，请确认已同步到稳定的官方背包快照。"); return
-        self.allocation_plan_diff={}
+        # The old JSON-state path was removed.  Comparing with the active
+        # SQLite plans restores NEW/CHANGE labels and the per-role diff button.
+        self.allocation_plan_diff=_calculation_plan_diff(self, r)
         self._allocation_dirty=True
         self._render_results(r)
         logger.info("_render_results 完成")
@@ -139,11 +216,19 @@ def _save_alloc(self, show_message=True):
                 if not isinstance(plan,dict) or not plan.get(PLAN_VALID):
                     continue
                 character_id=resolve_character_id_for_static_role(role_name,static_dao,user_dao,snapshot_id=snapshot_id)
+                role_diff = (getattr(self, "allocation_plan_diff", {}) or {}).get(role_name, {})
                 bridge.save_role_plan(
                     role_name=role_name, role_state=_role_state_from_plan(plan),
                     character_id=character_id, snapshot_id=snapshot_id,
                     name=f"计算方案：{role_name}", score=float(plan.get(PLAN_SCORE,0.0) or 0.0),
-                    payload={"schema":"allocation-official-snapshot-v1","source":"allocation","source_role_name":role_name,"strategy":getattr(self,"_pending_strat","")},
+                    payload={
+                        "schema": "allocation-official-snapshot-v1",
+                        "source": "allocation",
+                        "source_role_name": role_name,
+                        "strategy": getattr(self, "_pending_strat", ""),
+                        "last_diff": _persistable_plan_diff(role_diff),
+                        "changed_uids": sorted(_plan_changed_uids(plan)),
+                    },
                 )
                 saved_roles.append(role_name)
         if not saved_roles:

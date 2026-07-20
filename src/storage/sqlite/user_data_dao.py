@@ -44,6 +44,44 @@ def _decoded(value: str | None, default: Any) -> Any:
     return json.loads(value) if value is not None else default
 
 
+def _mark_duplicate_modules(items: Sequence[dict[str, Any]]) -> None:
+    """标记游戏筛选器无法区分的重复驱动。
+
+    自动装配只能按形状、品质和副词条名称筛选，不能按实际词条数值定位。
+    因此同一完整快照中这些字段相同的驱动属于同一重复组。该标记是快照
+    派生数据，不修改 nte-core 传入的任何官方字段。
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        if item.get("kind") != "module":
+            continue
+        signature = _json({
+            "geometry": str(item.get("geometry") or ""),
+            "quality": str(item.get("quality") or "").casefold(),
+            "sub_property_ids": sorted(
+                str(stat.get("property_id") or "")
+                for stat in item.get("sub_stats") or []
+                if isinstance(stat, Mapping) and stat.get("property_id")
+            ),
+        })
+        groups.setdefault(signature, []).append(item)
+
+    group_number = 1
+    for signature in sorted(groups):
+        group = groups[signature]
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda item: (int(item["uid"]["slot"]), int(item["uid"]["serial"])))
+        group_id = f"drive_dup_{group_number:03d}"
+        group_number += 1
+        for index, item in enumerate(group, start=1):
+            item["is_duplicate_drive"] = True
+            item["duplicate_group_id"] = group_id
+            item["duplicate_index"] = index
+            item["duplicate_count"] = len(group)
+            item["duplicate_signature"] = signature
+
+
 def _plain_object(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise UserDataValidationError(f"{label} 必须是对象")
@@ -379,6 +417,7 @@ class UserDataDao:
                 raise UserDataValidationError(f"背包 UID 重复：serial={serial}, slot={slot}")
             seen_uids.add(uid)
             normalized_items.append((item, serial, slot, self._validated_stats(item, index)))
+        _mark_duplicate_modules([item for item, _serial, _slot, _stats in normalized_items])
 
         connection = self._db()
         now = _utc_now()
@@ -861,6 +900,10 @@ class UserDataDao:
             row["suit_names"] = _decoded(row.pop("suit_names_json"), {})
             raw_item = _decoded(row.pop("raw_item_json"), {})
             row["discarded"] = bool(raw_item.get("discarded", False))
+            row["is_duplicate_drive"] = bool(raw_item.get("is_duplicate_drive", False))
+            row["duplicate_group_id"] = raw_item.get("duplicate_group_id")
+            row["duplicate_index"] = raw_item.get("duplicate_index")
+            row["duplicate_count"] = raw_item.get("duplicate_count")
             placement = raw_item.get("equipped_placement")
             row["equipped_placement"] = (
                 dict(placement) if isinstance(placement, Mapping) else None

@@ -158,6 +158,10 @@ class SqliteAllocationInventory:
                 "area": int(item.get("grid_count") or 15),
                 "sub_stats": _stats(item.get("sub_stats") or []),
                 "discarded": bool(item.get("discarded")),
+                "is_duplicate_drive": bool(item.get("is_duplicate_drive", False)),
+                "duplicate_group_id": item.get("duplicate_group_id"),
+                "duplicate_index": item.get("duplicate_index"),
+                "duplicate_count": item.get("duplicate_count"),
                 # 旧求解器字段之外，同时保留可供第三方工具消费的官方快照字段。
                 "official": {
                     "snapshot_id": pinned_snapshot_id,
@@ -174,6 +178,8 @@ class SqliteAllocationInventory:
                     "equipped": bool(item.get("equipped")),
                     "equipped_character_id": item.get("equipped_character_id"),
                     "equipped_placement": item.get("equipped_placement"),
+                    "is_duplicate_drive": bool(item.get("is_duplicate_drive", False)),
+                    "duplicate_group_id": item.get("duplicate_group_id"),
                     "main_stats": [dict(stat) for stat in item.get("main_stats") or []],
                     "sub_stats": [dict(stat) for stat in item.get("sub_stats") or []],
                 },

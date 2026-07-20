@@ -31,6 +31,11 @@ class BaseEquipment(BaseModel):
     sub_stats: Dict[str, float] = Field(default_factory=dict)
     # 官方背包的弃置状态只用于展示；弃置装备仍可参与方案计算。
     discarded: bool = False
+    # 从固定背包快照导入的派生标记：游戏筛选器无法区分的重复驱动。
+    is_duplicate_drive: bool = False
+    duplicate_group_id: str | None = None
+    duplicate_index: int | None = None
+    duplicate_count: int | None = None
 
     role_scores: Dict[str, float] = Field(default_factory=dict)
     max_score: float = Field(default=0.0)
