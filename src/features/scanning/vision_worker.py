@@ -16,6 +16,8 @@ from PySide6.QtCore import QThread, Signal
 from src.scanner.batch_processor import BatchProcessor
 from src.features.inventory_import.duplicate_filter import RecoverableParseError
 from src.features.scanning.file_lifecycle import is_allowed_filename
+from src.services.vision_inventory_snapshot import import_vision_inventory
+from src.app import runtime
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -169,8 +171,13 @@ class VisionWorkerThread(QThread):
                 self.canceled.emit(processed_count)
                 return
 
+            vision_snapshot_id = None
             if processor.inventory:
-                processor._export_to_json()
+                if self.parse_scope in {"full", "all"}:
+                    vision_snapshot_id = import_vision_inventory(
+                        runtime.USER_DATABASE_PATH,
+                        [item.model_dump() for item in processor.inventory],
+                    )
             del processor
             log_perf(
                 logger,
@@ -196,6 +203,7 @@ class VisionWorkerThread(QThread):
                     "pending_manual_count": len(pending_manual_items),
                     "total_count": total,
                     "parse_scope": self.parse_scope,
+                    "vision_snapshot_id": vision_snapshot_id,
                 }
             )
         except SystemExit as exc:

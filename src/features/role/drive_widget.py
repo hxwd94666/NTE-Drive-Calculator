@@ -24,15 +24,18 @@ from .core import (
     apply_margins_to_weights,
     get_valid_drives,
 )
-from .dao import load_real_inventory, load_my_roles, load_stats
+from .dao import load_current_inventory, load_stats
 from .equipment_import import set_bonus_from_tape_source, tape_equipment_from_source
 from .replacement_service import (
     apply_drive_replacement_plan,
     build_drive_replacement_options,
     build_drive_replacement_plan,
     calc_single_drive_margin as service_calc_single_drive_margin,
+    calc_tape_margin as service_calc_tape_margin,
+    calc_tape_replacement_margin as service_calc_tape_replacement_margin,
     equipment_user_map,
     keep_top_candidates_with_unassigned,
+    rank_replacement_candidates_by_damage,
 )
 from src.utils.logger import logger
 
@@ -251,33 +254,12 @@ def _main_stat_label(tape: dict) -> str:
 
 
 def _calc_tape_margin(role_data: dict) -> float:
-    tape = role_data.get("tape", {})
-    if not isinstance(tape, dict) or not tape.get("uid") or str(tape.get("uid")).startswith("empty_"):
-        return 0.0
-    try:
-        no_tape_data = {k: v for k, v in role_data.items() if k != "tape"}
-        stats_without = get_character_total_stats(no_tape_data)
-        damage_without = calc_base_damage(stats_without)
-        stats_with = get_character_total_stats(role_data)
-        damage_with = calc_base_damage(stats_with)
-        if damage_without == 0:
-            return 0.0
-        return (damage_with / damage_without - 1) * 100
-    except Exception as exc:
-        logger.debug(f"计算卡带直伤收益失败: {exc}")
-        return 0.0
+    return service_calc_tape_margin(role_data)
 
 
 def _calc_tape_replacement_margin(role_data: dict, candidate_tape: dict) -> float:
     """计算候选卡带在模拟替换后的直伤收益。"""
-    try:
-        sim_role_data = dict(role_data)
-        sim_role_data["tape"] = candidate_tape
-        sim_role_data["set_bonus"] = set_bonus_from_tape_source(candidate_tape)
-        return _calc_tape_margin(sim_role_data)
-    except Exception as exc:
-        logger.debug(f"计算候选卡带直伤收益失败: {exc}")
-        return 0.0
+    return service_calc_tape_replacement_margin(role_data, candidate_tape)
 
 
 def _role_main_weights(window, role_name: str) -> dict:
@@ -521,7 +503,7 @@ def _keep_top_candidates_with_unassigned(candidates, user_map: dict, uid_getter,
 
 
 def _build_tape_replacement_candidates(window, role_name, current_tape, weights, role_data, user_map):
-    all_items = load_real_inventory()
+    all_items = load_current_inventory()
     if not all_items:
         return None
     current_uid = current_tape.get("uid", "")
@@ -543,8 +525,12 @@ def _build_tape_replacement_candidates(window, role_name, current_tape, weights,
         if tape_entry:
             score, _grade = _score_tape(window, role_name, tape_entry, weights)
             candidates.append((score, tape_entry, item))
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return _keep_top_candidates_with_unassigned(candidates, user_map, lambda entry: entry[1].get("uid", ""))
+    _current_margin, ranked_by_damage = rank_replacement_candidates_by_damage(
+        role_data, "tape", current_tape, [entry[1] for entry in candidates]
+    )
+    entries_by_uid = {str(entry[1].get("uid") or ""): entry for entry in candidates}
+    ordered = [entries_by_uid[str(tape.get("uid") or "")] for _margin, tape in ranked_by_damage]
+    return _keep_top_candidates_with_unassigned(ordered, user_map, lambda entry: entry[1].get("uid", ""))
 
 
 def _confirm_equipment_replacement(window, item_kind, displaced_roles=()):
@@ -692,10 +678,11 @@ def _show_tape_optimization(
 ):
     """卡带替换弹窗。"""
     role_data = window._my_role_form_data.get(role_name, {})
-    user_map = _equipment_user_map(load_my_roles(), role_name, "tape")
+    # 以当前角色页面的已编辑面板为准；磁盘上的旧保存状态可能尚未同步。
+    user_map = _equipment_user_map(getattr(window, "_my_role_form_data", {}), role_name, "tape")
     final = _build_tape_replacement_candidates(window, role_name, current_tape, weights, role_data, user_map)
     if final is None:
-        QMessageBox.warning(window, "错误", "real_inventory.json 不存在或格式错误")
+        QMessageBox.warning(window, "错误", "没有可用的 SQLite 背包快照，请先同步背包或完成全量扫描。")
         return
 
     current_uid = current_tape.get("uid", "")
@@ -807,13 +794,14 @@ def _show_drive_optimization(
         role_name=role_name,
         role_data=role_data,
         current_drive=current_drive,
-        inventory=load_real_inventory(),
-        my_roles_data=load_my_roles(),
+        inventory=load_current_inventory(),
+        # 使用角色页面当前设置的装备面板，避免未保存的旧状态造成错误“使用者”。
+        my_roles_data=getattr(window, "_my_role_form_data", {}),
         weights=weights,
         score_drive=getattr(window, "_score_drive_dict", None),
     )
     if options is None:
-        QMessageBox.warning(window, "错误", "real_inventory.json 不存在或格式错误")
+        QMessageBox.warning(window, "错误", "没有可用的 SQLite 背包快照，请先同步背包或完成全量扫描。")
         return
 
     if not options.candidates:

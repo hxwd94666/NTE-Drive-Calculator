@@ -19,6 +19,7 @@ from src.domain.stat_catalog import StatCatalog
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
 from src.utils.name_resolver import resolve_name
+from src.utils.set_name import normalize_set_display_name
 
 class BaseDispatchStrategy:
     MAX_COMBO_LIMIT = 500
@@ -33,8 +34,9 @@ class BaseDispatchStrategy:
         self._extra_shape_factor_cache = {}
         self._extra_shape_hidden_bonus_cache = {}
     def _resolve_set_name(self, set_name: str) -> str:
-        resolved = resolve_name(set_name, self.sets_db.keys(), cutoff=0.78)
-        return resolved or set_name
+        normalized_name = normalize_set_display_name(set_name)
+        resolved = resolve_name(normalized_name, self.sets_db.keys(), cutoff=0.78)
+        return resolved or normalized_name
 
     def _target_set(self, role: str, custom_sets: Dict[str, str]) -> str:
         raw_set = (custom_sets or {}).get(role, self.roles_db[role]["default_set"])

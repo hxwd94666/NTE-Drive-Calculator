@@ -177,6 +177,17 @@ class StaticGameDataDao:
             (character_id,),
         )
 
+    def list_role_template_characters(self) -> list[dict[str, Any]]:
+        """返回角色功能可用的官方角色模板，排除主角实例和战斗变身。"""
+        return [
+            character
+            for character in self.list_characters()
+            if character.get("classification") in {
+                "available_character", "scheduled_character",
+                "playable",
+            }
+        ]
+
     def list_shapes(self) -> list[dict[str, Any]]:
         shapes = self._rows(
             """
@@ -299,6 +310,101 @@ class StaticGameDataDao:
                 row.pop("exclusive_character_ids_json")
             )
         return rows
+
+    def list_fork_templates(self) -> list[dict[str, Any]]:
+        """返回弧盘的官方成长、突破、星级和逐项属性加成。"""
+        modifiers_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT modify_pack_id, ordinal, property_id, value, operation, sort_key
+            FROM fork_modify_value
+            ORDER BY modify_pack_id, ordinal
+            """
+        ):
+            modifiers_by_pack.setdefault(row.pop("modify_pack_id"), []).append(row)
+
+        conditions_by_pack = {
+            row["modify_pack_id"]: json.loads(row["conditions_json"] or "[]")
+            for row in self._rows(
+                "SELECT modify_pack_id, conditions_json FROM fork_modify_pack"
+            )
+        }
+
+        def modifiers(pack_id: str | None) -> list[dict[str, Any]]:
+            if not pack_id:
+                return []
+            return [dict(row) for row in modifiers_by_pack.get(pack_id, [])]
+
+        upgrades_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT upgrade_pack_id, level, need_exp, modify_pack_id
+            FROM fork_upgrade_level
+            ORDER BY upgrade_pack_id, level
+            """
+        ):
+            pack_id = row.pop("upgrade_pack_id")
+            modify_pack_id = row.pop("modify_pack_id")
+            row["modifiers"] = modifiers(modify_pack_id)
+            row["conditions"] = conditions_by_pack.get(modify_pack_id, [])
+            upgrades_by_pack.setdefault(pack_id, []).append(row)
+
+        breakthroughs_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT breakthrough_pack_id, stage, max_fork_level, need_items,
+                   need_gold, modify_pack_id
+            FROM fork_breakthrough
+            ORDER BY breakthrough_pack_id, stage
+            """
+        ):
+            pack_id = row.pop("breakthrough_pack_id")
+            modify_pack_id = row.pop("modify_pack_id")
+            row["modifiers"] = modifiers(modify_pack_id)
+            row["conditions"] = conditions_by_pack.get(modify_pack_id, [])
+            breakthroughs_by_pack.setdefault(pack_id, []).append(row)
+
+        parameters_by_star: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT star_pack_id, star_level, ordinal, name_id, is_percent
+            FROM fork_star_parameter
+            ORDER BY star_pack_id, star_level, ordinal
+            """
+        ):
+            key = (row.pop("star_pack_id"), int(row.pop("star_level")))
+            row["is_percent"] = bool(row["is_percent"])
+            parameters_by_star.setdefault(key, []).append(row)
+
+        stars_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT star_pack_id, star_level, title_zh, description_zh,
+                   need_gold, buffs_json
+            FROM fork_star_level
+            ORDER BY star_pack_id, star_level
+            """
+        ):
+            pack_id = row.pop("star_pack_id")
+            star_level = int(row["star_level"])
+            row["buffs"] = json.loads(row.pop("buffs_json") or "[]")
+            row["parameters"] = parameters_by_star.get((pack_id, star_level), [])
+            stars_by_pack.setdefault(pack_id, []).append(row)
+
+        templates: list[dict[str, Any]] = []
+        for fork in self.list_forks():
+            template = dict(fork)
+            template["upgrade_levels"] = upgrades_by_pack.get(
+                str(template.get("upgrade_pack_id") or ""), []
+            )
+            template["breakthroughs"] = breakthroughs_by_pack.get(
+                str(template.get("breakthrough_pack_id") or ""), []
+            )
+            template["star_levels"] = stars_by_pack.get(
+                str(template.get("star_pack_id") or ""), []
+            )
+            templates.append(template)
+        return templates
 
     def get_equipment_plan(self, character_id: int) -> dict[str, Any] | None:
         plan = self._one(

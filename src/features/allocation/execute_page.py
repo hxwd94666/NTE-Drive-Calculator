@@ -143,35 +143,6 @@ def _build_scan_processing_options(window, scan_card, show_help):
     )
     dual_thread_layout.addWidget(dual_help_btn)
     dual_thread_layout.addSpacing(16)
-    window.scan_discrete_gpu_check = QCheckBox("独显加速")
-    window.scan_discrete_gpu_check.setChecked(bool(prefs.get("full_scan_discrete_gpu_acceleration", False)))
-
-    def _save_scan_discrete_gpu_preference(enabled):
-        preferences = getattr(window, "_ui_preferences", None)
-        if isinstance(preferences, dict):
-            preferences["full_scan_discrete_gpu_acceleration"] = bool(enabled)
-            if enabled and hasattr(window, "scan_amd_compat_check") and window.scan_amd_compat_check.isChecked():
-                window.scan_amd_compat_check.blockSignals(True)
-                window.scan_amd_compat_check.setChecked(False)
-                window.scan_amd_compat_check.blockSignals(False)
-                preferences["full_scan_amd_compatibility"] = False
-            if hasattr(window, "_save_ui_preferences"):
-                window._save_ui_preferences()
-
-    window.scan_discrete_gpu_check.toggled.connect(_save_scan_discrete_gpu_preference)
-    dual_thread_layout.addWidget(window.scan_discrete_gpu_check)
-    gpu_help_btn = QPushButton("?")
-    gpu_help_btn.setObjectName("btnHelp")
-    gpu_help_btn.clicked.connect(
-        lambda _checked=False: show_help(
-            window,
-            "独显加速说明",
-            "高端显卡可选，加速效果不定，可能还会负提升。",
-        )
-    )
-    dual_thread_layout.addWidget(gpu_help_btn)
-    dual_thread_layout.addSpacing(16)
-
     def _save_scan_amd_compat_preference(enabled):
         preferences = getattr(window, "_ui_preferences", None)
         if isinstance(preferences, dict):
@@ -182,11 +153,6 @@ def _build_scan_processing_options(window, scan_card, show_help):
                     window.scan_dual_thread_check.setChecked(False)
                     window.scan_dual_thread_check.blockSignals(False)
                     preferences["full_scan_dual_thread_processing"] = False
-                if hasattr(window, "scan_discrete_gpu_check"):
-                    window.scan_discrete_gpu_check.blockSignals(True)
-                    window.scan_discrete_gpu_check.setChecked(False)
-                    window.scan_discrete_gpu_check.blockSignals(False)
-                    preferences["full_scan_discrete_gpu_acceleration"] = False
             if hasattr(window, "_save_ui_preferences"):
                 window._save_ui_preferences()
 
@@ -199,7 +165,7 @@ def _build_scan_processing_options(window, scan_card, show_help):
             window,
             "AMD实验性兼容说明",
             "实验性低负载模式，不保证一定解决重启或异常。\n\n"
-            "开启后会自动关闭双线程处理和独显加速，扫描完成后再解析截图，并降低 OCR/图像处理线程负载。"
+            "开启后会自动关闭双线程处理，扫描完成后再解析截图，并降低 OCR/图像处理线程负载。"
             "适合 AMD CPU/核显/显卡机器在全量扫描中出现重启、蓝屏或异常时尝试。",
         )
     )
@@ -208,9 +174,6 @@ def _build_scan_processing_options(window, scan_card, show_help):
         window.scan_dual_thread_check.blockSignals(True)
         window.scan_dual_thread_check.setChecked(False)
         window.scan_dual_thread_check.blockSignals(False)
-        window.scan_discrete_gpu_check.blockSignals(True)
-        window.scan_discrete_gpu_check.setChecked(False)
-        window.scan_discrete_gpu_check.blockSignals(False)
     dual_thread_layout.addStretch()
     scan_card.layout().addWidget(window.scan_dual_thread_frame)
 
@@ -264,7 +227,7 @@ def _build_strategy_card(window, layout):
 
 
 def _build_run_button(window, layout):
-    window.btn_run = QPushButton("⚡  开始执行")
+    window.btn_run = QPushButton("⚡  开始计算")
     window.btn_run.setObjectName("btnPrimary")
     window.btn_run.setFixedHeight(46)
     window.btn_run.setStyleSheet("#btnPrimary{font-size:15px;font-weight:700;border-radius:10px}")

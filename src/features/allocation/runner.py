@@ -109,7 +109,7 @@ def _confirm_unsaved_allocation_before_recompute(self):
 def _on_done(self,r):
     try:
         logger.info(f"_on_done 收到结果: type={type(r).__name__}, keys={list(r.keys()) if isinstance(r,dict) else 'N/A'}")
-        self.final_plan=r; self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self.final_plan=r; self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
         self._allocation_custom_weapons=dict(getattr(self,"_pending_custom_weapons",{}) or {})
         if r is None: QMessageBox.warning(self,"提示","计算失败，请确认已同步到稳定的官方背包快照。"); return
         self.allocation_plan_diff={}
@@ -122,8 +122,8 @@ def _on_done(self,r):
         QMessageBox.critical(self,"渲染失败",f"{e}")
 
 def _on_exec_error(self,err):
-    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
-    QMessageBox.critical(self,"执行失败",f"发生错误:\n{err}")
+    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
+    QMessageBox.critical(self,"计算失败",f"发生错误:\n{err}")
 
 def _save_alloc(self, show_message=True):
     if not self.final_plan:

@@ -32,7 +32,6 @@ from src.app.theme import THEME_LABELS, themed_style
 
 DEFAULT_SYNC_SETTINGS = {
     "inventory_sync_method": "nte_core",
-    "equipment_apply_method": "nte_core",
     "inventory_settle_seconds": 5.0,
     "capture_device_id": None,
     "auto_start_inventory_sync": False,
@@ -127,7 +126,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     log_card.layout().addLayout(theme_row)
     layout.addWidget(log_card)
 
-    sync_card = window._card("背包同步与装配")
+    sync_card = window._card("背包同步")
     sync_description = QLabel(
         "流式同步会在背包内容连续数秒没有变化后写入 SQLite，并继续后台监听。"
         "原始诊断文件默认关闭。"
@@ -149,15 +148,6 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     )
     window._sync_inventory_method_combo.setCurrentIndex(max(0, inventory_index))
     sync_form.addRow("背包获取方式:", window._sync_inventory_method_combo)
-
-    window._sync_apply_method_combo = QComboBox()
-    window._sync_apply_method_combo.addItem("本地核心组件一键装配", "nte_core")
-    window._sync_apply_method_combo.addItem("手柄装配", "gamepad")
-    apply_index = window._sync_apply_method_combo.findData(
-        settings["equipment_apply_method"]
-    )
-    window._sync_apply_method_combo.setCurrentIndex(max(0, apply_index))
-    sync_form.addRow("装配执行方式:", window._sync_apply_method_combo)
 
     window._sync_settle_spin = QDoubleSpinBox()
     window._sync_settle_spin.setRange(1.0, 30.0)
@@ -216,8 +206,6 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     sync_actions.addWidget(prune_snapshots_button)
     sync_actions.addStretch()
     sync_card.layout().addLayout(sync_actions)
-    layout.addWidget(sync_card)
-
     hotkey_card = window._card("快捷键绑定")
     save_hotkeys = QPushButton("保存快捷键")
     save_hotkeys.setObjectName("btnPrimary")
@@ -288,6 +276,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     update_row.addStretch()
     update_card.layout().addLayout(update_row)
     layout.addWidget(update_card)
+    layout.addWidget(sync_card)
 
     paths = get_paths()
     screenshot_dir = paths["screenshot_dir"]

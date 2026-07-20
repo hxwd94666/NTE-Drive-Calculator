@@ -1032,6 +1032,6 @@ class ScanPostActionDialog(QDialog):
         self.accept()
 
 
-def show_scan_post_action_dialog(parent, user_config_dir: Path, selected_roles: list[str] | None = None) -> None:
+def show_scan_post_action_dialog(parent, user_config_dir: Path, selected_roles: list[str] | None = None) -> bool:
     dialog = ScanPostActionDialog(parent, user_config_dir, selected_roles)
-    dialog.exec()
+    return dialog.exec() == QDialog.Accepted

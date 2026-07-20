@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import copy
 
@@ -376,22 +375,19 @@ def _diff_plan_sources(self, role_name):
     )
 
 def _diff_inventory_sources(self):
-    output_file=getattr(runtime,"OUTPUT_FILE",None)
-    if not output_file:
-        return {}
-    path_key=str(output_file)
+    path_key=str(getattr(runtime, "USER_DATABASE_PATH", ""))
     cached=getattr(self,"_diff_inventory_index_cache",None)
     if cached and cached[0]==path_key:
         return cached[1]
     index={}
     try:
-        data=json.loads(output_file.read_text(encoding="utf-8"))
+        from src.services.sqlite_allocation_inventory import load_current_inventory_projection
+        data=load_current_inventory_projection(path_key)
     except Exception:
         data=[]
-    if isinstance(data,list):
-        for item in data:
-            if isinstance(item,dict) and item.get("uid"):
-                index[str(item["uid"])]=item
+    for item in data:
+        if isinstance(item,dict) and item.get("uid"):
+            index[str(item["uid"])]=item
     setattr(self,"_diff_inventory_index_cache",(path_key,index))
     return index
 

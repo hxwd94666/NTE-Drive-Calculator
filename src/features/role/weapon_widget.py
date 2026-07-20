@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, SearchableComboBox
-from .dao import load_stats, load_weapons
+from .dao import load_official_fork_models, load_stats
 from .core import get_character_total_stats, calc_base_damage
 from src.utils.logger import logger
 
@@ -59,7 +59,7 @@ def _ensure_weapon_data(role_data):
 def _load_current_weapon_info(group_weapon, weapon_data):
     weapon_name = weapon_data.get("name")
     if weapon_name and group_weapon._current_weapon_info is None:
-        weapon_db = load_weapons()
+        weapon_db = load_official_fork_models()
         group_weapon._current_weapon_info = weapon_db.get(weapon_name)
 
 
@@ -94,7 +94,7 @@ def _notify_weapon_data_changed(group_weapon):
 def _select_weapon_data(window, group_weapon):
     role_data = group_weapon._role_data
     weapon_data = _ensure_weapon_data(role_data)
-    weapon_db = load_weapons()
+    weapon_db = load_official_fork_models()
     weapon_type = role_data.get("weapon_type", "")
     names = list(weapon_db.keys())
     if weapon_type:
@@ -114,14 +114,13 @@ def _select_weapon_data(window, group_weapon):
     weapon_data["level"] = default_level
 
     default_mix = weapon_info.get("mix_level", 1)
-    mix_levels = weapon_info.get("mix_level_sub_stats", {})
-    if mix_levels:
-        available_mix_levels = sorted(mix_levels.keys(), key=lambda x: int(x))
-        if str(default_mix) not in available_mix_levels:
-            default_mix = int(available_mix_levels[0]) if available_mix_levels else 1
+    max_star = int(weapon_info.get("max_star", 1) or 1)
+    if not 1 <= int(default_mix) <= max_star:
+        default_mix = 1
     weapon_data["mix_level"] = default_mix
 
     weapon_data["name"] = selected
+    weapon_data["fork_id"] = str(weapon_info.get("fork_id") or "")
 
     level_sub_stats = weapon_info.get("level_sub_stats", {})
     level_key = str(default_level)
@@ -131,8 +130,9 @@ def _select_weapon_data(window, group_weapon):
         first_level = sorted(level_sub_stats.keys(), key=lambda x: int(x))[0] if level_sub_stats else "80"
         weapon_data["sub_stats"] = level_sub_stats.get(first_level, {}).copy()
 
-    selected_mix = mix_levels.get(str(default_mix), {})
-    weapon_data["skill"] = selected_mix.get("skill", []).copy()
+    # 官方静态表已提供星级描述和参数，但 Buff 数值并不在数据表内；
+    # 不再填充未经官方静态数据验证的技能数值。
+    weapon_data["skill"] = []
 
     _refresh_weapon_group(group_weapon)
     if group_weapon._on_margin_refresh_callback:
@@ -176,9 +176,7 @@ def _apply_weapon_mix_level(group_weapon, mix_str):
     weapon_info = group_weapon._current_weapon_info
     if not weapon_info:
         return
-    mix_levels = weapon_info.get("mix_level_sub_stats", {})
-    selected_mix = mix_levels.get(str(new_mix), {})
-    weapon_data["skill"] = selected_mix.get("skill", []).copy()
+    weapon_data["skill"] = []
     _refresh_weapon_group(group_weapon)
     _notify_weapon_data_changed(group_weapon)
 
@@ -216,11 +214,12 @@ def _build_weapon_identity_row(group_weapon, weapon_data, margin_label, on_data_
     name_row.addWidget(level_combo)
 
     mix_combo = NoWheelComboBox()
-    mix_combo.addItems([str(i) for i in range(1, 6)])
+    max_star = int((weapon_info or {}).get("max_star", 5) or 5)
+    mix_combo.addItems([str(i) for i in range(1, max_star + 1)])
     mix_combo.setCurrentText(str(weapon_data.get("mix_level", 1)))
     mix_combo.setFixedWidth(60)
     mix_combo.setStyleSheet("font-size:13px; padding:4px;")
-    name_row.addWidget(QLabel("混频:"))
+    name_row.addWidget(QLabel("星级:"))
     name_row.addWidget(mix_combo)
 
     name_row.addWidget(margin_label)

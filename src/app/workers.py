@@ -120,7 +120,6 @@ class GamepadScanParseWorkerThread(QThread):
         post_actions_config=None,
         selected_roles=None,
         parse_during_scan=True,
-        discrete_gpu_acceleration=False,
         amd_compatibility=False,
     ):
         super().__init__(parent)
@@ -129,7 +128,6 @@ class GamepadScanParseWorkerThread(QThread):
         self.selected_roles = list(selected_roles or [])
         self.amd_compatibility = bool(amd_compatibility)
         self.parse_during_scan = bool(parse_during_scan) and not self.amd_compatibility
-        self.discrete_gpu_acceleration = bool(discrete_gpu_acceleration) and not self.amd_compatibility
         self.scanner = None
         self._post_actions_ready_event = threading.Event()
 
@@ -157,11 +155,7 @@ class GamepadScanParseWorkerThread(QThread):
                 output_file=str(runtime.OUTPUT_FILE),
                 config_dir=str(runtime.CONFIG_DIR),
                 replace_output=True,
-                ocr_backend_preference=(
-                    "amd_compat"
-                    if self.amd_compatibility
-                    else ("directml" if self.discrete_gpu_acceleration else "openvino")
-                ),
+                ocr_backend_preference="amd_compat" if self.amd_compatibility else "openvino",
             )
             init_ms = (time.perf_counter() - init_start) * 1000.0
             log_perf(
@@ -171,7 +165,6 @@ class GamepadScanParseWorkerThread(QThread):
                 scope="full",
                 replace_output=1,
                 streaming=int(self.parse_during_scan),
-                discrete_gpu=int(self.discrete_gpu_acceleration),
                 amd_compat=int(self.amd_compatibility),
             )
             stats = run_streaming_scan_parse(
@@ -191,6 +184,11 @@ class GamepadScanParseWorkerThread(QThread):
             )
             if int(stats.get("total_count", 0) or 0) != int(self.total_drives):
                 raise RuntimeError("全量扫描未完整结束，流水线解析结果未写入库存。")
+            from src.services.vision_inventory_snapshot import import_vision_inventory
+            stats["vision_snapshot_id"] = import_vision_inventory(
+                runtime.USER_DATABASE_PATH,
+                [item.model_dump() for item in processor.inventory],
+            )
             del processor
             log_perf(
                 logger,
@@ -202,7 +200,6 @@ class GamepadScanParseWorkerThread(QThread):
                 duplicate=stats.get("duplicate_count", 0),
                 failed=stats.get("failed_count", 0),
                 streaming=int(self.parse_during_scan),
-                discrete_gpu=int(self.discrete_gpu_acceleration),
                 amd_compat=int(self.amd_compatibility),
             )
             self.processing_done.emit(stats)

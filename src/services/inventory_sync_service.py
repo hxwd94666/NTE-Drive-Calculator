@@ -61,6 +61,8 @@ class _CoreClient(Protocol):
     def start_capture(self, **kwargs: Any) -> Mapping[str, Any]: ...
     def stop_capture(self) -> Mapping[str, Any]: ...
     def equip_one_key(self, **kwargs: Any) -> Any: ...
+    def set_item_discarded(self, **kwargs: Any) -> Any: ...
+    def set_item_locked(self, **kwargs: Any) -> Any: ...
     def close(self) -> None: ...
 
 
@@ -83,6 +85,7 @@ class InventorySyncService:
         capture_device_id: str | None = None,
         raw_capture_enabled: bool | None = None,
         poll_seconds: float = 0.05,
+        template_refresh: Callable[[], Any] | None = None,
     ) -> None:
         if settle_seconds is not None and settle_seconds <= 0:
             raise ValueError("settle_seconds 必须大于 0")
@@ -97,6 +100,7 @@ class InventorySyncService:
         self._capture_device_id = capture_device_id
         self._raw_capture_enabled = raw_capture_enabled
         self._poll_seconds = poll_seconds
+        self._template_refresh = template_refresh
 
         self._state = InventorySyncState(updated_at_utc=_utc_now())
         self._state_condition = threading.Condition()
@@ -147,6 +151,26 @@ class InventorySyncService:
             core=core,
             timeout=timeout,
         )
+
+    def set_item_discarded(self, *, equipment: Mapping[str, Any], discarded: bool) -> Any:
+        """复用持续运行的核心进程更新单件装备的弃置状态。"""
+        client = self._equipment_client()
+        return client.set_item_discarded(equipment=equipment, discarded=discarded)
+
+    def set_item_locked(self, *, equipment: Mapping[str, Any], locked: bool) -> Any:
+        """复用持续运行的核心进程更新单件装备的锁定状态。"""
+        client = self._equipment_client()
+        return client.set_item_locked(equipment=equipment, locked=locked)
+
+    def _equipment_client(self) -> _CoreClient:
+        client = self._client
+        if client is None or not self.is_running:
+            raise RuntimeError("背包同步服务未运行，不能修改装备状态")
+        hello = self.core_hello_result or {}
+        capabilities = hello.get("capabilities", [])
+        if not isinstance(capabilities, list) or "equipment" not in capabilities:
+            raise RuntimeError("当前 nte-core 不支持 equipment 状态管理能力")
+        return client
 
     def add_state_handler(self, handler: StateHandler) -> None:
         with self._handlers_lock:
@@ -337,6 +361,18 @@ class InventorySyncService:
                         )
                         continue
                     stabilizer.mark_committed(stable.fingerprint)
+                    if self._template_refresh is not None:
+                        try:
+                            refreshed = self._template_refresh()
+                            if isinstance(refreshed, Mapping) and refreshed.get("changed"):
+                                logger.info(
+                                    "已刷新公共角色/弧盘模板："
+                                    f"{refreshed.get('role_count', 0)} 名角色，"
+                                    f"{refreshed.get('fork_count', 0)} 个弧盘"
+                                )
+                        except Exception as exc:
+                            # 背包快照已经成功提交，模板缓存刷新不能阻断同步监听。
+                            logger.warning(f"公共角色/弧盘模板刷新失败，将在下次背包同步时重试：{exc}")
                     try:
                         retention = dao.prune_inventory_snapshots()
                         if retention["deleted_snapshot_count"]:

@@ -100,6 +100,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.database_path = Path(self.temp_dir.name) / "user_data.sqlite3"
         self.core = FakeCoreClient()
+        self.template_refreshes: list[bool] = []
         self.service = InventorySyncService(
             self.database_path,
             account_id="tester",
@@ -107,6 +108,9 @@ class InventorySyncServiceTests(unittest.TestCase):
             client_factory=lambda: self.core,
             settle_seconds=0.05,
             poll_seconds=0.005,
+            template_refresh=lambda: self.template_refreshes.append(True) or {
+                "changed": True, "role_count": 1, "fork_count": 1,
+            },
         )
 
     def tearDown(self) -> None:
@@ -148,6 +152,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         with UserDataDao(self.database_path) as dao:
             self.assertEqual(1, dao.current_inventory_summary()["stored_item_count"])
             self.assertEqual(1, dao.summary()["snapshot_count"])
+        self.assertEqual([True], self.template_refreshes)
 
     def test_two_separate_change_bursts_create_two_atomic_versions(self) -> None:
         self._start()

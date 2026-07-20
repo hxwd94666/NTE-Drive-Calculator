@@ -324,7 +324,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertIn("- 真红：卡带 1，驱动 2", summarize_assembly_plan(plan))
         self.assertIn("- 空幕：卡带 0，驱动 1", summarize_assembly_plan(plan))
 
-    def test_equipment_page_exposes_renamed_single_action_button(self):
+    def test_equipment_page_exposes_fast_and_automatic_actions(self):
         from PySide6.QtWidgets import QApplication, QPushButton
 
         from src.features.inventory.page import _page_equipment
@@ -339,25 +339,31 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             def _clear_all_equipment(self):
                 pass
 
-            def _preview_assemble_all_roles(self):
-                clicked.append("all")
+            def _preview_fast_assemble_all_roles(self):
+                clicked.append("fast")
+
+            def _preview_automatic_assemble_all_roles(self):
+                clicked.append("automatic")
 
         window = FakeWindow()
         page = _page_equipment(window)
 
-        button = next(button for button in page.findChildren(QPushButton) if button.text() == "一键装配")
-        button.click()
+        buttons = {button.text(): button for button in page.findChildren(QPushButton)}
+        buttons["极速装配"].click()
+        buttons["自动装配"].click()
 
-        self.assertEqual(["all"], clicked)
-        self.assertFalse(any(button.text() == "一键装配所有角色" for button in page.findChildren(QPushButton)))
+        self.assertEqual(["fast", "automatic"], clicked)
+        self.assertFalse(any(button.text() in {"一键装配", "继续未完成装配"} for button in page.findChildren(QPushButton)))
+        self.assertEqual("btnPrimary", buttons["极速装配"].objectName())
+        self.assertEqual("btnPrimary", buttons["自动装配"].objectName())
         app.processEvents()
 
     def test_inventory_mixin_exposes_assembly_methods(self):
         from src.ui.main_window_mixins import InventoryPageMixin
 
-        self.assertTrue(hasattr(InventoryPageMixin, "_optimize_saved_equipment"))
         self.assertTrue(hasattr(InventoryPageMixin, "_preview_assemble_role"))
-        self.assertTrue(hasattr(InventoryPageMixin, "_preview_assemble_all_roles"))
+        self.assertTrue(hasattr(InventoryPageMixin, "_preview_fast_assemble_all_roles"))
+        self.assertTrue(hasattr(InventoryPageMixin, "_preview_automatic_assemble_all_roles"))
 
     def test_role_recognition_candidates_include_templates_and_payload_roles(self):
         import tempfile

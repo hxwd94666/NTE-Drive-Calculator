@@ -167,10 +167,15 @@ class StaticGameDataDaoTest(unittest.TestCase):
             character = dao.get_character(1001)
             plan = dao.get_equipment_plan(1001)
             forks = dao.list_forks()
+            role_templates = dao.list_role_template_characters()
+            fork_templates = dao.list_fork_templates()
         self.assertEqual(character["classification"], "playable")
         self.assertEqual(plan["core_item_id"], "Core1")
         self.assertEqual(plan["module_item_ids"], ["Module1"])
         self.assertEqual(forks[0]["exclusive_character_ids"], [1001])
+        self.assertEqual(role_templates[0]["character_id"], 1001)
+        self.assertEqual(fork_templates[0]["fork_id"], "fork_Test")
+        self.assertEqual(fork_templates[0]["upgrade_levels"], [])
 
     def test_raw_source_payload_is_available(self):
         with StaticGameDataDao(self.database_path) as dao:

@@ -20,6 +20,7 @@ from src.optimizer.dispatcher import DispatcherEngine
 from src.utils.visualizer import BoardVisualizer
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
+from src.utils.set_name import normalize_set_display_name
 
 
 class NTEPipelineOrchestrator:
@@ -44,7 +45,8 @@ class NTEPipelineOrchestrator:
         self._canonicalize_role_sets()
 
     def _resolve_set_name(self, set_name: str) -> str:
-        resolved = resolve_name(set_name, self.sets_db.keys(), cutoff=0.78)
+        normalized_name = normalize_set_display_name(set_name)
+        resolved = resolve_name(normalized_name, self.sets_db.keys(), cutoff=0.78)
         if not resolved:
             available = "、".join(self.sets_db.keys())
             raise ValueError(f"错误：指定的套装 {set_name} 不存在于 sets.json 中！可用套装：{available}")

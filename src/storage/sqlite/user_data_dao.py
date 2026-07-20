@@ -728,10 +728,17 @@ class UserDataDao:
         return self.inventory_snapshot_summary(snapshot_id) if snapshot_id is not None else None
 
     def current_inventory_snapshot_id(self) -> int | None:
-        """返回当前稳定背包快照 ID；尚未同步时返回 ``None``。"""
+        """返回计算可用库存，优先抓包稳定快照，再回退全量视觉扫描。"""
 
         row = self._one(
-            "SELECT snapshot_id FROM inventory_snapshot WHERE is_current = 1"
+            """
+            SELECT snapshot_id
+            FROM inventory_snapshot
+            WHERE complete = 1 AND source IN ('nte_core', 'gamepad')
+            ORDER BY CASE source WHEN 'nte_core' THEN 0 ELSE 1 END,
+                     captured_at_utc DESC, snapshot_id DESC
+            LIMIT 1
+            """
         )
         return int(row["snapshot_id"]) if row is not None else None
 

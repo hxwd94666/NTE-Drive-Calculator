@@ -293,11 +293,12 @@ def _load_identify_item_to_form(self,item):
 def _identify_from_manual(self):
     text=self.ident_manual_text.toPlainText()
     self._apply_identify_manual_fields(text)
-    sub_stats=self._parse_manual_stats(text)
     quality=self._identify_quality()
     uid=f"identify_{int(time.time()*1000)}"
     try:
         if self.ident_tape_rb.isChecked():
+            # 卡带副词条沿用扫描管线的 10 格当量，展示值与游戏同品质卡带一致。
+            sub_stats=self._parse_manual_stats(text,quality=quality,grid_equivalent=10)
             set_name=self._combo_data_or_resolved_text(self.ident_set_combo,self.all_set_names)
             set_name=resolve_name(set_name,self.all_set_names,cutoff=0.78) or set_name
             main_stat=self._combo_data_or_resolved_text(self.ident_main_combo,self._get_tape_main_stats_pool())
@@ -305,7 +306,8 @@ def _identify_from_manual(self):
         else:
             shape_id=self._combo_data_or_resolved_text(self.ident_shape_combo,self._shape_areas.keys()).split()[0]
             area=self._shape_areas.get(shape_id,3)
-            item=Drive(uid=uid,item_type="drive",shape_id=shape_id,area=area,quality=quality,main_stats={"攻击力":0.0,"生命值":0.0},sub_stats=sub_stats)
+            sub_stats=self._parse_manual_stats(text,quality=quality,grid_equivalent=area)
+            item=Drive(uid=uid,item_type="drive",shape_id=shape_id,area=area,quality=quality,main_stats=_manual_drive_main_stats(area,quality),sub_stats=sub_stats)
     except Exception as e:
         QMessageBox.critical(self,"鉴定",f"装备数据无效：\n{e}")
         return
@@ -347,7 +349,12 @@ def _apply_identify_manual_fields(self,text):
 
 def _manual_tokens(self,text):
     import re
-    return [p.strip() for p in re.split(r"[\n,，;；]+",text) if p.strip()]
+    # 手动鉴定只需要知道副词条“是什么”，不以玩家输入的数值参与评分。
+    # 先保留百分号、再抹去数字，让“攻击力 10%”与“攻击力%”落到同一词条。
+    normalized = re.sub(r"[-+]?\d+(?:\.\d+)?\s*%", "%", str(text or ""))
+    normalized = re.sub(r"[-+]?\d+(?:\.\d+)?", "", normalized)
+    normalized = re.sub(r"\s+%", "%", normalized)
+    return [part.strip() for part in re.split(r"[\s,，;；]+", normalized) if part.strip()]
 
 def _manual_value(self,token):
     for sep in ("：",":","="):
@@ -360,6 +367,24 @@ def _resolve_stat_name(self,name,percent=False):
     for prefix in ("副词条","词条","主词条","主属性"):
         clean=clean.replace(prefix,"")
     clean=clean.strip()
+    # 文字输入允许使用玩家常见的简称；这里直接收敛为评分引擎使用的标准名，
+    # 不依赖录入数值或 OCR 数值单位。
+    manual_aliases={
+        "大生命":"生命值%", "生命%":"生命值%", "生命值%":"生命值%",
+        "生命值百分比":"生命值%", "百分比生命值":"生命值%",
+        "大防御":"防御力%", "防御":"防御力%", "防御%":"防御力%",
+        "防御力%":"防御力%", "防御力百分比":"防御力%", "百分比防御力":"防御力%",
+        "大攻击":"攻击力%", "攻击":"攻击力%", "攻击%":"攻击力%",
+        "攻击力%":"攻击力%", "攻击力百分比":"攻击力%", "百分比攻击力":"攻击力%",
+        "暴击":"暴击率%", "爆击":"暴击率%", "暴击率":"暴击率%", "爆击率":"暴击率%",
+        "爆伤":"暴击伤害%", "暴伤":"暴击伤害%", "暴击伤害":"暴击伤害%",
+        "伤害增加":"伤害增加%", "通用伤害":"伤害增加%", "通伤":"伤害增加%", "伤害":"伤害增加%",
+        "倾陷":"倾陷强度", "倾陷强度":"倾陷强度",
+        "环合":"环合强度", "环合强度":"环合强度",
+    }
+    compact=clean.replace(" ","")
+    if compact in manual_aliases:
+        return manual_aliases[compact]
     if percent and not clean.endswith("%") and not clean.endswith("百分比"):
         clean=f"{clean}%"
     se=self.scoring_engine or ScoringEngine(str(runtime.CONFIG_DIR))
@@ -372,22 +397,27 @@ def _resolve_stat_name(self,name,percent=False):
         return aliases[resolved]
     return resolved or clean
 
-def _parse_manual_stats(self,text):
-    import re
+def _manual_drive_main_stats(area,quality):
+    """按驱动格数与品质推导展示用主词条数值。"""
+    quality_coef={"Gold":1.0,"Purple":0.8,"Blue":0.6}.get(str(quality or "Gold"),1.0)
+    return {
+        "攻击力":round(21.0*int(area)*quality_coef,2),
+        "生命值":round(280.0*int(area)*quality_coef,2),
+    }
+
+def _parse_manual_stats(self,text,quality="Gold",grid_equivalent=1):
     stats={}
+    se=self.scoring_engine or ScoringEngine(str(runtime.CONFIG_DIR))
+    quality_coef={"Gold":1.0,"Purple":0.8,"Blue":0.6}.get(str(quality or "Gold"),1.0)
+    grid_count=max(1,int(grid_equivalent or 1))
     for token in self._manual_tokens(text):
         if any(k in token for k in ("类型","品质","形状","套装","主词条","主属性")):
             continue
-        m=re.search(r"(.+?)[：:=\s]+([-+]?\d+(?:\.\d+)?)\s*(%)?",token)
-        if not m:
-            m=re.search(r"([\u4e00-\u9fffA-Za-z%]+?)([-+]?\d+(?:\.\d+)?)\s*(%)?",token)
-        if not m:
+        stat_name=self._resolve_stat_name(token,percent="%" in token)
+        if stat_name not in se.gold_base_values:
             continue
-        stat_name=self._resolve_stat_name(m.group(1),percent=(m.group(3)=="%" or "%" in token))
-        try:
-            stats[stat_name]=float(m.group(2))
-        except ValueError:
-            continue
+        # 评分只按词条种类匹配角色权重；展示值则按金色每格基准 × 格数 × 品质系数推导。
+        stats[stat_name]=round(float(se.gold_base_values[stat_name])*grid_count*quality_coef,2)
     return stats
 
 def _start_identify_item(self,item):

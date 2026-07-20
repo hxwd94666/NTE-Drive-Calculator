@@ -10,6 +10,4 @@ class InventoryCommitService:
         self.scanner = scanner
 
     def commit(self) -> None:
-        if getattr(self.processor, "inventory", None):
-            self.processor._export_to_json()
         self.scanner._commit_temp_output()

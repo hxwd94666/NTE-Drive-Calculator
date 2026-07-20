@@ -38,6 +38,7 @@ from src.features.drive_assembly.page_mapping import (
 from src.features.drive_assembly.role_flow import (
     build_role_assembly_payloads,
     collect_role_roster_from_role_list,
+    map_role_list_initial_left_reset_sequence,
     plan_role_assembly_from_role_list_roster,
     plan_role_assembly_from_observations,
     recognize_current_role_from_image,
@@ -396,6 +397,12 @@ def _execute_roles_from_current_game_page(
             backend=action_backend,
         )
 
+    def move_role_list_left_fast():
+        execute_action_sequence(
+            map_role_list_initial_left_reset_sequence(repeat_count=1),
+            backend=action_backend,
+        )
+
     def observe_current(_index: int):
         image, _rect = _capture_foreground_client_image()
         recorder.save_image(image, f"role_list_scan_{_index + 1:02d}")
@@ -424,6 +431,7 @@ def _execute_roles_from_current_game_page(
             open_role_list=open_role_list,
             confirm_selection=confirm_role_list_selection,
             move_right=move_role_list_right,
+            move_left=move_role_list_left_fast,
             max_roles=max_pages or max(20, len(recognition_roles) + 6),
         )
     except BaseException:
