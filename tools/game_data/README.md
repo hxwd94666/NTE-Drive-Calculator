@@ -23,7 +23,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v2
+## 构建静态 SQLite v7
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -52,7 +52,28 @@ python tools/game_data/build_static_database.py `
 完整审计数据库放在项目外；省略来源行原文的发行数据库放在
 `data/game_static.sqlite3`。每次游戏版本更新时，开发者从本机游戏官方数据文件重新整理数据库，检查来源哈希、数量和外键后再更新发行数据库。游戏官方文件和中间数据不进入开源仓库。
 
-当前旧版应用仍读取旧 JSON。后续 SQLite DAO、新主页和 nte-core 同步链路只使用 v2 数据库与原始游戏/nte-core ID，不经过旧格式转换。
+构建器还会自动扫描 `DataTable/Character/Awaken/*AwakenEffect*.json`：每个角色的六个
+可选觉醒、三/六觉共鸣、名称/描述/图标、Buff 引用和明确的技能等级加成都会进入静态库。
+用户拥有的副本数和实际激活的觉醒属于账号私有计算配置，不写入发行静态库。
+
+角色基础成长由 `DT_Character.ElementData.PropModifyID` 关联
+`DT_PlayerPackData.json` 的 `*_base` 行与 `DT_PlayerModifyPackData.json` 的
+`*_lv_1..80`、`*_stage_1..6` 累计修改行生成。构建器为每位角色输出 86 条有效状态：
+普通等级、六个突破等级各一条突破前/后状态，以及满级状态。
+
+角色技能目录来自 `DT_CharacterAbilityConfig.json`，每个技能记录官方技能 ID、类型、顺序、
+显示标记和所有等级的突破/觉醒要求及材料。若
+`DT_CharacterAbilityEffectConfig.json` 有对应记录，还会写入技能标签和 Gameplay Effect 资源路径；
+未配置技能表的角色不会阻断整库构建。
+
+`DataTable/skill/DT_SkillDamageData.json` 的伤害执行记录和
+`DT_SkillDamageGameplayModifyData.json` 的攻击倍率修正也会写入静态库。它们只按
+`GAName` 关联既有技能，保留等级数组、元素和破坏参数；构建器与 DAO 均不计算直接伤害。
+
+`character_overrides.json` 中标记为 `combat_transformation` 的记录只保留官方角色目录和
+规范角色关联；它们共用规范角色的属性与养成，不能生成独立的成长、觉醒或普通技能目录。
+
+当前旧版应用仍读取旧 JSON。后续 SQLite DAO、新主页和 nte-core 同步链路只使用 v7 数据库与原始游戏/nte-core ID，不经过旧格式转换。
 
 ## 查询静态数据库
 

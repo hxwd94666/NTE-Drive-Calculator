@@ -12,6 +12,10 @@ MODULE_PATH = TOOLS_DIR / "build_static_database.py"
 SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "004_game_static_character_awaken.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "005_game_static_character_growth.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "006_game_static_character_skills.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "007_game_static_skill_damage.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -58,6 +62,30 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertEqual(0, absolute_path_count)
         self.assertEqual([], violations)
 
+    def test_combat_transformations_do_not_get_independent_growth_or_skills(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            transformations = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT character_id FROM character_annotation "
+                    "WHERE classification = 'combat_transformation'"
+                )
+            ]
+            for table in (
+                "character_awaken_effect",
+                "character_panel_growth",
+                "character_skill",
+            ):
+                count = connection.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE character_id IN "
+                    f"({','.join('?' for _ in transformations)})",
+                    transformations,
+                ).fetchone()[0]
+                self.assertEqual(0, count, table)
+        finally:
+            connection.close()
+
     def test_schema_can_be_created_with_foreign_keys_enabled(self):
         connection = sqlite3.connect(":memory:")
         connection.execute("PRAGMA foreign_keys = ON")
@@ -73,6 +101,10 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("equipment_suit_required_shape", tables)
         self.assertIn("equipment_plan", tables)
         self.assertIn("fork_item", tables)
+        self.assertIn("character_awaken_effect", tables)
+        self.assertIn("character_panel_growth", tables)
+        self.assertIn("character_skill", tables)
+        self.assertIn("skill_damage", tables)
 
     def test_schema_uses_source_shape_ids_without_legacy_aliases(self):
         schema = "\n".join(path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)

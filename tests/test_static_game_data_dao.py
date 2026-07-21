@@ -13,6 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "004_game_static_character_awaken.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "005_game_static_character_growth.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "006_game_static_character_skills.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "007_game_static_skill_damage.sql",
 )
 
 
@@ -25,6 +29,10 @@ class StaticGameDataDaoTest(unittest.TestCase):
             connection.executescript(schema_path.read_text(encoding="utf-8"))
         connection.execute("INSERT INTO schema_migration VALUES (2, '2026-07-18')")
         connection.execute("INSERT INTO schema_migration VALUES (3, '2026-07-18')")
+        connection.execute("INSERT INTO schema_migration VALUES (4, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (5, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (6, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (7, '2026-07-21')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
@@ -42,6 +50,52 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute(
             "INSERT INTO character_annotation VALUES "
             "(1001, 'character:1001', 1001, 'playable', 'fixture.json')"
+        )
+        connection.execute(
+            """
+            INSERT INTO character_awaken_effect VALUES (
+                1001, 'resonance_3', 6, 'Awaken_Resonance', '三觉', NULL, NULL,
+                '技能等级提升', NULL, NULL, NULL, '[{\"SkillName\":\"Skill1\",\"SkillLevel\":1}]',
+                '[]', 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO character_awaken_skill_level_bonus VALUES "
+            "(1001, 'resonance_3', 0, 'Skill1', 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO character_panel_growth VALUES (
+                1001, 20, 1, 'breakthrough_after', 2000.0, 100.0, 80.0,
+                1, 1, 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO character_skill VALUES (
+                1001, 'Skill1', 'Proactive', 1, 1, 'Ability.Skill', NULL, 0, 1, 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO character_skill_level VALUES (
+                1001, 'Skill1', 1, 2, 0, '[{\"ID\":\"gold\",\"Number\":2000}]'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO skill_damage VALUES (
+                'Damage1', 'Skill1', 'NORMAL', 0.1, 0.2, 0.0, 'P', 0.5,
+                '[1.0,1.1]', '[]', '[]', 1.0, 'Low', 0, 0.0, 1, 2.0, 0, 0.0, 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO skill_damage_modifier VALUES ('Damage1', 0.9, 1)"
         )
         connection.execute(
             "INSERT INTO equipment_attribute VALUES "
@@ -141,7 +195,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 3)
+            self.assertEqual(summary["schema_version"], 7)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")
@@ -176,6 +230,55 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.assertEqual(role_templates[0]["character_id"], 1001)
         self.assertEqual(fork_templates[0]["fork_id"], "fork_Test")
         self.assertEqual(fork_templates[0]["upgrade_levels"], [])
+
+    def test_character_awaken_effects_include_skill_level_bonuses(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            effects = dao.list_character_awaken_effects(1001)
+        self.assertEqual(effects[0]["effect_id"], "resonance_3")
+        self.assertEqual(effects[0]["skill_level_bonuses"], [
+            {"ordinal": 0, "skill_id": "Skill1", "level_delta": 1}
+        ])
+
+    def test_character_panel_growth_is_queryable_by_breakthrough_stage(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            growth = dao.get_character_panel_growth(1001, 20, 1)
+        self.assertEqual(growth["state"], "breakthrough_after")
+        self.assertEqual(growth["atk_base"], 100.0)
+
+    def test_character_skills_include_level_requirements_and_costs(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            skills = dao.list_character_skills(1001)
+        self.assertEqual(skills[0]["skill_id"], "Skill1")
+        self.assertTrue(skills[0]["show_detail_info"])
+        self.assertEqual(skills[0]["levels"], [{
+            "level": 1,
+            "required_breakthrough_stage": 2,
+            "required_awaken_level": 0,
+            "cost_items": [{"ID": "gold", "Number": 2000}],
+        }])
+        self.assertEqual(skills[0]["damage_entries"], [{
+            "damage_id": "Damage1",
+            "damage_type": "NORMAL",
+            "charge_add": 0.1,
+            "unbal_value": 0.2,
+            "heterochrome_add": 0.0,
+            "damage_source_category": "P",
+            "fixed_crit_rate": 0.5,
+            "atk_rate_base": [1.0, 1.1],
+            "def_rate_base": [],
+            "hp_rate_base": [],
+            "story_balance_ge_rate": 1.0,
+            "attack_break_level": "Low",
+            "override_breakable_damage": False,
+            "breakable_damage": 0.0,
+            "override_breakable_impulse": True,
+            "breakable_impulse": 2.0,
+            "override_vehicle_breakable_impulse": False,
+            "vehicle_breakable_impulse": 0.0,
+            "source_row_id": 1,
+            "modifier_atk_rate_base_coefficient": 0.9,
+            "modifier_source_row_id": 1,
+        }])
 
     def test_raw_source_payload_is_available(self):
         with StaticGameDataDao(self.database_path) as dao:
