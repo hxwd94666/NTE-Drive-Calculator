@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 
 SUMMARY_TABLES = (
@@ -19,6 +19,13 @@ SUMMARY_TABLES = (
     "source_row",
     "character",
     "character_annotation",
+    "character_awaken_effect",
+    "character_awaken_skill_level_bonus",
+    "character_panel_growth",
+    "character_skill",
+    "character_skill_level",
+    "skill_damage",
+    "skill_damage_modifier",
     "equipment_attribute",
     "equipment_shape",
     "equipment_suit",
@@ -27,19 +34,6 @@ SUMMARY_TABLES = (
     "equipment_plan",
     "fork_type",
     "fork_item",
-    "combat_level_curve",
-    "combat_level_curve_point",
-    "reaction_definition",
-    "combat_effect_constant",
-    "skill_damage",
-    "skill_damage_rate",
-    "enemy_combat_profile",
-    "enemy_element_resistance",
-    "monster_instance_profile",
-    "monster_instance_profile_variant",
-    "abyss_level",
-    "abyss_level_monster_spawn",
-    "abyss_monster_pool_entry",
 )
 
 
@@ -96,7 +90,7 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
 
 
 class StaticGameDataDao:
-    """面向 schema v3 静态数据库的轻量查询边界。
+    """面向 schema v7 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """
@@ -148,7 +142,7 @@ class StaticGameDataDao:
 
     def summary(self) -> dict[str, Any]:
         dataset = self._one(
-            "SELECT dataset_id, game_version, importer_version, built_at_utc FROM dataset"
+            "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
         )
         if dataset is None:
             raise StaticGameDataError("静态数据库缺少数据集元信息")
@@ -189,6 +183,129 @@ class StaticGameDataDao:
             """,
             (character_id,),
         )
+
+    def list_role_template_characters(self) -> list[dict[str, Any]]:
+        """返回角色功能可用的官方角色模板，排除主角实例和战斗变身。"""
+        return [
+            character
+            for character in self.list_characters()
+            if character.get("classification") in {
+                "available_character", "scheduled_character",
+                "playable",
+            }
+        ]
+
+    def list_character_awaken_effects(self, character_id: int) -> list[dict[str, Any]]:
+        """返回角色六觉与三/六觉共鸣，含可直接应用的技能等级加成。"""
+
+        effects = self._rows(
+            """
+            SELECT character_id, effect_id, ordinal, awaken_type, title_zh,
+                   title_text_table, title_text_key, description_zh,
+                   description_text_table, description_text_key, icon_path,
+                   modify_data_json, gameplay_effect_ids_json, source_row_id
+            FROM character_awaken_effect
+            WHERE character_id = ?
+            ORDER BY ordinal
+            """,
+            (character_id,),
+        )
+        bonuses_by_effect: dict[str, list[dict[str, Any]]] = {}
+        for bonus in self._rows(
+            """
+            SELECT effect_id, ordinal, skill_id, level_delta
+            FROM character_awaken_skill_level_bonus
+            WHERE character_id = ?
+            ORDER BY effect_id, ordinal
+            """,
+            (character_id,),
+        ):
+            effect_id = bonus.pop("effect_id")
+            bonuses_by_effect.setdefault(effect_id, []).append(bonus)
+        for effect in effects:
+            effect["modify_data"] = json.loads(effect.pop("modify_data_json"))
+            effect["gameplay_effect_ids"] = json.loads(effect.pop("gameplay_effect_ids_json"))
+            effect["skill_level_bonuses"] = bonuses_by_effect.get(effect["effect_id"], [])
+        return effects
+
+    def get_character_panel_growth(
+        self, character_id: int, level: int, breakthrough_stage: int
+    ) -> dict[str, Any] | None:
+        """按角色、等级和已突破阶段返回官方基础生命、攻击和防御。"""
+
+        return self._one(
+            """
+            SELECT character_id, level, breakthrough_stage, state,
+                   hp_base, atk_base, def_base,
+                   player_pack_source_row_id, level_modify_source_row_id,
+                   breakthrough_modify_source_row_id
+            FROM character_panel_growth
+            WHERE character_id = ? AND level = ? AND breakthrough_stage = ?
+            """,
+            (character_id, level, breakthrough_stage),
+        )
+
+    def list_character_skills(self, character_id: int) -> list[dict[str, Any]]:
+        """返回角色技能目录及每一级对应的突破、觉醒和材料要求。"""
+
+        skills = self._rows(
+            """
+            SELECT character_id, skill_id, ability_type, ability_index,
+                   show_detail_info, gameplay_tag, gameplay_effect_path,
+                   reapply_after_revive, ability_source_row_id, effect_source_row_id
+            FROM character_skill
+            WHERE character_id = ?
+            ORDER BY ability_index, skill_id
+            """,
+            (character_id,),
+        )
+        levels_by_skill: dict[str, list[dict[str, Any]]] = {}
+        for level in self._rows(
+            """
+            SELECT skill_id, level, required_breakthrough_stage,
+                   required_awaken_level, cost_items_json
+            FROM character_skill_level
+            WHERE character_id = ?
+            ORDER BY skill_id, level
+            """,
+            (character_id,),
+        ):
+            skill_id = level.pop("skill_id")
+            level["cost_items"] = json.loads(level.pop("cost_items_json"))
+            levels_by_skill.setdefault(skill_id, []).append(level)
+        for skill in skills:
+            skill["show_detail_info"] = bool(skill["show_detail_info"])
+            skill["reapply_after_revive"] = bool(skill["reapply_after_revive"])
+            skill["levels"] = levels_by_skill.get(skill["skill_id"], [])
+            skill["damage_entries"] = self._rows(
+                """
+                SELECT d.damage_id, d.damage_type, d.charge_add, d.unbal_value,
+                       d.heterochrome_add, d.damage_source_category, d.fixed_crit_rate,
+                       d.atk_rate_base_json, d.def_rate_base_json, d.hp_rate_base_json,
+                       d.story_balance_ge_rate, d.attack_break_level,
+                       d.override_breakable_damage, d.breakable_damage,
+                       d.override_breakable_impulse, d.breakable_impulse,
+                       d.override_vehicle_breakable_impulse,
+                       d.vehicle_breakable_impulse, d.source_row_id,
+                       m.atk_rate_base_coefficient AS modifier_atk_rate_base_coefficient,
+                       m.source_row_id AS modifier_source_row_id
+                FROM skill_damage AS d
+                LEFT JOIN skill_damage_modifier AS m USING (damage_id)
+                WHERE d.ability_id = ?
+                ORDER BY d.damage_id
+                """,
+                (skill["skill_id"],),
+            )
+            for damage in skill["damage_entries"]:
+                for key in ("atk_rate_base", "def_rate_base", "hp_rate_base"):
+                    damage[key] = json.loads(damage.pop(f"{key}_json"))
+                for key in (
+                    "override_breakable_damage",
+                    "override_breakable_impulse",
+                    "override_vehicle_breakable_impulse",
+                ):
+                    damage[key] = bool(damage[key])
+        return skills
 
     def list_shapes(self) -> list[dict[str, Any]]:
         shapes = self._rows(
@@ -313,6 +430,101 @@ class StaticGameDataDao:
             )
         return rows
 
+    def list_fork_templates(self) -> list[dict[str, Any]]:
+        """返回弧盘的官方成长、突破、星级和逐项属性加成。"""
+        modifiers_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT modify_pack_id, ordinal, property_id, value, operation, sort_key
+            FROM fork_modify_value
+            ORDER BY modify_pack_id, ordinal
+            """
+        ):
+            modifiers_by_pack.setdefault(row.pop("modify_pack_id"), []).append(row)
+
+        conditions_by_pack = {
+            row["modify_pack_id"]: json.loads(row["conditions_json"] or "[]")
+            for row in self._rows(
+                "SELECT modify_pack_id, conditions_json FROM fork_modify_pack"
+            )
+        }
+
+        def modifiers(pack_id: str | None) -> list[dict[str, Any]]:
+            if not pack_id:
+                return []
+            return [dict(row) for row in modifiers_by_pack.get(pack_id, [])]
+
+        upgrades_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT upgrade_pack_id, level, need_exp, modify_pack_id
+            FROM fork_upgrade_level
+            ORDER BY upgrade_pack_id, level
+            """
+        ):
+            pack_id = row.pop("upgrade_pack_id")
+            modify_pack_id = row.pop("modify_pack_id")
+            row["modifiers"] = modifiers(modify_pack_id)
+            row["conditions"] = conditions_by_pack.get(modify_pack_id, [])
+            upgrades_by_pack.setdefault(pack_id, []).append(row)
+
+        breakthroughs_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT breakthrough_pack_id, stage, max_fork_level, need_items,
+                   need_gold, modify_pack_id
+            FROM fork_breakthrough
+            ORDER BY breakthrough_pack_id, stage
+            """
+        ):
+            pack_id = row.pop("breakthrough_pack_id")
+            modify_pack_id = row.pop("modify_pack_id")
+            row["modifiers"] = modifiers(modify_pack_id)
+            row["conditions"] = conditions_by_pack.get(modify_pack_id, [])
+            breakthroughs_by_pack.setdefault(pack_id, []).append(row)
+
+        parameters_by_star: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT star_pack_id, star_level, ordinal, name_id, is_percent
+            FROM fork_star_parameter
+            ORDER BY star_pack_id, star_level, ordinal
+            """
+        ):
+            key = (row.pop("star_pack_id"), int(row.pop("star_level")))
+            row["is_percent"] = bool(row["is_percent"])
+            parameters_by_star.setdefault(key, []).append(row)
+
+        stars_by_pack: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT star_pack_id, star_level, title_zh, description_zh,
+                   need_gold, buffs_json
+            FROM fork_star_level
+            ORDER BY star_pack_id, star_level
+            """
+        ):
+            pack_id = row.pop("star_pack_id")
+            star_level = int(row["star_level"])
+            row["buffs"] = json.loads(row.pop("buffs_json") or "[]")
+            row["parameters"] = parameters_by_star.get((pack_id, star_level), [])
+            stars_by_pack.setdefault(pack_id, []).append(row)
+
+        templates: list[dict[str, Any]] = []
+        for fork in self.list_forks():
+            template = dict(fork)
+            template["upgrade_levels"] = upgrades_by_pack.get(
+                str(template.get("upgrade_pack_id") or ""), []
+            )
+            template["breakthroughs"] = breakthroughs_by_pack.get(
+                str(template.get("breakthrough_pack_id") or ""), []
+            )
+            template["star_levels"] = stars_by_pack.get(
+                str(template.get("star_pack_id") or ""), []
+            )
+            templates.append(template)
+        return templates
+
     def get_equipment_plan(self, character_id: int) -> dict[str, Any] | None:
         plan = self._one(
             """
@@ -367,206 +579,6 @@ class StaticGameDataDao:
             )
         ]
         return plan
-
-    def get_combat_level_curve(self, curve_id: str) -> dict[str, Any] | None:
-        """返回等级曲线及其确切等级点或官方档位点。"""
-
-        curve = self._one(
-            """
-            SELECT curve_id, damage_kind, reaction_type, source_effect_id,
-                   interpolation_mode, mapping_status, source_row_id
-            FROM combat_level_curve
-            WHERE curve_id = ?
-            """,
-            (curve_id,),
-        )
-        if curve is None:
-            return None
-        curve["points"] = self._rows(
-            """
-            SELECT ordinal, character_level, source_tier, value
-            FROM combat_level_curve_point
-            WHERE curve_id = ?
-            ORDER BY ordinal
-            """,
-            (curve_id,),
-        )
-        return curve
-
-    def get_topple_level_multiplier(self, character_level: float) -> float | None:
-        """按确切角色等级读取倾陷等级乘区。"""
-
-        row = self._one(
-            """
-            SELECT value FROM combat_level_curve_point
-            WHERE curve_id = 'topple:character_level' AND character_level = ?
-            """,
-            (float(character_level),),
-        )
-        return None if row is None else float(row["value"])
-
-    def get_reaction_damage_curve(self, effect_id: str) -> dict[str, Any] | None:
-        """按官方 Gameplay Effect ID 返回环合伤害档位。"""
-
-        raw_effect_id = str(effect_id).strip()
-        if not raw_effect_id:
-            raise ValueError("effect_id 不能为空")
-        return self.get_combat_level_curve(f"reaction:{raw_effect_id}")
-
-    def list_reaction_definitions(self) -> list[dict[str, Any]]:
-        """列出官方环合元素组合与默认伤害效果。"""
-
-        return self._rows(
-            """
-            SELECT reaction_type, element_type_1, element_type_2,
-                   default_damage_effect_id, source_row_id
-            FROM reaction_definition
-            ORDER BY reaction_type
-            """
-        )
-
-    def list_combat_effect_constants(self) -> list[dict[str, Any]]:
-        """列出环合曲线中的单点常量及其单位说明。"""
-
-        return self._rows(
-            """
-            SELECT constant_id, source_time, value, unit, description_zh,
-                   source_row_id
-            FROM combat_effect_constant
-            ORDER BY constant_id
-            """
-        )
-
-    def get_skill_damage(self, effect_id: str) -> dict[str, Any] | None:
-        """返回一个官方技能伤害 GE 及其攻击、生命、防御倍率档位。"""
-
-        raw_effect_id = str(effect_id).strip()
-        if not raw_effect_id:
-            raise ValueError("effect_id 不能为空")
-        skill = self._one(
-            """
-            SELECT effect_id, ability_id, damage_type, damage_source_category,
-                   fixed_crit_rate, charge_add, topple_value, heterochrome_add,
-                   story_balance_rate, attack_break_level, source_row_id
-            FROM skill_damage
-            WHERE effect_id = ?
-            """,
-            (raw_effect_id,),
-        )
-        if skill is None:
-            return None
-        rates = self._rows(
-            """
-            SELECT scaling_stat, source_tier, value
-            FROM skill_damage_rate
-            WHERE effect_id = ?
-            ORDER BY scaling_stat, source_tier
-            """,
-            (raw_effect_id,),
-        )
-        skill["rates"] = {"attack": [], "health": [], "defense": []}
-        for rate in rates:
-            skill["rates"][rate.pop("scaling_stat")].append(rate)
-        return skill
-
-    def get_enemy_combat_profile(
-        self, profile_set: str, pack_id: str
-    ) -> dict[str, Any] | None:
-        """返回普通或 999 夜属性包及分元素抗性。"""
-
-        if profile_set not in ("standard", "night_999"):
-            raise ValueError("profile_set 必须是 standard 或 night_999")
-        raw_pack_id = str(pack_id).strip()
-        if not raw_pack_id:
-            raise ValueError("pack_id 不能为空")
-        profile = self._one(
-            """
-            SELECT profile_set, pack_id, defense_base, defense_up, defense_add,
-                   defense_ignore, topple_limit, topple_accrue_efficiency,
-                   topple_anti_accrue_efficiency, topple_bonus,
-                   topple_reduce_natural, topple_reduce_reset, source_row_id
-            FROM enemy_combat_profile
-            WHERE profile_set = ? AND pack_id = ?
-            """,
-            (profile_set, raw_pack_id),
-        )
-        if profile is None:
-            return None
-        profile["resistances"] = {
-            row["damage_type"]: {
-                "resistance_base": row["resistance_base"],
-                "immunity": row["immunity"],
-            }
-            for row in self._rows(
-                """
-                SELECT damage_type, resistance_base, immunity
-                FROM enemy_element_resistance
-                WHERE profile_set = ? AND pack_id = ?
-                ORDER BY damage_type
-                """,
-                (profile_set, raw_pack_id),
-            )
-        }
-        return profile
-
-    def get_monster_instance_profile(
-        self, static_table: str, monster_id: str
-    ) -> dict[str, Any] | None:
-        """Return an auditable static monster-to-pack binding and its level variants.
-
-        ``FT_`` identifies 999 夜 content rather than an Abyss scene; callers can
-        distinguish explicit packs from unresolved scene configuration.
-        """
-        binding = self._one(
-            """
-            SELECT static_table, monster_id, monster_level, default_profile_set,
-                   default_pack_id, online_ratio_id, source_row_id
-            FROM monster_instance_profile
-            WHERE static_table = ? AND monster_id = ?
-            """,
-            (str(static_table).strip(), str(monster_id).strip()),
-        )
-        if binding is None:
-            return None
-        binding["variants"] = self._rows(
-            """
-            SELECT variant_kind, threshold_level, profile_set, pack_id
-            FROM monster_instance_profile_variant
-            WHERE static_table = ? AND monster_id = ?
-            ORDER BY variant_kind, threshold_level
-            """,
-            (binding["static_table"], binding["monster_id"]),
-        )
-        return binding
-
-    def get_abyss_level_monsters(
-        self, level_config_id: str, level_id: int
-    ) -> dict[str, Any] | None:
-        """返回一个 Abyss 关卡的波次、怪物及其可追溯属性包。"""
-        level = self._one(
-            """
-            SELECT level_config_id, level_id, abyss_id, name_zh, source_row_id
-            FROM abyss_level WHERE level_config_id = ? AND level_id = ?
-            """,
-            (str(level_config_id).strip(), int(level_id)),
-        )
-        if level is None:
-            return None
-        level["spawns"] = self._rows(
-            """
-            SELECT s.fight_stage, s.spawn_ordinal, s.wave, s.monster_pool_id,
-                   s.next_spawn_type, s.spawn_time, s.source_row_id,
-                   p.monster_ordinal, p.monster_class_path, p.monster_count,
-                   p.monster_level, p.attribute_profile_set, p.attribute_pack_id,
-                   p.attribute_source_row_id
-            FROM abyss_level_monster_spawn AS s
-            JOIN abyss_monster_pool_entry AS p USING (monster_pool_id)
-            WHERE s.level_config_id = ? AND s.level_id = ?
-            ORDER BY s.fight_stage, s.spawn_ordinal, p.monster_ordinal
-            """,
-            (level["level_config_id"], level["level_id"]),
-        )
-        return level
 
     def get_source_payload(self, relative_path: str, row_key: str) -> Any | None:
         row = self._one(

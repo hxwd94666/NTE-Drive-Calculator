@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import copy
 
@@ -208,7 +207,7 @@ def _render_results(self,plan):
             tape_uid=str(_diff_value(tape,"uid","") or "")
             tape_changed=bool(_diff_value(tape,"is_changed",False) or tape_uid in changed_uids)
             gl.addWidget(self._section_label("卡带:"))
-            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,main_weights=main_wts,card_variant="result"))
+            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,is_discarded=bool(getattr(tape,"discarded",False)),main_weights=main_wts,card_variant="result"))
 
         if drives:
             gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
@@ -218,7 +217,7 @@ def _render_results(self,plan):
                 mvp_tag=f" 👑第{d.pick_order}顺位" if getattr(d,'is_mvp',False) else ""
                 drive_uid=str(_diff_value(d,"uid","") or "")
                 drive_changed=bool(_diff_value(d,"is_changed",False) or drive_uid in changed_uids)
-                gl.addWidget(self._equip_card(d.shape_id,"",d.sub_stats,d.shape_id,d.uid+mvp_tag,wts,(score,grade),d.quality,is_new=(drive_uid in added_uids and not drive_changed),is_changed=drive_changed,card_variant="result"))
+                gl.addWidget(self._equip_card(d.shape_id,"",d.sub_stats,d.shape_id,d.uid+mvp_tag,wts,(score,grade),d.quality,is_new=(drive_uid in added_uids and not drive_changed),is_changed=drive_changed,is_discarded=bool(getattr(d,"discarded",False)),is_duplicate_drive=bool(getattr(d,"is_duplicate_drive",False)),card_variant="result"))
         self.result_content_layout.addWidget(grp)
     self.result_content_layout.addStretch()
 
@@ -376,22 +375,19 @@ def _diff_plan_sources(self, role_name):
     )
 
 def _diff_inventory_sources(self):
-    output_file=getattr(runtime,"OUTPUT_FILE",None)
-    if not output_file:
-        return {}
-    path_key=str(output_file)
+    path_key=str(getattr(runtime, "USER_DATABASE_PATH", ""))
     cached=getattr(self,"_diff_inventory_index_cache",None)
     if cached and cached[0]==path_key:
         return cached[1]
     index={}
     try:
-        data=json.loads(output_file.read_text(encoding="utf-8"))
+        from src.services.sqlite_allocation_inventory import load_current_inventory_projection
+        data=load_current_inventory_projection(path_key)
     except Exception:
         data=[]
-    if isinstance(data,list):
-        for item in data:
-            if isinstance(item,dict) and item.get("uid"):
-                index[str(item["uid"])]=item
+    for item in data:
+        if isinstance(item,dict) and item.get("uid"):
+            index[str(item["uid"])]=item
     setattr(self,"_diff_inventory_index_cache",(path_key,index))
     return index
 
@@ -473,6 +469,7 @@ def _diff_item_card(self, role_name, item, is_new=False):
         score_info(item),
         item.get(EQUIP_QUALITY,"Gold"),
         is_new=is_new,
+        is_duplicate_drive=bool(item.get("is_duplicate_drive", False)),
         main_weights=main_weights,
         card_variant="result",
     )
@@ -1026,7 +1023,7 @@ def _bonus_comparison_widget(self, role_name, old_rows, new_rows, has_old=True, 
     layout.addWidget(self._bonus_delta_column(aligned,priority_stats=priority_stats,role_name=role_name,mode=mode,colored_stats=colored_stats),1)
     return container
 
-def _role_bonus_summary_panel(self, role_name, tape, drives, compare_with_saved=False, priority_stats=None):
+def _role_bonus_summary_panel(self, role_name, tape, drives, compare_with_saved=False, priority_stats=None, role_diff=None):
     priority_stats=list(priority_stats if priority_stats is not None else self._role_stat_priority_stats(role_name))
     state={"mode":"equipment"}
     box=QFrame()
@@ -1035,7 +1032,7 @@ def _role_bonus_summary_panel(self, role_name, tape, drives, compare_with_saved=
     box.setStyleSheet(themed_style("QFrame{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px}"))
     layout=QVBoxLayout(box); layout.setContentsMargins(7,5,7,5); layout.setSpacing(4)
     header=QHBoxLayout(); header.setContentsMargins(0,0,0,0); header.setSpacing(4)
-    mode_switch=self._make_bonus_mode_switch(state["mode"], lambda mode: self._refresh_bonus_summary_panel(box,role_name,tape,drives,compare_with_saved,priority_stats,mode))
+    mode_switch=self._make_bonus_mode_switch(state["mode"], lambda mode: self._refresh_bonus_summary_panel(box,role_name,tape,drives,compare_with_saved,priority_stats,mode,role_diff))
     mode_switch.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
     header.addWidget(mode_switch,0,Qt.AlignLeft)
     more_button=_bonus_more_button()
@@ -1049,23 +1046,29 @@ def _role_bonus_summary_panel(self, role_name, tape, drives, compare_with_saved=
     box._bonus_summary_content_layout=content_layout
     box._bonus_summary_more_button=more_button
     box._bonus_summary_state=state
-    self._refresh_bonus_summary_panel(box,role_name,tape,drives,compare_with_saved,priority_stats,state["mode"])
+    self._refresh_bonus_summary_panel(box,role_name,tape,drives,compare_with_saved,priority_stats,state["mode"],role_diff)
     layout.addStretch()
     return box
 
-def _refresh_bonus_summary_panel(self, box, role_name, tape, drives, compare_with_saved, priority_stats, mode):
+def _refresh_bonus_summary_panel(self, box, role_name, tape, drives, compare_with_saved, priority_stats, mode, role_diff=None):
     box._bonus_summary_state["mode"]=mode
     content_layout=box._bonus_summary_content_layout
     self._clear_layout_widgets(content_layout)
     _configure_bonus_more_button(box._bonus_summary_more_button)
     if compare_with_saved:
-        role_diff=resolve_comparison_role_diff(self,role_name)
-        saved_sources=_diff_saved_sources(self,role_name)
-        old_tape,old_drives=split_loadout_sources(saved_sources)
+        # Saved SQLite plans carry their own immutable diff.  Do not fall back
+        # to legacy equipped_state.json when that authoritative payload exists.
+        persisted_diff = role_diff if isinstance(role_diff, dict) and role_diff.get(DIFF_CHANGED) else None
+        effective_diff = persisted_diff or resolve_comparison_role_diff(self,role_name)
+        if persisted_diff is not None:
+            old_tape,old_drives=_previous_loadout_from_diff(self,role_name,tape,drives,effective_diff)
+        else:
+            saved_sources=_diff_saved_sources(self,role_name)
+            old_tape,old_drives=split_loadout_sources(saved_sources)
         new_uids=loadout_uids(tape,drives)
         old_uids=loadout_uids(old_tape,old_drives)
-        if role_diff.get(DIFF_CHANGED) and ((not old_tape and not old_drives) or old_uids==new_uids):
-            old_tape,old_drives=_previous_loadout_from_diff(self,role_name,tape,drives,role_diff)
+        if effective_diff.get(DIFF_CHANGED) and ((not old_tape and not old_drives) or old_uids==new_uids):
+            old_tape,old_drives=_previous_loadout_from_diff(self,role_name,tape,drives,effective_diff)
         if old_tape or old_drives:
             old_rows=self._bonus_rows_for_mode(role_name,old_tape,old_drives,mode)
             new_rows=self._bonus_rows_for_mode(role_name,tape,drives,mode)
@@ -1161,7 +1164,7 @@ def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_
     sub_score=(10.0/max_w)*sub_w*10.0*quality_coef if max_w>0 else 0
     return round(main_score+sub_score, 2)
 
-def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,main_weights=None,replacement_callback=None,card_variant="default"):
+def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,is_discarded=False,is_duplicate_drive=False,main_weights=None,replacement_callback=None,card_variant="default"):
     if current_theme_name() == "light":
         QUALITY_COLORS={"Gold":"#9a6700","Purple":"#8250df","Blue":"#0969da"}
     else:
@@ -1216,6 +1219,10 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
         status_labels.append(_status_label("NEW", theme_color("#58a6ff"), theme_color("#58a6ff"), theme_rgba("#58a6ff", 0.10)))
     if is_changed:
         status_labels.append(_status_label("CHANGE", theme_color("#7ee787"), theme_color("#2ea043"), theme_rgba("#238636", 0.10)))
+    if is_discarded:
+        status_labels.append(_status_label("弃置", "#ff7b72", "#ff7b72", "rgba(218,54,51,0.16)"))
+    if is_duplicate_drive:
+        status_labels.append(_status_label("重复", "#ffb86c", "#ff9d3d", "rgba(255,152,0,0.16)"))
     if status_labels and shape_id:
         for status_label in status_labels:
             hdr.addWidget(status_label, 0, Qt.AlignTop)

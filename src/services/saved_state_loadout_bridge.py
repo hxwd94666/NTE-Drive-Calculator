@@ -72,15 +72,25 @@ def resolve_character_id_for_saved_role(
     role_name: str,
     roles_db: Mapping[str, Any],
     user_dao: UserDataDao,
+    *,
+    snapshot_id: int | None = None,
 ) -> int:
-    """用稳定背包中的角色实例 UID 选择当前账号实际使用的官方角色 ID。"""
+    """用固定稳定快照中的角色实例 UID 选择账号实际使用的官方角色 ID。"""
 
     candidates = character_ids_for_saved_role(role_name, roles_db)
     if len(candidates) == 1:
         return candidates[0]
-    snapshot_id = user_dao.current_inventory_snapshot_id()
-    if snapshot_id is None:
+    selected_snapshot_id = (
+        user_dao.current_inventory_snapshot_id()
+        if snapshot_id is None
+        else snapshot_id
+    )
+    if selected_snapshot_id is None:
         raise SavedStateLoadoutError("用户数据库中还没有稳定背包快照")
+    if user_dao.inventory_snapshot_summary(selected_snapshot_id) is None:
+        raise SavedStateLoadoutError(
+            f"指定的稳定背包快照不存在：{selected_snapshot_id}"
+        )
 
     candidate_set = set(candidates)
 
@@ -116,7 +126,7 @@ def resolve_character_id_for_saved_role(
             f"角色 [{role_name}] 的多个候选 ID 同时存在角色实例（{matched_text}），无法自动选择"
         )
 
-    resolved = resolve_instances(instances_in(snapshot_id))
+    resolved = resolve_instances(instances_in(selected_snapshot_id))
     if resolved is not None:
         return resolved
 
@@ -124,16 +134,110 @@ def resolve_character_id_for_saved_role(
     # 最近一份包含该角色装备的稳定快照可靠恢复。
     for summary in user_dao.list_inventory_snapshots():
         historical_snapshot_id = int(summary["snapshot_id"])
-        if historical_snapshot_id == snapshot_id:
+        if historical_snapshot_id >= selected_snapshot_id:
             continue
         resolved = resolve_instances(instances_in(historical_snapshot_id))
         if resolved is not None:
             return resolved
 
+    mapped_candidates = {
+        row["character_id"]
+        for candidate in candidates
+        for row in user_dao.list_character_instance_mappings(candidate)
+    }
+    if len(mapped_candidates) == 1:
+        return next(iter(mapped_candidates))
+    if len(mapped_candidates) > 1:
+        matched_text = "、".join(str(value) for value in sorted(mapped_candidates))
+        raise SavedStateLoadoutError(
+            f"角色 [{role_name}] 的候选 ID 已保存多个角色实例（{matched_text}），请手动选择"
+        )
+
     candidate_text = "、".join(str(value) for value in candidates)
     raise SavedStateLoadoutError(
         f"角色 [{role_name}] 有多个候选官方 ID（{candidate_text}），"
-        "但当前和历史稳定背包都没有可用于判断的已装备物品"
+        "但当前、历史稳定背包和已保存映射都没有可用于判断的角色实例"
+    )
+
+
+def character_ids_for_static_role(
+    role_name: str,
+    static_dao: StaticGameDataDao,
+) -> tuple[int, ...]:
+    """仅用静态库的官方角色资料解析 UI 角色名。
+
+    此入口供新计算链路使用，不读取 ``my_roles_model.json`` 或其他旧配置。
+    """
+
+    raw_name = str(role_name).strip()
+    if not raw_name:
+        raise SavedStateLoadoutError("角色名称不能为空")
+    characters = static_dao.list_characters()
+    if raw_name == "主角":
+        candidates = [
+            row for row in characters
+            if row.get("classification") == "available_avatar_variant"
+        ]
+    else:
+        candidates = [
+            row for row in characters
+            if row.get("name_zh") == raw_name
+            and row.get("classification") != "combat_transformation"
+        ]
+    ids = tuple(sorted({int(row["character_id"]) for row in candidates}))
+    if not ids:
+        raise SavedStateLoadoutError(f"静态数据库中没有角色 [{raw_name}] 的官方 ID")
+    return ids
+
+
+def resolve_character_id_for_static_role(
+    role_name: str,
+    static_dao: StaticGameDataDao,
+    user_dao: UserDataDao,
+    *,
+    snapshot_id: int,
+) -> int:
+    """从官方静态角色与固定快照确定角色 ID，主角保留历史和映射兜底。"""
+
+    candidates = character_ids_for_static_role(role_name, static_dao)
+    if len(candidates) == 1:
+        return candidates[0]
+
+    candidate_set = set(candidates)
+
+    def candidates_in(candidate_snapshot_id: int) -> set[int]:
+        return {
+            int(item["equipped_character_id"])
+            for item in user_dao.list_inventory_items(candidate_snapshot_id, equipped=True)
+            if item.get("equipped_character_id") in candidate_set
+            and isinstance(item.get("equipped_character_uid"), Mapping)
+        }
+
+    found = candidates_in(snapshot_id)
+    if len(found) == 1:
+        return next(iter(found))
+    if len(found) > 1:
+        raise SavedStateLoadoutError(
+            f"角色 [{role_name}] 的多个官方 ID 同时存在于固定快照，请手动选择"
+        )
+    for summary in user_dao.list_inventory_snapshots():
+        historical_id = int(summary["snapshot_id"])
+        if historical_id >= snapshot_id:
+            continue
+        found = candidates_in(historical_id)
+        if len(found) == 1:
+            return next(iter(found))
+    mapped = {
+        candidate
+        for candidate in candidates
+        if user_dao.list_character_instance_mappings(candidate)
+    }
+    if len(mapped) == 1:
+        return next(iter(mapped))
+    candidate_text = "、".join(str(value) for value in candidates)
+    raise SavedStateLoadoutError(
+        f"角色 [{role_name}] 有多个候选官方 ID（{candidate_text}），"
+        "请先在一键装配中手动选择角色实例并保存映射"
     )
 
 
@@ -198,10 +302,22 @@ class SavedStateLoadoutBridge:
         role_name: str,
         role_state: Mapping[str, Any],
         character_id: int,
+        snapshot_id: int | None = None,
+        name: str | None = None,
+        score: float | None = None,
+        payload: Mapping[str, Any] | None = None,
     ) -> SavedLoadoutPlan:
-        snapshot_id = self.user_dao.current_inventory_snapshot_id()
-        if snapshot_id is None:
+        selected_snapshot_id = (
+            self.user_dao.current_inventory_snapshot_id()
+            if snapshot_id is None
+            else snapshot_id
+        )
+        if selected_snapshot_id is None:
             raise SavedStateLoadoutError("用户数据库中还没有稳定背包快照")
+        if self.user_dao.inventory_snapshot_summary(selected_snapshot_id) is None:
+            raise SavedStateLoadoutError(
+                f"指定的稳定背包快照不存在：{selected_snapshot_id}"
+            )
 
         character = self.static_dao.get_character(character_id)
         if character is None:
@@ -209,7 +325,7 @@ class SavedStateLoadoutBridge:
                 f"静态数据库中不存在角色 ID {character_id}（{role_name}）"
             )
 
-        inventory = self.user_dao.list_inventory_items(snapshot_id)
+        inventory = self.user_dao.list_inventory_items(selected_snapshot_id)
         items_by_uid = {
             (item["uid_slot"], item["uid_serial"]): item for item in inventory
         }
@@ -227,7 +343,7 @@ class SavedStateLoadoutBridge:
             item = items_by_uid.get((slot, serial))
             if item is None or item.get("kind") != "module":
                 raise SavedStateLoadoutError(
-                    f"角色 [{role_name}] 的驱动 UID ({slot}, {serial}) 不在当前稳定背包中"
+                    f"角色 [{role_name}] 的驱动 UID ({slot}, {serial}) 不在所选稳定背包中"
                 )
             official_shape_id = _shape_id(item.get("geometry"))
             shape = shapes.get(official_shape_id)
@@ -247,45 +363,45 @@ class SavedStateLoadoutBridge:
             )
 
         tape = role_state.get("equipped_tape") or role_state.get("tape")
-        if not isinstance(tape, Mapping):
-            raise SavedStateLoadoutError(f"角色 [{role_name}] 没有已保存的空幕核心")
-        core_slot, core_serial = _saved_uid(tape.get("uid"), expected_kind="core")
-        core_item = items_by_uid.get((core_slot, core_serial))
-        if core_item is None or core_item.get("kind") != "core":
-            raise SavedStateLoadoutError(
-                f"角色 [{role_name}] 的核心 UID ({core_slot}, {core_serial}) 不在当前稳定背包中"
+        if isinstance(tape, Mapping):
+            core_slot, core_serial = _saved_uid(tape.get("uid"), expected_kind="core")
+            core_item = items_by_uid.get((core_slot, core_serial))
+            if core_item is None or core_item.get("kind") != "core":
+                raise SavedStateLoadoutError(
+                    f"角色 [{role_name}] 的核心 UID ({core_slot}, {core_serial}) 不在所选稳定背包中"
+                )
+            assignments.append(
+                {
+                    "uid_serial": core_serial,
+                    "uid_slot": core_slot,
+                    "kind": "core",
+                    "target_row": None,
+                    "target_column": None,
+                    "rotation": 0,
+                }
             )
-        assignments.append(
-            {
-                "uid_serial": core_serial,
-                "uid_slot": core_slot,
-                "kind": "core",
-                "target_row": None,
-                "target_column": None,
-                "rotation": 0,
-            }
-        )
 
-        module_count = len(assignments) - 1
+        module_count = sum(item["kind"] == "module" for item in assignments)
         if module_count <= 0:
             raise SavedStateLoadoutError(f"角色 [{role_name}] 没有可装配的驱动")
         plan_id = self.user_dao.save_loadout_plan(
-            name=f"配装页：{role_name}",
+            name=name or f"配装页：{role_name}",
             character_id=character_id,
-            source_snapshot_id=snapshot_id,
+            source_snapshot_id=selected_snapshot_id,
             status="ready",
             assignments=assignments,
-            payload={
+            payload=payload or {
                 "schema": "saved-state-official-loadout-v1",
                 "source": "equipment_page",
                 "source_role_name": role_name,
             },
+            score=score,
             is_active=True,
         )
         return SavedLoadoutPlan(
             plan_id=plan_id,
             role_name=role_name,
             character_id=character_id,
-            snapshot_id=snapshot_id,
+            snapshot_id=selected_snapshot_id,
             module_count=module_count,
         )

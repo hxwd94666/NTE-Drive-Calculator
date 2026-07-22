@@ -645,6 +645,70 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         ])
         self.assertEqual("all_required_roles_found", plan["scan_stop_reason"])
 
+    def test_later_page_first_target_resets_each_later_selection_to_grid_origin(self):
+        from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
+
+        plan = plan_role_assembly_from_role_list_roster(
+            ["N", "O"],
+            {
+                "roles": list("ABCDEFGHIJKLMNO"),
+                "role_positions": {role: index for index, role in enumerate("ABCDEFGHIJKLMNO")},
+                "current_index": 14,
+                "list_open": True,
+            },
+        )
+
+        first, second = plan["plans"]
+        self.assertEqual(["O", "N"], plan["planned_roles"])
+        self.assertEqual(1, plan["first_target_page"])
+        self.assertTrue(plan["reset_until_first_page_target"])
+        self.assertEqual("role_list_reverse_left_from_open", first["navigation"])
+        self.assertEqual("rs_role_list_reset_then_grid", second["navigation"])
+        self.assertEqual(
+            ["left_left", "left_down", "left_down", "left_down", "left_down", "left_right"],
+            [action["gamepad_stick"] for action in second["action_sequence"] if "gamepad_stick" in action],
+        )
+
+    def test_second_page_start_uses_grid_until_a_first_page_role_is_assembled(self):
+        from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
+
+        plan = plan_role_assembly_from_role_list_roster(
+            ["A", "B", "N", "O"],
+            {
+                "roles": list("ABCDEFGHIJKLMNO"),
+                "role_positions": {role: index for index, role in enumerate("ABCDEFGHIJKLMNO")},
+                "current_index": 14,
+                "list_open": True,
+            },
+        )
+
+        first, second, third, fourth = plan["plans"]
+        self.assertEqual(["O", "N", "B", "A"], plan["planned_roles"])
+        self.assertEqual("role_list_reverse_left_from_open", first["navigation"])
+        self.assertEqual("rs_role_list_reset_then_grid", second["navigation"])
+        self.assertEqual("rs_role_list_reset_then_grid", third["navigation"])
+        self.assertEqual("rs_role_list_reverse_left", fourth["navigation"])
+
+    def test_role_list_scan_defensively_pushes_left_four_times_after_opening(self):
+        from src.features.drive_assembly.role_flow import collect_role_roster_from_role_list
+
+        observations = iter(["A", "B"])
+        inputs = []
+        roster = collect_role_roster_from_role_list(
+            ["A", "B"],
+            current_observer=lambda _index: next(observations),
+            press_up=lambda: None,
+            open_role_list=lambda: inputs.append("rs"),
+            confirm_selection=lambda: None,
+            move_right=lambda: None,
+            move_left=lambda: inputs.append("left"),
+            reset_up_count=0,
+            max_roles=4,
+        )
+
+        self.assertEqual(["rs", "left", "left", "left", "left"], inputs)
+        self.assertEqual(4, roster["initial_left_reset_count"])
+
     def test_rs_role_list_plan_moves_only_left_in_reverse_roster_order(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
 

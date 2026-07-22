@@ -510,6 +510,14 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             selection["selection_sequence"],
         )
 
+    def test_maps_tape_set_selection_with_display_wrapper(self):
+        from src.features.drive_assembly.page_mapping import map_tape_set_selection
+
+        selection = map_tape_set_selection("「失落光芒」")
+
+        self.assertEqual("失落光芒", selection["set_name"])
+        self.assertEqual((762, 960), selection["set_option"])
+
     def test_maps_all_visible_tape_sets_from_filter_dialog(self):
         from src.features.drive_assembly.page_mapping import map_tape_set_selection
 

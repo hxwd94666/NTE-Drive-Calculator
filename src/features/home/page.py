@@ -123,11 +123,8 @@ def build_home_page(window) -> QScrollArea:
     window.home_stop_sync_button = QPushButton("停止同步")
     window.home_stop_sync_button.clicked.connect(window._stop_inventory_sync)
     window.home_stop_sync_button.setEnabled(False)
-    refresh_button = QPushButton("刷新工作台")
-    refresh_button.clicked.connect(window._refresh_home)
     sync_actions.addWidget(window.home_start_sync_button)
     sync_actions.addWidget(window.home_stop_sync_button)
-    sync_actions.addWidget(refresh_button)
     sync_actions.addStretch()
     sync_layout.addLayout(sync_actions)
     root.addWidget(sync_card)
@@ -137,7 +134,7 @@ def build_home_page(window) -> QScrollArea:
     for label, page_key in (
         ("计算配装", "execute"),
         ("查看方案", "equipment"),
-        ("角色数据", "my_role"),
+        ("角色边际", "my_role"),
         ("同步设置", "settings"),
     ):
         button = QPushButton(label)
@@ -147,14 +144,6 @@ def build_home_page(window) -> QScrollArea:
     actions_layout.addLayout(actions)
     root.addWidget(actions_card)
 
-    data_card, data_layout = _section("数据状态")
-    window.home_static_label = QLabel("正在读取静态数据库…")
-    window.home_static_label.setWordWrap(True)
-    window.home_recent_change_label = QLabel("最近变化：暂无稳定快照差异")
-    window.home_recent_change_label.setWordWrap(True)
-    data_layout.addWidget(window.home_static_label)
-    data_layout.addWidget(window.home_recent_change_label)
-    root.addWidget(data_card)
     root.addStretch()
     return scroll
 
@@ -184,23 +173,3 @@ def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
         )
     else:
         inventory_subtitle.setText("等待首次同步")
-
-    static = dashboard["static"]
-    dataset = static["dataset"]
-    counts = static["counts"]
-    version = dataset.get("game_version") or "版本待开发者确认"
-    window.home_static_label.setText(
-        f"静态数据集：{dataset['dataset_id']} · {version} · "
-        f"空幕套装 {counts['equipment_suit']} · 装备模板 {counts['equipment_item']} · "
-        f"驱动形状 {counts['equipment_shape']}"
-    )
-
-    change = dashboard.get("recent_change")
-    if change:
-        window.home_recent_change_label.setText(
-            "最近变化："
-            f"新增 {change['added_count']} · 移除 {change['removed_count']} · "
-            f"属性/状态变化 {change['changed_count']}"
-        )
-    else:
-        window.home_recent_change_label.setText("最近变化：暂无两个可比较的稳定快照")

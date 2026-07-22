@@ -23,9 +23,14 @@
 
 计算开始时必须固定 `snapshot_id`。后台可继续同步新快照，但当前计算通过 `UserDataDao.list_inventory_items(snapshot_id)` 读取原输入，直到任务结束都不会漂移。
 
+用户库默认保留最近 20 份稳定快照。当前快照和任一已保存装配方案的
+`source_snapshot_id` 始终受保护；同步服务会在新快照提交后清理其余历史快照。
+设置页和 `tools/user_data/manage_user_database.py prune-snapshots` 都可调整或执行
+维护。清理会级联移除对应物品与词条记录，但不会修改装配方案。
+
 ## 配装计算
 
-旧版完整算法的公共输入协议仍位于 `src/optimizer/contracts.py`，方便现有页面继续运行。旧版属性名称兼容入口集中在 `src/domain/stat_catalog.py`。
+计算页固定从 `user_data.sqlite3` 读取当前稳定快照，并将它仅在内存中投影给既有求解器；不会再回退读取旧背包 JSON。弃置状态只作为结果展示的红色标签，驱动和核心仍参与候选计算。计算完成后，每个有效角色方案都以官方 `character_id`、原生 UID、目标坐标和 `source_snapshot_id` 保存到 `loadout_plan`。`equipped_state.json` 只保留给尚未迁移的旧页面展示，不再是计算或 nte-core 装配的数据源。
 
 2.0 的首个新入口是 `src/services/sqlite_loadout_optimizer.py`：
 
@@ -48,6 +53,16 @@
 - 驱动坐标位于 1–5，且方案不依赖协议不支持的旋转。
 
 派发 `equipment.equip_one_key` 后，服务会等待比装配前更新的稳定快照，再核对角色 UID、角色 ID、核心和每个驱动的锚点位置。这个同步方法应从界面工作线程调用，不能阻塞 Qt 主线程。
+
+批量装配在第一条 RPC 前固定一个 `snapshot_id`，从当前活动的 SQLite 方案取得角色 ID 和装备 UID，并缓存角色实例 UID。期间即使后台收到新背包快照，也只能使本次预检查失败后重新开始，不能把不同版本的装备混入同一批装配。
+
+同步快照中出现的 `character_id` 与原生实例 UID 会写入用户库的
+`character_instance_mapping`。角色当前没有任何已装备物品、或映射不唯一时，界面
+要求用户选择官方角色 ID 并输入 `slot,serial`；确认后的映射仅保存在该账号的用户库。
+
+批量 nte-core 装配会持久化为任务、逐角色步骤和事件日志。每个步骤记录尝试次数、
+前后快照与失败原因；失败只停止当前角色，已确认步骤不会重发，可从“继续未完成装配”
+或失败提示中重试并继续。任务源快照受清理策略保护；回滚不属于当前阶段。
 
 ## 界面与生命周期
 

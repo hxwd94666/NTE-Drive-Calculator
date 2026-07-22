@@ -490,7 +490,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     self.scan_group = ScanGroup()
                     self.total_count_edit = CountEdit()
                     self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: True)
-                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: False)
                     self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
                     self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
                     self.result_card = SimpleNamespace(setVisible=lambda _value: None)
@@ -502,7 +501,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     post_actions_config=None,
                     selected_roles=None,
                     parse_during_scan=True,
-                    discrete_gpu_acceleration=False,
                     amd_compatibility=False,
                 ):
                     self.scan_args.append(
@@ -511,7 +509,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                             post_actions_config,
                             selected_roles,
                             parse_during_scan,
-                            discrete_gpu_acceleration,
                             amd_compatibility,
                         )
                     )
@@ -534,7 +531,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             controller.QMessageBox.information = original_information
             runtime.USER_CONFIG_DIR = original_user_config_dir
 
-        total, config, selected_roles, parse_during_scan, discrete_gpu_acceleration, amd_compatibility = window.scan_args[0]
+        total, config, selected_roles, parse_during_scan, amd_compatibility = window.scan_args[0]
         self.assertEqual(10, total)
         self.assertTrue(config["discard"]["enabled"])
         self.assertEqual("SS", config["discard"]["grade"])
@@ -542,7 +539,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertEqual("SSS", config["lock"]["grade"])
         self.assertEqual([], selected_roles)
         self.assertTrue(parse_during_scan)
-        self.assertFalse(discrete_gpu_acceleration)
         self.assertFalse(amd_compatibility)
 
     def test_full_scan_dual_thread_checkbox_can_disable_streaming_parse(self):
@@ -589,7 +585,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     self.scan_group = ScanGroup()
                     self.total_count_edit = CountEdit()
                     self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: False)
-                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: False)
                     self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
                     self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
                     self.result_card = SimpleNamespace(setVisible=lambda _value: None)
@@ -601,7 +596,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     post_actions_config=None,
                     selected_roles=None,
                     parse_during_scan=True,
-                    discrete_gpu_acceleration=False,
                     amd_compatibility=False,
                 ):
                     self.parse_during_scan = parse_during_scan
@@ -618,72 +612,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             runtime.USER_CONFIG_DIR = original_user_config_dir
 
         self.assertFalse(window.parse_during_scan)
-
-    def test_full_scan_discrete_gpu_checkbox_requests_acceleration(self):
-        from src.features.scanning import controller
-        from src.app import runtime
-
-        original_information = controller.QMessageBox.information
-        original_user_config_dir = runtime.USER_CONFIG_DIR
-        controller.QMessageBox.information = lambda *_args, **_kwargs: None
-        try:
-            class RoleSelector:
-                def get_selected(self):
-                    return []
-
-                def get_custom_sets(self):
-                    return {}
-
-                def get_tape_main_filters(self):
-                    return {}
-
-                def get_crit_priority_modes(self):
-                    return {}
-
-                def get_crit_rate_caps(self):
-                    return {}
-
-                def get_set_effect_modes(self):
-                    return {}
-
-                def get_priority_groups(self):
-                    return None
-
-            class Window:
-                def __init__(self):
-                    self.role_selector = RoleSelector()
-                    self.scan_group = SimpleNamespace(checkedId=lambda: 1)
-                    self.total_count_edit = SimpleNamespace(text=lambda: "10")
-                    self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: True)
-                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: True)
-                    self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
-                    self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
-                    self.result_card = SimpleNamespace(setVisible=lambda _value: None)
-                    self.discrete_gpu_acceleration = None
-
-                def _start_gamepad_scan(
-                    self,
-                    total_drives,
-                    post_actions_config=None,
-                    selected_roles=None,
-                    parse_during_scan=True,
-                    discrete_gpu_acceleration=False,
-                    amd_compatibility=False,
-                ):
-                    self.discrete_gpu_acceleration = discrete_gpu_acceleration
-
-                def _confirm_unsaved_allocation_before_recompute(self):
-                    return True
-
-            with tempfile.TemporaryDirectory() as tmp:
-                runtime.USER_CONFIG_DIR = Path(tmp)
-                window = Window()
-                controller._do_exec(window)
-        finally:
-            controller.QMessageBox.information = original_information
-            runtime.USER_CONFIG_DIR = original_user_config_dir
-
-        self.assertTrue(window.discrete_gpu_acceleration)
 
     def test_full_scan_amd_compatibility_forces_low_load_options(self):
         from src.features.scanning import controller
@@ -721,7 +649,6 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     self.scan_group = SimpleNamespace(checkedId=lambda: 1)
                     self.total_count_edit = SimpleNamespace(text=lambda: "10")
                     self.scan_dual_thread_check = SimpleNamespace(isChecked=lambda: True)
-                    self.scan_discrete_gpu_check = SimpleNamespace(isChecked=lambda: True)
                     self.scan_amd_compat_check = SimpleNamespace(isChecked=lambda: True)
                     self.strategy_group = SimpleNamespace(checkedId=lambda: 0)
                     self.btn_run = SimpleNamespace(setEnabled=lambda _value: None, setText=lambda _text: None)
@@ -734,12 +661,10 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     post_actions_config=None,
                     selected_roles=None,
                     parse_during_scan=True,
-                    discrete_gpu_acceleration=False,
                     amd_compatibility=False,
                 ):
                     self.scan_args = (
                         parse_during_scan,
-                        discrete_gpu_acceleration,
                         amd_compatibility,
                     )
 
@@ -754,7 +679,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             controller.QMessageBox.information = original_information
             runtime.USER_CONFIG_DIR = original_user_config_dir
 
-        self.assertEqual((False, False, True), window.scan_args)
+        self.assertEqual((False, True), window.scan_args)
 
     def test_result_header_grade_uses_full_350_score_even_without_tape(self):
         from PySide6.QtWidgets import QApplication, QFrame, QVBoxLayout

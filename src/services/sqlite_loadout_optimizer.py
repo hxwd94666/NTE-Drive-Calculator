@@ -112,7 +112,8 @@ class SqliteLoadoutOptimizer:
 
         weights = self._weights(blueprint, property_weights)
         inventory = self.user_dao.list_inventory_items(pinned_snapshot_id)
-        available = [item for item in inventory if not item.get("discarded", False)]
+        # 弃置仅是游戏内状态标记，不能让用户的可装配候选凭空消失。
+        available = list(inventory)
 
         core_candidates = [
             item
@@ -210,6 +211,7 @@ class SqliteLoadoutOptimizer:
                     "target_column": slot["column"],
                     "rotation": 0,
                     "score": self._score_item(selected, weights),
+                    "discarded": bool(selected.get("discarded")),
                 }
             )
 
@@ -223,6 +225,7 @@ class SqliteLoadoutOptimizer:
             "target_column": None,
             "rotation": 0,
             "score": self._score_item(core, weights),
+            "discarded": bool(core.get("discarded")),
         }
         assignments = (*module_assignments, core_assignment)
         total_score = sum(float(item["score"]) for item in assignments)

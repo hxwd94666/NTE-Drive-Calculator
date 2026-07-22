@@ -10,12 +10,13 @@ from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticG
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATHS = tuple(
-    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / filename
-    for filename in (
-        "002_game_static.sql", "003_game_static_combat.sql",
-        "004_game_static_monster_binding.sql", "005_game_static_abyss_binding.sql",
-    )
+SCHEMA_PATHS = (
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "004_game_static_character_awaken.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "005_game_static_character_growth.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "006_game_static_character_skills.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "007_game_static_skill_damage.sql",
 )
 
 
@@ -26,11 +27,14 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection = sqlite3.connect(self.database_path)
         for schema_path in SCHEMA_PATHS:
             connection.executescript(schema_path.read_text(encoding="utf-8"))
-        connection.executemany(
-            "INSERT INTO schema_migration VALUES (?, '2026-07-22')", ((2,), (3,), (4,), (5,))
-        )
+        connection.execute("INSERT INTO schema_migration VALUES (2, '2026-07-18')")
+        connection.execute("INSERT INTO schema_migration VALUES (3, '2026-07-18')")
+        connection.execute("INSERT INTO schema_migration VALUES (4, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (5, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (6, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (7, '2026-07-21')")
         connection.execute(
-            "INSERT INTO dataset VALUES ('fixture', 'test', 5, '2026-07-22')"
+            "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
         connection.execute(
             "INSERT INTO source_file VALUES (1, 'DataTable/Test.json', 'hash', 1)"
@@ -46,6 +50,52 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute(
             "INSERT INTO character_annotation VALUES "
             "(1001, 'character:1001', 1001, 'playable', 'fixture.json')"
+        )
+        connection.execute(
+            """
+            INSERT INTO character_awaken_effect VALUES (
+                1001, 'resonance_3', 6, 'Awaken_Resonance', '三觉', NULL, NULL,
+                '技能等级提升', NULL, NULL, NULL, '[{\"SkillName\":\"Skill1\",\"SkillLevel\":1}]',
+                '[]', 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO character_awaken_skill_level_bonus VALUES "
+            "(1001, 'resonance_3', 0, 'Skill1', 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO character_panel_growth VALUES (
+                1001, 20, 1, 'breakthrough_after', 2000.0, 100.0, 80.0,
+                1, 1, 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO character_skill VALUES (
+                1001, 'Skill1', 'Proactive', 1, 1, 'Ability.Skill', NULL, 0, 1, 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO character_skill_level VALUES (
+                1001, 'Skill1', 1, 2, 0, '[{\"ID\":\"gold\",\"Number\":2000}]'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO skill_damage VALUES (
+                'Damage1', 'Skill1', 'NORMAL', 0.1, 0.2, 0.0, 'P', 0.5,
+                '[1.0,1.1]', '[]', '[]', 1.0, 'Low', 0, 0.0, 1, 2.0, 0, 0.0, 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO skill_damage_modifier VALUES ('Damage1', 0.9, 1)"
         )
         connection.execute(
             "INSERT INTO equipment_attribute VALUES "
@@ -136,65 +186,6 @@ class StaticGameDataDaoTest(unittest.TestCase):
             )
             """
         )
-        connection.execute(
-            "INSERT INTO combat_level_curve VALUES "
-            "('topple:character_level', 'topple', NULL, NULL, 'RCIM_Constant', "
-            "'exact_level', 1)"
-        )
-        connection.execute(
-            "INSERT INTO combat_level_curve_point VALUES "
-            "('topple:character_level', 0, 80, NULL, 3603)"
-        )
-        connection.execute(
-            "INSERT INTO combat_level_curve VALUES "
-            "('reaction:GE_Test', 'reaction', 'REACTION_RESULT_TYPE_1', "
-            "'GE_Test', NULL, 'source_tier', 1)"
-        )
-        connection.executemany(
-            "INSERT INTO combat_level_curve_point VALUES (?,?,?,?,?)",
-            (("reaction:GE_Test", 0, None, 0, 80), ("reaction:GE_Test", 1, None, 1, 120)),
-        )
-        connection.execute(
-            "INSERT INTO reaction_definition VALUES "
-            "('REACTION_RESULT_TYPE_1', 'COSMOS', 'NATURE', 'GE_Test', 1)"
-        )
-        connection.execute(
-            "INSERT INTO combat_effect_constant VALUES "
-            "('Reaction_Test_BuffTime', 1, 12, 'seconds', '测试持续时间', 1)"
-        )
-        connection.execute(
-            "INSERT INTO skill_damage VALUES "
-            "('GE_Skill_Test', 'GA_Test', 'CHAOS', NULL, 0.5, 1, 2, 0, 1, 'BL_Low', 1)"
-        )
-        connection.executemany(
-            "INSERT INTO skill_damage_rate VALUES (?,?,?,?)",
-            (("GE_Skill_Test", "attack", 0, 1.25), ("GE_Skill_Test", "health", 0, 0.1)),
-        )
-        connection.execute(
-            "INSERT INTO enemy_combat_profile VALUES "
-            "('night_999', 'Boss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, 1)"
-        )
-        connection.execute(
-            "INSERT INTO enemy_element_resistance VALUES "
-            "('night_999', 'Boss1', 'chaos', 0.2, 0)"
-        )
-        connection.execute(
-            "INSERT INTO enemy_combat_profile VALUES "
-            "('standard', 'AbyssBoss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, 1)"
-        )
-        connection.execute(
-            "INSERT INTO abyss_level VALUES ('Abyss_Common', 1, NULL, '始发站', 1)"
-        )
-        connection.execute(
-            "INSERT INTO abyss_level_monster_spawn VALUES "
-            "('Abyss_Common', 1, 'EAbyssFightStage::FirstHalf', 0, 1, "
-            "'Pool1', 'EAbyssMonsterSpawnType::Spawn_KillAll', 0, 1)"
-        )
-        connection.execute(
-            "INSERT INTO abyss_monster_pool_entry VALUES "
-            "('Pool1', 0, '/Game/Monster/Boss.Boss_C', 2, 43, 'standard', "
-            "'AbyssBoss1', 1, 1)"
-        )
         connection.commit()
         connection.close()
 
@@ -204,7 +195,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 5)
+            self.assertEqual(summary["schema_version"], 7)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")
@@ -230,10 +221,64 @@ class StaticGameDataDaoTest(unittest.TestCase):
             character = dao.get_character(1001)
             plan = dao.get_equipment_plan(1001)
             forks = dao.list_forks()
+            role_templates = dao.list_role_template_characters()
+            fork_templates = dao.list_fork_templates()
         self.assertEqual(character["classification"], "playable")
         self.assertEqual(plan["core_item_id"], "Core1")
         self.assertEqual(plan["module_item_ids"], ["Module1"])
         self.assertEqual(forks[0]["exclusive_character_ids"], [1001])
+        self.assertEqual(role_templates[0]["character_id"], 1001)
+        self.assertEqual(fork_templates[0]["fork_id"], "fork_Test")
+        self.assertEqual(fork_templates[0]["upgrade_levels"], [])
+
+    def test_character_awaken_effects_include_skill_level_bonuses(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            effects = dao.list_character_awaken_effects(1001)
+        self.assertEqual(effects[0]["effect_id"], "resonance_3")
+        self.assertEqual(effects[0]["skill_level_bonuses"], [
+            {"ordinal": 0, "skill_id": "Skill1", "level_delta": 1}
+        ])
+
+    def test_character_panel_growth_is_queryable_by_breakthrough_stage(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            growth = dao.get_character_panel_growth(1001, 20, 1)
+        self.assertEqual(growth["state"], "breakthrough_after")
+        self.assertEqual(growth["atk_base"], 100.0)
+
+    def test_character_skills_include_level_requirements_and_costs(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            skills = dao.list_character_skills(1001)
+        self.assertEqual(skills[0]["skill_id"], "Skill1")
+        self.assertTrue(skills[0]["show_detail_info"])
+        self.assertEqual(skills[0]["levels"], [{
+            "level": 1,
+            "required_breakthrough_stage": 2,
+            "required_awaken_level": 0,
+            "cost_items": [{"ID": "gold", "Number": 2000}],
+        }])
+        self.assertEqual(skills[0]["damage_entries"], [{
+            "damage_id": "Damage1",
+            "damage_type": "NORMAL",
+            "charge_add": 0.1,
+            "unbal_value": 0.2,
+            "heterochrome_add": 0.0,
+            "damage_source_category": "P",
+            "fixed_crit_rate": 0.5,
+            "atk_rate_base": [1.0, 1.1],
+            "def_rate_base": [],
+            "hp_rate_base": [],
+            "story_balance_ge_rate": 1.0,
+            "attack_break_level": "Low",
+            "override_breakable_damage": False,
+            "breakable_damage": 0.0,
+            "override_breakable_impulse": True,
+            "breakable_impulse": 2.0,
+            "override_vehicle_breakable_impulse": False,
+            "vehicle_breakable_impulse": 0.0,
+            "source_row_id": 1,
+            "modifier_atk_rate_base_coefficient": 0.9,
+            "modifier_source_row_id": 1,
+        }])
 
     def test_raw_source_payload_is_available(self):
         with StaticGameDataDao(self.database_path) as dao:
@@ -249,32 +294,6 @@ class StaticGameDataDaoTest(unittest.TestCase):
         with StaticGameDataDao(self.database_path) as dao:
             payload = dao.get_source_payload("DataTable/Test.json", "row")
         self.assertIsNone(payload)
-
-    def test_combat_curves_skills_and_enemy_profiles_are_queryable(self):
-        with StaticGameDataDao(self.database_path) as dao:
-            topple = dao.get_topple_level_multiplier(80)
-            reaction = dao.get_reaction_damage_curve("GE_Test")
-            skill = dao.get_skill_damage("GE_Skill_Test")
-            enemy = dao.get_enemy_combat_profile("night_999", "Boss1")
-            constants = dao.list_combat_effect_constants()
-
-        self.assertEqual(topple, 3603)
-        self.assertEqual(reaction["mapping_status"], "source_tier")
-        self.assertEqual([point["value"] for point in reaction["points"]], [80, 120])
-        self.assertEqual(skill["rates"]["attack"][0]["value"], 1.25)
-        self.assertEqual(enemy["topple_limit"], 50)
-        self.assertEqual(enemy["resistances"]["chaos"]["resistance_base"], 0.2)
-        self.assertEqual(constants[0]["unit"], "seconds")
-
-    def test_abyss_level_query_keeps_spawn_and_attribute_provenance(self):
-        with StaticGameDataDao(self.database_path) as dao:
-            level = dao.get_abyss_level_monsters("Abyss_Common", 1)
-
-        self.assertEqual(level["name_zh"], "始发站")
-        self.assertEqual(level["spawns"][0]["monster_pool_id"], "Pool1")
-        self.assertEqual(level["spawns"][0]["monster_level"], 43)
-        self.assertEqual(level["spawns"][0]["attribute_pack_id"], "AbyssBoss1")
-        self.assertEqual(level["spawns"][0]["attribute_source_row_id"], 1)
 
 
 if __name__ == "__main__":

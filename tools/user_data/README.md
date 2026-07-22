@@ -29,7 +29,13 @@ python tools/user_data/manage_user_database.py --database accounts/default/user_
 python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 inventory --kind module --limit 10
 python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 settings
 python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 plans
+python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 prune-snapshots --retain-recent 20
 ```
+
+背包同步会自动保留最近配置数量的稳定快照。当前快照、所有已保存装配方案和未完成装配任务
+引用的快照始终不会被删除；其余历史快照可在设置页或使用
+`prune-snapshots` 命令清理。删除后 SQLite 文件空间可能不会立刻缩小，但会被
+后续同步复用。
 
 也可以在 DB Browser for SQLite 中打开 `accounts/default/user_data.sqlite3`。重点表：
 
@@ -39,6 +45,8 @@ python tools/user_data/manage_user_database.py --database accounts/default/user_
 - `inventory_item_stat`：主词条和副词条。
 - `current_inventory_item`：当前有效背包视图。
 - `loadout_plan`、`loadout_plan_item`：保存的装配方案。
+- `character_instance_mapping`：同步自动发现或用户手动确认的角色 ID/实例 UID 映射。
+- `equipment_apply_job`、`equipment_apply_job_item`、`equipment_apply_job_log`：可重试、可续跑的批量装配任务和日志。
 
 ## 测试
 

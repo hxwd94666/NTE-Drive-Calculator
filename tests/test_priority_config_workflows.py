@@ -223,6 +223,38 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertEqual("drive_2", result["A"]["assigned_extra_drives"][0].uid)
         self.assertEqual("drive_1", result["B"]["assigned_extra_drives"][0].uid)
 
+    def test_equal_group_isolates_individually_impossible_role(self):
+        from src.models.equipment import Drive
+        from src.optimizer.role_priority_strategy import RolePriorityStrategy
+
+        roles_db = {
+            "A": {"default_set": "Set"},
+            "B": {"default_set": "Set"},
+            "C": {"default_set": "Set"},
+        }
+        strategy = RolePriorityStrategy(
+            roles_db,
+            {"Set": {"shapes": []}},
+            {
+                "A": [{"set_pieces": [], "extra_pieces": ["X"]}],
+                "B": [{"set_pieces": [], "extra_pieces": ["Y"]}],
+                "C": [{"set_pieces": [], "extra_pieces": ["Z"]}],
+            },
+        )
+        drives = [
+            Drive(uid="x", quality="Gold", area=1, shape_id="X", set_name="Set", main_stats={"m1": 1, "m2": 1}),
+            Drive(uid="y", quality="Gold", area=1, shape_id="Y", set_name="Set", main_stats={"m1": 1, "m2": 1}),
+        ]
+
+        result = strategy.execute(
+            {"drives": drives, "tapes": {}}, ["A", "B", "C"],
+            {"A": "Set", "B": "Set", "C": "Set"}, priority_groups=[["A", "B", "C"]],
+        )
+
+        self.assertTrue(result["A"]["valid"])
+        self.assertTrue(result["B"]["valid"])
+        self.assertFalse(result["C"]["valid"])
+
     def test_role_priority_batch_reuses_matrix_combo_iterator(self):
         from src.models.equipment import Drive
         from src.optimizer.role_priority_strategy import RolePriorityStrategy

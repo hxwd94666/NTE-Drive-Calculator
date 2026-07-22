@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from src.models.equipment import Tape
 from src.app.theme import theme_rgba, themed_style
+from src.features.role.paths import get_roles_img_path
 from src.ui.widgets import SearchableComboBox
 
 GRADE_COLORS = {"ACE": "#ffa726", "SSS": "#ffa726", "SS": "#f0883e", "S": "#f0883e", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
@@ -120,7 +121,7 @@ def build_identify_page(window, text_edit_cls):
 
     window.ident_manual_text = text_edit_cls()
     window.ident_manual_text.setAcceptDrops(False)
-    window.ident_manual_text.setPlaceholderText("手动输入副词条，每行一条，例如：暴击率 1.0%")
+    window.ident_manual_text.setPlaceholderText("手动输入副词条名称；数值可省略。支持逗号、空格、换行混合分隔，例如：攻击力% 暴击，爆伤")
     window.ident_manual_text.setFixedHeight(108)
     input_card.layout().addWidget(window.ident_manual_text)
 
@@ -238,11 +239,13 @@ def render_identify_result_page(window, pages: list[dict]):
     preview_main_weights = rows[0].get("main_weights") if rows else None
     if isinstance(item, Tape):
         preview = window._equip_card(
-            item.set_name, item.main_stats, item.sub_stats, None, item.uid, preview_weights, None, item.quality, main_weights=preview_main_weights
+            item.set_name, item.main_stats, item.sub_stats, None, item.uid, preview_weights, None, item.quality,
+            main_weights=preview_main_weights, card_variant="result",
         )
     else:
         preview = window._equip_card(
-            item.shape_id, "", item.sub_stats, item.shape_id, item.uid, preview_weights, None, item.quality
+            item.shape_id, "", item.sub_stats, item.shape_id, item.uid, preview_weights, None, item.quality,
+            card_variant="result",
         )
     window.ident_result_layout.addWidget(preview)
 
@@ -289,11 +292,26 @@ def build_identify_result_row(rank: int, row: dict):
 
     info = QVBoxLayout()
     info.setSpacing(2)
+    role_header = QHBoxLayout()
+    role_header.setSpacing(7)
+    avatar = QLabel()
+    avatar.setFixedSize(48, 48)
+    avatar.setAlignment(Qt.AlignCenter)
+    avatar.setStyleSheet(themed_style("background:transparent;border:none;color:#8b949e;font-size:14px;font-weight:700"))
+    avatar_path = get_roles_img_path(str(row["role"]))
+    portrait = QPixmap(str(avatar_path)) if avatar_path.is_file() else QPixmap()
+    if portrait.isNull():
+        avatar.setText(str(row["role"])[:1])
+    else:
+        avatar.setPixmap(portrait.scaled(avatar.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    role_header.addWidget(avatar)
     role = QLabel(row["role"])
     role.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#c9d1d9;border:none"))
+    role_header.addWidget(role)
+    role_header.addStretch()
     meta = QLabel(f"{row['set']} · {row['match']} · 占比 {row['percent']:.1f}%")
     meta.setStyleSheet(themed_style("color:#8b949e;font-size:11px;border:none"))
-    info.addWidget(role)
+    info.addLayout(role_header)
     info.addWidget(meta)
     layout.addLayout(info, 1)
 

@@ -25,14 +25,30 @@ class InventoryPageMixin:
     _same_equipment_by_ocr = inventory_page._same_equipment_by_ocr
     _page_equipment = inventory_page._page_equipment
     _refresh_equip = inventory_page._refresh_equip
+    _page_warehouse = inventory_page._page_warehouse
+    _refresh_warehouse = inventory_page._refresh_warehouse
+    _apply_warehouse_filters = inventory_page._apply_warehouse_filters
+    _on_warehouse_sync_state = inventory_page._on_warehouse_sync_state
+    _on_warehouse_selection_changed = inventory_page._on_warehouse_selection_changed
+    _set_warehouse_selected_state = inventory_page._set_warehouse_selected_state
+    _toggle_warehouse_item_state = inventory_page._toggle_warehouse_item_state
+    _show_warehouse_item_identification = inventory_page._show_warehouse_item_identification
+    _save_warehouse_state_changes = inventory_page._save_warehouse_state_changes
+    _update_warehouse_save_state = inventory_page._update_warehouse_save_state
+    _on_warehouse_manual_plan_ready = inventory_page._on_warehouse_manual_plan_ready
+    _open_warehouse_state_manager = inventory_page._open_warehouse_state_manager
+    _on_warehouse_state_plan_ready = inventory_page._on_warehouse_state_plan_ready
+    _on_warehouse_state_applied = inventory_page._on_warehouse_state_applied
+    _on_warehouse_state_error = inventory_page._on_warehouse_state_error
+    _set_warehouse_management_busy = inventory_page._set_warehouse_management_busy
     _saved_plan_diff_text = inventory_page._saved_plan_diff_text
     _show_saved_plan_diff_dialog = inventory_page._show_saved_plan_diff_dialog
     _clear_all_equipment = inventory_page._clear_all_equipment
     _delete_role_equipment = inventory_page._delete_role_equipment
     _optimize_saved_equipment = inventory_page._optimize_saved_equipment
     _preview_assemble_role = inventory_page._preview_assemble_role
-    _preview_assemble_all_roles = inventory_page._preview_assemble_all_roles
-    _save_eq = inventory_page._save_eq
+    _preview_fast_assemble_all_roles = inventory_page._preview_fast_assemble_all_roles
+    _preview_automatic_assemble_all_roles = inventory_page._preview_automatic_assemble_all_roles
 
 
 class BlueprintPageMixin:

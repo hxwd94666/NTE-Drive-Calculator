@@ -124,7 +124,10 @@ class SqliteAllocationInventory:
         return shape_id
 
     def build(self, snapshot_id: int | None = None) -> AllocationInventoryProjection:
-        """固定一个快照并过滤已弃置物品，返回纯内存求解输入。"""
+        """固定一个快照并投影全部物品，返回纯内存求解输入。
+
+        弃置状态是游戏内标记，不是“不可装配”状态；因此保留在候选集中并透传给结果 UI。
+        """
 
         pinned_snapshot_id = (
             self.user_dao.current_inventory_snapshot_id()
@@ -146,7 +149,6 @@ class SqliteAllocationInventory:
         for item in self.user_dao.list_inventory_items(pinned_snapshot_id):
             if item.get("discarded"):
                 discarded_count += 1
-                continue
             kind = item.get("kind")
             uid_prefix = "module" if kind == "module" else "core"
             base = {
@@ -155,6 +157,32 @@ class SqliteAllocationInventory:
                 "quality": self._quality(item.get("quality")),
                 "area": int(item.get("grid_count") or 15),
                 "sub_stats": _stats(item.get("sub_stats") or []),
+                "discarded": bool(item.get("discarded")),
+                "is_duplicate_drive": bool(item.get("is_duplicate_drive", False)),
+                "duplicate_group_id": item.get("duplicate_group_id"),
+                "duplicate_index": item.get("duplicate_index"),
+                "duplicate_count": item.get("duplicate_count"),
+                # 旧求解器字段之外，同时保留可供第三方工具消费的官方快照字段。
+                "official": {
+                    "snapshot_id": pinned_snapshot_id,
+                    "uid": {"slot": int(item["uid_slot"]), "serial": int(item["uid_serial"])},
+                    "kind": str(item.get("kind") or ""),
+                    "item_id": str(item.get("item_id") or ""),
+                    "suit_id": item.get("suit_id"),
+                    "geometry": item.get("geometry"),
+                    "quality": item.get("quality"),
+                    "level": int(item.get("level") or 0),
+                    "max_level": int(item.get("max_level") or 0),
+                    "locked": bool(item.get("locked")),
+                    "discarded": bool(item.get("discarded")),
+                    "equipped": bool(item.get("equipped")),
+                    "equipped_character_id": item.get("equipped_character_id"),
+                    "equipped_placement": item.get("equipped_placement"),
+                    "is_duplicate_drive": bool(item.get("is_duplicate_drive", False)),
+                    "duplicate_group_id": item.get("duplicate_group_id"),
+                    "main_stats": [dict(stat) for stat in item.get("main_stats") or []],
+                    "sub_stats": [dict(stat) for stat in item.get("sub_stats") or []],
+                },
             }
             if kind == "module":
                 base.update(
@@ -194,3 +222,12 @@ class SqliteAllocationInventory:
             items=tuple(projected),
             discarded_count=discarded_count,
         )
+
+
+def load_current_inventory_projection(database_path: str | None = None) -> list[dict[str, Any]]:
+    """为旧 UI 提供 SQLite 快照投影，不读取 real_inventory.json。"""
+    if database_path is None:
+        from src.app import runtime
+        database_path = str(runtime.USER_DATABASE_PATH)
+    with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
+        return [dict(item) for item in SqliteAllocationInventory(user_dao, static_dao).build().items]

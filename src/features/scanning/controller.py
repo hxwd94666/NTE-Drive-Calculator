@@ -44,7 +44,7 @@ def offline_scope_replaces_inventory(scope: str) -> bool:
 def vision_cancel_message(parsed_count: int) -> str:
     return (
         f"已停止继续解析，本次已解析 {int(parsed_count or 0)} 张截图。\n\n"
-        "由于解析任务已取消，本次结果未写入/更新 real_inventory.json。"
+        "由于解析任务已取消，本次结果未写入/更新 SQLite 背包快照。"
     )
 
 
@@ -94,7 +94,7 @@ def _do_exec(self):
             QMessageBox.warning(self,"提示","库存数量必须在 1-2000 之间。")
             return
     if parse_only:
-        QMessageBox.information(self,"仅生成库存数据","当前未选择任何角色，本次扫描解析只会生成 real_inventory.json，不会进行配装计算。")
+        QMessageBox.information(self,"仅生成库存数据","当前未选择任何角色，本次扫描解析只会写入 SQLite 背包快照，不会进行配装计算。")
     offline_scope=None
     if sm=="3":
         checked=self.offline_group.checkedButton() if hasattr(self,"offline_group") else None
@@ -136,7 +136,7 @@ def _do_exec(self):
         if post_action_error:
             QMessageBox.warning(self, "扫描后管理配置无效", post_action_error)
             return
-    self.btn_run.setEnabled(False); self.btn_run.setText("\u23f3 \u6267\u884c\u4e2d..."); self.result_card.setVisible(False)
+    self.btn_run.setEnabled(False); self.btn_run.setText("⏳ 计算中..."); self.result_card.setVisible(False)
     self._pending_strat=strat; self._pending_sel=sel; self._pending_cs=cs; self._pending_custom_weapons=cw; self._pending_tape_main_filters=tmf; self._pending_crit_priority_modes=cpm; self._pending_crit_rate_caps=crc; self._pending_set_effect_modes=sem; self._pending_priority_groups=pg
     self._pending_archive_paths=[]
     self._pending_parse_only=parse_only
@@ -151,21 +151,16 @@ def _do_exec(self):
         parse_during_scan = True
         if hasattr(self, "scan_dual_thread_check"):
             parse_during_scan = bool(self.scan_dual_thread_check.isChecked())
-        discrete_gpu_acceleration = False
-        if hasattr(self, "scan_discrete_gpu_check"):
-            discrete_gpu_acceleration = bool(self.scan_discrete_gpu_check.isChecked())
         amd_compatibility = False
         if hasattr(self, "scan_amd_compat_check"):
             amd_compatibility = bool(self.scan_amd_compat_check.isChecked())
         if amd_compatibility:
             parse_during_scan = False
-            discrete_gpu_acceleration = False
         self._start_gamepad_scan(
             total_drives,
             post_actions_config=post_actions_config,
             selected_roles=sel,
             parse_during_scan=parse_during_scan,
-            discrete_gpu_acceleration=discrete_gpu_acceleration,
             amd_compatibility=amd_compatibility,
         )
     else:
@@ -226,14 +221,14 @@ def _start_vision_processing(self, replace_output=False, parse_scope="all"):
     self._pending_parse_scope=parse_scope
     skip_names=self._prepare_incremental_parse(parse_scope)
     if skip_names is None:
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
         self._pending_parse_only=False
         return
     matching_files=self._matching_scope_files(parse_scope,skip_names)
     if not matching_files:
         deleted=self._delete_paths(getattr(self,"_pending_delete_after_parse",[]) or [])
         self._pending_delete_after_parse=[]
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
         self._pending_parse_only=False
         self._update_inventory_status()
         QMessageBox.information(self,"解析完成",f"解析成功 0 张，解析失败 0 张，过滤重复 {deleted} 张。")
@@ -286,6 +281,12 @@ def _on_vision_done(self,stats):
     failed_count=int(stats.get("failed_count",0) or 0)
     duplicate_count=int(stats.get("duplicate_count",0) or 0)+int(post.get("probe_duplicates",0) or 0)
     summary=f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
+    vision_snapshot_id = stats.get("vision_snapshot_id")
+    if isinstance(vision_snapshot_id, int) and vision_snapshot_id > 0:
+        summary += f"\n已写入视觉扫描库存快照 #{vision_snapshot_id}；没有抓包快照时可用于计算和自动装配。"
+        refresh_home = getattr(self, "_refresh_home", None)
+        if callable(refresh_home):
+            refresh_home()
     if pending_manual_count:
         summary += f"\n待补录 {pending_manual_count} 件，已补录入库 {manual_added} 件。"
     if stats.get("post_actions_enabled"):
@@ -317,9 +318,9 @@ def _on_vision_done(self,stats):
         summary+="\n"+"\n".join(details)
     if getattr(self,"_pending_parse_only",False):
         self._pending_archive_paths=[]
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
         self._update_inventory_status()
-        QMessageBox.information(self,"库存数据已生成",summary+"\n\n本次未配置角色优先级，已仅生成/更新 real_inventory.json，未进行配装计算。")
+        QMessageBox.information(self,"库存数据已生成",summary+"\n\n本次未配置角色优先级，已仅生成/更新 SQLite 背包快照，未进行配装计算。")
         self._pending_parse_only=False
         return
     from PySide6.QtCore import QTimer
@@ -328,7 +329,7 @@ def _on_vision_done(self,stats):
 
 def _on_vision_error(self,err):
     self._progress_dlg.close()
-    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
     self._pending_parse_only=False
     QMessageBox.critical(self,"解析失败",f"截图解析出错:\n{err}")
 
@@ -338,12 +339,12 @@ def _on_vision_cancel(self):
         self._progress_dlg.setCancelButton(None)
         self._progress_dlg.setLabelText("正在取消解析，等待当前截图处理完成...")
         return
-    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
 
 def _on_vision_canceled(self,count):
     if hasattr(self, '_progress_dlg') and self._progress_dlg:
         self._progress_dlg.close()
-    self.btn_run.setEnabled(True); self.btn_run.setText("开始执行")
+    self.btn_run.setEnabled(True); self.btn_run.setText("开始计算")
     self._pending_parse_only=False
     QMessageBox.information(self,"解析已取消",vision_cancel_message(count))
 
@@ -357,7 +358,7 @@ def _start_scan(self,drone_mode):
     self.btn_run.setText("⏳  扫描中... (F12 停止)")
     self._scan_worker.start()
 
-def _start_gamepad_scan(self,total_drives, post_actions_config=None, selected_roles=None, parse_during_scan=True, discrete_gpu_acceleration=False, amd_compatibility=False):
+def _start_gamepad_scan(self,total_drives, post_actions_config=None, selected_roles=None, parse_during_scan=True, amd_compatibility=False):
     self._replace_inventory_on_next_parse=True
     self._pending_scan_mode="gamepad"
     self._pending_parse_scope="full"
@@ -384,7 +385,7 @@ def _start_gamepad_scan(self,total_drives, post_actions_config=None, selected_ro
         QMessageBox.Cancel,
     )
     if ret != QMessageBox.Ok:
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
         self._replace_inventory_on_next_parse=False
         self._pending_scan_mode=None
         self._gamepad_post_actions_enabled=False
@@ -397,7 +398,6 @@ def _start_gamepad_scan(self,total_drives, post_actions_config=None, selected_ro
         post_actions_config=post_actions_config,
         selected_roles=selected_roles,
         parse_during_scan=parse_during_scan,
-        discrete_gpu_acceleration=discrete_gpu_acceleration,
         amd_compatibility=amd_compatibility,
     )
     self._gamepad_worker.scan_done.connect(self._on_gamepad_scan_done)
@@ -605,7 +605,7 @@ def _on_gamepad_error(self,err):
     self.showNormal(); self.activateWindow()
     if hasattr(self,'_progress_dlg') and self._progress_dlg:
         self._progress_dlg.close()
-    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
     self._pending_parse_only=False
     QMessageBox.critical(self,"手柄扫描失败",f"全量扫描出错:\n{err}")
 
@@ -636,13 +636,13 @@ def _on_scan_done(self,count):
             self._start_vision_processing(replace_output=False,parse_scope="incremental")
     else:
         self._replace_inventory_on_next_parse=False
-        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+        self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
         self._pending_parse_only=False
         QMessageBox.information(self,"扫描完成","未捕获到新装备，无需解析。")
 
 def _on_scan_error(self,err):
     self._unregister_scan_hotkeys()
     self.showNormal(); self.activateWindow()
-    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始执行")
+    self.btn_run.setEnabled(True); self.btn_run.setText("⚡  开始计算")
     self._pending_parse_only=False
     QMessageBox.critical(self,"扫描失败",f"扫描出错:\n{err}")

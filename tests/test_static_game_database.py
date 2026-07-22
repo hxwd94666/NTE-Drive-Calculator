@@ -9,12 +9,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_DIR = PROJECT_ROOT / "tools" / "game_data"
 MODULE_PATH = TOOLS_DIR / "build_static_database.py"
-SCHEMA_PATHS = tuple(
-    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / filename
-    for filename in (
-        "002_game_static.sql", "003_game_static_combat.sql",
-        "004_game_static_monster_binding.sql", "005_game_static_abyss_binding.sql",
-    )
+SCHEMA_PATHS = (
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "004_game_static_character_awaken.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "005_game_static_character_growth.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "006_game_static_character_skills.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "007_game_static_skill_damage.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -36,9 +37,6 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertTrue(PROJECT_DATABASE_PATH.is_file())
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
         try:
-            schema_version = connection.execute(
-                "SELECT MAX(version) FROM schema_migration"
-            ).fetchone()[0]
             payload_count = connection.execute(
                 "SELECT COUNT(*) FROM source_row WHERE payload_json IS NOT NULL"
             ).fetchone()[0]
@@ -59,11 +57,34 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(5, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         self.assertEqual(0, absolute_path_count)
         self.assertEqual([], violations)
+
+    def test_combat_transformations_do_not_get_independent_growth_or_skills(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            transformations = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT character_id FROM character_annotation "
+                    "WHERE classification = 'combat_transformation'"
+                )
+            ]
+            for table in (
+                "character_awaken_effect",
+                "character_panel_growth",
+                "character_skill",
+            ):
+                count = connection.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE character_id IN "
+                    f"({','.join('?' for _ in transformations)})",
+                    transformations,
+                ).fetchone()[0]
+                self.assertEqual(0, count, table)
+        finally:
+            connection.close()
 
     def test_schema_can_be_created_with_foreign_keys_enabled(self):
         connection = sqlite3.connect(":memory:")
@@ -80,10 +101,10 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("equipment_suit_required_shape", tables)
         self.assertIn("equipment_plan", tables)
         self.assertIn("fork_item", tables)
-        self.assertIn("combat_level_curve", tables)
+        self.assertIn("character_awaken_effect", tables)
+        self.assertIn("character_panel_growth", tables)
+        self.assertIn("character_skill", tables)
         self.assertIn("skill_damage", tables)
-        self.assertIn("enemy_combat_profile", tables)
-        self.assertIn("abyss_level_monster_spawn", tables)
 
     def test_schema_uses_source_shape_ids_without_legacy_aliases(self):
         schema = "\n".join(path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)
@@ -92,6 +113,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("character_annotation", schema)
         self.assertIn("payload_json TEXT,", schema)
         self.assertNotIn("payload_json TEXT NOT NULL", schema)
+        self.assertIn("DROP COLUMN game_version", schema)
 
     def test_plan_grid_discards_border_and_keeps_playable_anchor_cells(self):
         module = load_builder_module()
@@ -123,40 +145,6 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
         self.assertNotIn("legacy-config-dir", source)
         self.assertNotIn("LEGACY_SHAPE_IDS", source)
-
-    def test_checked_in_combat_curves_keep_confirmed_source_values(self):
-        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
-        try:
-            topple_80 = connection.execute(
-                """
-                SELECT value FROM combat_level_curve_point
-                WHERE curve_id = 'topple:character_level' AND character_level = 80
-                """
-            ).fetchone()[0]
-            reaction_values = {
-                effect_id: connection.execute(
-                    """
-                    SELECT p.value
-                    FROM combat_level_curve AS c
-                    JOIN combat_level_curve_point AS p USING (curve_id)
-                    WHERE c.source_effect_id = ?
-                    ORDER BY p.source_tier DESC LIMIT 1
-                    """,
-                    (effect_id,),
-                ).fetchone()[0]
-                for effect_id in (
-                    "GE_ActorReaction_1_Damage",
-                    "Buff_Reaction_5_new",
-                    "Buff_Reaction_4_new",
-                )
-            }
-        finally:
-            connection.close()
-
-        self.assertEqual(3603, topple_80)
-        self.assertEqual(9000, reaction_values["GE_ActorReaction_1_Damage"])
-        self.assertEqual(2700, reaction_values["Buff_Reaction_5_new"])
-        self.assertEqual(45000, reaction_values["Buff_Reaction_4_new"])
 
 
 if __name__ == "__main__":

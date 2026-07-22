@@ -46,6 +46,9 @@ DEFAULT_DPAD_RESET_UP_COUNT = 5
 DEFAULT_DPAD_BOTTOM_REPEAT_LIMIT = 3
 DEFAULT_DPAD_ROLE_LIMIT = 80
 ROLE_LIST_GRID_COLUMNS = 3
+ROLE_LIST_GRID_ROWS = 4
+ROLE_LIST_FIRST_PAGE_SIZE = ROLE_LIST_GRID_COLUMNS * ROLE_LIST_GRID_ROWS
+ROLE_LIST_INITIAL_LEFT_RESET_COUNT = 4
 # Known OCR misreads observed in the in-game role-name region.  These are
 # applied only when the canonical role is present in the active blueprint.
 ROLE_OCR_CORRECTIONS = {
@@ -296,6 +299,34 @@ def map_role_list_reverse_left_move_sequence(
             "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
         }
         for _index in range(current - target)
+    ]
+
+
+def map_role_list_initial_left_reset_sequence(
+    repeat_count: int = ROLE_LIST_INITIAL_LEFT_RESET_COUNT,
+    pause_seconds: float = 0.08,
+) -> list[dict[str, Any]]:
+    """Return the quick defensive left pushes used after opening the list once."""
+
+    return [
+        {
+            "name": "role_list_initial_left_reset",
+            "gamepad_stick": "left_left",
+            "post_action_pause_seconds": max(0.0, float(pause_seconds)),
+        }
+        for _index in range(max(0, int(repeat_count)))
+    ]
+
+
+def map_role_list_reset_to_first_sequence() -> list[dict[str, Any]]:
+    """Return the one left push that restores a later-page list to its first role."""
+
+    return [
+        {
+            "name": "role_list_reset_to_first",
+            "gamepad_stick": "left_left",
+            "post_action_pause_seconds": ROLE_LIST_STICK_MOVE_PAUSE_SECONDS,
+        }
     ]
 
 
@@ -709,9 +740,11 @@ def collect_role_roster_from_role_list(
     open_role_list: Callable[[], None],
     confirm_selection: Callable[[], None],
     move_right: Callable[[], None],
+    move_left: Callable[[], None] | None = None,
     reset_up_count: int = DEFAULT_DPAD_RESET_UP_COUNT,
     bottom_repeat_limit: int = DEFAULT_DPAD_BOTTOM_REPEAT_LIMIT,
     max_roles: int = DEFAULT_DPAD_ROLE_LIMIT,
+    initial_left_reset_count: int = ROLE_LIST_INITIAL_LEFT_RESET_COUNT,
 ) -> dict[str, Any]:
     """Scan the RS three-column role list and stop as soon as targets are found.
 
@@ -722,6 +755,9 @@ def collect_role_roster_from_role_list(
     for _index in range(max(0, int(reset_up_count))):
         press_up()
     open_role_list()
+    if move_left is not None:
+        for _index in range(max(0, int(initial_left_reset_count))):
+            move_left()
 
     expected_order = [str(role).strip() for role in expected_roles if str(role).strip()]
     expected = set(expected_order)
@@ -778,6 +814,7 @@ def collect_role_roster_from_role_list(
         "list_open": True,
         "navigation": "rs_role_list_scan",
         "reset_up_count": max(0, int(reset_up_count)),
+        "initial_left_reset_count": max(0, int(initial_left_reset_count)),
     }
 
 
@@ -965,12 +1002,26 @@ def plan_role_assembly_from_role_list_roster(
         else int(role_roster.get("current_index", max(0, len(roster) - 1)) or 0)
     )
     list_is_open = bool(role_roster.get("list_open", True))
+    first_target_page = (
+        role_indexes[ordered_required[0]] // ROLE_LIST_FIRST_PAGE_SIZE
+        if ordered_required else 0
+    )
+    # 从第二页起打开角色列表没有稳定光标。先通过“左推复位 + 网格”处理，
+    # 直到实际装配过一个第一页角色；之后第一页光标可用，继续倒序左移即可。
+    first_page_cursor_established = first_target_page == 0
     plans: list[dict[str, Any]] = []
 
     for plan_index, role_name in enumerate(ordered_required):
         index = role_indexes[role_name]
-        move_sequence = map_role_list_reverse_left_move_sequence(cursor_index, index)
         starts_in_open_list = plan_index == 0 and list_is_open
+        reset_to_first = not starts_in_open_list and not first_page_cursor_established
+        if reset_to_first:
+            move_sequence = [
+                *map_role_list_reset_to_first_sequence(),
+                *map_role_list_grid_move_sequence(0, index),
+            ]
+        else:
+            move_sequence = map_role_list_reverse_left_move_sequence(cursor_index, index)
         action_sequence: list[dict[str, Any]] = []
         if not starts_in_open_list:
             action_sequence.append({"name": "open_role_list", "gamepad_button": "rs"})
@@ -988,14 +1039,21 @@ def plan_role_assembly_from_role_list_roster(
             {
                 "role_name": role_name,
                 "roster_index": index,
+                "target_page": index // ROLE_LIST_FIRST_PAGE_SIZE,
                 "start_roster_index": cursor_index,
-                "navigation": "role_list_reverse_left_from_open"
-                if starts_in_open_list
-                else "rs_role_list_reverse_left",
+                "navigation": (
+                    "role_list_reverse_left_from_open"
+                    if starts_in_open_list
+                    else "rs_role_list_reset_then_grid"
+                    if reset_to_first
+                    else "rs_role_list_reverse_left"
+                ),
                 "flow": "find_role_then_assemble_blueprint",
                 "action_sequence": action_sequence,
             }
         )
+        if index < ROLE_LIST_FIRST_PAGE_SIZE:
+            first_page_cursor_established = True
         cursor_index = index
 
     planned_roles = [plan["role_name"] for plan in plans]
@@ -1011,6 +1069,8 @@ def plan_role_assembly_from_role_list_roster(
         "complete": not missing and not role_roster.get("unrecognized"),
         "navigation": "rs_role_list_scan_then_reverse_left",
         "scan_stop_reason": role_roster.get("stop_reason", ""),
+        "first_target_page": first_target_page,
+        "reset_until_first_page_target": first_target_page > 0,
     }
 
 

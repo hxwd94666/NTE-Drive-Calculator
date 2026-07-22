@@ -31,10 +31,6 @@ def get_roles_path() -> Path:
     return get_config_path() / "roles.json"
 
 
-def get_weapon_path() -> Path:
-    return get_config_path() / "weapons.json"
-
-
 def get_tape_path() -> Path:
     return get_config_path() / "tapes.json"
 

@@ -189,7 +189,7 @@ def _create_directml_ocr(providers: list[str]):
         from rapidocr_onnxruntime import RapidOCR
         ocr = RapidOCR(use_cls=False, det_use_dml=True, cls_use_dml=True, rec_use_dml=True)
         _warmup(ocr)
-        return ocr, "DirectML GPU (独显加速)"
+        return ocr, "DirectML GPU"
     except Exception as e:
         logger.warning(f"DirectML OCR 初始化失败，回退到 OpenVINO/CPU: {e}")
         return None, ""
@@ -240,7 +240,7 @@ def _create_ocr_engine(backend_preference: str | None = None):
     elif backend_pref in {"directml", "auto"}:
         logger.info("OCR 后端允许 GPU，但未检测到独立显卡，改用 OpenVINO。")
     elif has_discrete_gpu:
-        logger.info("检测到独立显卡，但默认安全策略仍优先使用 OpenVINO；如需尝试 GPU，可在全量扫描中开启“独显加速”。")
+        logger.info("检测到独立显卡，但默认安全策略仍优先使用 OpenVINO。")
     else:
         logger.info("未检测到独立显卡，优先使用 OpenVINO 加速。")
 

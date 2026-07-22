@@ -113,7 +113,7 @@ class EquipmentApplyService:
         historical_candidates: set[tuple[int, int]] = set()
         for summary in self.user_dao.list_inventory_snapshots():
             historical_snapshot_id = int(summary["snapshot_id"])
-            if historical_snapshot_id == snapshot_id:
+            if historical_snapshot_id >= snapshot_id:
                 continue
             historical_candidates.update(candidates_for(historical_snapshot_id))
         if len(historical_candidates) == 1:
@@ -123,8 +123,19 @@ class EquipmentApplyService:
             raise EquipmentApplyError(
                 f"角色 {character_id} 在历史稳定背包中对应多个实例 UID，无法安全选择"
             )
+        mapped_candidates = {
+            (row["uid_slot"], row["uid_serial"])
+            for row in self.user_dao.list_character_instance_mappings(character_id)
+        }
+        if len(mapped_candidates) == 1:
+            slot, serial = next(iter(mapped_candidates))
+            return {"slot": slot, "serial": serial}
+        if len(mapped_candidates) > 1:
+            raise EquipmentApplyError(
+                f"角色 {character_id} 存在多个已保存的实例 UID，请在装配前手动选择"
+            )
         raise EquipmentApplyError(
-            "无法从当前或历史稳定背包确定角色实例 UID，请先给该角色装备一件物品"
+            "无法从当前或历史稳定背包确定角色实例 UID，请手动选择并保存该角色实例"
         )
 
     @staticmethod

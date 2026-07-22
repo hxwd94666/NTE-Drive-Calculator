@@ -17,6 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.services.role_fork_template_service import (
+    fork_templates_as_weapon_models,
+    load_official_role_fork_templates,
+)
 
 from .damage_model import calc_direct_damage
 
@@ -302,8 +306,6 @@ def calculate_graduation_benchmark_from_config(role_name: str, role_data: dict[s
             role_models = json.load(handle)
         with (config_path / "roles.json").open("r", encoding="utf-8") as handle:
             roles_db = json.load(handle)
-        with (config_path / "weapons.json").open("r", encoding="utf-8") as handle:
-            weapons_db = json.load(handle)
         with (config_path / "stats.json").open("r", encoding="utf-8") as handle:
             stats_config = json.load(handle)
     except (OSError, ValueError):
@@ -313,7 +315,9 @@ def calculate_graduation_benchmark_from_config(role_name: str, role_data: dict[s
         role_data,
         role_model=(role_models or {}).get(role_name, {}),
         role_config=(roles_db or {}).get(role_name, {}),
-        weapons_db=weapons_db or {},
+        weapons_db=fork_templates_as_weapon_models(
+            load_official_role_fork_templates()
+        ),
         stats_config=stats_config or {},
         extra_shape_count=graduation_extra_shape_count(str(config_path), role_name),
     )

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 from typing import Callable
 
 from .core import calc_base_damage, get_character_total_stats, get_valid_drives, is_empty_drive
@@ -49,12 +50,16 @@ def equipment_user_map(my_roles_data: dict, role_name: str, item_kind: str) -> d
             tape = rdata.get("tape", {})
             uid = tape.get("uid") if isinstance(tape, dict) else ""
             if uid:
-                user_map.setdefault(uid, []).append(rn)
+                users = user_map.setdefault(uid, [])
+                if rn not in users:
+                    users.append(rn)
             continue
         for drive in rdata.get("drive", {}).get("drives", []) or []:
             uid = drive.get("uid")
             if uid:
-                user_map.setdefault(uid, []).append(rn)
+                users = user_map.setdefault(uid, [])
+                if rn not in users:
+                    users.append(rn)
     return user_map
 
 
@@ -142,6 +147,86 @@ def calc_drive_replacement_margin(role_data: dict, equipped_drives: list[dict], 
         return 0.0
 
 
+def build_equipment_role_context(
+    base_role_data: dict | None,
+    equipped_drives: list[dict],
+    equipped_tape: dict | None,
+    *,
+    set_bonus: dict | None = None,
+) -> dict:
+    """Build the role-calculation input with equipment from one stable snapshot.
+
+    The caller supplies the role's editable base/weapon context, while the drive
+    and tape slots always come from the plan or snapshot being evaluated.  This
+    keeps direct-damage replacement evaluation independent from legacy inventory
+    files and makes the role page and the 配装 page use the same calculator input.
+    """
+    role_data = deepcopy(base_role_data) if isinstance(base_role_data, dict) else {}
+    source_drive = role_data.get("drive") if isinstance(role_data.get("drive"), dict) else {}
+    role_data["drive"] = {
+        "drives": [dict(drive) for drive in equipped_drives if isinstance(drive, dict)],
+        "blueprint_layout": list(source_drive.get("blueprint_layout") or []),
+    }
+    role_data["tape"] = dict(equipped_tape) if isinstance(equipped_tape, dict) else {}
+    if set_bonus is not None:
+        role_data["set_bonus"] = deepcopy(set_bonus)
+    return role_data
+
+
+def calc_tape_margin(role_data: dict) -> float:
+    """Return the current tape's direct-damage contribution in percent."""
+    tape = role_data.get("tape", {})
+    if not isinstance(tape, dict) or not tape.get("uid") or str(tape.get("uid")).startswith("empty_"):
+        return 0.0
+    try:
+        without_tape = {key: value for key, value in role_data.items() if key != "tape"}
+        damage_without = calc_base_damage(get_character_total_stats(without_tape))
+        damage_with = calc_base_damage(get_character_total_stats(role_data))
+        return 0.0 if damage_without == 0 else (damage_with / damage_without - 1) * 100
+    except Exception:
+        return 0.0
+
+
+def calc_tape_replacement_margin(role_data: dict, candidate_tape: dict) -> float:
+    """Return a same-suit tape candidate's direct-damage contribution.
+
+    Replacement candidates are restricted to the current tape suit, so the
+    existing set bonus remains valid while only the real main/sub-stat values are
+    substituted.
+    """
+    simulated = dict(role_data)
+    simulated["tape"] = dict(candidate_tape)
+    return calc_tape_margin(simulated)
+
+
+def rank_replacement_candidates_by_damage(
+    role_data: dict,
+    item_kind: str,
+    current_item: dict,
+    candidates: list[dict],
+) -> tuple[float, list[tuple[float, dict]]]:
+    """Calculate and sort compatible replacement candidates by direct damage.
+
+    The returned percentage follows the role page's ``直伤收益`` convention.
+    It is intentionally the common ranking entry point for role and SQLite plan
+    replacement dialogs.
+    """
+    if item_kind == "drive":
+        drives = list((role_data.get("drive") or {}).get("drives") or [])
+        current_uid = str(current_item.get("uid") or "")
+        current_margin = calc_single_drive_margin(role_data, current_item)
+        ranked = [
+            (calc_drive_replacement_margin(role_data, drives, current_uid, candidate), candidate)
+            for candidate in candidates
+        ]
+    elif item_kind == "tape":
+        current_margin = calc_tape_margin(role_data)
+        ranked = [(calc_tape_replacement_margin(role_data, candidate), candidate) for candidate in candidates]
+    else:
+        raise ValueError(f"不支持的装备类别：{item_kind}")
+    return current_margin, sorted(ranked, key=lambda entry: entry[0], reverse=True)
+
+
 def build_drive_replacement_options(
     *,
     role_name: str,
@@ -177,26 +262,26 @@ def build_drive_replacement_options(
         and drive.get("uid") not in equipped_uids
         and drive.get("uid") != current_uid
     ]
-    scored = []
-    for drive in raw_candidates:
-        score = score_drive(
-            drive.get("sub_stats", {}),
-            drive.get("shape_id", ""),
-            weights,
-            drive.get("quality", "Gold"),
-        ) if score_drive else 0.0
-        scored.append((score, drive))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    selected = keep_top_candidates_with_unassigned(scored, user_map, lambda entry: entry[1].get("uid", ""))
+    _current_margin, ranked_by_damage = rank_replacement_candidates_by_damage(
+        role_data, "drive", current_drive, raw_candidates
+    )
+    selected = keep_top_candidates_with_unassigned(
+        ranked_by_damage, user_map, lambda entry: entry[1].get("uid", "")
+    )
 
     candidates = [
         DriveReplacementCandidate(
             drive=drive,
-            score=score,
-            margin=calc_drive_replacement_margin(role_data, equipped_drives, current_uid, drive),
+            score=(
+                score_drive(
+                    drive.get("sub_stats", {}), drive.get("shape_id", ""), weights,
+                    drive.get("quality", "Gold"),
+                ) if score_drive else 0.0
+            ),
+            margin=margin,
             used_by=tuple(user_map.get(drive.get("uid", ""), [])),
         )
-        for score, drive in selected
+        for margin, drive in selected
     ]
     return DriveReplacementOptions(
         current_shape=current_shape,

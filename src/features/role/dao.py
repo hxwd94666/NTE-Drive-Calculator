@@ -13,8 +13,8 @@ from src.utils.name_resolver import resolve_name
 from .paths import (
     get_my_roles_path,
     get_my_roles_model_path,
+    get_config_path,
     get_stats_path,
-    get_weapon_path,
     get_tape_path,
     get_role_order_path,
     get_user_account_config_dir,
@@ -211,18 +211,18 @@ def load_stats() -> dict:
         return {}
 
 
-# ==================== weapons.json ====================
+# ==================== 官方弧盘模板 ====================
 
-def load_weapons() -> dict:
-    """加载 weapons.json（弧盘数据库）"""
-    filepath = get_weapon_path()
-    if not filepath.exists():
-        return {}
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return {}
+def load_official_fork_models() -> dict:
+    """读取公共官方模板，不依赖旧弧盘配置文件。"""
+    from src.services.role_fork_template_service import (
+        fork_templates_as_weapon_models,
+        load_official_role_fork_templates,
+    )
+
+    return fork_templates_as_weapon_models(
+        load_official_role_fork_templates()
+    )
 
 
 # ==================== tapes.json ====================
@@ -239,18 +239,15 @@ def load_tapes() -> dict:
         return {}
 
 
-# ==================== real_inventory.json ====================
+# ==================== SQLite 背包快照 ====================
 
-def load_real_inventory() -> dict:
-    """加载 real_inventory.json（用户真实背包）"""
-    filepath = get_user_account_config_dir() / "real_inventory.json"
-    if not filepath.exists():
-        return {}
+def load_current_inventory() -> list[dict]:
+    """读取当前稳定 SQLite 快照的旧界面兼容投影。"""
+    from src.services.sqlite_allocation_inventory import load_current_inventory_projection
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return {}
+        return load_current_inventory_projection()
+    except Exception:
+        return []
 
 
 # ==================== 模型文件合并 ====================

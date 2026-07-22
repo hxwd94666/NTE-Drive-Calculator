@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.scanner.window_capture import game_content_rect
+from src.utils.set_name import normalize_set_display_name
 
 
 REFERENCE_SCREEN_SIZE = (2560, 1440)
@@ -903,7 +904,7 @@ def _normalize_tape_main_stat(main_stat: str) -> str:
 
 
 def _normalize_tape_set_name(set_name: str) -> str:
-    value = str(set_name or "").strip()
+    value = normalize_set_display_name(set_name)
     if value in DEFAULT_TAPE_SET_OPTIONS:
         return value
     if value in TAPE_SET_NAME_ALIASES:

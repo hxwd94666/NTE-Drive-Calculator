@@ -64,9 +64,7 @@ from .dao import (
     load_role_order,
     save_role_order,
     load_stats,
-    load_weapons,
     load_tapes,
-    load_real_inventory,
     merge_new_roles_from_model,
 )
 from .core import apply_margins_to_weights
