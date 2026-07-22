@@ -1,4 +1,5 @@
--- Monster instance IDs are kept separate from combat packs so level variants remain auditable.
+-- 静态库 v9：怪物实例与明确属性包变体的可追溯绑定。
+
 CREATE TABLE monster_instance_profile (
     static_table TEXT NOT NULL,
     monster_id TEXT NOT NULL,

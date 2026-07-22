@@ -3,8 +3,9 @@
 `game_static.sqlite3` 是应用随安装包分发的只读基础数据库。它由开发者从
 本机准备好的游戏官方文件生成，普通用户不需要另外下载。
 
-当前数据集：`unversioned_20260718`
-当前 SHA-256：`CD3F379170E6185FA863299C951748F4C4CE591FFF304032CA8551A3A2A583D3`
+当前数据集：`unversioned_20260722_combat`
+当前结构版本：`10`
+当前 SHA-256：`C88694E197F0EFF32E1F76658DB34842C0185F79BF0976E2F9ABFFE02901D1BA`
 
 发行数据库保留规范化业务表、来源文件相对路径、来源文件哈希、来源行键和
 来源行内容哈希。`source_row.payload_json` 必须全部为 `NULL`，完整来源原文和
@@ -38,3 +39,7 @@ python tools/game_data/build_static_database.py `
 `DT_SkillDamageGameplayModifyData.json` 会生成官方伤害执行参数和修正系数，并按官方
 `GAName` 关联至角色技能。该库只保存原始倍率数组、属性和破坏参数，不在生成阶段或 DAO
 中推导直接伤害。
+
+schema v8–v10 还保存倾陷/环合等级曲线、环合常量、普通与 999 夜敌方属性包、
+怪物实例等级变体，以及 Abyss 关卡到波次、怪物池和普通属性包的明确关系。
+`FT_` 属于 999 夜子玩法，不作为 Abyss 或轨外之境的场景判断依据。

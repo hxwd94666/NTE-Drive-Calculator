@@ -17,6 +17,9 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "005_game_static_character_growth.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "006_game_static_character_skills.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "007_game_static_skill_damage.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "008_game_static_combat_context.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
 )
 
 
@@ -33,6 +36,9 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (5, '2026-07-21')")
         connection.execute("INSERT INTO schema_migration VALUES (6, '2026-07-21')")
         connection.execute("INSERT INTO schema_migration VALUES (7, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (8, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (9, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (10, '2026-07-22')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
@@ -96,6 +102,55 @@ class StaticGameDataDaoTest(unittest.TestCase):
         )
         connection.execute(
             "INSERT INTO skill_damage_modifier VALUES ('Damage1', 0.9, 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_level_curve VALUES "
+            "('topple:character_level', 'topple', NULL, NULL, 'RCIM_Constant', 'exact_level', 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_level_curve_point VALUES "
+            "('topple:character_level', 0, 80, NULL, 3603)"
+        )
+        connection.execute(
+            "INSERT INTO combat_level_curve VALUES "
+            "('reaction:GE_Test', 'reaction', 'REACTION_RESULT_TYPE_1', 'GE_Test', NULL, 'source_tier', 1)"
+        )
+        connection.executemany(
+            "INSERT INTO combat_level_curve_point VALUES (?,?,?,?,?)",
+            (("reaction:GE_Test", 0, None, 0, 80), ("reaction:GE_Test", 1, None, 1, 120)),
+        )
+        connection.execute(
+            "INSERT INTO reaction_definition VALUES "
+            "('REACTION_RESULT_TYPE_1', 'COSMOS', 'NATURE', 'GE_Test', 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_effect_constant VALUES "
+            "('Reaction_Test_BuffTime', 1, 12, 'seconds', '测试持续时间', 1)"
+        )
+        connection.execute(
+            "INSERT INTO enemy_combat_profile VALUES "
+            "('night_999', 'Boss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, 1)"
+        )
+        connection.execute(
+            "INSERT INTO enemy_element_resistance VALUES "
+            "('night_999', 'Boss1', 'chaos', 0.2, 0)"
+        )
+        connection.execute(
+            "INSERT INTO enemy_combat_profile VALUES "
+            "('standard', 'AbyssBoss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, 1)"
+        )
+        connection.execute(
+            "INSERT INTO abyss_level VALUES ('Abyss_Common', 1, NULL, '始发站', 1)"
+        )
+        connection.execute(
+            "INSERT INTO abyss_level_monster_spawn VALUES "
+            "('Abyss_Common', 1, 'EAbyssFightStage::FirstHalf', 0, 1, "
+            "'Pool1', 'EAbyssMonsterSpawnType::Spawn_KillAll', 0, 1)"
+        )
+        connection.execute(
+            "INSERT INTO abyss_monster_pool_entry VALUES "
+            "('Pool1', 0, '/Game/Monster/Boss.Boss_C', 2, 43, 'standard', "
+            "'AbyssBoss1', 1, 1)"
         )
         connection.execute(
             "INSERT INTO equipment_attribute VALUES "
@@ -195,7 +250,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 7)
+            self.assertEqual(summary["schema_version"], 10)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")
@@ -279,6 +334,19 @@ class StaticGameDataDaoTest(unittest.TestCase):
             "modifier_atk_rate_base_coefficient": 0.9,
             "modifier_source_row_id": 1,
         }])
+
+    def test_combat_context_and_abyss_bindings_are_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            damage = dao.get_skill_damage("Damage1")
+            reaction = dao.get_reaction_damage_curve("GE_Test")
+            enemy = dao.get_enemy_combat_profile("night_999", "Boss1")
+            level = dao.get_abyss_level_monsters("Abyss_Common", 1)
+
+        self.assertEqual(damage["atk_rate_base"], [1.0, 1.1])
+        self.assertEqual([point["value"] for point in reaction["points"]], [80, 120])
+        self.assertEqual(enemy["resistances"]["chaos"]["resistance_base"], 0.2)
+        self.assertEqual(level["spawns"][0]["attribute_pack_id"], "AbyssBoss1")
+        self.assertEqual(level["spawns"][0]["monster_level"], 43)
 
     def test_raw_source_payload_is_available(self):
         with StaticGameDataDao(self.database_path) as dao:

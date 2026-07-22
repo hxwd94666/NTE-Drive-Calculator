@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 10
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 
 SUMMARY_TABLES = (
@@ -26,6 +26,17 @@ SUMMARY_TABLES = (
     "character_skill_level",
     "skill_damage",
     "skill_damage_modifier",
+    "combat_level_curve",
+    "combat_level_curve_point",
+    "reaction_definition",
+    "combat_effect_constant",
+    "enemy_combat_profile",
+    "enemy_element_resistance",
+    "monster_instance_profile",
+    "monster_instance_profile_variant",
+    "abyss_level",
+    "abyss_level_monster_spawn",
+    "abyss_monster_pool_entry",
     "equipment_attribute",
     "equipment_shape",
     "equipment_suit",
@@ -90,7 +101,7 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
 
 
 class StaticGameDataDao:
-    """面向 schema v7 静态数据库的轻量查询边界。
+    """面向 schema v10 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """
@@ -579,6 +590,163 @@ class StaticGameDataDao:
             )
         ]
         return plan
+
+    def get_skill_damage(self, damage_id: str) -> dict[str, Any] | None:
+        """按官方伤害记录 ID 返回 v7 原始倍率数组和修正规则。"""
+        damage = self._one(
+            """
+            SELECT d.*, m.atk_rate_base_coefficient AS modifier_atk_rate_base_coefficient,
+                   m.source_row_id AS modifier_source_row_id
+            FROM skill_damage AS d
+            LEFT JOIN skill_damage_modifier AS m USING (damage_id)
+            WHERE d.damage_id = ?
+            """,
+            (str(damage_id).strip(),),
+        )
+        if damage is None:
+            return None
+        for key in ("atk_rate_base", "def_rate_base", "hp_rate_base"):
+            damage[key] = json.loads(damage.pop(f"{key}_json"))
+        for key in (
+            "override_breakable_damage",
+            "override_breakable_impulse",
+            "override_vehicle_breakable_impulse",
+        ):
+            damage[key] = bool(damage[key])
+        return damage
+
+    def get_combat_level_curve(self, curve_id: str) -> dict[str, Any] | None:
+        curve = self._one(
+            """
+            SELECT curve_id, damage_kind, reaction_type, source_effect_id,
+                   interpolation_mode, mapping_status, source_row_id
+            FROM combat_level_curve WHERE curve_id = ?
+            """,
+            (curve_id,),
+        )
+        if curve is not None:
+            curve["points"] = self._rows(
+                """
+                SELECT ordinal, character_level, source_tier, value
+                FROM combat_level_curve_point WHERE curve_id = ? ORDER BY ordinal
+                """,
+                (curve_id,),
+            )
+        return curve
+
+    def get_topple_level_multiplier(self, character_level: float) -> float | None:
+        point = self._one(
+            """
+            SELECT value FROM combat_level_curve_point
+            WHERE curve_id = 'topple:character_level' AND character_level = ?
+            """,
+            (float(character_level),),
+        )
+        return None if point is None else float(point["value"])
+
+    def get_reaction_damage_curve(self, effect_id: str) -> dict[str, Any] | None:
+        return self.get_combat_level_curve(f"reaction:{str(effect_id).strip()}")
+
+    def list_reaction_definitions(self) -> list[dict[str, Any]]:
+        return self._rows(
+            """
+            SELECT reaction_type, element_type_1, element_type_2,
+                   default_damage_effect_id, source_row_id
+            FROM reaction_definition ORDER BY reaction_type
+            """
+        )
+
+    def list_combat_effect_constants(self) -> list[dict[str, Any]]:
+        return self._rows(
+            """
+            SELECT constant_id, source_time, value, unit, description_zh, source_row_id
+            FROM combat_effect_constant ORDER BY constant_id
+            """
+        )
+
+    def get_enemy_combat_profile(
+        self, profile_set: str, pack_id: str
+    ) -> dict[str, Any] | None:
+        """返回普通或 999 夜属性包及分元素抗性。"""
+        if profile_set not in ("standard", "night_999"):
+            raise ValueError("profile_set 必须是 standard 或 night_999")
+        profile = self._one(
+            """
+            SELECT profile_set, pack_id, defense_base, defense_up, defense_add,
+                   defense_ignore, topple_limit, topple_accrue_efficiency,
+                   topple_anti_accrue_efficiency, topple_bonus,
+                   topple_reduce_natural, topple_reduce_reset, source_row_id
+            FROM enemy_combat_profile WHERE profile_set = ? AND pack_id = ?
+            """,
+            (profile_set, str(pack_id).strip()),
+        )
+        if profile is not None:
+            profile["resistances"] = {
+                row["damage_type"]: {
+                    "resistance_base": row["resistance_base"],
+                    "immunity": row["immunity"],
+                }
+                for row in self._rows(
+                    """
+                    SELECT damage_type, resistance_base, immunity
+                    FROM enemy_element_resistance
+                    WHERE profile_set = ? AND pack_id = ? ORDER BY damage_type
+                    """,
+                    (profile_set, profile["pack_id"]),
+                )
+            }
+        return profile
+
+    def get_monster_instance_profile(
+        self, static_table: str, monster_id: str
+    ) -> dict[str, Any] | None:
+        binding = self._one(
+            """
+            SELECT static_table, monster_id, monster_level, default_profile_set,
+                   default_pack_id, online_ratio_id, source_row_id
+            FROM monster_instance_profile WHERE static_table = ? AND monster_id = ?
+            """,
+            (str(static_table).strip(), str(monster_id).strip()),
+        )
+        if binding is not None:
+            binding["variants"] = self._rows(
+                """
+                SELECT variant_kind, threshold_level, profile_set, pack_id
+                FROM monster_instance_profile_variant
+                WHERE static_table = ? AND monster_id = ?
+                ORDER BY variant_kind, threshold_level
+                """,
+                (binding["static_table"], binding["monster_id"]),
+            )
+        return binding
+
+    def get_abyss_level_monsters(
+        self, level_config_id: str, level_id: int
+    ) -> dict[str, Any] | None:
+        """返回一个 Abyss 关卡的波次、怪物及属性包来源。"""
+        level = self._one(
+            """
+            SELECT level_config_id, level_id, abyss_id, name_zh, source_row_id
+            FROM abyss_level WHERE level_config_id = ? AND level_id = ?
+            """,
+            (str(level_config_id).strip(), int(level_id)),
+        )
+        if level is not None:
+            level["spawns"] = self._rows(
+                """
+                SELECT s.fight_stage, s.spawn_ordinal, s.wave, s.monster_pool_id,
+                       s.next_spawn_type, s.spawn_time, s.source_row_id,
+                       p.monster_ordinal, p.monster_class_path, p.monster_count,
+                       p.monster_level, p.attribute_profile_set, p.attribute_pack_id,
+                       p.attribute_source_row_id
+                FROM abyss_level_monster_spawn AS s
+                JOIN abyss_monster_pool_entry AS p USING (monster_pool_id)
+                WHERE s.level_config_id = ? AND s.level_id = ?
+                ORDER BY s.fight_stage, s.spawn_ordinal, p.monster_ordinal
+                """,
+                (level["level_config_id"], level["level_id"]),
+            )
+        return level
 
     def get_source_payload(self, relative_path: str, row_key: str) -> Any | None:
         row = self._one(

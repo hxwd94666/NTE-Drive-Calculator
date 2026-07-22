@@ -23,7 +23,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v7
+## 构建静态 SQLite v10
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -73,7 +73,11 @@ python tools/game_data/build_static_database.py `
 `character_overrides.json` 中标记为 `combat_transformation` 的记录只保留官方角色目录和
 规范角色关联；它们共用规范角色的属性与养成，不能生成独立的成长、觉醒或普通技能目录。
 
-当前旧版应用仍读取旧 JSON。后续 SQLite DAO、新主页和 nte-core 同步链路只使用 v7 数据库与原始游戏/nte-core ID，不经过旧格式转换。
+schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级变体和 Abyss 关卡绑定。
+`DT_MonsterPackData_FT` 与 `FT_` 表示 999 夜子玩法；Abyss 的 `AttributeID` 全部关联普通
+`DT_MonsterPackData`，不能按文件名或前缀推断场景。
+
+当前旧版应用仍读取旧 JSON。后续 SQLite DAO、新主页和 nte-core 同步链路只使用 v10 数据库与原始游戏/nte-core ID，不经过旧格式转换。
 
 ## 查询静态数据库
 
@@ -99,6 +103,12 @@ python tools/game_data/inspect_static_database.py suits --id Suit7
 python tools/game_data/inspect_static_database.py equipment --id module
 python tools/game_data/inspect_static_database.py forks
 python tools/game_data/inspect_static_database.py plan --id 1003
+python tools/game_data/inspect_static_database.py topple-curve
+python tools/game_data/inspect_static_database.py reaction-curve --id GE_ActorReaction_1_Damage
+python tools/game_data/inspect_static_database.py reactions
+python tools/game_data/inspect_static_database.py combat-constants
+python tools/game_data/inspect_static_database.py skill-damage --id GE_Player_Mint_Skill1_Damage_Test1
+python tools/game_data/inspect_static_database.py enemy-profile --id standard:Abyss_1_10_boss_09_BP
 ```
 
 DAO 单元测试不依赖 pytest：

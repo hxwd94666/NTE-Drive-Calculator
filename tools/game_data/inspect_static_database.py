@@ -1,5 +1,5 @@
-# 通过只读 DAO 查看 schema v3 静态游戏数据库。
-"""通过只读 DAO 查看 schema v3 静态游戏数据库。"""
+# 通过只读 DAO 查看 schema v10 静态游戏数据库。
+"""通过只读 DAO 查看 schema v10 静态游戏数据库。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
--- Abyss 关卡、波次、怪物池和属性包的可追溯绑定。
+-- 静态库 v10：Abyss 关卡、波次、怪物池和属性包的可追溯绑定。
 
 CREATE TABLE abyss_level (
     level_config_id TEXT NOT NULL,

@@ -16,6 +16,9 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "005_game_static_character_growth.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "006_game_static_character_skills.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "007_game_static_skill_damage.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "008_game_static_combat_context.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -37,6 +40,9 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertTrue(PROJECT_DATABASE_PATH.is_file())
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
         try:
+            schema_version = connection.execute(
+                "SELECT MAX(version) FROM schema_migration"
+            ).fetchone()[0]
             payload_count = connection.execute(
                 "SELECT COUNT(*) FROM source_row WHERE payload_json IS NOT NULL"
             ).fetchone()[0]
@@ -57,6 +63,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
+        self.assertEqual(10, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         self.assertEqual(0, absolute_path_count)
@@ -105,6 +112,9 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("character_panel_growth", tables)
         self.assertIn("character_skill", tables)
         self.assertIn("skill_damage", tables)
+        self.assertIn("enemy_combat_profile", tables)
+        self.assertIn("monster_instance_profile", tables)
+        self.assertIn("abyss_level_monster_spawn", tables)
 
     def test_schema_uses_source_shape_ids_without_legacy_aliases(self):
         schema = "\n".join(path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)

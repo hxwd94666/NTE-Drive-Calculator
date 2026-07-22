@@ -1,4 +1,4 @@
--- 新增可追溯的战斗曲线、技能倍率、环合配置和敌方战斗参数。
+-- 静态库 v8：战斗等级曲线、环合定义和敌方战斗属性包。
 
 CREATE TABLE combat_level_curve (
     curve_id TEXT PRIMARY KEY,
@@ -42,28 +42,6 @@ CREATE TABLE combat_effect_constant (
     source_row_id INTEGER NOT NULL REFERENCES source_row(source_row_id)
 );
 
-CREATE TABLE skill_damage (
-    effect_id TEXT PRIMARY KEY,
-    ability_id TEXT,
-    damage_type TEXT NOT NULL,
-    damage_source_category TEXT,
-    fixed_crit_rate REAL NOT NULL,
-    charge_add REAL NOT NULL,
-    topple_value REAL NOT NULL,
-    heterochrome_add REAL NOT NULL,
-    story_balance_rate REAL NOT NULL,
-    attack_break_level TEXT,
-    source_row_id INTEGER NOT NULL REFERENCES source_row(source_row_id)
-);
-
-CREATE TABLE skill_damage_rate (
-    effect_id TEXT NOT NULL REFERENCES skill_damage(effect_id),
-    scaling_stat TEXT NOT NULL CHECK (scaling_stat IN ('attack', 'health', 'defense')),
-    source_tier INTEGER NOT NULL CHECK (source_tier >= 0),
-    value REAL NOT NULL CHECK (value >= 0),
-    PRIMARY KEY (effect_id, scaling_stat, source_tier)
-);
-
 CREATE TABLE enemy_combat_profile (
     profile_set TEXT NOT NULL CHECK (profile_set IN ('standard', 'night_999')),
     pack_id TEXT NOT NULL,
@@ -94,6 +72,5 @@ CREATE TABLE enemy_element_resistance (
 
 CREATE INDEX idx_combat_level_curve_kind
     ON combat_level_curve(damage_kind, reaction_type);
-CREATE INDEX idx_skill_damage_ability ON skill_damage(ability_id);
 CREATE INDEX idx_enemy_combat_topple_limit
     ON enemy_combat_profile(profile_set, topple_limit);
