@@ -36,8 +36,14 @@ except ImportError:  # 支持直接运行：python tools/game_data/build_static_
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql"
-IMPORTER_VERSION = 2
+SCHEMA_DIR = PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema"
+SCHEMA_PATHS = (
+    SCHEMA_DIR / "002_game_static.sql",
+    SCHEMA_DIR / "003_game_static_combat.sql",
+    SCHEMA_DIR / "004_game_static_monster_binding.sql",
+    SCHEMA_DIR / "005_game_static_abyss_binding.sql",
+)
+IMPORTER_VERSION = 5
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -57,6 +63,46 @@ TABLE_PATHS = {
     "fork_stars": "DataTable/Fork/DT_ForkUpgradeStarDataTable.json",
     "fork_breakthroughs": "DataTable/Fork/DT_ForkBreakthroughData.json",
     "fork_modify": "DataTable/PackData/ModifyData/DT_ForkModifyData.json",
+    "combat_global_curves": "DataTable/skill/GlobalCharacterData/DT_GlobalCommonData.json",
+    "reaction_damage": "DataTable/Reaction/DT_ReactionDamageData.json",
+    "reaction_definitions": "DataTable/Reaction/DT_ReactionData.json",
+    "reaction_constants": "DataTable/Reaction/DT_ReactionEffectFigure.json",
+    "skill_damage": "DataTable/skill/DT_SkillDamageData.json",
+    "monster_pack": "DataTable/PackData/DT_MonsterPackData.json",
+    "monster_pack_night_999": "DataTable/PackData/DT_MonsterPackData_FT.json",
+    "monster_static_big_world": "DataTable/Monster/DT_MonsterStaticData_BigWorld.json",
+    "monster_static_big_world_gameplay": "DataTable/Monster/DT_MonsterStaticData_BigWorld_Gameplay.json",
+    "monster_static_big_world_quest": "DataTable/Monster/DT_MonsterStaticData_BigWorld_Quest.json",
+    "monster_static_clone": "DataTable/Monster/DT_MonsterStaticData_Clone.json",
+    "monster_static_abyss": "DataTable/Monster/DT_MonsterStaticData_Abyss.json",
+    "abyss_clone_levels": "DataAssets/DataAssetSet/Abyss/AbyssCloneLevelDataTable.json",
+    "abyss_monster_pools": "DataAssets/DataAssetSet/Abyss/DT_AbyssMonsterPool.json",
+}
+
+REACTION_CONSTANT_METADATA = {
+    "LingZhouCopyCoef": ("ratio", "覆纹追加伤害的基础比例"),
+    "Reaction_GuangLingXiang_Charge": ("points", "盈蓄提供的额外终结能量"),
+    "Reaction_GuangLingXiang_ChargeCD": ("seconds", "盈蓄获得能量的触发间隔"),
+    "Reaction_ZhouAn_BuffTime": ("seconds", "浊燃持续时间"),
+    "Reaction_ZhouAn_Period": ("seconds", "浊燃伤害周期"),
+    "Reaction_ZhouAn8_DotDamageUP_1003": ("ratio", "早雾天赋每种持续伤害状态的增伤"),
+    "Reaction_ZhouAn8_LimitDotDamageUP_1003": ("ratio", "早雾天赋持续伤害增伤上限"),
+    "Reaction_HunXiang_BuffTime": ("seconds", "浸染持续时间"),
+    "Reaction_HunXiang_DamageUP": ("ratio", "浸染魂/相伤害基础提升"),
+    "Reaction_AnHun_BuffTime": ("seconds", "黯星基础持续时间"),
+    "Reaction_GuangXiang_BuffTime": ("seconds", "延滞基础持续时间"),
+    "Reaction_LingZhou_BuffTime": ("seconds", "覆纹基础持续时间"),
+}
+
+ENEMY_RESISTANCE_FIELDS = {
+    "normal": ("DamageResistNormalBase", "DamageImmuNormal"),
+    "cosmos": ("DamageResistCosmosBase", "DamageImmuCosmos"),
+    "nature": ("DamageResistNatureBase", "DamageImmuNature"),
+    "incantation": ("DamageResistIncantationBase", "DamageImmuIncantation"),
+    "chaos": ("DamageResistChaosBase", "DamageImmuChaos"),
+    "psyche": ("DamageResistPsycheBase", "DamageImmuPsyche"),
+    "lakshana": ("DamageResistLakshanaBase", "DamageImmuLakshana"),
+    "psychically": ("DamageResistPsychicallyBase", "DamageImmuPsychically"),
 }
 
 FORK_TYPE_ID_BY_CHARACTER_GROUP = {
@@ -113,6 +159,19 @@ def optional_int(value: Any) -> int | None:
     if value in (None, "", "None"):
         return None
     return int(value)
+
+
+def optional_text(value: Any) -> str | None:
+    if not isinstance(value, str) or value in ("", "None"):
+        return None
+    return value
+
+
+def float_value(row: dict[str, Any], key: str, *, default: float = 0.0) -> float:
+    value = row.get(key, default)
+    if not isinstance(value, (int, float)):
+        raise StaticDatabaseError(f"字段 {key} 不是数值：{value!r}")
+    return float(value)
 
 
 def enum_tail(value: Any, prefix: str = "") -> str | None:
@@ -196,11 +255,12 @@ class StaticDatabaseBuilder:
         self.source_row_ids: dict[tuple[str, str], int] = {}
 
     def build(self) -> dict[str, Any]:
-        self.connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        for schema_path in SCHEMA_PATHS:
+            self.connection.executescript(schema_path.read_text(encoding="utf-8"))
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.connection.execute(
-            "INSERT INTO schema_migration VALUES (2, ?)",
-            (now,),
+        self.connection.executemany(
+            "INSERT INTO schema_migration VALUES (?, ?)",
+            ((version, now) for version in range(2, IMPORTER_VERSION + 1)),
         )
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?, ?)",
@@ -215,6 +275,12 @@ class StaticDatabaseBuilder:
         self._import_equipment_progression()
         self._import_equipment_plans()
         self._import_forks()
+        self._import_combat_level_curves()
+        self._import_reactions()
+        self._import_skill_damage()
+        self._import_enemy_combat_profiles()
+        self._import_monster_instance_profiles()
+        self._import_abyss_bindings()
         violations = [tuple(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
         if violations:
             raise StaticDatabaseError(f"发现外键错误：{violations[:10]}")
@@ -649,6 +715,311 @@ class StaticDatabaseBuilder:
                     ),
                 )
 
+    def _import_combat_level_curves(self) -> None:
+        topple_row_id = "UnbaldamagePara"
+        topple_row = self.rows["combat_global_curves"].get(topple_row_id)
+        if not isinstance(topple_row, dict):
+            raise StaticDatabaseError("全局战斗曲线缺少 UnbaldamagePara")
+        topple_points = topple_row.get("Keys")
+        if not isinstance(topple_points, list) or not topple_points:
+            raise StaticDatabaseError("倾陷等级乘区没有曲线点")
+        self.connection.execute(
+            "INSERT INTO combat_level_curve VALUES (?,?,?,?,?,?,?)",
+            (
+                "topple:character_level",
+                "topple",
+                None,
+                None,
+                enum_tail(topple_row.get("InterpMode")),
+                "exact_level",
+                self.source_row_id("combat_global_curves", topple_row_id),
+            ),
+        )
+        for ordinal, point in enumerate(topple_points):
+            self.connection.execute(
+                "INSERT INTO combat_level_curve_point VALUES (?,?,?,?,?)",
+                (
+                    "topple:character_level",
+                    ordinal,
+                    float(point["Time"]),
+                    None,
+                    float(point["Value"]),
+                ),
+            )
+
+        for effect_id in sorted(self.rows["reaction_damage"]):
+            row = self.rows["reaction_damage"][effect_id]
+            values = row.get("ReactionDamageArray")
+            if not isinstance(values, list) or not values:
+                raise StaticDatabaseError(f"环合伤害缺少官方档位数组：{effect_id}")
+            reaction_type = enum_tail(row.get("ProduceReactionType"))
+            curve_id = f"reaction:{effect_id}"
+            self.connection.execute(
+                "INSERT INTO combat_level_curve VALUES (?,?,?,?,?,?,?)",
+                (
+                    curve_id,
+                    "reaction",
+                    reaction_type,
+                    effect_id,
+                    None,
+                    "source_tier",
+                    self.source_row_id("reaction_damage", effect_id),
+                ),
+            )
+            for source_tier, value in enumerate(values):
+                self.connection.execute(
+                    "INSERT INTO combat_level_curve_point VALUES (?,?,?,?,?)",
+                    (curve_id, source_tier, None, source_tier, float(value)),
+                )
+
+    def _import_reactions(self) -> None:
+        for reaction_type in sorted(self.rows["reaction_definitions"]):
+            row = self.rows["reaction_definitions"][reaction_type]
+            official_type = enum_tail(row.get("ReactionResult")) or reaction_type
+            element_type_1 = enum_tail(row.get("CharacterElementType1"))
+            element_type_2 = enum_tail(row.get("CharacterElementType2"))
+            if element_type_1 is None or element_type_2 is None:
+                raise StaticDatabaseError(f"环合缺少元素组合：{reaction_type}")
+            self.connection.execute(
+                "INSERT INTO reaction_definition VALUES (?,?,?,?,?)",
+                (
+                    official_type,
+                    element_type_1,
+                    element_type_2,
+                    optional_text(row.get("DefaultDamageGE")),
+                    self.source_row_id("reaction_definitions", reaction_type),
+                ),
+            )
+
+        for constant_id in sorted(self.rows["reaction_constants"]):
+            row = self.rows["reaction_constants"][constant_id]
+            keys = row.get("Keys")
+            if not isinstance(keys, list) or len(keys) != 1:
+                raise StaticDatabaseError(
+                    f"环合常量必须恰好包含一个官方曲线点：{constant_id}"
+                )
+            unit, description = REACTION_CONSTANT_METADATA.get(
+                constant_id, ("scalar", None)
+            )
+            point = keys[0]
+            self.connection.execute(
+                "INSERT INTO combat_effect_constant VALUES (?,?,?,?,?,?)",
+                (
+                    constant_id,
+                    float(point["Time"]),
+                    float(point["Value"]),
+                    unit,
+                    description,
+                    self.source_row_id("reaction_constants", constant_id),
+                ),
+            )
+
+    def _import_skill_damage(self) -> None:
+        rate_fields = {
+            "attack": "AtkRateBaseArray",
+            "health": "HPRateBaseArray",
+            "defense": "DefRateBaseArray",
+        }
+        for effect_id in sorted(self.rows["skill_damage"]):
+            row = self.rows["skill_damage"][effect_id]
+            damage_type = enum_tail(row.get("DamageTypeEX"))
+            if damage_type is None:
+                raise StaticDatabaseError(f"技能伤害缺少 DamageTypeEX：{effect_id}")
+            self.connection.execute(
+                "INSERT INTO skill_damage VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    effect_id,
+                    optional_text(row.get("GAName")),
+                    damage_type,
+                    enum_tail(row.get("DamageSourceCategory")),
+                    float_value(row, "FixedCritRate"),
+                    float_value(row, "ChargeAdd"),
+                    float_value(row, "UnbalValue"),
+                    float_value(row, "HeterochromeAdd"),
+                    float_value(row, "StroyBlanceGERate", default=1.0),
+                    enum_tail(row.get("AttackBreakLevel")),
+                    self.source_row_id("skill_damage", effect_id),
+                ),
+            )
+            for scaling_stat, field_name in rate_fields.items():
+                values = row.get(field_name, [])
+                if not isinstance(values, list):
+                    raise StaticDatabaseError(
+                        f"技能倍率字段不是数组：{effect_id}/{field_name}"
+                    )
+                for source_tier, value in enumerate(values):
+                    self.connection.execute(
+                        "INSERT INTO skill_damage_rate VALUES (?,?,?,?)",
+                        (effect_id, scaling_stat, source_tier, float(value)),
+                    )
+
+    def _import_enemy_combat_profiles(self) -> None:
+        for table_name, profile_set in (
+            ("monster_pack", "standard"),
+            ("monster_pack_night_999", "night_999"),
+        ):
+            for pack_id in sorted(self.rows[table_name]):
+                row = self.rows[table_name][pack_id]
+                self.connection.execute(
+                    "INSERT INTO enemy_combat_profile VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        profile_set,
+                        pack_id,
+                        float_value(row, "DefBase"),
+                        float_value(row, "DefUp"),
+                        float_value(row, "DefAdd"),
+                        float_value(row, "DefIgnore"),
+                        float_value(row, "UnbalMax"),
+                        float_value(row, "UnbalAccrueEfficiencyBase"),
+                        float_value(row, "UnbalAntiAccrueEfficiencyBase"),
+                        float_value(row, "UnbaleBonus"),
+                        float_value(row, "UnbalReduceNatur"),
+                        float_value(row, "UnbalReduceReset"),
+                        self.source_row_id(table_name, pack_id),
+                    ),
+                )
+                for damage_type, (resistance_field, immunity_field) in (
+                    ENEMY_RESISTANCE_FIELDS.items()
+                ):
+                    self.connection.execute(
+                        "INSERT INTO enemy_element_resistance VALUES (?,?,?,?,?)",
+                        (
+                            profile_set,
+                            pack_id,
+                            damage_type,
+                            float_value(row, resistance_field),
+                            float_value(row, immunity_field),
+                        ),
+                    )
+
+    def _import_monster_instance_profiles(self) -> None:
+        """Import static monster IDs and their explicit standard-pack references.
+
+        ``FT_`` actor names identify 999 夜 content, not an Abyss scene. This
+        importer preserves only explicit pack IDs in the static tables; Abyss
+        scene binding is imported only from its dedicated scene sources.
+        """
+        variant_fields = (
+            ("world_level", "WorldLevelArray", "MonsterWorldLevel", "MonsterWorldLevelPropModifyID"),
+            ("clone_level", "CloneDifficultyLevelArray", "MonsterCloneLevel", "MonsterClonePropModifyID"),
+            ("abyss_level", "AbyssCloneLevelArray", "MonsterAbyssLevel", "MonsterAbyssPropModifyID"),
+        )
+        for table_name in sorted(name for name in self.rows if name.startswith("monster_static_")):
+            for monster_id in sorted(self.rows[table_name]):
+                row = self.rows[table_name][monster_id]
+                default_pack_id = optional_text(row.get("PropModifyID"))
+                self.connection.execute(
+                    "INSERT INTO monster_instance_profile VALUES (?,?,?,?,?,?,?)",
+                    (
+                        table_name,
+                        monster_id,
+                        optional_int(row.get("MonsterLevel")) or 0,
+                        "standard",
+                        default_pack_id,
+                        optional_text(row.get("OnlineRatioID")),
+                        self.source_row_id(table_name, monster_id),
+                    ),
+                )
+                for variant_kind, array_field, level_field, pack_field in variant_fields:
+                    variants = row.get(array_field, [])
+                    if not isinstance(variants, list):
+                        raise StaticDatabaseError(f"怪物属性包变体字段不是数组：{monster_id}/{array_field}")
+                    for variant in variants:
+                        if not isinstance(variant, dict):
+                            raise StaticDatabaseError(f"怪物属性包变体不是对象：{monster_id}/{array_field}")
+                        pack_id = optional_text(variant.get(pack_field))
+                        level = optional_int(variant.get(level_field))
+                        if pack_id is None or level is None:
+                            continue
+                        self.connection.execute(
+                            "INSERT OR IGNORE INTO monster_instance_profile_variant VALUES (?,?,?,?,?,?)",
+                            (table_name, monster_id, variant_kind, level, "standard", pack_id),
+                        )
+
+    def _import_abyss_bindings(self) -> None:
+        """Import the explicit Abyss level → pool → monster → attribute chain."""
+        level_table = self.rows["abyss_clone_levels"]
+        pool_table = self.rows["abyss_monster_pools"]
+        profile_rows = self.rows["monster_pack"]
+
+        for level_config_id in sorted(level_table):
+            source_row_id = self.source_row_id("abyss_clone_levels", level_config_id)
+            level_config = level_table[level_config_id]
+            levels = level_config.get("LevelConfigArray", [])
+            if not isinstance(levels, list):
+                raise StaticDatabaseError(
+                    f"Abyss 关卡配置不是数组：{level_config_id}/LevelConfigArray"
+                )
+            for level in levels:
+                if not isinstance(level, dict):
+                    raise StaticDatabaseError(f"Abyss 关卡配置不是对象：{level_config_id}")
+                level_id = optional_int(level.get("LevelID"))
+                if level_id is None:
+                    raise StaticDatabaseError(f"Abyss 关卡缺少 LevelID：{level_config_id}")
+                name_zh, _, _ = text_parts(level.get("LevelName"))
+                self.connection.execute(
+                    "INSERT INTO abyss_level VALUES (?,?,?,?,?)",
+                    (
+                        level_config_id,
+                        level_id,
+                        optional_text(level.get("AbyssID")),
+                        name_zh,
+                        source_row_id,
+                    ),
+                )
+                stages = level.get("SpawnMonsterConfigMap", [])
+                if not isinstance(stages, list):
+                    raise StaticDatabaseError(f"Abyss 波次配置不是数组：{level_config_id}/{level_id}")
+                for stage in stages:
+                    if not isinstance(stage, dict) or not isinstance(stage.get("Value"), dict):
+                        raise StaticDatabaseError(f"Abyss 波次配置无效：{level_config_id}/{level_id}")
+                    spawns = stage["Value"].get("CloneSpawnMonsterConfigArray", [])
+                    if not isinstance(spawns, list):
+                        raise StaticDatabaseError(f"Abyss 生成配置不是数组：{level_config_id}/{level_id}")
+                    fight_stage = optional_text(stage.get("Key")) or "unknown"
+                    for ordinal, spawn in enumerate(spawns):
+                        if not isinstance(spawn, dict):
+                            raise StaticDatabaseError(f"Abyss 生成配置不是对象：{level_config_id}/{level_id}")
+                        monster_pool_id = optional_text(spawn.get("MonsterPoolID"))
+                        if monster_pool_id is None:
+                            raise StaticDatabaseError(f"Abyss 生成配置缺少 MonsterPoolID：{level_config_id}/{level_id}")
+                        self.connection.execute(
+                            "INSERT INTO abyss_level_monster_spawn VALUES (?,?,?,?,?,?,?,?,?)",
+                            (
+                                level_config_id, level_id, fight_stage, ordinal,
+                                optional_int(spawn.get("Wave")), monster_pool_id,
+                                optional_text(spawn.get("NextSpawnType")),
+                                float_value(spawn, "SpawnTime"), source_row_id,
+                            ),
+                        )
+
+        for monster_pool_id in sorted(pool_table):
+            pool_source_row_id = self.source_row_id("abyss_monster_pools", monster_pool_id)
+            monsters = pool_table[monster_pool_id].get("MonsterPoolArray", [])
+            if not isinstance(monsters, list):
+                raise StaticDatabaseError(f"Abyss 怪物池不是数组：{monster_pool_id}")
+            for ordinal, monster in enumerate(monsters):
+                if not isinstance(monster, dict):
+                    raise StaticDatabaseError(f"Abyss 怪物池条目不是对象：{monster_pool_id}")
+                attribute_pack_id = optional_text(monster.get("AttributeID"))
+                if attribute_pack_id is None or attribute_pack_id not in profile_rows:
+                    raise StaticDatabaseError(
+                        f"Abyss 属性包未在 DT_MonsterPackData 中找到：{monster_pool_id}/{attribute_pack_id}"
+                    )
+                monster_level = optional_int(monster.get("MonsterLevel"))
+                monster_count = optional_int(monster.get("MonsterCount"))
+                if monster_level is None or monster_count is None:
+                    raise StaticDatabaseError(f"Abyss 怪物缺少等级或数量：{monster_pool_id}")
+                self.connection.execute(
+                    "INSERT INTO abyss_monster_pool_entry VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        monster_pool_id, ordinal, asset_path(monster.get("MonsterClass")),
+                        monster_count, monster_level, "standard", attribute_pack_id,
+                        pool_source_row_id,
+                        self.source_row_id("monster_pack", attribute_pack_id),
+                    ),
+                )
+
     def _database_counts(self) -> dict[str, int]:
         tables = (
             "source_file",
@@ -668,6 +1039,19 @@ class StaticDatabaseBuilder:
             "fork_modify_pack",
             "fork_breakthrough",
             "fork_star_level",
+            "combat_level_curve",
+            "combat_level_curve_point",
+            "reaction_definition",
+            "combat_effect_constant",
+            "skill_damage",
+            "skill_damage_rate",
+            "enemy_combat_profile",
+            "enemy_element_resistance",
+            "monster_instance_profile",
+            "monster_instance_profile_variant",
+            "abyss_level",
+            "abyss_level_monster_spawn",
+            "abyss_monster_pool_entry",
         )
         return {
             table: int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
@@ -732,7 +1116,7 @@ def build_database(
         raise
 
     report = {
-        "schema_version": 2,
+        "schema_version": IMPORTER_VERSION,
         "dataset_id": dataset_id,
         "game_version": game_version,
         "built_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),

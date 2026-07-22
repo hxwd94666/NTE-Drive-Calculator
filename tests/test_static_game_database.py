@@ -9,13 +9,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_DIR = PROJECT_ROOT / "tools" / "game_data"
 MODULE_PATH = TOOLS_DIR / "build_static_database.py"
-SCHEMA_PATH = (
-    PROJECT_ROOT
-    / "src"
-    / "storage"
-    / "sqlite"
-    / "schema"
-    / "002_game_static.sql"
+SCHEMA_PATHS = tuple(
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / filename
+    for filename in (
+        "002_game_static.sql", "003_game_static_combat.sql",
+        "004_game_static_monster_binding.sql", "005_game_static_abyss_binding.sql",
+    )
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -37,6 +36,9 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertTrue(PROJECT_DATABASE_PATH.is_file())
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
         try:
+            schema_version = connection.execute(
+                "SELECT MAX(version) FROM schema_migration"
+            ).fetchone()[0]
             payload_count = connection.execute(
                 "SELECT COUNT(*) FROM source_row WHERE payload_json IS NOT NULL"
             ).fetchone()[0]
@@ -57,6 +59,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
+        self.assertEqual(5, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         self.assertEqual(0, absolute_path_count)
@@ -65,7 +68,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
     def test_schema_can_be_created_with_foreign_keys_enabled(self):
         connection = sqlite3.connect(":memory:")
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        for schema_path in SCHEMA_PATHS:
+            connection.executescript(schema_path.read_text(encoding="utf-8"))
 
         tables = {
             row[0]
@@ -76,9 +80,13 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("equipment_suit_required_shape", tables)
         self.assertIn("equipment_plan", tables)
         self.assertIn("fork_item", tables)
+        self.assertIn("combat_level_curve", tables)
+        self.assertIn("skill_damage", tables)
+        self.assertIn("enemy_combat_profile", tables)
+        self.assertIn("abyss_level_monster_spawn", tables)
 
     def test_schema_uses_source_shape_ids_without_legacy_aliases(self):
-        schema = SCHEMA_PATH.read_text(encoding="utf-8")
+        schema = "\n".join(path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)
 
         self.assertNotIn("legacy_shape_id", schema)
         self.assertIn("character_annotation", schema)
@@ -115,6 +123,40 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
         self.assertNotIn("legacy-config-dir", source)
         self.assertNotIn("LEGACY_SHAPE_IDS", source)
+
+    def test_checked_in_combat_curves_keep_confirmed_source_values(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            topple_80 = connection.execute(
+                """
+                SELECT value FROM combat_level_curve_point
+                WHERE curve_id = 'topple:character_level' AND character_level = 80
+                """
+            ).fetchone()[0]
+            reaction_values = {
+                effect_id: connection.execute(
+                    """
+                    SELECT p.value
+                    FROM combat_level_curve AS c
+                    JOIN combat_level_curve_point AS p USING (curve_id)
+                    WHERE c.source_effect_id = ?
+                    ORDER BY p.source_tier DESC LIMIT 1
+                    """,
+                    (effect_id,),
+                ).fetchone()[0]
+                for effect_id in (
+                    "GE_ActorReaction_1_Damage",
+                    "Buff_Reaction_5_new",
+                    "Buff_Reaction_4_new",
+                )
+            }
+        finally:
+            connection.close()
+
+        self.assertEqual(3603, topple_80)
+        self.assertEqual(9000, reaction_values["GE_ActorReaction_1_Damage"])
+        self.assertEqual(2700, reaction_values["Buff_Reaction_5_new"])
+        self.assertEqual(45000, reaction_values["Buff_Reaction_4_new"])
 
 
 if __name__ == "__main__":

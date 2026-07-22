@@ -1,5 +1,5 @@
-# 通过只读 DAO 查看 schema v2 静态游戏数据库。
-"""通过只读 DAO 查看 schema v2 静态游戏数据库。"""
+# 通过只读 DAO 查看 schema v3 静态游戏数据库。
+"""通过只读 DAO 查看 schema v3 静态游戏数据库。"""
 
 from __future__ import annotations
 
@@ -48,6 +48,27 @@ def select_view(dao: StaticGameDataDao, view: str, item_id: str | None) -> Any:
         if item_id is None:
             raise SystemExit("查看装配方案时必须传入 --id <character_id>")
         return dao.get_equipment_plan(int(item_id))
+    if view == "topple-curve":
+        return dao.get_combat_level_curve("topple:character_level")
+    if view == "reaction-curve":
+        if item_id is None:
+            raise SystemExit("查看环合曲线时必须传入 --id <effect_id>")
+        return dao.get_reaction_damage_curve(item_id)
+    if view == "reactions":
+        return dao.list_reaction_definitions()
+    if view == "combat-constants":
+        return dao.list_combat_effect_constants()
+    if view == "skill-damage":
+        if item_id is None:
+            raise SystemExit("查看技能伤害时必须传入 --id <effect_id>")
+        return dao.get_skill_damage(item_id)
+    if view == "enemy-profile":
+        if item_id is None or ":" not in item_id:
+            raise SystemExit(
+                "查看敌方属性包时必须传入 --id <standard|night_999>:<pack_id>"
+            )
+        profile_set, pack_id = item_id.split(":", 1)
+        return dao.get_enemy_combat_profile(profile_set, pack_id)
     raise AssertionError(f"unhandled view: {view}")
 
 
@@ -57,12 +78,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "view",
         nargs="?",
-        choices=("summary", "characters", "shapes", "suits", "equipment", "forks", "plan"),
+        choices=(
+            "summary",
+            "characters",
+            "shapes",
+            "suits",
+            "equipment",
+            "forks",
+            "plan",
+            "topple-curve",
+            "reaction-curve",
+            "reactions",
+            "combat-constants",
+            "skill-damage",
+            "enemy-profile",
+        ),
         default="summary",
     )
     parser.add_argument(
         "--id",
-        help="按查询类型填写空幕 ID、角色 ID 或装备类型（module/core）",
+        help="按查询类型填写对象 ID；敌方属性包使用 profile_set:pack_id",
     )
     return parser.parse_args()
 
