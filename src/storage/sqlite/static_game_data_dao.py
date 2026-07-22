@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 
 SUMMARY_TABLES = (
@@ -43,6 +43,8 @@ SUMMARY_TABLES = (
     "equipment_suit_effect",
     "equipment_item",
     "equipment_plan",
+    "character_weight_recommendation",
+    "character_weight_recommendation_property",
     "fork_type",
     "fork_item",
 )
@@ -101,7 +103,7 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
 
 
 class StaticGameDataDao:
-    """面向 schema v10 静态数据库的轻量查询边界。
+    """面向 schema v11 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """
@@ -206,6 +208,44 @@ class StaticGameDataDao:
             }
         ]
 
+    def get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
+        """读取开发期写入静态库的推荐权重；运行时不会调用外部 API。"""
+
+        recommendation = self._one(
+            """SELECT character_id, source_kind, source_item_id, source_name,
+                      source_updated_at_utc
+               FROM character_weight_recommendation WHERE character_id = ?""",
+            (int(character_id),),
+        )
+        if recommendation is None:
+            return None
+        properties = self._rows(
+            """SELECT property_id, weight, main_weight, ordinal
+               FROM character_weight_recommendation_property
+               WHERE character_id = ? ORDER BY ordinal""",
+            (int(character_id),),
+        )
+        recommendation["properties"] = properties
+        recommendation["property_weights"] = {
+            row["property_id"]: float(row["weight"])
+            for row in properties if float(row["weight"]) > 0
+        }
+        recommendation["main_property_weights"] = {
+            row["property_id"]: float(row["main_weight"])
+            for row in properties if float(row["main_weight"]) > 0
+        }
+        return recommendation
+
+    def list_character_recommended_weights(self) -> list[dict[str, Any]]:
+        return [
+            recommendation
+            for row in self._rows(
+                "SELECT character_id FROM character_weight_recommendation ORDER BY character_id"
+            )
+            if (recommendation := self.get_character_recommended_weights(int(row["character_id"])))
+            is not None
+        ]
+
     def list_character_awaken_effects(self, character_id: int) -> list[dict[str, Any]]:
         """返回角色六觉与三/六觉共鸣，含可直接应用的技能等级加成。"""
 
@@ -254,6 +294,22 @@ class StaticGameDataDao:
             WHERE character_id = ? AND level = ? AND breakthrough_stage = ?
             """,
             (character_id, level, breakthrough_stage),
+        )
+
+    def list_character_panel_growth(self, character_id: int) -> list[dict[str, Any]]:
+        """返回角色全部官方等级/突破面板，供角色页选择而非复制数值。"""
+
+        return self._rows(
+            """
+            SELECT character_id, level, breakthrough_stage, state,
+                   hp_base, atk_base, def_base,
+                   player_pack_source_row_id, level_modify_source_row_id,
+                   breakthrough_modify_source_row_id
+            FROM character_panel_growth
+            WHERE character_id = ?
+            ORDER BY level, breakthrough_stage
+            """,
+            (character_id,),
         )
 
     def list_character_skills(self, character_id: int) -> list[dict[str, Any]]:
@@ -380,6 +436,38 @@ class StaticGameDataDao:
 
     def get_suit(self, suit_id: str) -> dict[str, Any] | None:
         return next((suit for suit in self.list_suits() if suit["suit_id"] == suit_id), None)
+
+    def list_equipment_attributes(self) -> list[dict[str, Any]]:
+        """返回可用于装备词条、核心筛选和官方蓝图的属性 ID。"""
+
+        rows = self._rows(
+            """
+            SELECT attribute_id, display_name_zh, filter_name_zh,
+                   random_attribute_name_zh, attribute_type, show_percent,
+                   show_outside, show_inside, score, icon_path, source_row_id
+            FROM equipment_attribute
+            ORDER BY attribute_id
+            """
+        )
+        for row in rows:
+            for field in ("show_percent", "show_outside", "show_inside"):
+                row[field] = bool(row[field])
+        return rows
+
+    def get_equipment_attribute(self, attribute_id: str) -> dict[str, Any] | None:
+        """按官方属性 ID 查询装备属性定义。"""
+
+        raw_attribute_id = str(attribute_id).strip()
+        if not raw_attribute_id:
+            raise ValueError("attribute_id 不能为空")
+        return next(
+            (
+                attribute
+                for attribute in self.list_equipment_attributes()
+                if attribute["attribute_id"] == raw_attribute_id
+            ),
+            None,
+        )
 
     def list_equipment_items(self, kind: str | None = None) -> list[dict[str, Any]]:
         if kind not in (None, "module", "core"):

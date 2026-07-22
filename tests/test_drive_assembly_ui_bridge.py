@@ -426,282 +426,243 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
 
     def test_single_role_button_executes_confirmed_plan(self):
-        from PySide6.QtWidgets import QMessageBox
-
         import src.features.inventory.page as page_module
 
         calls = []
-        plan = {"role_name": "鐪熺孩", "available": True, "actions": [{"name": "install_tape", "sequence": []}]}
-
-        class FakeWindow:
-            equipped_state = {"鐪熺孩": {}}
-
-        original_reload = page_module._reload_equipped_state_from_disk
-        original_build = page_module.build_single_role_assembly_plan
-        original_summary = page_module.summarize_assembly_plan
-        original_execute = page_module.execute_selected_role_from_current_game_page
-        original_question = page_module.QMessageBox.question
-        original_information = page_module.QMessageBox.information
+        old_select = page_module._select_single_role_assembly_mode
+        old_fast = page_module._preview_nte_core_assemble_role
         try:
-            page_module._reload_equipped_state_from_disk = lambda _self: None
-            page_module.build_single_role_assembly_plan = lambda *_args, **_kwargs: plan
-            page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_selected_role_from_current_game_page = (
-                lambda state, role_name, **_kwargs: calls.append((state, role_name))
-                or SimpleNamespace(role_reports=[1], executed_actions=3)
-            )
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-
-            page_module._preview_assemble_role(FakeWindow(), "鐪熺孩")
+            page_module._select_single_role_assembly_mode = lambda *_args: "fast"
+            page_module._preview_nte_core_assemble_role = lambda _window, role_name, **kwargs: calls.append((role_name, kwargs))
+            page_module._preview_assemble_role(object(), "真红")
         finally:
-            page_module._reload_equipped_state_from_disk = original_reload
-            page_module.build_single_role_assembly_plan = original_build
-            page_module.summarize_assembly_plan = original_summary
-            page_module.execute_selected_role_from_current_game_page = original_execute
-            page_module.QMessageBox.question = original_question
-            page_module.QMessageBox.information = original_information
+            page_module._select_single_role_assembly_mode = old_select
+            page_module._preview_nte_core_assemble_role = old_fast
 
-        self.assertEqual([({"鐪熺孩": {}}, "鐪熺孩")], calls)
+        self.assertEqual([("真红", {"confirmed": True})], calls)
 
     def test_all_role_button_does_not_execute_when_cancelled(self):
-        from PySide6.QtWidgets import QMessageBox
-
         import src.features.inventory.page as page_module
+        from src.app import runtime
 
         calls = []
-        plan = {"role_plans": [{"role_name": "鐪熺孩", "available": True, "actions": []}]}
+        class EmptyPlansDao:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def list_active_loadout_plans_by_role(self): return {}
 
-        class FakeWindow:
-            equipped_state = {"鐪熺孩": {}}
-
-        original_reload = page_module._reload_equipped_state_from_disk
-        original_build = page_module.build_all_role_assembly_plan
-        original_summary = page_module.summarize_assembly_plan
-        original_execute = page_module.execute_all_roles_from_current_game_page
-        original_question = page_module.QMessageBox.question
+        old_start = page_module._start_nte_core_equipment_apply
+        old_dao = page_module.UserDataDao
+        old_info = page_module.QMessageBox.information
+        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
         try:
-            page_module._reload_equipped_state_from_disk = lambda _self: None
-            page_module.build_all_role_assembly_plan = lambda *_args, **_kwargs: plan
-            page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_all_roles_from_current_game_page = lambda state, **_kwargs: calls.append(state)
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.No
-
-            page_module._preview_assemble_all_roles(FakeWindow())
+            page_module._start_nte_core_equipment_apply = lambda *_args, **_kwargs: calls.append(True)
+            page_module.UserDataDao = lambda *_args, **_kwargs: EmptyPlansDao()
+            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
+            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            page_module._preview_nte_core_assemble_all_roles(object(), confirmed=True)
         finally:
-            page_module._reload_equipped_state_from_disk = original_reload
-            page_module.build_all_role_assembly_plan = original_build
-            page_module.summarize_assembly_plan = original_summary
-            page_module.execute_all_roles_from_current_game_page = original_execute
-            page_module.QMessageBox.question = original_question
+            page_module._start_nte_core_equipment_apply = old_start
+            page_module.UserDataDao = old_dao
+            page_module.QMessageBox.information = old_info
+            if old_path is None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            else:
+                runtime.USER_DATABASE_PATH = old_path
 
         self.assertEqual([], calls)
 
     def test_all_role_button_executes_current_game_role_flow_when_confirmed(self):
-        from types import SimpleNamespace
-
-        from PySide6.QtWidgets import QMessageBox
-
         import src.features.inventory.page as page_module
+        from src.app import runtime
+
+        class PlansDao:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def list_active_loadout_plans_by_role(self):
+                return {
+                    "抓包角色": {"source_snapshot_id": 1},
+                    "视觉角色": {"source_snapshot_id": 2},
+                }
+            def inventory_snapshot_summary(self, snapshot_id):
+                return {"source": "nte_core" if snapshot_id == 1 else "gamepad"}
 
         calls = []
-        plan = {"role_plans": [{"role_name": "鐪熺孩", "available": True, "actions": []}]}
-
-        class FakeWindow:
-            equipped_state = {"鐪熺孩": {}}
-
-        original_reload = page_module._reload_equipped_state_from_disk
-        original_build = page_module.build_all_role_assembly_plan
-        original_summary = page_module.summarize_assembly_plan
-        original_execute = page_module.execute_all_roles_from_current_game_page
-        original_question = page_module.QMessageBox.question
-        original_information = page_module.QMessageBox.information
+        old_dao = page_module.UserDataDao
+        old_start = page_module._start_nte_core_equipment_apply
+        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
         try:
-            page_module._reload_equipped_state_from_disk = lambda _self: None
-            page_module.build_all_role_assembly_plan = lambda *_args, **_kwargs: plan
-            page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_all_roles_from_current_game_page = (
-                lambda state, **_kwargs: calls.append(state) or SimpleNamespace(role_reports=[1], executed_actions=9)
-            )
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-
-            page_module._preview_assemble_all_roles(FakeWindow())
+            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
+            page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
+            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            page_module._preview_nte_core_assemble_all_roles(object(), confirmed=True)
         finally:
-            page_module._reload_equipped_state_from_disk = original_reload
-            page_module.build_all_role_assembly_plan = original_build
-            page_module.summarize_assembly_plan = original_summary
-            page_module.execute_all_roles_from_current_game_page = original_execute
-            page_module.QMessageBox.question = original_question
-            page_module.QMessageBox.information = original_information
+            page_module.UserDataDao = old_dao
+            page_module._start_nte_core_equipment_apply = old_start
+            if old_path is None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            else:
+                runtime.USER_DATABASE_PATH = old_path
 
-        self.assertEqual([{"鐪熺孩": {}}], calls)
+        self.assertEqual([["抓包角色"]], calls)
 
+    def test_weighted_result_can_limit_fast_equipment_to_its_selected_roles(self):
+        import src.features.inventory.page as page_module
+        from src.app import runtime
+
+        class PlansDao:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def list_active_loadout_plans_by_role(self):
+                return {
+                    "当前角色": {"source_snapshot_id": 1},
+                    "旧方案角色": {"source_snapshot_id": 1},
+                }
+            def inventory_snapshot_summary(self, _snapshot_id):
+                return {"source": "nte_core"}
+
+        calls = []
+        old_dao = page_module.UserDataDao
+        old_start = page_module._start_nte_core_equipment_apply
+        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
+        try:
+            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
+            page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
+            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            page_module._preview_nte_core_assemble_all_roles(
+                object(), confirmed=True, role_names=["当前角色"],
+            )
+        finally:
+            page_module.UserDataDao = old_dao
+            page_module._start_nte_core_equipment_apply = old_start
+            if old_path is None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            else:
+                runtime.USER_DATABASE_PATH = old_path
+
+        self.assertEqual([["当前角色"]], calls)
+
+    def test_weighted_result_can_limit_automatic_equipment_to_its_selected_roles(self):
+        import src.features.inventory.page as page_module
+        from src.app import runtime
+
+        class PlansDao:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def list_active_loadout_plans_by_role(self):
+                return {"当前角色": {}, "旧方案角色": {}}
+
+        calls = []
+        old_dao = page_module.UserDataDao
+        old_question = page_module.QMessageBox.question
+        old_warning = page_module._confirm_automatic_assembly_duplicate_warning
+        old_start = page_module._start_automatic_equipment_assembly
+        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
+        try:
+            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
+            page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Yes
+            page_module._confirm_automatic_assembly_duplicate_warning = lambda _window: True
+            page_module._start_automatic_equipment_assembly = lambda _window, roles: calls.append(roles)
+            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            page_module._preview_automatic_assemble_all_roles(
+                object(), role_names=["当前角色"],
+            )
+        finally:
+            page_module.UserDataDao = old_dao
+            page_module.QMessageBox.question = old_question
+            page_module._confirm_automatic_assembly_duplicate_warning = old_warning
+            page_module._start_automatic_equipment_assembly = old_start
+            if old_path is None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            else:
+                runtime.USER_DATABASE_PATH = old_path
+
+        self.assertEqual([["当前角色"]], calls)
 
     def test_confirmed_assembly_minimizes_calculator_before_execution(self):
-        from PySide6.QtWidgets import QMessageBox
-
         import src.features.inventory.page as page_module
 
-        calls = []
-        plan = {"roles": ["demo"], "role_plans": [{"role_name": "demo", "available": True, "actions": []}]}
+        class Signal:
+            def __init__(self): self.callback = None
+            def connect(self, callback): self.callback = callback
 
-        class FakeWindow:
-            equipped_state = {"demo": {}}
+        class FakeWorker:
+            def __init__(self, *, target, parent):
+                self.target = target
+                self.parent = parent
+                self.result_ready = Signal()
+                self.error = Signal()
+                self.started = False
+            def start(self): self.started = True
 
-            def showMinimized(self):
-                calls.append("minimized")
+        class Window:
+            def __init__(self): self.calls = []
+            def showMinimized(self): self.calls.append("minimized")
+            def showNormal(self): self.calls.append("show_normal")
+            def _go(self, page): self.calls.append(page)
+            def raise_(self): self.calls.append("raise")
+            def activateWindow(self): self.calls.append("activate")
+            def _refresh_equip(self): self.calls.append("refresh")
 
-            def showNormal(self):
-                calls.append("show_normal")
-
-            def _go(self, page):
-                calls.append(page)
-
-            def raise_(self):
-                calls.append("raise")
-
-            def activateWindow(self):
-                calls.append("activate")
-
-        original_reload = page_module._reload_equipped_state_from_disk
-        original_build = page_module.build_all_role_assembly_plan
-        original_summary = page_module.summarize_assembly_plan
-        original_execute = page_module.execute_all_roles_from_current_game_page
-        original_question = page_module.QMessageBox.question
-        original_information = page_module.QMessageBox.information
+        old_worker = page_module.WorkerThread
+        old_state = page_module._sqlite_automatic_assembly_state
+        old_aliases = page_module._prompt_protagonist_alias_if_needed
+        old_report = page_module._assembly_report_dialog
+        old_info = page_module.QMessageBox.information
+        old_warning = page_module.QMessageBox.warning
+        old_critical = page_module.QMessageBox.critical
         try:
-            page_module._reload_equipped_state_from_disk = lambda _self: None
-            page_module.build_all_role_assembly_plan = lambda *_args, **_kwargs: plan
-            page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_all_roles_from_current_game_page = (
-                lambda _state, **_kwargs: calls.append("executed")
-                or SimpleNamespace(role_reports=[1], executed_actions=1)
+            page_module.WorkerThread = FakeWorker
+            page_module._sqlite_automatic_assembly_state = lambda _roles: {"角色": {}}
+            page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
+            page_module._assembly_report_dialog = lambda *_args: ("完成", "ok", True)
+            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
+            page_module.QMessageBox.warning = lambda *_args, **_kwargs: None
+            page_module.QMessageBox.critical = lambda *_args, **_kwargs: None
+
+            window = Window()
+            page_module._start_automatic_equipment_assembly(window, ["角色"])
+            worker = window._automatic_equipment_apply_worker
+            self.assertTrue(worker.started)
+            self.assertEqual(["minimized"], window.calls)
+
+            worker.result_ready.callback(SimpleNamespace())
+            self.assertEqual(
+                ["minimized", "show_normal", "equipment", "raise", "activate", "refresh"],
+                window.calls,
             )
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: calls.append("dialog")
 
-            page_module._preview_assemble_all_roles(FakeWindow())
+            window.calls.clear()
+            worker.error.callback("失败")
+            self.assertEqual(["show_normal", "equipment", "raise", "activate"], window.calls)
         finally:
-            page_module._reload_equipped_state_from_disk = original_reload
-            page_module.build_all_role_assembly_plan = original_build
-            page_module.summarize_assembly_plan = original_summary
-            page_module.execute_all_roles_from_current_game_page = original_execute
-            page_module.QMessageBox.question = original_question
-            page_module.QMessageBox.information = original_information
-
-        self.assertEqual(
-            ["minimized", "executed", "show_normal", "equipment", "raise", "activate", "dialog"],
-            calls,
-        )
+            page_module.WorkerThread = old_worker
+            page_module._sqlite_automatic_assembly_state = old_state
+            page_module._prompt_protagonist_alias_if_needed = old_aliases
+            page_module._assembly_report_dialog = old_report
+            page_module.QMessageBox.information = old_info
+            page_module.QMessageBox.warning = old_warning
+            page_module.QMessageBox.critical = old_critical
 
     def test_single_role_f12_stop_restores_equipment_page_before_dialog(self):
-        from PySide6.QtWidgets import QMessageBox
-
-        import src.features.inventory.page as page_module
+        from src.features.inventory.page import _return_to_equipment_after_assembly
 
         calls = []
-        plan = {"role_name": "demo", "available": True, "actions": []}
+        class Window:
+            def showNormal(self): calls.append("show_normal")
+            def _go(self, page): calls.append(page)
+            def raise_(self): calls.append("raise")
+            def activateWindow(self): calls.append("activate")
 
-        class FakeWindow:
-            equipped_state = {"demo": {}}
-
-            def showMinimized(self):
-                calls.append("minimized")
-
-            def showNormal(self):
-                calls.append("show_normal")
-
-            def _go(self, page):
-                calls.append(page)
-
-            def raise_(self):
-                calls.append("raise")
-
-            def activateWindow(self):
-                calls.append("activate")
-
-        def stop_execution(*_args, **_kwargs):
-            raise page_module.AssemblyExecutionStopped()
-
-        original_reload = page_module._reload_equipped_state_from_disk
-        original_build = page_module.build_single_role_assembly_plan
-        original_summary = page_module.summarize_assembly_plan
-        original_execute = page_module.execute_selected_role_from_current_game_page
-        original_question = page_module.QMessageBox.question
-        original_warning = page_module.QMessageBox.warning
-        try:
-            page_module._reload_equipped_state_from_disk = lambda _self: None
-            page_module.build_single_role_assembly_plan = lambda *_args, **_kwargs: plan
-            page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_selected_role_from_current_game_page = stop_execution
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
-            page_module.QMessageBox.warning = lambda *_args, **_kwargs: calls.append("dialog")
-
-            page_module._preview_assemble_role(FakeWindow(), "demo")
-        finally:
-            page_module._reload_equipped_state_from_disk = original_reload
-            page_module.build_single_role_assembly_plan = original_build
-            page_module.summarize_assembly_plan = original_summary
-            page_module.execute_selected_role_from_current_game_page = original_execute
-            page_module.QMessageBox.question = original_question
-            page_module.QMessageBox.warning = original_warning
-
-        self.assertEqual(["minimized", "show_normal", "equipment", "raise", "activate", "dialog"], calls)
+        _return_to_equipment_after_assembly(Window())
+        self.assertEqual(["show_normal", "equipment", "raise", "activate"], calls)
 
     def test_all_roles_f12_stop_restores_equipment_page_before_dialog(self):
-        from PySide6.QtWidgets import QMessageBox
+        from src.features.inventory.page import _assembly_report_dialog
 
-        import src.features.inventory.page as page_module
-
-        calls = []
-        plan = {"roles": ["demo"], "role_plans": [{"role_name": "demo", "available": True, "actions": []}]}
-
-        class FakeWindow:
-            equipped_state = {"demo": {}}
-
-            def showMinimized(self):
-                calls.append("minimized")
-
-            def showNormal(self):
-                calls.append("show_normal")
-
-            def _go(self, page):
-                calls.append(page)
-
-            def raise_(self):
-                calls.append("raise")
-
-            def activateWindow(self):
-                calls.append("activate")
-
-        def stop_execution(*_args, **_kwargs):
-            raise page_module.AssemblyExecutionStopped()
-
-        original_reload = page_module._reload_equipped_state_from_disk
-        original_build = page_module.build_all_role_assembly_plan
-        original_summary = page_module.summarize_assembly_plan
-        original_execute = page_module.execute_all_roles_from_current_game_page
-        original_question = page_module.QMessageBox.question
-        original_warning = page_module.QMessageBox.warning
-        try:
-            page_module._reload_equipped_state_from_disk = lambda _self: None
-            page_module.build_all_role_assembly_plan = lambda *_args, **_kwargs: plan
-            page_module.summarize_assembly_plan = lambda _plan: "summary"
-            page_module.execute_all_roles_from_current_game_page = stop_execution
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: QMessageBox.Yes
-            page_module.QMessageBox.warning = lambda *_args, **_kwargs: calls.append("dialog")
-
-            page_module._preview_assemble_all_roles(FakeWindow())
-        finally:
-            page_module._reload_equipped_state_from_disk = original_reload
-            page_module.build_all_role_assembly_plan = original_build
-            page_module.summarize_assembly_plan = original_summary
-            page_module.execute_all_roles_from_current_game_page = original_execute
-            page_module.QMessageBox.question = original_question
-            page_module.QMessageBox.warning = original_warning
-
-        self.assertEqual(["minimized", "show_normal", "equipment", "raise", "activate", "dialog"], calls)
+        report = SimpleNamespace(role_reports=[], executed_actions=0, missing_roles=[], skipped_roles=[], duplicate_roles=[], unrecognized_roles=[], verification_failures=[])
+        _title, _message, completed = _assembly_report_dialog("自动装配", report, 1)
+        self.assertFalse(completed)
 
     def test_verifies_blueprint_against_screenshot_samples_drive_positions(self):
         from src.features.drive_assembly.ui_bridge import verify_blueprint_against_screenshot

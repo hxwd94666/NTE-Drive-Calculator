@@ -7,7 +7,7 @@ import re
 import copy
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -1164,7 +1164,17 @@ def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_
     sub_score=(10.0/max_w)*sub_w*10.0*quality_coef if max_w>0 else 0
     return round(main_score+sub_score, 2)
 
-def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,is_discarded=False,is_duplicate_drive=False,main_weights=None,replacement_callback=None,card_variant="default"):
+def _format_equipment_stat_display(value):
+    """Render captured float32/double values without binary-tail noise."""
+    if isinstance(value,str) and "%" in value:
+        return value
+    try:
+        number=round(float(value),2)
+    except (TypeError,ValueError):
+        return str(value)
+    return f"{number:.2f}".rstrip("0").rstrip(".")
+
+def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,is_discarded=False,is_duplicate_drive=False,main_weights=None,replacement_callback=None,card_variant="default",item_icon_path=None,replacement_text=None):
     if current_theme_name() == "light":
         QUALITY_COLORS={"Gold":"#9a6700","Purple":"#8250df","Blue":"#0969da"}
     else:
@@ -1175,12 +1185,17 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
     outer=QHBoxLayout(w); outer.setSpacing(12); outer.setContentsMargins(14,2,2,2)
 
     # Shape image: 与首行标签保持均衡，避免图标显得过小。
-    if shape_id:
+    if shape_id or item_icon_path:
         # Use a compact frame in both specialised views.  The image label
         # explicitly has no padding below, so the artwork fills the frame
         # instead of becoming a small icon inside a large blank box.
         image_size = {"inventory": 52, "result": 60}.get(card_variant, 64)
-        pm=_get_shape_pixmap(shape_id,image_size,quality)
+        pm=(
+            _get_shape_pixmap(shape_id,image_size,quality)
+            if shape_id else QPixmap(str(item_icon_path)).scaled(
+                image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation,
+            )
+        )
         if not pm.isNull():
             img_lbl=QLabel(); img_lbl.setPixmap(pm); img_lbl.setFixedSize(image_size,image_size); img_lbl.setScaledContents(True)
             img_lbl.setStyleSheet(themed_style("border:1px solid #30363d;border-radius:6px;background:#161b22;padding:0px")); outer.addWidget(img_lbl)
@@ -1268,7 +1283,7 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
     if score_frame is not None:
         hdr.addWidget(score_frame, 0, Qt.AlignTop)
     if replacement_callback:
-        replacement_btn=QPushButton("优化" if shape_id else "替换")
+        replacement_btn=QPushButton(str(replacement_text or ("优化" if shape_id else "替换")))
         replacement_btn.setObjectName("btnAction")
         if is_feature_card:
             replacement_btn.setFixedSize(74,33)
@@ -1284,7 +1299,7 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
         br=QHBoxLayout(); br.setSpacing(5)
         for sn,sv in sub_stats.items():
             sw=self._stat_w(sn,weights); color=self._stat_c(sw); qc=QColor(color)
-            block=QLabel(f"{sn} <b>{sv}</b>"); block.setAlignment(Qt.AlignCenter)
+            block=QLabel(f"{sn} <b>{_format_equipment_stat_display(sv)}</b>"); block.setAlignment(Qt.AlignCenter)
             block.setStyleSheet(f"border:1px solid {color};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);border-radius:6px;padding:5px 12px;font-size:{'13px' if is_feature_card else '12px'};color:{color};font-weight:600")
             block.setToolTip(f"权重: {sw:.2f}"); br.addWidget(block)
         br.addStretch(); inner.addLayout(br)

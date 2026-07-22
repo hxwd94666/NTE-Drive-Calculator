@@ -4,8 +4,8 @@
 本机准备好的游戏官方文件生成，普通用户不需要另外下载。
 
 当前数据集：`unversioned_20260722_combat`
-当前结构版本：`10`
-当前 SHA-256：`C88694E197F0EFF32E1F76658DB34842C0185F79BF0976E2F9ABFFE02901D1BA`
+当前结构版本：`11`
+当前 SHA-256：`1064E2A8DC77ED6D9D5CE1895C8998D8E1F84E3517A35F33BDD6D0B7D91D55BD`
 
 发行数据库保留规范化业务表、来源文件相对路径、来源文件哈希、来源行键和
 来源行内容哈希。`source_row.payload_json` 必须全部为 `NULL`，完整来源原文和
@@ -43,3 +43,7 @@ python tools/game_data/build_static_database.py `
 schema v8–v10 还保存倾陷/环合等级曲线、环合常量、普通与 999 夜敌方属性包、
 怪物实例等级变体，以及 Abyss 关卡到波次、怪物池和普通属性包的明确关系。
 `FT_` 属于 999 夜子玩法，不作为 Abyss 或轨外之境的场景判断依据。
+
+schema v11 保存开发期从异环工坊 API 同步的角色推荐权重，并保留 `workshop_api`、
+`workshop_cache` 或 `default` 来源标记。用户运行时会把推荐复制到账号库后独立编辑；
+发行应用不访问该 API，也不读取旧角色 JSON 权重。

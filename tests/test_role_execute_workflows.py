@@ -279,8 +279,8 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         runtime.USER_CONFIG_DIR = self._old_user_config_dir
 
-    def test_save_allocation_reload_keeps_current_priority_selector_state(self):
-        from src.features.allocation.runner import _save_alloc
+    def test_save_allocation_requires_a_pinned_snapshot(self):
+        from src.features.allocation import runner
 
         class StateManager:
             def __init__(self):
@@ -302,14 +302,18 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
         window = Window()
 
-        result = _save_alloc(window, show_message=False)
+        old_critical = runner.QMessageBox.critical
+        try:
+            runner.QMessageBox.critical = lambda *_args, **_kwargs: None
+            result = runner._save_alloc(window, show_message=False)
+        finally:
+            runner.QMessageBox.critical = old_critical
 
-        self.assertTrue(result)
-        self.assertFalse(window._allocation_dirty)
-        self.assertEqual([({"A": {"valid": True}}, "role_priority")], window.state_mgr.saved)
-        self.assertEqual([False], window.reload_priority_args)
+        self.assertFalse(result)
+        self.assertTrue(window._allocation_dirty)
+        self.assertEqual([], window.state_mgr.saved)
 
-    def test_save_allocation_syncs_equipment_lock_to_role_feature(self):
+    def test_save_allocation_does_not_fall_back_to_legacy_equipment_import(self):
         from src.features.allocation import runner
 
         class StateManager:
@@ -328,22 +332,15 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             def _load_data(self, reload_priority=True):
                 self.reload_priority = reload_priority
 
-        calls = []
-        old_import = runner.import_all_role_equipment
-        runner.import_all_role_equipment = lambda state: calls.append(state) or {
-            "imported": 1,
-            "skipped": 0,
-            "failed": [],
-            "my_roles": {"A": {"drive": {"drives": [{"uid": "d1"}]}}},
-        }
+        old_critical = runner.QMessageBox.critical
         try:
+            runner.QMessageBox.critical = lambda *_args, **_kwargs: None
             window = Window()
-            self.assertTrue(runner._save_alloc(window, show_message=False))
+            self.assertFalse(runner._save_alloc(window, show_message=False))
         finally:
-            runner.import_all_role_equipment = old_import
+            runner.QMessageBox.critical = old_critical
 
-        self.assertEqual([{"A": {"equipped_drives": [{"uid": "d1"}]}}], calls)
-        self.assertEqual({"drive": {"drives": [{"uid": "d1"}]}}, window._my_role_form_data["A"])
+        self.assertEqual({"A": {"old": True}}, window._my_role_form_data)
 
     def test_execute_page_shows_post_action_manager_only_for_full_scan(self):
         from PySide6.QtCore import Signal
@@ -1208,7 +1205,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         self.assertEqual((18.8, "S"), args[6])
         self.assertTrue(kwargs["is_new"])
 
-    def test_result_diff_card_hydrates_removed_item_from_inventory_file(self):
+    def test_result_diff_card_does_not_read_removed_item_from_legacy_inventory_file(self):
         from src.app import runtime
         from src.features.allocation import results_view
 
@@ -1256,10 +1253,9 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                     runtime.OUTPUT_FILE = old_output
 
         args, kwargs = window.cards[0]
-        self.assertEqual("H_2", args[0])
-        self.assertEqual({"伤害%": 2.0, "攻击力": 16.0}, args[2])
-        self.assertEqual("H_2", args[3])
-        self.assertEqual((16.6, "S"), args[6])
+        self.assertEqual("old", args[0])
+        self.assertEqual({}, args[2])
+        self.assertEqual("", args[3])
         self.assertFalse(kwargs["is_new"])
 
     def test_saved_equipment_grade_uses_full_350_score_even_without_tape(self):
@@ -1308,7 +1304,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return QWidget()
 
         window = Window()
-        inventory_page._refresh_equip(window)
+        inventory_page._queue_equipment_render(window, window.equipped_state)
         app.processEvents()
 
         self.assertIn(35, window.grade_areas)
@@ -1370,7 +1366,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         old_timer = inventory_page.QTimer
         inventory_page.QTimer = FakeTimer
         try:
-            inventory_page._refresh_equip(window)
+            inventory_page._queue_equipment_render(window, window.equipped_state)
             self.assertEqual(1, len(callbacks))
             self.assertEqual(
                 inventory_page.EQUIPMENT_INITIAL_RENDER_COUNT,
@@ -1458,15 +1454,15 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             runtime.USER_CONFIG_DIR = user_dir
             try:
                 window = Window()
-                inventory_page._refresh_equip(window)
+                inventory_page._queue_equipment_render(window, window.equipped_state)
             finally:
                 if old_user_dir is None:
                     delattr(runtime, "USER_CONFIG_DIR")
                 else:
                     runtime.USER_CONFIG_DIR = old_user_dir
 
-        self.assertEqual(["new_drive"], window.rendered_uids)
-        self.assertEqual("new_drive", window.equipped_state["A"]["equipped_drives"][0]["uid"])
+        self.assertEqual(["old_drive"], window.rendered_uids)
+        self.assertEqual("old_drive", window.equipped_state["A"]["equipped_drives"][0]["uid"])
         app.processEvents()
 
     def test_saved_equipment_refresh_passes_change_marker_to_cards(self):
@@ -1546,7 +1542,8 @@ class ExecutePageWorkflowTests(unittest.TestCase):
             runtime.USER_CONFIG_DIR = user_dir
             try:
                 window = Window()
-                inventory_page._refresh_equip(window)
+                window.equipped_state = json.loads((user_dir / "equipped_state.json").read_text(encoding="utf-8"))
+                inventory_page._queue_equipment_render(window, window.equipped_state)
             finally:
                 if old_user_dir is None:
                     delattr(runtime, "USER_CONFIG_DIR")
@@ -2331,7 +2328,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
                 return QWidget()
 
         window = Window()
-        inventory_page._refresh_equip(window)
+        inventory_page._queue_equipment_render(window, window.equipped_state)
         app.processEvents()
 
         self.assertEqual((18.8, "S"), window.equip_cards[0][6])
@@ -2878,6 +2875,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
 
     def test_runner_builds_plan_diff_before_rendering_results(self):
         from src.features.allocation import runner
+        from src.app import runtime
 
         class State:
             def load_state(self):
@@ -2903,7 +2901,14 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         window = Window()
         result = {"A": {"valid": True, "assigned_tape": None, "assigned_set_drives": [], "assigned_extra_drives": []}}
 
-        runner._on_done(window, result)
+        old_database_path = getattr(runtime, "USER_DATABASE_PATH", None)
+        try:
+            if old_database_path is not None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            runner._on_done(window, result)
+        finally:
+            if old_database_path is not None:
+                runtime.USER_DATABASE_PATH = old_database_path
 
         self.assertTrue(window.rendered_diff["A"]["changed"])
         self.assertEqual(["old"], [item["uid"] for item in window.rendered_diff["A"]["removed"]])

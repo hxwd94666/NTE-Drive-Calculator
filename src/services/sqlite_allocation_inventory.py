@@ -43,6 +43,7 @@ _STAT_NAMES = {
     "DamageUpChaosBase": "暗属性异能伤害增强%",
     "DamageUpCosmosBase": "光属性异能伤害增强%",
     "DamageUpGeneralBase": "伤害增加%",
+    "DamageUpGeneralAdd": "伤害增加%",
     "DamageUpIncantationBase": "咒属性异能伤害增强%",
     "DamageUpLakshanaBase": "相属性异能伤害增强%",
     "DamageUpNatureBase": "灵属性异能伤害增强%",
@@ -74,12 +75,34 @@ def _display_suit_name(value: Any) -> str:
     return name
 
 
-def _stat_value(stat: Mapping[str, Any]) -> float:
-    value = float(stat.get("value", 0.0))
-    if stat.get("percent"):
+def legacy_stat_value(value: Any, percent: bool) -> float:
+    """Project an official stat into the unit used by the legacy scorer."""
+
+    value = float(value or 0.0)
+    if percent:
         value *= 100.0
     rounded = round(value, 6)
     return 0.0 if rounded == -0.0 else rounded
+
+
+def _stat_value(stat: Mapping[str, Any]) -> float:
+    return legacy_stat_value(stat.get("value", 0.0), bool(stat.get("percent")))
+
+
+def legacy_shape_id(value: Any) -> str:
+    """Map an official geometry ID to the existing puzzle-solver shape ID."""
+
+    geometry = str(value or "").strip().removeprefix("EquipmentGeometry_")
+    shape_id = _SHAPE_IDS.get(geometry.casefold())
+    if shape_id is None:
+        raise AllocationInventoryProjectionError(f"未知官方驱动形状：{value!r}")
+    return shape_id
+
+
+def legacy_stat_name(property_id: Any) -> str | None:
+    """Return the exact scoring label used by the established allocator."""
+
+    return _STAT_NAMES.get(str(property_id or "").strip())
 
 
 def _stats(stats: list[dict[str, Any]]) -> dict[str, float]:
@@ -117,11 +140,7 @@ class SqliteAllocationInventory:
 
     @staticmethod
     def _shape_id(value: Any) -> str:
-        geometry = str(value or "").strip().removeprefix("EquipmentGeometry_")
-        shape_id = _SHAPE_IDS.get(geometry.casefold())
-        if shape_id is None:
-            raise AllocationInventoryProjectionError(f"未知官方驱动形状：{value!r}")
-        return shape_id
+        return legacy_shape_id(value)
 
     def build(self, snapshot_id: int | None = None) -> AllocationInventoryProjection:
         """固定一个快照并投影全部物品，返回纯内存求解输入。

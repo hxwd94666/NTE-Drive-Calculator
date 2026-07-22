@@ -40,6 +40,7 @@ from src.features.scanning.post_action_dialog import (
 )
 from src.features.scanning.post_actions import validate_post_action_config
 from src.services.equipment_apply_service import EquipmentApplyService
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.warehouse_identification_service import WarehouseIdentificationService
 from src.services.warehouse_state_management import WarehouseStateManagementService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -929,6 +930,7 @@ def _sqlite_inventory_item_display(row, suit_names):
             EQUIP_SUB_STATS: _official_stat_values(row.get("sub_stats")),
             EQUIP_QUALITY: quality,
             "_role_main_stats": main_stats,
+            "_item_id": str(row.get("item_id") or ""),
             "_uid_serial": int(row.get("uid_serial") or 0),
             "_uid_slot": int(row.get("uid_slot") or 0),
         }
@@ -944,6 +946,14 @@ def _sqlite_inventory_item_display(row, suit_names):
         "_uid_serial": int(row.get("uid_serial") or 0),
         "_uid_slot": int(row.get("uid_slot") or 0),
     }
+
+
+def _replacement_item_icon(asset_catalog, item_kind, item):
+    """Resolve the packaged official Empty Curtain image for a replacement card."""
+    if item_kind == "drive" or asset_catalog is None:
+        return None
+    item_id = str(item.get("_item_id") or "")
+    return asset_catalog.equipment_icon(item_id) if item_id else None
 
 
 def _replacement_assignments(plan, old_uid, replacement):
@@ -1064,7 +1074,20 @@ def _saved_plan_optimization_role_context(self, role_name: str) -> dict:
     return role_context
 
 
-def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
+def _optimize_saved_equipment(
+    self,
+    role_name: str,
+    item_kind: str,
+    uid: str,
+    *,
+    weights_override: dict[str, float] | None = None,
+    main_weights_override: dict[str, float] | None = None,
+    rank_by_damage: bool = True,
+    after_replace=None,
+    core_term: str = "卡带",
+    assignment_scores_override: dict[str, float] | None = None,
+    exclude_used_by_others: bool = False,
+):
     """Restore per-card optimization using only the active SQLite plan snapshot."""
     try:
         plan, current, candidates, plan_drives, plan_tape = _sqlite_replacement_candidates(
@@ -1073,21 +1096,28 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
     except Exception as exc:
         QMessageBox.warning(self, "优化替换", str(exc))
         return
-    role_cfg = (getattr(self, "roles_db", {}) or {}).get(role_name, {})
-    weights = role_cfg.get("weights", {})
-    main_weights = role_cfg.get("main_weights")
+    if exclude_used_by_others:
+        candidates = [candidate for candidate in candidates if not candidate.get("_used_by")]
+    role_cfg = {}
+    if not isinstance(weights_override, dict) or not isinstance(main_weights_override, dict):
+        role_cfg = (getattr(self, "roles_db", {}) or {}).get(role_name, {})
+    weights = (
+        dict(weights_override)
+        if isinstance(weights_override, dict)
+        else role_cfg.get("weights", {})
+    )
+    main_weights = (
+        dict(main_weights_override)
+        if isinstance(main_weights_override, dict)
+        else role_cfg.get("main_weights")
+    )
     if item_kind == "drive":
         score = lambda item: float(self._score_drive_dict(item.get(EQUIP_SUB_STATS, {}), item.get(EQUIP_SHAPE_ID, ""), weights, item.get(EQUIP_QUALITY, "Gold")))
         title = f"优化替换 - {current.get(EQUIP_SHAPE_ID) or '驱动'}"
     else:
         score = lambda item: float(self._score_tape_dict(item.get(EQUIP_MAIN_STATS, ""), item.get(EQUIP_SUB_STATS, {}), weights, item.get(EQUIP_QUALITY, "Gold"), main_weights))
-        title = f"替换卡带 - {current.get(EQUIP_SET_NAME) or '卡带'}"
+        title = f"替换{core_term} - {current.get(EQUIP_SET_NAME) or core_term}"
     current_score = score(current)
-    try:
-        role_base = _saved_plan_optimization_role_context(self, role_name)
-    except ValueError as exc:
-        QMessageBox.warning(self, "优化替换", str(exc))
-        return
     role_drives = [
         {
             "uid": item.get(EQUIP_UID, ""),
@@ -1104,35 +1134,49 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
         "sub_stats": dict(plan_tape.get(EQUIP_SUB_STATS) or {}),
         "quality": plan_tape.get(EQUIP_QUALITY, "Gold"),
     } if plan_tape else {}
-    role_set_bonus = (
-        set_bonus_from_tape_source(role_tape)
-        if role_tape else {"display_name": "", "skill": {}, "skill_2": {}, "skill_cover": 0.8}
-    )
-    role_context = build_equipment_role_context(
-        role_base, role_drives, role_tape, set_bonus=role_set_bonus
-    )
-    direct_current = current
-    if item_kind == "drive":
-        direct_current = next((item for item in role_drives if item.get("uid") == uid), current)
-        direct_candidates = [
-            {"uid": item.get(EQUIP_UID, ""), "shape_id": item.get(EQUIP_SHAPE_ID, ""),
-             "sub_stats": dict(item.get(EQUIP_SUB_STATS) or {}), "quality": item.get(EQUIP_QUALITY, "Gold"),
-             "_display": item}
-            for item in candidates
-        ]
+    if rank_by_damage:
+        try:
+            role_base = _saved_plan_optimization_role_context(self, role_name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "优化替换", str(exc))
+            return
+        role_set_bonus = (
+            set_bonus_from_tape_source(role_tape)
+            if role_tape else {"display_name": "", "skill": {}, "skill_2": {}, "skill_cover": 0.8}
+        )
+        role_context = build_equipment_role_context(
+            role_base, role_drives, role_tape, set_bonus=role_set_bonus
+        )
+        if item_kind == "drive":
+            direct_current = next((item for item in role_drives if item.get("uid") == uid), current)
+            direct_candidates = [
+                {"uid": item.get(EQUIP_UID, ""), "shape_id": item.get(EQUIP_SHAPE_ID, ""),
+                 "sub_stats": dict(item.get(EQUIP_SUB_STATS) or {}), "quality": item.get(EQUIP_QUALITY, "Gold"),
+                 "_display": item}
+                for item in candidates
+            ]
+        else:
+            direct_current = role_tape
+            direct_candidates = [
+                {"uid": item.get(EQUIP_UID, ""), "set_name": item.get(EQUIP_SET_NAME, ""),
+                 "main_stats": dict(item.get("_role_main_stats") or {}),
+                 "sub_stats": dict(item.get(EQUIP_SUB_STATS) or {}), "quality": item.get(EQUIP_QUALITY, "Gold"),
+                 "_display": item}
+                for item in candidates
+            ]
+        current_margin, ranked_damage = rank_replacement_candidates_by_damage(
+            role_context, item_kind, direct_current, direct_candidates
+        )
+        ranked = [
+            (margin, score(candidate["_display"]), candidate["_display"])
+            for margin, candidate in ranked_damage
+        ][:30]
     else:
-        direct_current = role_tape
-        direct_candidates = [
-            {"uid": item.get(EQUIP_UID, ""), "set_name": item.get(EQUIP_SET_NAME, ""),
-             "main_stats": dict(item.get("_role_main_stats") or {}),
-             "sub_stats": dict(item.get(EQUIP_SUB_STATS) or {}), "quality": item.get(EQUIP_QUALITY, "Gold"),
-             "_display": item}
-            for item in candidates
-        ]
-    current_margin, ranked_damage = rank_replacement_candidates_by_damage(
-        role_context, item_kind, direct_current, direct_candidates
-    )
-    ranked = [(margin, score(candidate["_display"]), candidate["_display"]) for margin, candidate in ranked_damage][:30]
+        current_margin = None
+        ranked = sorted(
+            ((None, score(candidate), candidate) for candidate in candidates),
+            key=lambda row: row[1], reverse=True,
+        )[:30]
     if not ranked:
         QMessageBox.information(self, "优化替换", "当前快照中没有可替换的同类装备。")
         return
@@ -1141,6 +1185,11 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
     # Only the visual structure is shared: all items below still come from one
     # stable SQLite snapshot and the replacement is saved as a SQLite plan.
     item_label = current.get(EQUIP_SHAPE_ID) if item_kind == "drive" else current.get(EQUIP_SET_NAME)
+    asset_catalog = (
+        None
+        if item_kind == "drive"
+        else GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
+    )
     dialog = QDialog(self)
     dialog.setWindowTitle(f"{role_name} · {title}")
     dialog.resize(850, 650)
@@ -1152,25 +1201,32 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
         "background:rgba(77,208,225,0.10)"
     ))
     layout.addWidget(role_header)
+    summary_text = (
+        f"当前直伤收益：{current_margin:+.2f}%（候选按直伤收益排序）"
+        if rank_by_damage else "候选按当前词条配装权重评分排序"
+    )
     summary = QLabel(
-        f"当前直伤收益：{current_margin:+.2f}%（候选按直伤收益排序）；仅显示同{('形状' if item_kind == 'drive' else '套装')}的候选装备，"
+        f"{summary_text}；仅显示同{('形状' if item_kind == 'drive' else '套装')}的候选装备，"
         "不会占用本方案其他已选装备。"
     )
     summary.setWordWrap(True)
     summary.setStyleSheet(themed_style("color:#8b949e"))
     layout.addWidget(summary)
-    current_group = QGroupBox("当前驱动" if item_kind == "drive" else "当前卡带")
+    current_group = QGroupBox("当前驱动" if item_kind == "drive" else f"当前{core_term}")
     current_layout = QVBoxLayout(current_group)
     current_layout.addWidget(self._equip_card(
-        item_label or "卡带", current.get(EQUIP_MAIN_STATS, ""),
+        item_label or core_term, current.get(EQUIP_MAIN_STATS, ""),
         current.get(EQUIP_SUB_STATS, {}), current.get(EQUIP_SHAPE_ID), current.get(EQUIP_UID, ""), weights,
         (current_score, self._calc_grade(current_score, 15 if item_kind == "tape" else self._shape_areas.get(current.get(EQUIP_SHAPE_ID, ""), 3))),
         current.get(EQUIP_QUALITY, "Gold"),
         is_duplicate_drive=item_kind == "drive" and bool(current.get("is_duplicate_drive")),
         main_weights=main_weights, card_variant="inventory",
+        item_icon_path=_replacement_item_icon(asset_catalog, item_kind, current),
     ))
     layout.addWidget(current_group)
-    candidates_group = QGroupBox(f"可替换{'驱动' if item_kind == 'drive' else '卡带'} ({len(ranked)}个)")
+    candidates_group = QGroupBox(
+        f"可替换{'驱动' if item_kind == 'drive' else core_term} ({len(ranked)}个)"
+    )
     candidates_layout = QVBoxLayout(candidates_group)
     scroll = QScrollArea(candidates_group)
     scroll.setWidgetResizable(True)
@@ -1179,25 +1235,6 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
     content_layout.setContentsMargins(0, 0, 0, 0)
     content_layout.setSpacing(8)
     for candidate_margin, candidate_score, candidate in ranked:
-        candidate_card = QWidget()
-        candidate_layout = QVBoxLayout(candidate_card)
-        candidate_layout.setContentsMargins(0, 0, 0, 0)
-        candidate_layout.setSpacing(4)
-        candidate_layout.addWidget(self._equip_card(
-            candidate.get(EQUIP_SHAPE_ID) or candidate.get(EQUIP_SET_NAME, "卡带"), candidate.get(EQUIP_MAIN_STATS, ""),
-            candidate.get(EQUIP_SUB_STATS, {}), candidate.get(EQUIP_SHAPE_ID), candidate.get(EQUIP_UID, ""), weights,
-            (candidate_score, self._calc_grade(candidate_score, 15 if item_kind == "tape" else self._shape_areas.get(candidate.get(EQUIP_SHAPE_ID, ""), 3))),
-            candidate.get(EQUIP_QUALITY, "Gold"),
-            is_duplicate_drive=item_kind == "drive" and bool(candidate.get("is_duplicate_drive")),
-            main_weights=main_weights, card_variant="inventory",
-        ))
-        action_row = QHBoxLayout()
-        margin = QLabel(f"直伤收益：{candidate_margin:+.2f}%")
-        margin.setStyleSheet(themed_style("color:#ffaa00;font-weight:700;font-size:12px"))
-        action_row.addWidget(margin)
-        action_row.addStretch()
-        replace_button = QPushButton("替换")
-        replace_button.setObjectName("btnAction")
         def apply_replacement(_checked=False, selected=candidate, selected_score=candidate_score):
             try:
                 assignments = _replacement_assignments(plan, uid, selected)
@@ -1213,6 +1250,14 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
                 replacement_payload = dict(plan.get("payload") or {})
                 replacement_payload["last_diff"] = replacement_diff
                 replacement_payload["changed_uids"] = [str(selected.get(EQUIP_UID) or "")]
+                assignment_scores = dict(
+                    assignment_scores_override
+                    if isinstance(assignment_scores_override, dict)
+                    else replacement_payload.get("assignment_scores") or {}
+                )
+                assignment_scores.pop(str(uid), None)
+                assignment_scores[str(selected.get(EQUIP_UID) or "")] = float(selected_score)
+                replacement_payload["assignment_scores"] = assignment_scores
                 with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
                     dao.save_loadout_plan(
                         name=str(plan.get("name") or f"优化方案：{role_name}"), character_id=int(plan["character_id"]),
@@ -1225,10 +1270,28 @@ def _optimize_saved_equipment(self, role_name: str, item_kind: str, uid: str):
                 return
             dialog.accept()
             self._refresh_equip()
+            if callable(after_replace):
+                after_replace(selected, selected_score, current_score)
             QMessageBox.information(self, "优化替换", "已保存为新的配装方案。")
-        replace_button.clicked.connect(apply_replacement)
-        action_row.addWidget(replace_button)
-        candidate_layout.addLayout(action_row)
+
+        candidate_card = QWidget()
+        candidate_layout = QVBoxLayout(candidate_card)
+        candidate_layout.setContentsMargins(0, 0, 0, 0)
+        candidate_layout.setSpacing(4)
+        candidate_layout.addWidget(self._equip_card(
+            candidate.get(EQUIP_SHAPE_ID) or candidate.get(EQUIP_SET_NAME, core_term), candidate.get(EQUIP_MAIN_STATS, ""),
+            candidate.get(EQUIP_SUB_STATS, {}), candidate.get(EQUIP_SHAPE_ID), candidate.get(EQUIP_UID, ""), weights,
+            (candidate_score, self._calc_grade(candidate_score, 15 if item_kind == "tape" else self._shape_areas.get(candidate.get(EQUIP_SHAPE_ID, ""), 3))),
+            candidate.get(EQUIP_QUALITY, "Gold"),
+            is_duplicate_drive=item_kind == "drive" and bool(candidate.get("is_duplicate_drive")),
+            main_weights=main_weights, replacement_callback=apply_replacement,
+            replacement_text="替换", card_variant="inventory",
+            item_icon_path=_replacement_item_icon(asset_catalog, item_kind, candidate),
+        ))
+        if rank_by_damage:
+            margin = QLabel(f"直伤收益：{candidate_margin:+.2f}%")
+            margin.setStyleSheet(themed_style("color:#ffaa00;font-weight:700;font-size:12px"))
+            candidate_layout.addWidget(margin)
         used_by = tuple(candidate.get("_used_by") or ())
         if used_by:
             user_label = QLabel(f"使用者：{', '.join(used_by)}")
@@ -1804,10 +1867,21 @@ def _preview_nte_core_assemble_role(self, role_name: str, *, confirmed: bool = F
         _start_nte_core_equipment_apply(self, [role_name])
 
 
-def _preview_nte_core_assemble_all_roles(self, *, confirmed: bool = False) -> None:
+def _preview_nte_core_assemble_all_roles(
+    self, *, confirmed: bool = False, role_names: list[str] | None = None,
+) -> None:
+    requested_roles = tuple(dict.fromkeys(str(name) for name in (role_names or ())))
     try:
         with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
             plans_by_role = user_dao.list_active_loadout_plans_by_role()
+            if requested_roles:
+                missing = [name for name in requested_roles if name not in plans_by_role]
+                if missing:
+                    QMessageBox.information(
+                        self, "极速装配", f"以下角色尚未保存当前方案：{'、'.join(missing)}",
+                    )
+                    return
+                plans_by_role = {name: plans_by_role[name] for name in requested_roles}
             nte_roles = []
             visual_roles = []
             for role_name, plan in plans_by_role.items():
@@ -1821,7 +1895,7 @@ def _preview_nte_core_assemble_all_roles(self, *, confirmed: bool = False) -> No
         QMessageBox.warning(self, "极速装配", f"无法读取官方 SQLite 方案：{exc}")
         return
     if nte_roles:
-        role_names = sorted(nte_roles)
+        role_names = list(nte_roles) if requested_roles else sorted(nte_roles)
     elif visual_roles:
         QMessageBox.information(
             self,
@@ -1829,7 +1903,9 @@ def _preview_nte_core_assemble_all_roles(self, *, confirmed: bool = False) -> No
             "未找到抓包稳定快照。视觉扫描库存不包含本地组件所需的原生 UID，"
             "将改用逐步自动装配。",
         )
-        _preview_automatic_assemble_all_roles(self)
+        _preview_automatic_assemble_all_roles(
+            self, role_names=list(requested_roles) if requested_roles else None,
+        )
         return
     else:
         QMessageBox.information(self, "极速装配", "当前没有来自官方背包快照的已保存方案。请先重新计算并保存。")
@@ -1850,10 +1926,10 @@ def _preview_nte_core_assemble_all_roles(self, *, confirmed: bool = False) -> No
         _start_nte_core_equipment_apply(self, role_names)
 
 
-def _preview_fast_assemble_all_roles(self) -> None:
+def _preview_fast_assemble_all_roles(self, role_names: list[str] | None = None) -> None:
     """从配装页右上角启动全部角色的极速装配。"""
 
-    _preview_nte_core_assemble_all_roles(self)
+    _preview_nte_core_assemble_all_roles(self, role_names=role_names)
 
 
 def _sqlite_automatic_assembly_state(role_names: list[str]) -> dict[str, dict]:
@@ -1974,15 +2050,28 @@ def _preview_automatic_assemble_role(self, role_name: str, *, confirmed: bool = 
     _start_automatic_equipment_assembly(self, [role_name])
 
 
-def _preview_automatic_assemble_all_roles(self) -> None:
+def _preview_automatic_assemble_all_roles(
+    self, role_names: list[str] | None = None,
+) -> None:
     """确认后通过游戏界面自动化装配全部已保存角色。"""
 
+    requested_roles = tuple(dict.fromkeys(str(name) for name in (role_names or ())))
     try:
         with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
-            role_names = sorted(user_dao.list_active_loadout_plans_by_role())
+            plans_by_role = user_dao.list_active_loadout_plans_by_role()
     except Exception as exc:
         QMessageBox.warning(self, "自动装配", f"无法读取官方 SQLite 方案：{exc}")
         return
+    if requested_roles:
+        missing = [name for name in requested_roles if name not in plans_by_role]
+        if missing:
+            QMessageBox.information(
+                self, "自动装配", f"以下角色尚未保存当前方案：{'、'.join(missing)}",
+            )
+            return
+        role_names = list(requested_roles)
+    else:
+        role_names = sorted(plans_by_role)
     if not role_names:
         QMessageBox.information(self, "自动装配", "当前没有来自官方背包快照的已保存方案。请先重新计算并保存。")
         return

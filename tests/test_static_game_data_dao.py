@@ -20,6 +20,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "008_game_static_combat_context.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
 )
 
 
@@ -39,6 +40,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (8, '2026-07-22')")
         connection.execute("INSERT INTO schema_migration VALUES (9, '2026-07-22')")
         connection.execute("INSERT INTO schema_migration VALUES (10, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (11, '2026-07-22')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
@@ -228,6 +230,14 @@ class StaticGameDataDaoTest(unittest.TestCase):
             "INSERT INTO equipment_plan_module VALUES (1001, 0, 'Module1')"
         )
         connection.execute(
+            "INSERT INTO character_weight_recommendation VALUES "
+            "(1001, 'workshop_api', '1001', '角色', '2026-07-22')"
+        )
+        connection.execute(
+            "INSERT INTO character_weight_recommendation_property VALUES "
+            "(1001, 'Attr1', 0.75, 1.0, 0)"
+        )
+        connection.execute(
             "INSERT INTO fork_type VALUES (1, '固态', NULL, NULL, 1)"
         )
         connection.execute(
@@ -250,7 +260,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 10)
+            self.assertEqual(summary["schema_version"], 11)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")
@@ -270,6 +280,23 @@ class StaticGameDataDaoTest(unittest.TestCase):
             suit["required_shape_ids"], ["EquipmentGeometry_ZhiJiao1"]
         )
         self.assertTrue(suit["effects"][0]["reapply_after_revive"])
+
+    def test_equipment_attributes_are_queryable_by_official_id(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            attributes = dao.list_equipment_attributes()
+            attribute = dao.get_equipment_attribute("Attr1")
+            missing = dao.get_equipment_attribute("Unknown")
+        self.assertEqual(["Attr1"], [row["attribute_id"] for row in attributes])
+        self.assertEqual("Attr1", attribute["attribute_id"])
+        self.assertFalse(attribute["show_percent"])
+        self.assertIsNone(missing)
+
+    def test_character_recommended_weights_use_official_property_ids(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            recommendation = dao.get_character_recommended_weights(1001)
+        self.assertEqual("workshop_api", recommendation["source_kind"])
+        self.assertEqual({"Attr1": 0.75}, recommendation["property_weights"])
+        self.assertEqual({"Attr1": 1.0}, recommendation["main_property_weights"])
 
     def test_characters_plans_and_forks_are_queryable(self):
         with StaticGameDataDao(self.database_path) as dao:

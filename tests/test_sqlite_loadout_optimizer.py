@@ -4,13 +4,17 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.services.sqlite_loadout_optimizer import (
     LoadoutOptimizationError,
     SqliteLoadoutOptimizer,
 )
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+STATIC_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "game_static.sqlite3"
 
 
 def inventory_item(
@@ -69,6 +73,10 @@ def snapshot(generation: int, items: list[dict]) -> dict:
 
 class SqliteLoadoutOptimizerTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.static_database_env = patch.dict(
+            "os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}
+        )
+        self.static_database_env.start()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.user_dao = UserDataDao(
             Path(self.temp_dir.name) / "user.sqlite3", account_id="optimizer-test"
@@ -120,6 +128,7 @@ class SqliteLoadoutOptimizerTests(unittest.TestCase):
         self.static_dao.close()
         self.user_dao.close()
         self.temp_dir.cleanup()
+        self.static_database_env.stop()
 
     def test_uses_pinned_snapshot_and_enforces_official_suit_shapes(self) -> None:
         result = SqliteLoadoutOptimizer(self.static_dao, self.user_dao).optimize(

@@ -4,10 +4,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+STATIC_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "game_static.sqlite3"
 
 
 def stat(property_id: str, value: float, *, percent: bool = False) -> dict:
@@ -70,6 +74,10 @@ def snapshot(items: list[dict]) -> dict:
 
 class SqliteAllocationInventoryTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.static_database_env = patch.dict(
+            "os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}
+        )
+        self.static_database_env.start()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.user_dao = UserDataDao(
             Path(self.temp_dir.name) / "user.sqlite3",
@@ -81,6 +89,7 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
         self.static_dao.close()
         self.user_dao.close()
         self.temp_dir.cleanup()
+        self.static_database_env.stop()
 
     def test_projects_official_ids_without_writing_an_inventory_json(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(

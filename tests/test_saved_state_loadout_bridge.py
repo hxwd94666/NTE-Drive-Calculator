@@ -6,6 +6,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.services.saved_state_loadout_bridge import (
     SavedStateLoadoutBridge,
@@ -16,8 +17,11 @@ from src.services.saved_state_loadout_bridge import (
     resolve_character_id_for_saved_role,
     resolve_character_id_for_static_role,
 )
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+STATIC_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "game_static.sqlite3"
 
 
 def _inventory_item(
@@ -68,6 +72,10 @@ def _snapshot(items: list[dict], *, generation: int = 1) -> dict:
 
 class SavedStateLoadoutBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.static_database_env = patch.dict(
+            "os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}
+        )
+        self.static_database_env.start()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.user_dao = UserDataDao(
             Path(self.temp_dir.name) / "user.sqlite3", account_id="bridge-test"
@@ -91,6 +99,7 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
         self.static_dao.close()
         self.user_dao.close()
         self.temp_dir.cleanup()
+        self.static_database_env.stop()
 
     def test_static_role_lookup_does_not_need_legacy_role_configuration(self) -> None:
         self.assertEqual((1003,), character_ids_for_static_role("早雾", self.static_dao))

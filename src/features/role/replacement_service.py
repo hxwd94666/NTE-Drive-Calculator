@@ -262,8 +262,28 @@ def build_drive_replacement_options(
         and drive.get("uid") not in equipped_uids
         and drive.get("uid") != current_uid
     ]
-    _current_margin, ranked_by_damage = rank_replacement_candidates_by_damage(
-        role_data, "drive", current_drive, raw_candidates
+    # This dialog is still the legacy weight-based replacement flow.  Keep its
+    # candidate order aligned with the displayed stat score until the future
+    # optimizer explicitly provides a damage scorer and a fixed context.
+    ranked_by_damage = [
+        (
+            calc_drive_replacement_margin(role_data, equipped_drives, current_uid, drive),
+            drive,
+        )
+        for drive in raw_candidates
+    ]
+    ranked_by_damage.sort(
+        key=lambda entry: (
+            -(
+                score_drive(
+                    entry[1].get("sub_stats", {}),
+                    entry[1].get("shape_id", ""),
+                    weights,
+                    entry[1].get("quality", "Gold"),
+                ) if score_drive else 0.0
+            ),
+            str(entry[1].get("uid", "")),
+        )
     )
     selected = keep_top_candidates_with_unassigned(
         ranked_by_damage, user_map, lambda entry: entry[1].get("uid", "")

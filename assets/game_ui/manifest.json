@@ -33,6 +33,46 @@
     "def_ignore": "attributes/def_ignore.png",
     "inclination_strength": "attributes/inclination_strength.png"
   },
+  "equipment_items": {
+    "Attack_blue": "equipment/core/Attack_blue.png",
+    "Attack_orange": "equipment/core/Attack_orange.png",
+    "Attack_purple": "equipment/core/Attack_purple.png",
+    "Chaos_blue": "equipment/core/Chaos_blue.png",
+    "Chaos_orange": "equipment/core/Chaos_orange.png",
+    "Chaos_purple": "equipment/core/Chaos_purple.png",
+    "Cosmos_blue": "equipment/core/Cosmos_blue.png",
+    "Cosmos_guide_blue": "equipment/core/Cosmos_blue.png",
+    "Cosmos_guide_orange": "equipment/core/Cosmos_orange.png",
+    "Cosmos_orange": "equipment/core/Cosmos_orange.png",
+    "Cosmos_purple": "equipment/core/Cosmos_purple.png",
+    "GetEfficiency_blue": "equipment/core/GetEfficiency_blue.png",
+    "GetEfficiency_orange": "equipment/core/GetEfficiency_orange.png",
+    "GetEfficiency_purple": "equipment/core/GetEfficiency_purple.png",
+    "Heal_blue": "equipment/core/Heal_blue.png",
+    "Heal_orange": "equipment/core/Heal_orange.png",
+    "Heal_purple": "equipment/core/Heal_purple.png",
+    "Incantation_blue": "equipment/core/Incantation_blue.png",
+    "Incantation_orange": "equipment/core/Incantation_orange.png",
+    "Incantation_purple": "equipment/core/Incantation_purple.png",
+    "Lakshana_blue": "equipment/core/Lakshana_blue.png",
+    "Lakshana_orange": "equipment/core/Lakshana_orange.png",
+    "Lakshana_purple": "equipment/core/Lakshana_purple.png",
+    "Mag_blue": "equipment/core/Mag_blue.png",
+    "Mag_orange": "equipment/core/Mag_orange.png",
+    "Mag_purple": "equipment/core/Mag_purple.png",
+    "Nature_blue": "equipment/core/Nature_blue.png",
+    "Nature_orange": "equipment/core/Nature_orange.png",
+    "Nature_purple": "equipment/core/Nature_purple.png",
+    "Psyche_blue": "equipment/core/Psyche_blue.png",
+    "Psyche_orange": "equipment/core/Psyche_orange.png",
+    "Psyche_purple": "equipment/core/Psyche_purple.png",
+    "Psychically_blue": "equipment/core/Psychically_blue.png",
+    "Psychically_orange": "equipment/core/Psychically_orange.png",
+    "Psychically_purple": "equipment/core/Psychically_purple.png",
+    "Shield_blue": "equipment/core/Shield_blue.png",
+    "Shield_orange": "equipment/core/Shield_orange.png",
+    "Shield_purple": "equipment/core/Shield_purple.png"
+  },
   "files": {
     "characters/player_003_256.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_003_256.player_003_256",
@@ -222,8 +262,260 @@
       "height": 96,
       "bytes": 2933,
       "sha256": "8F07183E9687B2514B553B9149F9C6F1D8B6A10F86A92B4A0AFFEDC6808790E5"
+    },
+    "equipment/core/Attack_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__59.UI_YH_kongmuicon__59",
+      "width": 128,
+      "height": 128,
+      "bytes": 17778,
+      "sha256": "C4AD93F21FB9DEDF3D1012F4539FF381471D6CBEB453A4BC0F8ED580638D3517"
+    },
+    "equipment/core/Attack_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__39.UI_YH_kongmuicon__39",
+      "width": 128,
+      "height": 128,
+      "bytes": 18220,
+      "sha256": "76427F9B4FEAE6DCBDC69F763272E98C4C29132C44FE8B49E421C4637E0876A0"
+    },
+    "equipment/core/Attack_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__43.UI_YH_kongmuicon__43",
+      "width": 128,
+      "height": 128,
+      "bytes": 18246,
+      "sha256": "C07A827219BE42F286C7498BFA49650FEEDF306115590AD16AAFED691982956F"
+    },
+    "equipment/core/Chaos_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__27.UI_YH_kongmuicon__27",
+      "width": 128,
+      "height": 128,
+      "bytes": 17314,
+      "sha256": "6868410625164CAC85945722AB869812C1863C1B06604406542673D21A9A959A"
+    },
+    "equipment/core/Chaos_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__07.UI_YH_kongmuicon__07",
+      "width": 128,
+      "height": 128,
+      "bytes": 17834,
+      "sha256": "A531309E7E43D304DBB837BED22A41F23321E9D01A54AFF41CDC14188661A84F"
+    },
+    "equipment/core/Chaos_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__17.UI_YH_kongmuicon__17",
+      "width": 128,
+      "height": 128,
+      "bytes": 17812,
+      "sha256": "F7761A03F67DC91303353D90BA05F65EADFA81AFC2E710A647E4EE25CBE1FE42"
+    },
+    "equipment/core/Cosmos_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__23.UI_YH_kongmuicon__23",
+      "width": 128,
+      "height": 128,
+      "bytes": 17261,
+      "sha256": "CBC526D21BA15F36C16544EFEA616FE4AC243786DFE202852BB4C5E4B182AF06"
+    },
+    "equipment/core/Cosmos_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__03.UI_YH_kongmuicon__03",
+      "width": 128,
+      "height": 128,
+      "bytes": 17767,
+      "sha256": "F81DB2DAEE2AEE4322D6830DF543D6CA3886F240736B16B330A07D707AB9AEF2"
+    },
+    "equipment/core/Cosmos_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__13.UI_YH_kongmuicon__13",
+      "width": 128,
+      "height": 128,
+      "bytes": 17780,
+      "sha256": "8C73DFCC5305FD0D451874731A8F51510EEC18489CF214454F8790A4531ADBCF"
+    },
+    "equipment/core/GetEfficiency_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__55.UI_YH_kongmuicon__55",
+      "width": 128,
+      "height": 128,
+      "bytes": 17020,
+      "sha256": "7D9C2A4C9DC2960EA93CE7BCA22A3920283080631580AB10EBB7E8E226831100"
+    },
+    "equipment/core/GetEfficiency_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__35.UI_YH_kongmuicon__35",
+      "width": 128,
+      "height": 128,
+      "bytes": 17446,
+      "sha256": "67E2201D99AD03380533FCE913D19724887FDFCD49D1C4792DF0291896D09720"
+    },
+    "equipment/core/GetEfficiency_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__47.UI_YH_kongmuicon__47",
+      "width": 128,
+      "height": 128,
+      "bytes": 17460,
+      "sha256": "649938A9F5115F134BBF174E5B4D7079534CA0059774C4BFFB3C2C3055DE1922"
+    },
+    "equipment/core/Heal_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__83.UI_YH_kongmuicon__83",
+      "width": 128,
+      "height": 128,
+      "bytes": 16477,
+      "sha256": "3AA8173324BCBA0CFE343C916F01B7B896E683264B5621D31F7C7B4D7B0BD497"
+    },
+    "equipment/core/Heal_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__63.UI_YH_kongmuicon__63",
+      "width": 128,
+      "height": 128,
+      "bytes": 17065,
+      "sha256": "4EC5D199A2FCB97E8CEAB85D9710B88E6B96984A0643A2A3E850B32DC433863D"
+    },
+    "equipment/core/Heal_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__73.UI_YH_kongmuicon__73",
+      "width": 128,
+      "height": 128,
+      "bytes": 17078,
+      "sha256": "F11B7B165BA5CBE9B42ADE36CD491F5E75898A953EFA9C4C599F5762DB166012"
+    },
+    "equipment/core/Incantation_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__25.UI_YH_kongmuicon__25",
+      "width": 128,
+      "height": 128,
+      "bytes": 17361,
+      "sha256": "2312213BBF902D15F35B5A9B0787F86BA20780779B9A5065C57B0C27A854F3B4"
+    },
+    "equipment/core/Incantation_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__05.UI_YH_kongmuicon__05",
+      "width": 128,
+      "height": 128,
+      "bytes": 17901,
+      "sha256": "06672DDF36B2FF987F11F8D0E43DD8B5C3CF39BF2DB37D5F7D3003E181D3CCB2"
+    },
+    "equipment/core/Incantation_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__15.UI_YH_kongmuicon__15",
+      "width": 128,
+      "height": 128,
+      "bytes": 17908,
+      "sha256": "E45868A360313B2E89A24EC69A9BB65886DFB379020821002DC83B5E45BF82B8"
+    },
+    "equipment/core/Lakshana_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__21.UI_YH_kongmuicon__21",
+      "width": 128,
+      "height": 128,
+      "bytes": 17047,
+      "sha256": "1340FDBF08DACC7EF45F99F045A4B552C8CEB0D6214661F0DE430E9C9E042292"
+    },
+    "equipment/core/Lakshana_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__01.UI_YH_kongmuicon__01",
+      "width": 128,
+      "height": 128,
+      "bytes": 17485,
+      "sha256": "E650FCA6ECA7C21E938E5BF5921D79BA61DECBFA65B3EE37134FB669ED7156DD"
+    },
+    "equipment/core/Lakshana_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__11.UI_YH_kongmuicon__11",
+      "width": 128,
+      "height": 128,
+      "bytes": 17468,
+      "sha256": "0413DE2EF59C4A6BA086D1860005AF8084FD291CCFF6B3735E881E727FD0D32F"
+    },
+    "equipment/core/Mag_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__57.UI_YH_kongmuicon__57",
+      "width": 128,
+      "height": 128,
+      "bytes": 16819,
+      "sha256": "940366F881AB66C9ABDE795FF0A12986D6EACF22B9A2E18B70B05E3CC752A715"
+    },
+    "equipment/core/Mag_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__37.UI_YH_kongmuicon__37",
+      "width": 128,
+      "height": 128,
+      "bytes": 17382,
+      "sha256": "3D0171F6A46FC5947DF0BE793D77AD9B8DE6BBD62E358CA8C5FCCA6667F6AEE6"
+    },
+    "equipment/core/Mag_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__49.UI_YH_kongmuicon__49",
+      "width": 128,
+      "height": 128,
+      "bytes": 17356,
+      "sha256": "93911A531C7C6725A6D61B2872483F157A74E7CA7BA383634B75FCFBDBC14C3A"
+    },
+    "equipment/core/Nature_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__29.UI_YH_kongmuicon__29",
+      "width": 128,
+      "height": 128,
+      "bytes": 17016,
+      "sha256": "B4E4ACB5B5693DEA22B42CCDD56EC96B8E9533179B421E8BD62A0E58F41A20C7"
+    },
+    "equipment/core/Nature_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__09.UI_YH_kongmuicon__09",
+      "width": 128,
+      "height": 128,
+      "bytes": 17515,
+      "sha256": "1F2E429970B0FB770209707662B495B80C330E38CBD60673420AFBA5D60E96F6"
+    },
+    "equipment/core/Nature_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__19.UI_YH_kongmuicon__19",
+      "width": 128,
+      "height": 128,
+      "bytes": 17505,
+      "sha256": "A08CD458FCE81DCC0338CCAB210A6A9A46D8747F102EB177B8994246BB51921B"
+    },
+    "equipment/core/Psyche_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__51.UI_YH_kongmuicon__51",
+      "width": 128,
+      "height": 128,
+      "bytes": 16837,
+      "sha256": "D4D55AFE610985869047635FC29CAC2A28828DD541F0F2FE65D970969C380930"
+    },
+    "equipment/core/Psyche_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__31.UI_YH_kongmuicon__31",
+      "width": 128,
+      "height": 128,
+      "bytes": 17307,
+      "sha256": "EBF6C749C3AEBBAF28151991223BB79692EFA99DD77EA74DE35544C91ACA7256"
+    },
+    "equipment/core/Psyche_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__41.UI_YH_kongmuicon__41",
+      "width": 128,
+      "height": 128,
+      "bytes": 17294,
+      "sha256": "52CA184BF0E14F84615D0BC0A08543E03357C29FEA94F586C31A30C4ABBEE5C6"
+    },
+    "equipment/core/Psychically_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__81.UI_YH_kongmuicon__81",
+      "width": 128,
+      "height": 128,
+      "bytes": 16993,
+      "sha256": "9317C5B4EC098EC8497E4238331E3E447CCE763C091D84687F5D3AD3ED5FA753"
+    },
+    "equipment/core/Psychically_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__61.UI_YH_kongmuicon__61",
+      "width": 128,
+      "height": 128,
+      "bytes": 17493,
+      "sha256": "DE3EBB5AC853CF8BB77009D89BC7E5A7AFB5068DE4342B73EC14AA36D310A53C"
+    },
+    "equipment/core/Psychically_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__71.UI_YH_kongmuicon__71",
+      "width": 128,
+      "height": 128,
+      "bytes": 17462,
+      "sha256": "57AF4D292F7D683B55EE1F380E3AA7DA5C1E520AEE1464730D8BF340ABDE00E5"
+    },
+    "equipment/core/Shield_blue.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__53.UI_YH_kongmuicon__53",
+      "width": 128,
+      "height": 128,
+      "bytes": 17974,
+      "sha256": "10ED758DAB6F237785A8FDA484176DBA91D9C53B4A41170EC7F968E4EECAA5F2"
+    },
+    "equipment/core/Shield_orange.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__33.UI_YH_kongmuicon__33",
+      "width": 128,
+      "height": 128,
+      "bytes": 18335,
+      "sha256": "F2126DB1D7D43F6C17EE62FC956B602517058AFBE9D5BBF245A31D022B888473"
+    },
+    "equipment/core/Shield_purple.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/kongmu/256/UI_YH_kongmuicon__45.UI_YH_kongmuicon__45",
+      "width": 128,
+      "height": 128,
+      "bytes": 18375,
+      "sha256": "C1BDDA24CE9E2E3DB33609F23040A77439B2E35F23B8FAFBD8043762BDA86201"
     }
   },
-  "total_files": 27,
-  "total_bytes": 2575079
+  "total_files": 63,
+  "total_bytes": 3204470
 }

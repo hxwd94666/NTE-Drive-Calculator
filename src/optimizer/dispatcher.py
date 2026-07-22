@@ -15,11 +15,12 @@ from src.optimizer.contracts import (
 
 class DispatcherEngine:
 
-    def __init__(self, roles_db: dict, sets_db: dict, blueprints_db: dict[str, list[dict]]):
+    def __init__(self, roles_db: dict, sets_db: dict, blueprints_db: dict[str, list[dict]],
+                 *, core_set_targets: dict[str, str | None] | None = None):
         self.strategies = {
-            "role_priority": RolePriorityStrategy(roles_db, sets_db, blueprints_db),
-            "drive_priority": DrivePriorityStrategy(roles_db, sets_db, blueprints_db),
-            "global_optimal": GlobalOptimalStrategy(roles_db, sets_db, blueprints_db)
+            "role_priority": RolePriorityStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets),
+            "drive_priority": DrivePriorityStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets),
+            "global_optimal": GlobalOptimalStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets)
         }
 
     def execute_dispatch(

@@ -4,6 +4,7 @@
 
 - 角色头像来自 `DT_Character.ItemIconBig` 的原始资源路径，并以原始 `character_id` 建立映射。
 - 属性图标使用清单中的原始资源路径和稳定英文键。
+- 空幕图标来自静态库 `equipment_item.icon_path`，并以官方 `item_id` 建立映射。
 - `manifest.json` 记录每个生成文件的尺寸、SHA-256 和来源资源路径。
 - 资源由 `tools/game_assets/build_ui_assets.py` 从开发者准备的官方文件目录生成。
 - 单张角色图最大 256 像素，属性图标最大 96 像素；首批 PNG 总量限制为 8 MiB。

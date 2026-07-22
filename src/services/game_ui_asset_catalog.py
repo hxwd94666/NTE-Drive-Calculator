@@ -15,7 +15,7 @@ class GameUiAssetCatalog:
         self._manifest: dict[str, Any] = (
             json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest_path.is_file()
-            else {"characters": {}, "attributes": {}}
+            else {"characters": {}, "attributes": {}, "equipment_items": {}}
         )
 
     def _resolve(self, group: str, key: str) -> Path | None:
@@ -32,3 +32,6 @@ class GameUiAssetCatalog:
 
     def attribute_icon(self, attribute_key: str) -> Path | None:
         return self._resolve("attributes", str(attribute_key))
+
+    def equipment_icon(self, item_id: str) -> Path | None:
+        return self._resolve("equipment_items", str(item_id))

@@ -4,15 +4,23 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
 from src.services.vision_inventory_snapshot import import_vision_inventory
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+STATIC_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "game_static.sqlite3"
 
 
 class VisionInventorySnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.static_database_env = patch.dict(
+            "os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}
+        )
+        self.static_database_env.start()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.database_path = Path(self.temp_dir.name) / "user.sqlite3"
         self.user_dao = UserDataDao(self.database_path, account_id="vision-test")
@@ -22,6 +30,7 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         self.static_dao.close()
         self.user_dao.close()
         self.temp_dir.cleanup()
+        self.static_database_env.stop()
 
     def test_visual_scan_is_persisted_as_gamepad_fallback_and_projects_for_solver(self) -> None:
         snapshot_id = import_vision_inventory(

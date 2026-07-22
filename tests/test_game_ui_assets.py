@@ -32,10 +32,21 @@ class GameUiAssetTests(unittest.TestCase):
             with Image.open(path) as image:
                 self.assertLessEqual(max(image.size), 256, path.name)
 
+    def test_all_static_core_items_have_an_official_item_id_mapping(self) -> None:
+        manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
+        with StaticGameDataDao(PROJECT_ROOT / "data" / "game_static.sqlite3") as dao:
+            core_ids = {
+                str(row["item_id"])
+                for row in dao.list_equipment_items()
+                if row["kind"] == "core"
+            }
+        self.assertEqual(core_ids, set(manifest["equipment_items"]))
+
     def test_catalog_resolves_ids_and_rejects_missing_keys(self) -> None:
         catalog = GameUiAssetCatalog(ASSET_ROOT)
         self.assertTrue(catalog.character_icon(1003).is_file())
         self.assertTrue(catalog.attribute_icon("crit_rate").is_file())
+        self.assertTrue(catalog.equipment_icon("Lakshana_orange").is_file())
         self.assertIsNone(catalog.character_icon(999999))
 
     def test_builder_resizes_and_deduplicates_shared_outputs(self) -> None:
@@ -64,6 +75,7 @@ class GameUiAssetTests(unittest.TestCase):
                             },
                         ],
                         "attributes": [],
+                        "equipment_items": [],
                     }
                 ),
                 encoding="utf-8",

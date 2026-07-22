@@ -137,11 +137,13 @@ class RoleSelector(QWidget):
         priority_config_path_provider: Callable[[], Path] | None = None,
         style_sheet: str = "",
         help_callback: Callable | None = None,
+        preference_dialog_callback: Callable[[str], None] | None = None,
     ):
         super().__init__(parent)
         self._priority_config_path_provider = priority_config_path_provider
         self._style_sheet = style_sheet
         self._help_callback = help_callback
+        self._preference_dialog_callback = preference_dialog_callback
         self.all_roles: dict = {}
         self.all_sets: list[str] = []
         self.weapons_db: dict = {}
@@ -339,7 +341,7 @@ class RoleSelector(QWidget):
                 "border-radius:5px;padding:3px 7px;font-size:11px;font-weight:700}"
                 "QPushButton:hover{background:#2ea043}"
             )
-            manage_btn.clicked.connect(lambda _checked=False, role=name: self._manage_role_preferences(role))
+            manage_btn.clicked.connect(lambda _checked=False, role=name: self._open_role_preferences(role))
             item_layout.addWidget(manage_btn)
             unit_layout.addWidget(item)
 
@@ -573,6 +575,12 @@ class RoleSelector(QWidget):
         clear_btn.clicked.connect(lambda: (selected.clear(), refresh_summary()))
         refresh_summary()
         return box
+
+    def _open_role_preferences(self, name: str) -> None:
+        if self._preference_dialog_callback is not None:
+            self._preference_dialog_callback(name)
+            return
+        self._manage_role_preferences(name)
 
     def _manage_role_preferences(self, name):
         dlg = QDialog(self)

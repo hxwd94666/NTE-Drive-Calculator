@@ -24,7 +24,8 @@ from src.utils.set_name import normalize_set_display_name
 class BaseDispatchStrategy:
     MAX_COMBO_LIMIT = 500
 
-    def __init__(self, roles_db: Dict, sets_db: Dict, blueprints_db: Dict[str, List[Dict]]):
+    def __init__(self, roles_db: Dict, sets_db: Dict, blueprints_db: Dict[str, List[Dict]],
+                 *, core_set_targets: Dict[str, str | None] | None = None):
         self.roles_db = roles_db
         self.sets_db = sets_db
         self.blueprints_db = blueprints_db
@@ -33,6 +34,7 @@ class BaseDispatchStrategy:
         self._max_single_weight_cache = {}
         self._extra_shape_factor_cache = {}
         self._extra_shape_hidden_bonus_cache = {}
+        self.core_set_targets = dict(core_set_targets or {})
     def _resolve_set_name(self, set_name: str) -> str:
         normalized_name = normalize_set_display_name(set_name)
         resolved = resolve_name(normalized_name, self.sets_db.keys(), cutoff=0.78)
@@ -44,6 +46,15 @@ class BaseDispatchStrategy:
         if target_set not in self.sets_db:
             raise ValueError(f"错误：指定的套装 {raw_set} 不存在于 sets.json 中！")
         return target_set
+
+    def _core_target_set(self, role: str, custom_sets: Dict[str, str]) -> str | None:
+        if role in self.core_set_targets:
+            return self.core_set_targets[role]
+        return self._target_set(role, custom_sets)
+
+    def _tape_matches_core_target(self, role: str, tape: Tape, custom_sets: Dict[str, str]) -> bool:
+        target_set = self._core_target_set(role, custom_sets)
+        return target_set is None or tape.set_name == target_set
 
     def _stat_priority_config(self, config) -> dict:
         normalized = normalize_preference_config(config)
@@ -485,7 +496,6 @@ class BaseDispatchStrategy:
         stat_priority_configs = stat_priority_configs or {}
 
         for role in priority_list:
-            target_set = self._target_set(role, custom_sets)
             role_tapes = tapes_pool.get(role, [])
 
             best_tape = None
@@ -495,7 +505,7 @@ class BaseDispatchStrategy:
                 tape_set = self._resolve_set_name(tape.set_name)
                 if tape_set != tape.set_name and tape_set in self.sets_db:
                     tape.set_name = tape_set
-                if tape.uid not in used_tape_uids and tape.set_name == target_set:
+                if tape.uid not in used_tape_uids and self._tape_matches_core_target(role, tape, custom_sets):
                     score = tape.role_scores.get(role, 0.0)
                     rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
                     if rank_score > best_score:
@@ -533,20 +543,28 @@ class BaseDispatchStrategy:
         profit_matrix = np.zeros((len(priority_list), len(real_tapes) + dummy_count))
 
         for r_idx, role in enumerate(priority_list):
-            target_set = self._target_set(role, custom_sets)
             for t_idx, tape in enumerate(real_tapes):
-                if tape.set_name == target_set:
+                if self._tape_matches_core_target(role, tape, custom_sets):
                     score = max(0.0, tape.role_scores.get(role, 0.0))
-                    profit_matrix[r_idx, t_idx] = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
+                    rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
+                    # A Context core-main filter can intentionally retain a
+                    # legal core whose workshop main-weight is zero.  The
+                    # historic score remains zero; this epsilon merely lets
+                    # the Hungarian assignment choose the allowed core over
+                    # its dummy column.
+                    profit_matrix[r_idx, t_idx] = rank_score if rank_score > 0 else 0.000001
                 else:
                     profit_matrix[r_idx, t_idx] = -10000.0
 
         row_ind, col_ind = linear_sum_assignment(-profit_matrix)
-        for r_idx, c_idx in zip(row_ind, col_ind):
+        for raw_row_index, raw_column_index in zip(row_ind.tolist(), col_ind.tolist()):
+            r_idx = int(raw_row_index)
+            c_idx = int(raw_column_index)
             if c_idx >= len(real_tapes):
                 continue
             score = profit_matrix[r_idx, c_idx]
             if score > 0:
-                assigned_tapes[priority_list[r_idx]] = real_tapes[c_idx]
+                role_name: str = priority_list[r_idx]
+                assigned_tapes[role_name] = real_tapes[c_idx]
 
         return assigned_tapes

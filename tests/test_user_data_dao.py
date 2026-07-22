@@ -5,8 +5,15 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
+import src.storage.sqlite.user_data_dao as user_data_dao_module
+from src.storage.sqlite.user_data_dao import (
+    UserDataDao,
+    UserDataError,
+    UserDataValidationError,
+)
 
 
 def stat(property_id: str, value: float, percent: bool = False) -> dict:
@@ -71,7 +78,7 @@ class UserDataDaoTest(unittest.TestCase):
 
     def test_initializes_profile_and_typed_sync_settings(self) -> None:
         summary = self.dao.summary()
-        self.assertEqual(summary["schema_version"], 4)
+        self.assertEqual(summary["schema_version"], 7)
         self.assertEqual(summary["profile"]["account_id"], "default")
         self.assertEqual(summary["sync_settings"]["inventory_sync_method"], "nte_core")
         self.assertEqual(summary["sync_settings"]["inventory_settle_seconds"], 5.0)
@@ -120,11 +127,353 @@ class UserDataDaoTest(unittest.TestCase):
 
         with UserDataDao(legacy_path) as migrated:
             settings = migrated.get_sync_settings()
-            self.assertEqual(4, migrated.summary()["schema_version"])
+            self.assertEqual(7, migrated.summary()["schema_version"])
             self.assertEqual("旧账号", migrated.profile()["account_name"])
             self.assertEqual(5.0, settings["inventory_settle_seconds"])
             self.assertFalse(settings["auto_start_inventory_sync"])
             self.assertEqual(20, settings["inventory_snapshot_retention_count"])
+
+    def test_migrates_v4_database_to_versioned_optimization_preferences(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_v4.sqlite3"
+        with UserDataDao(legacy_path, account_id="legacy") as initialized:
+            self.assertEqual(7, initialized.summary()["schema_version"])
+
+        connection = sqlite3.connect(legacy_path)
+        for table in (
+            "character_weight_preference_property",
+            "character_weight_preference_seed",
+            "character_profile_skill",
+            "character_profile",
+            "optimization_preference_property_limit",
+            "optimization_preference_substat_priority",
+            "optimization_preference_property_weight",
+            "optimization_preference_character",
+            "optimization_preference_version",
+            "optimization_preference_profile",
+        ):
+            connection.execute(f"DROP TABLE {table}")
+        connection.execute("DELETE FROM schema_migration WHERE version = 7")
+        connection.execute("DELETE FROM schema_migration WHERE version = 6")
+        connection.execute("DELETE FROM schema_migration WHERE version = 5")
+        connection.commit()
+        connection.close()
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(7, migrated.summary()["schema_version"])
+            self.assertEqual([], migrated.list_optimization_profiles())
+            profile = migrated.create_optimization_profile(
+                "Migrated preferences",
+                allocation_strategy="role_priority",
+                characters=[],
+            )
+            self.assertEqual(1, profile["version"]["version_number"])
+
+    def test_failed_v5_migration_rolls_back_ddl_and_can_retry(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "failed_v5_migration.sqlite3"
+        with UserDataDao(legacy_path, account_id="legacy"):
+            pass
+
+        connection = sqlite3.connect(legacy_path)
+        connection.execute("DROP TABLE character_weight_preference_property")
+        connection.execute("DROP TABLE character_weight_preference_seed")
+        for table in (
+            "character_profile_skill",
+            "character_profile",
+            "optimization_preference_property_limit",
+            "optimization_preference_substat_priority",
+            "optimization_preference_property_weight",
+            "optimization_preference_character",
+            "optimization_preference_version",
+            "optimization_preference_profile",
+        ):
+            connection.execute(f"DROP TABLE {table}")
+        connection.execute("DELETE FROM schema_migration WHERE version = 7")
+        connection.execute("DELETE FROM schema_migration WHERE version = 6")
+        connection.execute("DELETE FROM schema_migration WHERE version = 5")
+        connection.commit()
+        connection.close()
+
+        original_migration = user_data_dao_module.USER_MIGRATIONS[5]
+        user_data_dao_module.USER_MIGRATIONS[5] = SimpleNamespace(
+            is_file=lambda: True,
+            read_text=lambda **_kwargs: """
+                CREATE TABLE optimization_preference_profile (profile_id INTEGER PRIMARY KEY);
+                CREATE TABLE migration_failure_probe (id INTEGER PRIMARY KEY);
+                this is deliberately invalid SQL;
+            """,
+        )
+        try:
+            with self.assertRaises(UserDataError):
+                UserDataDao(legacy_path)
+        finally:
+            user_data_dao_module.USER_MIGRATIONS[5] = original_migration
+
+        connection = sqlite3.connect(legacy_path)
+        self.assertEqual(
+            4,
+            connection.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0],
+        )
+        self.assertEqual(
+            [],
+            connection.execute(
+                """SELECT name FROM sqlite_master WHERE type = 'table'
+                   AND name IN ('optimization_preference_profile', 'migration_failure_probe')"""
+            ).fetchall(),
+        )
+        connection.close()
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(7, migrated.summary()["schema_version"])
+
+    def test_character_profiles_store_only_official_pointers_and_user_levels(self) -> None:
+        saved = self.dao.save_character_profile(
+            character_id=1051,
+            character_level=80,
+            breakthrough_stage=6,
+            awakening_level=3,
+            fork_id="fork_example",
+            fork_level=80,
+            fork_refinement_level=1,
+            selected_skill_id="Skill1",
+            skill_levels={"Skill1": 10, "UltraSkill": 8},
+            ordinal=0,
+        )
+
+        self.assertEqual(1051, saved["character_id"])
+        self.assertEqual("fork_example", saved["fork_id"])
+        self.assertEqual({"Skill1": 10, "UltraSkill": 8}, saved["skill_levels"])
+        columns = {
+            row[1]
+            for row in self.dao._db().execute("PRAGMA table_info(character_profile)")
+        }
+        self.assertNotIn("character_name", columns)
+        self.assertNotIn("stats_json", columns)
+
+    def test_character_weights_seed_once_and_remain_account_editable(self) -> None:
+        seeded = self.dao.seed_character_weight_preferences(
+            1075,
+            source_dataset_id="fixture",
+            source_kind="default",
+            properties=[
+                {"property_id": "CritBase", "weight": 1.0, "main_weight": 1.0},
+                {"property_id": "AtkUp", "weight": 0.7, "main_weight": 0.4},
+            ],
+        )
+        self.assertEqual({"CritBase": 1.0, "AtkUp": 0.7}, seeded["property_weights"])
+
+        saved = self.dao.save_character_weight_preferences(
+            1075,
+            properties=[
+                {"property_id": "CritBase", "weight": 1.25, "main_weight": 1.0},
+                {"property_id": "AtkUp", "weight": 0.0, "main_weight": 0.4},
+            ],
+        )
+        self.assertEqual({"CritBase": 1.25}, saved["property_weights"])
+        reseeded = self.dao.seed_character_weight_preferences(
+            1075,
+            source_dataset_id="new-fixture",
+            source_kind="workshop_api",
+            properties=[{"property_id": "CritBase", "weight": 9.0, "main_weight": 9.0}],
+        )
+        self.assertEqual({"CritBase": 1.25}, reseeded["property_weights"])
+        self.assertEqual("fixture", reseeded["source_dataset_id"])
+
+    def test_character_weights_reject_negative_or_duplicate_properties(self) -> None:
+        with self.assertRaises(UserDataValidationError):
+            self.dao.seed_character_weight_preferences(
+                1003,
+                source_dataset_id="fixture",
+                source_kind="default",
+                properties=[{"property_id": "CritBase", "weight": -0.1}],
+            )
+        with self.assertRaises(UserDataValidationError):
+            self.dao.seed_character_weight_preferences(
+                1003,
+                source_dataset_id="fixture",
+                source_kind="default",
+                properties=[
+                    {"property_id": "CritBase", "weight": 1.0},
+                    {"property_id": "CritBase", "weight": 0.5},
+                ],
+            )
+
+    def test_migrates_v5_database_to_character_profile_pointers(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_v5.sqlite3"
+        with UserDataDao(legacy_path, account_id="legacy") as initialized:
+            initialized.create_optimization_profile(
+                "existing-v5",
+                allocation_strategy="role_priority",
+                characters=[],
+            )
+        connection = sqlite3.connect(legacy_path)
+        connection.execute("DROP TABLE character_weight_preference_property")
+        connection.execute("DROP TABLE character_weight_preference_seed")
+        connection.execute("DROP TABLE character_profile_skill")
+        connection.execute("DROP TABLE character_profile")
+        connection.execute("DELETE FROM schema_migration WHERE version = 7")
+        connection.execute("DELETE FROM schema_migration WHERE version = 6")
+        connection.commit()
+        connection.close()
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(7, migrated.summary()["schema_version"])
+            self.assertEqual("existing-v5", migrated.list_optimization_profiles()[0]["name"])
+            self.assertEqual([], migrated.list_character_profiles())
+
+    def test_character_profile_rejects_selected_skill_without_level_pointer(self) -> None:
+        with self.assertRaises(UserDataValidationError):
+            self.dao.save_character_profile(
+                character_id=1051,
+                character_level=80,
+                breakthrough_stage=6,
+                awakening_level=6,
+                fork_id=None,
+                fork_level=None,
+                fork_refinement_level=None,
+                selected_skill_id="Skill1",
+                skill_levels={},
+            )
+
+    def test_versioned_optimization_preferences_preserve_history_and_support_retirement(self) -> None:
+        initial_characters = [
+            {
+                "character_id": 1003,
+                "ordinal": 0,
+                "priority_group": 0,
+                "target_suit_id": "Suit1",
+                "suit_requirement_mode": "four_piece",
+                "core_main_property_id": "DamageUp",
+                "property_weights": {"CritDamageBase": 1.5, "AtkAdd": 0.8},
+                "substat_priorities": ["CritDamageBase", "AtkAdd"],
+                "property_limits": {"CritBase": {"minimum": 0.5, "maximum": 0.8}},
+            },
+            {
+                "character_id": 1004,
+                "ordinal": 1,
+                "priority_group": 2,
+                "suit_requirement_mode": "none",
+                "property_weights": {},
+                "substat_priorities": [],
+                "property_limits": {},
+            },
+        ]
+        profile = self.dao.create_optimization_profile(
+            "Main allocation",
+            allocation_strategy="role_priority",
+            characters=initial_characters,
+        )
+        self.assertTrue(profile["is_active"])
+        self.assertEqual("role_priority", profile["version"]["allocation_strategy"])
+        self.assertEqual(1, profile["version"]["version_number"])
+        self.assertEqual(
+            {"CritDamageBase": 1.5, "AtkAdd": 0.8},
+            profile["version"]["characters"][0]["property_weights"],
+        )
+        self.assertEqual(
+            ["CritDamageBase", "AtkAdd"],
+            profile["version"]["characters"][0]["substat_priorities"],
+        )
+
+        second_version = self.dao.create_optimization_profile_version(
+            profile["profile_id"],
+            allocation_strategy="global_optimal",
+            characters=[
+                {
+                    **initial_characters[0],
+                    "property_weights": {"CritDamageBase": 2.0},
+                    "substat_priorities": ["CritDamageBase"],
+                    "property_limits": {"CritBase": {"minimum": 0.6}},
+                }
+            ],
+        )
+        self.assertEqual(2, second_version["version_number"])
+        latest = self.dao.get_optimization_profile(profile["profile_id"])
+        original = self.dao.get_optimization_profile(profile["profile_id"], version_number=1)
+        self.assertEqual("global_optimal", latest["version"]["allocation_strategy"])
+        self.assertEqual(
+            {"CritDamageBase": 2.0}, latest["version"]["characters"][0]["property_weights"]
+        )
+        self.assertEqual("role_priority", original["version"]["allocation_strategy"])
+        self.assertEqual(
+            {"CritDamageBase": 1.5, "AtkAdd": 0.8},
+            original["version"]["characters"][0]["property_weights"],
+        )
+
+        self.assertTrue(self.dao.deactivate_optimization_profile(profile["profile_id"]))
+        self.assertFalse(self.dao.deactivate_optimization_profile(profile["profile_id"]))
+        self.assertEqual([], self.dao.list_optimization_profiles())
+        retired_original = self.dao.get_optimization_profile(
+            profile["profile_id"], version_number=1
+        )
+        self.assertEqual(1, retired_original["version"]["version_number"])
+        retired = self.dao.list_optimization_profiles(include_inactive=True)
+        self.assertFalse(retired[0]["is_active"])
+        self.assertEqual(2, retired[0]["version"]["version_number"])
+
+    def test_optimization_preferences_validate_constraints_and_stay_account_local(self) -> None:
+        with self.assertRaises(UserDataValidationError):
+            self.dao.create_optimization_profile(
+                "Invalid limits",
+                allocation_strategy="role_priority",
+                characters=[
+                    {
+                        "character_id": 1003,
+                        "property_limits": {"CritBase": {"minimum": 1.0, "maximum": 0.5}},
+                    }
+                ],
+            )
+        with self.assertRaises(UserDataValidationError):
+            self.dao.create_optimization_profile(
+                "Invalid strategy", allocation_strategy="unsupported", characters=[]
+            )
+        with self.assertRaises(UserDataValidationError):
+            self.dao.create_optimization_profile(
+                "Invalid suit requirement",
+                allocation_strategy="role_priority",
+                characters=[
+                    {"character_id": 1003, "suit_requirement_mode": "four_piece"}
+                ],
+            )
+
+        profile = self.dao.create_optimization_profile(
+            "Database suit constraint", allocation_strategy="role_priority", characters=[]
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.dao._db().execute(
+                """INSERT INTO optimization_preference_character(
+                       profile_version_id, character_id, ordinal, priority_group,
+                       target_suit_id, suit_requirement_mode, core_main_property_id
+                   ) VALUES (?, 1003, 0, 0, NULL, 'four_piece', NULL)""",
+                (profile["version"]["profile_version_id"],),
+            )
+        self.dao._db().rollback()
+
+        original_insert = self.dao._insert_optimization_profile_version
+
+        def fail_initial_version(*_args):
+            raise sqlite3.OperationalError("forced failure")
+
+        self.dao._insert_optimization_profile_version = fail_initial_version
+        try:
+            with self.assertRaises(UserDataError):
+                self.dao.create_optimization_profile(
+                    "Atomic initial version", allocation_strategy="role_priority", characters=[]
+                )
+        finally:
+            self.dao._insert_optimization_profile_version = original_insert
+        self.assertIsNone(
+            self.dao._one(
+                "SELECT profile_id FROM optimization_preference_profile WHERE name = ?",
+                ("Atomic initial version",),
+            )
+        )
+
+        second_database = Path(self.temp_dir.name) / "other_account.sqlite3"
+        with UserDataDao(second_database, account_id="other") as other:
+            self.dao.create_optimization_profile(
+                "Only default", allocation_strategy="drive_priority", characters=[]
+            )
+            self.assertEqual([], other.list_optimization_profiles())
 
     def test_imports_complete_snapshot_and_keeps_raw_ids_and_stats(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
@@ -216,6 +565,42 @@ class UserDataDaoTest(unittest.TestCase):
         diff = self.dao.inventory_snapshot_diff(first_id, second_id)
         self.assertEqual(1, diff["added_count"])
         self.assertEqual(0, diff["removed_count"])
+
+    def test_exports_snapshot_from_one_read_transaction_when_background_prunes(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
+        original_summary = self.dao.inventory_snapshot_summary
+        background = sqlite3.connect(self.database)
+        background.execute("PRAGMA foreign_keys = ON")
+
+        def summary_then_prune(requested_snapshot_id: int) -> dict | None:
+            summary = original_summary(requested_snapshot_id)
+            background.execute(
+                "DELETE FROM inventory_snapshot WHERE snapshot_id = ?", (snapshot_id,)
+            )
+            background.commit()
+            return summary
+
+        try:
+            with patch.object(
+                self.dao, "inventory_snapshot_summary", side_effect=summary_then_prune
+            ):
+                summary, exported = self.dao.export_inventory_snapshot(snapshot_id)
+        finally:
+            background.close()
+
+        self.assertEqual(snapshot_id, summary["snapshot_id"])
+        self.assertEqual(1, summary["stored_item_count"])
+        self.assertEqual(1, len(exported))
+        self.assertIsNone(self.dao.inventory_snapshot_summary(snapshot_id))
+
+    def test_rejects_snapshot_export_when_stored_item_count_is_inconsistent(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
+        connection = self.dao._db()
+        connection.execute("DELETE FROM inventory_item WHERE snapshot_id = ?", (snapshot_id,))
+        connection.commit()
+
+        with self.assertRaises(UserDataError):
+            self.dao.export_inventory_snapshot(snapshot_id)
 
     def test_saves_loadout_using_native_uid_and_character_id(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))

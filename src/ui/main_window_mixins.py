@@ -10,8 +10,9 @@ from src.features.identification import controller as identification_controller
 from src.features.identification import dialogs as identification_dialogs
 from src.features.inventory import page as inventory_page
 from src.features.onboarding import guide as onboarding_guide
-from src.features.role import page as role_page
+from src.features.official_role import page as role_page
 from src.features.scanning import controller as scanning_controller
+from src.features.weighted_allocation import page as weighted_allocation_page
 
 
 class OnboardingGuideMixin:
@@ -223,6 +224,11 @@ class RolePageMixin:
     _refresh_my_role = role_page._refresh_my_role
 
 
+class WeightedAllocationMixin:
+    _page_weighted_allocation = weighted_allocation_page.build_weighted_allocation_page
+    _refresh_weighted_allocation = weighted_allocation_page.refresh_weighted_allocation_page
+
+
 class FeatureMainWindowMixin(
     OnboardingGuideMixin,
     InventoryPageMixin,
@@ -232,6 +238,7 @@ class FeatureMainWindowMixin(
     IdentificationControllerMixin,
     IdentificationDialogsMixin,
     ScanningControllerMixin,
+    WeightedAllocationMixin,
     RolePageMixin,
 ):
     """Combined feature surface for MainWindow."""

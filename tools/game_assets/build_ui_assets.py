@@ -59,9 +59,11 @@ def build_assets(
     built_by_output: dict[str, dict[str, Any]] = {}
     character_map: dict[str, str] = {}
     attribute_map: dict[str, str] = {}
+    equipment_item_map: dict[str, str] = {}
     groups = (
         ("characters", "character_id", character_map, 256),
         ("attributes", "key", attribute_map, 96),
+        ("equipment_items", "item_id", equipment_item_map, 128),
     )
     for group_name, identity_field, result_map, max_dimension in groups:
         for entry in manifest.get(group_name, []):
@@ -95,6 +97,7 @@ def build_assets(
         "source_data_table": manifest["source_data_table"],
         "characters": character_map,
         "attributes": attribute_map,
+        "equipment_items": equipment_item_map,
         "files": built_by_output,
         "total_files": len(built_by_output),
         "total_bytes": sum(row["bytes"] for row in built_by_output.values()),

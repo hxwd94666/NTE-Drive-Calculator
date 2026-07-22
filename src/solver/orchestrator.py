@@ -16,7 +16,7 @@ from src.solver.dfs_puzzle import DFSPuzzleSolver
 from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 from src.solver.set_effects import normalize_set_effect_mode, set_piece_options_for_mode
 from src.optimizer.scoring import ScoringEngine
-from src.optimizer.dispatcher import DispatcherEngine
+from src.optimizer.allocation_kernel import AllocationKernel, AllocationKernelRequest, estimate_candidate_pool_limits
 from src.utils.visualizer import BoardVisualizer
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
@@ -33,6 +33,25 @@ class NTEPipelineOrchestrator:
         self.sets_db = {}
         self.shapes_db = {}
         self._load_configs()
+
+    @classmethod
+    def from_frozen_inputs(
+        cls, *, roles_db: dict, sets_db: dict, shapes_db: dict[str, DriveShape], config_dir: str = "config",
+    ) -> "NTEPipelineOrchestrator":
+        """Create a puzzle-only orchestrator without rereading mutable config.
+
+        Context callers already copied every role, suit and shape input.  This
+        named constructor keeps that boundary explicit instead of having an
+        adapter bypass ``__init__`` and patch private attributes afterwards.
+        """
+
+        instance = cls.__new__(cls)
+        instance.config_dir = config_dir
+        instance.roles_db = roles_db
+        instance.sets_db = sets_db
+        instance.shapes_db = shapes_db
+        instance._blueprint_cache = {}
+        return instance
 
     def _load_configs(self):
         with open(os.path.join(self.config_dir, "roles.json"), "r", encoding="utf-8") as f:
@@ -168,25 +187,6 @@ class NTEPipelineOrchestrator:
             self._blueprint_cache.pop(next(iter(self._blueprint_cache)))
         self._blueprint_cache[cache_key] = copy.deepcopy(blueprints)
 
-    def _estimate_drive_screen_limit(self, blueprints_db: Dict[str, List[Dict]], custom_sets: Dict[str, str]) -> int:
-        shape_demands: Dict[str, int] = {}
-        for role_name, blueprints in blueprints_db.items():
-            if not blueprints:
-                continue
-            set_name = self._resolve_set_name(custom_sets.get(role_name, self.roles_db[role_name]["default_set"]))
-            role_max_demands: Dict[str, int] = {}
-            for blueprint in blueprints:
-                counts: Dict[str, int] = {}
-                set_pieces = blueprint.get("set_pieces", self.sets_db[set_name]["shapes"])
-                for shape_id in list(set_pieces) + blueprint.get("extra_pieces", []):
-                    counts[shape_id] = counts.get(shape_id, 0) + 1
-                for shape_id, count in counts.items():
-                    role_max_demands[shape_id] = max(role_max_demands.get(shape_id, 0), count)
-            for shape_id, count in role_max_demands.items():
-                shape_demands[shape_id] = shape_demands.get(shape_id, 0) + count
-
-        return max(15, max(shape_demands.values(), default=0) + 5)
-
     def _max_priority_group_size(self, priority_list: List[str], priority_groups: List[List[str]] | None) -> int:
         selected = set(priority_list or [])
         max_size = 1
@@ -242,42 +242,31 @@ class NTEPipelineOrchestrator:
 
         stage_t0 = time.perf_counter()
         scoring_engine = ScoringEngine(config_dir=self.config_dir)
-        max_priority_group_size = self._max_priority_group_size(priority_list, priority_groups)
-        drive_screen_limit = max(
-            self._estimate_drive_screen_limit(blueprints_db, custom_sets),
-            max(15, max_priority_group_size * 10),
+        drive_screen_limit, tape_screen_limit = estimate_candidate_pool_limits(
+            blueprints_db, priority_list, priority_groups or (),
         )
-        tape_screen_limit = max(6, max_priority_group_size * 4)
         if drive_screen_limit > 15:
             logger.info(f"  候选驱动筛选上限已按当前角色需求提升到 Top {drive_screen_limit}/形状/角色。")
-        screened_pools = scoring_engine.evaluate_global_inventory(
-            inventory=parsed_inventory,
-            top_k_per_shape_per_role=drive_screen_limit,
-            tape_top_k_per_set_per_role=tape_screen_limit,
-            tape_main_filters=tape_main_filters,
-            crit_priority_modes=crit_priority_modes,
+        kernel_request = AllocationKernelRequest(
+            inventory=tuple(parsed_inventory), roles_db=self.roles_db, sets_db=self.sets_db,
+            shapes_db=self.shapes_db, blueprints_db=blueprints_db, role_order=tuple(priority_list),
+            strategy=mode, module_set_targets=custom_sets, set_effect_modes=set_effect_modes,
+            core_main_filters={key: tuple(value) for key, value in tape_main_filters.items()},
+            core_set_targets={}, stat_priority_configs=crit_priority_modes, property_limits={},
+            priority_groups=tuple(tuple(group) for group in (priority_groups or ())),
+            crit_rate_caps=crit_rate_caps, drive_screen_limit=drive_screen_limit,
+            tape_screen_limit=tape_screen_limit,
         )
         if tape_main_filters:
             logger.info("  已按角色优先级配置提前过滤卡带主词条。")
 
-        logger.success("  筛选完成。")
-        logger.info(f"     - 入选驱动数: {len(screened_pools['drives'])}")
+        logger.success("  筛选输入已准备完成。")
         logger.info(f"     - 卡带分桶: 各角色每套装 Top {tape_screen_limit} 已锁定")
         logger.info(f"[计时] 评分筛选阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         logger.info(f"\n[阶段 4] 启动调度模式: [{mode}]...")
         stage_t0 = time.perf_counter()
-        dispatcher = DispatcherEngine(roles_db=self.roles_db, sets_db=self.sets_db, blueprints_db=blueprints_db)
-
-        final_plan = dispatcher.execute_dispatch(
-            mode=mode,
-            candidate_pool=screened_pools,
-            priority_list=priority_list,
-            custom_sets=custom_sets,
-            crit_priority_modes=crit_priority_modes,
-            priority_groups=priority_groups,
-            crit_rate_caps=crit_rate_caps,
-        )
+        final_plan = AllocationKernel(scoring_engine).execute(kernel_request)
         logger.info(f"[计时] 调度阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         stage_t0 = time.perf_counter()

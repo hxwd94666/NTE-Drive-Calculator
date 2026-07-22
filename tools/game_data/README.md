@@ -4,7 +4,7 @@
 
 ## 数据原则
 
-- 游戏记录、ID、名称和关系只来自开发者本机的游戏官方数据文件。
+- 游戏记录、ID、名称和关系只来自开发者本机的游戏官方数据文件；角色推荐权重是单独标注来源的工坊 API 开发期快照，不冒充游戏官方字段。
 - 标准化查询表以原始游戏 ID 为主键，同时在 `source_row.payload_json` 保留完整来源行。
 - 人工确认的特殊角色分类单独进入 `character_annotation`，不能修改原始角色记录。
 - 新数据库和新运行链路不读取旧 `roles.json`、`sets.json`、`shapes.json`、`tapes.json` 或 `weapons.json`。
@@ -23,7 +23,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v10
+## 构建静态 SQLite v11
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -52,6 +52,15 @@ python tools/game_data/build_static_database.py `
 完整审计数据库放在项目外；省略来源行原文的发行数据库放在
 `data/game_static.sqlite3`。每次游戏版本更新时，开发者从本机游戏官方数据文件重新整理数据库，检查来源哈希、数量和外键后再更新发行数据库。游戏官方文件和中间数据不进入开源仓库。
 
+构建完成后，开发发布模式使用异环工坊 Open API Key 原子更新角色推荐权重：
+
+```powershell
+python tools/game_data/sync_recommended_weights.py `
+  --database data/game_static.sqlite3
+```
+
+API 没有返回的角色会写入固定默认权重（增伤、暴击、爆伤、攻击力%）。Key 只从开发机环境或 `.env` 读取，不写入数据库或安装包；应用运行时只读静态库，不访问 API，也不读取旧 `roles.json` 权重。
+
 构建器还会自动扫描 `DataTable/Character/Awaken/*AwakenEffect*.json`：每个角色的六个
 可选觉醒、三/六觉共鸣、名称/描述/图标、Buff 引用和明确的技能等级加成都会进入静态库。
 用户拥有的副本数和实际激活的觉醒属于账号私有计算配置，不写入发行静态库。
@@ -73,11 +82,11 @@ python tools/game_data/build_static_database.py `
 `character_overrides.json` 中标记为 `combat_transformation` 的记录只保留官方角色目录和
 规范角色关联；它们共用规范角色的属性与养成，不能生成独立的成长、觉醒或普通技能目录。
 
-schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级变体和 Abyss 关卡绑定。
+schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级变体和 Abyss 关卡绑定；schema v11 新增带来源标记的角色推荐权重。
 `DT_MonsterPackData_FT` 与 `FT_` 表示 999 夜子玩法；Abyss 的 `AttributeID` 全部关联普通
 `DT_MonsterPackData`，不能按文件名或前缀推断场景。
 
-当前旧版应用仍读取旧 JSON。后续 SQLite DAO、新主页和 nte-core 同步链路只使用 v10 数据库与原始游戏/nte-core ID，不经过旧格式转换。
+新 SQLite DAO、角色页和 nte-core 同步链路只使用 v11 数据库与原始游戏/nte-core ID，不经过旧格式转换。
 
 ## 查询静态数据库
 

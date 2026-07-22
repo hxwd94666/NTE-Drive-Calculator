@@ -368,7 +368,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertLess(events.index("parse:raw_drive_0001.png"), events.index("scan_done"))
         self.assertEqual(False, scanner.commit_on_complete)
         self.assertTrue(scanner.committed)
-        self.assertTrue(processor.exported)
+        self.assertFalse(processor.exported)
         self.assertEqual(2, stats["success_count"])
         self.assertEqual(0, stats["failed_count"])
         self.assertEqual("full", stats["parse_scope"])

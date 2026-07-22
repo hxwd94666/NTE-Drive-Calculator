@@ -128,14 +128,13 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
         for group in priority_groups:
             if len(group) == 1:
                 role = group[0]
-                target_set = self._target_set(role, custom_sets)
                 best_tape = None
                 best_score = -1.0
                 for tape in tapes_pool.get(role, []):
                     tape_set = self._resolve_set_name(tape.set_name)
                     if tape_set != tape.set_name and tape_set in self.sets_db:
                         tape.set_name = tape_set
-                    if tape.uid in used_tape_uids or tape.set_name != target_set:
+                    if tape.uid in used_tape_uids or not self._tape_matches_core_target(role, tape, custom_sets):
                         continue
                     score = tape.role_scores.get(role, 0.0)
                     rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
@@ -165,9 +164,8 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
 
             profit_matrix = np.zeros((len(group), len(real_tapes) + len(group)))
             for r_idx, role in enumerate(group):
-                target_set = self._target_set(role, custom_sets)
                 for t_idx, tape in enumerate(real_tapes):
-                    if tape.uid not in role_tape_uids.get(role, set()) or tape.set_name != target_set:
+                    if tape.uid not in role_tape_uids.get(role, set()) or not self._tape_matches_core_target(role, tape, custom_sets):
                         profit_matrix[r_idx, t_idx] = -10000.0
                         continue
                     score = max(0.0, tape.role_scores.get(role, 0.0))
@@ -176,11 +174,17 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                     )
                     profit_matrix[r_idx, t_idx] = rank_score if rank_score > 0 else 0.000001
             row_ind, col_ind = linear_sum_assignment(-profit_matrix)
-            for r_idx, c_idx in zip(row_ind, col_ind):
+            # SciPy exposes NumPy scalar indices here.  Convert them before
+            # indexing the role list so static type checkers retain ``str``
+            # rather than widening the dictionary key to ``list | str``.
+            for raw_r_idx, raw_c_idx in zip(row_ind.tolist(), col_ind.tolist()):
+                r_idx = int(raw_r_idx)
+                c_idx = int(raw_c_idx)
                 if c_idx >= len(real_tapes) or profit_matrix[r_idx, c_idx] < 0:
                     continue
                 tape = real_tapes[c_idx]
-                assigned_tapes[group[r_idx]] = tape
+                role_key = group[r_idx]
+                assigned_tapes[role_key] = tape
                 used_tape_uids.add(tape.uid)
         return assigned_tapes
 

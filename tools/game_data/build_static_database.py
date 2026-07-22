@@ -15,6 +15,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -37,6 +38,11 @@ except ImportError:  # 支持直接运行：python tools/game_data/build_static_
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.domain.recommended_weights import DEFAULT_RECOMMENDED_WEIGHTS
+
 SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
@@ -47,9 +53,10 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "008_game_static_combat_context.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
 )
-SCHEMA_VERSION = 10
-IMPORTER_VERSION = 10
+SCHEMA_VERSION = 11
+IMPORTER_VERSION = 11
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -284,6 +291,7 @@ class StaticDatabaseBuilder:
         self.connection.execute("INSERT INTO schema_migration VALUES (8, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (9, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (10, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (11, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
@@ -305,6 +313,7 @@ class StaticDatabaseBuilder:
         self._import_equipment_items()
         self._import_equipment_progression()
         self._import_equipment_plans()
+        self._import_default_character_weights()
         self._import_forks()
         violations = [tuple(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
         if violations:
@@ -1026,6 +1035,31 @@ class StaticDatabaseBuilder:
                     (int(character_id), ordinal, item_id),
                 )
 
+    def _import_default_character_weights(self) -> None:
+        """Seed every playable role; the developer API sync replaces available rows."""
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        character_ids = [
+            int(row[0])
+            for row in self.connection.execute(
+                "SELECT character_id FROM equipment_plan ORDER BY character_id"
+            )
+        ]
+        for character_id in character_ids:
+            self.connection.execute(
+                "INSERT INTO character_weight_recommendation VALUES (?, 'default', NULL, NULL, ?)",
+                (character_id, now),
+            )
+            self.connection.executemany(
+                """INSERT INTO character_weight_recommendation_property(
+                       character_id, property_id, weight, main_weight, ordinal
+                   ) VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (character_id, property_id, weight, weight, ordinal)
+                    for ordinal, (property_id, weight) in enumerate(DEFAULT_RECOMMENDED_WEIGHTS)
+                ],
+            )
+
     def _import_forks(self) -> None:
         for type_id in sorted(self.rows["fork_types"], key=int):
             row = self.rows["fork_types"][type_id]
@@ -1393,6 +1427,8 @@ class StaticDatabaseBuilder:
             "equipment_suit_effect",
             "equipment_item",
             "equipment_plan",
+            "character_weight_recommendation",
+            "character_weight_recommendation_property",
             "fork_type",
             "fork_item",
             "fork_upgrade_level",

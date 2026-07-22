@@ -147,7 +147,7 @@ from src.utils.name_resolver import resolve_name
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.hotkeys import load_hotkey_config, save_hotkey_config
-from src.features.role.page import confirm_pending_my_role_changes
+from src.features.official_role.page import confirm_pending_my_role_changes
 from src.features.configuration.page import (
     add_role as config_add_role,
     add_set as config_add_set,
@@ -552,6 +552,8 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self._pending_archive_paths=[]
         self.result_card.setVisible(False)
         self._load_data()
+        if hasattr(self, "weighted_role_selector"):
+            self._refresh_weighted_allocation()
         self._refresh_account_combo()
         if hasattr(self,"_ss_info"):
             self._refresh_ss()

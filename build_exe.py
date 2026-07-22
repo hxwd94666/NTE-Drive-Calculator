@@ -63,9 +63,15 @@ def _sync_workshop_weights_before_build() -> None:
     if skip_workshop_sync:
         build_cli.skip("普通模式：不更新异环工坊权重")
         return
-    cmd = [sys.executable, str(ROOT / "tools" / "sync_workshop_weights.py")]
+    cmd = [
+        sys.executable,
+        str(ROOT / "tools" / "game_data" / "sync_recommended_weights.py"),
+        "--database", str(STATIC_DATABASE_PATH),
+    ]
     if require_workshop_sync:
         cmd.extend(["--prompt-key", "--fallback-normal"])
+    elif "--prompt-workshop-key" in sys.argv:
+        cmd.append("--prompt-key")
     else:
         cmd.append("--optional")
     build_cli.run(cmd, ROOT)
