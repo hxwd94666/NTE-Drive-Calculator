@@ -9,14 +9,12 @@ import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
-from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLabel, QTextEdit, QVBoxLayout
 
 from src.app.theme import themed_style
-from src.utils.logger import logger
 
 UPDATE_FAILURE_NETDISK_MESSAGE = "GitHub请求失败，可前往网盘链接查看版本更新情况"
 UPDATE_FALLBACK_MESSAGE = "GitHub API 请求失败，已通过 Release 页面获取版本号。"
@@ -42,32 +40,6 @@ class ReleaseNotesHTMLParser(HTMLParser):
     def text(self) -> str:
         lines = [line.strip() for line in "".join(self.parts).splitlines()]
         return "\n".join(line for line in lines if line)
-
-
-def load_update_config(user_config_dir: Path) -> dict:
-    path = user_config_dir / "update_config.json"
-    default = {"never_remind": False, "ignored_version": ""}
-    try:
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                default.update(
-                    {
-                        "never_remind": bool(data.get("never_remind", False)),
-                        "ignored_version": str(data.get("ignored_version", "") or ""),
-                    }
-                )
-    except Exception as exc:
-        logger.warning(f"读取更新提醒配置失败，使用默认提醒设置: {path} | {exc}")
-    return default
-
-
-def save_update_config(user_config_dir: Path, update_config: dict) -> None:
-    path = user_config_dir / "update_config.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(update_config, f, ensure_ascii=False, indent=2)
 
 
 def is_newer_version(remote, current) -> bool:

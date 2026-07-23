@@ -3,11 +3,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, QRectF
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -23,9 +21,39 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, SearchableComboBox, match_pinyin
-from src.app.theme import theme_color, themed_style
+from src.app import runtime
+from src.app.theme import themed_style
 from src.domain.stat_catalog import StatCatalog
+from src.services.character_weight_service import (
+    ensure_account_character_weights,
+    save_account_character_weights,
+)
+from src.services.official_role_page_service import load_official_role_index
 from src.storage.json_store import read_json, write_json_atomic
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+
+
+_ACCOUNT_WEIGHT_CONFIG = "account_weights"
+_ACCOUNT_SUBSTAT_PROPERTY_CHOICES = (
+    ("暴击率%", "CritBase"), ("暴击伤害%", "CritDamageBase"),
+    ("伤害增加%", "DamageUpGeneralBase"), ("攻击力%", "AtkUp"),
+    ("攻击力", "AtkAdd"), ("防御力", "DefAdd"), ("防御力%", "DefUp"),
+    ("生命值%", "HPMaxUp"), ("生命值", "HPMaxAdd"),
+    ("环合强度", "MagBase"), ("倾陷强度", "UnbalIntensityBase"),
+)
+_ACCOUNT_MAIN_PROPERTY_CHOICES = (
+    ("生命值百分比", "HPMaxUp"), ("攻击力百分比", "AtkUp"),
+    ("防御力百分比", "DefUp"), ("暴击率", "CritBase"),
+    ("暴击伤害", "CritDamageBase"), ("环合强度", "MagBase"),
+    ("倾陷强度", "UnbalIntensityBase"), ("治疗加成", "HealUp"),
+    ("光属性异能伤害增强", "DamageUpCosmosBase"),
+    ("灵属性异能伤害增强", "DamageUpNatureBase"),
+    ("咒属性异能伤害增强", "DamageUpIncantationBase"),
+    ("暗属性异能伤害增强", "DamageUpChaosBase"),
+    ("魂属性异能伤害增强", "DamageUpPsycheBase"),
+    ("相属性异能伤害增强", "DamageUpLakshanaBase"),
+    ("心灵伤害增强", "DamageUpPsychicallyBase"),
+)
 
 
 def build_config_page(window):
@@ -54,10 +82,6 @@ def build_config_page(window):
     )
     top_row.addWidget(window.config_role_search, 1)
 
-    window.config_add_btn = QPushButton("+ 添加角色")
-    window.config_add_btn.setObjectName("btnPrimary")
-    window.config_add_btn.clicked.connect(window._config_add_item)
-    top_row.addWidget(window.config_add_btn)
     top_row.addStretch()
 
     reset_btn = QPushButton("重置")
@@ -82,7 +106,68 @@ def build_config_page(window):
 
 def refresh_config_forms(window, config_dir):
     if hasattr(window, "config_form_layout"):
-        switch_config_form(window, "roles.json", config_dir)
+        switch_config_form(window, _ACCOUNT_WEIGHT_CONFIG, config_dir)
+
+
+def _account_weight_config() -> dict[str, dict]:
+    characters = load_official_role_index(runtime.USER_DATABASE_PATH)
+    character_ids = [int(row["character_id"]) for row in characters]
+    account_weights = ensure_account_character_weights(
+        runtime.USER_DATABASE_PATH,
+        character_ids,
+    )
+    with StaticGameDataDao() as static_dao:
+        attributes = {
+            str(row["attribute_id"]): row
+            for row in static_dao.list_equipment_attributes()
+        }
+        known_property_ids = set(attributes)
+        sub_choices = [
+            (label, property_id)
+            for label, property_id in _ACCOUNT_SUBSTAT_PROPERTY_CHOICES
+            if property_id in known_property_ids
+        ]
+        main_choices = [
+            (label, property_id)
+            for label, property_id in _ACCOUNT_MAIN_PROPERTY_CHOICES
+            if property_id in known_property_ids
+        ]
+        result = {}
+        for character in characters:
+            character_id = int(character["character_id"])
+            record = account_weights.get(character_id) or {}
+            shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+            result[str(character.get("name_zh") or character_id)] = {
+                "character_id": character_id,
+                "source_kind": str(record.get("source_kind") or "default"),
+                "extra_shape_label": str(shape_bonus.get("shape_label") or ""),
+                "extra_shape_buffs": {
+                    str(row["property_id"]): float(row["display_value"])
+                    for row in shape_bonus.get("properties") or ()
+                },
+                "weights": {
+                    str(property_id): float(weight)
+                    for property_id, weight in (
+                        record.get("property_weights") or {}
+                    ).items()
+                },
+                "main_weights": {
+                    str(property_id): float(weight)
+                    for property_id, weight in (
+                        record.get("main_property_weights") or {}
+                    ).items()
+                },
+            }
+    labels = {
+        property_id: label
+        for label, property_id in (*sub_choices, *main_choices)
+    }
+    return {
+        "roles": result,
+        "property_labels": labels,
+        "sub_choices": sub_choices,
+        "main_choices": main_choices,
+    }
 
 
 def load_config_data(name, config_dir):
@@ -132,16 +217,13 @@ def switch_config_form(window, name, config_dir, use_draft=False, active_role=No
             save_config_form(window, config_dir, None)
         else:
             window._config_dirty = False
-    if hasattr(window, "config_add_btn"):
-        window.config_add_btn.setText("+ 添加角色")
-
     while window.config_form_layout.count():
         item = window.config_form_layout.takeAt(0)
         if item.widget():
             item.widget().deleteLater()
 
     path = config_dir / name
-    if not path.exists():
+    if name != _ACCOUNT_WEIGHT_CONFIG and not path.exists():
         window.config_form_layout.addWidget(QLabel(f"文件不存在: {name}"))
         return
 
@@ -149,13 +231,22 @@ def switch_config_form(window, name, config_dir, use_draft=False, active_role=No
         window.config_form_area.setUpdatesEnabled(False)
     if use_draft and name == current_name and getattr(window, "_config_dirty", False) and hasattr(window, "_config_form_data"):
         data = window._config_form_data
+    elif name == _ACCOUNT_WEIGHT_CONFIG:
+        loaded = _account_weight_config()
+        data = loaded["roles"]
+        window._config_weight_property_labels = loaded["property_labels"]
+        window._config_weight_sub_choices = loaded["sub_choices"]
+        window._config_weight_main_choices = loaded["main_choices"]
+        window._config_dirty_character_ids = set()
     else:
         data = load_config_data(name, config_dir)
     window._current_config_name = name
     window._config_form_data = data
     if name != current_name:
         window._config_dirty = False
-    if name == "roles.json":
+    if name == _ACCOUNT_WEIGHT_CONFIG:
+        render_roles_form(window, data, active_role=active_role)
+    elif name == "roles.json":
         render_roles_form(window, data, active_role=active_role)
     elif name == "sets.json":
         render_sets_form(window, data)
@@ -174,27 +265,6 @@ def _field(label, widget, layout):
     row.addWidget(QLabel(label))
     row.addWidget(widget, 1)
     layout.addLayout(row)
-
-
-def _board_lock_icon(locked: bool) -> QIcon:
-    pixmap = QPixmap(22, 22)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    color = QColor(theme_color("#6e7681" if locked else "#58a6ff"))
-    painter.setPen(QPen(color, 2))
-    painter.setBrush(color)
-    painter.drawRoundedRect(QRectF(5, 10, 12, 8), 2, 2)
-    painter.setBrush(Qt.NoBrush)
-    if locked:
-        painter.drawArc(QRectF(7, 4, 8, 10), 0, 180 * 16)
-        painter.drawLine(7, 9, 7, 12)
-        painter.drawLine(15, 9, 15, 12)
-    else:
-        painter.drawArc(QRectF(8, 4, 8, 10), 40 * 16, 180 * 16)
-        painter.drawLine(8, 10, 8, 12)
-    painter.end()
-    return QIcon(pixmap)
 
 
 def _add_role_config_header(window, data, role_name, form_layout, rebuild_all_tabs):
@@ -228,114 +298,34 @@ def _add_default_set_row(window, data, role_name, role_data, form_layout):
 
 
 def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
-    extra_combo = NoWheelComboBox()
-    extra_combo.addItems(["Type-2", "Type-3", "Type-4"])
-    extra_combo.setCurrentText(role_data.get("extra_shape_label", ""))
-    extra_combo.currentTextChanged.connect(
-        lambda text, rn=role_name: window._save_role_field(rn, "extra_shape_label", text, data)
-    )
-    _field("额外形状标签", extra_combo, form_layout)
+    del window, data, role_name
+    value = QLabel(str(role_data.get("extra_shape_label") or "无"))
+    value.setObjectName("officialShapeLabelReadOnly")
+    value.setStyleSheet(themed_style(
+        "color:#8b949e;background:#161b22;border:1px solid #30363d;"
+        "border-radius:7px;padding:8px 11px"
+    ))
+    value.setToolTip("来自只读静态数据库，不可编辑。")
+    _field("额外形状标签", value, form_layout)
 
 
 def _add_extra_shape_buff_row(window, data, role_name, role_data, form_layout):
-    buff_row = QHBoxLayout()
-    buff_row.setSpacing(8)
-    buff_row.addWidget(QLabel("额外形状加成"))
-    buff_stat_combo = SearchableComboBox()
-    for stat in window._stat_choice_pool():
-        buff_stat_combo.addItem(stat, stat)
-    buff_stat_combo.refresh_search_items()
+    del data, role_name
     extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
-    current_buff = (
-        next(iter(extra_buffs.items()), ("", 0.0))
-        if isinstance(extra_buffs, dict) and extra_buffs
-        else ("", 0.0)
-    )
-    if current_buff[0]:
-        buff_stat_combo.setCurrentText(current_buff[0])
-    else:
-        buff_stat_combo.setCurrentIndex(-1)
-        buff_stat_combo.setEditText("")
-    buff_value = NoWheelDoubleSpinBox()
-    buff_value.setRange(-99999, 99999)
-    buff_value.setDecimals(2)
-    buff_value.setSingleStep(1.0)
-    buff_value.setValue(float(current_buff[1] or 0))
-    buff_value.setMinimumWidth(96)
-    buff_value.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-    buff_value.setKeyboardTracking(False)
-    buff_stat_combo.activated.connect(
-        lambda _idx, rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
-            rn, c.currentData() or c.currentText(), s.value(), data
-        )
-    )
-    if buff_stat_combo.lineEdit():
-        buff_stat_combo.lineEdit().editingFinished.connect(
-            lambda rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
-                rn, c.currentText(), s.value(), data
-            )
-        )
-    buff_value.editingFinished.connect(
-        lambda rn=role_name, c=buff_stat_combo, s=buff_value: window._save_single_extra_shape_buff(
-            rn, c.currentText(), s.value(), data
-        )
-    )
-    buff_row.addWidget(buff_stat_combo, 1)
-    buff_row.addWidget(buff_value)
-    form_layout.addLayout(buff_row)
-
-
-def _add_board_matrix_editor(window, data, role_name, role_data, form_layout):
-    board_header = QHBoxLayout()
-    board_header.addWidget(QLabel("底盘矩阵 (0=空格, -1=锁定):"))
-    board_header.addStretch()
-    board_lock_btn = QPushButton()
-    board_lock_btn.setObjectName("btnBoardLock")
-    board_lock_btn.setStyleSheet("QPushButton#btnBoardLock{padding:4px;border-radius:6px}")
-    board_lock_btn.setCheckable(True)
-    board_lock_btn.setChecked(True)
-    board_lock_btn.setText("")
-    board_lock_btn.setIcon(_board_lock_icon(True))
-    board_lock_btn.setIconSize(QSize(18, 18))
-    board_lock_btn.setMinimumSize(34, 30)
-    board_lock_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-    board_lock_btn.setToolTip("默认锁定，点击后才可修改底盘矩阵。")
-    board_header.addWidget(board_lock_btn)
-    form_layout.addLayout(board_header)
-
-    board_matrix = role_data.get("board_matrix", [[0] * 5 for _ in range(5)])
-    board_widget = QWidget()
-    board_grid = QGridLayout(board_widget)
-    board_grid.setSpacing(2)
-    board_combos = []
-    for row in range(5):
-        for col in range(5):
-            value = str(board_matrix[row][col]) if row < len(board_matrix) and col < len(board_matrix[row]) else "0"
-            combo = QComboBox()
-            combo.addItems(["-1", "0"])
-            combo.setCurrentText(value)
-            combo.setMinimumWidth(52)
-            combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            combo.setEnabled(False)
-            combo.currentTextChanged.connect(
-                lambda text, rn=role_name, r=row, c=col: window._save_role_board_cell(rn, r, c, text, data)
-            )
-            board_combos.append(combo)
-            board_grid.addWidget(combo, row, col)
-    for col in range(5):
-        board_grid.setColumnStretch(col, 1)
-
-    def set_board_locked(locked):
-        for item in board_combos:
-            item.setEnabled(not locked)
-        board_lock_btn.setIcon(_board_lock_icon(locked))
-        board_lock_btn.setToolTip(
-            "底盘矩阵已锁定，点击后才可修改。" if locked else "底盘矩阵可修改，点击重新锁定。"
-        )
-
-    board_lock_btn.toggled.connect(set_board_locked)
-    set_board_locked(True)
-    form_layout.addWidget(board_widget)
+    labels = getattr(window, "_config_weight_property_labels", {})
+    text = "、".join(
+        f"{labels.get(str(property_id), property_id)} +{float(value):g}"
+        for property_id, value in extra_buffs.items()
+    ) or "无"
+    value = QLabel(text)
+    value.setObjectName("officialShapeBonusReadOnly")
+    value.setWordWrap(True)
+    value.setStyleSheet(themed_style(
+        "color:#8b949e;background:#161b22;border:1px solid #30363d;"
+        "border-radius:7px;padding:8px 11px"
+    ))
+    value.setToolTip("来自只读静态数据库，不可编辑。")
+    _field("额外形状加成", value, form_layout)
 
 
 def _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, title, field_name, add_label):
@@ -361,7 +351,11 @@ def _add_role_weight_group(window, data, role_name, role_data, form_layout, rebu
     for weight_key in sorted(weights.keys()):
         weight_row = QHBoxLayout()
         weight_row.setSpacing(6)
-        weight_row.addWidget(QLabel(weight_key))
+        weight_row.addWidget(QLabel(
+            getattr(window, "_config_weight_property_labels", {}).get(
+                weight_key, weight_key
+            )
+        ))
         spin = NoWheelDoubleSpinBox()
         spin.setRange(0, 10)
         spin.setSingleStep(0.05)
@@ -399,7 +393,12 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
     form_layout.setSpacing(12)
     form_layout.setContentsMargins(12, 12, 12, 12)
 
-    _add_role_config_header(window, data, role_name, form_layout, rebuild_all_tabs)
+    source = QLabel(
+        f"角色：{role_name}　账号 SQLite 权重副本"
+        f"（初始来源：{role_data.get('source_kind') or 'default'}）"
+    )
+    source.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+    form_layout.addWidget(source)
     _add_extra_shape_row(window, data, role_name, role_data, form_layout)
     _add_extra_shape_buff_row(window, data, role_name, role_data, form_layout)
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
@@ -459,7 +458,9 @@ def render_roles_form(window, data, active_role=None):
     rebuild_all_tabs(active_role)
     window._filter_config_roles = filter_tabs
     roles_tabs.currentChanged.connect(lambda _index: load_current_tab())
-    roles_tabs.setMovable(True)
+    roles_tabs.setMovable(
+        getattr(window, "_current_config_name", "") != _ACCOUNT_WEIGHT_CONFIG
+    )
 
     def on_tab_moved(_from_idx, _to_idx):
         ordered_names = []
@@ -576,6 +577,39 @@ def _sub_weight_choice_pool(config_dir):
 
 
 def add_weight(window, rn, data, cb, config_dir, weight_field="weights"):
+    if getattr(window, "_current_config_name", "") == _ACCOUNT_WEIGHT_CONFIG:
+        choices = (
+            getattr(window, "_config_weight_main_choices", ())
+            if weight_field == "main_weights"
+            else getattr(window, "_config_weight_sub_choices", ())
+        )
+        existing = set(data.get(rn, {}).get(weight_field, {}))
+        available = [
+            (label, property_id)
+            for label, property_id in choices
+            if property_id not in existing
+        ]
+        if not available:
+            QMessageBox.information(window, "提示", "所有词条已添加。")
+            return
+        label, accepted = QInputDialog.getItem(
+            window,
+            "添加词条",
+            "选择词条:",
+            [row[0] for row in available],
+            0,
+            False,
+        )
+        if accepted:
+            property_id = dict(available).get(str(label))
+            if property_id:
+                data[rn].setdefault(weight_field, {})[property_id] = 0.5
+                window._config_dirty_character_ids.add(
+                    int(data[rn]["character_id"])
+                )
+                save_config_data(window, data, config_dir)
+                cb()
+        return
     stats_path = config_dir / "stats.json"
     pool = []
     if stats_path.exists():
@@ -626,35 +660,9 @@ def save_single_extra_shape_buff(window, rn, raw_stat, value, data, config_dir):
 def save_role_weight_value(window, rn, key, value, data, config_dir, weight_field="weights"):
     if rn in data and key in data[rn].get(weight_field, {}):
         data[rn][weight_field][key] = round(float(value), 3)
+        if getattr(window, "_current_config_name", "") == _ACCOUNT_WEIGHT_CONFIG:
+            window._config_dirty_character_ids.add(int(data[rn]["character_id"]))
         save_config_data(window, data, config_dir)
-
-
-def save_role_board_cell(window, rn, row, col, value, data, config_dir):
-    if rn not in data:
-        return
-    try:
-        cell_value = int(value)
-    except (TypeError, ValueError):
-        cell_value = 0
-    cell_value = -1 if cell_value == -1 else 0
-    matrix = data[rn].get("board_matrix")
-    if not isinstance(matrix, list):
-        matrix = []
-    normalized = []
-    for r in range(5):
-        source_row = matrix[r] if r < len(matrix) and isinstance(matrix[r], list) else []
-        normalized.append([
-            int(source_row[c]) if c < len(source_row) and str(source_row[c]) in ("-1", "0") else 0
-            for c in range(5)
-        ])
-    if not 0 <= row < 5 or not 0 <= col < 5:
-        return
-    if normalized[row][col] == cell_value:
-        data[rn]["board_matrix"] = normalized
-        return
-    normalized[row][col] = cell_value
-    data[rn]["board_matrix"] = normalized
-    save_config_data(window, data, config_dir)
 
 
 def save_role_field(window, rn, key, value, data, config_dir):
@@ -672,6 +680,8 @@ def save_role_field(window, rn, key, value, data, config_dir):
 def del_weight(window, rn, key, data, cb, config_dir, weight_field="weights"):
     if rn in data and key in data[rn].get(weight_field, {}):
         del data[rn][weight_field][key]
+        if getattr(window, "_current_config_name", "") == _ACCOUNT_WEIGHT_CONFIG:
+            window._config_dirty_character_ids.add(int(data[rn]["character_id"]))
         save_config_data(window, data, config_dir)
         cb()
 
@@ -735,6 +745,31 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     name = getattr(window, "_current_config_name", None)
     if not name:
         return
+    if name == _ACCOUNT_WEIGHT_CONFIG:
+        data = getattr(window, "_config_form_data", {}) or {}
+        dirty_ids = set(getattr(window, "_config_dirty_character_ids", set()))
+        try:
+            for role_data in data.values():
+                character_id = int(role_data["character_id"])
+                if character_id not in dirty_ids:
+                    continue
+                save_account_character_weights(
+                    runtime.USER_DATABASE_PATH,
+                    character_id,
+                    role_data.get("weights") or {},
+                    main_property_weights=role_data.get("main_weights") or {},
+                )
+        except Exception as exc:
+            QMessageBox.warning(window, "保存失败", str(exc))
+            return
+        window._config_dirty = False
+        window._config_dirty_character_ids.clear()
+        QMessageBox.information(
+            window,
+            "保存",
+            "词条权重已保存到当前账号 SQLite 副本。",
+        )
+        return
     path = config_dir / name
     data = getattr(window, "_config_form_data", None)
     if data is None:
@@ -747,6 +782,12 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
 
 def reset_config_form(window, config_dir, bundled_config_dir):
     name = getattr(window, "_current_config_name", None)
+    if name == _ACCOUNT_WEIGHT_CONFIG:
+        window._config_dirty = False
+        window._config_form_data = None
+        window._config_dirty_character_ids = set()
+        switch_config_form(window, _ACCOUNT_WEIGHT_CONFIG, config_dir)
+        return
     if name not in {"roles.json", "sets.json"}:
         return
     source_path = bundled_config_dir / name

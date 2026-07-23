@@ -28,16 +28,6 @@ from src.app.theme import THEME_LABELS, themed_style
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
 
 
-DEFAULT_SYNC_SETTINGS = {
-    "inventory_sync_method": "nte_core",
-    "inventory_settle_seconds": 5.0,
-    "capture_device_id": None,
-    "auto_start_inventory_sync": False,
-    "raw_capture_enabled": False,
-    "inventory_snapshot_retention_count": 20,
-}
-
-
 def _normalize_netdisk_links(netdisk_links=None):
     if netdisk_links is None:
         return tuple(NETDISK_DOWNLOAD_LINKS)
@@ -137,7 +127,9 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
 
     settings_reader = getattr(window, "_get_sync_settings", None)
     loaded_settings = settings_reader() if callable(settings_reader) else {}
-    settings = {**DEFAULT_SYNC_SETTINGS, **(loaded_settings or {})}
+    if not loaded_settings:
+        raise RuntimeError("无法读取静态数据库中的设置默认值。")
+    settings = loaded_settings
     window._sync_inventory_method_combo = NoWheelComboBox()
     window._sync_inventory_method_combo.addItem("本地核心组件流式同步", "nte_core")
     window._sync_inventory_method_combo.addItem("手柄扫描", "gamepad")

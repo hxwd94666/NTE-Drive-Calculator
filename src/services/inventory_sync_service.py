@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from src.integrations.nte_core import NteCoreClient
+from src.services.account_settings_service import AccountSettingsService
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -258,7 +259,7 @@ class InventorySyncService:
         fatal_error: Exception | None = None
         try:
             with self._open_dao() as dao:
-                settings = dao.get_sync_settings()
+                settings = AccountSettingsService(self.database_path).load("sync")
                 settle_seconds = (
                     self._settle_seconds
                     if self._settle_seconds is not None

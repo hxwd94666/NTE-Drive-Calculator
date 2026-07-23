@@ -144,7 +144,6 @@ from src.utils.logger import disable_session_log, enable_session_log, logger, se
 from src.utils.name_resolver import resolve_name
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
-from src.features.settings.hotkeys import load_hotkey_config, save_hotkey_config
 from src.features.official_role.page import confirm_pending_my_role_changes
 from src.features.configuration.page import (
     add_role as config_add_role,
@@ -162,7 +161,6 @@ from src.features.configuration.page import (
     reset_config_form as config_reset_config_form,
     save_config_data as config_save_config_data,
     save_config_form as config_save_config_form,
-    save_role_board_cell as config_save_role_board_cell,
     save_role_field as config_save_role_field,
     save_role_weight_value as config_save_role_weight_value,
     save_set_shapes as config_save_set_shapes,
@@ -175,13 +173,12 @@ from src.features.home.page import build_home_page, refresh_home_page
 from src.features.settings.updates import (
     fetch_update_info,
     is_newer_version,
-    load_update_config,
-    save_update_config,
     should_show_startup_update,
     show_update_dialog,
 )
 from src.app.workers import WorkerThread
 from src.services.dashboard_service import DashboardService
+from src.services.account_settings_service import AccountSettingsService
 from src.services.inventory_sync_service import InventorySyncService, InventorySyncState
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -264,6 +261,10 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
 
         # Hotkey config
         self._hk_capture="F9"; self._hk_finish="F10"; self._hk_stop="F12"
+        self._account_settings=AccountSettingsService(
+            USER_DATABASE_PATH, legacy_config_dir=USER_CONFIG_DIR
+        )
+        self._account_settings.migrate_legacy_settings()
         self._load_hotkey_config()
         self._update_config=self._load_update_config()
         self._ui_preferences=self._load_ui_preferences()
@@ -276,51 +277,37 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             lu.add(self._log_sink,format="{time:HH:mm:ss} | {level: <8} | {message}",level="INFO",colorize=False)
         except Exception as exc:
             logger.debug(f"注册界面日志输出失败，仅写入文件日志: {exc}")
-        self._build_ui(); self._load_data(); self._refresh_home(); self._maybe_auto_start_inventory_sync(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
+        self._build_ui()
+        if self._ui_preferences["log_enabled"]:
+            self._toggle_log(True)
+        self._load_data(); self._refresh_home(); self._maybe_auto_start_inventory_sync(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
 
     def _load_hotkey_config(self):
-        hotkeys=load_hotkey_config(USER_CONFIG_DIR)
+        hotkeys=self._account_settings.load("hotkeys")
         self._hk_capture=hotkeys["capture"]; self._hk_finish=hotkeys["finish"]; self._hk_stop=hotkeys["stop"]
     def _save_hotkey_config(self):
-        save_hotkey_config(USER_CONFIG_DIR,self._hk_capture,self._hk_finish,self._hk_stop)
+        self._account_settings.save(
+            "hotkeys",
+            {
+                "capture":self._hk_capture,
+                "finish":self._hk_finish,
+                "stop":self._hk_stop,
+            },
+        )
 
     def _load_update_config(self):
-        return load_update_config(USER_CONFIG_DIR)
+        return self._account_settings.load("update")
 
     def _save_update_config(self):
-        save_update_config(USER_CONFIG_DIR,self._update_config)
+        self._update_config=self._account_settings.save("update",self._update_config)
 
     def _load_ui_preferences(self):
-        path=USER_CONFIG_DIR/"ui_preferences.json"
-        default={
-            "skip_unsaved_allocation_prompt":False,
-            "skip_automatic_assembly_duplicate_warning":False,
-            "full_scan_dual_thread_processing":True,
-            "full_scan_amd_compatibility":False,
-            "theme":"dark",
-        }
-        try:
-            data=read_json(path, default={}) or {}
-            if isinstance(data,dict):
-                default["skip_unsaved_allocation_prompt"]=bool(data.get("skip_unsaved_allocation_prompt",False))
-                default["skip_automatic_assembly_duplicate_warning"]=bool(
-                    data.get("skip_automatic_assembly_duplicate_warning",False)
-                )
-                default["full_scan_dual_thread_processing"]=bool(
-                    data.get("full_scan_dual_thread_processing",True)
-                )
-                default["full_scan_amd_compatibility"]=bool(
-                    data.get("full_scan_amd_compatibility",False)
-                )
-                default["theme"]=theme_preference(str(data.get("theme") or "dark"))
-        except Exception as exc:
-            logger.debug(f"读取界面偏好失败，使用默认值: {exc}")
-        if default.get("full_scan_amd_compatibility"):
-            default["full_scan_dual_thread_processing"]=False
-        return default
+        return self._account_settings.load("ui")
 
     def _save_ui_preferences(self):
-        write_json(USER_CONFIG_DIR/"ui_preferences.json", self._ui_preferences)
+        self._ui_preferences=self._account_settings.save(
+            "ui",self._ui_preferences
+        )
 
     def _current_style_sheet(self):
         return current_style_sheet(QApplication.instance())
@@ -544,14 +531,23 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         _set_active_account(account_id)
         set_log_dir(LOG_DIR)
         self.state_mgr=StateManager(config_dir=str(USER_CONFIG_DIR))
+        self._account_settings=AccountSettingsService(
+            USER_DATABASE_PATH, legacy_config_dir=USER_CONFIG_DIR
+        )
+        self._account_settings.migrate_legacy_settings()
         self._load_hotkey_config()
         self._update_config=self._load_update_config()
+        self._ui_preferences=self._load_ui_preferences()
+        self._apply_theme_preference()
+        self._toggle_log(bool(self._ui_preferences["log_enabled"]))
         if hasattr(self,"_identify_capture_dir"):
             self._identify_capture_dir=ACCOUNT_DATA_ROOT/"identify_captures"
         self.final_plan=None
         self._pending_archive_paths=[]
         self.result_card.setVisible(False)
         self._load_data()
+        if hasattr(self,"my_role_form_layout"):
+            self._refresh_my_role()
         if hasattr(self, "weighted_role_selector"):
             self._refresh_weighted_allocation()
         self._refresh_account_combo()
@@ -586,19 +582,27 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self.log_view.moveCursor(QTextCursor.End); self.log_view.setTextColor(QColor(c)); self.log_view.insertPlainText(msg+"\n"); self.log_view.moveCursor(QTextCursor.End)
     def _clear_log(self): self.log_view.clear()
     def _toggle_log(self,enabled):
+        toggle=getattr(self,"_log_toggle",None)
+        if toggle is not None and toggle.isChecked()!=bool(enabled):
+            toggle.blockSignals(True)
+            toggle.setChecked(bool(enabled))
+            toggle.blockSignals(False)
         if enabled:
             try:
                 log_path=enable_session_log()
             except Exception as exc:
                 logger.error(f"创建运行日志文件失败: {exc}")
-                toggle=getattr(self,"_log_toggle",None)
                 if toggle is not None:
                     toggle.blockSignals(True)
                     toggle.setChecked(False)
                     toggle.blockSignals(False)
+                self._ui_preferences["log_enabled"]=False
+                self._save_ui_preferences()
                 QMessageBox.warning(self,"运行日志","无法创建运行日志文件，请检查日志目录是否可写")
                 return
             self._log_enabled=True
+            self._ui_preferences["log_enabled"]=True
+            self._save_ui_preferences()
             self.log_frame.setVisible(True)
             logger.info(f"运行日志已开启: {log_path.name}")
             return
@@ -606,6 +610,8 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             logger.info("运行日志已关闭")
         disable_session_log()
         self._log_enabled=False
+        self._ui_preferences["log_enabled"]=False
+        self._save_ui_preferences()
         self.log_frame.setVisible(False)
         self.log_view.clear()
         self.log_view.insertPlainText("(日志已关闭)\n")
@@ -729,21 +735,23 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         service.start()
 
     def _get_sync_settings(self):
-        with UserDataDao(USER_DATABASE_PATH) as dao:
-            return dao.get_sync_settings()
+        return self._account_settings.load("sync")
 
     def _save_sync_settings(self):
         try:
             was_running=bool(self._inventory_sync_service and self._inventory_sync_service.is_running)
-            with UserDataDao(USER_DATABASE_PATH) as dao:
-                settings=dao.update_sync_settings(
-                    inventory_sync_method=self._sync_inventory_method_combo.currentData(),
-                    capture_device_id=self._sync_capture_device_edit.text(),
-                    raw_capture_enabled=self._sync_raw_capture_toggle.isChecked(),
-                    inventory_settle_seconds=self._sync_settle_spin.value(),
-                    auto_start_inventory_sync=self._sync_auto_start_toggle.isChecked(),
-                    inventory_snapshot_retention_count=self._snapshot_retention_spin.value(),
-                )
+            values=self._account_settings.load("sync")
+            values.update(
+                {
+                    "inventory_sync_method":self._sync_inventory_method_combo.currentData(),
+                    "capture_device_id":self._sync_capture_device_edit.text(),
+                    "raw_capture_enabled":self._sync_raw_capture_toggle.isChecked(),
+                    "inventory_settle_seconds":self._sync_settle_spin.value(),
+                    "auto_start_inventory_sync":self._sync_auto_start_toggle.isChecked(),
+                    "inventory_snapshot_retention_count":self._snapshot_retention_spin.value(),
+                }
+            )
+            settings=self._account_settings.save("sync",values)
             if was_running:
                 self._stop_inventory_sync()
                 self._start_inventory_sync()
@@ -931,9 +939,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
 
     def _save_role_weight_value(self,rn,key,value,data,weight_field="weights"):
         return config_save_role_weight_value(self,rn,key,value,data,CONFIG_DIR,weight_field)
-
-    def _save_role_board_cell(self,rn,row,col,value,data):
-        return config_save_role_board_cell(self,rn,row,col,value,data,CONFIG_DIR)
 
     def _save_role_field(self,rn,key,value,data):
         return config_save_role_field(self,rn,key,value,data,CONFIG_DIR)
