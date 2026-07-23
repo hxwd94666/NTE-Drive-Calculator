@@ -21,6 +21,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "012_game_static_graduation_template.sql",
 )
 
 
@@ -41,6 +42,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (9, '2026-07-22')")
         connection.execute("INSERT INTO schema_migration VALUES (10, '2026-07-22')")
         connection.execute("INSERT INTO schema_migration VALUES (11, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (12, '2026-07-23')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
@@ -251,6 +253,23 @@ class StaticGameDataDaoTest(unittest.TestCase):
             )
             """
         )
+        connection.execute(
+            """
+            INSERT INTO character_graduation_template(
+                character_id, source_kind, fork_id, fork_level,
+                fork_refinement_level, core_suit_id,
+                core_main_property_id, drive_area, extra_shape_count,
+                benchmark_damage, profile_json, equipment_json,
+                generated_at_utc
+            ) VALUES (
+                1001, 'legacy_role_config', 'fork_Test', 80, 1, 'Suit1',
+                'Attr1', 20, 2, 12345.0,
+                '{"character_level":80}',
+                '[{"kind":"core","main_stats":[]}]',
+                '2026-07-23'
+            )
+            """
+        )
         connection.commit()
         connection.close()
 
@@ -260,7 +279,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 11)
+            self.assertEqual(summary["schema_version"], 12)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")
@@ -297,6 +316,15 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.assertEqual("workshop_api", recommendation["source_kind"])
         self.assertEqual({"Attr1": 0.75}, recommendation["property_weights"])
         self.assertEqual({"Attr1": 1.0}, recommendation["main_property_weights"])
+
+    def test_character_graduation_template_decodes_complete_payload(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            template = dao.get_character_graduation_template(1001)
+            templates = dao.list_character_graduation_templates()
+        self.assertEqual(12345.0, template["benchmark_damage"])
+        self.assertEqual({"character_level": 80}, template["profile"])
+        self.assertEqual("core", template["equipment"][0]["kind"])
+        self.assertEqual([1001], [row["character_id"] for row in templates])
 
     def test_characters_plans_and_forks_are_queryable(self):
         with StaticGameDataDao(self.database_path) as dao:

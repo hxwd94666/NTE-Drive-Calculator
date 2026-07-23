@@ -11,8 +11,16 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 16
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
+_DEFAULT_LOGICAL_CHARACTER_IDS = {
+    "protagonist": 1051,
+}
+_ROLE_TEMPLATE_CLASSIFICATIONS = {
+    "available_character",
+    "scheduled_character",
+    "playable",
+}
 
 SUMMARY_TABLES = (
     "source_file",
@@ -45,8 +53,15 @@ SUMMARY_TABLES = (
     "equipment_plan",
     "character_weight_recommendation",
     "character_weight_recommendation_property",
+    "character_graduation_template",
+    "application_setting_default",
+    "character_shape_bonus",
+    "character_shape_bonus_property",
+    "logical_character_shape_bonus",
+    "logical_character_shape_bonus_property",
     "fork_type",
     "fork_item",
+    "fork_refinement_parameter_value",
 )
 
 
@@ -103,7 +118,7 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
 
 
 class StaticGameDataDao:
-    """面向 schema v11 静态数据库的轻量查询边界。
+    """面向 schema v16 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """
@@ -170,6 +185,55 @@ class StaticGameDataDao:
             "counts": counts,
         }
 
+    def application_setting_defaults(self) -> dict[str, dict[str, Any]]:
+        defaults: dict[str, dict[str, Any]] = {}
+        for row in self._rows(
+            "SELECT setting_key, value_json FROM application_setting_default ORDER BY setting_key"
+        ):
+            try:
+                value = json.loads(row["value_json"])
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise StaticGameDataError(
+                    f"静态设置默认值 {row['setting_key']!r} 不是有效 JSON"
+                ) from exc
+            if not isinstance(value, dict):
+                raise StaticGameDataError(
+                    f"静态设置默认值 {row['setting_key']!r} 不是 JSON 对象"
+                )
+            defaults[str(row["setting_key"])] = value
+        return defaults
+
+    def get_character_shape_bonus(
+        self, character_id: int,
+    ) -> dict[str, Any] | None:
+        row = self._one(
+            """
+            SELECT a.character_id, a.logical_character_key,
+                   b.representative_character_id, b.shape_label,
+                   b.shape_grid_count, b.source_kind
+            FROM character_annotation AS a
+            JOIN logical_character_shape_bonus AS b
+              ON b.logical_character_key = a.logical_character_key
+            WHERE a.character_id = ?
+            """,
+            (int(character_id),),
+        )
+        if row is None:
+            return None
+        row["properties"] = self._rows(
+            """
+            SELECT p.property_id, p.display_value, p.ordinal,
+                   a.display_name_zh, a.filter_name_zh, a.show_percent
+            FROM logical_character_shape_bonus_property AS p
+            JOIN equipment_attribute AS a
+              ON a.attribute_id = p.property_id
+            WHERE p.logical_character_key = ?
+            ORDER BY p.ordinal
+            """,
+            (str(row["logical_character_key"]),),
+        )
+        return row
+
     def list_characters(self) -> list[dict[str, Any]]:
         return self._rows(
             """
@@ -197,16 +261,76 @@ class StaticGameDataDao:
             (character_id,),
         )
 
-    def list_role_template_characters(self) -> list[dict[str, Any]]:
-        """返回角色功能可用的官方角色模板，排除主角实例和战斗变身。"""
-        return [
-            character
-            for character in self.list_characters()
-            if character.get("classification") in {
-                "available_character", "scheduled_character",
-                "playable",
-            }
-        ]
+    def get_logical_character_key(self, character_id: int) -> str | None:
+        """Resolve an actual character or transformation ID to its shared rule key."""
+
+        row = self._one(
+            """
+            SELECT logical_character_key
+            FROM character_annotation
+            WHERE character_id = ?
+            """,
+            (int(character_id),),
+        )
+        return str(row["logical_character_key"]) if row is not None else None
+
+    def list_role_template_characters(
+        self,
+        preferred_character_ids: Iterable[int] = (),
+    ) -> list[dict[str, Any]]:
+        """Return one actual character row for every logical role.
+
+        Account-observed avatar IDs win for variant-only roles.  With no
+        account evidence the protagonist uses the female official ID 1051.
+        Combat transformations resolve through their logical key but never
+        create an additional role-menu entry.
+        """
+
+        characters = self.list_characters()
+        by_id = {
+            int(character["character_id"]): character
+            for character in characters
+        }
+        selected: dict[str, dict[str, Any]] = {}
+        for character in characters:
+            if character.get("classification") not in _ROLE_TEMPLATE_CLASSIFICATIONS:
+                continue
+            logical_key = str(
+                character.get("logical_character_key")
+                or f"character:{character['character_id']}"
+            )
+            selected.setdefault(logical_key, character)
+
+        preferred_logical_keys: set[str] = set()
+        for raw_character_id in preferred_character_ids:
+            try:
+                character_id = int(raw_character_id)
+            except (TypeError, ValueError):
+                continue
+            character = by_id.get(character_id)
+            if character is None:
+                continue
+            logical_key = self.get_logical_character_key(character_id)
+            if not logical_key or logical_key in preferred_logical_keys:
+                continue
+            if character.get("classification") == "available_avatar_variant":
+                selected[logical_key] = character
+                preferred_logical_keys.add(logical_key)
+
+        for logical_key, default_character_id in _DEFAULT_LOGICAL_CHARACTER_IDS.items():
+            if logical_key in selected:
+                continue
+            character = by_id.get(default_character_id)
+            if (
+                character is not None
+                and self.get_logical_character_key(default_character_id) == logical_key
+            ):
+                selected[logical_key] = character
+
+        return sorted(
+            selected.values(),
+            key=lambda character: int(character["character_id"]),
+        )
 
     def get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
         """读取开发期写入静态库的推荐权重；运行时不会调用外部 API。"""
@@ -244,6 +368,42 @@ class StaticGameDataDao:
             )
             if (recommendation := self.get_character_recommended_weights(int(row["character_id"])))
             is not None
+        ]
+
+    def get_character_graduation_template(
+        self, character_id: int,
+    ) -> dict[str, Any] | None:
+        """读取构建期生成的固定毕业模板；运行时不再搜索词条组合。"""
+
+        template = self._one(
+            """
+            SELECT character_id, source_kind, fork_id, fork_level,
+                   fork_refinement_level, core_suit_id,
+                   core_main_property_id, drive_area, extra_shape_count,
+                   benchmark_damage, profile_json, equipment_json,
+                   generated_at_utc
+            FROM character_graduation_template
+            WHERE character_id = ?
+            """,
+            (int(character_id),),
+        )
+        if template is None:
+            return None
+        template["profile"] = json.loads(template.pop("profile_json"))
+        template["equipment"] = json.loads(template.pop("equipment_json"))
+        return template
+
+    def list_character_graduation_templates(self) -> list[dict[str, Any]]:
+        return [
+            template
+            for row in self._rows(
+                "SELECT character_id FROM character_graduation_template ORDER BY character_id"
+            )
+            if (
+                template := self.get_character_graduation_template(
+                    int(row["character_id"])
+                )
+            ) is not None
         ]
 
     def list_character_awaken_effects(self, character_id: int) -> list[dict[str, Any]]:
@@ -508,6 +668,60 @@ class StaticGameDataDao:
             None,
         )
 
+    def evaluate_equipment_base_attribute_curve(
+        self,
+        curve_id: str,
+        level: float,
+    ) -> float | None:
+        """按官方插值模式读取装备主属性在指定等级的数值。"""
+
+        curve = self._one(
+            """
+            SELECT interpolation_mode, default_value
+            FROM equipment_base_attribute_curve
+            WHERE curve_id = ?
+            """,
+            (str(curve_id),),
+        )
+        if curve is None:
+            return None
+        points = self._rows(
+            """
+            SELECT level, value
+            FROM equipment_base_attribute_point
+            WHERE curve_id = ?
+            ORDER BY level
+            """,
+            (str(curve_id),),
+        )
+        if not points:
+            default_value = curve.get("default_value")
+            return None if default_value is None else float(default_value)
+
+        target = float(level)
+        if target <= float(points[0]["level"]):
+            return float(points[0]["value"])
+        if target >= float(points[-1]["level"]):
+            return float(points[-1]["value"])
+
+        previous = points[0]
+        for current in points[1:]:
+            current_level = float(current["level"])
+            if target > current_level:
+                previous = current
+                continue
+            if str(curve.get("interpolation_mode") or "") == "RCIM_Constant":
+                return float(previous["value"])
+            previous_level = float(previous["level"])
+            span = current_level - previous_level
+            if span <= 0:
+                return float(current["value"])
+            ratio = (target - previous_level) / span
+            return float(previous["value"]) + (
+                float(current["value"]) - float(previous["value"])
+            ) * ratio
+        return float(points[-1]["value"])
+
     def list_forks(self) -> list[dict[str, Any]]:
         rows = self._rows(
             """
@@ -585,9 +799,13 @@ class StaticGameDataDao:
         parameters_by_star: dict[tuple[str, int], list[dict[str, Any]]] = {}
         for row in self._rows(
             """
-            SELECT star_pack_id, star_level, ordinal, name_id, is_percent
-            FROM fork_star_parameter
-            ORDER BY star_pack_id, star_level, ordinal
+            SELECT p.star_pack_id, p.star_level, p.ordinal, p.name_id,
+                   p.is_percent, v.value
+            FROM fork_star_parameter AS p
+            LEFT JOIN fork_refinement_parameter_value AS v
+              ON v.name_id = p.name_id
+             AND v.refinement_level = p.star_level
+            ORDER BY p.star_pack_id, p.star_level, p.ordinal
             """
         ):
             key = (row.pop("star_pack_id"), int(row.pop("star_level")))

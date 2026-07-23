@@ -54,9 +54,14 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "012_game_static_graduation_template.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "013_game_static_setting_defaults.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "014_game_static_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
 )
-SCHEMA_VERSION = 11
-IMPORTER_VERSION = 11
+SCHEMA_VERSION = 16
+IMPORTER_VERSION = 16
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -82,6 +87,7 @@ TABLE_PATHS = {
     "fork_items": "DataTable/Fork/DT_ForkItemData.json",
     "fork_upgrades": "DataTable/Fork/DT_ForkUpgradeData.json",
     "fork_stars": "DataTable/Fork/DT_ForkUpgradeStarDataTable.json",
+    "fork_buff_curves": "DataTable/Fork/CT_ForkBuff.json",
     "fork_breakthroughs": "DataTable/Fork/DT_ForkBreakthroughData.json",
     "fork_modify": "DataTable/PackData/ModifyData/DT_ForkModifyData.json",
     "monster_pack": "DataTable/PackData/DT_MonsterPackData.json",
@@ -292,6 +298,11 @@ class StaticDatabaseBuilder:
         self.connection.execute("INSERT INTO schema_migration VALUES (9, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (10, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (11, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (12, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (13, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (14, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (15, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (16, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
@@ -1189,6 +1200,38 @@ class StaticDatabaseBuilder:
                         bool_int(parameter.get("bIsPercent")),
                     ),
                 )
+        for name_id in sorted(self.rows["fork_buff_curves"]):
+            curve = self.rows["fork_buff_curves"][name_id]
+            keys = sorted(
+                (
+                    (float(point["Time"]), float(point["Value"]))
+                    for point in curve.get("Keys", [])
+                ),
+                key=lambda point: point[0],
+            )
+            if not keys:
+                raise StaticDatabaseError(
+                    f"弧盘精炼参数曲线没有数值点：{name_id}"
+                )
+            for refinement_level in range(1, 6):
+                value = keys[0][1]
+                for time, candidate in keys:
+                    if time > refinement_level:
+                        break
+                    value = candidate
+                self.connection.execute(
+                    """
+                    INSERT INTO fork_refinement_parameter_value(
+                        name_id, refinement_level, value, source_row_id
+                    ) VALUES (?,?,?,?)
+                    """,
+                    (
+                        name_id,
+                        refinement_level,
+                        value,
+                        self.source_row_id("fork_buff_curves", name_id),
+                    ),
+                )
 
     def _import_combat_context(self) -> None:
         topple_row_id = "UnbaldamagePara"
@@ -1429,12 +1472,19 @@ class StaticDatabaseBuilder:
             "equipment_plan",
             "character_weight_recommendation",
             "character_weight_recommendation_property",
+            "character_graduation_template",
+            "application_setting_default",
+            "character_shape_bonus",
+            "character_shape_bonus_property",
+            "logical_character_shape_bonus",
+            "logical_character_shape_bonus_property",
             "fork_type",
             "fork_item",
             "fork_upgrade_level",
             "fork_modify_pack",
             "fork_breakthrough",
             "fork_star_level",
+            "fork_refinement_parameter_value",
         )
         return {
             table: int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
@@ -1464,6 +1514,7 @@ def build_database(
     dataset_id: str,
     as_of: date,
     overrides_path: Path = DEFAULT_OVERRIDES,
+    config_dir: Path = PROJECT_ROOT / "config",
     include_source_payloads: bool = True,
 ) -> dict[str, Any]:
     content_root = resolve_content_root(source)
@@ -1489,6 +1540,33 @@ def build_database(
                 include_source_payloads=include_source_payloads,
             )
             counts = builder.build()
+            try:
+                from .build_graduation_templates import (
+                    populate_logical_character_shape_bonuses,
+                    populate_graduation_templates,
+                )
+            except ImportError:
+                from build_graduation_templates import (
+                    populate_logical_character_shape_bonuses,
+                    populate_graduation_templates,
+                )
+            counts["logical_character_shape_bonus"] = populate_logical_character_shape_bonuses(
+                connection,
+                config_dir=config_dir.expanduser().resolve(),
+            )
+            counts["logical_character_shape_bonus_property"] = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM logical_character_shape_bonus_property"
+                ).fetchone()[0]
+            )
+            counts["character_shape_bonus"] = 0
+            counts["character_shape_bonus_property"] = 0
+            connection.commit()
+            counts["character_graduation_template"] = populate_graduation_templates(
+                connection,
+                database_path=temporary,
+                config_dir=config_dir.expanduser().resolve(),
+            )
         finally:
             connection.close()
         os.replace(temporary, output)
@@ -1524,6 +1602,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-id", required=True)
     parser.add_argument("--as-of", type=date.fromisoformat, default=date.today())
     parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
+    parser.add_argument("--config-dir", type=Path, default=PROJECT_ROOT / "config")
     parser.add_argument(
         "--omit-source-payloads",
         action="store_true",
@@ -1541,6 +1620,7 @@ def main() -> int:
         dataset_id=args.dataset_id,
         as_of=args.as_of,
         overrides_path=args.overrides,
+        config_dir=args.config_dir,
         include_source_payloads=not args.omit_source_payloads,
     )
     print(f"SQLite: {Path(args.output).resolve()}")

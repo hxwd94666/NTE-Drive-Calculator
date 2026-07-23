@@ -20,6 +20,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "012_game_static_graduation_template.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -59,14 +60,27 @@ class StaticGameDatabaseTests(unittest.TestCase):
             absolute_path_count = connection.execute(
                 "SELECT COUNT(*) FROM source_file WHERE INSTR(relative_path, ':') > 0"
             ).fetchone()[0]
+            graduation_count = connection.execute(
+                "SELECT COUNT(*) FROM character_graduation_template"
+            ).fetchone()[0]
+            role_template_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM character_annotation
+                WHERE classification IN (
+                    'available_character', 'scheduled_character', 'playable'
+                )
+                """
+            ).fetchone()[0]
             violations = connection.execute("PRAGMA foreign_key_check").fetchall()
         finally:
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(11, schema_version)
+        self.assertEqual(12, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
+        self.assertEqual(role_template_count, graduation_count)
         self.assertEqual(0, absolute_path_count)
         self.assertEqual([], violations)
 

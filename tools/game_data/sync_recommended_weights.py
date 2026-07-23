@@ -25,11 +25,11 @@ if str(ROOT) not in sys.path:
 from src.domain.recommended_weights import parse_workshop_recommendations
 from src.features.settings.workshop_weights import fetch_workshop_weight_configs
 from tools import build_cli
+from tools.game_data.build_graduation_templates import populate_graduation_templates
 from tools.sync_workshop_weights import resolve_api_key
 
 
-SCHEMA_VERSION = 11
-SCHEMA_PATH = ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql"
+MINIMUM_SCHEMA_VERSION = 11
 
 
 def _schema_version(connection: sqlite3.Connection) -> int:
@@ -39,16 +39,11 @@ def _schema_version(connection: sqlite3.Connection) -> int:
 
 def _ensure_schema(connection: sqlite3.Connection) -> None:
     version = _schema_version(connection)
-    if version == SCHEMA_VERSION:
+    if version >= MINIMUM_SCHEMA_VERSION:
         return
-    if version != 10:
-        raise RuntimeError(
-            f"静态数据库结构版本为 {version}；同步工具仅支持 v10 迁移或 v11 更新"
-        )
-    connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    connection.execute("INSERT INTO schema_migration(version, applied_at_utc) VALUES (11, ?)", (now,))
-    connection.execute("UPDATE dataset SET importer_version = 11")
+    raise RuntimeError(
+        f"静态数据库结构版本为 {version}；推荐权重同步至少需要 v11"
+    )
 
 
 def update_static_database(
@@ -56,6 +51,7 @@ def update_static_database(
     records: list[dict],
     *,
     api_source_kind: str = "workshop_api",
+    config_dir: Path = ROOT / "config",
 ) -> dict[str, int]:
     """Atomically replace bundled recommendations after an API response is available."""
 
@@ -133,12 +129,18 @@ def update_static_database(
             if violations:
                 raise RuntimeError(f"静态数据库外键检查失败：{violations[:3]}")
             connection.commit()
+            graduation_count = populate_graduation_templates(
+                connection,
+                database_path=temporary,
+                config_dir=Path(config_dir).expanduser().resolve(),
+            )
         os.replace(temporary, database_path)
         return {
             "character_count": len(character_ids),
             "api_count": api_count,
             "default_count": default_count,
             "property_count": property_count,
+            "graduation_count": graduation_count,
         }
     except BaseException:
         temporary.unlink(missing_ok=True)
@@ -148,6 +150,7 @@ def update_static_database(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=ROOT / "data" / "game_static.sqlite3")
+    parser.add_argument("--config-dir", type=Path, default=ROOT / "config")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument("--optional", action="store_true")
     parser.add_argument("--prompt-key", action="store_true")
@@ -170,14 +173,18 @@ def main() -> int:
         return 2
     try:
         records = fetch_workshop_weight_configs(api_key)
-        summary = update_static_database(args.database, records)
+        summary = update_static_database(
+            args.database,
+            records,
+            config_dir=args.config_dir,
+        )
     except Exception as exc:
         build_cli.fail(f"静态角色权重同步失败：{exc}")
         return 1
     build_cli.ok(
         "静态角色权重已更新"
         f"（来源={source}，API={summary['api_count']}，默认={summary['default_count']}，"
-        f"词条={summary['property_count']}）"
+        f"词条={summary['property_count']}，毕业模板={summary['graduation_count']}）"
     )
     return 0
 
