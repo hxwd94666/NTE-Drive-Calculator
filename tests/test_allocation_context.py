@@ -129,7 +129,7 @@ class AllocationContextTests(unittest.TestCase):
         self.assertEqual("allocation-context", context.account_id)
         self.assertEqual(snapshot_id, context.snapshot.snapshot_id)
         self.assertEqual("weighted-solver-v1", context.solver_version)
-        self.assertEqual(11, context.static_dataset.schema_version)
+        self.assertEqual(16, context.static_dataset.schema_version)
         self.assertTrue(context.static_dataset.dataset_id)
         self.assertEqual([1003, 1004], [role.character_id for role in context.roles])
         self.assertEqual([0, 2], [role.priority_group for role in context.roles])
@@ -222,22 +222,38 @@ class AllocationContextTests(unittest.TestCase):
         self.assertTrue(context.roles[0].effective_property_weights)
         self.assertTrue(context.attributes)
 
-    def test_default_context_does_not_read_workshop_json(self) -> None:
+    def test_context_uses_static_shape_bonus_without_json_fallback(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(
             snapshot(1, [item(101, 11, kind="module")])
         )
         profile = self._profile()
-        with patch("src.services.allocation_context._workshop_roles") as workshop_roles, \
-             patch("src.services.allocation_context._legacy_shape_labels") as shape_labels:
-            context = build_allocation_context(
-                self.user_dao, self.static_dao, snapshot_id=snapshot_id,
-                profile_id=profile["profile_id"], profile_version=1,
-            )
-        workshop_roles.assert_not_called()
-        shape_labels.assert_not_called()
-        self.assertEqual("", context.roles[0].extra_shape_label)
+        context = build_allocation_context(
+            self.user_dao, self.static_dao, snapshot_id=snapshot_id,
+            profile_id=profile["profile_id"], profile_version=1,
+        )
+        self.assertTrue(context.roles[0].extra_shape_label)
 
-    def test_protagonist_workshop_defaults_match_official_id_before_display_name(self) -> None:
+    def test_context_uses_account_shape_bonus_override(self) -> None:
+        snapshot_id = self.user_dao.import_inventory_snapshot(
+            snapshot(1, [item(101, 11, kind="module")])
+        )
+        profile = self._profile()
+        self.user_dao.save_character_shape_bonus_preferences(
+            1003,
+            shape_label="Type-4",
+            property_values={"CritBase": 8.0},
+        )
+
+        context = build_allocation_context(
+            self.user_dao, self.static_dao, snapshot_id=snapshot_id,
+            profile_id=profile["profile_id"], profile_version=1,
+        )
+
+        role = context.roles[0]
+        self.assertEqual("Type-4", role.extra_shape_label)
+        self.assertEqual((("CritBase", 8.0),), role.extra_shape_buffs)
+
+    def test_protagonist_defaults_match_official_id_before_display_name(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(snapshot(1, [item(101, 11, kind="module")]))
         profile = self.user_dao.create_optimization_profile(
             "protagonist workshop mapping",
@@ -248,7 +264,6 @@ class AllocationContextTests(unittest.TestCase):
         context = build_allocation_context(
             self.user_dao, self.static_dao, snapshot_id=snapshot_id,
             profile_id=profile["profile_id"], profile_version=1,
-            workshop_roles_path=STATIC_DATABASE_PATH.parents[1] / "config" / "roles.json",
         )
 
         role = context.roles[0]

@@ -1,5 +1,5 @@
-# 构建角色和套装配置编辑页面。
-"""Configuration page builder for the editable roles.json compatibility cache."""
+# 构建账号 SQLite 词条权重编辑页面。
+"""Configuration page builder for account-scoped SQLite weights."""
 
 from __future__ import annotations
 
@@ -26,21 +26,17 @@ from src.app.theme import themed_style
 from src.domain.stat_catalog import StatCatalog
 from src.services.character_weight_service import (
     ensure_account_character_weights,
+    save_account_character_shape_bonus,
     save_account_character_weights,
 )
 from src.services.official_role_page_service import load_official_role_index
 from src.storage.json_store import read_json, write_json_atomic
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 _ACCOUNT_WEIGHT_CONFIG = "account_weights"
-_ACCOUNT_SUBSTAT_PROPERTY_CHOICES = (
-    ("暴击率%", "CritBase"), ("暴击伤害%", "CritDamageBase"),
-    ("伤害增加%", "DamageUpGeneralBase"), ("攻击力%", "AtkUp"),
-    ("攻击力", "AtkAdd"), ("防御力", "DefAdd"), ("防御力%", "DefUp"),
-    ("生命值%", "HPMaxUp"), ("生命值", "HPMaxAdd"),
-    ("环合强度", "MagBase"), ("倾陷强度", "UnbalIntensityBase"),
-)
+_EXTRA_SHAPE_LABEL_CHOICES = ("Type-3", "Type-2", "Type-4")
 _ACCOUNT_MAIN_PROPERTY_CHOICES = (
     ("生命值百分比", "HPMaxUp"), ("攻击力百分比", "AtkUp"),
     ("防御力百分比", "DefUp"), ("暴击率", "CritBase"),
@@ -54,6 +50,21 @@ _ACCOUNT_MAIN_PROPERTY_CHOICES = (
     ("相属性异能伤害增强", "DamageUpLakshanaBase"),
     ("心灵伤害增强", "DamageUpPsychicallyBase"),
 )
+_WEIGHT_POOL_PROPERTY_IDS = {
+    "生命值%": "HPMaxUp", "生命值": "HPMaxAdd",
+    "攻击力%": "AtkUp", "攻击力": "AtkAdd",
+    "防御力%": "DefUp", "防御力": "DefAdd",
+    "伤害增加%": "DamageUpGeneralBase", "暴击率%": "CritBase",
+    "暴击伤害%": "CritDamageBase", "环合强度": "MagBase",
+    "倾陷强度": "UnbalIntensityBase", "治疗加成%": "HealUp",
+    "光属性异能伤害增强%": "DamageUpCosmosBase",
+    "灵属性异能伤害增强%": "DamageUpNatureBase",
+    "咒属性异能伤害增强%": "DamageUpIncantationBase",
+    "暗属性异能伤害增强%": "DamageUpChaosBase",
+    "魂属性异能伤害增强%": "DamageUpPsycheBase",
+    "相属性异能伤害增强%": "DamageUpLakshanaBase",
+    "心灵伤害增强%": "DamageUpPsychicallyBase",
+}
 
 
 def build_config_page(window):
@@ -116,35 +127,79 @@ def _account_weight_config() -> dict[str, dict]:
         runtime.USER_DATABASE_PATH,
         character_ids,
     )
+    with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
+        account_shape_bonuses = {
+            character_id: user_dao.get_character_shape_bonus_preferences(character_id)
+            for character_id in character_ids
+        }
     with StaticGameDataDao() as static_dao:
         attributes = {
             str(row["attribute_id"]): row
             for row in static_dao.list_equipment_attributes()
         }
         known_property_ids = set(attributes)
+        # ``stats.json`` 的 tape_stat_values（与 gold_base_values 同一集合）
+        # 是副词条池的唯一来源。过去这里维护了一份硬编码副本，导致权重页
+        # 与毕业基准在词条池更新后可能不一致。
+        stats_catalog = StatCatalog.from_config_dir(runtime.CONFIG_DIR)
         sub_choices = [
-            (label, property_id)
-            for label, property_id in _ACCOUNT_SUBSTAT_PROPERTY_CHOICES
-            if property_id in known_property_ids
+            (label, _WEIGHT_POOL_PROPERTY_IDS[label])
+            for label in stats_catalog.tape_sub_stat_pool()
+            if label in _WEIGHT_POOL_PROPERTY_IDS
+            and _WEIGHT_POOL_PROPERTY_IDS[label] in known_property_ids
         ]
         main_choices = [
             (label, property_id)
             for label, property_id in _ACCOUNT_MAIN_PROPERTY_CHOICES
             if property_id in known_property_ids
         ]
+        stats_weight_pool = stats_catalog.weight_choice_pool()
+        weight_property_by_label = {}
+        for attribute in attributes.values():
+            property_id = str(attribute["attribute_id"])
+            label = str(
+                attribute.get("filter_name_zh")
+                or attribute.get("display_name_zh")
+                or property_id
+            ).replace("百分比", "%")
+            if bool(attribute.get("show_percent")) and not label.endswith("%"):
+                label = f"{label}%"
+            canonical_label = stats_catalog.normalize_stat_name(label) or label
+            if canonical_label not in stats_weight_pool:
+                continue
+            existing = weight_property_by_label.get(canonical_label)
+            preferred_property_id = _WEIGHT_POOL_PROPERTY_IDS.get(canonical_label)
+            if existing is None or property_id == preferred_property_id:
+                weight_property_by_label[canonical_label] = property_id
+        shape_bonus_choices = [
+            (stat_name, weight_property_by_label[stat_name])
+            for stat_name in stats_weight_pool
+            if stat_name in weight_property_by_label
+        ]
         result = {}
         for character in characters:
             character_id = int(character["character_id"])
             record = account_weights.get(character_id) or {}
             shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+            shape_override = account_shape_bonuses.get(character_id)
+            shape_label = (
+                str(shape_override.get("shape_label") or "")
+                if shape_override is not None
+                else str(shape_bonus.get("shape_label") or "")
+            )
+            shape_buffs = (
+                dict(shape_override.get("property_values") or {})
+                if shape_override is not None
+                else {
+                    str(row["property_id"]): float(row["display_value"])
+                    for row in shape_bonus.get("properties") or ()
+                }
+            )
             result[str(character.get("name_zh") or character_id)] = {
                 "character_id": character_id,
                 "source_kind": str(record.get("source_kind") or "default"),
-                "extra_shape_label": str(shape_bonus.get("shape_label") or ""),
-                "extra_shape_buffs": {
-                    str(row["property_id"]): float(row["display_value"])
-                    for row in shape_bonus.get("properties") or ()
-                },
+                "extra_shape_label": shape_label,
+                "extra_shape_buffs": shape_buffs,
                 "weights": {
                     str(property_id): float(weight)
                     for property_id, weight in (
@@ -162,11 +217,14 @@ def _account_weight_config() -> dict[str, dict]:
         property_id: label
         for label, property_id in (*sub_choices, *main_choices)
     }
+    labels.update({property_id: label for label, property_id in shape_bonus_choices})
     return {
         "roles": result,
         "property_labels": labels,
         "sub_choices": sub_choices,
         "main_choices": main_choices,
+        "shape_bonus_choices": shape_bonus_choices,
+        "shape_label_choices": _EXTRA_SHAPE_LABEL_CHOICES,
     }
 
 
@@ -237,7 +295,10 @@ def switch_config_form(window, name, config_dir, use_draft=False, active_role=No
         window._config_weight_property_labels = loaded["property_labels"]
         window._config_weight_sub_choices = loaded["sub_choices"]
         window._config_weight_main_choices = loaded["main_choices"]
+        window._config_shape_bonus_choices = loaded["shape_bonus_choices"]
+        window._config_shape_label_choices = loaded["shape_label_choices"]
         window._config_dirty_character_ids = set()
+        window._config_dirty_shape_bonus_ids = set()
     else:
         data = load_config_data(name, config_dir)
     window._current_config_name = name
@@ -298,34 +359,61 @@ def _add_default_set_row(window, data, role_name, role_data, form_layout):
 
 
 def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
-    del window, data, role_name
-    value = QLabel(str(role_data.get("extra_shape_label") or "无"))
-    value.setObjectName("officialShapeLabelReadOnly")
-    value.setStyleSheet(themed_style(
-        "color:#8b949e;background:#161b22;border:1px solid #30363d;"
-        "border-radius:7px;padding:8px 11px"
-    ))
-    value.setToolTip("来自只读静态数据库，不可编辑。")
+    value = NoWheelComboBox()
+    value.setMaxVisibleItems(6)
+    value.addItems(getattr(window, "_config_shape_label_choices", ()))
+    current_label = str(role_data.get("extra_shape_label") or "")
+    value.setCurrentText(current_label)
+    value.setPlaceholderText("选择额外形状标签")
+    value.setToolTip("选择额外形状标签；点击“保存”后才写入当前账号 SQLite。")
+    value.currentTextChanged.connect(
+        lambda text, rn=role_name: save_extra_shape_label(window, rn, text, data)
+    )
     _field("额外形状标签", value, form_layout)
 
 
-def _add_extra_shape_buff_row(window, data, role_name, role_data, form_layout):
-    del data, role_name
+def _add_extra_shape_buff_row(
+    window, data, role_name, role_data, form_layout, rebuild_all_tabs,
+):
+    """Render the one extra-shape bonus as an attribute/value pair.
+
+    Extra shapes have one bonus slot.  Keeping it as a pair avoids the former
+    misleading multi-row editor and prevents a draft from silently accumulating
+    mutually unrelated bonuses.
+    """
     extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
-    labels = getattr(window, "_config_weight_property_labels", {})
-    text = "、".join(
-        f"{labels.get(str(property_id), property_id)} +{float(value):g}"
-        for property_id, value in extra_buffs.items()
-    ) or "无"
-    value = QLabel(text)
-    value.setObjectName("officialShapeBonusReadOnly")
-    value.setWordWrap(True)
-    value.setStyleSheet(themed_style(
-        "color:#8b949e;background:#161b22;border:1px solid #30363d;"
-        "border-radius:7px;padding:8px 11px"
-    ))
-    value.setToolTip("来自只读静态数据库，不可编辑。")
-    _field("额外形状加成", value, form_layout)
+    selected_property, selected_value = next(iter(extra_buffs.items()), ("", 0.0))
+    row = QHBoxLayout()
+    row.addWidget(QLabel("额外形状加成："))
+    property_combo = NoWheelComboBox()
+    property_combo.setMaxVisibleItems(6)
+    property_combo.addItem("无加成", "")
+    for label, property_id in getattr(window, "_config_shape_bonus_choices", ()):
+        property_combo.addItem(str(label), str(property_id))
+    selected_index = property_combo.findData(str(selected_property))
+    property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后才写入当前账号 SQLite。")
+    row.addWidget(property_combo, 1)
+    value_spin = NoWheelDoubleSpinBox()
+    value_spin.setRange(0, 1000000)
+    value_spin.setDecimals(3)
+    value_spin.setSingleStep(0.1)
+    value_spin.setValue(float(selected_value))
+    value_spin.setKeyboardTracking(False)
+    value_spin.setEnabled(bool(property_combo.currentData()))
+    value_spin.setToolTip("额外形状加成数值；点击“保存”后才写入当前账号 SQLite。")
+    row.addWidget(value_spin)
+    form_layout.addLayout(row)
+
+    def update_bonus(*_args) -> None:
+        property_id = str(property_combo.currentData() or "")
+        value_spin.setEnabled(bool(property_id))
+        save_single_extra_shape_bonus(
+            window, role_name, property_id, value_spin.value(), data,
+        )
+
+    property_combo.currentIndexChanged.connect(update_bonus)
+    value_spin.editingFinished.connect(update_bonus)
 
 
 def _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, title, field_name, add_label):
@@ -394,13 +482,15 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
     form_layout.setContentsMargins(12, 12, 12, 12)
 
     source = QLabel(
-        f"角色：{role_name}　账号 SQLite 权重副本"
+        f"角色：{role_name}　当前账号 SQLite 权重设置"
         f"（初始来源：{role_data.get('source_kind') or 'default'}）"
     )
     source.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     form_layout.addWidget(source)
     _add_extra_shape_row(window, data, role_name, role_data, form_layout)
-    _add_extra_shape_buff_row(window, data, role_name, role_data, form_layout)
+    _add_extra_shape_buff_row(
+        window, data, role_name, role_data, form_layout, rebuild_all_tabs,
+    )
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "卡带主词条权重", "main_weights", "+ 添加主词条")
     form_layout.addStretch()
@@ -657,6 +747,97 @@ def save_single_extra_shape_buff(window, rn, raw_stat, value, data, config_dir):
     save_config_data(window, data, config_dir)
 
 
+def _mark_shape_bonus_dirty(window, role_data):
+    if getattr(window, "_current_config_name", "") != _ACCOUNT_WEIGHT_CONFIG:
+        return
+    window._config_dirty_shape_bonus_ids.add(int(role_data["character_id"]))
+
+
+def save_extra_shape_label(window, rn, value, data):
+    if rn not in data:
+        return
+    normalized = str(value or "").strip()
+    if data[rn].get("extra_shape_label", "") == normalized:
+        return
+    data[rn]["extra_shape_label"] = normalized
+    _mark_shape_bonus_dirty(window, data[rn])
+    window._config_form_data = data
+    window._config_dirty = True
+
+
+def save_extra_shape_buff_value(window, rn, property_id, value, data):
+    if rn not in data:
+        return
+    buffs = data[rn].setdefault("extra_shape_buffs", {})
+    if str(property_id) not in buffs:
+        return
+    normalized = round(float(value), 3)
+    if float(buffs[str(property_id)]) == normalized:
+        return
+    buffs[str(property_id)] = normalized
+    _mark_shape_bonus_dirty(window, data[rn])
+    window._config_form_data = data
+    window._config_dirty = True
+
+
+def save_single_extra_shape_bonus(window, rn, property_id, value, data):
+    """Stage the sole account-level extra-shape bonus until Save is clicked."""
+    if rn not in data:
+        return
+    normalized_property = str(property_id or "")
+    normalized_value = round(float(value), 3)
+    bonuses = {normalized_property: normalized_value} if normalized_property else {}
+    if data[rn].get("extra_shape_buffs") == bonuses:
+        return
+    data[rn]["extra_shape_buffs"] = bonuses
+    _mark_shape_bonus_dirty(window, data[rn])
+    window._config_form_data = data
+    window._config_dirty = True
+
+
+def add_extra_shape_buff(window, rn, data, rebuild_all_tabs=None):
+    if rn not in data:
+        return
+    existing = set(data[rn].get("extra_shape_buffs") or {})
+    choices = [
+        (label, property_id)
+        for label, property_id in getattr(window, "_config_shape_bonus_choices", ())
+        if property_id not in existing
+    ]
+    if not choices:
+        QMessageBox.information(window, "提示", "所有官方属性都已添加。")
+        return
+    label, accepted = QInputDialog.getItem(
+        window, "添加额外形状加成", "选择属性:",
+        [row[0] for row in choices], 0, False,
+    )
+    if not accepted:
+        return
+    property_id = dict(choices).get(str(label))
+    if not property_id:
+        return
+    data[rn].setdefault("extra_shape_buffs", {})[property_id] = 0.0
+    _mark_shape_bonus_dirty(window, data[rn])
+    window._config_form_data = data
+    window._config_dirty = True
+    if callable(rebuild_all_tabs):
+        rebuild_all_tabs(rn)
+
+
+def delete_extra_shape_buff(window, rn, property_id, data, rebuild_all_tabs=None):
+    if rn not in data:
+        return
+    buffs = data[rn].get("extra_shape_buffs") or {}
+    if str(property_id) not in buffs:
+        return
+    del buffs[str(property_id)]
+    _mark_shape_bonus_dirty(window, data[rn])
+    window._config_form_data = data
+    window._config_dirty = True
+    if callable(rebuild_all_tabs):
+        rebuild_all_tabs(rn)
+
+
 def save_role_weight_value(window, rn, key, value, data, config_dir, weight_field="weights"):
     if rn in data and key in data[rn].get(weight_field, {}):
         data[rn][weight_field][key] = round(float(value), 3)
@@ -748,6 +929,9 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     if name == _ACCOUNT_WEIGHT_CONFIG:
         data = getattr(window, "_config_form_data", {}) or {}
         dirty_ids = set(getattr(window, "_config_dirty_character_ids", set()))
+        shape_bonus_dirty_ids = set(
+            getattr(window, "_config_dirty_shape_bonus_ids", set())
+        )
         try:
             for role_data in data.values():
                 character_id = int(role_data["character_id"])
@@ -759,15 +943,29 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
                     role_data.get("weights") or {},
                     main_property_weights=role_data.get("main_weights") or {},
                 )
+            for role_data in data.values():
+                character_id = int(role_data["character_id"])
+                if character_id not in shape_bonus_dirty_ids:
+                    continue
+                save_account_character_shape_bonus(
+                    runtime.USER_DATABASE_PATH,
+                    character_id,
+                    shape_label=str(role_data.get("extra_shape_label") or ""),
+                    property_values=role_data.get("extra_shape_buffs") or {},
+                )
         except Exception as exc:
             QMessageBox.warning(window, "保存失败", str(exc))
             return
         window._config_dirty = False
         window._config_dirty_character_ids.clear()
+        window._config_dirty_shape_bonus_ids.clear()
+        reload_data = getattr(window, "_load_data", None)
+        if callable(reload_data):
+            reload_data()
         QMessageBox.information(
             window,
             "保存",
-            "词条权重已保存到当前账号 SQLite 副本。",
+            "词条权重和额外形状加成已保存到当前账号 SQLite。",
         )
         return
     path = config_dir / name
@@ -786,6 +984,7 @@ def reset_config_form(window, config_dir, bundled_config_dir):
         window._config_dirty = False
         window._config_form_data = None
         window._config_dirty_character_ids = set()
+        window._config_dirty_shape_bonus_ids = set()
         switch_config_form(window, _ACCOUNT_WEIGHT_CONFIG, config_dir)
         return
     if name not in {"roles.json", "sets.json"}:

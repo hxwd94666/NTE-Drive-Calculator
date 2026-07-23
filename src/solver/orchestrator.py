@@ -3,7 +3,6 @@
 
 import copy
 import json
-import os
 import time
 from typing import List, Dict
 
@@ -21,24 +20,16 @@ from src.utils.visualizer import BoardVisualizer
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
 from src.utils.set_name import normalize_set_display_name
-from src.services.sqlite_allocation_inventory import legacy_shape_id
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-
-
-_LEGACY_SHAPE_LABELS = {
-    "H_2": "Type-2", "V_2": "Type-2",
-    "H_3": "Type-3", "V_3": "Type-3",
-    "L_3_BL": "Type-3", "L_3_TL": "Type-3", "L_3_TR": "Type-3", "L_3_BR": "Type-3",
-    "H_4": "Type-4", "V_4": "Type-4", "Trap_4_H": "Type-4", "Trap_4_V": "Type-4",
-}
+from src.services.legacy_allocation_static_catalog import build_legacy_allocation_static_catalog
 
 
 class NTEPipelineOrchestrator:
     _blueprint_cache: dict[str, List[Dict]] = {}
     _blueprint_cache_limit = 256
 
-    def __init__(self, config_dir: str = "config"):
+    def __init__(self, config_dir: str = "config", *, user_database_path=None):
         self.config_dir = config_dir
+        self.user_database_path = user_database_path
         self.roles_db = {}
         self.sets_db = {}
         self.shapes_db = {}
@@ -58,6 +49,7 @@ class NTEPipelineOrchestrator:
 
         instance = cls.__new__(cls)
         instance.config_dir = config_dir
+        instance.user_database_path = None
         instance.roles_db = roles_db
         instance.sets_db = sets_db
         instance.shapes_db = shapes_db
@@ -69,63 +61,21 @@ class NTEPipelineOrchestrator:
         return instance
 
     def _load_configs(self):
-        with open(os.path.join(self.config_dir, "roles.json"), "r", encoding="utf-8") as f:
-            self.roles_db = json.load(f)
-        with open(os.path.join(self.config_dir, "sets.json"), "r", encoding="utf-8") as f:
-            self.sets_db = json.load(f)["sets"]
-        with StaticGameDataDao() as static_dao:
-            for shape in static_dao.list_shapes():
-                cells = list(shape.get("cells") or [])
-                xs = [int(cell["x"]) for cell in cells]
-                ys = [int(cell["y"]) for cell in cells]
-                if not xs or not ys:
-                    continue
-                legacy_id = legacy_shape_id(shape["shape_id"])
-                matrix = [[0] * (max(ys) - min(ys) + 1) for _ in range(max(xs) - min(xs) + 1)]
-                for cell in cells:
-                    matrix[int(cell["x"]) - min(xs)][int(cell["y"]) - min(ys)] = 1
-                self.shapes_db[legacy_id] = DriveShape(
-                    shape_id=legacy_id,
-                    label=_LEGACY_SHAPE_LABELS[legacy_id],
-                    matrix=matrix,
-                    area=int(shape["cell_count"]),
-                    description=str(shape["shape_id"]),
-                )
-            characters = {
-                str(row.get("name_zh")): int(row.get("canonical_character_id") or row["character_id"])
-                for row in static_dao.list_characters()
-            }
-            for role_name in self.roles_db:
-                character_id = characters.get(str(role_name))
-                if str(role_name) == "主角":
-                    plan = next(
-                        (static_dao.get_equipment_plan(candidate_id) for candidate_id in (1046, 1051)
-                         if static_dao.get_equipment_plan(candidate_id) is not None),
-                        None,
-                    )
-                else:
-                    plan = static_dao.get_equipment_plan(character_id) if character_id is not None else None
-                if plan is None:
-                    raise ValueError(f"角色 [{role_name}] 缺少官方 SQLite 底盘图纸")
-                default_suit = static_dao.get_character_default_suit(
-                    int(plan["character_id"])
-                )
-                if default_suit is not None:
-                    self.roles_db[role_name]["default_set"] = self._resolve_set_name(
-                        str(default_suit["suit_name_zh"])
-                    )
-                board = [[-1] * 5 for _ in range(5)]
-                for cell in plan.get("cells") or []:
-                    board[int(cell["row"]) - 1][int(cell["column"]) - 1] = 0
-                self._board_matrices[role_name] = board
-        self._canonicalize_role_sets()
+        catalog = build_legacy_allocation_static_catalog(
+            config_dir=self.config_dir,
+            user_database_path=self.user_database_path,
+        )
+        self.roles_db = catalog.roles_db
+        self.sets_db = catalog.sets_db
+        self.shapes_db = catalog.shapes_db
+        self._board_matrices = catalog.board_matrices
 
     def _resolve_set_name(self, set_name: str) -> str:
         normalized_name = normalize_set_display_name(set_name)
         resolved = resolve_name(normalized_name, self.sets_db.keys(), cutoff=0.78)
         if not resolved:
             available = "、".join(self.sets_db.keys())
-            raise ValueError(f"错误：指定的套装 {set_name} 不存在于 sets.json 中！可用套装：{available}")
+            raise ValueError(f"错误：指定的套装 {set_name} 不存在于官方 SQLite 数据中！可用套装：{available}")
         return resolved
 
     def _canonicalize_role_sets(self):
@@ -298,7 +248,11 @@ class NTEPipelineOrchestrator:
         logger.info(f"[计时] 库存转换阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         stage_t0 = time.perf_counter()
-        scoring_engine = ScoringEngine(config_dir=self.config_dir)
+        scoring_engine = ScoringEngine(
+            config_dir=self.config_dir,
+            user_database_path=self.user_database_path,
+            roles_db=self.roles_db,
+        )
         drive_screen_limit, tape_screen_limit = estimate_candidate_pool_limits(
             blueprints_db, priority_list, priority_groups or (),
         )
@@ -313,6 +267,9 @@ class NTEPipelineOrchestrator:
             priority_groups=tuple(tuple(group) for group in (priority_groups or ())),
             crit_rate_caps=crit_rate_caps, drive_screen_limit=drive_screen_limit,
             tape_screen_limit=tape_screen_limit,
+            # 缺少卡带只表示本次推荐没有核心，不能否定已经完整填满图纸的驱动方案。
+            # 自动/极速装配仍会拒绝缺少核心的保存方案。
+            allow_missing_core=True,
         )
         if tape_main_filters:
             logger.info("  已按角色优先级配置提前过滤卡带主词条。")

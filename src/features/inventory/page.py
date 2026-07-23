@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, 
 
 from src.app import runtime
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
-from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
+from src.app.theme import GRADE_COLORS, current_style_sheet, theme_color, theme_rgba, themed_style
 from src.app.workers import WorkerThread
 from src.features.drive_assembly.ui_bridge import (
     execute_all_roles_from_current_game_page,
@@ -21,7 +21,6 @@ from src.features.role.replacement_service import (
     build_equipment_role_context,
     rank_replacement_candidates_by_damage,
 )
-from src.features.role.equipment_import import set_bonus_from_tape_source
 from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.features.inventory.warehouse import (
     WarehouseCardDelegate,
@@ -31,6 +30,7 @@ from src.features.inventory.warehouse import (
     load_warehouse_snapshot,
     warehouse_item_compare_category,
     warehouse_item_with_state,
+    warehouse_item_view,
     warehouse_type_options,
 )
 from src.features.identification.page import build_identify_result_row
@@ -45,6 +45,10 @@ from src.services.warehouse_identification_service import WarehouseIdentificatio
 from src.services.warehouse_state_management import WarehouseStateManagementService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.virtual_equipment_service import (
+    is_virtual_equipment_assignment,
+    virtual_equipment_inventory_item,
+)
 from src.optimizer.contracts import (
     DIFF_ADDED,
     DIFF_ADDED_UIDS,
@@ -71,8 +75,16 @@ from src.optimizer.contracts import (
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import match_pinyin as _match_pinyin
 from src.utils.logger import logger
-
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
+
+
+def set_bonus_from_tape_source(source) -> dict:
+    """Build a safe placeholder while tape-set bonus details move to SQLite."""
+    if isinstance(source, dict):
+        set_name = str(source.get("set_name", "") or "")
+    else:
+        set_name = str(getattr(source, "set_name", "") or "")
+    return {"display_name": set_name, "skill": {}, "skill_2": {}, "skill_cover": 0.8}
 
 __all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equipment', '_refresh_equip',
            '_page_warehouse', '_refresh_warehouse', '_apply_warehouse_filters', '_on_warehouse_sync_state',
@@ -134,6 +146,7 @@ def _page_equipment(self):
     sh.addWidget(automatic_btn)
     l.addLayout(sh)
     scroll=QScrollArea(); scroll.setWidgetResizable(True)
+    self.equip_scroll = scroll
     self.equip_content=QWidget(); self.equip_content_layout=QVBoxLayout(self.equip_content); scroll.setWidget(self.equip_content)
     l.addWidget(scroll,1); return page
 
@@ -807,6 +820,9 @@ def _on_sqlite_equipment_display_error(self, token, error):
 
 
 def _refresh_equip(self):
+    scroll = getattr(self, "equip_scroll", None)
+    if scroll is not None:
+        self._equip_restore_scroll_value = scroll.verticalScrollBar().value()
     _clear_equip_content(self)
     # The production page may contain many plans and each requires snapshot
     # projection.  Keep database work off the Qt event loop; plain test hosts
@@ -868,12 +884,17 @@ def _sqlite_plan_display_state(plan, user_dao, static_dao):
     drives=[]
     tape=None
     for assignment in plan["assignments"]:
-        item=items.get((assignment["uid_serial"],assignment["uid_slot"]))
+        raw=assignment.get("raw_assignment") or {}
+        item=(
+            virtual_equipment_inventory_item(raw)
+            if is_virtual_equipment_assignment(raw)
+            else items.get((assignment["uid_serial"],assignment["uid_slot"]))
+        )
         if item is None:
             continue
-        raw=assignment.get("raw_assignment") or {}
         uid_prefix="module" if item["kind"] == "module" else "core"
         uid=f"nte-{uid_prefix}-{item['uid_slot']}-{item['uid_serial']}"
+        item_icon_path=warehouse_item_view(item).get("item_icon_path")
         if item["kind"] == "core":
             main_stats=_official_stat_values(item.get("main_stats"))
             tape={
@@ -881,6 +902,8 @@ def _sqlite_plan_display_state(plan, user_dao, static_dao):
                 EQUIP_MAIN_STATS: next(iter(main_stats), "未知主词条"), EQUIP_SUB_STATS: _official_stat_values(item.get("sub_stats")),
                 EQUIP_QUALITY: {"orange":"Gold","purple":"Purple","blue":"Blue"}.get(str(item.get("quality")).casefold(),"Gold"),
                 "discarded": bool(item.get("discarded")),
+                "item_icon_path": item_icon_path,
+                "virtual": bool(item.get("virtual")),
                 EQUIP_IS_CHANGED: uid in changed_uids,
                 EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
             }
@@ -898,6 +921,8 @@ def _sqlite_plan_display_state(plan, user_dao, static_dao):
             "duplicate_group_id": item.get("duplicate_group_id"),
             "duplicate_index": item.get("duplicate_index"),
             "duplicate_count": item.get("duplicate_count"),
+            "item_icon_path": item_icon_path,
+            "virtual": bool(item.get("virtual")),
             EQUIP_IS_CHANGED: uid in changed_uids,
             EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
         })
@@ -1079,6 +1104,87 @@ def _saved_plan_optimization_role_context(self, role_name: str) -> dict:
     return role_context
 
 
+def _saved_plan_graduation_info(role_name: str) -> dict | None:
+    """Project the rebuilt role page's graduation result onto saved loadouts.
+
+    The source of truth remains the role page's public SQLite detail model:
+    saved plans supply only drive/core items, while profile settings retain the
+    player's own account-side choices.
+    """
+
+    database_path = getattr(runtime, "USER_DATABASE_PATH", None)
+    if database_path is None:
+        return None
+    try:
+        with UserDataDao(database_path) as user_dao:
+            plan = user_dao.get_active_loadout_plan_for_role(role_name)
+        if not isinstance(plan, dict):
+            return None
+        character_id = int(plan.get("character_id"))
+        from src.features.official_role.page import (
+            _graduation_benchmark_damage,
+            _graduation_tooltip,
+        )
+        from src.services.official_role_page_service import (
+            calculate_official_role_margins,
+            load_official_role_detail,
+        )
+        detail = load_official_role_detail(database_path, character_id)
+        context_key = "saved" if (
+            (detail.get("equipment_contexts") or {}).get("saved", {}).get("available")
+        ) else "current"
+        damage = float((calculate_official_role_margins(detail, context_key) or {}).get("damage") or 0.0)
+        benchmark = _graduation_benchmark_damage(detail)
+        if damage <= 0 or not benchmark:
+            return None
+        return {
+            "text": f"毕业率 {damage / benchmark * 100:.1f}%",
+            "tooltip": _graduation_tooltip(detail),
+            "color": "#ffaa00",
+        }
+    except Exception as exc:
+        logger.debug("配装毕业率加载失败 [{}]: {}", role_name, exc)
+        return None
+
+
+def _open_official_saved_plan_optimizer(
+    window, role_name: str, item_kind: str, uid: str,
+) -> bool:
+    """Open the replacement flow backed by the new SQLite role panel.
+
+    The old role editor was removed, but this inventory card action remained.
+    Loading the official role detail here makes the panel data available before
+    direct-damage evaluation and keeps the replacement calculation on the same
+    SQLite path as the new role page.
+    """
+    with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
+        plan = dao.get_active_loadout_plan_for_role(role_name)
+    if not isinstance(plan, dict):
+        return False
+    character_id = plan.get("character_id")
+    if character_id is None:
+        return False
+    from src.features.official_role.page import _show_replacement_optimizer
+    from src.services.official_role_page_service import load_official_role_detail
+
+    detail = load_official_role_detail(
+        runtime.USER_DATABASE_PATH, int(character_id),
+    )
+    expected_kind = "module" if item_kind == "drive" else "core"
+    target = next(
+        (
+            item for item in (detail.get("equipment_contexts", {}).get("saved", {}).get("items") or ())
+            if str(item.get("kind") or "") == expected_kind
+            and f"nte-{expected_kind}-{item.get('uid_slot')}-{item.get('uid_serial')}" == str(uid)
+        ),
+        None,
+    )
+    if not isinstance(target, dict):
+        return False
+    _show_replacement_optimizer(window, detail, target)
+    return True
+
+
 def _optimize_saved_equipment(
     self,
     role_name: str,
@@ -1095,6 +1201,16 @@ def _optimize_saved_equipment(
     replacement_persister=None,
 ):
     """Restore per-card optimization using only the active SQLite plan snapshot."""
+    if (
+        rank_by_damage
+        and weights_override is None
+        and main_weights_override is None
+    ):
+        try:
+            if _open_official_saved_plan_optimizer(self, role_name, item_kind, uid):
+                return
+        except Exception as exc:
+            logger.warning("SQLite 角色面板替换优化不可用，回退兼容路径: {}", exc)
     try:
         plan, current, candidates, plan_drives, plan_tape = _sqlite_replacement_candidates(
             runtime.USER_DATABASE_PATH, role_name, item_kind, uid
@@ -1191,7 +1307,7 @@ def _optimize_saved_equipment(
     # Only the visual structure is shared: all items below still come from one
     # stable SQLite snapshot and the replacement is saved as a SQLite plan.
     item_label = current.get(EQUIP_SHAPE_ID) if item_kind == "drive" else current.get(EQUIP_SET_NAME)
-    asset_catalog = None if item_kind == "drive" else GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
+    asset_catalog = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
     dialog = QDialog(self)
     dialog.setWindowTitle(f"{role_name} · {title}")
     dialog.resize(850, 650)
@@ -1247,7 +1363,10 @@ def _optimize_saved_equipment(
                 replacement_diff = {
                     DIFF_CHANGED: True,
                     DIFF_ADDED_UIDS: [str(selected.get(EQUIP_UID) or "")],
-                    DIFF_ADDED: [{EQUIP_UID: str(selected.get(EQUIP_UID) or "")}],
+                    DIFF_ADDED: [{
+                        EQUIP_UID: str(selected.get(EQUIP_UID) or ""),
+                        EQUIP_IS_CHANGED: True,
+                    }],
                     DIFF_REMOVED: [{EQUIP_UID: str(current.get(EQUIP_UID) or "")}],
                 }
                 replacement_payload = dict(plan.get("payload") or {})
@@ -1329,10 +1448,19 @@ def _render_equip_batch(self, token, batch_size=None):
     elif not getattr(self,"_equip_render_stretch_added",False):
         self.equip_content_layout.addStretch()
         self._equip_render_stretch_added=True
+        scroll = getattr(self, "equip_scroll", None)
+        value = getattr(self, "_equip_restore_scroll_value", None)
+        if scroll is not None and value is not None:
+            QTimer.singleShot(
+                0,
+                lambda current_scroll=scroll, saved_value=int(value): current_scroll.verticalScrollBar().setValue(saved_value),
+            )
+            self._equip_restore_scroll_value = None
 
 def _render_equip_role(self, role_name, rd):
     role_cfg=self.roles_db.get(role_name,{})
     wts=role_cfg.get("weights",{})
+    graduation_info = _saved_plan_graduation_info(role_name)
     main_wts=role_cfg.get("main_weights")
     is_sqlite_plan="_sqlite_plan_id" in rd
 
@@ -1376,6 +1504,26 @@ def _render_equip_role(self, role_name, rd):
         sml=QLabel(_ml); sml.setStyleSheet(themed_style("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px"))
         role_hdr.addWidget(sml)
     role_hdr.addStretch()
+    # Graduation is a role-total metric, not an individual drive/core score.
+    # Keep it immediately to the left of the role's overall score.
+    if graduation_info:
+        graduation_color = str(graduation_info.get("color") or "#ffaa00")
+        graduation_bg = theme_rgba(graduation_color, 0.10)
+        graduation_frame = QFrame()
+        graduation_frame.setStyleSheet(
+            f"QFrame{{background:{graduation_bg};border:1px solid {graduation_color};"
+            "border-radius:7px;padding:4px 12px}"
+        )
+        graduation_layout = QHBoxLayout(graduation_frame)
+        graduation_layout.setSpacing(6)
+        graduation_layout.setContentsMargins(4, 0, 4, 0)
+        graduation_label = QLabel(str(graduation_info["text"]))
+        graduation_label.setStyleSheet(
+            f"font-size:14px;font-weight:800;color:{graduation_color};border:none"
+        )
+        graduation_label.setToolTip(str(graduation_info.get("tooltip") or ""))
+        graduation_layout.addWidget(graduation_label)
+        role_hdr.addWidget(graduation_frame)
     # Score
     sf=QFrame()
     sf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
@@ -1430,7 +1578,7 @@ def _render_equip_role(self, role_name, rd):
         gl.addWidget(self._section_label("卡带:"))
         tape_changed=bool(tape_data.get(EQUIP_IS_CHANGED))
         tape_uid=tape_data.get(EQUIP_UID,"")
-        gl.addWidget(self._equip_card(tape_data.get(EQUIP_SET_NAME,""),tape_data.get(EQUIP_MAIN_STATS,""),tape_data.get(EQUIP_SUB_STATS,{}),None,tape_uid,wts,(t_s,t_g),t_q,is_new=bool(tape_data.get(EQUIP_IS_NEW)) and not tape_changed,is_changed=tape_changed,is_discarded=bool(tape_data.get("discarded")),main_weights=main_wts,replacement_callback=lambda rn=role_name, item_uid=tape_uid: self._optimize_saved_equipment(rn,"tape",item_uid),card_variant="inventory"))
+        gl.addWidget(self._equip_card(tape_data.get(EQUIP_SET_NAME,""),tape_data.get(EQUIP_MAIN_STATS,""),tape_data.get(EQUIP_SUB_STATS,{}),None,tape_uid,wts,(t_s,t_g),t_q,is_new=bool(tape_data.get(EQUIP_IS_NEW)) and not tape_changed,is_changed=tape_changed,is_discarded=bool(tape_data.get("discarded")),main_weights=main_wts,replacement_callback=lambda rn=role_name, item_uid=tape_uid: self._optimize_saved_equipment(rn,"tape",item_uid),card_variant="inventory",item_icon_path=tape_data.get("item_icon_path")))
     if drives:
         gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
         for d in drives:
@@ -1443,7 +1591,7 @@ def _render_equip_role(self, role_name, rd):
                 d_g=self._calc_grade(d_s,self._shape_areas.get(d.get(EQUIP_SHAPE_ID,""),3))
             drive_changed=bool(d.get(EQUIP_IS_CHANGED))
             drive_uid=d.get(EQUIP_UID,"")
-            gl.addWidget(self._equip_card(d.get(EQUIP_SHAPE_ID,""),"",d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),drive_uid,wts,(d_s,d_g),d_q,is_new=bool(d.get(EQUIP_IS_NEW)) and not drive_changed,is_changed=drive_changed,is_discarded=bool(d.get("discarded")),is_duplicate_drive=bool(d.get("is_duplicate_drive")),replacement_callback=lambda rn=role_name, item_uid=drive_uid: self._optimize_saved_equipment(rn,"drive",item_uid),card_variant="inventory"))
+            gl.addWidget(self._equip_card(d.get(EQUIP_SHAPE_ID,""),"",d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),drive_uid,wts,(d_s,d_g),d_q,is_new=bool(d.get(EQUIP_IS_NEW)) and not drive_changed,is_changed=drive_changed,is_discarded=bool(d.get("discarded")),is_duplicate_drive=bool(d.get("is_duplicate_drive")),replacement_callback=lambda rn=role_name, item_uid=drive_uid: self._optimize_saved_equipment(rn,"drive",item_uid),card_variant="inventory",item_icon_path=d.get("item_icon_path")))
     self.equip_content_layout.addWidget(grp)
 
 def _saved_plan_diff_text(self, role_name, diff):
@@ -1584,24 +1732,47 @@ def _return_to_equipment_after_assembly(self) -> None:
 
 def _prompt_protagonist_alias_if_needed(self, role_names) -> dict[str, str]:
     roles = {str(role).strip() for role in (role_names or []) if str(role).strip()}
-    if "主角" not in roles:
+    protagonist_roles = roles.intersection({"主角", "零", "「零」"})
+    if not protagonist_roles:
         return {}
-    default_name = str(getattr(self, "_drive_assembly_protagonist_name", "") or "").strip()
-    player_name, ok = QInputDialog.getText(
-        self,
-        "主角名称",
-        "请输入游戏中主角显示的名字：",
-        QLineEdit.Normal,
-        default_name,
-    )
-    if not ok:
+    preferences = getattr(self, "_ui_preferences", {}) or {}
+    default_name = str(
+        preferences.get("protagonist_game_name")
+        or getattr(self, "_drive_assembly_protagonist_name", "")
+        or ""
+    ).strip()
+    if default_name:
+        self._drive_assembly_protagonist_name = default_name
+        return {role_name: default_name for role_name in protagonist_roles}
+
+    dialog = QDialog(self)
+    dialog.setWindowTitle("主角名称")
+    dialog.setStyleSheet(current_style_sheet())
+    layout = QVBoxLayout(dialog)
+    layout.addWidget(QLabel("零在游戏内显示为玩家名字，请输入该名字后继续自动装配。"))
+    name_edit = QLineEdit()
+    name_edit.setPlaceholderText("游戏内主角名字")
+    layout.addWidget(name_edit)
+    dont_remind = QCheckBox("记住此名字，不再提醒")
+    layout.addWidget(dont_remind)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    layout.addWidget(buttons)
+    if dialog.exec() != QDialog.Accepted:
         return {}
-    player_name = str(player_name).strip()
+    player_name = name_edit.text().strip()
     if not player_name:
         QMessageBox.warning(self, "主角名称", "需要输入主角在游戏中显示的名字。")
         return {}
     self._drive_assembly_protagonist_name = player_name
-    return {"主角": player_name}
+    if isinstance(preferences, dict):
+        preferences["protagonist_game_name"] = player_name
+        preferences["skip_protagonist_name_prompt"] = bool(dont_remind.isChecked())
+        saver = getattr(self, "_save_ui_preferences", None)
+        if callable(saver):
+            saver()
+    return {role_name: player_name for role_name in protagonist_roles}
 
 
 def _is_equipment_plugin_unavailable_error(error: object) -> bool:
@@ -1965,7 +2136,9 @@ def _start_automatic_equipment_assembly(self, role_names: list[str]) -> None:
         return
 
     aliases = _prompt_protagonist_alias_if_needed(self, role_names)
-    if "主角" in role_names and not aliases:
+    # 主角在不同存档中可能保存为“主角”“零”或“「零」”。未取得玩家填写的
+    # 游戏内名称时不能继续，否则角色识别会把后续点击落在未知对象上。
+    if {str(role).strip() for role in role_names}.intersection({"主角", "零", "「零」"}) and not aliases:
         return
     QMessageBox.information(
         self,

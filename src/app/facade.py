@@ -8,17 +8,18 @@ import os
 from src.app import runtime
 from src.app.constants import APP_VERSION
 from src.integrations.nte_core import NteCoreClient
-from src.optimizer.state_manager import StateManager
 from src.scanner.batch_processor import BatchProcessor
 from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.vision_inventory_snapshot import import_vision_inventory
 from src.utils.logger import logger
 
 
 class NTEAppFacade:
-    def __init__(self, config_dir=None, user_config_dir=None):
+    def __init__(self, config_dir=None, user_config_dir=None, user_database_path=None):
         self.config_dir = config_dir or str(runtime.CONFIG_DIR)
         self.user_config_dir = user_config_dir or str(runtime.USER_CONFIG_DIR)
+        self.user_database_path = user_database_path or runtime.USER_DATABASE_PATH
 
     def execute_vision_processing(self, input_dir=None):
         input_dir = input_dir or str(runtime.SCREENSHOT_DIR)
@@ -50,13 +51,20 @@ class NTEAppFacade:
     ):
         """使用已经固定的数据集合计算，不要求生成中间库存文件。"""
 
-        orchestrator = NTEPipelineOrchestrator(config_dir=self.config_dir)
-        state_manager = StateManager(config_dir=self.user_config_dir)
+        orchestrator = NTEPipelineOrchestrator(
+            config_dir=self.config_dir,
+            user_database_path=self.user_database_path,
+        )
         locked_uids = set()
         base_mode = mode
         preferences_allowed = mode in ("role_priority", "update_mode")
         if mode == "update_mode":
-            locked_uids = state_manager.get_locked_uids()
+            with UserDataDao(self.user_database_path) as user_dao:
+                locked_uids = {
+                    f"nte-{'module' if row['kind'] == 'module' else 'core'}-"
+                    f"{row['uid_slot']}-{row['uid_serial']}"
+                    for row in user_dao.list_active_loadout_equipment_owners()
+                }
             base_mode = "role_priority"
         if not preferences_allowed:
             tape_main_filters = {}
@@ -75,7 +83,7 @@ class NTEAppFacade:
             crit_rate_caps=crit_rate_caps or {},
             custom_weapons=custom_weapons or {},
         )
-        return final_plan, state_manager
+        return final_plan, None
 
     def create_nte_core_client(self, **options) -> NteCoreClient:
         """创建一个尚未启动的 nte-core"""

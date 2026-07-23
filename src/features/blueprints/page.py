@@ -15,7 +15,8 @@ from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 from src.solver.combinatorics import PuzzleCombinatorics
 from src.solver.dfs_puzzle import DFSPuzzleSolver
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.ui.puzzle_board import PuzzleBoardWidget, get_shape_pixmap as _get_shape_pixmap
+from src.features.inventory.warehouse import warehouse_shape_pixmap
+from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import match_pinyin as _match_pinyin
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
@@ -260,7 +261,7 @@ def _draw_blueprints(self, filter_text=""):
             for shape_id in blueprint.get("extra_pieces", [])[:3]:
                 shape_label = _OFFICIAL_SHAPE_LABELS.get(str(shape_id), str(shape_id))
                 image = QLabel()
-                image.setPixmap(_get_shape_pixmap(shape_label, 48))
+                image.setPixmap(warehouse_shape_pixmap(shape_label, "Gold"))
                 image.setToolTip(shape_label)
                 image.setFixedSize(52, 52)
                 image.setScaledContents(True)

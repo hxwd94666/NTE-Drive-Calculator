@@ -27,12 +27,42 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from functools import lru_cache
+
+from src.app import runtime
 from src.models.equipment import Tape
 from src.app.theme import theme_rgba, themed_style
-from src.features.role.paths import get_roles_img_path
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.widgets import SearchableComboBox
 
 GRADE_COLORS = {"ACE": "#ffa726", "SSS": "#ffa726", "SS": "#f0883e", "S": "#f0883e", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
+
+
+@lru_cache(maxsize=96)
+def _official_role_portrait(role_name: str) -> QPixmap:
+    """Resolve identification avatars from the same official asset manifest.
+
+    Identification still receives legacy display names from the compatibility
+    solver, so normalize the protagonist alias before matching static names.
+    """
+
+    name = str(role_name or "").strip().strip("「」")
+    if name in {"零", "主角"}:
+        character_id = 1051
+    else:
+        try:
+            with StaticGameDataDao() as dao:
+                character_id = next(
+                    int(row["character_id"])
+                    for row in dao.list_characters()
+                    if str(row.get("name_zh") or "").strip() == name
+                )
+        except (StopIteration, ValueError):
+            return QPixmap()
+    asset_root = Path(getattr(runtime, "ASSET_DIR", Path("assets"))) / "game_ui"
+    icon_path = GameUiAssetCatalog(asset_root).character_icon(character_id)
+    return QPixmap(str(icon_path)) if icon_path is not None else QPixmap()
 
 
 def build_identify_page(window, text_edit_cls):
@@ -298,8 +328,7 @@ def build_identify_result_row(rank: int, row: dict):
     avatar.setFixedSize(48, 48)
     avatar.setAlignment(Qt.AlignCenter)
     avatar.setStyleSheet(themed_style("background:transparent;border:none;color:#8b949e;font-size:14px;font-weight:700"))
-    avatar_path = get_roles_img_path(str(row["role"]))
-    portrait = QPixmap(str(avatar_path)) if avatar_path.is_file() else QPixmap()
+    portrait = _official_role_portrait(str(row["role"]))
     if portrait.isNull():
         avatar.setText(str(row["role"])[:1])
     else:

@@ -63,7 +63,7 @@ class ManualIdentificationInputTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            {"生命值%", "防御力%", "攻击力%", "暴击率%", "暴击伤害%"},
+            {"生命值%", "防御力", "攻击力", "防御力%", "攻击力%", "暴击率%", "暴击伤害%"},
             set(stats),
         )
 

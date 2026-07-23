@@ -36,6 +36,10 @@ _SHAPE_LABELS = {
     "shu3": "V_3", "shu4": "V_4", "z3": "Trap_4_H", "z4": "Trap_4_V",
     "zhijiao1": "L_3_BL", "zhijiao2": "L_3_TL", "zhijiao3": "L_3_TR",
     "zhijiao4": "L_3_BR",
+    # Historical page models used HENG3-style labels.  Normalize them before
+    # selecting the warehouse template so every view gets the same artwork.
+    "heng2": "H_2", "heng3": "H_3", "heng4": "H_4",
+    "heng_2": "H_2", "heng_3": "H_3", "heng_4": "H_4",
 }
 _QUALITY_META = {
     "gold": ("金色", "#e3a23b"),
@@ -167,16 +171,34 @@ def _template_root_candidates() -> tuple[Path, ...]:
     return tuple(candidates)
 
 
+def warehouse_shape_pixmap(geometry_or_shape: Any, quality: str = "Gold") -> QPixmap:
+    """Return a representative module from the same UI asset source as warehouse cards.
+
+    Some views only know an official geometry (for example a blueprint), not a
+    concrete inventory item.  In that case we still use the packaged game UI
+    module icon, rather than the old ``config/templates`` shape artwork.
+    """
+    shape = _shape_label(geometry_or_shape)
+    item_id = _representative_module_item_id(shape, _quality_key(quality))
+    path = _equipment_item_icon("module", item_id)
+    return _equipment_item_pixmap(str(path or ""))
+
+
 @lru_cache(maxsize=48)
-def _equipment_placeholder(shape: str, quality: str) -> QPixmap:
-    """Use existing bundled template art as a small temporary card thumbnail."""
-    quality_name = {"gold": "Gold", "purple": "Purple", "blue": "Blue"}.get(quality, "Gold")
-    for root in _template_root_candidates():
-        for filename in (f"{shape}_{quality_name}.png", f"{shape}.png", f"H_3_{quality_name}.png"):
-            path = root / filename
-            if path.is_file():
-                return QPixmap(str(path))
-    return QPixmap()
+def _representative_module_item_id(shape: str, quality: str) -> str:
+    """Find one official module matching a geometry/quality pair for UI-only use."""
+    try:
+        with StaticGameDataDao() as static_dao:
+            rows = static_dao.list_equipment_items("module")
+    except Exception:
+        return ""
+    for row in rows:
+        if (
+            _shape_label(row.get("geometry_id")) == shape
+            and _quality_key(row.get("quality")) == quality
+        ):
+            return str(row.get("item_id") or "")
+    return ""
 
 
 @lru_cache(maxsize=4)
@@ -204,6 +226,28 @@ def _equipment_item_icon(
     return _asset_catalog(str(root.expanduser().resolve())).inventory_item_icon(kind, item_id)
 
 
+def _character_icon(
+    character_id: Any,
+    *,
+    asset_root: str | Path | None = None,
+) -> Path | None:
+    """Resolve an equipped owner's portrait from the packaged official assets."""
+
+    try:
+        normalized_id = int(character_id)
+    except (TypeError, ValueError):
+        return None
+    runtime_root = getattr(runtime, "ASSET_DIR", None)
+    root = (
+        Path(asset_root)
+        if asset_root is not None
+        else Path(runtime_root) / "game_ui"
+        if runtime_root is not None
+        else Path.cwd() / "assets" / "game_ui"
+    )
+    return _asset_catalog(str(root.expanduser().resolve())).character_icon(normalized_id)
+
+
 @lru_cache(maxsize=256)
 def _equipment_item_pixmap(path_text: str) -> QPixmap:
     path = Path(path_text)
@@ -219,7 +263,10 @@ def warehouse_item_view(
     """Turn one official SQLite item into the compact card data used by the view."""
     source = str(source or "")
     level_known = source != "gamepad"
-    state_known = source != "gamepad"
+    # Equipped/locked/discarded state is authoritative only in a packet-capture
+    # snapshot.  Saved calculator plans are deliberately not projected onto
+    # warehouse cards, and vision/gamepad rows cannot claim game state.
+    state_known = source == "nte_core"
     kind = str(row.get("kind") or "")
     quality_key = _quality_key(row.get("quality"))
     quality_label, quality_color = _QUALITY_META.get(quality_key, (str(row.get("quality") or "未知"), "#8b949e"))
@@ -235,7 +282,11 @@ def warehouse_item_view(
     state_row = dict(row)
     state_row["state_known"] = state_known
     tags = _state_tags(state_row)
-    equipped_character_name = str(row.get("equipped_character_name") or "")
+    equipped = state_known and bool(row.get("equipped"))
+    equipped_character_id = row.get("equipped_character_id") if equipped else None
+    equipped_character_name = (
+        str(row.get("equipped_character_name") or "") if equipped else ""
+    )
     search_text = " ".join((
         item_name, suit_name, title, equipped_character_name, *stats, *[tag[0] for tag in tags],
     )).casefold()
@@ -264,15 +315,18 @@ def warehouse_item_view(
         "main_stats": main_stat_rows,
         "sub_stats": sub_stat_rows,
         "tags": tags,
-        "equipped": bool(row.get("equipped")),
-        "equipped_character_id": row.get("equipped_character_id"),
+        "equipped": equipped,
+        "equipped_character_id": equipped_character_id,
         "equipped_character_name": equipped_character_name,
-        "equipped_character_icon_path": row.get(
-            "equipped_character_icon_path"
+        "equipped_character_icon_path": (
+            row.get("equipped_character_icon_path")
+            or _character_icon(
+                equipped_character_id, asset_root=asset_root,
+            )
         ),
         "virtual": bool(row.get("virtual")),
-        "locked": bool(row.get("locked")),
-        "discarded": bool(row.get("discarded")),
+        "locked": state_known and bool(row.get("locked")),
+        "discarded": state_known and bool(row.get("discarded")),
         "search_text": search_text,
         "uid": f"nte-{'module' if kind == 'module' else 'core'}-{row.get('uid_slot', '')}-{row.get('uid_serial', '')}",
     }
@@ -578,7 +632,7 @@ class WarehouseCardDelegate(QStyledItemDelegate):
         icon_rect = QRect(left, top, 44, 44)
         placeholder = _equipment_item_pixmap(str(item.get("item_icon_path") or ""))
         if placeholder.isNull():
-            placeholder = _equipment_placeholder(
+            placeholder = warehouse_shape_pixmap(
                 str(item.get("shape") or "H_3"),
                 str(item.get("quality") or "gold"),
             )
@@ -633,6 +687,7 @@ class WarehouseResultCard(QWidget):
         score: float | None,
         grade: str | None,
         direct_damage_score: float | None,
+        split_metrics: bool = False,
         replacement_callback: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -643,6 +698,7 @@ class WarehouseResultCard(QWidget):
         self.direct_damage_score = (
             None if direct_damage_score is None else float(direct_damage_score)
         )
+        self.split_metrics = bool(split_metrics)
         self._replacement_callback = replacement_callback
         self._selected = False
         self.setFixedSize(self.CARD_SIZE)
@@ -679,13 +735,15 @@ class WarehouseResultCard(QWidget):
         painter.setBrush(background)
         painter.setPen(QPen(QColor(theme_color(color)), 1))
         painter.drawRoundedRect(rect, 4, 4)
-        WarehouseCardDelegate._text(
-            painter,
-            rect.adjusted(5, 0, -5, 0),
+        font = QFont(painter.font())
+        font.setPointSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(theme_color("#f0f6fc")))
+        painter.drawText(
+            rect.adjusted(3, 0, -3, 0),
+            Qt.AlignCenter | Qt.TextSingleLine,
             text,
-            theme_color("#f0f6fc"),
-            8,
-            bold=True,
         )
 
     def paintEvent(self, _event) -> None:
@@ -705,7 +763,7 @@ class WarehouseResultCard(QWidget):
         icon_rect = QRect(left, top, 44, 44)
         pixmap = _equipment_item_pixmap(str(item.get("item_icon_path") or ""))
         if pixmap.isNull():
-            pixmap = _equipment_placeholder(
+            pixmap = warehouse_shape_pixmap(
                 str(item.get("shape") or "H_3"),
                 str(item.get("quality") or "gold"),
             )
@@ -780,29 +838,27 @@ class WarehouseResultCard(QWidget):
         if self.score is None:
             score_text = "--"
         else:
-            score_value = f"{self.score:.1f}".rstrip("0").rstrip(".")
-            score_text = (
-                f"{score_value}·{self.grade}"
-                if self.grade
-                else score_value
-            )
+            score_text = f"{self.score:.1f}".rstrip("0").rstrip(".")
+        grade_text = self.grade or "--"
         direct_text = (
             f"{self.direct_damage_score:.1f}%"
             if self.direct_damage_score is not None
             else "--"
         )
-        self._score_badge(
-            painter,
-            QRect(left, footer_top, 80, 20),
-            score_text,
-            GRADE_COLORS.get(self.grade, "#58a6ff"),
-        )
-        self._score_badge(
-            painter,
-            QRect(left + 85, footer_top, 62, 20),
-            direct_text,
-            "#ffaa00",
-        )
+        grade_color = GRADE_COLORS.get(self.grade, "#58a6ff")
+        if self.split_metrics:
+            # Replacement candidates compare three independent values.  Give
+            # them equal visual weight and centered labels.
+            gap = 5
+            metric_width = max(1, (width - gap * 2) // 3)
+            self._score_badge(painter, QRect(left, footer_top, metric_width, 20), score_text, grade_color)
+            self._score_badge(painter, QRect(left + metric_width + gap, footer_top, metric_width, 20), grade_text, grade_color)
+            self._score_badge(painter, QRect(left + (metric_width + gap) * 2, footer_top, metric_width, 20), direct_text, "#ffaa00")
+        else:
+            # Normal role-detail cards retain the compact score·grade badge.
+            compact_score = f"{score_text}·{grade_text}" if self.grade else score_text
+            self._score_badge(painter, QRect(left, footer_top, 80, 20), compact_score, grade_color)
+            self._score_badge(painter, QRect(left + 85, footer_top, 62, 20), direct_text, "#ffaa00")
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if (

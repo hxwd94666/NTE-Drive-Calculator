@@ -37,27 +37,6 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
-def _workshop_roles_path() -> Path | None:
-    """Locate the compatibility metadata that still supplies extra-shape rules.
-
-    The weighted solver never uses roles.json for a default suite or chassis;
-    both come from official SQLite.  Extra-shape labels and their bonuses are
-    still user-editable compatibility metadata, though, and omitting them made
-    some characters (including 薄荷) generate the wrong board candidates.
-    """
-
-    try:
-        from src.app import runtime
-
-        configured = Path(getattr(runtime, "CONFIG_DIR")) / "roles.json"
-        if configured.is_file():
-            return configured
-    except (AttributeError, TypeError):
-        pass
-    bundled = Path("config") / "roles.json"
-    return bundled if bundled.is_file() else None
-
-
 @dataclass(frozen=True, slots=True)
 class WeightedAllocationRequest:
     """The exact user choices made before a background calculation starts."""
@@ -413,7 +392,6 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
             profile_id=int(request.profile_id),
             profile_version=int(request.profile_version),
             solver_version=ALLOCATION_CONTEXT_SOLVER_VERSION,
-            workshop_roles_path=_workshop_roles_path(),
         )
     return WeightedAllocationPreview(
         result=solve_allocation_context(

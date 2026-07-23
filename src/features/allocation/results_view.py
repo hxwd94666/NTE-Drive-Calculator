@@ -88,7 +88,8 @@ from src.optimizer.contracts import (
     ROLE_TOTAL_SCORE,
     plan_drives,
 )
-from src.ui.puzzle_board import PuzzleBoardWidget, get_shape_pixmap as _get_shape_pixmap
+from src.features.inventory.warehouse import warehouse_shape_pixmap as _get_shape_pixmap
+from src.ui.puzzle_board import PuzzleBoardWidget
 from src.utils.logger import logger
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
@@ -459,6 +460,7 @@ def _diff_item_card(self, role_name, item, is_new=False):
         label=item.get(EQUIP_SHAPE_ID) or item.get(EQUIP_DISPLAY_NAME) or item.get(EQUIP_UID,"")
         main_stat=""
         shape_id=item.get(EQUIP_SHAPE_ID) or ""
+    is_changed = bool(item.get(EQUIP_IS_CHANGED, False))
     return self._equip_card(
         label,
         main_stat,
@@ -468,7 +470,8 @@ def _diff_item_card(self, role_name, item, is_new=False):
         weights,
         score_info(item),
         item.get(EQUIP_QUALITY,"Gold"),
-        is_new=is_new,
+        is_new=is_new and not is_changed,
+        is_changed=is_changed,
         is_duplicate_drive=bool(item.get("is_duplicate_drive", False)),
         main_weights=main_weights,
         card_variant="result",
@@ -1175,6 +1178,10 @@ def _format_equipment_stat_display(value):
     return f"{number:.2f}".rstrip("0").rstrip(".")
 
 def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=None,quality=None,is_new=False,is_changed=False,is_discarded=False,is_duplicate_drive=False,main_weights=None,replacement_callback=None,card_variant="default",item_icon_path=None,replacement_text=None):
+    # A manual replacement changes an existing slot; it is not a newly acquired
+    # item.  Keep the status mutually exclusive even if an older caller supplies
+    # both flags.
+    is_new = bool(is_new) and not bool(is_changed)
     if current_theme_name() == "light":
         QUALITY_COLORS={"Gold":"#9a6700","Purple":"#8250df","Blue":"#0969da"}
     else:
@@ -1194,7 +1201,7 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
             QPixmap(str(item_icon_path)).scaled(
                 image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation,
             )
-            if item_icon_path else _get_shape_pixmap(shape_id,image_size,quality)
+            if item_icon_path else _get_shape_pixmap(shape_id, quality or "Gold")
         )
         if not pm.isNull():
             img_lbl=QLabel(); img_lbl.setPixmap(pm); img_lbl.setFixedSize(image_size,image_size); img_lbl.setScaledContents(True)
@@ -1266,14 +1273,16 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
             hdr.addWidget(status_label, 0, Qt.AlignTop)
     hdr.addStretch()
 
-    # Score | Grade side by side.
+    # A loadout card represents one item, so its score and grade remain a
+    # compact combined badge.  The replacement dialog owns its separate
+    # score/grade/direct-damage metrics below.
     score_frame=None
     if score_info is not None:
         score,grade=score_info; gc=GRADE_COLORS.get(grade,"#58a6ff")
-        score_frame=QFrame()
         score_pad = "4px 10px" if is_feature_card else "2px 10px"
-        score_frame.setStyleSheet(f"QFrame{{background:{theme_rgba(gc, 0.10)};border:1px solid {gc};border-radius:6px;padding:{score_pad}}}")
         score_margin = 0 if is_feature_card else 1
+        score_frame=QFrame()
+        score_frame.setStyleSheet(f"QFrame{{background:{theme_rgba(gc, 0.10)};border:1px solid {gc};border-radius:6px;padding:{score_pad}}}")
         sf_layout=QHBoxLayout(score_frame); sf_layout.setSpacing(5); sf_layout.setContentsMargins(4,score_margin,4,score_margin)
         score_font_size = header_font_size or 13
         sl=QLabel(f"{score:.1f}"); sl.setStyleSheet(f"font-size:{score_font_size}px;font-weight:800;color:{gc};border:none"); sf_layout.addWidget(sl)

@@ -2,8 +2,11 @@
 import importlib.util
 import sqlite3
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +24,10 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "012_game_static_graduation_template.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "013_game_static_setting_defaults.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "014_game_static_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -38,6 +45,100 @@ def load_builder_module():
 
 
 class StaticGameDatabaseTests(unittest.TestCase):
+    def test_legacy_calculation_catalog_uses_sqlite_not_role_or_set_json(self):
+        """The old calculation UI may retain its solver, but not JSON static data."""
+        from src.services.legacy_allocation_static_catalog import (
+            build_legacy_allocation_static_catalog,
+        )
+
+        real_open = open
+
+        def forbid_legacy_static_json(file, *args, **kwargs):
+            normalized_path = str(file).replace("\\", "/").lower()
+            if normalized_path.endswith(("/roles.json", "/sets.json")):
+                raise AssertionError(f"calculation catalog attempted JSON access: {file}")
+            return real_open(file, *args, **kwargs)
+
+        with patch("builtins.open", side_effect=forbid_legacy_static_json):
+            catalog = build_legacy_allocation_static_catalog(
+                config_dir=PROJECT_ROOT / "config",
+            )
+
+        self.assertGreater(len(catalog.roles_db), 0)
+        self.assertGreater(len(catalog.sets_db), 0)
+        self.assertGreater(len(catalog.shapes_db), 0)
+
+    def test_legacy_calculation_catalog_uses_account_shape_bonus_override(self):
+        from src.services.character_weight_service import (
+            save_account_character_shape_bonus,
+        )
+        from src.services.legacy_allocation_static_catalog import (
+            build_legacy_allocation_static_catalog,
+        )
+        from src.storage.sqlite.user_data_dao import UserDataDao
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "user.sqlite3"
+            with UserDataDao(database, account_id="shape-override"):
+                pass
+            save_account_character_shape_bonus(
+                database,
+                1051,
+                shape_label="Type-4",
+                property_values={"CritBase": 8.0},
+            )
+            catalog = build_legacy_allocation_static_catalog(
+                config_dir=PROJECT_ROOT / "config",
+                user_database_path=database,
+            )
+
+        self.assertEqual("Type-4", catalog.roles_db["「零」"]["extra_shape_label"])
+        self.assertEqual(
+            {"暴击率%": 8.0},
+            catalog.roles_db["「零」"]["extra_shape_buffs"],
+        )
+
+    def test_weight_page_saves_shape_bonus_override_to_account_sqlite(self):
+        from src.features.configuration import page as configuration_page
+        from src.storage.sqlite.user_data_dao import UserDataDao
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "user.sqlite3"
+            with UserDataDao(database, account_id="weight-page"):
+                pass
+            window = SimpleNamespace(
+                _current_config_name="account_weights",
+                _config_form_data={
+                    "「零」": {
+                        "character_id": 1051,
+                        "weights": {"CritBase": 1.25},
+                        "main_weights": {"CritBase": 0.75},
+                        "extra_shape_label": "Type-2",
+                        "extra_shape_buffs": {"AtkUp": 15.0},
+                    }
+                },
+                _config_dirty=True,
+                _config_dirty_character_ids={1051},
+                _config_dirty_shape_bonus_ids={1051},
+                reloaded=False,
+            )
+            window._load_data = lambda: setattr(window, "reloaded", True)
+            with patch.object(
+                configuration_page.runtime, "USER_DATABASE_PATH", database,
+                create=True,
+            ), patch.object(
+                configuration_page.QMessageBox, "information",
+            ), patch.object(configuration_page.QMessageBox, "warning"):
+                configuration_page.save_config_form(window, PROJECT_ROOT / "config", None)
+            with UserDataDao(database) as user_dao:
+                weights = user_dao.get_character_weight_preferences(1051)
+                shape_bonus = user_dao.get_character_shape_bonus_preferences(1051)
+
+        self.assertTrue(window.reloaded)
+        self.assertEqual({"CritBase": 1.25}, weights["property_weights"])
+        self.assertEqual("Type-2", shape_bonus["shape_label"])
+        self.assertEqual({"AtkUp": 15.0}, shape_bonus["property_values"])
+
     def test_checked_in_distribution_database_has_no_source_payloads(self):
         self.assertTrue(PROJECT_DATABASE_PATH.is_file())
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
@@ -63,7 +164,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             graduation_count = connection.execute(
                 "SELECT COUNT(*) FROM character_graduation_template"
             ).fetchone()[0]
-            role_template_count = connection.execute(
+            classified_role_template_count = connection.execute(
                 """
                 SELECT COUNT(*)
                 FROM character_annotation
@@ -72,15 +173,28 @@ class StaticGameDatabaseTests(unittest.TestCase):
                 )
                 """
             ).fetchone()[0]
+            default_avatar_template_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM character_annotation
+                WHERE character_id = 1051
+                  AND classification = 'available_avatar_variant'
+                """
+            ).fetchone()[0]
             violations = connection.execute("PRAGMA foreign_key_check").fetchall()
         finally:
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(12, schema_version)
+        self.assertEqual(16, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
-        self.assertEqual(role_template_count, graduation_count)
+        # The role-template DAO adds official ID 1051 as the default avatar
+        # when no account-specific avatar variant has been observed.
+        self.assertEqual(
+            classified_role_template_count + default_avatar_template_count,
+            graduation_count,
+        )
         self.assertEqual(0, absolute_path_count)
         self.assertEqual([], violations)
 

@@ -16,9 +16,8 @@ class NavItem:
 
 
 NAV_ITEMS = (
-    NavItem("home", "⌂  工作台", "btn_home", "_page_home", "_refresh_home"),
+    NavItem("home", "工作台", "btn_home", "_page_home", "_refresh_home"),
     NavItem("execute", "⚡  计算", "btn_exec", "_page_execute"),
-    NavItem("weighted_allocation", "🧩  词条配装", "btn_weighted_allocation", "_page_weighted_allocation", "_refresh_weighted_allocation"),
     NavItem("equipment", "💎  配装", "btn_equip", "_page_equipment", "_refresh_equip"),
     NavItem("warehouse", "🗃️  仓库", "btn_warehouse", "_page_warehouse", "_refresh_warehouse"),
     NavItem("my_role", "👤  角色", "btn_my_role", "_page_my_role", "_refresh_my_role"),

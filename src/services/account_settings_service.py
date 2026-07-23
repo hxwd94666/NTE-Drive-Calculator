@@ -16,6 +16,13 @@ from src.utils.logger import logger
 
 SETTING_GROUPS = frozenset({"sync", "hotkeys", "update", "ui"})
 
+# These are account preferences rather than game data.  Keep them here so an
+# older bundled static database can still supply the remaining UI defaults.
+_UI_RUNTIME_DEFAULTS = {
+    "protagonist_game_name": "",
+    "skip_protagonist_name_prompt": False,
+}
+
 
 class AccountSettingsService:
     """Read official defaults and persist only account-specific group copies."""
@@ -131,7 +138,13 @@ class AccountSettingsService:
         value: Mapping[str, Any],
         defaults: Mapping[str, Any],
     ) -> dict[str, Any]:
-        normalized = {name: value.get(name, default) for name, default in defaults.items()}
+        effective_defaults = dict(defaults)
+        if key == "ui":
+            effective_defaults.update(_UI_RUNTIME_DEFAULTS)
+        normalized = {
+            name: value.get(name, default)
+            for name, default in effective_defaults.items()
+        }
         if key == "sync":
             for name in ("inventory_sync_method", "equipment_apply_method"):
                 method = str(normalized[name]).strip()
@@ -201,4 +214,10 @@ class AccountSettingsService:
             normalized["theme"] = theme
             if normalized["full_scan_amd_compatibility"]:
                 normalized["full_scan_dual_thread_processing"] = False
+            normalized["protagonist_game_name"] = str(
+                normalized.get("protagonist_game_name") or ""
+            ).strip()
+            normalized["skip_protagonist_name_prompt"] = bool(
+                normalized.get("skip_protagonist_name_prompt", False)
+            )
         return normalized

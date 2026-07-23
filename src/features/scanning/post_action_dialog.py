@@ -45,6 +45,7 @@ from src.features.scanning.post_actions import (
 from src.domain.stat_catalog import StatCatalog
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
+from src.features.inventory.warehouse import warehouse_shape_pixmap
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -167,10 +168,9 @@ class TypeRangeDialog(QDialog):
                 button.setChecked(shape_id in selected)
                 button.setToolTip(shape_id)
                 button.setMinimumSize(84, 54)
-                template_dir = Path(getattr(runtime, "TEMPLATE_DIR", Path("config") / "templates"))
-                icon_path = template_dir / f"{shape_id}.png"
-                if icon_path.exists():
-                    button.setIcon(QIcon(str(icon_path)))
+                pixmap = warehouse_shape_pixmap(shape_id, "Gold")
+                if not pixmap.isNull():
+                    button.setIcon(QIcon(pixmap))
                     button.setIconSize(QSize(32, 32))
                 button.setStyleSheet(_button_style(button.isChecked()))
                 button.toggled.connect(lambda checked, b=button: b.setStyleSheet(_button_style(checked)))

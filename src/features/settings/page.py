@@ -8,6 +8,7 @@ folders. MainWindow still owns all callbacks.
 from __future__ import annotations
 
 import os
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -84,6 +85,30 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     log_row.addWidget(log_toggle)
     log_row.addStretch()
     log_card.layout().addLayout(log_row)
+
+    protagonist_row = QHBoxLayout()
+    protagonist_row.addWidget(QLabel("主角游戏名:"))
+    window._protagonist_game_name_edit = QLineEdit()
+    window._protagonist_game_name_edit.setPlaceholderText("零在游戏内显示的玩家名字")
+    window._protagonist_game_name_edit.setText(
+        str((getattr(window, "_ui_preferences", {}) or {}).get("protagonist_game_name") or "")
+    )
+
+    def save_protagonist_name() -> None:
+        preferences = getattr(window, "_ui_preferences", None)
+        if not isinstance(preferences, dict):
+            return
+        preferences["protagonist_game_name"] = window._protagonist_game_name_edit.text().strip()
+        # A deliberate edit is an explicit answer, so later automatic
+        # assembly should use it without asking again.
+        preferences["skip_protagonist_name_prompt"] = bool(
+            preferences["protagonist_game_name"]
+        )
+        window._save_ui_preferences()
+
+    window._protagonist_game_name_edit.editingFinished.connect(save_protagonist_name)
+    protagonist_row.addWidget(window._protagonist_game_name_edit, 1)
+    log_card.layout().addLayout(protagonist_row)
 
     theme_row = QHBoxLayout()
     theme_row.addWidget(QLabel("主题颜色:"))
@@ -331,6 +356,32 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     thanks_row.addWidget(thanks_desc)
     thanks_row.addStretch()
     thanks_card.layout().addLayout(thanks_row)
+    toolkit_row = QHBoxLayout()
+    toolkit_row.setSpacing(8)
+    toolkit_name = QLabel(
+        '<a href="https://github.com/kongbaiz/nte-dps-toolkit" '
+        'style="color:#58a6ff;text-decoration:none;">nte-dps-toolkit</a>'
+    )
+    toolkit_name.setTextFormat(Qt.RichText)
+    toolkit_name.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    toolkit_name.setOpenExternalLinks(True)
+    toolkit_name.setStyleSheet(
+        themed_style(
+            "font-weight:700;background:#0d1f35;border:1px solid #1f6feb;"
+            "border-radius:6px;padding:5px 10px"
+        )
+    )
+    toolkit_desc = QLabel("提供协议解析核心代码以及装配插件支持")
+    toolkit_desc.setStyleSheet(
+        themed_style(
+            "color:#c9d1d9;background:#161b22;"
+            "border:1px solid #30363d;border-radius:6px;padding:5px 10px"
+        )
+    )
+    toolkit_row.addWidget(toolkit_name)
+    toolkit_row.addWidget(toolkit_desc)
+    toolkit_row.addStretch()
+    thanks_card.layout().addLayout(toolkit_row)
     layout.addWidget(thanks_card)
 
     layout.addStretch()

@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.features.allocation.plan_diff_pairing import drive_item_area
-from src.features.role.dao import load_my_roles_model
 from src.features.role.stat_engine import (
     CharacterStatContext,
     add_stat_total as _engine_add_stat_total,
@@ -32,6 +31,16 @@ from src.optimizer.contracts import (
     PLAN_CUSTOM_WEAPON,
     ROLE_LAST_DIFF,
 )
+
+
+def load_my_roles_model() -> dict[str, Any]:
+    """Temporary compatibility source for result-panel-only legacy models.
+
+    The calculation page no longer creates or reads ``my_roles.json``.  The
+    legacy model file is optional, so an empty mapping keeps result rendering
+    available while the panel data is migrated to the official SQLite tables.
+    """
+    return {}
 
 
 BonusRows = list[tuple[str, float]]

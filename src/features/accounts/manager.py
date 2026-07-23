@@ -132,9 +132,6 @@ class AccountManager:
             src = legacy_config / fname if migrate_legacy else None
             if src and src.exists() and src.resolve() != dst.resolve():
                 shutil.copy2(str(src), str(dst))
-                continue
-            if fname == "equipped_state.json":
-                dst.write_text("{}", encoding="utf-8")
 
         legacy_screenshots = self.data_root / "scanned_images"
         account_screenshots = account_root / "scanned_images"

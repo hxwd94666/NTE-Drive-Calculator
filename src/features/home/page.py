@@ -71,7 +71,8 @@ def build_home_page(window) -> QScrollArea:
     title_column.addWidget(window.home_account_label)
     hero_layout.addLayout(title_column)
     hero_layout.addStretch()
-    hero_icon_path = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui").character_icon(1003)
+    # 工作台的后台监听提示使用伊洛伊头像，避免与角色功能中的默认示例混淆。
+    hero_icon_path = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui").character_icon(1075)
     if hero_icon_path is not None:
         hero_icon = QLabel()
         hero_icon.setFixedSize(72, 72)
@@ -123,8 +124,11 @@ def build_home_page(window) -> QScrollArea:
     window.home_stop_sync_button = QPushButton("停止同步")
     window.home_stop_sync_button.clicked.connect(window._stop_inventory_sync)
     window.home_stop_sync_button.setEnabled(False)
+    sync_settings_button = QPushButton("同步设置")
+    sync_settings_button.clicked.connect(lambda _checked=False: window._go("settings"))
     sync_actions.addWidget(window.home_start_sync_button)
     sync_actions.addWidget(window.home_stop_sync_button)
+    sync_actions.addWidget(sync_settings_button)
     sync_actions.addStretch()
     sync_layout.addLayout(sync_actions)
     root.addWidget(sync_card)
@@ -135,7 +139,7 @@ def build_home_page(window) -> QScrollArea:
         ("计算配装", "execute"),
         ("查看方案", "equipment"),
         ("角色边际", "my_role"),
-        ("同步设置", "settings"),
+        ("空幕鉴定", "identify"),
     ):
         button = QPushButton(label)
         button.clicked.connect(lambda _checked=False, key=page_key: window._go(key))

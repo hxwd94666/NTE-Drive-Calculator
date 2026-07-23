@@ -127,7 +127,7 @@ from PySide6.QtWidgets import (
     QTextEdit, QMessageBox, QComboBox,
     QSizeGrip,
 )
-from PySide6.QtCore import Qt, Signal, QPoint, QTimer
+from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QSize
 from PySide6.QtGui import QColor, QTextCursor, QIcon
 
 from src.features.scanning.file_lifecycle import (
@@ -136,12 +136,9 @@ from src.features.scanning.file_lifecycle import (
     iter_image_files as _iter_image_files,
     managed_screenshot_usage,
 )
-from src.optimizer.state_manager import StateManager
 from src.optimizer.scoring import ScoringEngine
 from src.domain.stat_catalog import StatCatalog
-from src.storage.json_store import read_json, write_json
 from src.utils.logger import disable_session_log, enable_session_log, logger, set_log_dir
-from src.utils.name_resolver import resolve_name
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.official_role.page import confirm_pending_my_role_changes
@@ -181,8 +178,7 @@ from src.services.dashboard_service import DashboardService
 from src.services.account_settings_service import AccountSettingsService
 from src.services.inventory_sync_service import InventorySyncService, InventorySyncState
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.services.legacy_allocation_static_catalog import build_legacy_allocation_static_catalog
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 
 ACCOUNT_MANAGER = AccountManager(
@@ -256,7 +252,7 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self._pending_delete_after_parse=[]
         self._identify_blueprint_cache=None
         self._inventory_sync_service=None
-        self.state_mgr=StateManager(config_dir=str(USER_CONFIG_DIR)); self._log_enabled=False
+        self._log_enabled=False
         set_log_dir(LOG_DIR)
 
         # Hotkey config
@@ -444,6 +440,9 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self._nav_buttons={}
         for item in NAV_ITEMS:
             button=self._nav(item.label,item.key)
+            if item.key == "home":
+                button.setIcon(QIcon(str(runtime.ASSET_DIR / "app_icon.png")))
+                button.setIconSize(QSize(18, 18))
             setattr(self,item.button_attr,button)
             self._nav_buttons[item.key]=button
             sl.addWidget(button)
@@ -530,7 +529,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         ACCOUNT_MANAGER.set_active_account_id(account_id)
         _set_active_account(account_id)
         set_log_dir(LOG_DIR)
-        self.state_mgr=StateManager(config_dir=str(USER_CONFIG_DIR))
         self._account_settings=AccountSettingsService(
             USER_DATABASE_PATH, legacy_config_dir=USER_CONFIG_DIR
         )
@@ -619,9 +617,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
     # ── Data
     def _load_data(self, reload_priority=True):
         try:
-            self.roles_db=read_json(CONFIG_DIR/"roles.json", default={}) or {}
-            sd=(read_json(CONFIG_DIR/"sets.json", default={}) or {}).get("sets",{})
-            self.sets_db=sd; self.all_set_names=list(sd.keys())
             catalog=StatCatalog.from_config_dir(CONFIG_DIR)
             self.stats_config={
                 "gold_base_values": catalog.gold_base_values,
@@ -639,35 +634,22 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             self.weapons_db=fork_templates_as_weapon_models(
                 load_official_role_fork_templates()
             )
-            self._canonicalize_loaded_role_sets()
-            with StaticGameDataDao() as static_dao:
-                self._shape_areas={
-                    legacy_shape_id(shape["shape_id"]): int(shape["cell_count"])
-                    for shape in static_dao.list_shapes()
-                }
-                characters = {
-                    str(row.get("name_zh") or ""): int(
-                        row.get("canonical_character_id") or row["character_id"]
-                    )
-                    for row in static_dao.list_characters()
-                }
-                for role_name, role_data in self.roles_db.items():
-                    character_id = characters.get(str(role_name))
-                    if role_name == "主角":
-                        character_id = next(
-                            (candidate for candidate in (1046, 1051)
-                             if static_dao.get_character_default_suit(candidate) is not None),
-                            None,
-                        )
-                    if character_id is None:
-                        continue
-                    default_suit = static_dao.get_character_default_suit(character_id)
-                    if default_suit is not None:
-                        role_data["default_set"] = str(default_suit["suit_name_zh"])
-            sf=USER_CONFIG_DIR/"equipped_state.json"
-            self.equipped_state=read_json(sf, default={}) or {}
-            self.scoring_engine=ScoringEngine(str(CONFIG_DIR))
-            logger.info(f"加载完成：{len(self.roles_db)} 角色，{len(self.sets_db)} 套装")
+            static_catalog = build_legacy_allocation_static_catalog(
+                config_dir=CONFIG_DIR, user_database_path=USER_DATABASE_PATH,
+            )
+            self.roles_db=static_catalog.roles_db
+            self.sets_db=static_catalog.sets_db
+            self.all_set_names=list(self.sets_db)
+            self._shape_areas={
+                shape_id: int(shape.area)
+                for shape_id, shape in static_catalog.shapes_db.items()
+            }
+            self.equipped_state={}
+            self.scoring_engine=ScoringEngine(
+                str(CONFIG_DIR), user_database_path=USER_DATABASE_PATH,
+                roles_db=self.roles_db,
+            )
+            logger.info(f"已从 SQLite 加载 {len(self.roles_db)} 角色，{len(self.sets_db)} 套装")
             self._update_inventory_status()
             self.role_selector.load_roles(self.roles_db,self.all_set_names,self.tape_main_stats,self.drive_sub_stats,weapons_db=self.weapons_db)
             if reload_priority:
@@ -676,21 +658,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             if hasattr(self,"ident_shape_combo"):
                 self._refresh_identify_options()
         except Exception as e: logger.error(f"加载失败: {e}")
-
-    def _canonicalize_loaded_role_sets(self):
-        changed=False
-        for role_name,role_data in self.roles_db.items():
-            raw_set=role_data.get("default_set","")
-            resolved=resolve_name(raw_set,self.sets_db.keys(),cutoff=0.78)
-            if resolved and resolved!=raw_set:
-                role_data["default_set"]=resolved
-                changed=True
-                logger.warning(f"角色 [{role_name}] 默认套装名已自动修正: {raw_set} -> {resolved}")
-        if changed:
-            try:
-                write_json(CONFIG_DIR/"roles.json", self.roles_db, indent=4)
-            except Exception as e:
-                logger.warning(f"默认套装名已在内存中修正，但写回 roles.json 失败: {e}")
 
     def _update_inventory_status(self):
         try:

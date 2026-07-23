@@ -38,8 +38,8 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
             "benefit_alias_mapping": {},
             "weight_pool": [],
         }
-        (config_dir / "roles.json").write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
         (config_dir / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
+        return roles
 
     def test_workshop_weight_merge_updates_weights_and_preserves_local_role_fields(self):
         from src.domain.stat_catalog import StatCatalog
@@ -151,18 +151,12 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (config_dir / "roles.json").write_text(
-                json.dumps(
-                    {
-                        "A": {
-                            "weights": {"Sub": 1.0, "Main": 0.1},
-                            "main_weights": {"Main": 2.0},
-                        }
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
+            roles = {
+                "A": {
+                    "weights": {"Sub": 1.0, "Main": 0.1},
+                    "main_weights": {"Main": 2.0},
+                }
+            }
             tape = Tape(
                 uid="tape",
                 quality="Gold",
@@ -172,7 +166,7 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
                 sub_stats={},
             )
 
-            engine = ScoringEngine(str(config_dir))
+            engine = ScoringEngine(str(config_dir), roles_db=roles)
             engine.evaluate_global_inventory([tape])
 
         self.assertEqual(100.0, tape.role_scores["A"])
@@ -183,7 +177,7 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
-            self._write_scoring_config(config_dir)
+            roles = self._write_scoring_config(config_dir)
             tapes = [
                 Tape(uid=f"other_{idx}", quality="Gold", area=15, set_name="Set", main_stats="Other", sub_stats={})
                 for idx in range(4)
@@ -192,7 +186,7 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
                 Tape(uid="wanted", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={"Sub": 1})
             )
 
-            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+            result = ScoringEngine(str(config_dir), roles_db=roles).evaluate_global_inventory(
                 tapes,
                 tape_top_k_per_set_per_role=3,
                 tape_main_filters={"A": ["Wanted"]},
@@ -206,13 +200,10 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
-            self._write_scoring_config(config_dir)
-            roles_path = config_dir / "roles.json"
-            roles = json.loads(roles_path.read_text(encoding="utf-8"))
+            roles = self._write_scoring_config(config_dir)
             roles["A"]["weights"] = {"Sub": 1.0}
-            roles_path.write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
 
-            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+            result = ScoringEngine(str(config_dir), roles_db=roles).evaluate_global_inventory(
                 [
                     Tape(uid="wanted_zero", quality="Gold", area=15, set_name="Set", main_stats="Wanted", sub_stats={}),
                     Tape(uid="other_high", quality="Gold", area=15, set_name="Set", main_stats="Other", sub_stats={"Sub": 1}),
@@ -229,7 +220,7 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
-            self._write_scoring_config(config_dir)
+            roles = self._write_scoring_config(config_dir)
             drives = [
                 Drive(
                     uid=f"high_{idx}",
@@ -254,7 +245,7 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
                 )
             )
 
-            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+            result = ScoringEngine(str(config_dir), roles_db=roles).evaluate_global_inventory(
                 drives,
                 top_k_per_shape_per_role=3,
                 crit_priority_modes={"A": {"stats": ["Crit"], "equal_priority": False}},
@@ -268,11 +259,8 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
-            self._write_scoring_config(config_dir)
-            roles_path = config_dir / "roles.json"
-            roles = json.loads(roles_path.read_text(encoding="utf-8"))
+            roles = self._write_scoring_config(config_dir)
             roles["A"]["weights"] = {"H1": 10.0, "Crit": 1.0}
-            roles_path.write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
 
             high_score = Drive(
                 uid="high_score",
@@ -293,7 +281,7 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
                 sub_stats={"Crit": 1},
             )
 
-            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+            result = ScoringEngine(str(config_dir), roles_db=roles).evaluate_global_inventory(
                 [high_score, low_score_match],
                 top_k_per_shape_per_role=1,
                 crit_priority_modes={"A": {"stats": ["Crit"], "ignore_grade_limit": True}},
@@ -307,11 +295,8 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
-            self._write_scoring_config(config_dir)
-            roles_path = config_dir / "roles.json"
-            roles = json.loads(roles_path.read_text(encoding="utf-8"))
+            roles = self._write_scoring_config(config_dir)
             roles["A"]["weights"] = {"H1": 10.0}
-            roles_path.write_text(json.dumps(roles, ensure_ascii=False), encoding="utf-8")
 
             high_score = Drive(
                 uid="high_score",
@@ -332,7 +317,7 @@ class ScoringScreeningWorkflowTests(unittest.TestCase):
                 sub_stats={"Crit": 1},
             )
 
-            result = ScoringEngine(str(config_dir)).evaluate_global_inventory(
+            result = ScoringEngine(str(config_dir), roles_db=roles).evaluate_global_inventory(
                 [high_score, zero_score_match],
                 top_k_per_shape_per_role=1,
                 crit_priority_modes={"A": {"stats": ["Crit"], "ignore_grade_limit": True}},
@@ -1477,5 +1462,4 @@ class AccountTransferWorkflowTests(unittest.TestCase):
 
             self.assertEqual(dst_id, imported_id)
             self.assertEqual([{"uid": "new"}], imported_inventory)
-
 

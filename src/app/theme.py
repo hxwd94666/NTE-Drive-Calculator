@@ -105,6 +105,11 @@ LIGHT_COLOR_MAP = {
     "#0d1f35": "#ddf4ff",
     "#10243f": "#ddf4ff",
     "#23863622": "#1a7f3718",
+    # Warehouse card action backgrounds: keep lock/discard/inspect controls
+    # neutral on white theme instead of carrying the dark navy/brown fills.
+    "#172a45": "#d0d7de",
+    "#3a2f13": "#d0d7de",
+    "#5b2026": "#d0d7de",
     "#4dd0e122": "#0969da18",
     "#4dd0e1": "#0969da",
     "#2f81f7": "#0969da",
@@ -121,7 +126,11 @@ LIGHT_COLOR_MAP = {
     "#2ea043": "#2da44e",
     "#da3633": "#cf222e",
     "#f85149": "#cf222e",
-    "#d2991d": "#9a6700",
+    # Warehouse lock: use a saturated orange on white rather than the muted
+    # brown used by the old light mapping, so the tiny glyph stays obvious.
+    "#d2991d": "#e8590c",
+    "#d29922": "#e8590c",
+    "#e3b341": "#e8590c",
     "#3fb950": "#1a7f37",
 }
 _DARK_COLOR_MAP = {value: key for key, value in LIGHT_COLOR_MAP.items()}

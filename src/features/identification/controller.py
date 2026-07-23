@@ -28,7 +28,7 @@ from src.utils.name_resolver import resolve_name
 
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-__all__ = ['_page_identify', '_refresh_identify_options', '_on_identify_type_changed', '_get_tape_main_stats_pool', '_set_combo_data', '_make_combo_searchable', '_combo_data_or_resolved_text', '_identify_quality', '_clear_identify_input', '_clear_identify_results', '_delete_layout', '_set_identify_busy', '_identify_paths_from_text', '_refresh_identify_previews', '_show_identify_preview_image', '_remove_identify_preview_path', '_identify_start', '_start_identify_capture_mode', '_capture_identify_foreground', '_add_identify_capture_path', '_finish_identify_capture_mode', '_identify_choose_file', '_identify_from_clipboard', '_identify_from_image_path', '_parse_identify_images', '_on_identify_items_loaded', '_load_identify_item_to_form', '_identify_from_manual', '_apply_identify_manual_fields', '_manual_tokens', '_manual_value', '_resolve_stat_name', '_parse_manual_stats', '_start_identify_item', '_start_identify_items', '_get_identify_blueprints', '_run_identify_item', '_run_identify_items', '_render_identify_result', '_render_identify_result_page', '_set_identify_result_page', '_identify_result_row', '_on_identify_error']
+__all__ = ['_page_identify', '_refresh_identify_options', '_on_identify_type_changed', '_get_tape_main_stats_pool', '_set_combo_data', '_make_combo_searchable', '_combo_data_or_resolved_text', '_identify_quality', '_clear_identify_input', '_clear_identify_results', '_delete_layout', '_set_identify_busy', '_identify_paths_from_text', '_refresh_identify_previews', '_show_identify_preview_image', '_remove_identify_preview_path', '_identify_start', '_start_identify_capture_mode', '_capture_identify_foreground', '_add_identify_capture_path', '_finish_identify_capture_mode', '_identify_choose_file', '_identify_from_clipboard', '_identify_from_manual', '_apply_identify_manual_fields', '_manual_tokens', '_manual_value', '_resolve_stat_name', '_parse_manual_stats', '_start_identify_item', '_start_identify_items', '_get_identify_blueprints', '_run_identify_item', '_run_identify_items', '_render_identify_result', '_render_identify_result_page', '_set_identify_result_page', '_identify_result_row', '_on_identify_error']
 
 
 def install_methods(app_module, window_cls):
@@ -74,6 +74,7 @@ def _on_identify_type_changed(self):
     is_tape=hasattr(self,"ident_tape_rb") and self.ident_tape_rb.isChecked()
     if hasattr(self,"ident_shape_row"): self.ident_shape_row.setVisible(not is_tape)
     if hasattr(self,"ident_tape_row"): self.ident_tape_row.setVisible(is_tape)
+
 
 def _get_tape_main_stats_pool(self):
     try:
@@ -372,9 +373,9 @@ def _resolve_stat_name(self,name,percent=False):
     manual_aliases={
         "大生命":"生命值%", "生命%":"生命值%", "生命值%":"生命值%",
         "生命值百分比":"生命值%", "百分比生命值":"生命值%",
-        "大防御":"防御力%", "防御":"防御力%", "防御%":"防御力%",
+        "大防御":"防御力%", "防御":"防御力", "防御%":"防御力%",
         "防御力%":"防御力%", "防御力百分比":"防御力%", "百分比防御力":"防御力%",
-        "大攻击":"攻击力%", "攻击":"攻击力%", "攻击%":"攻击力%",
+        "大攻击":"攻击力%", "攻击":"攻击力", "攻击%":"攻击力%",
         "攻击力%":"攻击力%", "攻击力百分比":"攻击力%", "百分比攻击力":"攻击力%",
         "暴击":"暴击率%", "爆击":"暴击率%", "暴击率":"暴击率%", "爆击率":"暴击率%",
         "爆伤":"暴击伤害%", "暴伤":"暴击伤害%", "暴击伤害":"暴击伤害%",

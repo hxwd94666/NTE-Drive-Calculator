@@ -319,6 +319,29 @@ class WeightedAllocationUiTests(unittest.TestCase):
         self.assertIsNone(source["main_value"])
         self.assertEqual({"暴击率%": 10.0}, source["sub_stats"])
 
+    def test_result_card_tooltip_exposes_account_sqlite_weights(self):
+        candidate = AllocationCandidate(
+            2, 1, "core", "core", "Suit4", None, None, "orange", 60, 60,
+            False, False, False, None, False, None, None, None,
+            (OfficialStat("CritBase", 0.2, True),),
+            (OfficialStat("AtkUp", 0.1, True),),
+        )
+        assignment = AllocationAssignment(
+            candidate.uid, "core", "core", "Suit4", None, (), None, 40.0, (), (),
+        )
+        host = SimpleNamespace(
+            _weighted_property_names={"CritBase": "暴击率%", "AtkUp": "攻击力%"},
+        )
+
+        tooltip = page._assignment_weight_tooltip(
+            host, assignment, candidate,
+            {"AtkUp": 0.7}, {"CritBase": 1.25},
+        )
+
+        self.assertIn("账号 SQLite 词条权重", tooltip)
+        self.assertIn("主词条 暴击率%：1.25", tooltip)
+        self.assertIn("副词条 攻击力%：0.7", tooltip)
+
     def test_official_summary_reuses_old_shape_quality_and_role_bonus_rules(self):
         core = AllocationCandidate(
             1, 1, "core", "core", None, None, None, "orange", 20, 20,
@@ -656,11 +679,10 @@ class WeightedAllocationUiTests(unittest.TestCase):
         request = WeightedAllocationRequest(Path(__file__), 1, 2, 3, 5)
         user, static, context = MagicMock(), MagicMock(), MagicMock(account_id="a", static_dataset=MagicMock())
         user.__enter__.return_value = user; static.__enter__.return_value = static
-        roles_path = Path("config/roles.json")
-        with patch("src.features.weighted_allocation.runner.UserDataDao", return_value=user), patch("src.features.weighted_allocation.runner.StaticGameDataDao", return_value=static), patch("src.features.weighted_allocation.runner._workshop_roles_path", return_value=roles_path), patch("src.features.weighted_allocation.runner.build_allocation_context", return_value=context) as build_context, patch("src.features.weighted_allocation.runner.solve_allocation_context", return_value="result"):
+        with patch("src.features.weighted_allocation.runner.UserDataDao", return_value=user), patch("src.features.weighted_allocation.runner.StaticGameDataDao", return_value=static), patch("src.features.weighted_allocation.runner.build_allocation_context", return_value=context) as build_context, patch("src.features.weighted_allocation.runner.solve_allocation_context", return_value="result"):
             preview = run_weighted_allocation(request)
         self.assertEqual("result", preview.result)
-        self.assertEqual(roles_path, build_context.call_args.kwargs["workshop_roles_path"])
+        self.assertNotIn("workshop_roles_path", build_context.call_args.kwargs)
 
     def test_persistence_reader_requires_complete_matching_active_plans(self):
         dao = MagicMock()

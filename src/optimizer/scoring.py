@@ -1,45 +1,126 @@
 # 计算装备词条和套装评分。
 """Equipment scoring rules driven by role and stat configuration."""
 
-import json
-import os
-from typing import List, Dict, Any
+from pathlib import Path
+from typing import List, Dict, Any, Mapping
 
 from src.domain.crit_threshold import meets_preference_grade_limit
 from src.domain.grade_limits import meets_min_grade
 from src.domain.stat_catalog import StatCatalog
 from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+# 旧评分器仍以这些显示名匹配 OCR 装备；角色和权重本身已迁到 SQLite。
+_LEGACY_PROPERTY_NAMES = {
+    "AtkAdd": "攻击力", "AtkUp": "攻击力%", "CritBase": "暴击率%",
+    "CritDamageBase": "暴击伤害%", "DamageUpChaosBase": "暗属性异能伤害增强%",
+    "DamageUpCosmosBase": "光属性异能伤害增强%", "DamageUpGeneralAdd": "伤害增加%",
+    "DamageUpGeneralBase": "伤害增加%", "DamageUpIncantationBase": "咒属性异能伤害增强%",
+    "DamageUpLakshanaBase": "相属性异能伤害增强%", "DamageUpNatureBase": "灵属性异能伤害增强%",
+    "DamageUpPsycheBase": "魂属性异能伤害增强%", "DamageUpPsychicallyBase": "心灵伤害增强%",
+    "DefAdd": "防御力", "DefUp": "防御力%", "HealUp": "治疗加成",
+    "HPMaxAdd": "生命值", "HPMaxUp": "生命值%", "MagBase": "环合强度",
+    "UnbalIntensityBase": "倾陷强度",
+}
 
 
 class ScoringEngine:
 
-    def __init__(self, config_dir: str = "config"):
-        self.config_dir = config_dir
-        self.roles_db = {}
+    def __init__(
+        self,
+        config_dir: str = "config",
+        *,
+        user_database_path: str | Path | None = None,
+        roles_db: Mapping[str, Mapping[str, Any]] | None = None,
+    ):
+        self.config_dir = str(config_dir)
+        self.user_database_path = (
+            Path(user_database_path) if user_database_path is not None else None
+        )
+        self.roles_db = dict(roles_db or {})
         self.stat_catalog = StatCatalog()
         self.gold_base_values = {}
         self.main_only_keywords = []
         self.stat_alias_mapping = {}
         self.quality_map = {"Gold": 1.0, "Purple": 0.8, "Blue": 0.6}
-        self._load_configs()
+        self._load_stats()
+        if roles_db is None:
+            self._load_roles_from_sqlite()
 
-    def _load_configs(self):
-        roles_path = os.path.join(self.config_dir, 'roles.json')
-        if os.path.exists(roles_path):
-            with open(roles_path, 'r', encoding='utf-8') as f:
-                self.roles_db = json.load(f)
-        else:
-            logger.warning(f"找不到角色配置文件: {roles_path}")
-
-        stats_path = os.path.join(self.config_dir, 'stats.json')
-        if os.path.exists(stats_path):
+    def _load_stats(self):
+        stats_path = Path(self.config_dir) / "stats.json"
+        if stats_path.is_file():
             self.stat_catalog = StatCatalog.from_config_dir(self.config_dir)
             self.gold_base_values = self.stat_catalog.gold_base_values
             self.main_only_keywords = self.stat_catalog.main_only_keywords
             self.stat_alias_mapping = self.stat_catalog.stat_alias_mapping
         else:
             logger.error(f"找不到数值规则文件: {stats_path}")
+
+    @staticmethod
+    def _scoring_property_name(attribute: Mapping[str, Any]) -> str:
+        property_id = str(attribute.get("attribute_id") or "")
+        mapped = _LEGACY_PROPERTY_NAMES.get(property_id)
+        if mapped:
+            return mapped
+        label = str(
+            attribute.get("filter_name_zh")
+            or attribute.get("display_name_zh")
+            or property_id
+        ).strip()
+        if bool(attribute.get("show_percent")) and label and not label.endswith("%"):
+            return f"{label}%"
+        return label
+
+    def _load_roles_from_sqlite(self) -> None:
+        """Load scoring weights from account/static SQLite, never roles.json."""
+
+        user_dao = None
+        try:
+            if self.user_database_path is not None and self.user_database_path.is_file():
+                user_dao = UserDataDao(self.user_database_path)
+                preferred_ids = user_dao.list_observed_character_ids()
+            else:
+                preferred_ids = ()
+            with StaticGameDataDao() as static_dao:
+                labels = {
+                    str(attribute["attribute_id"]): self._scoring_property_name(attribute)
+                    for attribute in static_dao.list_equipment_attributes()
+                }
+                for character in static_dao.list_role_template_characters(preferred_ids):
+                    character_id = int(character["character_id"])
+                    record = (
+                        user_dao.get_character_weight_preferences(character_id)
+                        if user_dao is not None
+                        else None
+                    )
+                    if record is None:
+                        record = static_dao.get_character_recommended_weights(character_id)
+                    if record is None:
+                        continue
+                    weights = {
+                        labels[property_id]: float(weight)
+                        for property_id, weight in (record.get("property_weights") or {}).items()
+                        if labels.get(str(property_id)) and float(weight) > 0
+                    }
+                    main_weights = {
+                        labels[property_id]: float(weight)
+                        for property_id, weight in (record.get("main_property_weights") or {}).items()
+                        if labels.get(str(property_id)) and float(weight) > 0
+                    }
+                    if weights or main_weights:
+                        role_name = str(character.get("name_zh") or character_id)
+                        self.roles_db[role_name] = {
+                            "character_id": character_id,
+                            "weights": weights,
+                            "main_weights": main_weights,
+                        }
+        finally:
+            if user_dao is not None:
+                user_dao.close()
 
     def _get_max_theoretical_weight(self, weights: Dict[str, float]) -> float:
         if not weights: return 1.0

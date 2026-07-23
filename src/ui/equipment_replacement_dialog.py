@@ -128,6 +128,7 @@ def show_equipment_replacement_dialog(
         score=current.score,
         grade=current.grade,
         direct_damage_score=current.direct_damage_score,
+        split_metrics=True,
         parent=current_host,
     )
     current_host_layout.addWidget(current_card)
@@ -204,6 +205,7 @@ def show_equipment_replacement_dialog(
             score=choice.score,
             grade=choice.grade,
             direct_damage_score=choice.direct_damage_score,
+            split_metrics=True,
             parent=selected_host,
         )
         selected_copy.setObjectName("equipmentReplacementSelectedPreview")
@@ -217,6 +219,7 @@ def show_equipment_replacement_dialog(
             score=current.score,
             grade=current.grade,
             direct_damage_score=current.direct_damage_score,
+            split_metrics=True,
             parent=current_host,
         )
         compared_current.setObjectName("equipmentReplacementCurrentPreview")
@@ -255,6 +258,7 @@ def show_equipment_replacement_dialog(
             score=choice.score,
             grade=choice.grade,
             direct_damage_score=choice.direct_damage_score,
+            split_metrics=True,
             replacement_callback=lambda value=choice: select(value),
             parent=content,
         )

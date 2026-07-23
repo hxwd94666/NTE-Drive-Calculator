@@ -234,8 +234,17 @@ def _save_alloc(self, show_message=True):
         if not saved_roles:
             raise RuntimeError("本次计算没有可保存的有效方案。")
         self._allocation_dirty=False
+        # Active plans are the character-page equipment source.  Refresh both
+        # projections immediately so a saved calculation is visible as the
+        # role's drive/core context without writing any template/profile data.
+        refresh_roles = getattr(self, "_refresh_my_role", None)
+        if callable(refresh_roles):
+            refresh_roles()
+        refresh_equipment = getattr(self, "_refresh_equip", None)
+        if callable(refresh_equipment):
+            refresh_equipment()
         if show_message:
-            QMessageBox.information(self,"保存成功",f"已将 {len(saved_roles)} 个方案保存到官方 SQLite 数据库。")
+            QMessageBox.information(self,"保存成功",f"已将 {len(saved_roles)} 个方案保存到官方 SQLite 数据库，并同步到角色与配装页面。")
         return True
     except Exception as e:
         QMessageBox.critical(self,"失败",str(e))

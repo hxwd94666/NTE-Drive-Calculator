@@ -16,7 +16,7 @@ from src.services.virtual_equipment_service import (
     make_virtual_equipment_assignment,
 )
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -28,6 +28,7 @@ USER_MIGRATIONS = {
     7: Path(__file__).with_name("schema") / "008_user_data_v7.sql",
     8: Path(__file__).with_name("schema") / "009_user_data_v8.sql",
     9: Path(__file__).with_name("schema") / "010_user_data_v9.sql",
+    10: Path(__file__).with_name("schema") / "011_user_data_v10.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
@@ -1032,6 +1033,95 @@ class UserDataDao:
             connection.rollback()
             raise
         return self.get_character_weight_preferences(raw_character_id)
+
+    def get_character_shape_bonus_preferences(
+        self, character_id: int,
+    ) -> dict[str, Any] | None:
+        """读取账号对官方额外形状标签和加成的覆写。"""
+
+        raw_character_id = _integer(character_id, "character_id", minimum=1)
+        record = self._one(
+            """SELECT character_id, shape_label, updated_at_utc
+               FROM character_shape_bonus_preference WHERE character_id = ?""",
+            (raw_character_id,),
+        )
+        if record is None:
+            return None
+        properties = self._rows(
+            """SELECT property_id, display_value, ordinal
+               FROM character_shape_bonus_preference_property
+               WHERE character_id = ? ORDER BY ordinal""",
+            (raw_character_id,),
+        )
+        record["properties"] = properties
+        record["property_values"] = {
+            str(row["property_id"]): float(row["display_value"])
+            for row in properties
+        }
+        return record
+
+    def save_character_shape_bonus_preferences(
+        self,
+        character_id: int,
+        *,
+        shape_label: str,
+        property_values: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """保存账号角色的额外形状覆写，不改动发行版静态数据。"""
+
+        raw_character_id = _integer(character_id, "character_id", minimum=1)
+        label = str(shape_label or "").strip()
+        if len(label) > 100:
+            raise UserDataValidationError("额外形状标签不能超过 100 个字符")
+        if not isinstance(property_values, Mapping):
+            raise UserDataValidationError("额外形状加成必须是对象")
+        rows = []
+        for ordinal, (raw_property_id, raw_value) in enumerate(property_values.items()):
+            property_id = str(raw_property_id or "").strip()
+            if not property_id:
+                raise UserDataValidationError("额外形状加成 property_id 不能为空")
+            value = self._preference_number(raw_value, "额外形状加成数值")
+            if value < 0:
+                raise UserDataValidationError("额外形状加成数值不能小于 0")
+            rows.append((raw_character_id, property_id, value, ordinal))
+        if len({row[1] for row in rows}) != len(rows):
+            raise UserDataValidationError("额外形状加成不能包含重复属性")
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO character_shape_bonus_preference(
+                    character_id, shape_label, updated_at_utc
+                ) VALUES (?, ?, ?)
+                ON CONFLICT(character_id) DO UPDATE SET
+                    shape_label = excluded.shape_label,
+                    updated_at_utc = excluded.updated_at_utc
+                """,
+                (raw_character_id, label, _utc_now()),
+            )
+            connection.execute(
+                "DELETE FROM character_shape_bonus_preference_property WHERE character_id = ?",
+                (raw_character_id,),
+            )
+            connection.executemany(
+                """
+                INSERT INTO character_shape_bonus_preference_property(
+                    character_id, property_id, display_value, ordinal
+                ) VALUES (?, ?, ?, ?)
+                """,
+                rows,
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法保存角色额外形状加成") from exc
+        except BaseException:
+            connection.rollback()
+            raise
+        result = self.get_character_shape_bonus_preferences(raw_character_id)
+        assert result is not None
+        return result
 
     def get_character_profile(self, character_id: int) -> dict[str, Any] | None:
         """读取一个只含官方 ID 指针和账号养成状态的角色档案。"""
@@ -2407,6 +2497,7 @@ class UserDataDao:
                         )
                     }
                 residual_assignments = []
+                virtual_changes: list[tuple[tuple[int, int], dict[str, Any]]] = []
                 for ordinal, item in enumerate(plan["assignments"]):
                     uid = (
                         int(item["uid_slot"]),
@@ -2428,6 +2519,7 @@ class UserDataDao:
                             character_id=int(plan["character_id"]),
                             ordinal=ordinal,
                         )
+                        virtual_changes.append((uid, assignment))
                     residual_assignments.append(assignment)
                 residual_payload = dict(plan.get("payload") or {})
                 previous_source = residual_payload.get("source")
@@ -2440,6 +2532,30 @@ class UserDataDao:
                         for slot, serial in removed_uids
                     ],
                     "replaced_by_character_ids": sorted(target_characters),
+                }
+                # The previous owner must see both the empty placeholder and a
+                # normal saved-plan change record.  This keeps its card eligible
+                # for the same replacement optimizer as any other slot.
+                virtual_display_uids = [
+                    f"nte-{assignment['kind']}-0-{assignment['uid_serial']}"
+                    for _removed_uid, assignment in virtual_changes
+                ]
+                removed_display_uids = [
+                    f"nte-{next(item['kind'] for item in plan['assignments'] if (int(item['uid_slot']), int(item['uid_serial'])) == uid)}-{uid[0]}-{uid[1]}"
+                    for uid, _assignment in virtual_changes
+                ]
+                residual_payload["changed_uids"] = virtual_display_uids
+                residual_payload["last_diff"] = {
+                    "changed": bool(virtual_display_uids),
+                    "added_uids": virtual_display_uids,
+                    "added": [
+                        {"uid": display_uid, "is_changed": True}
+                        for display_uid in virtual_display_uids
+                    ],
+                    "removed": [
+                        {"uid": display_uid}
+                        for display_uid in removed_display_uids
+                    ],
                 }
                 insert_plan({
                     "name": plan["name"],

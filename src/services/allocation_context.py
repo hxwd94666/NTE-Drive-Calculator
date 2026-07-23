@@ -8,12 +8,9 @@ syncs or later preference edits cannot change a calculation in flight.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from src.domain.stat_catalog import StatCatalog
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -169,9 +166,8 @@ class AllocationRolePreference:
     substat_priorities: tuple[str, ...]
     property_limits: tuple[PropertyLimit, ...]
     equipment: RoleEquipmentConstraints
-    # These values are copied from the currently synchronized workshop profile
-    # when Context is built.  User v5 weights override the matching workshop
-    # entries; the solver never follows roles.json after this boundary.
+    # These values come from the user's SQLite profile or static SQLite defaults.
+    # The solver has no JSON configuration fallback at this boundary.
     effective_property_weights: tuple[tuple[str, float], ...] = ()
     effective_main_property_weights: tuple[tuple[str, float], ...] = ()
     extra_shape_label: str = ""
@@ -356,104 +352,10 @@ def _role_equipment_constraints(
     return RoleEquipmentConstraints(character_id=character_id, cells=cells)
 
 
-def _workshop_roles(config_path: str | Path) -> Mapping[str, Any]:
-    """Read the current workshop-synchronized compatibility cache once.
-
-    ``roles.json`` is not queried by the solver.  It remains the existing
-    workshop-sync storage until a later product migration gives that source a
-    dedicated versioned store; this boundary copies only the scoring metadata
-    that old allocation behavior already consumes.
-    """
-
-    try:
-        with Path(config_path).open("r", encoding="utf-8") as source:
-            payload = json.load(source)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AllocationContextError("无法读取异环工坊同步的角色权重") from exc
-    if not isinstance(payload, Mapping):
-        raise AllocationContextError("异环工坊角色权重缓存格式无效")
-    return payload
-
-
-def _workshop_weight_ids(
-    raw_weights: Any, *, catalog: StatCatalog, attribute_id_by_name: Mapping[str, str],
-) -> dict[str, float]:
-    if not isinstance(raw_weights, Mapping):
-        return {}
-    result: dict[str, float] = {}
-    for raw_name, raw_weight in raw_weights.items():
-        try:
-            weight = float(raw_weight)
-        except (TypeError, ValueError):
-            continue
-        if weight <= 0:
-            continue
-        name = str(raw_name or "").strip()
-        normalized = catalog.normalize_stat_name(name, is_percent="%" in name)
-        candidates = (name, normalized or "", catalog.flexible_weight_name(name) or "")
-        property_id = next((attribute_id_by_name.get(item) for item in candidates if item), None)
-        if property_id is None:
-            # The workshop cache and static database use a few equivalent
-            # display labels (for example “伤害增加%” / “伤害提升%”).  Resolve
-            # those through the same StatCatalog alias policy used by the
-            # established ScoringEngine rather than silently dropping a
-            # default recommendation weight at the Context boundary.
-            flexible = catalog.flexible_weight_name(name) or normalized or name
-            property_id = next(
-                (
-                    official_id
-                    for attribute_name, official_id in attribute_id_by_name.items()
-                    if (catalog.flexible_weight_name(attribute_name) or attribute_name) == flexible
-                ),
-                None,
-            )
-        if property_id is not None:
-            result[property_id] = weight
-    return result
-
-
-def _workshop_role_values(
-    character_id: int,
-    character_name: str,
-    workshop_roles: Mapping[str, Any], *, catalog: StatCatalog,
-    attribute_id_by_name: Mapping[str, str],
-) -> tuple[dict[str, float], dict[str, float]]:
-    character_token = str(character_id)
-    raw = next(
-        (
-            role_data
-            for role_data in workshop_roles.values()
-            if isinstance(role_data, Mapping)
-            and character_token in {
-                str(value).strip()
-                for value in (
-                    [role_data.get("workshop_item_id")]
-                    + list(role_data.get("workshop_item_ids") or ())
-                )
-                if value is not None
-            }
-        ),
-        workshop_roles.get(character_name),
-    )
-    if not isinstance(raw, Mapping):
-        # A missing synced role is a supported state.  It must not silently use
-        # the official equipment-plan recommendation as a scoring substitute.
-        return {}, {}
-    return (
-        _workshop_weight_ids(raw.get("weights"), catalog=catalog, attribute_id_by_name=attribute_id_by_name),
-        _workshop_weight_ids(raw.get("main_weights"), catalog=catalog, attribute_id_by_name=attribute_id_by_name),
-    )
-
-
 def _allocation_role_values(
     user_dao: UserDataDao,
     static_dao: StaticGameDataDao,
     character_id: int,
-    character_name: str,
-    workshop_roles: Mapping[str, Any],
-    *,
-    catalog: StatCatalog | None,
-    attribute_id_by_name: Mapping[str, str],
 ) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
     account_weights = user_dao.get_character_weight_preferences(character_id)
     recommended_weights = static_dao.get_character_recommended_weights(character_id)
@@ -471,26 +373,30 @@ def _allocation_role_values(
                 weight_record.get("main_property_weights") or {}
             ).items()
         }
-    elif catalog is None:
+    else:
         weights = {}
         main_weights = {}
-    else:
-        weights, main_weights = _workshop_role_values(
-            character_id,
-            character_name,
-            workshop_roles,
-            catalog=catalog,
-            attribute_id_by_name=attribute_id_by_name,
-        )
     shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+    shape_override = user_dao.get_character_shape_bonus_preferences(character_id)
+    if shape_override is not None:
+        extra_shape_label = str(shape_override.get("shape_label") or "")
+        extra_shape_buffs = {
+            str(property_id): float(value)
+            for property_id, value in (
+                shape_override.get("property_values") or {}
+            ).items()
+        }
+    else:
+        extra_shape_label = str(shape_bonus.get("shape_label") or "")
+        extra_shape_buffs = {
+            str(row["property_id"]): float(row["display_value"])
+            for row in shape_bonus.get("properties") or ()
+        }
     return (
         weights,
         main_weights,
-        str(shape_bonus.get("shape_label") or ""),
-        {
-            str(row["property_id"]): float(row["display_value"])
-            for row in shape_bonus.get("properties") or ()
-        },
+        extra_shape_label,
+        extra_shape_buffs,
     )
 
 
@@ -499,7 +405,7 @@ def _role_preference(
     *,
     known_attribute_ids: set[str],
     equipment: RoleEquipmentConstraints,
-    workshop_values: tuple[dict[str, float], dict[str, float], str, dict[str, float]],
+    default_values: tuple[dict[str, float], dict[str, float], str, dict[str, float]],
     known_suit_ids: set[str],
 ) -> AllocationRolePreference:
     weights = row.get("property_weights") or {}
@@ -510,7 +416,7 @@ def _role_preference(
         _official_attribute_id(property_id, known_attribute_ids, "属性权重 property_id"): float(weight)
         for property_id, weight in weights.items()
     }
-    default_weights, default_main_weights, extra_shape_label, extra_shape_buffs = workshop_values
+    default_weights, default_main_weights, extra_shape_label, extra_shape_buffs = default_values
     effective_weights = dict(default_weights)
     effective_weights.update(profile_weights)
     effective_main_weights = dict(default_main_weights)
@@ -564,7 +470,6 @@ def build_allocation_context(
     profile_id: int,
     profile_version: int,
     solver_version: str = ALLOCATION_CONTEXT_SOLVER_VERSION,
-    workshop_roles_path: str | Path | None = None,
 ) -> AllocationContext:
     """Copy one exact account, dataset, snapshot and preference version into memory.
 
@@ -611,14 +516,7 @@ def build_allocation_context(
             if name:
                 attribute_id_by_name.setdefault(str(name), attribute_id)
     character_rows = static_dao.list_characters()
-    character_name_by_id = {int(character["character_id"]): str(character.get("name_zh") or "") for character in character_rows}
-    known_character_ids = set(character_name_by_id)
-    workshop_roles: Mapping[str, Any] = {}
-    catalog: StatCatalog | None = None
-    if workshop_roles_path is not None:
-        workshop_roles = _workshop_roles(workshop_roles_path)
-        config_directory = Path(workshop_roles_path).parent
-        catalog = StatCatalog.from_config_dir(config_directory)
+    known_character_ids = {int(character["character_id"]) for character in character_rows}
     suits_by_id = {
         _required_text(suit.get("suit_id"), "官方套装 ID"): suit
         for suit in static_dao.list_suits()
@@ -662,13 +560,11 @@ def build_allocation_context(
             equipment=_role_equipment_constraints(
                 static_dao, row, known_character_ids=known_character_ids,
             ),
-            workshop_values=(
+            default_values=(
                 _allocation_role_values(
                     user_dao,
                     static_dao,
                     int(row["character_id"]),
-                    character_name_by_id.get(int(row["character_id"]), ""), workshop_roles,
-                    catalog=catalog, attribute_id_by_name=attribute_id_by_name,
                 )
             ),
             known_suit_ids=set(suits_by_id),

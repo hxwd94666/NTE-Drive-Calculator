@@ -19,7 +19,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.domain.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
-from src.features.role.graduation_model import graduation_extra_shape_count
 from src.services.official_role_page_service import (
     calculate_official_role_margins,
     load_official_role_detail,
@@ -69,6 +68,11 @@ def populate_logical_character_shape_bonuses(
     config_dir: Path,
 ) -> int:
     """Freeze one shape rule per logical character into the readonly database."""
+
+    # The legacy role profile has been retired.  Account-owned shape settings
+    # must not be reintroduced into the immutable database during a rebuild.
+    if not (config_dir / "roles.json").is_file():
+        return 0
 
     roles = _read_json(config_dir / "roles.json")
     character_rows = connection.execute(
@@ -216,7 +220,8 @@ def _stat(
 
 
 def _role_configs(config_dir: Path) -> tuple[dict[int, tuple[str, dict]], dict]:
-    roles = _read_json(config_dir / "roles.json")
+    roles_path = config_dir / "roles.json"
+    roles = _read_json(roles_path) if roles_path.is_file() else {}
     by_character: dict[int, tuple[str, dict]] = {}
     for role_name, role in roles.items():
         values = role.get("workshop_item_ids") or [role.get("workshop_item_id")]
@@ -271,6 +276,15 @@ def populate_graduation_templates(
     role_configs, stats = _role_configs(config_dir)
     gold_values = dict(stats.get("gold_base_values") or {})
     core_sub_values = dict(stats.get("tape_stat_values") or {})
+    # The weight editor and the graduation reference must share the strict
+    # equipment sub-stat set.  Main-only core attributes (element/healing) are
+    # deliberately excluded even when they have a high role weight.
+    sub_stat_names = tuple(
+        name for name in core_sub_values
+        if name in gold_values
+    )
+    gold_values = {name: gold_values[name] for name in sub_stat_names}
+    core_sub_values = {name: core_sub_values[name] for name in sub_stat_names}
     core_main_values = dict(stats.get("tape_main_stat_values") or {})
     previous_static_path = os.environ.get(STATIC_DATABASE_ENV)
     os.environ[STATIC_DATABASE_ENV] = str(database_path.resolve())
@@ -310,7 +324,10 @@ def populate_graduation_templates(
                     source_kind = "official_default"
                     weights = dict(detail.get("property_weights") or {})
                     main_weights = dict(detail.get("main_property_weights") or weights)
-                    extra_shape_count = 0
+                    shape_numbers = re.findall(
+                        r"\d+", str((detail.get("shape_bonus") or {}).get("shape_label") or "")
+                    )
+                    extra_shape_count = int(shape_numbers[-1]) if shape_numbers else 0
                 else:
                     role_name, role_config = configured
                     source_kind = "legacy_role_config"
@@ -318,9 +335,10 @@ def populate_graduation_templates(
                     main_weights = _property_weights(
                         role_config.get("main_weights") or role_config.get("weights") or {}
                     )
-                    extra_shape_count = graduation_extra_shape_count(
-                        str(config_dir.resolve()), role_name,
+                    shape_numbers = re.findall(
+                        r"\d+", str(role_config.get("extra_shape_label") or "")
                     )
+                    extra_shape_count = int(shape_numbers[-1]) if shape_numbers else 0
                 drive_names = _top_stat_names(gold_values, weights)
                 core_sub_names = _top_stat_names(core_sub_values, weights)
                 if len(drive_names) < 4 or len(core_sub_names) < 4:
@@ -330,14 +348,25 @@ def populate_graduation_templates(
                 if len(drive_names) < 4 or len(core_sub_names) < 4:
                     raise ValueError(f"角色 {character_id} 缺少四条毕业副词条")
 
-                extra_stats = [
-                    _stat(
-                        name,
-                        float(value) * extra_shape_count,
-                        percent_property_ids=percent_property_ids,
-                    )
-                    for name, value in (role_config.get("extra_shape_buffs") or {}).items()
-                ]
+                extra_stats = (
+                    [
+                        {
+                            "property_id": str(row["property_id"]),
+                            "value": float(row["display_value"]) * extra_shape_count,
+                            "percent": str(row["property_id"]) in percent_property_ids,
+                        }
+                        for row in (detail.get("shape_bonus") or {}).get("properties") or ()
+                    ]
+                    if configured is None
+                    else [
+                        _stat(
+                            name,
+                            float(value) * extra_shape_count,
+                            percent_property_ids=percent_property_ids,
+                        )
+                        for name, value in (role_config.get("extra_shape_buffs") or {}).items()
+                    ]
+                )
                 module = {
                     "kind": "module",
                     "item_id": "graduation-module",

@@ -1207,7 +1207,10 @@ def _role_option_card(
         layout.addSpacing(8)
     elif summary_panel is not None:
         layout.addWidget(summary_panel)
-    weights = _display_weights(window, role)
+    weights = dict(getattr(role, "effective_property_weights", ()) if role else ())
+    main_weights = dict(
+        getattr(role, "effective_main_property_weights", ()) if role else ()
+    )
     if core is None:
         layout.addWidget(QLabel(_missing_core_text(window, role)))
     equipment_assignments = ([core] if core is not None else []) + modules
@@ -1232,6 +1235,7 @@ def _role_option_card(
                     assignment,
                     candidates or {},
                     weights,
+                    main_weights,
                     shape_resources or {},
                     replacement_callback=lambda current=assignment: _request_weighted_replacement(
                         window, name, current, role,
@@ -1564,11 +1568,12 @@ def _official_bonus_summary_panel(
 
 
 def _result_equipment_card(
-    window, assignment, candidates: dict, weights: dict, shape_resources: dict[str, str],
+    window, assignment, candidates: dict, weights: dict, main_weights: dict,
+    shape_resources: dict[str, str],
     replacement_callback=None,
     direct_damage_score: float | None = None,
 ) -> QWidget:
-    del weights, shape_resources
+    del shape_resources
     candidate = candidates.get(assignment.uid)
     item = _allocation_candidate_row(window, assignment, candidate)
     view = warehouse_item_view(item)
@@ -1584,7 +1589,7 @@ def _result_equipment_card(
         if candidate is not None
         else int(assignment.grid_count or 0)
     )
-    return WarehouseResultCard(
+    card = WarehouseResultCard(
         view,
         score=assignment.score,
         grade=legacy_results._calc_grade(window, assignment.score, area),
@@ -1592,6 +1597,38 @@ def _result_equipment_card(
         replacement_callback=replacement_callback,
         parent=window if isinstance(window, QWidget) else None,
     )
+    tooltip = _assignment_weight_tooltip(
+        window, assignment, candidate, weights, main_weights,
+    )
+    if tooltip:
+        card.setToolTip("\n".join(filter(None, (card.toolTip(), tooltip))))
+    return card
+
+
+def _assignment_weight_tooltip(
+    window, assignment, candidate, weights: Mapping[str, float],
+    main_weights: Mapping[str, float],
+) -> str:
+    """Expose the exact account SQLite weights used by a result card."""
+
+    if candidate is None:
+        return ""
+    labels = getattr(window, "_weighted_property_names", {})
+    lines = ["账号 SQLite 词条权重"]
+    if assignment.kind == "core":
+        for stat in candidate.main_stats:
+            property_id = str(stat.property_id)
+            lines.append(
+                f"主词条 {labels.get(property_id, property_id)}："
+                f"{float(main_weights.get(property_id, 0.0)):g}"
+            )
+    for stat in candidate.sub_stats:
+        property_id = str(stat.property_id)
+        lines.append(
+            f"副词条 {labels.get(property_id, property_id)}："
+            f"{float(weights.get(property_id, 0.0)):g}"
+        )
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _legacy_quality(quality: str | None) -> str:

@@ -28,6 +28,14 @@ from src.services.damage_calculation_service import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.optimizer.contracts import (
+    DIFF_ADDED,
+    DIFF_ADDED_UIDS,
+    DIFF_CHANGED,
+    DIFF_REMOVED,
+    EQUIP_IS_CHANGED,
+    EQUIP_UID,
+)
 
 
 DEFAULT_THEORY_PROPERTY_IDS = (
@@ -731,8 +739,31 @@ def save_official_role_replacement(
         raise ValueError("目标装备不属于当前 SQLite 配装方案")
     if len({(int(row.get("uid_serial") or 0), int(row.get("uid_slot") or 0)) for row in assignments}) != len(assignments):
         raise ValueError("替换装备已在当前方案中使用")
+    target_kind = str(target.get("kind") or "")
+    replacement_kind = str(replacement.get("kind") or "")
+    target_display_uid = (
+        f"nte-{target_kind}-{target.get('uid_slot')}-{target.get('uid_serial')}"
+    )
+    replacement_display_uid = (
+        f"nte-{replacement_kind}-{replacement.get('uid_slot')}-{replacement.get('uid_serial')}"
+    )
     payload = dict(plan.get("payload") or {})
-    payload.update({"source": "official_role_replacement", "replaces_plan_id": plan.get("plan_id")})
+    payload.update({
+        "source": "official_role_replacement",
+        "replaces_plan_id": plan.get("plan_id"),
+        # Replacement is a change to an existing plan, never a new acquisition.
+        # Keep the same display state in the SQLite saved-plan card and diff view.
+        "changed_uids": [replacement_display_uid],
+        "last_diff": {
+            DIFF_CHANGED: True,
+            DIFF_ADDED_UIDS: [replacement_display_uid],
+            DIFF_ADDED: [{
+                EQUIP_UID: replacement_display_uid,
+                EQUIP_IS_CHANGED: True,
+            }],
+            DIFF_REMOVED: [{EQUIP_UID: target_display_uid}],
+        },
+    })
     role_name = str((detail.get("character") or {}).get("name_zh") or plan["character_id"])
     with UserDataDao(user_database_path) as user_dao:
         saved_plan_ids = user_dao.replace_active_loadout_plans([{

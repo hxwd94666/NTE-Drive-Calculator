@@ -536,6 +536,90 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
             best_allocation.setdefault(role, {"valid": False})
         return best_allocation
 
+    @staticmethod
+    def _allocated_drive_uids(allocation: AllocationResult) -> set[str]:
+        """Return only the module UIDs consumed by a successful allocation."""
+
+        used_uids: set[str] = set()
+        for plan in allocation.values():
+            if not plan.get("valid"):
+                continue
+            used_uids.update(drive.uid for drive in plan.get("assigned_set_drives", []))
+            used_uids.update(drive.uid for drive in plan.get("assigned_extra_drives", []))
+        return used_uids
+
+    def _recover_equal_priority_group(
+        self,
+        group: list[str],
+        drives_pool: list[Drive],
+        custom_sets: Dict[str, str],
+        assigned_tapes: Dict[str, Tape],
+        crit_priority_modes: Dict[str, dict],
+        crit_rate_caps: Dict[str, float] | None,
+    ) -> AllocationResult:
+        """Retry an equal-priority group with one role deferred.
+
+        The common pool can make the first joint matrix miss a valid layout
+        even though a role becomes fillable after its peers have consumed their
+        own drives.  Keep the group semantics first, then retry each role as
+        the deferred role against the remaining pool.  A genuinely insufficient
+        module inventory still stays invalid.
+        """
+
+        individually_valid = []
+        for role in group:
+            probe = self._find_best_group_fit(
+                [role], drives_pool, custom_sets, assigned_tapes,
+                crit_priority_modes, crit_rate_caps,
+            )
+            if probe.get(role, {}).get("valid"):
+                individually_valid.append(role)
+
+        # Preserve the previous useful behaviour: a truly impossible peer must
+        # not prevent the other independently valid peers from receiving a plan.
+        if individually_valid and len(individually_valid) < len(group):
+            logger.warning(
+                "同级组存在单独无解角色，将其隔离后继续分配其余角色：{}",
+                "、".join(role for role in group if role not in individually_valid),
+            )
+            recovered = self._find_best_group_fit(
+                individually_valid, drives_pool, custom_sets, assigned_tapes,
+                crit_priority_modes, crit_rate_caps,
+            )
+            for role in group:
+                recovered.setdefault(role, {"valid": False})
+            return recovered
+
+        # All roles can individually fill a blueprint.  Retry with each one
+        # delayed until the other equal-priority roles have been allocated.
+        for deferred_role in group:
+            peer_roles = [role for role in group if role != deferred_role]
+            peer_allocation = self._find_best_group_fit(
+                peer_roles, drives_pool, custom_sets, assigned_tapes,
+                crit_priority_modes, crit_rate_caps,
+            ) if peer_roles else {}
+            if peer_roles and not all(
+                peer_allocation.get(role, {}).get("valid") for role in peer_roles
+            ):
+                continue
+            remaining_uids = self._allocated_drive_uids(peer_allocation)
+            remaining_pool = [drive for drive in drives_pool if drive.uid not in remaining_uids]
+            deferred_allocation = self._find_best_group_fit(
+                [deferred_role], remaining_pool, custom_sets, assigned_tapes,
+                crit_priority_modes, crit_rate_caps,
+            )
+            if not deferred_allocation.get(deferred_role, {}).get("valid"):
+                continue
+            logger.info(
+                "同级组联合匹配未填满图纸，已在其余同级角色分配后为 [{}] 重新筛选候选驱动。",
+                deferred_role,
+            )
+            recovered = dict(peer_allocation)
+            recovered[deferred_role] = deferred_allocation[deferred_role]
+            return recovered
+
+        return {role: {"valid": False} for role in group}
+
     def execute(self, candidate_pool: CandidatePool, priority_list: List[str], custom_sets: CustomSetMap,
                 crit_priority_modes: StatPriorityConfigMap = None,
                 priority_groups: list[list[str]] | None = None,
@@ -568,32 +652,12 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                     if not group_allocation.get(role, {}).get("valid")
                 ]
                 if failed_roles:
-                    individually_valid = []
-                    for role in group:
-                        probe = self._find_best_group_fit(
-                            [role], drives_pool, custom_sets, assigned_tapes,
-                            crit_priority_modes, crit_rate_caps,
-                        )
-                        if probe.get(role, {}).get("valid"):
-                            individually_valid.append(role)
-                    if individually_valid and len(individually_valid) < len(group):
-                        logger.warning(
-                            "同级组存在无解角色，将其隔离后继续分配其余角色：{}",
-                            "、".join(role for role in group if role not in individually_valid),
-                        )
-                        group_allocation = self._find_best_group_fit(
-                            individually_valid, drives_pool, custom_sets, assigned_tapes,
-                            crit_priority_modes, crit_rate_caps,
-                        )
-                        for role in group:
-                            group_allocation.setdefault(role, {"valid": False})
+                    group_allocation = self._recover_equal_priority_group(
+                        group, drives_pool, custom_sets, assigned_tapes,
+                        crit_priority_modes, crit_rate_caps,
+                    )
                 final_allocation.update(group_allocation)
-                used_uids = set()
-                for plan in group_allocation.values():
-                    if not plan.get("valid"):
-                        continue
-                    used_uids.update(d.uid for d in plan.get("assigned_set_drives", []))
-                    used_uids.update(d.uid for d in plan.get("assigned_extra_drives", []))
+                used_uids = self._allocated_drive_uids(group_allocation)
                 drives_pool = [d for d in drives_pool if d.uid not in used_uids]
                 continue
 

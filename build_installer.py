@@ -42,8 +42,7 @@ VIGEM_BUNDLE_EXE = ROOT / "ViGEmBus_1.22.0_x64_x86_arm64.exe"
 APP_NAME = "NTE Drive Calc"
 APP_EXE_NAME = "NTE_Drive_Calc.exe"
 APP_ID = "{{D7DA28BE-8A19-4E05-9216-3F16C4C2C820}"
-CORE_CONFIG_FILES = ("roles.json", "sets.json", "stats.json", "shapes.json",
-                     "my_roles_model.json", "tapes.json", "weapons.json")
+CORE_CONFIG_FILES = ("stats.json",)
 LOCAL_CONFIG_ENV = "NTE_LOCAL_CONFIG"
 
 
@@ -383,7 +382,7 @@ Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："
 Name: "installvigem"; Description: "安装 ViGEmBus 虚拟手柄驱动"; GroupDescription: "运行依赖："; Flags: checkedonce
-Name: "replacecoreconfig"; Description: "替换基础配置 JSON（roles / sets / stats / shapes）"; GroupDescription: "配置更新："
+Name: "replacecoreconfig"; Description: "替换基础词条数值 JSON（stats）"; GroupDescription: "配置更新："
 
 [Files]
 Source: "{_inno_path(APP_EXE)}"; DestDir: "{{app}}"; Flags: ignoreversion

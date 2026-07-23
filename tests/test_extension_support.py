@@ -11,12 +11,12 @@ class NavigationSupportTests(unittest.TestCase):
 
         keys = [item.key for item in NAV_ITEMS]
 
-        self.assertEqual(["home", "execute", "weighted_allocation", "equipment", "warehouse", "my_role", "identify", "blueprint", "config", "settings"], keys)
+        self.assertEqual(["home", "execute", "equipment", "warehouse", "my_role", "identify", "blueprint", "config", "settings"], keys)
         self.assertEqual(
-            {"home": 0, "execute": 1, "weighted_allocation": 2, "equipment": 3, "warehouse": 4, "my_role": 5, "identify": 6, "blueprint": 7, "config": 8, "settings": 9},
+            {"home": 0, "execute": 1, "equipment": 2, "warehouse": 3, "my_role": 4, "identify": 5, "blueprint": 6, "config": 7, "settings": 8},
             nav_index_map(),
         )
-        self.assertEqual("⚙  配置", nav_title_map()["config"])
+        self.assertEqual("⚙  权重", nav_title_map()["config"])
 
 
 class JsonStoreSupportTests(unittest.TestCase):
@@ -341,20 +341,6 @@ class MatrixStrategyBlueprintSelectionTests(unittest.TestCase):
         self.assertEqual(500, len(combos))
         self.assertEqual("A24", combos[0][0]["extra_pieces"][0])
         self.assertTrue(any(combo[0]["extra_pieces"] == ["A24"] for combo in combos))
-
-
-class BlueprintGenerationSupportTests(unittest.TestCase):
-    def test_blueprint_generation_can_include_layout_variants_without_affecting_allocation_default(self):
-        from src.solver.orchestrator import NTEPipelineOrchestrator
-
-        orchestrator = NTEPipelineOrchestrator(config_dir="config")
-        role_name = next(name for name in orchestrator.roles_db if name == "娜娜莉")
-
-        allocation_blueprints = orchestrator.solve_blueprints([role_name])
-        display_blueprints = orchestrator.solve_blueprints([role_name], include_layout_variants=True)
-
-        self.assertEqual(4, len(allocation_blueprints[role_name]))
-        self.assertEqual(15, len(display_blueprints[role_name]))
 
 
 class RoleEquipmentImportSupportTests(unittest.TestCase):

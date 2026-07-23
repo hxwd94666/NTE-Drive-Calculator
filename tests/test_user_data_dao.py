@@ -78,7 +78,7 @@ class UserDataDaoTest(unittest.TestCase):
 
     def test_initializes_profile_and_typed_sync_settings(self) -> None:
         summary = self.dao.summary()
-        self.assertEqual(summary["schema_version"], 7)
+        self.assertEqual(summary["schema_version"], 10)
         self.assertEqual(summary["profile"]["account_id"], "default")
         self.assertEqual(summary["sync_settings"]["inventory_sync_method"], "nte_core")
         self.assertEqual(summary["sync_settings"]["inventory_settle_seconds"], 5.0)
@@ -127,7 +127,7 @@ class UserDataDaoTest(unittest.TestCase):
 
         with UserDataDao(legacy_path) as migrated:
             settings = migrated.get_sync_settings()
-            self.assertEqual(7, migrated.summary()["schema_version"])
+            self.assertEqual(10, migrated.summary()["schema_version"])
             self.assertEqual("旧账号", migrated.profile()["account_name"])
             self.assertEqual(5.0, settings["inventory_settle_seconds"])
             self.assertFalse(settings["auto_start_inventory_sync"])
@@ -136,10 +136,15 @@ class UserDataDaoTest(unittest.TestCase):
     def test_migrates_v4_database_to_versioned_optimization_preferences(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v4.sqlite3"
         with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            self.assertEqual(7, initialized.summary()["schema_version"])
+            self.assertEqual(10, initialized.summary()["schema_version"])
 
         connection = sqlite3.connect(legacy_path)
         for table in (
+            "character_shape_bonus_preference_property",
+            "character_shape_bonus_preference",
+            "ui_item_order",
+            "application_setting_migration",
+            "application_setting_copy",
             "character_weight_preference_property",
             "character_weight_preference_seed",
             "character_profile_skill",
@@ -152,14 +157,12 @@ class UserDataDaoTest(unittest.TestCase):
             "optimization_preference_profile",
         ):
             connection.execute(f"DROP TABLE {table}")
-        connection.execute("DELETE FROM schema_migration WHERE version = 7")
-        connection.execute("DELETE FROM schema_migration WHERE version = 6")
-        connection.execute("DELETE FROM schema_migration WHERE version = 5")
+        connection.execute("DELETE FROM schema_migration WHERE version >= 5")
         connection.commit()
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(7, migrated.summary()["schema_version"])
+            self.assertEqual(10, migrated.summary()["schema_version"])
             self.assertEqual([], migrated.list_optimization_profiles())
             profile = migrated.create_optimization_profile(
                 "Migrated preferences",
@@ -174,6 +177,14 @@ class UserDataDaoTest(unittest.TestCase):
             pass
 
         connection = sqlite3.connect(legacy_path)
+        for table in (
+            "character_shape_bonus_preference_property",
+            "character_shape_bonus_preference",
+            "ui_item_order",
+            "application_setting_migration",
+            "application_setting_copy",
+        ):
+            connection.execute(f"DROP TABLE {table}")
         connection.execute("DROP TABLE character_weight_preference_property")
         connection.execute("DROP TABLE character_weight_preference_seed")
         for table in (
@@ -187,9 +198,7 @@ class UserDataDaoTest(unittest.TestCase):
             "optimization_preference_profile",
         ):
             connection.execute(f"DROP TABLE {table}")
-        connection.execute("DELETE FROM schema_migration WHERE version = 7")
-        connection.execute("DELETE FROM schema_migration WHERE version = 6")
-        connection.execute("DELETE FROM schema_migration WHERE version = 5")
+        connection.execute("DELETE FROM schema_migration WHERE version >= 5")
         connection.commit()
         connection.close()
 
@@ -223,7 +232,7 @@ class UserDataDaoTest(unittest.TestCase):
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(7, migrated.summary()["schema_version"])
+            self.assertEqual(10, migrated.summary()["schema_version"])
 
     def test_character_profiles_store_only_official_pointers_and_user_levels(self) -> None:
         saved = self.dao.save_character_profile(
@@ -297,6 +306,23 @@ class UserDataDaoTest(unittest.TestCase):
                 ],
             )
 
+    def test_character_shape_bonus_is_account_editable(self) -> None:
+        saved = self.dao.save_character_shape_bonus_preferences(
+            1075,
+            shape_label="Type-4",
+            property_values={"CritBase": 6.0, "AtkUp": 12.5},
+        )
+
+        self.assertEqual("Type-4", saved["shape_label"])
+        self.assertEqual(
+            {"CritBase": 6.0, "AtkUp": 12.5}, saved["property_values"],
+        )
+        self.assertEqual(saved, self.dao.get_character_shape_bonus_preferences(1075))
+        with self.assertRaises(UserDataValidationError):
+            self.dao.save_character_shape_bonus_preferences(
+                1075, shape_label="Type-2", property_values={"CritBase": -0.1},
+            )
+
     def test_migrates_v5_database_to_character_profile_pointers(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v5.sqlite3"
         with UserDataDao(legacy_path, account_id="legacy") as initialized:
@@ -308,15 +334,19 @@ class UserDataDaoTest(unittest.TestCase):
         connection = sqlite3.connect(legacy_path)
         connection.execute("DROP TABLE character_weight_preference_property")
         connection.execute("DROP TABLE character_weight_preference_seed")
+        connection.execute("DROP TABLE character_shape_bonus_preference_property")
+        connection.execute("DROP TABLE character_shape_bonus_preference")
+        connection.execute("DROP TABLE ui_item_order")
+        connection.execute("DROP TABLE application_setting_migration")
+        connection.execute("DROP TABLE application_setting_copy")
         connection.execute("DROP TABLE character_profile_skill")
         connection.execute("DROP TABLE character_profile")
-        connection.execute("DELETE FROM schema_migration WHERE version = 7")
-        connection.execute("DELETE FROM schema_migration WHERE version = 6")
+        connection.execute("DELETE FROM schema_migration WHERE version >= 6")
         connection.commit()
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(7, migrated.summary()["schema_version"])
+            self.assertEqual(10, migrated.summary()["schema_version"])
             self.assertEqual("existing-v5", migrated.list_optimization_profiles()[0]["name"])
             self.assertEqual([], migrated.list_character_profiles())
 
@@ -630,7 +660,7 @@ class UserDataDaoTest(unittest.TestCase):
         self.assertEqual(self.dao.get_loadout_plan(plan_id)["plan_id"], plan_id)
         self.assertIsNone(self.dao.get_loadout_plan(plan_id + 1000))
 
-    def test_batch_replace_strips_claimed_uid_from_other_active_role(self) -> None:
+    def test_batch_replace_leaves_empty_changed_placeholder_for_other_active_role(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
             snapshot(1, [item(11, 22), item(12, 23), item(13, 24)])
         )
@@ -676,12 +706,19 @@ class UserDataDaoTest(unittest.TestCase):
         active = [plan for plan in self.dao.list_loadout_plans() if plan["is_active"]]
         self.assertEqual({1003, 1055}, {plan["character_id"] for plan in active})
         residual = next(plan for plan in active if plan["character_id"] == 1003)
+        self.assertEqual((23, 12), (
+            residual["assignments"][1]["uid_slot"],
+            residual["assignments"][1]["uid_serial"],
+        ))
+        placeholder = residual["assignments"][0]
+        self.assertEqual(0, placeholder["uid_slot"])
+        self.assertTrue(placeholder["raw_assignment"]["virtual"])
+        placeholder_uid = f"nte-module-0-{placeholder['uid_serial']}"
+        self.assertEqual([placeholder_uid], residual["payload"]["changed_uids"])
+        self.assertTrue(residual["payload"]["last_diff"]["changed"])
         self.assertEqual(
-            [(23, 12)],
-            [
-                (row["uid_slot"], row["uid_serial"])
-                for row in residual["assignments"]
-            ],
+            placeholder_uid,
+            residual["payload"]["last_diff"]["added"][0]["uid"],
         )
         self.assertEqual(
             old_plan_id,
@@ -693,7 +730,8 @@ class UserDataDaoTest(unittest.TestCase):
             for plan in active
             for row in plan["assignments"]
         ]
-        self.assertEqual(len(active_uids), len(set(active_uids)))
+        real_uids = [uid for uid in active_uids if uid[0] > 0]
+        self.assertEqual(len(real_uids), len(set(real_uids)))
 
     def test_batch_replace_rolls_back_every_role_when_one_uid_is_missing(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from src.app import runtime
 from src.features.official_role import page
+from src.features.inventory.page import _sqlite_plan_display_state
 from src.services.official_role_page_service import (
     DEFAULT_THEORY_PROPERTY_IDS,
     calculate_official_role_damage_breakdown,
@@ -301,7 +302,23 @@ class OfficialRolePageTests(unittest.TestCase):
             occupied = dao.get_loadout_plan(occupied_plan_id)
         self.assertTrue(saved["is_active"])
         self.assertEqual(9, saved["assignments"][0]["uid_serial"])
+        self.assertTrue(saved["payload"]["last_diff"]["changed"])
+        self.assertEqual(
+            ["nte-core-1-9"], saved["payload"]["changed_uids"],
+        )
         self.assertFalse(occupied["is_active"])
+        with UserDataDao(self.database) as dao:
+            active_other = next(
+                plan for plan in dao.list_loadout_plans(9999) if plan["is_active"]
+            )
+        placeholder = active_other["assignments"][0]
+        self.assertEqual(0, placeholder["uid_slot"])
+        self.assertTrue(placeholder["raw_assignment"]["virtual"])
+        self.assertTrue(active_other["payload"]["last_diff"]["changed"])
+        with UserDataDao(self.database) as dao, StaticGameDataDao() as static_dao:
+            display = _sqlite_plan_display_state(active_other, dao, static_dao)
+        self.assertTrue(display["equipped_tape"]["virtual"])
+        self.assertTrue(display["equipped_tape"]["is_changed"])
 
     def test_graduation_reference_ignores_current_growth_and_uses_signature_baseline(self) -> None:
         # 1051 has a recorded exclusive fork in the official static dataset.
@@ -309,9 +326,18 @@ class OfficialRolePageTests(unittest.TestCase):
         reference = page._graduation_benchmark_damage(detail)
         self.assertIsNotNone(reference)
         self.assertGreater(reference, 0)
-        self.assertEqual(
-            reference, detail["graduation_template"]["benchmark_damage"]
-        )
+        template = page._graduation_template_with_weight_substats(detail)
+        self.assertIsNotNone(template)
+        allowed_substats = {
+            "CritBase", "CritDamageBase", "DamageUpGeneralBase", "AtkUp",
+            "AtkAdd", "DefAdd", "DefUp", "HPMaxUp", "HPMaxAdd",
+            "MagBase", "UnbalIntensityBase",
+        }
+        self.assertTrue(all(
+            stat["property_id"] in allowed_substats
+            for item in template["equipment"]
+            for stat in item.get("sub_stats") or ()
+        ))
         self.assertEqual(20, detail["graduation_template"]["drive_area"])
         self.assertEqual(
             1, detail["graduation_template"]["fork_refinement_level"]
@@ -322,6 +348,35 @@ class OfficialRolePageTests(unittest.TestCase):
             "fork_level": None, "fork_refinement_level": None,
         })
         self.assertAlmostEqual(reference, page._graduation_benchmark_damage(detail))
+
+    def test_graduation_tooltip_aggregates_substats_in_three_item_rows(self) -> None:
+        tooltip = page._graduation_tooltip({
+            "attributes": {
+                "AtkAdd": {"filter_name_zh": "攻击力"},
+                "CritBase": {"filter_name_zh": "暴击率"},
+                "CritDamageBase": {"filter_name_zh": "暴击伤害"},
+                "DamageUpGeneralBase": {"filter_name_zh": "伤害增加"},
+            },
+            "graduation_template": {
+                "equipment": [{
+                    "kind": "module",
+                    "sub_stats": [
+                        {"property_id": "AtkAdd", "value": 10.0, "percent": False},
+                        {"property_id": "AtkAdd", "value": 15.0, "percent": False},
+                        {"property_id": "CritBase", "value": 0.1, "percent": True},
+                        {"property_id": "CritDamageBase", "value": 0.2, "percent": True},
+                        {"property_id": "DamageUpGeneralBase", "value": 0.1, "percent": True},
+                    ],
+                }, {
+                    "kind": "core",
+                    "main_stats": [{"property_id": "AtkAdd", "value": 20.0, "percent": False}],
+                    "sub_stats": [],
+                }],
+            },
+        })
+        self.assertIn("攻击力 25", tooltip)
+        self.assertEqual(1, tooltip.count("攻击力 25"))
+        self.assertIn("　　　　　伤害增加 10%", tooltip)
 
     def test_new_page_builds_without_old_role_json_models(self) -> None:
         host = QWidget()
@@ -374,6 +429,8 @@ class OfficialRolePageTests(unittest.TestCase):
         self.assertIn("最终直伤 = 100%", formula_result.text())
         graduation = built.findChild(QLabel, "officialRoleGraduationRate")
         self.assertIsNotNone(graduation)
+        self.assertIn("卡带主词条", graduation.toolTip())
+        self.assertIn("毕业副词条", graduation.toolTip())
         weight_group = built.findChild(QGroupBox, "officialRoleWeightGroup")
         self.assertIsNotNone(weight_group.findChild(QLabel, "officialRoleWeightAvatar"))
         self.assertIsNone(
@@ -481,7 +538,10 @@ class OfficialRolePageTests(unittest.TestCase):
         before_damage = damage_label.text()
         before_formula = formula_label.text()
         growth = editor["growth"]
-        growth.setCurrentIndex(0 if growth.currentIndex() != 0 else growth.count() - 1)
+        growth.setValue(
+            growth.minimum() if growth.value() != growth.minimum()
+            else growth.maximum()
+        )
         self.app.processEvents()
         self.assertNotEqual(before_damage, damage_label.text())
         refreshed_formula = built.findChild(QLabel, "officialRoleDamageFormulaResult")

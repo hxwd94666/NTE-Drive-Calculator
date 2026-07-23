@@ -32,6 +32,7 @@ from PySide6.QtWidgets import QHeaderView
 
 from src.app import runtime
 from src.app.theme import themed_style
+from src.domain.stat_catalog import StatCatalog
 from src.features.allocation import results_view as legacy_results
 from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
 from src.services.official_role_page_service import (
@@ -111,13 +112,116 @@ def _stat_text(detail: dict, stat: dict) -> str:
 
 
 def _graduation_benchmark_damage(detail: dict) -> float | None:
-    """Calculate one fixed SQLite template with the current official damage path."""
+    """Calculate the strict-substat graduation reference through the official path."""
 
+    template = _graduation_template_with_weight_substats(detail)
+    if not isinstance(template, dict):
+        return None
+    equipment = template.get("equipment") or ()
+    context = {
+        "title": "毕业基准", "available": True, "items": equipment,
+    }
+    calculation_detail = {
+        **detail,
+        "profile": dict(template.get("profile") or detail.get("profile") or {}),
+        "equipment_contexts": {
+            **(detail.get("equipment_contexts") or {}), "graduation": context,
+        },
+    }
+    damage = float(
+        (calculate_official_role_margins(calculation_detail, "graduation") or {}).get("damage")
+        or 0.0
+    )
+    return damage if damage > 0 else None
+
+
+def _graduation_template_with_weight_substats(detail: dict) -> dict | None:
+    """Project template gear onto the same strict pool exposed by 权重.
+
+    Older static templates could choose an element-damage main-only attribute as
+    a substat.  Preserve the stored core-main candidate/profile while deriving
+    both module and core substats from ``stats.json`` at display time.
+    """
     template = detail.get("graduation_template")
     if not isinstance(template, dict):
         return None
-    damage = float(template.get("benchmark_damage") or 0.0)
-    return damage if damage > 0 else None
+    if not isinstance(detail.get("property_weights"), dict):
+        return dict(template)
+    catalog = StatCatalog.from_config_dir(getattr(runtime, "CONFIG_DIR", "config"))
+    labels_by_property = {property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES}
+    value_by_property = {
+        property_id: label for property_id, label in labels_by_property.items()
+        if label in catalog.tape_sub_stat_pool()
+    }
+    weights = {
+        property_id: float((detail.get("property_weights") or {}).get(property_id, 0.0))
+        for property_id in value_by_property
+    }
+    selected = sorted(weights, key=lambda key: (-weights[key], key))[:4]
+    attributes = detail.get("attributes") or {}
+
+    def stat(property_id: str, values: dict[str, float], multiplier: float) -> dict:
+        label = value_by_property[property_id]
+        percent = bool((attributes.get(property_id) or {}).get("show_percent"))
+        raw_value = float(values[label]) * multiplier
+        return {
+            "property_id": property_id,
+            "value": raw_value / 100.0 if percent else raw_value,
+            "percent": percent,
+        }
+
+    equipment = [dict(item) for item in template.get("equipment") or ()]
+    for item in equipment:
+        if str(item.get("kind") or "") == "module":
+            item["sub_stats"] = [
+                stat(property_id, catalog.gold_base_values, float(template.get("drive_area") or 20))
+                for property_id in selected
+            ]
+        elif str(item.get("kind") or "") == "core":
+            item["sub_stats"] = [
+                stat(property_id, catalog.tape_stat_values, 1.0)
+                for property_id in selected
+            ]
+    return {**template, "equipment": equipment}
+
+
+def _graduation_tooltip(detail: dict) -> str:
+    """Describe the stored benchmark equipment behind the graduation percentage."""
+    template = _graduation_template_with_weight_substats(detail) or {}
+    equipment = template.get("equipment") or ()
+    if not isinstance(equipment, (list, tuple)):
+        return "毕业基准尚未生成。"
+    core = next(
+        (item for item in equipment if str(item.get("kind") or "") == "core"),
+        {},
+    )
+    main = next(iter(core.get("main_stats") or ()), {})
+    main_text = _stat_text(detail, main) if main else "未记录"
+    aggregated_substats: dict[tuple[str, bool], dict] = {}
+    for item in equipment:
+        for stat in item.get("sub_stats") or ():
+            key = (str(stat.get("property_id") or ""), bool(stat.get("percent")))
+            if key not in aggregated_substats:
+                aggregated_substats[key] = dict(stat)
+                continue
+            aggregated_substats[key]["value"] = (
+                float(aggregated_substats[key].get("value") or 0.0)
+                + float(stat.get("value") or 0.0)
+            )
+    substat_text = [
+        _stat_text(detail, stat) for stat in aggregated_substats.values()
+    ]
+    substat_lines = [
+        "、".join(substat_text[index:index + 3])
+        for index in range(0, len(substat_text), 3)
+    ]
+    lines = [
+        "毕业基准（满级角色、满级精1专属弧盘）：",
+        f"卡带主词条：{main_text}",
+        "毕业副词条：" + (substat_lines[0] if substat_lines else "未记录"),
+    ]
+    lines.extend(f"　　　　　{line}" for line in substat_lines[1:])
+    return "\n".join(lines)
 
 
 def _clear_layout(layout) -> None:
@@ -142,13 +246,35 @@ def _selected_combo_data(combo: QComboBox):
     return combo.currentData()
 
 
+def _selected_growth(editor: dict) -> tuple[int, int] | None:
+    """Resolve a typed level to the matching official growth stage."""
+    growth = editor.get("growth")
+    if growth is None:
+        return None
+    if hasattr(growth, "currentData"):
+        current = growth.currentData()
+        if current is not None:
+            return int(current[0]), int(current[1])
+    if not hasattr(growth, "value"):
+        return None
+    level = int(growth.value())
+    candidates = [
+        row for row in (editor.get("growth_rows") or ())
+        if int(row.get("level") or 0) == level
+    ]
+    if not candidates:
+        return None
+    selected = max(candidates, key=lambda row: int(row.get("breakthrough_stage") or 0))
+    return int(selected["level"]), int(selected["breakthrough_stage"])
+
+
 def _calculation_detail(detail: dict, editor: dict) -> dict:
     """Project the unsaved editor state into a temporary calculation-only detail."""
 
     profile = dict(detail["profile"])
-    growth = editor.get("growth")
-    if growth is not None and growth.currentData() is not None:
-        level, breakthrough = growth.currentData()
+    growth = _selected_growth(editor)
+    if growth is not None:
+        level, breakthrough = growth
         profile["character_level"] = int(level)
         profile["breakthrough_stage"] = int(breakthrough)
     awakening = editor.get("awakening")
@@ -210,7 +336,7 @@ def _build_margin_group(
     graduation_label = QLabel("直伤毕业率 : --")
     graduation_label.setObjectName("officialRoleGraduationRate")
     graduation_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
-    graduation_label.setToolTip("按满级角色、满级精1专属弧盘和 stats.json 满词条基准计算。")
+    graduation_label.setToolTip(_graduation_tooltip(detail))
     header.addWidget(graduation_label)
     damage_label = QLabel("直伤评分 : --")
     damage_label.setObjectName("officialRoleDamageScore")
@@ -270,6 +396,7 @@ def _build_margin_group(
         _clear_layout(table_layout)
         damage = float((margins or {}).get("damage") or 0.0)
         benchmark = _graduation_benchmark_damage(calculation_detail)
+        graduation_label.setToolTip(_graduation_tooltip(calculation_detail))
         graduation_label.setText(
             f"直伤毕业率 : {damage / benchmark * 100:.1f}%"
             if damage > 0 and benchmark else "直伤毕业率 : --"
@@ -464,16 +591,13 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     role_name.setAlignment(Qt.AlignHCenter)
     role_name.setStyleSheet("font-weight:bold;color:#58a6ff;")
     left_layout.addWidget(role_name)
-    growth_combo = NoWheelComboBox()
-    growth_combo.setMaxVisibleItems(10)
-    for row in growth_rows:
-        growth_combo.addItem(
-            str(row["level"]),
-            (int(row["level"]), int(row["breakthrough_stage"])),
-        )
-    wanted_growth = (int(profile["character_level"]), int(profile["breakthrough_stage"]))
-    index = growth_combo.findData(wanted_growth)
-    growth_combo.setCurrentIndex(index if index >= 0 else max(0, growth_combo.count() - 1))
+    growth_combo = NoWheelSpinBox()
+    growth_combo.setRange(
+        min(int(row["level"]) for row in growth_rows),
+        max(int(row["level"]) for row in growth_rows),
+    )
+    growth_combo.setValue(int(profile["character_level"]))
+    growth_combo.setButtonSymbols(QSpinBox.NoButtons)
     level_row = QHBoxLayout()
     level_row.setSpacing(6)
     level_label = QLabel("等级:")
@@ -538,13 +662,14 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     layout.addLayout(content)
 
     def update_stats() -> None:
-        wanted = growth_combo.currentData()
-        selected = next(
-            (
-                row for row in growth_rows
-                if (int(row["level"]), int(row["breakthrough_stage"])) == wanted
-            ),
-            {},
+        level = int(growth_combo.value())
+        rows_for_level = [
+            row for row in growth_rows if int(row["level"]) == level
+        ]
+        selected = max(
+            rows_for_level,
+            key=lambda row: int(row.get("breakthrough_stage") or 0),
+            default={},
         )
         stat_values["hp_base"].setValue(float(selected.get("hp_base") or 0))
         stat_values["atk_base"].setValue(float(selected.get("atk_base") or 0))
@@ -553,7 +678,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
         stat_values["crit_damage"].setValue(50.0)
 
     update_stats()
-    growth_combo.currentIndexChanged.connect(update_stats)
+    growth_combo.valueChanged.connect(update_stats)
 
     pointer_dialog = QDialog(window)
     pointer_dialog.setWindowTitle(f"{character.get('name_zh') or character_id} - 养成指针")
@@ -607,6 +732,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
 
     editor.update({
         "growth": growth_combo,
+        "growth_rows": growth_rows,
         "awakening": awakening,
         "selected_skill": skill_combo,
         "skill_levels": skill_levels,
@@ -816,6 +942,7 @@ def _equipment_item_card(
         score=resolved_score,
         grade=legacy_results._calc_grade(window, resolved_score, area),
         direct_damage_score=direct_damage_score,
+        split_metrics=True,
         replacement_callback=replacement_callback,
         parent=window if isinstance(window, QWidget) else None,
     )
@@ -954,6 +1081,9 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
         on_confirm=save_choice,
     )
     if accepted:
+        refresh_equip = getattr(window, "_refresh_equip", None)
+        if callable(refresh_equip):
+            refresh_equip()
         _refresh_my_role(window)
         QMessageBox.information(window, "替换优化", "已保存为新的配装方案。")
 
@@ -1261,7 +1391,7 @@ def _build_weight_group(
 
     add.clicked.connect(add_weight)
     add.setToolTip(
-        "优先使用当前账号权重；账号未配置时会复制只读静态库中的工坊推荐。"
+        "优先使用当前账号权重；账号未配置时会以只读静态库的工坊推荐初始化。"
     )
     editor["refresh_weights"] = rebuild
     rebuild()
@@ -1311,7 +1441,9 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
                 if not editor:
                     continue
                 detail = editor["detail"]
-                growth = _selected_combo_data(editor["growth"])
+                growth = _selected_growth(editor)
+                if growth is None:
+                    raise ValueError("角色等级不在官方成长数据范围内")
                 fork_id = _selected_combo_data(editor["fork"])
                 dao.save_character_profile(
                     character_id=character_id,
@@ -1320,7 +1452,10 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
                     awakening_level=editor["awakening"].value(),
                     fork_id=fork_id,
                     fork_level=editor["fork_level"].value() if fork_id else None,
-                    fork_refinement_level=editor["refinement"].value() if fork_id else None,
+                    fork_refinement_level=(
+                        int(editor["refinement"].currentData() or 1)
+                        if fork_id else None
+                    ),
                     selected_skill_id=_selected_combo_data(editor["selected_skill"]),
                     skill_levels=dict(editor["skill_levels"]),
                     ordinal=int(detail["profile"].get("ordinal") or 0),

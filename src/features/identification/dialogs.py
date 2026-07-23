@@ -9,8 +9,8 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QButtonGroup, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
-from src.app import runtime
 from src.app.theme import current_style_sheet, themed_style
+from src.features.inventory.warehouse import warehouse_shape_pixmap
 from src.models.equipment import Tape
 from src.ui.widgets import SearchableComboBox
 
@@ -88,9 +88,9 @@ def _choose_identify_image_options(self,path:Path):
             btn=QPushButton(sid)
             btn.setToolTip(sid)
             btn.setMinimumSize(84,54)
-            icon_path=runtime.CONFIG_DIR/"templates"/f"{sid}.png"
-            if icon_path.exists():
-                btn.setIcon(QIcon(str(icon_path)))
+            pixmap = warehouse_shape_pixmap(sid, "Gold")
+            if not pixmap.isNull():
+                btn.setIcon(QIcon(pixmap))
                 btn.setIconSize(QSize(32,32))
             btn.clicked.connect(lambda _checked=False, shape_id=sid: set_selected_shape(shape_id))
             shape_buttons.append((btn,sid))

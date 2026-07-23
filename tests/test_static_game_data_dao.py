@@ -22,6 +22,10 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "012_game_static_graduation_template.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "013_game_static_setting_defaults.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "014_game_static_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
 )
 
 
@@ -43,6 +47,10 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (10, '2026-07-22')")
         connection.execute("INSERT INTO schema_migration VALUES (11, '2026-07-22')")
         connection.execute("INSERT INTO schema_migration VALUES (12, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (13, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (14, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (15, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (16, '2026-07-23')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
@@ -279,7 +287,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 12)
+            self.assertEqual(summary["schema_version"], 16)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")

@@ -327,7 +327,6 @@ class AllocationSolverTests(unittest.TestCase):
                     )
                     frozen = build_allocation_context(
                         user_dao, static_dao, snapshot_id=snapshot_id, profile_id=profile["profile_id"], profile_version=1,
-                        workshop_roles_path=STATIC_DATABASE_PATH.parents[1] / "config" / "roles.json",
                     )
                     projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
                     role_name = static_dao.get_character(1003)["name_zh"]

@@ -1,41 +1,4 @@
-# 汇总应用服务层的稳定公开接口。
-"""应用服务层：协调集成组件、数据访问和界面状态。"""
+# 应用服务层包。
+"""服务必须从具体模块导入，避免 DAO 导入时触发包级循环依赖。"""
 
-from .inventory_snapshot_stabilizer import (
-    InventorySnapshotStabilizer,
-    SnapshotOfferResult,
-    StableInventorySnapshot,
-)
-from .equipment_apply_service import (
-    EquipmentApplyError,
-    EquipmentApplyResult,
-    EquipmentApplyService,
-)
-from .inventory_sync_service import InventorySyncService, InventorySyncState
-from .sqlite_loadout_optimizer import (
-    LoadoutOptimizationError,
-    LoadoutOptimizationResult,
-    SqliteLoadoutOptimizer,
-)
-from .sqlite_allocation_inventory import (
-    AllocationInventoryProjection,
-    AllocationInventoryProjectionError,
-    SqliteAllocationInventory,
-)
-
-__all__ = [
-    "EquipmentApplyError",
-    "EquipmentApplyResult",
-    "EquipmentApplyService",
-    "InventorySnapshotStabilizer",
-    "SnapshotOfferResult",
-    "StableInventorySnapshot",
-    "InventorySyncService",
-    "InventorySyncState",
-    "LoadoutOptimizationError",
-    "LoadoutOptimizationResult",
-    "SqliteLoadoutOptimizer",
-    "AllocationInventoryProjection",
-    "AllocationInventoryProjectionError",
-    "SqliteAllocationInventory",
-]
+__all__: list[str] = []
