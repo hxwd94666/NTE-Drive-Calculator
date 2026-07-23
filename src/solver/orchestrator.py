@@ -21,6 +21,16 @@ from src.utils.visualizer import BoardVisualizer
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
 from src.utils.set_name import normalize_set_display_name
+from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+
+
+_LEGACY_SHAPE_LABELS = {
+    "H_2": "Type-2", "V_2": "Type-2",
+    "H_3": "Type-3", "V_3": "Type-3",
+    "L_3_BL": "Type-3", "L_3_TL": "Type-3", "L_3_TR": "Type-3", "L_3_BR": "Type-3",
+    "H_4": "Type-4", "V_4": "Type-4", "Trap_4_H": "Type-4", "Trap_4_V": "Type-4",
+}
 
 
 class NTEPipelineOrchestrator:
@@ -32,6 +42,7 @@ class NTEPipelineOrchestrator:
         self.roles_db = {}
         self.sets_db = {}
         self.shapes_db = {}
+        self._board_matrices = {}
         self._load_configs()
 
     @classmethod
@@ -50,6 +61,10 @@ class NTEPipelineOrchestrator:
         instance.roles_db = roles_db
         instance.sets_db = sets_db
         instance.shapes_db = shapes_db
+        instance._board_matrices = {
+            role_name: role_data["board_matrix"]
+            for role_name, role_data in roles_db.items()
+        }
         instance._blueprint_cache = {}
         return instance
 
@@ -58,9 +73,51 @@ class NTEPipelineOrchestrator:
             self.roles_db = json.load(f)
         with open(os.path.join(self.config_dir, "sets.json"), "r", encoding="utf-8") as f:
             self.sets_db = json.load(f)["sets"]
-        with open(os.path.join(self.config_dir, "shapes.json"), "r", encoding="utf-8") as f:
-            for s in json.load(f)["shapes"]:
-                self.shapes_db[s["shape_id"]] = DriveShape(**s)
+        with StaticGameDataDao() as static_dao:
+            for shape in static_dao.list_shapes():
+                cells = list(shape.get("cells") or [])
+                xs = [int(cell["x"]) for cell in cells]
+                ys = [int(cell["y"]) for cell in cells]
+                if not xs or not ys:
+                    continue
+                legacy_id = legacy_shape_id(shape["shape_id"])
+                matrix = [[0] * (max(ys) - min(ys) + 1) for _ in range(max(xs) - min(xs) + 1)]
+                for cell in cells:
+                    matrix[int(cell["x"]) - min(xs)][int(cell["y"]) - min(ys)] = 1
+                self.shapes_db[legacy_id] = DriveShape(
+                    shape_id=legacy_id,
+                    label=_LEGACY_SHAPE_LABELS[legacy_id],
+                    matrix=matrix,
+                    area=int(shape["cell_count"]),
+                    description=str(shape["shape_id"]),
+                )
+            characters = {
+                str(row.get("name_zh")): int(row.get("canonical_character_id") or row["character_id"])
+                for row in static_dao.list_characters()
+            }
+            for role_name in self.roles_db:
+                character_id = characters.get(str(role_name))
+                if str(role_name) == "主角":
+                    plan = next(
+                        (static_dao.get_equipment_plan(candidate_id) for candidate_id in (1046, 1051)
+                         if static_dao.get_equipment_plan(candidate_id) is not None),
+                        None,
+                    )
+                else:
+                    plan = static_dao.get_equipment_plan(character_id) if character_id is not None else None
+                if plan is None:
+                    raise ValueError(f"角色 [{role_name}] 缺少官方 SQLite 底盘图纸")
+                default_suit = static_dao.get_character_default_suit(
+                    int(plan["character_id"])
+                )
+                if default_suit is not None:
+                    self.roles_db[role_name]["default_set"] = self._resolve_set_name(
+                        str(default_suit["suit_name_zh"])
+                    )
+                board = [[-1] * 5 for _ in range(5)]
+                for cell in plan.get("cells") or []:
+                    board[int(cell["row"]) - 1][int(cell["column"]) - 1] = 0
+                self._board_matrices[role_name] = board
         self._canonicalize_role_sets()
 
     def _resolve_set_name(self, set_name: str) -> str:
@@ -104,7 +161,7 @@ class NTEPipelineOrchestrator:
 
             set_shapes = self.sets_db[set_name]["shapes"]
             extra_label = role_data["extra_shape_label"]
-            board_matrix = role_data["board_matrix"]
+            board_matrix = self._board_matrices[role_name]
             set_effect_mode = normalize_set_effect_mode(set_effect_modes.get(role_name))
             set_piece_options = set_piece_options_for_mode(set_shapes, set_effect_mode)
             cache_key = self._blueprint_cache_key(

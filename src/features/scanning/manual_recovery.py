@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -24,59 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from src.domain.stat_catalog import StatCatalog
-from src.features.inventory_import.exporter import make_unique_uid
-
-
-def _stable_uid(prefix: str, item: dict) -> str:
-    payload = json.dumps(
-        {
-            "item_type": item.get("item_type"),
-            "shape_id": item.get("shape_id"),
-            "set_name": item.get("set_name"),
-            "quality": item.get("quality"),
-            "main_stats": item.get("main_stats"),
-            "sub_stats": item.get("sub_stats"),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-    )
-    return f"{prefix}_{hashlib.md5(payload.encode('utf-8')).hexdigest()[:12]}"
-
-
 def _stat_pool(config_dir: Path) -> list[str]:
     catalog = StatCatalog.from_config_dir(config_dir)
     pool = set(catalog.gold_base_values.keys())
     pool.update(catalog.tape_stat_values.keys())
     return sorted(stat for stat in pool if stat)
-
-
-def _append_items(output_file: Path, items: list[dict]) -> int:
-    output_file = Path(output_file)
-    try:
-        inventory = json.loads(output_file.read_text(encoding="utf-8")) if output_file.exists() else []
-    except Exception:
-        inventory = []
-    if not isinstance(inventory, list):
-        inventory = []
-
-    existing_uids = {
-        item.get("uid")
-        for item in inventory
-        if isinstance(item, dict) and item.get("uid")
-    }
-    added = 0
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        prefix = "drive" if item.get("item_type") == "drive" else "tape"
-        item["uid"] = make_unique_uid(_stable_uid(prefix, item), existing_uids)
-        existing_uids.add(item["uid"])
-        inventory.append(item)
-        added += 1
-
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    output_file.write_text(json.dumps(inventory, ensure_ascii=False, indent=4), encoding="utf-8")
-    return added
 
 
 class ManualRecoveryDialog(QDialog):
@@ -197,12 +147,12 @@ class ManualRecoveryDialog(QDialog):
         super().accept()
 
 
-def complete_pending_manual_items(parent, stats: dict, output_file: Path, config_dir: Path) -> int:
+def complete_pending_manual_items(parent, stats: dict, config_dir: Path) -> list[dict] | None:
     records = list((stats or {}).get("pending_manual_items") or [])
     if not records:
-        return 0
+        return []
     dialog = ManualRecoveryDialog(records, _stat_pool(Path(config_dir)), parent)
     if dialog.exec() != QDialog.Accepted:
-        return 0
+        return None
     items = dialog.completed_items() or []
-    return _append_items(Path(output_file), items)
+    return items

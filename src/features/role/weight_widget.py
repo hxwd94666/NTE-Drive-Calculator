@@ -10,8 +10,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QWidget,
 )
-from src.ui.widgets import NoWheelDoubleSpinBox
 from .dao import load_stats
+from src.domain.stat_catalog import StatCatalog
+from src.ui.widgets import NoWheelDoubleSpinBox
 
 
 def build_weight_group(
@@ -140,7 +141,12 @@ def _add_weight(group_weights):
     on_margin = group_weights._on_margin_refresh_callback
 
     stats = load_stats()
-    pool = sorted(stats.get("weight_pool", []))
+    pool = sorted(
+        StatCatalog(
+            tape_stat_values=stats.get("tape_stat_values", {}) or {},
+            main_only_keywords=stats.get("main_only_keywords", []) or [],
+        ).tape_sub_stat_pool()
+    )
     weights_dict = role_data.get("weights", {})
     existing = set(weights_dict.keys())
     available = [s for s in pool if s not in existing]

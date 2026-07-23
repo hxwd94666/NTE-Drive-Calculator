@@ -25,6 +25,8 @@ from src.services.official_role_page_service import (
     calculate_official_role_margins,
     load_official_role_detail,
     load_official_role_index,
+    replacement_candidates_for_official_role,
+    save_official_role_replacement,
 )
 from src.services.character_weight_service import (
     ensure_account_character_weights, save_account_character_weights,
@@ -253,6 +255,54 @@ class OfficialRolePageTests(unittest.TestCase):
         self.assertEqual(0.01, expanded_by_id["DamageUpGeneralBase"]["unit"])
         self.assertEqual(0.0125, expanded_by_id[element_property_id]["unit"])
 
+    def test_saved_plan_replacement_uses_sqlite_inventory_and_preserves_assignment(self) -> None:
+        with StaticGameDataDao() as static_dao:
+            character_id = int(static_dao.list_role_template_characters()[0]["character_id"])
+        snapshot = _snapshot(character_id)
+        stronger = copy.deepcopy(snapshot["items"][0])
+        stronger["uid"] = {"serial": 9, "slot": 1}
+        stronger["sub_stats"] = [{
+            "property_id": "AtkUp", "value": 0.5, "percent": True,
+            "names": {"zh_cn": "攻击力"},
+        }]
+        snapshot["items"].append(stronger)
+        snapshot["item_count"] = 2
+        with UserDataDao(self.database) as dao:
+            snapshot_id = dao.import_inventory_snapshot(snapshot)
+            dao.save_loadout_plan(
+                name="saved", character_id=character_id, source_snapshot_id=snapshot_id,
+                assignments=[{"uid_serial": 2, "uid_slot": 1, "kind": "core",
+                              "target_row": None, "target_column": None}],
+                status="saved", payload={"schema": "allocation-official-snapshot-v1"},
+                is_active=True,
+            )
+        detail = load_official_role_detail(self.database, character_id)
+        target = detail["equipment_contexts"]["saved"]["items"][0]
+        candidates = replacement_candidates_for_official_role(detail, "saved", target)
+        self.assertEqual(1, len(candidates))
+        self.assertGreater(candidates[0]["gain_percent"], 0)
+        plan_id = save_official_role_replacement(
+            self.database, detail, target, candidates[0]["item"],
+            score=candidates[0]["damage"],
+        )
+        with UserDataDao(self.database) as dao:
+            saved = dao.get_loadout_plan(plan_id)
+        self.assertTrue(saved["is_active"])
+        self.assertEqual(9, saved["assignments"][0]["uid_serial"])
+
+    def test_graduation_reference_ignores_current_growth_and_uses_signature_baseline(self) -> None:
+        # 1051 has a recorded exclusive fork in the official static dataset.
+        detail = load_official_role_detail(self.database, 1051)
+        reference = page._graduation_benchmark_damage(detail)
+        self.assertIsNotNone(reference)
+        self.assertGreater(reference, 0)
+        detail["profile"].update({
+            "character_level": 1, "breakthrough_stage": 0,
+            "awakening_level": 0, "fork_id": None,
+            "fork_level": None, "fork_refinement_level": None,
+        })
+        self.assertAlmostEqual(reference, page._graduation_benchmark_damage(detail))
+
     def test_new_page_builds_without_old_role_json_models(self) -> None:
         host = QWidget()
         with patch.object(runtime, "USER_DATABASE_PATH", self.database, create=True):
@@ -302,6 +352,8 @@ class OfficialRolePageTests(unittest.TestCase):
         )
         formula_result = built.findChild(QLabel, "officialRoleDamageFormulaResult")
         self.assertIn("最终直伤 = 100%", formula_result.text())
+        graduation = built.findChild(QLabel, "officialRoleGraduationRate")
+        self.assertIsNotNone(graduation)
         weight_group = built.findChild(QGroupBox, "officialRoleWeightGroup")
         self.assertIsNotNone(weight_group.findChild(QLabel, "officialRoleWeightAvatar"))
         self.assertIsNone(
@@ -382,6 +434,8 @@ class OfficialRolePageTests(unittest.TestCase):
         group = built.findChild(QGroupBox, "officialRoleForkGroup")
         combo = group.findChild(QComboBox)
         level = next(spin for spin in group.findChildren(QSpinBox) if spin.maximum() == 80)
+        from src.ui.widgets import NoWheelSpinBox
+        self.assertIsInstance(level, NoWheelSpinBox)
         for value in (70, 60, 80):
             level.setValue(value)
             expected_count = len(page._fork_stats(detail, combo.currentData(), value))
@@ -431,7 +485,7 @@ class OfficialRolePageTests(unittest.TestCase):
         host = QWidget()
         content = page._build_equipment_detail_content(host, detail, "current")
         groups = [group.title() for group in content.findChildren(QGroupBox)]
-        self.assertEqual(["空幕属性汇总", "空幕", "驱动 (1个)"], groups)
+        self.assertEqual(["空幕", "驱动 (1个)"], groups)
         self.assertEqual(
             2, len(content.findChildren(QWidget, "officialRoleEquipmentCard"))
         )
@@ -455,6 +509,7 @@ class OfficialRolePageTests(unittest.TestCase):
         page._build_equipment_detail_content(legacy_host, detail, "current")
         self.assertEqual(2, len(legacy_calls))
         self.assertIsNone(legacy_calls[0][0][3])
+        self.assertEqual("V_4", legacy_calls[1][0][0])
         self.assertEqual("V_4", legacy_calls[1][0][3])
         self.assertTrue(all(
             call[1]["card_variant"] == "inventory" for call in legacy_calls

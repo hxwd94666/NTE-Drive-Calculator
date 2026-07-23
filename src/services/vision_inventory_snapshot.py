@@ -9,6 +9,7 @@ from typing import Any
 
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.sqlite_allocation_inventory import AllocationInventoryProjectionError, legacy_shape_id
 from src.utils.set_name import normalize_set_display_name
 
 
@@ -18,11 +19,11 @@ class VisionInventorySnapshotError(RuntimeError):
 
 _QUALITY = {"gold": "orange", "purple": "purple", "blue": "blue"}
 _GEOMETRY = {
-    "H_2": "Hen2", "H_3": "Hen3", "H_4": "Hen4",
-    "V_2": "Shu2", "V_3": "Shu3", "V_4": "Shu4",
-    "Trap_4_H": "Z3", "Trap_4_V": "Z4",
-    "L_3_BL": "ZhiJiao1", "L_3_TL": "ZhiJiao2",
-    "L_3_TR": "ZhiJiao3", "L_3_BR": "ZhiJiao4",
+    "H_2": "EquipmentGeometry_Hen2", "H_3": "EquipmentGeometry_Hen3", "H_4": "EquipmentGeometry_Hen4",
+    "V_2": "EquipmentGeometry_Shu2", "V_3": "EquipmentGeometry_Shu3", "V_4": "EquipmentGeometry_Shu4",
+    "Trap_4_H": "EquipmentGeometry_Z3", "Trap_4_V": "EquipmentGeometry_Z4",
+    "L_3_BL": "EquipmentGeometry_ZhiJiao1", "L_3_TL": "EquipmentGeometry_ZhiJiao2",
+    "L_3_TR": "EquipmentGeometry_ZhiJiao3", "L_3_BR": "EquipmentGeometry_ZhiJiao4",
 }
 _PROPERTY_IDS = {
     "攻击力": "AtkAdd", "攻击力%": "AtkUp", "暴击率": "CritBase", "暴击率%": "CritBase",
@@ -43,10 +44,16 @@ _STAT_LABEL_ALIASES = {
     "伤害增加": "伤害增加%", "伤害%": "伤害增加%", "伤害": "伤害增加%",
     "大攻击": "攻击力%", "大防御": "防御力%", "大生命": "生命值%",
     "小攻击": "攻击力", "小防御": "防御力", "小生命": "生命值",
+    "攻击": "攻击力", "防御": "防御力", "生命": "生命值",
     "心灵伤害增强": "心灵伤害增强%", "光属性伤害": "光属性异能伤害增强%",
     "暗属性伤害": "暗属性异能伤害增强%", "灵属性伤害": "灵属性异能伤害增强%",
     "咒属性伤害": "咒属性异能伤害增强%", "魂属性伤害": "魂属性异能伤害增强%",
     "相属性伤害": "相属性异能伤害增强%",
+}
+_CORE_MAIN_STAT_ALIASES = {
+    "攻击": "攻击力%", "攻击力": "攻击力%",
+    "防御": "防御力%", "防御力": "防御力%",
+    "生命": "生命值%", "生命值": "生命值%",
 }
 _PERCENT_PROPERTY_IDS = frozenset(
     value for key, value in _PROPERTY_IDS.items() if key.endswith("%") or key in {"暴击率", "暴击伤害"}
@@ -80,7 +87,9 @@ def _stat(label: Any, value: Any) -> dict[str, Any]:
 
 def _stats(value: Any, *, core: bool = False) -> list[dict[str, Any]]:
     if core:
-        return [_stat(value, 1.0)]
+        raw_name = str(value or "").strip().replace("百分比", "%")
+        normalized_name = _STAT_LABEL_ALIASES.get(raw_name, raw_name)
+        return [_stat(_CORE_MAIN_STAT_ALIASES.get(normalized_name, normalized_name), 1.0)]
     if not isinstance(value, Mapping):
         raise VisionInventorySnapshotError("视觉扫描驱动缺少词条列表")
     return [_stat(label, amount) for label, amount in value.items()]
@@ -126,7 +135,12 @@ def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: Static
             "sub_stats": _stats(item.get("sub_stats")),
         }
         if kind == "module":
-            shape_id = str(item.get("shape_id") or "").strip()
+            try:
+                shape_id = legacy_shape_id(item.get("shape_id"))
+            except AllocationInventoryProjectionError as exc:
+                raise VisionInventorySnapshotError(
+                    f"视觉扫描第 {ordinal} 项形状无效：{item.get('shape_id')!r}"
+                ) from exc
             geometry = _GEOMETRY.get(shape_id)
             if geometry is None:
                 raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项形状无效：{shape_id!r}")

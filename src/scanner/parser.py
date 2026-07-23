@@ -13,6 +13,7 @@ from src.utils.logger import logger
 from src.utils.exceptions import ConfigMissingError
 from src.utils.name_resolver import resolve_name
 from src.models.equipment import Drive, Tape
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 class DriveDataParser:
@@ -43,15 +44,13 @@ class DriveDataParser:
         return f"{prefix}_{hash_val}"
 
     def _load_sets_from_json(self) -> List[str]:
-        sets_path = os.path.join(self.config_dir, "sets.json")
         try:
-            with open(sets_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                loaded_sets = list(data.get("sets", {}).keys())
-                logger.info(f"Parser 成功加载 {len(loaded_sets)} 个套装配置。")
-                return loaded_sets
+            with StaticGameDataDao() as static_dao:
+                loaded_sets = [str(row["name_zh"]).strip("「」") for row in static_dao.list_suits()]
+            logger.info(f"Parser 成功加载 {len(loaded_sets)} 个官方套装配置。")
+            return loaded_sets
         except Exception:
-            logger.warning(f"无法读取 sets.json，使用兜底套装。")
+            logger.warning("无法读取官方套装定义，使用兜底套装。")
             return ["森林萤火之心", "迪亚波罗斯", "音速蓝刺猬", "守卫王国", "失落光芒"]
 
     def _load_stat_catalog(self) -> StatCatalog:
@@ -115,6 +114,9 @@ class DriveDataParser:
             return protected
         if self._looks_like_attribute_main_stat(clean_text):
             return "未知主词条"
+        resolved = self.stat_catalog.normalize_tape_main_stat(clean_text)
+        if resolved != "未知主词条":
+            return resolved
         matches = difflib.get_close_matches(clean_text, self.TAPE_MAIN_STATS_POOL, n=1, cutoff=0.4)
         if matches:
             return matches[0]

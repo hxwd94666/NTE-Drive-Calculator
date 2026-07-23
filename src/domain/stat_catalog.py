@@ -27,6 +27,14 @@ class StatCatalog:
         "通用伤害增强": "伤害增加%",
         "通用伤害增强%": "伤害增加%",
     }
+    OCR_SHORT_STAT_ALIASES = {
+        "攻击": "攻击力",
+        "防御": "防御力",
+        "生命": "生命值",
+        "小攻击": "攻击力",
+        "小防御": "防御力",
+        "小生命": "生命值",
+    }
 
     gold_base_values: dict[str, float] = field(default_factory=dict)
     tape_main_stats: list[str] = field(default_factory=list)
@@ -81,6 +89,11 @@ class StatCatalog:
         valid_stats = self.valid_sub_stats
         aliases = self._weight_aliases()
         for candidate in candidates:
+            short_name = self.OCR_SHORT_STAT_ALIASES.get(candidate.rstrip("%"))
+            if short_name:
+                resolved_short_name = f"{short_name}%" if candidate.endswith("%") else short_name
+                if resolved_short_name in valid_stats:
+                    return resolved_short_name
             resolved = aliases.get(candidate, candidate)
             if resolved in valid_stats:
                 return resolved
@@ -135,8 +148,21 @@ class StatCatalog:
         clean_name = str(raw_name or "").strip()
         if not clean_name:
             return "未知主词条"
+        aliases = self._weight_aliases()
+        short_name = self.OCR_SHORT_STAT_ALIASES.get(clean_name.rstrip("%"))
+        if short_name:
+            # 卡带的三类基础面板主词条均为百分比，OCR 常遗漏“百分比”二字。
+            candidate = f"{short_name}%"
+            if candidate in self.tape_main_values:
+                return candidate
+        resolved = aliases.get(clean_name, clean_name)
+        if resolved in self.tape_main_values:
+            return resolved
         matches = difflib.get_close_matches(clean_name, self.tape_main_stats, n=1, cutoff=cutoff)
-        return matches[0] if matches else "未知主词条"
+        if not matches:
+            return "未知主词条"
+        matched = aliases.get(matches[0], matches[0]).replace("百分比", "%")
+        return matched if matched in self.tape_main_values else "未知主词条"
 
     def weight_choice_pool(self) -> list[str]:
         """Return canonical stat names that can be used in role weight config."""

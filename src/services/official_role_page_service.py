@@ -353,11 +353,19 @@ def calculate_official_role_equipment_gain(
 def _same_inventory_item(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     left_uid = left.get("uid") or {}
     right_uid = right.get("uid") or {}
-    if isinstance(left_uid, Mapping) and isinstance(right_uid, Mapping):
+    if left_uid and right_uid and isinstance(left_uid, Mapping) and isinstance(right_uid, Mapping):
         return (
             int(left_uid.get("serial") or 0), int(left_uid.get("slot") or 0)
         ) == (
             int(right_uid.get("serial") or 0), int(right_uid.get("slot") or 0)
+        )
+    if all(key in left for key in ("uid_serial", "uid_slot")) and all(
+        key in right for key in ("uid_serial", "uid_slot")
+    ):
+        return (
+            int(left.get("uid_serial") or 0), int(left.get("uid_slot") or 0)
+        ) == (
+            int(right.get("uid_serial") or 0), int(right.get("uid_slot") or 0)
         )
     return left is right
 
@@ -395,6 +403,116 @@ def calculate_official_role_item_gain(
         "baseline_damage": baseline_damage,
         "gain_percent": (damage / baseline_damage - 1.0) * 100.0,
     }
+
+
+def replacement_candidates_for_official_role(
+    detail: Mapping[str, Any], context_key: str, target: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Rank same-slot SQLite inventory replacements by the page's direct damage.
+
+    Replacement is intentionally limited to a saved SQLite loadout: it retains
+    the stored grid coordinates and never writes an ad-hoc JSON equipment list.
+    A module must keep both its official shape and suit, so applying the result
+    cannot silently invalidate the saved board or set constraint.
+    """
+
+    context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
+    if context_key != "saved" or not context.get("plan"):
+        return []
+    items = tuple(context.get("items") or ())
+    if not items:
+        return []
+    target_kind = str(target.get("kind") or "")
+    target_geometry = str(target.get("geometry") or "")
+    target_suit = target.get("suit_id")
+    baseline = calculate_official_role_margins(detail, context_key)
+    baseline_damage = float((baseline or {}).get("damage") or 0.0)
+    ranked: list[dict[str, Any]] = []
+    for candidate in detail.get("replacement_items") or ():
+        if _same_inventory_item(candidate, target):
+            continue
+        if str(candidate.get("kind") or "") != target_kind:
+            continue
+        if any(_same_inventory_item(candidate, equipped) for equipped in items):
+            continue
+        if target_kind == "module" and (
+            str(candidate.get("geometry") or "") != target_geometry
+            or candidate.get("suit_id") != target_suit
+        ):
+            continue
+        replaced = tuple(
+            candidate if _same_inventory_item(item, target) else item for item in items
+        )
+        candidate_detail = {
+            **detail,
+            "equipment_contexts": {
+                **(detail.get("equipment_contexts") or {}),
+                context_key: {**context, "items": replaced},
+            },
+        }
+        margins = calculate_official_role_margins(candidate_detail, context_key)
+        damage = float((margins or {}).get("damage") or 0.0)
+        if damage <= 0:
+            continue
+        ranked.append({
+            "item": dict(candidate),
+            "damage": damage,
+            "gain_percent": (
+                (damage / baseline_damage - 1.0) * 100.0 if baseline_damage > 0 else 0.0
+            ),
+        })
+    return sorted(ranked, key=lambda row: float(row["damage"]), reverse=True)
+
+
+def save_official_role_replacement(
+    user_database_path: str | Path,
+    detail: Mapping[str, Any],
+    target: Mapping[str, Any],
+    replacement: Mapping[str, Any],
+    *,
+    score: float | None = None,
+) -> int:
+    """Persist one accepted saved-plan replacement as the next active plan."""
+
+    context = (detail.get("equipment_contexts") or {}).get("saved") or {}
+    plan = context.get("plan")
+    if not isinstance(plan, Mapping) or plan.get("source_snapshot_id") is None:
+        raise ValueError("请先保存一套 SQLite 配装方案，再使用替换优化")
+    assignments = []
+    replaced = False
+    replacement_uid = (
+        int(replacement.get("uid_serial") or 0), int(replacement.get("uid_slot") or 0)
+    )
+    for source in plan.get("assignments") or ():
+        assignment = dict(source.get("raw_assignment") or source)
+        source_uid = (int(source.get("uid_serial") or 0), int(source.get("uid_slot") or 0))
+        target_uid = (int(target.get("uid_serial") or 0), int(target.get("uid_slot") or 0))
+        if source_uid == target_uid:
+            assignment.update({
+                "uid_serial": replacement_uid[0],
+                "uid_slot": replacement_uid[1],
+                "kind": str(replacement.get("kind") or ""),
+            })
+            replaced = True
+        assignments.append(assignment)
+    if not replaced:
+        raise ValueError("目标装备不属于当前 SQLite 配装方案")
+    if len({(int(row.get("uid_serial") or 0), int(row.get("uid_slot") or 0)) for row in assignments}) != len(assignments):
+        raise ValueError("替换装备已在当前方案中使用")
+    payload = dict(plan.get("payload") or {})
+    payload.update({"source": "official_role_replacement", "replaces_plan_id": plan.get("plan_id")})
+    role_name = str((detail.get("character") or {}).get("name_zh") or plan["character_id"])
+    with UserDataDao(user_database_path) as user_dao:
+        return user_dao.save_loadout_plan(
+            name=f"替换优化：{role_name}",
+            character_id=int(plan["character_id"]),
+            source_snapshot_id=int(plan["source_snapshot_id"]),
+            assignments=assignments,
+            status="saved",
+            score=score,
+            payload=payload,
+            is_active=True,
+        )
 
 
 def calculate_official_role_margins(detail: Mapping[str, Any], context_key: str) -> dict[str, Any] | None:
@@ -685,6 +803,11 @@ def load_official_role_detail(
         plans = [plan for plan in user_dao.list_loadout_plans(character_id) if plan["is_active"]]
         saved_plan = plans[0] if plans else None
         saved_items = _resolved_plan_items(user_dao, saved_plan)
+        replacement_items = (
+            user_dao.list_inventory_items(int(saved_plan["source_snapshot_id"]))
+            if saved_plan and saved_plan.get("source_snapshot_id") is not None
+            else []
+        )
         equipment_plan = static_dao.get_equipment_plan(character_id)
         account_weights = user_dao.get_character_weight_preferences(character_id)
         workshop_weights = static_dao.get_character_recommended_weights(character_id)
@@ -725,10 +848,15 @@ def load_official_role_detail(
         "item_names": item_names,
         "item_icon_paths": item_icon_paths,
         "property_weights": weights,
+        "main_property_weights": {
+            str(key): float(value)
+            for key, value in (weight_record.get("main_property_weights") or {}).items()
+        },
         "property_weight_source": str(weight_record.get("source_kind") or "default"),
         "property_weights_from_account": account_weights is not None,
         "theory_weights": theory_weights,
         "theory_weights_persisted": account_weights is not None,
+        "replacement_items": replacement_items,
         "equipment_contexts": {
             "current": {
                 "title": "游戏当前",

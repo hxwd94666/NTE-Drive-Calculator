@@ -679,6 +679,20 @@ class StaticGameDataDao:
         ]
         return plan
 
+    def get_character_default_suit(self, character_id: int) -> dict[str, Any] | None:
+        """返回官方配装图纸中卡带所属的默认套装。"""
+
+        return self._one(
+            """
+            SELECT core.suit_id, suit.name_zh AS suit_name_zh
+            FROM equipment_plan AS plan
+            JOIN equipment_item AS core ON core.item_id = plan.core_item_id
+            JOIN equipment_suit AS suit ON suit.suit_id = core.suit_id
+            WHERE plan.character_id = ?
+            """,
+            (int(character_id),),
+        )
+
     def get_skill_damage(self, damage_id: str) -> dict[str, Any] | None:
         """按官方伤害记录 ID 返回 v7 原始倍率数组和修正规则。"""
         damage = self._one(

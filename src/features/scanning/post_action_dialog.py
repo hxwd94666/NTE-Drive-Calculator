@@ -45,6 +45,8 @@ from src.features.scanning.post_actions import (
 from src.domain.stat_catalog import StatCatalog
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
+from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
@@ -88,21 +90,17 @@ def _combo(options, value: object, width: int = 130) -> QComboBox:
 
 
 def _load_drive_shape_options() -> list[tuple[str, int]]:
-    config_dir = Path(getattr(runtime, "CONFIG_DIR", Path("config")))
-    shapes = (read_json(config_dir / "shapes.json", default={}) or {}).get("shapes", [])
-    options = []
-    for shape in shapes:
-        shape_id = str(shape.get("shape_id") or "")
-        area = int(shape.get("area") or 0)
-        if shape_id and shape_id != "TAPE_15":
-            options.append((shape_id, area))
+    with StaticGameDataDao() as static_dao:
+        options = [
+            (legacy_shape_id(shape["shape_id"]), int(shape["cell_count"]))
+            for shape in static_dao.list_shapes()
+        ]
     return sorted(options, key=lambda item: (item[1], item[0]))
 
 
 def _load_set_name_options() -> list[str]:
-    config_dir = Path(getattr(runtime, "CONFIG_DIR", Path("config")))
-    sets = (read_json(config_dir / "sets.json", default={}) or {}).get("sets", {})
-    return list(sets.keys())
+    with StaticGameDataDao() as static_dao:
+        return [str(suit["name_zh"]) for suit in static_dao.list_suits()]
 
 
 def _button_style(checked: bool) -> str:

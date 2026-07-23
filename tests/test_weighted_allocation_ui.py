@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QScrollArea, QVBoxLayout, QWidget
 
 from src.features.weighted_allocation import page
 from src.features.inventory import page as inventory_page
@@ -196,10 +196,23 @@ class WeightedAllocationUiTests(unittest.TestCase):
             with patch.object(page.runtime, "USER_DATABASE_PATH", database, create=True), \
                  patch.object(page.runtime, "ASSET_DIR", Path("assets"), create=True):
                 built = page.build_weighted_allocation_page(host)
-                with patch.object(page.QDialog, "exec", return_value=page.QDialog.Accepted), \
-                     patch.object(page.QDoubleSpinBox, "value", return_value=1.25):
+                accepted = page.QDialog.Accepted
+                class InspectingDialog(page.QDialog):
+                    instances = []
+
+                    def exec(self):
+                        self.instances.append(self)
+                        return accepted
+
+                with patch.object(page, "QDialog", InspectingDialog), \
+                     patch.object(page.NoWheelDoubleSpinBox, "value", return_value=1.25):
                     page._show_empty_curtain_preferences(host, "伊洛伊")
                 self.assertIsNotNone(built)
+                weights_scroll = InspectingDialog.instances[0].findChild(
+                    QScrollArea, "weightedRoleWeightScroll"
+                )
+                self.assertIsNotNone(weights_scroll)
+                self.assertEqual(210, weights_scroll.height())
             with UserDataDao(database) as dao:
                 saved = dao.get_character_weight_preferences(1075)
 
@@ -535,10 +548,11 @@ class WeightedAllocationUiTests(unittest.TestCase):
         request = WeightedAllocationRequest(Path(__file__), 1, 2, 3, 5)
         user, static, context = MagicMock(), MagicMock(), MagicMock(account_id="a", static_dataset=MagicMock())
         user.__enter__.return_value = user; static.__enter__.return_value = static
-        with patch("src.features.weighted_allocation.runner.UserDataDao", return_value=user), patch("src.features.weighted_allocation.runner.StaticGameDataDao", return_value=static), patch("src.features.weighted_allocation.runner.build_allocation_context", return_value=context) as build_context, patch("src.features.weighted_allocation.runner.solve_allocation_context", return_value="result"):
+        roles_path = Path("config/roles.json")
+        with patch("src.features.weighted_allocation.runner.UserDataDao", return_value=user), patch("src.features.weighted_allocation.runner.StaticGameDataDao", return_value=static), patch("src.features.weighted_allocation.runner._workshop_roles_path", return_value=roles_path), patch("src.features.weighted_allocation.runner.build_allocation_context", return_value=context) as build_context, patch("src.features.weighted_allocation.runner.solve_allocation_context", return_value="result"):
             preview = run_weighted_allocation(request)
         self.assertEqual("result", preview.result)
-        self.assertNotIn("workshop_roles_path", build_context.call_args.kwargs)
+        self.assertEqual(roles_path, build_context.call_args.kwargs["workshop_roles_path"])
 
     def test_persistence_reader_requires_complete_matching_active_plans(self):
         dao = MagicMock()

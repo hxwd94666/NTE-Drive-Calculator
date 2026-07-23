@@ -24,6 +24,7 @@ from src.features.scanning.manual_recovery import complete_pending_manual_items
 from src.features.scanning.post_action_dialog import load_scan_post_action_config, show_scan_post_action_dialog
 from src.features.scanning.post_actions import post_actions_enabled, validate_post_action_config
 from src.features.scanning.vision_worker import VisionWorkerThread
+from src.services.vision_inventory_snapshot import import_vision_inventory
 from src.scanner.batch_processor import BatchProcessor
 from src.utils.logger import logger
 
@@ -168,7 +169,7 @@ def _do_exec(self):
         self._worker.result_ready.connect(self._on_done); self._worker.error.connect(self._on_exec_error); self._worker.start()
 
 def _scan_lifecycle(self):
-    return ScanFileLifecycle(runtime.SCREENSHOT_DIR, runtime.OUTPUT_FILE, runtime.CONFIG_DIR, BatchProcessor)
+    return ScanFileLifecycle(runtime.SCREENSHOT_DIR, runtime.CONFIG_DIR, BatchProcessor)
 
 def _is_scope_image(self,path:Path,parse_scope:str,skip_names=None):
     return is_scope_image(path,parse_scope,skip_names)
@@ -216,7 +217,6 @@ def _postprocess_vision_files(self,stats):
 
 def _start_vision_processing(self, replace_output=False, parse_scope="all"):
     input_dir=str(runtime.SCREENSHOT_DIR)
-    output_file=str(runtime.OUTPUT_FILE)
     self._pending_archive_paths=[]
     self._pending_parse_scope=parse_scope
     skip_names=self._prepare_incremental_parse(parse_scope)
@@ -235,7 +235,6 @@ def _start_vision_processing(self, replace_output=False, parse_scope="all"):
         return
     self._vision_worker=VisionWorkerThread(
         input_dir,
-        output_file,
         self,
         replace_output=replace_output,
         parse_scope=parse_scope,
@@ -269,26 +268,41 @@ def _on_vision_done(self,stats):
     if hasattr(self,'_vision_worker') and self._vision_worker.isRunning():
         self._vision_worker.wait(5000)
     post=self._postprocess_vision_files(stats)
-    manual_added=0
+    manual_items=[]
     pending_manual_count=int(stats.get("pending_manual_count",0) or 0)
     if pending_manual_count:
         try:
-            manual_added=complete_pending_manual_items(self, stats, runtime.OUTPUT_FILE, runtime.CONFIG_DIR)
+            manual_result=complete_pending_manual_items(self, stats, runtime.CONFIG_DIR)
+            if manual_result is None:
+                QMessageBox.information(self, "补录已取消", "本次全量视觉扫描未写入 SQLite 背包快照。")
+                return
+            manual_items=manual_result
         except Exception as exc:
             logger.error(f"补录待识别装备失败: {exc}")
-            QMessageBox.warning(self, "补录失败", f"待补录装备未写入库存：{exc}")
+            QMessageBox.warning(self, "补录失败", f"本次扫描未写入 SQLite 背包快照：{exc}")
+            return
     success_count=int(stats.get("success_count",0) or 0)
     failed_count=int(stats.get("failed_count",0) or 0)
     duplicate_count=int(stats.get("duplicate_count",0) or 0)+int(post.get("probe_duplicates",0) or 0)
     summary=f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
-    vision_snapshot_id = stats.get("vision_snapshot_id")
+    vision_snapshot_id = None
+    vision_items = list(stats.get("vision_items") or [])
+    if vision_items and str(stats.get("parse_scope") or "") in {"full", "all"}:
+        try:
+            vision_snapshot_id = import_vision_inventory(
+                runtime.USER_DATABASE_PATH, [*vision_items, *manual_items]
+            )
+        except Exception as exc:
+            logger.error(f"视觉扫描 SQLite 快照写入失败: {exc}")
+            QMessageBox.warning(self, "库存写入失败", f"本次扫描未写入 SQLite 背包快照：{exc}")
+            return
     if isinstance(vision_snapshot_id, int) and vision_snapshot_id > 0:
         summary += f"\n已写入视觉扫描库存快照 #{vision_snapshot_id}；没有抓包快照时可用于计算和自动装配。"
         refresh_home = getattr(self, "_refresh_home", None)
         if callable(refresh_home):
             refresh_home()
     if pending_manual_count:
-        summary += f"\n待补录 {pending_manual_count} 件，已补录入库 {manual_added} 件。"
+        summary += f"\n待补录 {pending_manual_count} 件，已补录 {len(manual_items)} 件并与本次识别结果共同写入 SQLite 快照。"
     if stats.get("post_actions_enabled"):
         summary += (
             "\n扫描后管理："

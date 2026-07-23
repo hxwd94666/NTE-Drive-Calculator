@@ -11,8 +11,6 @@ import os
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -20,7 +18,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
     QKeySequenceEdit,
@@ -28,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from src.app.constants import BILIBILI_HOME_URL, NETDISK_DOWNLOAD_LINKS
 from src.app.theme import THEME_LABELS, themed_style
+from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
 
 
 DEFAULT_SYNC_SETTINGS = {
@@ -140,7 +138,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     settings_reader = getattr(window, "_get_sync_settings", None)
     loaded_settings = settings_reader() if callable(settings_reader) else {}
     settings = {**DEFAULT_SYNC_SETTINGS, **(loaded_settings or {})}
-    window._sync_inventory_method_combo = QComboBox()
+    window._sync_inventory_method_combo = NoWheelComboBox()
     window._sync_inventory_method_combo.addItem("本地核心组件流式同步", "nte_core")
     window._sync_inventory_method_combo.addItem("手柄扫描", "gamepad")
     inventory_index = window._sync_inventory_method_combo.findData(
@@ -149,7 +147,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     window._sync_inventory_method_combo.setCurrentIndex(max(0, inventory_index))
     sync_form.addRow("背包获取方式:", window._sync_inventory_method_combo)
 
-    window._sync_settle_spin = QDoubleSpinBox()
+    window._sync_settle_spin = NoWheelDoubleSpinBox()
     window._sync_settle_spin.setRange(1.0, 30.0)
     window._sync_settle_spin.setDecimals(1)
     window._sync_settle_spin.setSingleStep(0.5)
@@ -157,7 +155,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     window._sync_settle_spin.setValue(float(settings["inventory_settle_seconds"]))
     sync_form.addRow("内容稳定等待:", window._sync_settle_spin)
 
-    window._snapshot_retention_spin = QSpinBox()
+    window._snapshot_retention_spin = NoWheelSpinBox()
     window._snapshot_retention_spin.setRange(1, 365)
     window._snapshot_retention_spin.setValue(
         int(settings["inventory_snapshot_retention_count"])

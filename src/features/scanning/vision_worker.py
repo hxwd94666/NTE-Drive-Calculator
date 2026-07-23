@@ -16,8 +16,6 @@ from PySide6.QtCore import QThread, Signal
 from src.scanner.batch_processor import BatchProcessor
 from src.features.inventory_import.duplicate_filter import RecoverableParseError
 from src.features.scanning.file_lifecycle import is_allowed_filename
-from src.services.vision_inventory_snapshot import import_vision_inventory
-from src.app import runtime
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -34,7 +32,6 @@ class VisionWorkerThread(QThread):
     def __init__(
         self,
         input_dir,
-        output_file,
         parent=None,
         replace_output=False,
         parse_scope="all",
@@ -43,7 +40,6 @@ class VisionWorkerThread(QThread):
     ):
         super().__init__(parent)
         self.input_dir = input_dir
-        self.output_file = output_file
         self.replace_output = replace_output
         self.parse_scope = parse_scope
         self.skip_names = set(skip_names or [])
@@ -62,7 +58,6 @@ class VisionWorkerThread(QThread):
             init_start = time.perf_counter()
             processor = BatchProcessor(
                 input_dir=self.input_dir,
-                output_file=self.output_file,
                 config_dir=str(self.config_dir),
                 replace_output=self.replace_output,
             )
@@ -171,13 +166,7 @@ class VisionWorkerThread(QThread):
                 self.canceled.emit(processed_count)
                 return
 
-            vision_snapshot_id = None
-            if processor.inventory:
-                if self.parse_scope in {"full", "all"}:
-                    vision_snapshot_id = import_vision_inventory(
-                        runtime.USER_DATABASE_PATH,
-                        [item.model_dump() for item in processor.inventory],
-                    )
+            vision_items = [item.model_dump() for item in processor.inventory]
             del processor
             log_perf(
                 logger,
@@ -203,7 +192,7 @@ class VisionWorkerThread(QThread):
                     "pending_manual_count": len(pending_manual_items),
                     "total_count": total,
                     "parse_scope": self.parse_scope,
-                    "vision_snapshot_id": vision_snapshot_id,
+                    "vision_items": vision_items if self.parse_scope in {"full", "all"} else [],
                 }
             )
         except SystemExit as exc:

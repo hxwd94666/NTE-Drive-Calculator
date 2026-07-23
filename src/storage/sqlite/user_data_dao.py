@@ -1460,7 +1460,7 @@ class UserDataDao:
         raw_snapshot_id = _integer(snapshot_id, "snapshot_id", minimum=1)
         row = self._one(
             """
-            SELECT s.snapshot_id, s.source, s.generation, s.sequence,
+            SELECT s.snapshot_id, s.source, s.complete, s.generation, s.sequence,
                    s.observed_at_unix_ms, s.captured_at_utc,
                    s.declared_item_count, s.stored_item_count,
                    SUM(CASE WHEN i.kind = 'module' THEN 1 ELSE 0 END) AS module_count,

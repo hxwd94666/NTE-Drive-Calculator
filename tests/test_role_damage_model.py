@@ -1,5 +1,6 @@
 # 覆盖角色直伤公式和边际收益的基础行为。
 import unittest
+from types import SimpleNamespace
 
 
 class RoleDamageModelTests(unittest.TestCase):
@@ -43,6 +44,40 @@ class RoleDamageModelTests(unittest.TestCase):
         self.assertIn("攻击力白值", labels)
         self.assertIn("暴击率%", labels)
         self.assertIn(ABILITY_DAMAGE_STAT, labels)
+
+    def test_graduation_rate_precedes_direct_damage_score(self):
+        from src.features.role.marginal_widget import MarginalBenefitPanel
+
+        panel = SimpleNamespace(
+            graduation_benchmark=SimpleNamespace(damage=200.0), base_damage=150.0,
+        )
+
+        self.assertEqual("直伤毕业率 : 75.0%", MarginalBenefitPanel._graduation_label_text(panel))
+        self.assertEqual("直伤评分 : 150.00", MarginalBenefitPanel._damage_label_text(panel))
+
+    def test_role_detail_prefers_sqlite_mapped_equipment_fields(self):
+        from src.features.role.drive_widget import _resolve_display_equipment
+
+        displayed = _resolve_display_equipment(
+            {
+                "uid": "nte-module-3-9",
+                "shape_id": "HENG3",
+                "sub_stats": {"AtkAdd": 20},
+                "quality": "Purple",
+            },
+            {
+                "nte-module-3-9": {
+                    "uid": "nte-module-3-9",
+                    "shape_id": "H_3",
+                    "sub_stats": {"攻击力": 20.0, "暴击率%": 2.5},
+                    "quality": "Gold",
+                },
+            },
+        )
+
+        self.assertEqual("H_3", displayed["shape_id"])
+        self.assertEqual({"攻击力": 20.0, "暴击率%": 2.5}, displayed["sub_stats"])
+        self.assertEqual("Gold", displayed["quality"])
 
 
 if __name__ == "__main__":

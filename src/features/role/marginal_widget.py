@@ -66,6 +66,7 @@ class MarginalBenefitPanel:
         self.graduation_benchmark = None
         self.margins = []
         self.group_box = None
+        self.graduation_label = None
         self.damage_label = None
         self.table = None
         self.set_weights_btn = None
@@ -88,6 +89,12 @@ class MarginalBenefitPanel:
 
         # ---- 标题行：直伤评分 + 自动开关 + 设为权重按钮 ----
         header_row = QHBoxLayout()
+
+        # 毕业率固定置于直伤评分左侧，避免与评分文字混在同一标签里被裁切。
+        self.graduation_label = QLabel(self._graduation_label_text())
+        self.graduation_label.setStyleSheet("font-weight: bold; color: #ffaa00; font-size: 14px;")
+        self.graduation_label.setToolTip(self._damage_tooltip())
+        header_row.addWidget(self.graduation_label)
 
         # 直伤评分
         self.damage_label = QLabel(self._damage_label_text())
@@ -150,11 +157,14 @@ class MarginalBenefitPanel:
             self.graduation_benchmark = None
 
     def _damage_label_text(self) -> str:
+        return f"直伤评分 : {self.base_damage:.2f}"
+
+    def _graduation_label_text(self) -> str:
         benchmark = self.graduation_benchmark
         if benchmark is None or benchmark.damage <= 0:
-            return f"直伤评分 : {self.base_damage:.2f}"
+            return "直伤毕业率 : --"
         rate = self.base_damage / benchmark.damage * 100
-        return f"直伤评分 : {self.base_damage:.2f} ｜ 直伤毕业率 : {rate:.1f}%"
+        return f"直伤毕业率 : {rate:.1f}%"
 
     def _damage_tooltip(self) -> str:
         benchmark = self.graduation_benchmark
@@ -271,6 +281,9 @@ class MarginalBenefitPanel:
         self._calculate()
 
         # 更新直伤评分
+        if self.graduation_label:
+            self.graduation_label.setText(self._graduation_label_text())
+            self.graduation_label.setToolTip(self._damage_tooltip())
         if self.damage_label:
             self.damage_label.setText(self._damage_label_text())
             self.damage_label.setToolTip(self._damage_tooltip())

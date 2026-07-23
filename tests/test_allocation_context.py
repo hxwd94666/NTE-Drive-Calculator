@@ -129,7 +129,7 @@ class AllocationContextTests(unittest.TestCase):
         self.assertEqual("allocation-context", context.account_id)
         self.assertEqual(snapshot_id, context.snapshot.snapshot_id)
         self.assertEqual("weighted-solver-v1", context.solver_version)
-        self.assertEqual(10, context.static_dataset.schema_version)
+        self.assertEqual(11, context.static_dataset.schema_version)
         self.assertTrue(context.static_dataset.dataset_id)
         self.assertEqual([1003, 1004], [role.character_id for role in context.roles])
         self.assertEqual([0, 2], [role.priority_group for role in context.roles])
