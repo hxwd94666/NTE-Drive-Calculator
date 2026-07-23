@@ -11,8 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from src.services.virtual_equipment_service import (
+    is_virtual_equipment_assignment,
+    make_virtual_equipment_assignment,
+)
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -22,6 +26,8 @@ USER_MIGRATIONS = {
     5: Path(__file__).with_name("schema") / "006_user_data_v5.sql",
     6: Path(__file__).with_name("schema") / "007_user_data_v6.sql",
     7: Path(__file__).with_name("schema") / "008_user_data_v7.sql",
+    8: Path(__file__).with_name("schema") / "009_user_data_v8.sql",
+    9: Path(__file__).with_name("schema") / "010_user_data_v9.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
@@ -276,6 +282,116 @@ class UserDataDao:
             (name, _utc_now()),
         )
         self._db().commit()
+
+    def list_application_setting_copies(self) -> dict[str, dict[str, Any]]:
+        copies: dict[str, dict[str, Any]] = {}
+        for row in self._rows(
+            "SELECT setting_key, value_json FROM application_setting_copy ORDER BY setting_key"
+        ):
+            value = _decoded(row["value_json"], {})
+            if not isinstance(value, dict):
+                raise UserDataError(
+                    f"账号设置副本 {row['setting_key']!r} 不是 JSON 对象"
+                )
+            copies[str(row["setting_key"])] = value
+        return copies
+
+    def replace_application_setting_copy(
+        self, setting_key: str, value: Mapping[str, Any]
+    ) -> None:
+        key = str(setting_key).strip()
+        if not key:
+            raise UserDataValidationError("setting_key 不能为空")
+        if not isinstance(value, Mapping):
+            raise UserDataValidationError("账号设置副本必须是对象")
+        self._db().execute(
+            """
+            INSERT INTO application_setting_copy(setting_key, value_json, updated_at_utc)
+            VALUES (?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                value_json = excluded.value_json,
+                updated_at_utc = excluded.updated_at_utc
+            """,
+            (key, _json(dict(value)), _utc_now()),
+        )
+        self._db().commit()
+
+    def delete_application_setting_copy(self, setting_key: str) -> None:
+        self._db().execute(
+            "DELETE FROM application_setting_copy WHERE setting_key = ?",
+            (str(setting_key).strip(),),
+        )
+        self._db().commit()
+
+    def legacy_application_settings_imported(self) -> bool:
+        return self._one(
+            "SELECT singleton_id FROM application_setting_migration WHERE singleton_id = 1"
+        ) is not None
+
+    def mark_legacy_application_settings_imported(self) -> None:
+        self._db().execute(
+            """
+            INSERT INTO application_setting_migration(singleton_id, legacy_imported_at_utc)
+            VALUES (1, ?)
+            ON CONFLICT(singleton_id) DO UPDATE SET
+                legacy_imported_at_utc = excluded.legacy_imported_at_utc
+            """,
+            (_utc_now(),),
+        )
+        self._db().commit()
+
+    def get_ui_item_order(self, scope: str) -> list[str]:
+        normalized_scope = str(scope).strip()
+        if not normalized_scope:
+            raise UserDataValidationError("scope 不能为空")
+        return [
+            str(row["item_key"])
+            for row in self._rows(
+                """
+                SELECT item_key
+                FROM ui_item_order
+                WHERE scope = ?
+                ORDER BY ordinal
+                """,
+                (normalized_scope,),
+            )
+        ]
+
+    def replace_ui_item_order(
+        self, scope: str, item_keys: Sequence[str | int]
+    ) -> list[str]:
+        normalized_scope = str(scope).strip()
+        if not normalized_scope:
+            raise UserDataValidationError("scope 不能为空")
+        normalized_keys = [str(item_key).strip() for item_key in item_keys]
+        if any(not item_key for item_key in normalized_keys):
+            raise UserDataValidationError("item_key 不能为空")
+        if len(set(normalized_keys)) != len(normalized_keys):
+            raise UserDataValidationError("界面项目顺序不能包含重复项")
+        connection = self._db()
+        now = _utc_now()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "DELETE FROM ui_item_order WHERE scope = ?",
+                (normalized_scope,),
+            )
+            connection.executemany(
+                """
+                INSERT INTO ui_item_order(
+                    scope, item_key, ordinal, updated_at_utc
+                ) VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (normalized_scope, item_key, ordinal, now)
+                    for ordinal, item_key in enumerate(normalized_keys)
+                ],
+            )
+            connection.commit()
+        except sqlite3.Error:
+            connection.rollback()
+            raise
+        return normalized_keys
 
     def get_sync_settings(self) -> dict[str, Any]:
         settings = self._one("SELECT * FROM sync_settings WHERE singleton_id = 1")
@@ -852,6 +968,71 @@ class UserDataDao:
         assert result is not None
         return result
 
+    def refresh_unmodified_character_weight_preferences(
+        self,
+        character_id: int,
+        *,
+        properties: Sequence[Mapping[str, Any]],
+        source_dataset_id: str,
+        source_kind: str,
+    ) -> dict[str, Any] | None:
+        """Refresh a never-edited default copy without overwriting account edits."""
+
+        raw_character_id = _integer(character_id, "character_id", minimum=1)
+        rows = self._validated_character_weight_rows(properties)
+        dataset_id = self._preference_text(
+            source_dataset_id, "source_dataset_id", required=True
+        )
+        normalized_source_kind = self._preference_text(
+            source_kind, "source_kind", required=True
+        )
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            seed = connection.execute(
+                """SELECT source_kind, seeded_at_utc, updated_at_utc
+                   FROM character_weight_preference_seed
+                   WHERE character_id = ?""",
+                (raw_character_id,),
+            ).fetchone()
+            if (
+                seed is None
+                or str(seed["source_kind"]) != "default"
+                or str(seed["seeded_at_utc"]) != str(seed["updated_at_utc"])
+            ):
+                connection.rollback()
+                return None
+            connection.execute(
+                "DELETE FROM character_weight_preference_property WHERE character_id = ?",
+                (raw_character_id,),
+            )
+            connection.executemany(
+                """INSERT INTO character_weight_preference_property(
+                       character_id, property_id, weight, main_weight, ordinal
+                   ) VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (
+                        raw_character_id, row["property_id"], row["weight"],
+                        row["main_weight"], row["ordinal"],
+                    )
+                    for row in rows
+                ],
+            )
+            connection.execute(
+                """UPDATE character_weight_preference_seed
+                   SET source_dataset_id = ?, source_kind = ?, updated_at_utc = ?
+                   WHERE character_id = ?""",
+                (dataset_id, normalized_source_kind, _utc_now(), raw_character_id),
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法刷新未修改的角色词条权重") from exc
+        except BaseException:
+            connection.rollback()
+            raise
+        return self.get_character_weight_preferences(raw_character_id)
+
     def get_character_profile(self, character_id: int) -> dict[str, Any] | None:
         """读取一个只含官方 ID 指针和账号养成状态的角色档案。"""
 
@@ -1334,6 +1515,33 @@ class UserDataDao:
             parameters,
         )
 
+    def list_observed_character_ids(self) -> list[int]:
+        """Return actual character IDs ordered by their latest account evidence."""
+
+        rows = self._rows(
+            """
+            SELECT equipped_character_id AS character_id,
+                   MAX(snapshot_id) AS last_seen_snapshot_id
+            FROM inventory_item
+            WHERE equipped = 1 AND equipped_character_id IS NOT NULL
+            GROUP BY equipped_character_id
+            ORDER BY last_seen_snapshot_id DESC, character_id
+            """
+        )
+        result = [int(row["character_id"]) for row in rows]
+        for row in self._rows(
+            """
+            SELECT character_id, MAX(updated_at_utc) AS last_seen_at
+            FROM character_instance_mapping
+            GROUP BY character_id
+            ORDER BY last_seen_at DESC, character_id
+            """
+        ):
+            character_id = int(row["character_id"])
+            if character_id not in result:
+                result.append(character_id)
+        return result
+
     def create_equipment_apply_job(
         self, source_snapshot_id: int, prepared_roles: Sequence[Mapping[str, Any]]
     ) -> int:
@@ -1712,6 +1920,20 @@ class UserDataDao:
                 if value is not None and _integer(value, coordinate) not in range(1, 6):
                     raise UserDataValidationError(f"{coordinate} 必须在 1 到 5 之间")
             normalized.append((serial, slot, kind, assignment))
+        if is_active:
+            if source_snapshot_id is None:
+                raise UserDataValidationError("激活装配方案必须记录来源背包快照")
+            return self.replace_active_loadout_plans([{
+                "name": plan_name,
+                "character_id": raw_character_id,
+                "source_snapshot_id": source_snapshot_id,
+                "status": raw_status,
+                "score": score,
+                "payload": dict(payload or {}),
+                "assignments": [
+                    assignment for _serial, _slot, _kind, assignment in normalized
+                ],
+            }])[0]
         connection = self._db()
         now = _utc_now()
         try:
@@ -1755,11 +1977,166 @@ class UserDataDao:
             connection.rollback()
             raise UserDataError("无法保存装配方案") from exc
 
+    def _repair_active_loadout_plan_conflicts_in_transaction(
+        self,
+        *,
+        now: str,
+        preferred_plan_ids: set[int] | None = None,
+    ) -> int:
+        """Keep one owner per native UID while preserving non-conflicting items."""
+
+        connection = self._db()
+        preferred = preferred_plan_ids or set()
+        active_plans = [
+            plan for plan in self.list_loadout_plans() if plan["is_active"]
+        ]
+        active_plans.sort(
+            key=lambda plan: (
+                int(plan["plan_id"]) in preferred,
+                str(plan.get("updated_at_utc") or ""),
+                int(plan["plan_id"]),
+            ),
+            reverse=True,
+        )
+        uid_owner: dict[tuple[int, int], int] = {}
+        removed_by_plan: dict[int, set[tuple[int, int]]] = {}
+        plans_by_id = {
+            int(plan["plan_id"]): plan for plan in active_plans
+        }
+        for plan in active_plans:
+            plan_id = int(plan["plan_id"])
+            for item in plan["assignments"]:
+                uid = (int(item["uid_slot"]), int(item["uid_serial"]))
+                if uid[0] == 0:
+                    continue
+                owner = uid_owner.setdefault(uid, plan_id)
+                if owner != plan_id:
+                    removed_by_plan.setdefault(plan_id, set()).add(uid)
+
+        for plan_id, removed_uids in removed_by_plan.items():
+            plan = plans_by_id[plan_id]
+            connection.execute(
+                """
+                UPDATE loadout_plan
+                SET is_active = 0, updated_at_utc = ?
+                WHERE plan_id = ?
+                """,
+                (now, plan_id),
+            )
+            residual_assignments: list[dict[str, Any]] = []
+            for item in plan["assignments"]:
+                uid = (int(item["uid_slot"]), int(item["uid_serial"]))
+                if uid in removed_uids:
+                    continue
+                assignment = dict(item["raw_assignment"])
+                assignment.update({
+                    "uid_slot": uid[0],
+                    "uid_serial": uid[1],
+                    "kind": item["kind"],
+                    "target_row": item.get("target_row"),
+                    "target_column": item.get("target_column"),
+                    "rotation": item.get("rotation"),
+                })
+                residual_assignments.append(assignment)
+            if not residual_assignments:
+                continue
+            residual_payload = dict(plan.get("payload") or {})
+            previous_source = residual_payload.get("source")
+            residual_payload["source"] = "active_plan_conflict_repair"
+            residual_payload["active_plan_conflict_repair"] = {
+                "previous_plan_id": plan_id,
+                "previous_source": previous_source,
+                "removed_uids": [
+                    {"uid_slot": slot, "uid_serial": serial}
+                    for slot, serial in sorted(removed_uids)
+                ],
+            }
+            cursor = connection.execute(
+                """
+                INSERT INTO loadout_plan(
+                    name, character_id, source_snapshot_id, status, score,
+                    payload_json, is_active, created_at_utc, updated_at_utc
+                ) VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?)
+                """,
+                (
+                    plan["name"],
+                    int(plan["character_id"]),
+                    plan.get("source_snapshot_id"),
+                    (
+                        "ready"
+                        if any(
+                            item.get("kind") == "module"
+                            for item in residual_assignments
+                        )
+                        else "incomplete"
+                    ),
+                    _json(residual_payload),
+                    now,
+                    now,
+                ),
+            )
+            residual_plan_id = int(cursor.lastrowid)
+            for ordinal, assignment in enumerate(residual_assignments):
+                connection.execute(
+                    """
+                    INSERT INTO loadout_plan_item(
+                        plan_id, ordinal, uid_serial, uid_slot, kind,
+                        target_row, target_column, rotation, raw_assignment_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        residual_plan_id,
+                        ordinal,
+                        assignment["uid_serial"],
+                        assignment["uid_slot"],
+                        assignment["kind"],
+                        assignment.get("target_row"),
+                        assignment.get("target_column"),
+                        assignment.get("rotation"),
+                        _json(assignment),
+                    ),
+                )
+        return len(removed_by_plan)
+
+    def repair_active_loadout_plan_conflicts(self) -> int:
+        """Atomically repair historical active plans that share native UIDs."""
+
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            repaired = self._repair_active_loadout_plan_conflicts_in_transaction(
+                now=_utc_now()
+            )
+            duplicate = connection.execute(
+                """
+                SELECT 1
+                FROM loadout_plan_item AS item
+                JOIN loadout_plan AS plan USING(plan_id)
+                WHERE plan.is_active = 1
+                  AND item.uid_slot > 0
+                GROUP BY item.uid_slot, item.uid_serial
+                HAVING COUNT(*) > 1
+                LIMIT 1
+                """
+            ).fetchone()
+            if duplicate is not None:
+                raise UserDataValidationError(
+                    "修复后仍存在被多个激活方案占用的装备"
+                )
+            connection.commit()
+            return repaired
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法修复激活装配方案的装备占用冲突") from exc
+        except BaseException:
+            connection.rollback()
+            raise
+
     def replace_active_loadout_plans(
         self,
         plans: Sequence[Mapping[str, Any]],
     ) -> tuple[int, ...]:
-        """原子覆盖多个角色方案，并从其他激活方案卸下被占用装备。"""
+        """原子覆盖多个角色方案，并为被借装备的原槽位补入虚拟占位。"""
 
         normalized_plans: list[dict[str, Any]] = []
         target_characters: set[int] = set()
@@ -1799,16 +2176,27 @@ class UserDataDao:
                         "装配项 kind 必须是 module 或 core"
                     )
                 uid = (slot, serial)
+                virtual = is_virtual_equipment_assignment(assignment)
+                if virtual:
+                    if slot != 0 or serial <= 0:
+                        raise UserDataValidationError(
+                            "虚拟占位装备必须使用 slot=0 的正整数虚拟 UID"
+                        )
+                elif slot <= 0 or serial <= 0:
+                    raise UserDataValidationError(
+                        "真实装配项必须使用正整数原生 UID"
+                    )
                 if uid in role_uids:
                     raise UserDataValidationError(
                         "同一装配方案不能重复使用相同 UID"
                     )
-                if uid in claimed_uids:
+                if not virtual and uid in claimed_uids:
                     raise UserDataValidationError(
                         f"批量保存中的装备 UID {uid} 同时分配给多个角色"
                     )
                 role_uids.add(uid)
-                claimed_uids[uid] = character_id
+                if not virtual:
+                    claimed_uids[uid] = character_id
                 for coordinate in ("target_row", "target_column"):
                     value = assignment.get(coordinate)
                     if value is not None and _integer(value, coordinate) not in range(1, 6):
@@ -1816,8 +2204,8 @@ class UserDataDao:
                             f"{coordinate} 必须在 1 到 5 之间"
                         )
                 normalized_assignments.append(assignment)
-            if not any(item["kind"] == "module" for item in normalized_assignments):
-                raise UserDataValidationError("每个激活方案至少需要一个驱动")
+            if not normalized_assignments:
+                raise UserDataValidationError("每个激活方案至少需要一件装备")
             normalized_plans.append({
                 "name": name,
                 "character_id": character_id,
@@ -1870,7 +2258,19 @@ class UserDataDao:
 
         try:
             connection.execute("BEGIN IMMEDIATE")
-            inventory_by_snapshot: dict[int, dict[tuple[int, int], str]] = {}
+            def inventory_assignment_item(row: sqlite3.Row) -> dict[str, Any]:
+                item = dict(row)
+                if "names_json" in item:
+                    item["names"] = _decoded(item.pop("names_json"), {})
+                if "suit_names_json" in item:
+                    item["suit_names"] = _decoded(
+                        item.pop("suit_names_json"), {}
+                    )
+                return item
+
+            inventory_by_snapshot: dict[
+                int, dict[tuple[int, int], dict[str, Any]]
+            ] = {}
             for snapshot_id in {
                 int(plan["source_snapshot_id"]) for plan in normalized_plans
             }:
@@ -1891,10 +2291,15 @@ class UserDataDao:
                         f"背包快照不可用于保存：{snapshot_id}"
                     )
                 inventory_by_snapshot[snapshot_id] = {
-                    (int(row["uid_slot"]), int(row["uid_serial"])): str(row["kind"])
+                    (
+                        int(row["uid_slot"]),
+                        int(row["uid_serial"]),
+                    ): inventory_assignment_item(row)
                     for row in connection.execute(
                         """
-                        SELECT uid_slot, uid_serial, kind
+                        SELECT uid_slot, uid_serial, kind, item_id, suit_id,
+                               geometry, grid_count, quality,
+                               names_json, suit_names_json
                         FROM inventory_item WHERE snapshot_id = ?
                         """,
                         (snapshot_id,),
@@ -1916,10 +2321,15 @@ class UserDataDao:
             current_inventory = inventory_by_snapshot.get(current_snapshot_id)
             if current_inventory is None:
                 current_inventory = {
-                    (int(row["uid_slot"]), int(row["uid_serial"])): str(row["kind"])
+                    (
+                        int(row["uid_slot"]),
+                        int(row["uid_serial"]),
+                    ): inventory_assignment_item(row)
                     for row in connection.execute(
                         """
-                        SELECT uid_slot, uid_serial, kind
+                        SELECT uid_slot, uid_serial, kind, item_id, suit_id,
+                               geometry, grid_count, quality,
+                               names_json, suit_names_json
                         FROM inventory_item WHERE snapshot_id = ?
                         """,
                         (current_snapshot_id,),
@@ -1932,11 +2342,16 @@ class UserDataDao:
                         int(assignment["uid_slot"]),
                         int(assignment["uid_serial"]),
                     )
-                    if inventory.get(uid) != assignment["kind"]:
+                    if is_virtual_equipment_assignment(assignment):
+                        continue
+                    if (inventory.get(uid) or {}).get("kind") != assignment["kind"]:
                         raise UserDataValidationError(
                             f"装备 UID {uid} 不在方案固定的背包快照中"
                         )
-                    if current_inventory.get(uid) != assignment["kind"]:
+                    if (
+                        (current_inventory.get(uid) or {}).get("kind")
+                        != assignment["kind"]
+                    ):
                         raise UserDataValidationError(
                             f"装备 UID {uid} 已不在当前实际稳定背包中"
                         )
@@ -1971,15 +2386,49 @@ class UserDataDao:
                         int(item["uid_slot"]), int(item["uid_serial"])
                     ) in claimed_uids
                 ]
-                residual_assignments = [
-                    dict(item["raw_assignment"])
-                    for item in plan["assignments"]
-                    if (
-                        int(item["uid_slot"]), int(item["uid_serial"])
-                    ) not in claimed_uids
-                ]
-                if not residual_assignments:
-                    continue
+                source_snapshot_id = int(plan.get("source_snapshot_id") or 0)
+                source_inventory = inventory_by_snapshot.get(
+                    source_snapshot_id, {}
+                )
+                if source_snapshot_id > 0 and not source_inventory:
+                    source_inventory = {
+                        (
+                            int(row["uid_slot"]),
+                            int(row["uid_serial"]),
+                        ): inventory_assignment_item(row)
+                        for row in connection.execute(
+                            """
+                            SELECT uid_slot, uid_serial, kind, item_id, suit_id,
+                                   geometry, grid_count, quality,
+                                   names_json, suit_names_json
+                            FROM inventory_item WHERE snapshot_id = ?
+                            """,
+                            (source_snapshot_id,),
+                        )
+                    }
+                residual_assignments = []
+                for ordinal, item in enumerate(plan["assignments"]):
+                    uid = (
+                        int(item["uid_slot"]),
+                        int(item["uid_serial"]),
+                    )
+                    assignment = dict(item["raw_assignment"])
+                    assignment.update({
+                        "uid_slot": uid[0],
+                        "uid_serial": uid[1],
+                        "kind": item["kind"],
+                        "target_row": item.get("target_row"),
+                        "target_column": item.get("target_column"),
+                        "rotation": item.get("rotation"),
+                    })
+                    if uid in claimed_uids:
+                        assignment = make_virtual_equipment_assignment(
+                            assignment,
+                            inventory_item=source_inventory.get(uid),
+                            character_id=int(plan["character_id"]),
+                            ordinal=ordinal,
+                        )
+                    residual_assignments.append(assignment)
                 residual_payload = dict(plan.get("payload") or {})
                 previous_source = residual_payload.get("source")
                 residual_payload["source"] = "active_plan_overlay"
@@ -1996,26 +2445,24 @@ class UserDataDao:
                     "name": plan["name"],
                     "character_id": int(plan["character_id"]),
                     "source_snapshot_id": plan.get("source_snapshot_id"),
-                    "status": (
-                        "ready"
-                        if any(
-                            item.get("kind") == "module"
-                            for item in residual_assignments
-                        )
-                        else "incomplete"
-                    ),
+                    "status": "incomplete",
                     "score": None,
                     "payload": residual_payload,
                     "assignments": residual_assignments,
                 })
 
             saved_plan_ids = tuple(insert_plan(plan) for plan in normalized_plans)
+            self._repair_active_loadout_plan_conflicts_in_transaction(
+                now=now,
+                preferred_plan_ids=set(saved_plan_ids),
+            )
             duplicate = connection.execute(
                 """
                 SELECT item.uid_slot, item.uid_serial, COUNT(*) AS use_count
                 FROM loadout_plan_item AS item
                 JOIN loadout_plan AS plan USING(plan_id)
                 WHERE plan.is_active = 1
+                  AND item.uid_slot > 0
                 GROUP BY item.uid_slot, item.uid_serial
                 HAVING COUNT(*) > 1
                 LIMIT 1
@@ -2113,6 +2560,21 @@ class UserDataDao:
             ):
                 plans.setdefault(role_name, plan)
         return plans
+
+    def list_active_loadout_equipment_owners(self) -> list[dict[str, Any]]:
+        """Return real native UIDs and their owners from active saved plans."""
+
+        return self._rows(
+            """
+            SELECT item.uid_slot, item.uid_serial, item.kind,
+                   plan.plan_id, plan.character_id
+            FROM loadout_plan_item AS item
+            JOIN loadout_plan AS plan USING(plan_id)
+            WHERE plan.is_active = 1
+              AND item.uid_slot > 0
+            ORDER BY plan.updated_at_utc DESC, plan.plan_id DESC, item.ordinal
+            """
+        )
 
     def deactivate_loadout_plan(self, plan_id: int) -> bool:
         """从当前 UI 和新装配入口移除方案，但保留历史记录和任务审计。"""

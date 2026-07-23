@@ -240,6 +240,14 @@ def _matrix_groups_in_scan_order(board: list[list[str]]) -> list[tuple[str, list
     return groups
 
 
+def matrix_groups_in_scan_order(
+    board: list[list[str]],
+) -> list[tuple[str, list[tuple[int, int]]]]:
+    """Expose the established exact-footprint splitter to allocation callers."""
+
+    return _matrix_groups_in_scan_order(board)
+
+
 def _split_cells_by_shape_footprint(
     board: list[list[str]],
     matrix_name: str,

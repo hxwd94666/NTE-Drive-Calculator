@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
+from src.services.virtual_equipment_service import (
+    is_virtual_equipment_assignment,
+    virtual_equipment_inventory_item,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -400,7 +404,19 @@ class SavedStateLoadoutBridge:
                     f"角色 [{role_name}] 的棋盘块 {block.get('block_id')} 没有对应驱动"
                 )
             slot, serial = _saved_uid(drive.get("uid"), expected_kind="module")
-            item = items_by_uid.get((slot, serial))
+            virtual = bool(drive.get("virtual"))
+            item = (
+                virtual_equipment_inventory_item(
+                    {
+                        **dict(drive),
+                        "uid_slot": slot,
+                        "uid_serial": serial,
+                        "kind": "module",
+                    }
+                )
+                if virtual
+                else items_by_uid.get((slot, serial))
+            )
             if item is None or item.get("kind") != "module":
                 raise SavedStateLoadoutError(
                     f"角色 [{role_name}] 的驱动 UID ({slot}, {serial}) 不在所选稳定背包中"
@@ -410,36 +426,61 @@ class SavedStateLoadoutBridge:
             if shape is None:
                 raise SavedStateLoadoutError(f"静态数据库缺少形状 {official_shape_id}")
             row, column = _official_anchor(block.get("cells"), shape.get("cells") or [])
-            assignments.append(
-                {
-                    "uid_serial": serial,
-                    "uid_slot": slot,
-                    "kind": "module",
-                    "target_row": row,
-                    "target_column": column,
-                    "rotation": 0,
-                    "geometry": item.get("geometry"),
-                }
-            )
+            assignment = {
+                "uid_serial": serial,
+                "uid_slot": slot,
+                "kind": "module",
+                "target_row": row,
+                "target_column": column,
+                "rotation": 0,
+                "geometry": item.get("geometry"),
+                "grid_count": item.get("grid_count"),
+            }
+            if virtual:
+                assignment.update({
+                    "virtual": True,
+                    "virtual_equipment": dict(
+                        drive.get("virtual_equipment") or {}
+                    ),
+                })
+            assignments.append(assignment)
 
         tape = role_state.get("equipped_tape") or role_state.get("tape")
         if isinstance(tape, Mapping):
             core_slot, core_serial = _saved_uid(tape.get("uid"), expected_kind="core")
-            core_item = items_by_uid.get((core_slot, core_serial))
+            virtual = bool(tape.get("virtual"))
+            core_item = (
+                virtual_equipment_inventory_item(
+                    {
+                        **dict(tape),
+                        "uid_slot": core_slot,
+                        "uid_serial": core_serial,
+                        "kind": "core",
+                    }
+                )
+                if virtual
+                else items_by_uid.get((core_slot, core_serial))
+            )
             if core_item is None or core_item.get("kind") != "core":
                 raise SavedStateLoadoutError(
                     f"角色 [{role_name}] 的核心 UID ({core_slot}, {core_serial}) 不在所选稳定背包中"
                 )
-            assignments.append(
-                {
-                    "uid_serial": core_serial,
-                    "uid_slot": core_slot,
-                    "kind": "core",
-                    "target_row": None,
-                    "target_column": None,
-                    "rotation": 0,
-                }
-            )
+            assignment = {
+                "uid_serial": core_serial,
+                "uid_slot": core_slot,
+                "kind": "core",
+                "target_row": None,
+                "target_column": None,
+                "rotation": 0,
+            }
+            if virtual:
+                assignment.update({
+                    "virtual": True,
+                    "virtual_equipment": dict(
+                        tape.get("virtual_equipment") or {}
+                    ),
+                })
+            assignments.append(assignment)
 
         module_count = sum(item["kind"] == "module" for item in assignments)
         if module_count <= 0:
@@ -449,7 +490,14 @@ class SavedStateLoadoutBridge:
             role_name=role_name,
             character_id=character_id,
             snapshot_id=selected_snapshot_id,
-            status="ready",
+            status=(
+                "incomplete"
+                if any(
+                    is_virtual_equipment_assignment(item)
+                    for item in assignments
+                )
+                else "ready"
+            ),
             assignments=tuple(assignments),
             payload=dict(payload or {
                 "schema": "saved-state-official-loadout-v1",

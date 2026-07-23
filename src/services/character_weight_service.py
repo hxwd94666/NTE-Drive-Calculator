@@ -54,6 +54,29 @@ def ensure_account_character_weights(
         for character_id in wanted_ids:
             existing = user_dao.get_character_weight_preferences(character_id)
             if existing is not None:
+                recommendation = static_dao.get_character_recommended_weights(
+                    character_id
+                )
+                if (
+                    str(existing.get("source_kind") or "") == "default"
+                    and str(existing.get("seeded_at_utc") or "")
+                    == str(existing.get("updated_at_utc") or "")
+                    and recommendation is not None
+                    and str(recommendation.get("source_kind") or "") != "default"
+                ):
+                    refreshed = user_dao.refresh_unmodified_character_weight_preferences(
+                        character_id,
+                        properties=_seed_rows(
+                            recommendation,
+                            known_property_ids,
+                        ),
+                        source_dataset_id=dataset_id,
+                        source_kind=str(
+                            recommendation.get("source_kind") or "default"
+                        ),
+                    )
+                    if refreshed is not None:
+                        existing = refreshed
                 result[character_id] = existing
                 continue
             recommendation = static_dao.get_character_recommended_weights(character_id)
@@ -72,8 +95,10 @@ def save_account_character_weights(
     user_database_path: str | Path,
     character_id: int,
     property_weights: Mapping[str, float],
+    *,
+    main_property_weights: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
-    """Persist editable sub-stat weights while preserving bundled main-stat weights."""
+    """Persist the account copy without changing the bundled recommendation."""
 
     current = ensure_account_character_weights(user_database_path, (character_id,)).get(
         int(character_id)
@@ -89,6 +114,15 @@ def save_account_character_weights(
         for property_id, weight in property_weights.items()
         if str(property_id) in known_property_ids and float(weight) >= 0
     }
+    normalized_main = (
+        {
+            str(property_id): float(weight)
+            for property_id, weight in main_property_weights.items()
+            if str(property_id) in known_property_ids and float(weight) >= 0
+        }
+        if main_property_weights is not None
+        else None
+    )
     rows = []
     seen = set()
     for row in current.get("properties") or ():
@@ -97,14 +131,18 @@ def save_account_character_weights(
         rows.append({
             "property_id": property_id,
             "weight": normalized.get(property_id, 0.0),
-            "main_weight": float(row.get("main_weight") or 0.0),
+            "main_weight": (
+                normalized_main.get(property_id, 0.0)
+                if normalized_main is not None
+                else float(row.get("main_weight") or 0.0)
+            ),
         })
-    for property_id in sorted(normalized):
+    for property_id in sorted(set(normalized) | set(normalized_main or {})):
         if property_id not in seen:
             rows.append({
                 "property_id": property_id,
-                "weight": normalized[property_id],
-                "main_weight": 0.0,
+                "weight": normalized.get(property_id, 0.0),
+                "main_weight": (normalized_main or {}).get(property_id, 0.0),
             })
     with UserDataDao(user_database_path) as user_dao:
         return user_dao.save_character_weight_preferences(
