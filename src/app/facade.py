@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 
 from src.app import runtime
@@ -12,6 +11,7 @@ from src.integrations.nte_core import NteCoreClient
 from src.optimizer.state_manager import StateManager
 from src.scanner.batch_processor import BatchProcessor
 from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.services.vision_inventory_snapshot import import_vision_inventory
 from src.utils.logger import logger
 
 
@@ -20,48 +20,20 @@ class NTEAppFacade:
         self.config_dir = config_dir or str(runtime.CONFIG_DIR)
         self.user_config_dir = user_config_dir or str(runtime.USER_CONFIG_DIR)
 
-    def execute_vision_processing(self, input_dir=None, output_file=None):
+    def execute_vision_processing(self, input_dir=None):
         input_dir = input_dir or str(runtime.SCREENSHOT_DIR)
-        output_file = output_file or str(runtime.OUTPUT_FILE)
         logger.info("开始视觉解析...")
         processor = BatchProcessor(
             input_dir=input_dir,
-            output_file=output_file,
             config_dir=self.config_dir,
         )
         processor.process_all()
+        if processor.inventory:
+            import_vision_inventory(
+                runtime.USER_DATABASE_PATH,
+                [item.model_dump() for item in processor.inventory],
+            )
         logger.success("视觉解析完成")
-
-    def execute_allocation(
-        self,
-        inventory_file,
-        priority_list,
-        custom_sets=None,
-        mode="role_priority",
-        tape_main_filters=None,
-        crit_priority_modes=None,
-        set_effect_modes=None,
-        priority_groups=None,
-        crit_rate_caps=None,
-        custom_weapons=None,
-    ):
-        if not os.path.exists(inventory_file):
-            logger.error(f"找不到 {inventory_file}！")
-            return None, None
-        with open(inventory_file, "r", encoding="utf-8") as file:
-            inventory = json.load(file)
-        return self.execute_allocation_inventory(
-            inventory,
-            priority_list,
-            custom_sets,
-            mode,
-            tape_main_filters,
-            crit_priority_modes,
-            set_effect_modes,
-            priority_groups,
-            crit_rate_caps,
-            custom_weapons,
-        )
 
     def execute_allocation_inventory(
         self,

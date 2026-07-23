@@ -4,9 +4,10 @@
 from typing import Union
 import cv2
 import os
-import json
 import numpy as np
 
+from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.utils.logger import logger
 from src.utils.image_io import imread_unicode
 
@@ -23,19 +24,14 @@ class ShapeRecognizer:
         self._load_templates()
 
     def _load_valid_shape_ids(self) -> set[str]:
-        shapes_path = os.path.join(os.path.dirname(self.template_dir), "shapes.json")
-        if not os.path.exists(shapes_path):
-            return set()
         try:
-            with open(shapes_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return {
-                item.get("shape_id")
-                for item in data.get("shapes", [])
-                if item.get("shape_id") and item.get("shape_id") != "TAPE_15"
-            }
+            with StaticGameDataDao() as static_dao:
+                return {
+                    legacy_shape_id(shape["shape_id"])
+                    for shape in static_dao.list_shapes()
+                }
         except Exception as exc:
-            logger.warning(f"读取形状定义失败，将按文件名过滤模板: {exc}")
+            logger.warning(f"读取官方形状定义失败，将按文件名过滤模板: {exc}")
             return set()
 
     def _load_templates(self):
@@ -49,7 +45,11 @@ class ShapeRecognizer:
             if filename.endswith((".png", ".jpg")):
                 shape_id = os.path.splitext(filename)[0]
                 if self.valid_shape_ids:
-                    if shape_id not in self.valid_shape_ids:
+                    try:
+                        canonical_shape_id = legacy_shape_id(shape_id)
+                    except Exception:
+                        continue
+                    if canonical_shape_id not in self.valid_shape_ids:
                         continue
                 elif shape_id.endswith(("_Gold", "_Purple", "_Blue")) or shape_id == "new_tag":
                     continue
@@ -57,7 +57,7 @@ class ShapeRecognizer:
 
                 template_img = imread_unicode(filepath, cv2.IMREAD_GRAYSCALE)
                 if template_img is not None:
-                    self.templates[shape_id] = template_img
+                    self.templates[canonical_shape_id if self.valid_shape_ids else shape_id] = template_img
 
         logger.info(f"形状识别器就绪，已加载 {len(self.templates)} 个模板。")
 

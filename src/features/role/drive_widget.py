@@ -253,6 +253,35 @@ def _main_stat_label(tape: dict) -> str:
     return str(main_stats or "")
 
 
+def _sqlite_inventory_by_uid() -> dict[str, dict]:
+    """Return the SQLite snapshot projection keyed by the legacy UI UID.
+
+    The role record is a compatibility cache and can contain old shape aliases or
+    property IDs.  The current stable snapshot is the display authority, just as
+    it is for the weighted-allocation result cards.
+    """
+
+    return {
+        str(item.get("uid")): item
+        for item in load_current_inventory()
+        if isinstance(item, dict) and str(item.get("uid") or "").strip()
+    }
+
+
+def _resolve_display_equipment(equipment: dict, inventory_by_uid: dict[str, dict]) -> dict:
+    """Prefer mapped SQLite shape and stat fields while preserving role-only state."""
+
+    resolved = dict(equipment or {})
+    snapshot_item = inventory_by_uid.get(str(resolved.get("uid") or ""))
+    if not isinstance(snapshot_item, dict):
+        return resolved
+    for key in ("shape_id", "set_name", "main_stats", "sub_stats", "quality", "area"):
+        value = snapshot_item.get(key)
+        if value not in (None, "", {}, []):
+            resolved[key] = value
+    return resolved
+
+
 def _calc_tape_margin(role_data: dict) -> float:
     return service_calc_tape_margin(role_data)
 
@@ -335,39 +364,31 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
             0,
             Qt.AlignTop
         )
-        if hasattr(window, "_role_bonus_summary_panel"):
-            row.addWidget(
-                window._role_bonus_summary_panel(
-                    role_name,
-                    None,
-                    valid_drives
-                ),
-                0,
-                Qt.AlignTop
-            )
         row.addStretch()
         group_layout.addLayout(row)
         layout.addWidget(group)
 
+    inventory_by_uid = _sqlite_inventory_by_uid()
     tape_data = role_data.get("tape", {})
     if isinstance(tape_data, dict) and tape_data.get("uid"):
+        display_tape = _resolve_display_equipment(tape_data, inventory_by_uid)
         group = QGroupBox("卡带")
         group_layout = QVBoxLayout(group)
         weights = _role_scoring_weights(window, role_name, role_data)
         main_weights = _role_main_weights(window, role_name)
-        score, grade = _score_tape(window, role_name, tape_data, weights)
+        score, grade = _score_tape(window, role_name, display_tape, weights)
         tape_margin = _calc_tape_margin(role_data)
 
         if hasattr(window, "_equip_card"):
             card = window._equip_card(
-                tape_data.get("set_name") or tape_data.get("display_name", "卡带"),
-                _main_stat_label(tape_data),
-                tape_data.get("sub_stats", {}) or {},
+                display_tape.get("set_name") or display_tape.get("display_name", "卡带"),
+                _main_stat_label(display_tape),
+                display_tape.get("sub_stats", {}) or {},
                 None,
-                tape_data.get("uid", ""),
+                display_tape.get("uid", ""),
                 weights,
                 (score, grade),
-                tape_data.get("quality", "Gold"),
+                display_tape.get("quality", "Gold"),
                 is_changed=bool(tape_data.get("is_changed")),
                 main_weights=main_weights,
                 card_variant="inventory",
@@ -396,19 +417,20 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
         weights = _role_scoring_weights(window, role_name, role_data)
 
         for d in all_drives:
-            quality = d.get("quality", "Gold")
+            display_drive = _resolve_display_equipment(d, inventory_by_uid)
+            quality = display_drive.get("quality", "Gold")
             # 计算评分（空驱动 sub_stats 为空，得分应为0或能正常处理）
             if hasattr(window, "_score_drive_dict"):
                 score = window._score_drive_dict(
-                    d.get("sub_stats", {}),
-                    d.get("shape_id", ""),
+                    display_drive.get("sub_stats", {}),
+                    display_drive.get("shape_id", ""),
                     weights,
                     quality,
                 )
                 grade = window._calc_grade(
                     score,
                     window._shape_areas.get(
-                        d.get("shape_id", ""),
+                        display_drive.get("shape_id", ""),
                         3,
                     ),
                 )
@@ -428,11 +450,11 @@ def _build_drive_detail_content(window, layout, role_name, bp, all_drives, valid
             # ---------- 统一卡片渲染（不再区分是否为空驱动） ----------
             if hasattr(window, "_equip_card"):
                 card = window._equip_card(
-                    d.get("shape_id", ""),
+                    display_drive.get("shape_id", ""),
                     "",
-                    d.get("sub_stats", {}),   # 空驱动就是 {}
-                    d.get("shape_id", ""),
-                    d.get("uid", ""),
+                    display_drive.get("sub_stats", {}),   # 空驱动就是 {}
+                    display_drive.get("shape_id", ""),
+                    display_drive.get("uid", ""),
                     weights,
                     (score, grade),
                     quality,

@@ -15,11 +15,10 @@ NETDISK_DOWNLOAD_LINKS = (
     ("百度网盘", BAIDU_NETDISK_URL),
 )
 
-CORE_CONFIG_FILES = ("roles.json", "sets.json", "shapes.json", "stats.json",
+CORE_CONFIG_FILES = ("roles.json", "sets.json", "stats.json",
                      "my_roles_model.json", "tapes.json")
-USER_DATA_FILES = ("equipped_state.json", "real_inventory.json")
 ACCOUNT_USER_FILES = (
-    "equipped_state.json", "real_inventory.json", "priority_config.json",
+    "equipped_state.json", "priority_config.json",
     "hotkeys.json", "update_config.json", "quick_start_seen.json", "guide_seen.json",
     "ui_preferences.json", "scan_post_actions.json",
 )
@@ -37,7 +36,7 @@ DRONE_HELP = {
 }
 
 OFFLINE_HELP = {
-    "full": "全量解析\n\n全量扫描已经完成，但解析中断、未解析或未解析完时使用。\n只读取 raw_drive_0001 这类全量截图，并覆盖生成 real_inventory.json。",
+    "full": "全量解析\n\n全量扫描已经完成，但解析中断、未解析或未解析完时使用。\n只读取 raw_drive_0001 这类全量截图，并创建新的 SQLite 背包快照。",
     "incremental": "增量解析\n\n增量扫描已经完成，但解析中断、未解析或未解析完时使用。\n只读取 raw_drive_probe、raw_drive_new、raw_drive_semi 这类增量截图，成功后追加到库存并改名接到全量截图序列后面。",
     "all": "全部截图解析\n\n读取截图文件夹根目录下所有图片。\n警告：此模式可能把旧截图重复写入库存，如若产生库存异常，请重新全量扫描。",
 }

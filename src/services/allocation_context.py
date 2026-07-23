@@ -20,6 +20,18 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 ALLOCATION_CONTEXT_SOLVER_VERSION = "allocation-context-v1"
+_LEGACY_SHAPE_LABELS = {
+    "H_2": "Type-2", "V_2": "Type-2",
+    "H_3": "Type-3", "V_3": "Type-3",
+    "L_3_BL": "Type-3", "L_3_TL": "Type-3", "L_3_TR": "Type-3", "L_3_BR": "Type-3",
+    "H_4": "Type-4", "V_4": "Type-4", "Trap_4_H": "Type-4", "Trap_4_V": "Type-4",
+}
+
+
+def _legacy_shape_labels() -> Mapping[str, str]:
+    """Return compatibility labels derived from official geometry mappings."""
+
+    return dict(_LEGACY_SHAPE_LABELS)
 
 
 class AllocationContextError(RuntimeError):
@@ -363,27 +375,6 @@ def _workshop_roles(config_path: str | Path) -> Mapping[str, Any]:
     return payload
 
 
-def _legacy_shape_labels(config_directory: Path) -> Mapping[str, str]:
-    """Copy old puzzle labels at the Context boundary for pure consumption."""
-
-    try:
-        with (config_directory / "shapes.json").open("r", encoding="utf-8") as source:
-            payload = json.load(source)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AllocationContextError("无法读取旧图纸求解器的形状标签") from exc
-    values = payload.get("shapes") if isinstance(payload, Mapping) else None
-    if not isinstance(values, list):
-        raise AllocationContextError("旧图纸形状配置格式无效")
-    result = {
-        _required_text(shape.get("shape_id"), "旧图纸形状 ID"):
-        _required_text(shape.get("label"), "旧图纸形状标签")
-        for shape in values if isinstance(shape, Mapping)
-    }
-    if not result:
-        raise AllocationContextError("旧图纸形状标签为空")
-    return result
-
-
 def _workshop_weight_ids(
     raw_weights: Any, *, catalog: StatCatalog, attribute_id_by_name: Mapping[str, str],
 ) -> dict[str, float]:
@@ -476,7 +467,8 @@ def _role_preference(
     effective_weights = dict(default_weights)
     effective_weights.update(profile_weights)
     effective_main_weights = dict(default_main_weights)
-    effective_main_weights.update(profile_weights)
+    # 副词条权重不能扩充卡带主词条候选；主词条仅来自角色配置的 main_weights
+    # 或用户明确选择的 core_main_property_id。
     target_suit_id = _optional_text(row.get("target_suit_id"))
     suit_requirement_mode = _required_text(row.get("suit_requirement_mode"), "suit_requirement_mode")
     if target_suit_id is not None and target_suit_id not in known_suit_ids:
@@ -576,12 +568,10 @@ def build_allocation_context(
     known_character_ids = set(character_name_by_id)
     workshop_roles: Mapping[str, Any] = {}
     catalog: StatCatalog | None = None
-    legacy_shape_labels: Mapping[str, str] = {}
     if workshop_roles_path is not None:
         workshop_roles = _workshop_roles(workshop_roles_path)
         config_directory = Path(workshop_roles_path).parent
         catalog = StatCatalog.from_config_dir(config_directory)
-        legacy_shape_labels = _legacy_shape_labels(config_directory)
     suits_by_id = {
         _required_text(suit.get("suit_id"), "官方套装 ID"): suit
         for suit in static_dao.list_suits()
@@ -607,7 +597,7 @@ def build_allocation_context(
                 for cell in shape.get("cells") or ()
             ),
             legacy_shape_id=legacy_shape_id(shape.get("shape_id")),
-            legacy_label=legacy_shape_labels.get(legacy_shape_id(shape.get("shape_id"))),
+            legacy_label=_LEGACY_SHAPE_LABELS.get(legacy_shape_id(shape.get("shape_id"))),
         )
         for shape in raw_shapes
     )

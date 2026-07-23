@@ -1,5 +1,5 @@
 # 构建角色和套装配置编辑页面。
-"""Configuration page builders for roles.json and sets.json."""
+"""Configuration page builder for the editable roles.json compatibility cache."""
 
 from __future__ import annotations
 
@@ -46,11 +46,13 @@ def build_config_page(window):
     )
 
     top_row = QHBoxLayout()
-    top_row.addWidget(QLabel("编辑配置文件:"))
-    window.config_tabs = QComboBox()
-    window.config_tabs.addItems(["roles.json", "sets.json"])
-    window.config_tabs.currentTextChanged.connect(window._switch_config_form)
-    top_row.addWidget(window.config_tabs)
+    window.config_role_search = QLineEdit()
+    window.config_role_search.setPlaceholderText("搜索角色（支持拼音）...")
+    window.config_role_search.setClearButtonEnabled(True)
+    window.config_role_search.textChanged.connect(
+        lambda text: getattr(window, "_filter_config_roles", lambda _text: None)(text)
+    )
+    top_row.addWidget(window.config_role_search, 1)
 
     window.config_add_btn = QPushButton("+ 添加角色")
     window.config_add_btn.setObjectName("btnPrimary")
@@ -79,8 +81,8 @@ def build_config_page(window):
 
 
 def refresh_config_forms(window, config_dir):
-    if hasattr(window, "config_tabs"):
-        switch_config_form(window, window.config_tabs.currentText(), config_dir)
+    if hasattr(window, "config_form_layout"):
+        switch_config_form(window, "roles.json", config_dir)
 
 
 def load_config_data(name, config_dir):
@@ -115,10 +117,6 @@ def switch_config_form(window, name, config_dir, use_draft=False, active_role=No
         return
     current_name = getattr(window, "_current_config_name", None)
     if current_name and current_name != name and not confirm_pending_config_changes(window, config_dir):
-        if hasattr(window, "config_tabs"):
-            window.config_tabs.blockSignals(True)
-            window.config_tabs.setCurrentText(current_name)
-            window.config_tabs.blockSignals(False)
         return
     if current_name and current_name != name and getattr(window, "_config_dirty", False):
         ret = QMessageBox.question(
@@ -129,19 +127,13 @@ def switch_config_form(window, name, config_dir, use_draft=False, active_role=No
             QMessageBox.Save,
         )
         if ret == QMessageBox.Cancel:
-            if hasattr(window, "config_tabs"):
-                window.config_tabs.blockSignals(True)
-                window.config_tabs.setCurrentText(current_name)
-                window.config_tabs.blockSignals(False)
             return
         if ret == QMessageBox.Save:
             save_config_form(window, config_dir, None)
         else:
             window._config_dirty = False
-    if name == "roles.json":
+    if hasattr(window, "config_add_btn"):
         window.config_add_btn.setText("+ 添加角色")
-    elif name == "sets.json":
-        window.config_add_btn.setText("+ 添加套装")
 
     while window.config_form_layout.count():
         item = window.config_form_layout.takeAt(0)
@@ -408,24 +400,14 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
     form_layout.setContentsMargins(12, 12, 12, 12)
 
     _add_role_config_header(window, data, role_name, form_layout, rebuild_all_tabs)
-    _add_default_set_row(window, data, role_name, role_data, form_layout)
     _add_extra_shape_row(window, data, role_name, role_data, form_layout)
     _add_extra_shape_buff_row(window, data, role_name, role_data, form_layout)
-    _add_board_matrix_editor(window, data, role_name, role_data, form_layout)
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "卡带主词条权重", "main_weights", "+ 添加主词条")
     form_layout.addStretch()
 
 
 def render_roles_form(window, data, active_role=None):
-    header = QHBoxLayout()
-    role_search = QLineEdit()
-    role_search.setPlaceholderText("搜索角色（支持拼音）...")
-    role_search.setClearButtonEnabled(True)
-    header.addWidget(role_search)
-    header.addStretch()
-    window.config_form_layout.addLayout(header)
-
     all_names = list(data.keys())
     roles_tabs = QTabWidget()
     tab_indices = {}
@@ -468,13 +450,14 @@ def render_roles_form(window, data, active_role=None):
             index = roles_tabs.addTab(tab_scroll, role_name)
             tab_indices[role_name] = index
 
-        filter_tabs(role_search.text())
+        role_search = getattr(window, "config_role_search", None)
+        filter_tabs(role_search.text() if role_search is not None else "")
         if active_role in tab_indices:
             roles_tabs.setCurrentIndex(tab_indices[active_role])
         load_current_tab()
 
     rebuild_all_tabs(active_role)
-    role_search.textChanged.connect(filter_tabs)
+    window._filter_config_roles = filter_tabs
     roles_tabs.currentChanged.connect(lambda _index: load_current_tab())
     roles_tabs.setMovable(True)
 
@@ -569,16 +552,6 @@ def config_add_item(window, config_dir):
         elif path.exists():
             data = read_json(path, default={})
         add_role(window, data, config_dir)
-    elif name == "sets.json":
-        data = {}
-        path = config_dir / name
-        if getattr(window, "_config_dirty", False) and hasattr(window, "_config_form_data"):
-            raw = window._config_form_data
-            data = raw.get("sets", {}) if isinstance(raw, dict) else {}
-        elif path.exists():
-            raw = read_json(path, default={})
-            data = raw.get("sets", {})
-        add_set(window, data, config_dir)
 
 
 def _main_weight_choice_pool(config_dir):
@@ -586,9 +559,20 @@ def _main_weight_choice_pool(config_dir):
     if not stats_path.exists():
         return []
     catalog = StatCatalog.from_config_dir(config_dir)
-    pool = list(catalog.tape_main_stats or [])
-    pool.extend((catalog.tape_main_values or {}).keys())
-    return sorted(s for s in dict.fromkeys(str(stat).strip() for stat in pool if str(stat).strip()))
+    # 仅以实际主词条数值表为准。``tape_main_stats_pool`` 中不带百分号的
+    # 名称是 OCR 识别别名，不能再被写入卡带主词条权重。
+    return sorted(
+        str(stat).strip()
+        for stat in (catalog.tape_main_values or {})
+        if str(stat).strip()
+    )
+
+
+def _sub_weight_choice_pool(config_dir):
+    stats_path = config_dir / "stats.json"
+    if not stats_path.exists():
+        return []
+    return StatCatalog.from_config_dir(config_dir).tape_sub_stat_pool()
 
 
 def add_weight(window, rn, data, cb, config_dir, weight_field="weights"):
@@ -598,7 +582,7 @@ def add_weight(window, rn, data, cb, config_dir, weight_field="weights"):
         if weight_field == "main_weights":
             pool = _main_weight_choice_pool(config_dir)
         else:
-            pool = StatCatalog.from_config_dir(config_dir).weight_choice_pool()
+            pool = _sub_weight_choice_pool(config_dir)
     existing = set(data[rn].get(weight_field, {}).keys())
     available = [s for s in pool if s not in existing]
     if not available:
@@ -698,10 +682,8 @@ def add_role(window, data, config_dir):
     if ok and role_name and role_name not in data:
         new_role = {
             "role_name": role_name,
-            "default_set": window.all_set_names[0] if window.all_set_names else "",
             "extra_shape_label": "",
             "extra_shape_buffs": {},
-            "board_matrix": [[0] * 5 for _ in range(5)],
             "weights": {},
             "main_weights": {},
         }

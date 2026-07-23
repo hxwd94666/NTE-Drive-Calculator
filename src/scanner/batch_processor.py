@@ -38,7 +38,7 @@ from src.features.identification.parser import (
     process_identify_standard_forced,
     synthesize_identify_cluster,
 )
-from src.features.inventory_import.exporter import export_inventory, make_unique_uid
+from src.features.inventory_import.exporter import make_unique_uid
 from src.features.inventory_import.screenshot_parser import process_single_image
 
 # 引入基座定义的全局日志与异常类
@@ -53,7 +53,7 @@ class BatchProcessor:
     def __init__(
         self,
         input_dir: str = "scanned_images",
-        output_file: str = "config/real_inventory.json",
+        output_file: str | None = None,
         config_dir: str = "config",
         replace_output: bool = False,
         ocr_backend_preference: str | None = None,
@@ -131,9 +131,6 @@ class BatchProcessor:
 
             except Exception as e:
                 logger.error(f"[{idx:04d}/{total_files:04d}] 解析失败: {filename} | 错误: {str(e)}\n")
-
-        if success_count > 0:
-            self._export_to_json()
 
         cost_time = time.time() - start_time
         avg_time = cost_time / total_files if total_files else 0
@@ -299,9 +296,6 @@ class BatchProcessor:
 
     def _looks_like_tape_identity(self, text: str) -> bool:
         return looks_like_tape_identity(self.parser, text)
-
-    def _export_to_json(self):
-        return export_inventory(self)
 
     def _make_unique_uid(self, uid: str, existing_uids: set) -> str:
         return make_unique_uid(uid, existing_uids)

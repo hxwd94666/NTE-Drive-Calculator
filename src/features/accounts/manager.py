@@ -41,7 +41,6 @@ class AccountState:
     account_data_root: Path
     user_database_path: Path
     user_config_dir: Path
-    output_file: Path
     screenshot_dir: Path
     log_dir: Path
 
@@ -136,8 +135,6 @@ class AccountManager:
                 continue
             if fname == "equipped_state.json":
                 dst.write_text("{}", encoding="utf-8")
-            elif fname == "real_inventory.json":
-                dst.write_text("[]", encoding="utf-8")
 
         legacy_screenshots = self.data_root / "scanned_images"
         account_screenshots = account_root / "scanned_images"
@@ -163,7 +160,6 @@ class AccountManager:
             account_data_root=account_root,
             user_database_path=account_root / USER_DATABASE_FILENAME,
             user_config_dir=account_root / "config",
-            output_file=(account_root / "config" / "real_inventory.json"),
             screenshot_dir=account_root / "scanned_images",
             log_dir=account_root / "logs",
         )

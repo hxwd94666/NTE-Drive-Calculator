@@ -71,7 +71,6 @@ ACCOUNT_DATA_ROOT = ACCOUNTS_DIR / ACTIVE_ACCOUNT_ID
 USER_DATABASE_PATH = ACCOUNT_DATA_ROOT / "user_data.sqlite3"
 USER_CONFIG_DIR = ACCOUNT_DATA_ROOT / "config"
 TEMPLATE_DIR = CONFIG_DIR / "templates"
-OUTPUT_FILE = USER_CONFIG_DIR / "real_inventory.json"
 SCREENSHOT_DIR = ACCOUNT_DATA_ROOT / "scanned_images"
 LOG_DIR = ACCOUNT_DATA_ROOT / "logs"
 
@@ -85,13 +84,12 @@ runtime.configure(
 )
 
 def _apply_account_state(state):
-    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_DATABASE_PATH, USER_CONFIG_DIR, OUTPUT_FILE, SCREENSHOT_DIR, LOG_DIR
+    global ACTIVE_ACCOUNT_ID, ACTIVE_ACCOUNT_NAME, ACCOUNT_DATA_ROOT, USER_DATABASE_PATH, USER_CONFIG_DIR, SCREENSHOT_DIR, LOG_DIR
     ACTIVE_ACCOUNT_ID = state.active_account_id
     ACTIVE_ACCOUNT_NAME = state.active_account_name
     ACCOUNT_DATA_ROOT = state.account_data_root
     USER_DATABASE_PATH = state.user_database_path
     USER_CONFIG_DIR = state.user_config_dir
-    OUTPUT_FILE = state.output_file
     SCREENSHOT_DIR = state.screenshot_dir
     LOG_DIR = state.log_dir
     runtime.apply_account_state(state)
@@ -186,6 +184,8 @@ from src.app.workers import WorkerThread
 from src.services.dashboard_service import DashboardService
 from src.services.inventory_sync_service import InventorySyncService, InventorySyncState
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 
 ACCOUNT_MANAGER = AccountManager(
@@ -634,7 +634,30 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
                 load_official_role_fork_templates()
             )
             self._canonicalize_loaded_role_sets()
-            self._shape_areas={s["shape_id"]:s["area"] for s in (read_json(CONFIG_DIR/"shapes.json", default={}) or {}).get("shapes",[])}
+            with StaticGameDataDao() as static_dao:
+                self._shape_areas={
+                    legacy_shape_id(shape["shape_id"]): int(shape["cell_count"])
+                    for shape in static_dao.list_shapes()
+                }
+                characters = {
+                    str(row.get("name_zh") or ""): int(
+                        row.get("canonical_character_id") or row["character_id"]
+                    )
+                    for row in static_dao.list_characters()
+                }
+                for role_name, role_data in self.roles_db.items():
+                    character_id = characters.get(str(role_name))
+                    if role_name == "主角":
+                        character_id = next(
+                            (candidate for candidate in (1046, 1051)
+                             if static_dao.get_character_default_suit(candidate) is not None),
+                            None,
+                        )
+                    if character_id is None:
+                        continue
+                    default_suit = static_dao.get_character_default_suit(character_id)
+                    if default_suit is not None:
+                        role_data["default_set"] = str(default_suit["suit_name_zh"])
             sf=USER_CONFIG_DIR/"equipped_state.json"
             self.equipped_state=read_json(sf, default={}) or {}
             self.scoring_engine=ScoringEngine(str(CONFIG_DIR))
@@ -674,19 +697,9 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
                     self.status_lbl.setStyleSheet("color:#3fb950;font-size:12px")
                     return
         except Exception as exc:
-            logger.debug(f"读取 SQLite 背包状态失败，回退旧库存文件: {exc}")
-        if not OUTPUT_FILE.exists():
-            self.status_lbl.setText("库存为空")
-            self.status_lbl.setStyleSheet("color:#d2991d;font-size:12px")
-            return
-        try:
-            data=read_json(OUTPUT_FILE, default=[])
-            count=len(data) if isinstance(data,list) else 0
-            self.status_lbl.setText(f"库存 {count} 件" if count else "库存为空")
-            self.status_lbl.setStyleSheet("color:#3fb950;font-size:12px" if count else "color:#d2991d;font-size:12px")
-        except Exception:
-            self.status_lbl.setText("库存文件异常")
-            self.status_lbl.setStyleSheet("color:#f85149;font-size:12px")
+            logger.debug(f"读取 SQLite 背包状态失败: {exc}")
+        self.status_lbl.setText("库存为空")
+        self.status_lbl.setStyleSheet("color:#d2991d;font-size:12px")
     def _card(self,title):
         c=QFrame(); c.setObjectName("card")
         l=QVBoxLayout(c); l.setContentsMargins(20,16,20,16); l.setSpacing(8)
@@ -957,7 +970,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             "config_dir": CONFIG_DIR,
             "accounts_dir": ACCOUNTS_DIR,
             "log_dir": LOG_DIR,
-            "output_file": OUTPUT_FILE,
             "screenshot_dir": SCREENSHOT_DIR,
         }
 

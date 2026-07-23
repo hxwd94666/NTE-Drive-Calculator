@@ -152,7 +152,6 @@ class GamepadScanParseWorkerThread(QThread):
             init_start = time.perf_counter()
             processor = BatchProcessor(
                 input_dir=str(runtime.SCREENSHOT_DIR),
-                output_file=str(runtime.OUTPUT_FILE),
                 config_dir=str(runtime.CONFIG_DIR),
                 replace_output=True,
                 ocr_backend_preference="amd_compat" if self.amd_compatibility else "openvino",

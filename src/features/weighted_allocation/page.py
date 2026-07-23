@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame,
     QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QDoubleSpinBox, QFormLayout, QScrollArea, QVBoxLayout, QWidget,
+    QFormLayout, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from src.app import runtime
@@ -40,7 +40,7 @@ from src.services.sqlite_allocation_inventory import (
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.puzzle_board import PuzzleBoardWidget
-from src.ui.widgets import SearchableComboBox
+from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
 
 
 _INTERNAL_PROFILE_NAME = "__weighted_allocation_role_priority__"
@@ -514,9 +514,9 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     weights_box = QGroupBox("词条权重")
     weights_form = QFormLayout(weights_box)
     weights_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-    weight_inputs: dict[str, QDoubleSpinBox] = {}
+    weight_inputs: dict[str, NoWheelDoubleSpinBox] = {}
     for label, property_id in substat_by_label.items():
-        spin = QDoubleSpinBox()
+        spin = NoWheelDoubleSpinBox()
         spin.setRange(0.0, 10.0)
         spin.setDecimals(3)
         spin.setSingleStep(0.05)
@@ -524,7 +524,16 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
         spin.setToolTip("0 表示该词条不参与评分；修改后保存到当前账号。")
         weights_form.addRow(f"{label}：", spin)
         weight_inputs[property_id] = spin
-    layout.addWidget(weights_box)
+    # 默认仅露出五条权重，剩余词条在该区域内滚动查看，避免管理弹窗过长。
+    weights_scroll = QScrollArea()
+    weights_scroll.setObjectName("weightedRoleWeightScroll")
+    weights_scroll.setWidgetResizable(True)
+    weights_scroll.setFrameShape(QFrame.NoFrame)
+    weights_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    weights_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    weights_scroll.setFixedHeight(210)
+    weights_scroll.setWidget(weights_box)
+    layout.addWidget(weights_scroll)
 
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
     buttons.accepted.connect(dialog.accept)

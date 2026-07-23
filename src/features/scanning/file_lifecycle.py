@@ -205,12 +205,11 @@ class ScanFileLifecycle:
     def __init__(
         self,
         screenshot_dir: Path,
-        output_file: Path,
         config_dir: Path,
         batch_processor_cls=None,
+        output_file: Path | None = None,
     ):
         self.screenshot_dir = Path(screenshot_dir)
-        self.output_file = Path(output_file)
         self.config_dir = Path(config_dir)
         if batch_processor_cls is None:
             from src.scanner.batch_processor import BatchProcessor
@@ -224,7 +223,6 @@ class ScanFileLifecycle:
         try:
             processor = self.batch_processor_cls(
                 input_dir=str(self.screenshot_dir),
-                output_file=str(self.output_file),
                 config_dir=str(self.config_dir),
                 replace_output=False,
             )

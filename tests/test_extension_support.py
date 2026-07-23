@@ -127,6 +127,10 @@ class StatCatalogSupportTests(unittest.TestCase):
 
         self.assertEqual("暴击率%", catalog.normalize_stat_name("暴击率", is_percent=True))
         self.assertEqual("暴击率%", catalog.normalize_stat_name("爆击率", is_percent=True))
+        self.assertEqual("攻击力", catalog.normalize_stat_name("攻击", is_percent=False))
+        self.assertEqual("防御力%", catalog.normalize_stat_name("防御", is_percent=True))
+        self.assertEqual("生命值", catalog.normalize_stat_name("小生命", is_percent=False))
+        self.assertEqual("攻击力%", catalog.normalize_tape_main_stat("攻击"))
         self.assertIsNone(catalog.normalize_stat_name("内核占用", is_percent=False))
 
     def test_stat_catalog_exposes_main_and_sub_stat_pools(self):

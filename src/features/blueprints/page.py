@@ -222,6 +222,13 @@ def _draw_blueprints(self, filter_text=""):
         self._bp_content_layout.addWidget(QLabel("暂无可生成图纸的角色，请点击“生成图纸”。"))
         return
     search_text = filter_text.strip()
+    matched_roles = [
+        role_name
+        for role_name in self._bp_data
+        if not search_text or _match_pinyin(role_name, search_text)
+    ]
+    # 未搜索时保持概览；搜索唯一角色则展开该角色的全部可行图纸，方便挑选。
+    show_all_for = matched_roles[0] if search_text and len(matched_roles) == 1 else None
     shown = 0
     for role_name, role_data in sorted(self._bp_data.items()):
         if search_text and not _match_pinyin(role_name, search_text):
@@ -234,7 +241,11 @@ def _draw_blueprints(self, filter_text=""):
         ))
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(8)
-        visible_blueprints = role_data["blueprints"][:3]
+        visible_blueprints = (
+            role_data["blueprints"]
+            if role_name == show_all_for
+            else role_data["blueprints"][:3]
+        )
         for index, blueprint in enumerate(visible_blueprints, start=1):
             row = QHBoxLayout()
             row.setSpacing(10)

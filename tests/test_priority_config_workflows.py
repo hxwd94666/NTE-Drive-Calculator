@@ -11,6 +11,20 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 class PriorityGroupWorkflowTests(unittest.TestCase):
+    def test_role_weight_pools_keep_main_and_sub_stats_separate(self):
+        from src.features.configuration.page import (
+            _main_weight_choice_pool,
+            _sub_weight_choice_pool,
+        )
+
+        config_dir = Path("config")
+        sub_pool = _sub_weight_choice_pool(config_dir)
+        main_pool = _main_weight_choice_pool(config_dir)
+
+        self.assertIn("攻击力", sub_pool)
+        self.assertNotIn("治疗加成", sub_pool)
+        self.assertIn("治疗加成", main_pool)
+
     def test_priority_links_promote_boundary_splits_two_equal_batches(self):
         from src.features.allocation.priority_groups import (
             links_to_priority_groups,
@@ -453,7 +467,7 @@ class ConfigurationWorkflowTests(unittest.TestCase):
             self.assertFalse(window._config_dirty)
             self.assertEqual(["roles.json"], switched)
 
-    def test_roles_board_matrix_is_locked_until_user_unlocks(self):
+    def test_roles_form_does_not_render_or_edit_legacy_board_matrix(self):
         from PySide6.QtWidgets import QApplication, QComboBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
         from src.features.configuration import page as config_page
@@ -495,7 +509,6 @@ class ConfigurationWorkflowTests(unittest.TestCase):
             "A": {
                 "default_set": "套装A",
                 "extra_shape_buffs": {},
-                "board_matrix": [[0] * 5 for _ in range(5)],
                 "weights": {},
             }
         }
@@ -510,16 +523,12 @@ class ConfigurationWorkflowTests(unittest.TestCase):
             for combo in window.container.findChildren(QComboBox)
             if combo.count() == 2 and [combo.itemText(0), combo.itemText(1)] == ["-1", "0"]
         ]
-        lock_btn = next(button for button in window.container.findChildren(QPushButton) if button.objectName() == "btnBoardLock")
-
-        self.assertEqual(25, len(combos))
-        self.assertTrue(all(not combo.isEnabled() for combo in combos))
-        self.assertFalse(lock_btn.icon().isNull())
-
-        lock_btn.click()
-        app.processEvents()
-
-        self.assertTrue(all(combo.isEnabled() for combo in combos))
+        self.assertEqual([], combos)
+        self.assertFalse(any(button.objectName() == "btnBoardLock" for button in window.container.findChildren(QPushButton)))
+        self.assertNotIn(
+            "默认套装",
+            [label.text() for label in window.container.findChildren(config_page.QLabel)],
+        )
 
 
 class UpdateWorkflowTests(unittest.TestCase):

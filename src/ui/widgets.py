@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QStringListModel, Qt, QTimer
-from PySide6.QtWidgets import QComboBox, QCompleter, QDoubleSpinBox
+from PySide6.QtWidgets import QComboBox, QCompleter, QDoubleSpinBox, QSpinBox
 
 
 def match_pinyin(name: str, filt: str) -> bool:
@@ -145,6 +145,17 @@ class NoWheelDoubleSpinBox(QDoubleSpinBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setButtonSymbols(QDoubleSpinBox.NoButtons)
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class NoWheelSpinBox(QSpinBox):
+    """Integer spin box without wheel changes or +/- buttons."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setButtonSymbols(QSpinBox.NoButtons)
 
     def wheelEvent(self, event):
         event.ignore()

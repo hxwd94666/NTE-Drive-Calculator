@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -39,12 +41,20 @@ from src.services.official_role_page_service import (
     calculate_official_role_margins,
     load_official_role_detail,
     load_official_role_index,
+    replacement_candidates_for_official_role,
+    save_official_role_replacement,
 )
 from src.services.character_weight_service import save_account_character_weights
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.storage.json_store import read_json
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.ui.widgets import NoWheelDoubleSpinBox, match_pinyin
+from src.ui.widgets import (
+    NoWheelComboBox,
+    NoWheelDoubleSpinBox,
+    NoWheelSpinBox,
+    match_pinyin,
+)
 
 __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
 
@@ -64,6 +74,25 @@ _WEIGHT_PROPERTY_CHOICES = (
 _WEIGHT_LABEL_BY_PROPERTY = {
     property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
 }
+
+_STATS_PROPERTY_IDS = {
+    "生命值%": "HPMaxUp", "生命值": "HPMaxAdd",
+    "攻击力%": "AtkUp", "攻击力": "AtkAdd",
+    "防御力%": "DefUp", "防御力": "DefAdd",
+    "暴击率%": "CritBase", "暴击伤害%": "CritDamageBase",
+    "伤害增加%": "DamageUpGeneralBase", "环合强度": "MagBase",
+    "倾陷强度": "UnbalIntensityBase", "治疗加成": "HealUp",
+    "光属性异能伤害增强%": "DamageUpCosmosBase",
+    "灵属性异能伤害增强%": "DamageUpNatureBase",
+    "咒属性异能伤害增强%": "DamageUpIncantationBase",
+    "暗属性异能伤害增强%": "DamageUpChaosBase",
+    "魂属性异能伤害增强%": "DamageUpPsycheBase",
+    "相属性异能伤害增强%": "DamageUpLakshanaBase",
+    "心灵伤害增强%": "DamageUpPsychicallyBase",
+}
+_PERCENT_PROPERTY_IDS = {
+    property_id for stat, property_id in _STATS_PROPERTY_IDS.items() if stat.endswith("%")
+} | {"HealUp"}
 
 
 def _attribute_name(detail: dict, property_id: str) -> str:
@@ -91,6 +120,117 @@ def _stat_text(detail: dict, stat: dict) -> str:
     shown = f"{value:.2f}".rstrip("0").rstrip(".")
     suffix = "%" if stat.get("percent") else ""
     return f"{_attribute_name(detail, str(stat.get('property_id') or ''))} {shown}{suffix}"
+
+
+def _graduation_stats_config() -> dict:
+    """Read only the maintained stat roll table used by the existing scorer."""
+
+    configured = getattr(runtime, "CONFIG_DIR", None)
+    config_dir = Path(configured) if configured else Path("config")
+    return read_json(config_dir / "stats.json", default={}) or {}
+
+
+def _graduation_benchmark_damage(detail: dict) -> float | None:
+    """Mirror the established graduation definition on official page data.
+
+    The reference is always a max-level role, its max-level exclusive fork at
+    refinement 1, twenty cells of the four highest-weight drive substats, one
+    max-roll tape substat combination, and the damage-best eligible tape main
+    stat. ``stats.json`` supplies only the unavailable roll magnitudes.
+    """
+
+    stats = _graduation_stats_config()
+    drive_values = dict(stats.get("gold_base_values") or {})
+    tape_values = dict(stats.get("tape_stat_values") or {})
+    main_values = dict(stats.get("tape_main_stat_values") or {})
+    weights = {str(key): float(value) for key, value in (detail.get("property_weights") or {}).items()}
+    main_weights = {
+        str(key): float(value)
+        for key, value in (detail.get("main_property_weights") or {}).items()
+    } or dict(weights)
+
+    def property_id(stat: str) -> str | None:
+        return _STATS_PROPERTY_IDS.get(str(stat).strip())
+
+    def selected(values: dict) -> list[str]:
+        rows = [
+            (stat, weights.get(property_id(stat) or "", 0.0))
+            for stat in values if property_id(stat) is not None
+        ]
+        return [stat for stat, weight in sorted(rows, key=lambda row: (-row[1], row[0])) if weight > 0][:4]
+
+    drive_stats, tape_stats = selected(drive_values), selected(tape_values)
+    if len(drive_stats) < 4 or len(tape_stats) < 4:
+        return None
+
+    def official_stat(stat: str, value: float, *, multiplier: float = 1.0) -> dict:
+        prop = property_id(stat)
+        if prop is None:
+            raise ValueError(stat)
+        percent = prop in _PERCENT_PROPERTY_IDS
+        numeric = float(value) * multiplier
+        return {"property_id": prop, "value": numeric / 100.0 if percent else numeric, "percent": percent}
+
+    max_growth = max(
+        detail.get("growth_rows") or (),
+        key=lambda row: (int(row.get("level") or 0), int(row.get("breakthrough_stage") or 0)),
+        default=None,
+    )
+    character_id = str((detail.get("character") or {}).get("character_id") or "")
+    signature = next(
+        (fork for fork in detail.get("forks") or () if character_id in {
+            str(value) for value in fork.get("exclusive_character_ids") or ()
+        }),
+        None,
+    )
+    if max_growth is None or signature is None:
+        return None
+    fork_levels = [int(row.get("level") or 0) for row in signature.get("upgrade_levels") or ()]
+    if not fork_levels:
+        return None
+    max_stage = int(max_growth.get("breakthrough_stage") or 0)
+    max_skills = {}
+    for skill in detail.get("skills") or ():
+        levels = [
+            int(row.get("level") or 0) for row in skill.get("levels") or ()
+            if int(row.get("required_breakthrough_stage") or 0) <= max_stage
+            and int(row.get("required_awaken_level") or 0) <= 6
+        ]
+        if levels:
+            max_skills[str(skill.get("skill_id"))] = max(levels)
+    profile = dict(detail.get("profile") or {})
+    profile.update({
+        "character_level": int(max_growth["level"]), "breakthrough_stage": max_stage,
+        "awakening_level": 6, "fork_id": signature.get("fork_id"),
+        "fork_level": max(fork_levels), "fork_refinement_level": 1,
+        "skill_levels": max_skills,
+    })
+    module = {
+        "kind": "module", "main_stats": (),
+        "sub_stats": (
+            {"property_id": "AtkAdd", "value": 20.0 * 21.0, "percent": False},
+            *(official_stat(stat, drive_values[stat], multiplier=20.0) for stat in drive_stats),
+        ),
+    }
+    tape_sub_stats = tuple(official_stat(stat, tape_values[stat]) for stat in tape_stats)
+    candidates = [
+        (stat, value) for stat, value in main_values.items()
+        if (property_id(stat) and main_weights.get(property_id(stat) or "", 0.0) > 0)
+    ]
+    best_damage = 0.0
+    for stat, value in candidates:
+        candidate = {
+            **detail, "profile": profile,
+            "equipment_contexts": {**detail["equipment_contexts"], "graduation": {
+                "title": "毕业基准", "items": (module, {
+                    "kind": "core", "main_stats": (official_stat(stat, value),),
+                    "sub_stats": tape_sub_stats,
+                }),
+            }},
+        }
+        margins = calculate_official_role_margins(candidate, "graduation")
+        best_damage = max(best_damage, float((margins or {}).get("damage") or 0.0))
+    return best_damage if best_damage > 0 else None
 
 
 def _clear_layout(layout) -> None:
@@ -138,7 +278,7 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
         profile["fork_id"] = fork_id
         profile["fork_level"] = editor["fork_level"].value() if fork_id else None
         profile["fork_refinement_level"] = (
-            editor["refinement"].value() if fork_id else None
+            int(editor["refinement"].currentData()) if fork_id else None
         )
     return {
         **detail,
@@ -180,6 +320,11 @@ def _build_margin_group(
     layout = QVBoxLayout(group)
     state = {"margins": None, "initialized": False}
     header = QHBoxLayout()
+    graduation_label = QLabel("直伤毕业率 : --")
+    graduation_label.setObjectName("officialRoleGraduationRate")
+    graduation_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
+    graduation_label.setToolTip("按满级角色、满级精1专属弧盘和 stats.json 满词条基准计算。")
+    header.addWidget(graduation_label)
     damage_label = QLabel("直伤评分 : --")
     damage_label.setObjectName("officialRoleDamageScore")
     damage_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
@@ -229,13 +374,19 @@ def _build_margin_group(
             )
 
     def refresh() -> None:
+        calculation_detail = _calculation_detail(detail, editor)
         margin_context = str(editor.get("equipment_context_key") or "current")
         margins = calculate_official_role_margins(
-            _calculation_detail(detail, editor), margin_context,
+            calculation_detail, margin_context,
         )
         state["margins"] = margins
         _clear_layout(table_layout)
         damage = float((margins or {}).get("damage") or 0.0)
+        benchmark = _graduation_benchmark_damage(calculation_detail)
+        graduation_label.setText(
+            f"直伤毕业率 : {damage / benchmark * 100:.1f}%"
+            if damage > 0 and benchmark else "直伤毕业率 : --"
+        )
         damage_label.setText(f"直伤评分 : {damage:.2f}" if margins else "直伤评分 : --")
         auto.setEnabled(bool(margins))
         apply.setEnabled(bool(margins))
@@ -412,7 +563,8 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     left_layout.setContentsMargins(0, 0, 0, 0)
     left_layout.setSpacing(8)
     left_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-    growth_combo = QComboBox()
+    growth_combo = NoWheelComboBox()
+    growth_combo.setMaxVisibleItems(10)
     for row in growth_rows:
         growth_combo.addItem(
             str(row["level"]),
@@ -444,10 +596,10 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     right_layout = QVBoxLayout(right)
     right_layout.setContentsMargins(0, 0, 0, 0)
     right_layout.setSpacing(8)
-    awakening = QSpinBox()
+    awakening = NoWheelSpinBox()
     awakening.setRange(0, 6)
     awakening.setValue(int(profile["awakening_level"]))
-    skill_combo = QComboBox()
+    skill_combo = NoWheelComboBox()
     for skill in detail["skills"]:
         skill_combo.addItem(str(skill["skill_id"]), skill["skill_id"])
     skill_index = skill_combo.findData(profile.get("selected_skill_id"))
@@ -469,7 +621,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
         grid_column = (stat_index % 2) * 2
         label = QLabel(label_text)
         label.setMinimumWidth(92)
-        spin = QDoubleSpinBox()
+        spin = NoWheelDoubleSpinBox()
         spin.setRange(-999999, 999999)
         spin.setDecimals(2)
         spin.setReadOnly(True)
@@ -509,7 +661,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     pointer_form = QFormLayout()
     pointer_form.addRow("觉醒等级", awakening)
     pointer_form.addRow("直伤技能", skill_combo)
-    skill_level = QSpinBox()
+    skill_level = NoWheelSpinBox()
     skill_level.setMinimum(1)
     pointer_form.addRow("技能等级", skill_level)
     pointer_layout.addLayout(pointer_form)
@@ -603,7 +755,8 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     layout = QVBoxLayout(group)
     identity = QHBoxLayout()
     identity.addWidget(QLabel("名称:"))
-    fork_combo = QComboBox()
+    fork_combo = NoWheelComboBox()
+    fork_combo.setMaxVisibleItems(10)
     fork_combo.addItem("未装备弧盘", None)
     for fork in detail["forks"]:
         exclusive = str(character_id) in {str(value) for value in fork.get("exclusive_character_ids") or []}
@@ -612,14 +765,17 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     fork_index = fork_combo.findData(profile.get("fork_id"))
     fork_combo.setCurrentIndex(fork_index if fork_index >= 0 else 0)
     identity.addWidget(fork_combo, 1)
-    fork_level = QSpinBox()
+    fork_level = NoWheelSpinBox()
     fork_level.setRange(1, 80)
     fork_level.setValue(int(profile.get("fork_level") or 80))
     identity.addWidget(QLabel("等级:"))
     identity.addWidget(fork_level)
-    refinement = QSpinBox()
-    refinement.setRange(1, 5)
-    refinement.setValue(int(profile.get("fork_refinement_level") or 1))
+    refinement = NoWheelComboBox()
+    refinement.setMaxVisibleItems(5)
+    for level in range(1, 6):
+        refinement.addItem(str(level), level)
+    refinement_index = refinement.findData(int(profile.get("fork_refinement_level") or 1))
+    refinement.setCurrentIndex(refinement_index if refinement_index >= 0 else 0)
     identity.addWidget(QLabel("精炼:"))
     identity.addWidget(refinement)
     margin_label = QLabel("直伤收益: --")
@@ -678,7 +834,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         fork = next((item for item in detail["forks"] if item.get("fork_id") == fork_id), None)
         star_rows = list((fork or {}).get("star_levels") or ())
         star = next(
-            (row for row in star_rows if int(row.get("star_level") or 0) == refinement.value()),
+            (row for row in star_rows if int(row.get("star_level") or 0) == refinement.currentData()),
             star_rows[0] if star_rows else None,
         )
         if star:
@@ -689,7 +845,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
 
     fork_combo.currentIndexChanged.connect(refresh_fork_summary)
     fork_level.valueChanged.connect(refresh_fork_summary)
-    refinement.valueChanged.connect(refresh_fork_summary)
+    refinement.currentIndexChanged.connect(refresh_fork_summary)
     refresh_fork_summary()
     editor.update({"fork": fork_combo, "fork_level": fork_level, "refinement": refinement})
 
@@ -734,7 +890,14 @@ def _fallback_equipment_card(detail: dict, item: dict, *, core: bool) -> QWidget
         "border-radius:10px;padding:10px}"
     ))
     layout = QVBoxLayout(card)
-    title = _item_name(detail, item) if core else str(item.get("geometry") or "驱动").upper()
+    if core:
+        title = _item_name(detail, item)
+    else:
+        geometry = str(item.get("geometry") or "")
+        try:
+            title = legacy_shape_id(geometry)
+        except ValueError:
+            title = geometry.upper() or "驱动"
     heading = QLabel(f"<b>{title}</b>")
     heading.setStyleSheet("color:#4dd0e1;font-size:15px;")
     layout.addWidget(heading)
@@ -774,7 +937,8 @@ def _old_style_equipment_card(window, detail: dict, item: dict, *, core: bool) -
         )
     geometry = str(item.get("geometry") or "")
     shape_id = legacy_shape_id(geometry)
-    label = geometry.upper() or "驱动"
+    # 与词条配装结果卡一致：官方 geometry 只用于映射，界面展示旧卡片所用 H_3 等名称。
+    label = shape_id or "驱动"
     score_info = None
     if hasattr(window, "_score_drive_dict"):
         try:
@@ -793,6 +957,65 @@ def _old_style_equipment_card(window, detail: dict, item: dict, *, core: bool) -
     )
 
 
+def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
+    """Choose a SQLite inventory replacement for one saved-plan item."""
+
+    candidates = replacement_candidates_for_official_role(detail, "saved", target)
+    if not candidates:
+        QMessageBox.information(
+            window, "替换优化", "没有同套装、同形状且未被当前方案使用的可替换装备。",
+        )
+        return
+    dialog = QDialog(window)
+    dialog.setWindowTitle("替换优化")
+    dialog.resize(720, 520)
+    layout = QVBoxLayout(dialog)
+    layout.addWidget(QLabel("按替换后的直伤评分排序；应用后会保存为新的 SQLite 配装方案。"))
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    host = QWidget()
+    host_layout = QVBoxLayout(host)
+    host_layout.setSpacing(8)
+    scroll.setWidget(host)
+    layout.addWidget(scroll)
+
+    for row in candidates[:30]:
+        candidate = row["item"]
+        card = QFrame()
+        card_layout = QHBoxLayout(card)
+        card_layout.addWidget(_old_style_equipment_card(
+            window, detail, candidate, core=str(candidate.get("kind")) == "core",
+        ), 1)
+        side = QVBoxLayout()
+        side.addWidget(QLabel(f"直伤变化: {float(row['gain_percent']):+.2f}%"))
+        side.addWidget(QLabel(f"替换后直伤评分: {float(row['damage']):.2f}"))
+        apply = QPushButton("应用替换")
+        apply.setObjectName("btnAction")
+
+        def save_choice(*, selected=candidate, score=float(row["damage"])) -> None:
+            try:
+                save_official_role_replacement(
+                    runtime.USER_DATABASE_PATH, detail, target, selected, score=score,
+                )
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(dialog, "替换失败", str(exc))
+                return
+            QMessageBox.information(dialog, "替换优化", "已保存为新的 SQLite 配装方案。")
+            dialog.accept()
+            _refresh_my_role(window)
+
+        apply.clicked.connect(save_choice)
+        side.addWidget(apply)
+        side.addStretch()
+        card_layout.addLayout(side)
+        host_layout.addWidget(card)
+    host_layout.addStretch()
+    close = QPushButton("关闭")
+    close.clicked.connect(dialog.accept)
+    layout.addWidget(close)
+    dialog.exec()
+
+
 def _build_equipment_detail_content(
     window, detail: dict, context_key: str,
 ) -> QWidget:
@@ -801,23 +1024,6 @@ def _build_equipment_detail_content(
     layout = QVBoxLayout(content)
     layout.setSpacing(10)
     context = detail["equipment_contexts"][context_key]
-
-    summary = QGroupBox("空幕属性汇总")
-    summary.setObjectName("officialRoleEquipmentDetailSummary")
-    summary_layout = QVBoxLayout(summary)
-    rows = _aggregate_equipment_stats(detail, context_key)
-    if rows:
-        for name, value in rows:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(name))
-            row.addStretch()
-            shown = QLabel(value)
-            shown.setStyleSheet("color:#58a6ff;font-weight:700;")
-            row.addWidget(shown)
-            summary_layout.addLayout(row)
-    else:
-        summary_layout.addWidget(QLabel("当前上下文暂无可汇总的数值词条。"))
-    layout.addWidget(summary)
 
     if context_key == "theory":
         core_group = QGroupBox("空幕")
@@ -864,6 +1070,15 @@ def _build_equipment_detail_content(
         )
         margin.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:12px;")
         core_layout.addWidget(margin, alignment=Qt.AlignRight)
+        if context_key == "saved":
+            replace = QPushButton("替换优化")
+            replace.setObjectName("btnSecondary")
+            replace.clicked.connect(
+                lambda _checked=False, target=dict(item): _show_replacement_optimizer(
+                    window, detail, target,
+                )
+            )
+            core_layout.addWidget(replace, alignment=Qt.AlignRight)
     layout.addWidget(core_group)
 
     drive_group = QGroupBox(f"驱动 ({len(modules)}个)")
@@ -879,6 +1094,15 @@ def _build_equipment_detail_content(
         )
         margin.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:12px;")
         drive_layout.addWidget(margin, alignment=Qt.AlignRight)
+        if context_key == "saved":
+            replace = QPushButton("替换优化")
+            replace.setObjectName("btnSecondary")
+            replace.clicked.connect(
+                lambda _checked=False, target=dict(item): _show_replacement_optimizer(
+                    window, detail, target,
+                )
+            )
+            drive_layout.addWidget(replace, alignment=Qt.AlignRight)
     layout.addWidget(drive_group)
     layout.addStretch()
     return content
@@ -894,7 +1118,7 @@ def _show_combined_equipment_details(
     root = QVBoxLayout(dialog)
     header = QHBoxLayout()
     header.addWidget(QLabel("装备方案："))
-    selector = QComboBox()
+    selector = NoWheelComboBox()
     for key in ("current", "saved", "theory"):
         selector.addItem(detail["equipment_contexts"][key]["title"], key)
     index = selector.findData(initial_context)
@@ -955,7 +1179,7 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
     count_label = QLabel()
     top.addWidget(count_label)
     top.addStretch()
-    context_combo = QComboBox()
+    context_combo = NoWheelComboBox()
     for key in ("current", "saved", "theory"):
         context_combo.addItem(detail["equipment_contexts"][key]["title"], key)
     wanted_context = str(editor.get("equipment_context_key") or "current")
