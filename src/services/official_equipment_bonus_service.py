@@ -89,7 +89,7 @@ def calculate_official_equipment_stats(
         sub_stats = tuple(_value(item, "sub_stats", ()) or ())
         if kind == "module":
             grid_count = _grid_count(item)
-            if grid_count <= 0 or not sub_stats:
+            if grid_count <= 0:
                 continue
             modules.append(item)
             intrinsic = calculate_drive_main_stats(grid_count, _legacy_quality(item))

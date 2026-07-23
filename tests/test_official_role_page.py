@@ -276,6 +276,17 @@ class OfficialRolePageTests(unittest.TestCase):
                 status="saved", payload={"schema": "allocation-official-snapshot-v1"},
                 is_active=True,
             )
+            occupied_plan_id = dao.save_loadout_plan(
+                name="other-role", character_id=9999,
+                source_snapshot_id=snapshot_id,
+                assignments=[{
+                    "uid_serial": 9, "uid_slot": 1, "kind": "core",
+                    "target_row": None, "target_column": None,
+                }],
+                status="saved",
+                payload={"schema": "allocation-official-snapshot-v1"},
+                is_active=True,
+            )
         detail = load_official_role_detail(self.database, character_id)
         target = detail["equipment_contexts"]["saved"]["items"][0]
         candidates = replacement_candidates_for_official_role(detail, "saved", target)
@@ -287,8 +298,10 @@ class OfficialRolePageTests(unittest.TestCase):
         )
         with UserDataDao(self.database) as dao:
             saved = dao.get_loadout_plan(plan_id)
+            occupied = dao.get_loadout_plan(occupied_plan_id)
         self.assertTrue(saved["is_active"])
         self.assertEqual(9, saved["assignments"][0]["uid_serial"])
+        self.assertFalse(occupied["is_active"])
 
     def test_graduation_reference_ignores_current_growth_and_uses_signature_baseline(self) -> None:
         # 1051 has a recorded exclusive fork in the official static dataset.
@@ -296,6 +309,13 @@ class OfficialRolePageTests(unittest.TestCase):
         reference = page._graduation_benchmark_damage(detail)
         self.assertIsNotNone(reference)
         self.assertGreater(reference, 0)
+        self.assertEqual(
+            reference, detail["graduation_template"]["benchmark_damage"]
+        )
+        self.assertEqual(20, detail["graduation_template"]["drive_area"])
+        self.assertEqual(
+            1, detail["graduation_template"]["fork_refinement_level"]
+        )
         detail["profile"].update({
             "character_level": 1, "breakthrough_stage": 0,
             "awakening_level": 0, "fork_id": None,
@@ -498,7 +518,7 @@ class OfficialRolePageTests(unittest.TestCase):
         host = QWidget()
         content = page._build_equipment_detail_content(host, detail, "current")
         groups = [group.title() for group in content.findChildren(QGroupBox)]
-        self.assertEqual(["空幕", "驱动 (1个)"], groups)
+        self.assertEqual(["空幕属性汇总", "空幕", "驱动 (1个)"], groups)
         self.assertEqual(
             2, len(content.findChildren(QWidget, "officialRoleEquipmentCard"))
         )

@@ -3,14 +3,22 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
 from src.app import runtime
 from src.services.character_weight_service import ensure_account_character_weights
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.services.equipment_level_projection_service import (
+    project_equipment_items_to_max_level,
+)
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
+from src.services.virtual_equipment_service import (
+    is_virtual_equipment_assignment,
+    virtual_equipment_inventory_item,
+)
 from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
@@ -28,6 +36,17 @@ DEFAULT_THEORY_PROPERTY_IDS = (
     "CritDamageBase",
     "AtkUp",
 )
+
+OFFICIAL_ROLE_TAB_ORDER_SCOPE = "official_role_tabs"
+
+
+@dataclass(frozen=True, slots=True)
+class OfficialAttributeSummaryValue:
+    key: str
+    label: str
+    value: float
+    percent: bool
+    weight_property_ids: tuple[str, ...]
 
 _ELEMENT_DAMAGE_PROPERTY = {
     "CHAOS": "DamageUpChaosBase",
@@ -160,9 +179,27 @@ def _resolved_plan_items(user_dao: UserDataDao, plan: Mapping[str, Any] | None) 
     by_uid = {(int(item["uid_serial"]), int(item["uid_slot"])): item for item in items}
     resolved = []
     for assignment in plan.get("assignments") or []:
-        item = by_uid.get((int(assignment["uid_serial"]), int(assignment["uid_slot"])))
+        raw_assignment = dict(assignment.get("raw_assignment") or assignment)
+        raw_assignment.update({
+            "uid_serial": int(assignment["uid_serial"]),
+            "uid_slot": int(assignment["uid_slot"]),
+            "kind": assignment["kind"],
+            "target_row": assignment.get("target_row"),
+            "target_column": assignment.get("target_column"),
+        })
+        item = (
+            virtual_equipment_inventory_item(raw_assignment)
+            if is_virtual_equipment_assignment(raw_assignment)
+            else by_uid.get(
+                (int(assignment["uid_serial"]), int(assignment["uid_slot"]))
+            )
+        )
         if item is not None:
             row = dict(item)
+            row["equipped"] = False
+            row["equipped_character_id"] = None
+            row["equipped_character_name"] = ""
+            row.pop("equipped_character_icon_path", None)
             row["target_row"] = assignment.get("target_row")
             row["target_column"] = assignment.get("target_column")
             resolved.append(row)
@@ -199,6 +236,135 @@ def _fork_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
             if property_id:
                 totals[property_id] = totals.get(property_id, 0.0) + float(modifier.get("value") or 0.0)
     return totals
+
+
+def calculate_official_role_attribute_summaries(
+    detail: Mapping[str, Any],
+    items: Iterable[Any],
+) -> dict[str, tuple[OfficialAttributeSummaryValue, ...]]:
+    """Return equipment-only and complete character-panel summary rows."""
+
+    attributes = detail.get("attributes") or {}
+    property_percent = {
+        str(property_id): bool(attribute.get("show_percent"))
+        for property_id, attribute in attributes.items()
+    }
+    shape_bonus = detail.get("shape_bonus") or {}
+    equipment_totals = calculate_official_equipment_stats(
+        items,
+        extra_shape_label=str(shape_bonus.get("shape_label") or ""),
+        extra_shape_buffs=tuple(
+            (
+                str(row.get("property_id") or ""),
+                float(row.get("display_value") or 0.0),
+            )
+            for row in shape_bonus.get("properties") or ()
+        ),
+        property_percent=property_percent,
+    )
+    equipment_rows = tuple(
+        OfficialAttributeSummaryValue(
+            key=total.property_id,
+            label=_property_label(detail, total.property_id),
+            value=float(total.value),
+            percent=bool(total.percent),
+            weight_property_ids=(total.property_id,),
+        )
+        for total in equipment_totals
+    )
+    combined = _fork_property_stats(detail)
+    for total in equipment_totals:
+        combined[total.property_id] = (
+            combined.get(total.property_id, 0.0) + float(total.value)
+        )
+
+    profile = detail.get("profile") or {}
+    wanted_growth = (
+        int(profile.get("character_level") or 0),
+        int(profile.get("breakthrough_stage") or 0),
+    )
+    growth = next(
+        (
+            row
+            for row in detail.get("growth_rows") or ()
+            if (
+                int(row.get("level") or 0),
+                int(row.get("breakthrough_stage") or 0),
+            )
+            == wanted_growth
+        ),
+        {},
+    )
+    character_rows: list[OfficialAttributeSummaryValue] = []
+
+    def add_panel_total(
+        key: str,
+        label: str,
+        growth_key: str,
+        base_id: str,
+        up_id: str,
+        add_id: str,
+    ) -> None:
+        base = float(growth.get(growth_key) or 0.0) + combined.get(base_id, 0.0)
+        value = base * (1.0 + combined.get(up_id, 0.0)) + combined.get(add_id, 0.0)
+        if value:
+            character_rows.append(
+                OfficialAttributeSummaryValue(
+                    key=key,
+                    label=label,
+                    value=value,
+                    percent=False,
+                    weight_property_ids=(base_id, up_id, add_id),
+                )
+            )
+
+    add_panel_total("PanelAtk", "总攻击力", "atk_base", "AtkBase", "AtkUp", "AtkAdd")
+    add_panel_total(
+        "PanelHP", "总生命值", "hp_base", "HPMaxBase", "HPMaxUp", "HPMaxAdd"
+    )
+    add_panel_total("PanelDef", "总防御力", "def_base", "DefBase", "DefUp", "DefAdd")
+    character_rows.extend(
+        (
+            OfficialAttributeSummaryValue(
+                key="PanelCritRate",
+                label="暴击率",
+                value=0.05 + combined.get("CritBase", 0.0) + combined.get("CritAdd", 0.0),
+                percent=True,
+                weight_property_ids=("CritBase", "CritAdd"),
+            ),
+            OfficialAttributeSummaryValue(
+                key="PanelCritDamage",
+                label="暴击伤害",
+                value=0.50
+                + combined.get("CritDamageBase", 0.0)
+                + combined.get("CritDamageAdd", 0.0),
+                percent=True,
+                weight_property_ids=("CritDamageBase", "CritDamageAdd"),
+            ),
+        )
+    )
+    consumed = {
+        "AtkBase", "AtkUp", "AtkAdd",
+        "HPMaxBase", "HPMaxUp", "HPMaxAdd",
+        "DefBase", "DefUp", "DefAdd",
+        "CritBase", "CritAdd", "CritDamageBase", "CritDamageAdd",
+    }
+    for property_id, value in combined.items():
+        if property_id in consumed or not value:
+            continue
+        character_rows.append(
+            OfficialAttributeSummaryValue(
+                key=property_id,
+                label=_property_label(detail, property_id),
+                value=float(value),
+                percent=bool(property_percent.get(property_id, False)),
+                weight_property_ids=(property_id,),
+            )
+        )
+    return {
+        "equipment": equipment_rows,
+        "character": tuple(character_rows),
+    }
 
 
 def _equipment_property_stats(
@@ -426,44 +592,99 @@ def replacement_candidates_for_official_role(
     context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
     if context_key != "saved" or not context.get("plan"):
         return []
-    items = tuple(context.get("items") or ())
-    if not items:
+    raw_items = tuple(context.get("items") or ())
+    if not raw_items:
         return []
     target_kind = str(target.get("kind") or "")
+    target_virtual = bool(target.get("virtual"))
     target_geometry = str(target.get("geometry") or "")
     target_suit = target.get("suit_id")
-    baseline = calculate_official_role_margins(detail, context_key)
-    baseline_damage = float((baseline or {}).get("damage") or 0.0)
-    ranked: list[dict[str, Any]] = []
+    eligible = []
     for candidate in detail.get("replacement_items") or ():
         if _same_inventory_item(candidate, target):
             continue
         if str(candidate.get("kind") or "") != target_kind:
             continue
-        if any(_same_inventory_item(candidate, equipped) for equipped in items):
+        if any(_same_inventory_item(candidate, equipped) for equipped in raw_items):
             continue
         if target_kind == "module" and (
             str(candidate.get("geometry") or "") != target_geometry
-            or candidate.get("suit_id") != target_suit
+            or (
+                not target_virtual
+                and candidate.get("suit_id") != target_suit
+            )
         ):
             continue
+        if (
+            target_kind == "core"
+            and not target_virtual
+            and candidate.get("suit_id") != target_suit
+        ):
+            continue
+        eligible.append(candidate)
+    if not eligible:
+        return []
+
+    with StaticGameDataDao() as static_dao:
+        projected = project_equipment_items_to_max_level(
+            (*raw_items, *eligible),
+            static_dao,
+        )
+    items = tuple(projected[:len(raw_items)])
+    projected_candidates = projected[len(raw_items):]
+    projected_target = next(
+        (item for item in items if _same_inventory_item(item, target)),
+        dict(target),
+    )
+    full_level_context = {**context, "items": items}
+    full_level_detail = {
+        **detail,
+        "equipment_contexts": {
+            **(detail.get("equipment_contexts") or {}),
+            context_key: full_level_context,
+        },
+    }
+    baseline = calculate_official_role_margins(full_level_detail, context_key)
+    baseline_damage = float((baseline or {}).get("damage") or 0.0)
+    current_gain = calculate_official_role_item_gain(
+        full_level_detail,
+        context_key,
+        projected_target,
+    )
+    current_direct_damage_score = (
+        float(current_gain["gain_percent"]) if current_gain else None
+    )
+    ranked: list[dict[str, Any]] = []
+    for candidate in projected_candidates:
         replaced = tuple(
-            candidate if _same_inventory_item(item, target) else item for item in items
+            candidate if _same_inventory_item(item, projected_target) else item
+            for item in items
         )
         candidate_detail = {
-            **detail,
+            **full_level_detail,
             "equipment_contexts": {
-                **(detail.get("equipment_contexts") or {}),
-                context_key: {**context, "items": replaced},
+                **(full_level_detail.get("equipment_contexts") or {}),
+                context_key: {**full_level_context, "items": replaced},
             },
         }
         margins = calculate_official_role_margins(candidate_detail, context_key)
         damage = float((margins or {}).get("damage") or 0.0)
         if damage <= 0:
             continue
+        candidate_gain = calculate_official_role_item_gain(
+            candidate_detail,
+            context_key,
+            candidate,
+        )
         ranked.append({
             "item": dict(candidate),
+            "current_item": dict(projected_target),
+            "baseline_damage": baseline_damage,
             "damage": damage,
+            "current_direct_damage_score": current_direct_damage_score,
+            "direct_damage_score": (
+                float(candidate_gain["gain_percent"]) if candidate_gain else None
+            ),
             "gain_percent": (
                 (damage / baseline_damage - 1.0) * 100.0 if baseline_damage > 0 else 0.0
             ),
@@ -495,10 +716,14 @@ def save_official_role_replacement(
         source_uid = (int(source.get("uid_serial") or 0), int(source.get("uid_slot") or 0))
         target_uid = (int(target.get("uid_serial") or 0), int(target.get("uid_slot") or 0))
         if source_uid == target_uid:
+            assignment.pop("virtual", None)
+            assignment.pop("virtual_equipment", None)
             assignment.update({
                 "uid_serial": replacement_uid[0],
                 "uid_slot": replacement_uid[1],
                 "kind": str(replacement.get("kind") or ""),
+                "geometry": replacement.get("geometry"),
+                "grid_count": replacement.get("grid_count"),
             })
             replaced = True
         assignments.append(assignment)
@@ -510,16 +735,20 @@ def save_official_role_replacement(
     payload.update({"source": "official_role_replacement", "replaces_plan_id": plan.get("plan_id")})
     role_name = str((detail.get("character") or {}).get("name_zh") or plan["character_id"])
     with UserDataDao(user_database_path) as user_dao:
-        return user_dao.save_loadout_plan(
-            name=f"替换优化：{role_name}",
-            character_id=int(plan["character_id"]),
-            source_snapshot_id=int(plan["source_snapshot_id"]),
-            assignments=assignments,
-            status="saved",
-            score=score,
-            payload=payload,
-            is_active=True,
-        )
+        saved_plan_ids = user_dao.replace_active_loadout_plans([{
+            "name": f"替换优化：{role_name}",
+            "character_id": int(plan["character_id"]),
+            "source_snapshot_id": int(plan["source_snapshot_id"]),
+            "assignments": assignments,
+            "status": (
+                "incomplete"
+                if any(is_virtual_equipment_assignment(row) for row in assignments)
+                else "saved"
+            ),
+            "score": score,
+            "payload": payload,
+        }])
+    return saved_plan_ids[0]
 
 
 def calculate_official_role_margins(detail: Mapping[str, Any], context_key: str) -> dict[str, Any] | None:
@@ -766,7 +995,21 @@ def load_official_role_index(
     catalog = GameUiAssetCatalog(_asset_root(asset_root))
     with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
         profiles = {row["character_id"]: row for row in user_dao.list_character_profiles()}
-        characters = static_dao.list_role_template_characters()
+        preferred_character_ids = [
+            *user_dao.list_observed_character_ids(),
+            *profiles,
+        ]
+        characters = static_dao.list_role_template_characters(
+            preferred_character_ids,
+        )
+        saved_order = user_dao.get_ui_item_order(OFFICIAL_ROLE_TAB_ORDER_SCOPE)
+    saved_rank: dict[int, int] = {}
+    for ordinal, item_key in enumerate(saved_order):
+        try:
+            character_id = int(item_key)
+        except (TypeError, ValueError):
+            continue
+        saved_rank.setdefault(character_id, ordinal)
     return sorted(
         [
             {
@@ -777,8 +1020,34 @@ def load_official_role_index(
             }
             for character in characters
         ],
-        key=lambda row: (int(row["ordinal"]), int(row["character_id"])),
+        key=lambda row: (
+            0 if int(row["character_id"]) in saved_rank else 1,
+            saved_rank.get(
+                int(row["character_id"]),
+                int(row["ordinal"]),
+            ),
+            int(row["character_id"]),
+        ),
     )
+
+
+def save_official_role_tab_order(
+    user_database_path: str | Path,
+    character_ids: Sequence[int],
+) -> list[int]:
+    """Persist the character page's visual tab order for the current account."""
+
+    normalized = [int(character_id) for character_id in character_ids]
+    if any(character_id <= 0 for character_id in normalized):
+        raise ValueError("角色 Tab 顺序包含无效 character_id")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("角色 Tab 顺序不能包含重复角色")
+    with UserDataDao(user_database_path) as user_dao:
+        user_dao.replace_ui_item_order(
+            OFFICIAL_ROLE_TAB_ORDER_SCOPE,
+            normalized,
+        )
+    return normalized
 
 
 def load_official_role_detail(
@@ -815,7 +1084,37 @@ def load_official_role_detail(
             if saved_plan and saved_plan.get("source_snapshot_id") is not None
             else []
         )
+        characters = {
+            int(row["character_id"]): row
+            for row in static_dao.list_characters()
+        }
+        owner_by_uid: dict[tuple[int, int], int] = {}
+        for row in user_dao.list_active_loadout_equipment_owners():
+            owner_by_uid.setdefault(
+                (int(row["uid_slot"]), int(row["uid_serial"])),
+                int(row["character_id"]),
+            )
+        for item in replacement_items:
+            uid = (int(item["uid_slot"]), int(item["uid_serial"]))
+            owner_id = owner_by_uid.get(uid)
+            item["equipped"] = False
+            item["equipped_character_id"] = None
+            item["equipped_character_name"] = ""
+            item.pop("equipped_character_icon_path", None)
+            if owner_id is None:
+                continue
+            owner = characters.get(owner_id) or {}
+            item["equipped"] = True
+            item["equipped_character_id"] = owner_id
+            item["equipped_character_name"] = str(
+                owner.get("name_zh") or owner_id
+            )
+            owner_icon = catalog.character_icon(owner_id)
+            if owner_icon is not None:
+                item["equipped_character_icon_path"] = str(owner_icon)
         equipment_plan = static_dao.get_equipment_plan(character_id)
+        shape_bonus = static_dao.get_character_shape_bonus(character_id)
+        graduation_template = static_dao.get_character_graduation_template(character_id)
         account_weights = user_dao.get_character_weight_preferences(character_id)
         workshop_weights = static_dao.get_character_recommended_weights(character_id)
         weight_record = account_weights or workshop_weights or {}
@@ -831,6 +1130,24 @@ def load_official_role_detail(
             row["item_id"]: row.get("name_zh") or row["item_id"]
             for row in equipment_items
         }
+        suit_names = {
+            row["suit_id"]: row.get("name_zh") or row["suit_id"]
+            for row in static_dao.list_suits()
+        }
+        for item in saved_items:
+            if not item.get("virtual"):
+                continue
+            item["names"] = {
+                "zh_cn": item_names.get(
+                    item.get("item_id"), item.get("item_id") or "空装备"
+                )
+            }
+            item["suit_names"] = {
+                "zh_cn": suit_names.get(
+                    item.get("suit_id"),
+                    item.get("suit_id") or item["names"]["zh_cn"],
+                )
+            }
         item_icon_paths = {
             str(row["item_id"]): icon_path
             for row in equipment_items
@@ -857,6 +1174,8 @@ def load_official_role_detail(
         "awakenings": awakenings,
         "forks": forks,
         "equipment_plan": equipment_plan,
+        "shape_bonus": shape_bonus,
+        "graduation_template": graduation_template,
         "attributes": attributes,
         "item_names": item_names,
         "item_icon_paths": item_icon_paths,

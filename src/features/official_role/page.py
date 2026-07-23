@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -34,6 +32,8 @@ from PySide6.QtWidgets import QHeaderView
 
 from src.app import runtime
 from src.app.theme import themed_style
+from src.features.allocation import results_view as legacy_results
+from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
 from src.services.official_role_page_service import (
     calculate_official_role_damage_breakdown,
     calculate_official_role_equipment_gain,
@@ -43,12 +43,20 @@ from src.services.official_role_page_service import (
     load_official_role_index,
     replacement_candidates_for_official_role,
     save_official_role_replacement,
+    save_official_role_tab_order,
 )
 from src.services.character_weight_service import save_account_character_weights
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
-from src.services.sqlite_allocation_inventory import legacy_shape_id
-from src.storage.json_store import read_json
+from src.services.sqlite_allocation_inventory import (
+    AllocationInventoryProjectionError,
+    legacy_shape_id,
+)
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.ui.equipment_replacement_dialog import (
+    EquipmentReplacementCard,
+    show_equipment_replacement_dialog,
+)
+from src.ui.persistent_tab_order import bind_persistent_tab_order
 from src.ui.widgets import (
     NoWheelComboBox,
     NoWheelDoubleSpinBox,
@@ -74,26 +82,6 @@ _WEIGHT_PROPERTY_CHOICES = (
 _WEIGHT_LABEL_BY_PROPERTY = {
     property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
 }
-
-_STATS_PROPERTY_IDS = {
-    "生命值%": "HPMaxUp", "生命值": "HPMaxAdd",
-    "攻击力%": "AtkUp", "攻击力": "AtkAdd",
-    "防御力%": "DefUp", "防御力": "DefAdd",
-    "暴击率%": "CritBase", "暴击伤害%": "CritDamageBase",
-    "伤害增加%": "DamageUpGeneralBase", "环合强度": "MagBase",
-    "倾陷强度": "UnbalIntensityBase", "治疗加成": "HealUp",
-    "光属性异能伤害增强%": "DamageUpCosmosBase",
-    "灵属性异能伤害增强%": "DamageUpNatureBase",
-    "咒属性异能伤害增强%": "DamageUpIncantationBase",
-    "暗属性异能伤害增强%": "DamageUpChaosBase",
-    "魂属性异能伤害增强%": "DamageUpPsycheBase",
-    "相属性异能伤害增强%": "DamageUpLakshanaBase",
-    "心灵伤害增强%": "DamageUpPsychicallyBase",
-}
-_PERCENT_PROPERTY_IDS = {
-    property_id for stat, property_id in _STATS_PROPERTY_IDS.items() if stat.endswith("%")
-} | {"HealUp"}
-
 
 def _attribute_name(detail: dict, property_id: str) -> str:
     attribute = detail.get("attributes", {}).get(property_id, {})
@@ -122,115 +110,14 @@ def _stat_text(detail: dict, stat: dict) -> str:
     return f"{_attribute_name(detail, str(stat.get('property_id') or ''))} {shown}{suffix}"
 
 
-def _graduation_stats_config() -> dict:
-    """Read only the maintained stat roll table used by the existing scorer."""
-
-    configured = getattr(runtime, "CONFIG_DIR", None)
-    config_dir = Path(configured) if configured else Path("config")
-    return read_json(config_dir / "stats.json", default={}) or {}
-
-
 def _graduation_benchmark_damage(detail: dict) -> float | None:
-    """Mirror the established graduation definition on official page data.
+    """Calculate one fixed SQLite template with the current official damage path."""
 
-    The reference is always a max-level role, its max-level exclusive fork at
-    refinement 1, twenty cells of the four highest-weight drive substats, one
-    max-roll tape substat combination, and the damage-best eligible tape main
-    stat. ``stats.json`` supplies only the unavailable roll magnitudes.
-    """
-
-    stats = _graduation_stats_config()
-    drive_values = dict(stats.get("gold_base_values") or {})
-    tape_values = dict(stats.get("tape_stat_values") or {})
-    main_values = dict(stats.get("tape_main_stat_values") or {})
-    weights = {str(key): float(value) for key, value in (detail.get("property_weights") or {}).items()}
-    main_weights = {
-        str(key): float(value)
-        for key, value in (detail.get("main_property_weights") or {}).items()
-    } or dict(weights)
-
-    def property_id(stat: str) -> str | None:
-        return _STATS_PROPERTY_IDS.get(str(stat).strip())
-
-    def selected(values: dict) -> list[str]:
-        rows = [
-            (stat, weights.get(property_id(stat) or "", 0.0))
-            for stat in values if property_id(stat) is not None
-        ]
-        return [stat for stat, weight in sorted(rows, key=lambda row: (-row[1], row[0])) if weight > 0][:4]
-
-    drive_stats, tape_stats = selected(drive_values), selected(tape_values)
-    if len(drive_stats) < 4 or len(tape_stats) < 4:
+    template = detail.get("graduation_template")
+    if not isinstance(template, dict):
         return None
-
-    def official_stat(stat: str, value: float, *, multiplier: float = 1.0) -> dict:
-        prop = property_id(stat)
-        if prop is None:
-            raise ValueError(stat)
-        percent = prop in _PERCENT_PROPERTY_IDS
-        numeric = float(value) * multiplier
-        return {"property_id": prop, "value": numeric / 100.0 if percent else numeric, "percent": percent}
-
-    max_growth = max(
-        detail.get("growth_rows") or (),
-        key=lambda row: (int(row.get("level") or 0), int(row.get("breakthrough_stage") or 0)),
-        default=None,
-    )
-    character_id = str((detail.get("character") or {}).get("character_id") or "")
-    signature = next(
-        (fork for fork in detail.get("forks") or () if character_id in {
-            str(value) for value in fork.get("exclusive_character_ids") or ()
-        }),
-        None,
-    )
-    if max_growth is None or signature is None:
-        return None
-    fork_levels = [int(row.get("level") or 0) for row in signature.get("upgrade_levels") or ()]
-    if not fork_levels:
-        return None
-    max_stage = int(max_growth.get("breakthrough_stage") or 0)
-    max_skills = {}
-    for skill in detail.get("skills") or ():
-        levels = [
-            int(row.get("level") or 0) for row in skill.get("levels") or ()
-            if int(row.get("required_breakthrough_stage") or 0) <= max_stage
-            and int(row.get("required_awaken_level") or 0) <= 6
-        ]
-        if levels:
-            max_skills[str(skill.get("skill_id"))] = max(levels)
-    profile = dict(detail.get("profile") or {})
-    profile.update({
-        "character_level": int(max_growth["level"]), "breakthrough_stage": max_stage,
-        "awakening_level": 6, "fork_id": signature.get("fork_id"),
-        "fork_level": max(fork_levels), "fork_refinement_level": 1,
-        "skill_levels": max_skills,
-    })
-    module = {
-        "kind": "module", "main_stats": (),
-        "sub_stats": (
-            {"property_id": "AtkAdd", "value": 20.0 * 21.0, "percent": False},
-            *(official_stat(stat, drive_values[stat], multiplier=20.0) for stat in drive_stats),
-        ),
-    }
-    tape_sub_stats = tuple(official_stat(stat, tape_values[stat]) for stat in tape_stats)
-    candidates = [
-        (stat, value) for stat, value in main_values.items()
-        if (property_id(stat) and main_weights.get(property_id(stat) or "", 0.0) > 0)
-    ]
-    best_damage = 0.0
-    for stat, value in candidates:
-        candidate = {
-            **detail, "profile": profile,
-            "equipment_contexts": {**detail["equipment_contexts"], "graduation": {
-                "title": "毕业基准", "items": (module, {
-                    "kind": "core", "main_stats": (official_stat(stat, value),),
-                    "sub_stats": tape_sub_stats,
-                }),
-            }},
-        }
-        margins = calculate_official_role_margins(candidate, "graduation")
-        best_damage = max(best_damage, float((margins or {}).get("damage") or 0.0))
-    return best_damage if best_damage > 0 else None
+    damage = float(template.get("benchmark_damage") or 0.0)
+    return damage if damage > 0 else None
 
 
 def _clear_layout(layout) -> None:
@@ -563,6 +450,20 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     left_layout.setContentsMargins(0, 0, 0, 0)
     left_layout.setSpacing(8)
     left_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+    icon_path = detail.get("icon_path")
+    if icon_path:
+        pixmap = QPixmap(str(icon_path))
+        if not pixmap.isNull():
+            avatar = QLabel()
+            avatar.setObjectName("officialRoleBaseAvatar")
+            avatar.setFixedSize(96, 96)
+            avatar.setScaledContents(True)
+            avatar.setPixmap(pixmap)
+            left_layout.addWidget(avatar, alignment=Qt.AlignHCenter)
+    role_name = QLabel(str(character.get("name_zh") or character_id))
+    role_name.setAlignment(Qt.AlignHCenter)
+    role_name.setStyleSheet("font-weight:bold;color:#58a6ff;")
+    left_layout.addWidget(role_name)
     growth_combo = NoWheelComboBox()
     growth_combo.setMaxVisibleItems(10)
     for row in growth_rows:
@@ -747,6 +648,25 @@ def _display_property_value(detail: dict, property_id: str, value: float) -> str
     return f"+{value:.2f}".rstrip("0").rstrip(".")
 
 
+def _fork_skill_description(star: dict) -> str:
+    """Render official refinement placeholders with the selected level's curve values."""
+
+    description = str(star.get("description_zh") or "")
+    for parameter in star.get("parameters") or ():
+        value = parameter.get("value")
+        if value is None:
+            continue
+        number = float(value) * (100.0 if parameter.get("is_percent") else 1.0)
+        shown = f"{number:.6f}".rstrip("0").rstrip(".")
+        if parameter.get("is_percent"):
+            shown += "%"
+        description = description.replace(
+            "{" + str(int(parameter.get("ordinal") or 0)) + "}",
+            shown,
+        )
+    return description.replace("<lv>", "").replace("</>", "")
+
+
 def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> QGroupBox:
     character = detail["character"]
     profile = detail["profile"]
@@ -789,7 +709,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     stats_layout = QVBoxLayout(stats_widget)
     stats_layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(stats_widget)
-    effect_label = QLabel("精炼效果：")
+    effect_label = QLabel("技能描述：")
     effect_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(effect_label)
     effect_text = QLabel()
@@ -838,7 +758,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
             star_rows[0] if star_rows else None,
         )
         if star:
-            description = str(star.get("description_zh") or "").replace("<lv>", "").replace("</>", "")
+            description = _fork_skill_description(star)
             effect_text.setText(f"{star.get('title_zh') or ''}\n{description}".strip())
         else:
             effect_text.setText("暂无官方精炼说明。")
@@ -859,102 +779,104 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     return group
 
 
-def _equipment_uid_text(item: dict) -> str:
-    uid = item.get("uid") or {}
-    if isinstance(uid, dict):
-        return f"{int(uid.get('slot') or 0)}:{int(uid.get('serial') or 0)}"
-    return str(uid or "")
-
-
-def _legacy_quality_name(value: str | None) -> str:
-    return {"orange": "Gold", "purple": "Purple", "blue": "Blue"}.get(
-        str(value or "").lower(), "Gold"
+def _equipment_item_card(
+    window,
+    detail: dict,
+    item: dict,
+    *,
+    core: bool,
+    score: float | None = None,
+    direct_damage_score: float | None = None,
+    replacement_callback=None,
+) -> QWidget:
+    view = warehouse_item_view(item)
+    icon_path = detail.get("item_icon_paths", {}).get(
+        str(item.get("item_id") or "")
+    )
+    if icon_path:
+        view["item_icon_path"] = icon_path
+    resolved_score = (
+        _equipment_weight_score(window, detail, item, core=core)
+        if score is None
+        else float(score)
+    )
+    area = 15 if core else int(item.get("grid_count") or 0)
+    if not core and area <= 0:
+        geometry = str(item.get("geometry") or "")
+        area = next(
+            (
+                int(character)
+                for character in reversed(geometry)
+                if character.isdigit()
+            ),
+            0,
+        )
+    return WarehouseResultCard(
+        view,
+        score=resolved_score,
+        grade=legacy_results._calc_grade(window, resolved_score, area),
+        direct_damage_score=direct_damage_score,
+        replacement_callback=replacement_callback,
+        parent=window if isinstance(window, QWidget) else None,
     )
 
 
-def _legacy_stat_values(detail: dict, stats) -> dict[str, float]:
-    result = {}
-    for stat in stats or ():
-        value = float(stat.get("value") or 0.0)
-        if stat.get("percent"):
-            value *= 100.0
-        result[_attribute_name(detail, str(stat.get("property_id") or ""))] = value
-    return result
-
-
-def _fallback_equipment_card(detail: dict, item: dict, *, core: bool) -> QWidget:
-    card = QFrame()
-    card.setObjectName("officialRoleEquipmentCard")
-    card.setStyleSheet(themed_style(
-        "QFrame#officialRoleEquipmentCard{background:#0d1117;border:1px solid #30363d;"
-        "border-radius:10px;padding:10px}"
-    ))
-    layout = QVBoxLayout(card)
-    if core:
-        title = _item_name(detail, item)
-    else:
-        geometry = str(item.get("geometry") or "")
-        try:
-            title = legacy_shape_id(geometry)
-        except ValueError:
-            title = geometry.upper() or "驱动"
-    heading = QLabel(f"<b>{title}</b>")
-    heading.setStyleSheet("color:#4dd0e1;font-size:15px;")
-    layout.addWidget(heading)
-    stats = [*(item.get("main_stats") or ()), *(item.get("sub_stats") or ())]
-    stat_label = QLabel(" · ".join(_stat_text(detail, stat) for stat in stats) or "无词条")
-    stat_label.setWordWrap(True)
-    layout.addWidget(stat_label)
-    return card
-
-
-def _old_style_equipment_card(window, detail: dict, item: dict, *, core: bool) -> QWidget:
-    if not hasattr(window, "_equip_card"):
-        return _fallback_equipment_card(detail, item, core=core)
+def _equipment_weight_score(
+    window,
+    detail: dict,
+    item: dict,
+    *,
+    core: bool,
+) -> float:
+    if not getattr(window, "scoring_engine", None):
+        return 0.0
     weights = {
-        _attribute_name(detail, property_id): float(weight)
+        _attribute_name(detail, str(property_id)): float(weight)
         for property_id, weight in (detail.get("property_weights") or {}).items()
     }
-    quality = _legacy_quality_name(item.get("quality"))
-    main_stats = list(item.get("main_stats") or ())
-    sub_stats = _legacy_stat_values(detail, item.get("sub_stats") or ())
-    uid = _equipment_uid_text(item)
-    if core:
-        label = _item_name(detail, item)
-        main_stat = _stat_text(detail, main_stats[0]) if main_stats else ""
-        icon_path = detail.get("item_icon_paths", {}).get(str(item.get("item_id") or ""))
-        score_info = None
-        if hasattr(window, "_score_tape_dict"):
-            try:
-                score = window._score_tape_dict(main_stat, sub_stats, weights, quality)
-                grade = window._calc_grade(score, 15) if hasattr(window, "_calc_grade") else "-"
-                score_info = (score, grade)
-            except (TypeError, ValueError):
-                score_info = None
-        return window._equip_card(
-            label, main_stat, sub_stats, None, uid, weights, score_info, quality,
-            card_variant="inventory", item_icon_path=icon_path,
+    main_weights = {
+        _attribute_name(detail, str(property_id)): float(weight)
+        for property_id, weight in (detail.get("main_property_weights") or {}).items()
+    }
+    sub_stats = {
+        _attribute_name(detail, str(stat.get("property_id") or "")): float(
+            stat.get("value") or 0.0
         )
-    geometry = str(item.get("geometry") or "")
-    shape_id = legacy_shape_id(geometry)
-    # 与词条配装结果卡一致：官方 geometry 只用于映射，界面展示旧卡片所用 H_3 等名称。
-    label = shape_id or "驱动"
-    score_info = None
-    if hasattr(window, "_score_drive_dict"):
-        try:
-            score = window._score_drive_dict(sub_stats, shape_id, weights, quality)
-            area = getattr(window, "_shape_areas", {}).get(shape_id, 3)
-            grade = window._calc_grade(score, area) if hasattr(window, "_calc_grade") else "-"
-            score_info = (score, grade)
-        except (TypeError, ValueError):
-            score_info = None
-    return window._equip_card(
-        label, "", sub_stats, shape_id, uid, weights, score_info, quality,
-        card_variant="inventory",
-        item_icon_path=detail.get("item_icon_paths", {}).get(
-            str(item.get("item_id") or "")
-        ),
-    )
+        for stat in item.get("sub_stats") or ()
+    }
+    quality = {
+        "orange": "Gold",
+        "gold": "Gold",
+        "purple": "Purple",
+        "blue": "Blue",
+    }.get(str(item.get("quality") or "").casefold(), "Gold")
+    if core:
+        main_stat = next(
+            (
+                _attribute_name(detail, str(stat.get("property_id") or ""))
+                for stat in item.get("main_stats") or ()
+            ),
+            "",
+        )
+        return float(legacy_results._score_tape_dict(
+            window,
+            main_stat,
+            sub_stats,
+            weights,
+            quality,
+            main_weights,
+        ))
+    try:
+        shape_id = legacy_shape_id(str(item.get("geometry") or ""))
+    except AllocationInventoryProjectionError:
+        shape_id = str(item.get("geometry") or "")
+    return float(legacy_results._score_drive_dict(
+        window,
+        sub_stats,
+        shape_id,
+        weights,
+        quality,
+    ))
 
 
 def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
@@ -966,73 +888,100 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
             window, "替换优化", "没有同套装、同形状且未被当前方案使用的可替换装备。",
         )
         return
-    dialog = QDialog(window)
-    dialog.setWindowTitle("替换优化")
-    dialog.resize(720, 520)
-    layout = QVBoxLayout(dialog)
-    layout.addWidget(QLabel("按替换后的直伤评分排序；应用后会保存为新的 SQLite 配装方案。"))
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    host = QWidget()
-    host_layout = QVBoxLayout(host)
-    host_layout.setSpacing(8)
-    scroll.setWidget(host)
-    layout.addWidget(scroll)
+    current_item = dict(candidates[0]["current_item"])
 
-    for row in candidates[:30]:
-        candidate = row["item"]
-        card = QFrame()
-        card_layout = QHBoxLayout(card)
-        card_layout.addWidget(_old_style_equipment_card(
-            window, detail, candidate, core=str(candidate.get("kind")) == "core",
-        ), 1)
-        side = QVBoxLayout()
-        side.addWidget(QLabel(f"直伤变化: {float(row['gain_percent']):+.2f}%"))
-        side.addWidget(QLabel(f"替换后直伤评分: {float(row['damage']):.2f}"))
-        apply = QPushButton("应用替换")
-        apply.setObjectName("btnAction")
+    def card_data(
+        item: dict,
+        *,
+        direct_damage_score: float | None,
+        payload,
+    ) -> EquipmentReplacementCard:
+        core = str(item.get("kind") or "") == "core"
+        view = warehouse_item_view(item)
+        icon_path = detail.get("item_icon_paths", {}).get(
+            str(item.get("item_id") or "")
+        )
+        if icon_path:
+            view["item_icon_path"] = icon_path
+        score = _equipment_weight_score(window, detail, item, core=core)
+        area = 15 if core else int(item.get("grid_count") or 0)
+        return EquipmentReplacementCard(
+            key=f"{item.get('uid_slot')}:{item.get('uid_serial')}",
+            item_view=view,
+            score=score,
+            grade=legacy_results._calc_grade(window, score, area),
+            direct_damage_score=direct_damage_score,
+            payload=payload,
+            note=(
+                f"将从 {view.get('equipped_character_name')} 的持久化方案借用，"
+                "并在同一事务中为其原槽位补入金色占位装备。"
+                if view.get("equipped_character_name")
+                else ""
+            ),
+        )
 
-        def save_choice(*, selected=candidate, score=float(row["damage"])) -> None:
-            try:
-                save_official_role_replacement(
-                    runtime.USER_DATABASE_PATH, detail, target, selected, score=score,
-                )
-            except (OSError, ValueError) as exc:
-                QMessageBox.warning(dialog, "替换失败", str(exc))
-                return
-            QMessageBox.information(dialog, "替换优化", "已保存为新的 SQLite 配装方案。")
-            dialog.accept()
-            _refresh_my_role(window)
+    current = card_data(
+        current_item,
+        direct_damage_score=candidates[0].get("current_direct_damage_score"),
+        payload=None,
+    )
+    choices = [
+        card_data(
+            dict(row["item"]),
+            direct_damage_score=row.get("direct_damage_score"),
+            payload=row,
+        )
+        for row in candidates[:30]
+    ]
 
-        apply.clicked.connect(save_choice)
-        side.addWidget(apply)
-        side.addStretch()
-        card_layout.addLayout(side)
-        host_layout.addWidget(card)
-    host_layout.addStretch()
-    close = QPushButton("关闭")
-    close.clicked.connect(dialog.accept)
-    layout.addWidget(close)
-    dialog.exec()
+    def save_choice(choice: EquipmentReplacementCard) -> None:
+        row = choice.payload
+        save_official_role_replacement(
+            runtime.USER_DATABASE_PATH,
+            detail,
+            target,
+            row["item"],
+            score=float(row["damage"]),
+        )
+
+    accepted = show_equipment_replacement_dialog(
+        window,
+        title="替换优化",
+        role_name=str((detail.get("character") or {}).get("name_zh") or ""),
+        summary="所有卡片均按官方满级主属性计算；点击候选卡片比较，确认后写入 SQLite 配装方案。",
+        current=current,
+        candidates=choices,
+        on_confirm=save_choice,
+    )
+    if accepted:
+        _refresh_my_role(window)
+        QMessageBox.information(window, "替换优化", "已保存为新的配装方案。")
 
 
-def _build_equipment_detail_content(
+def _build_equipment_cards_group(
     window, detail: dict, context_key: str,
-) -> QWidget:
-    content = QWidget()
-    content.setObjectName("officialRoleEquipmentDetailContent")
-    layout = QVBoxLayout(content)
-    layout.setSpacing(10)
+) -> QGroupBox:
     context = detail["equipment_contexts"][context_key]
-
+    theory_items: list[tuple[str, object]] = []
+    items: list[dict] = []
     if context_key == "theory":
-        core_group = QGroupBox("空幕")
-        core_layout = QVBoxLayout(core_group)
         core_id = context.get("core_item_id")
-        core_layout.addWidget(QLabel(
-            f"{detail.get('item_names', {}).get(core_id, core_id) or '未提供官方空幕'}"
-        ))
-        core_layout.addWidget(QLabel(
+        modules = list((detail.get("equipment_plan") or {}).get("module_item_ids") or ())
+        theory_items = (
+            [("core", core_id)] if core_id else []
+        ) + [("module", item_id) for item_id in modules]
+        item_count = len(theory_items)
+    else:
+        items = list(context.get("items") or ())
+        items.sort(key=lambda item: 0 if str(item.get("kind") or "") == "core" else 1)
+        item_count = len(items)
+
+    group = QGroupBox(f"空幕 / 驱动详情 ({item_count}件)")
+    group.setObjectName("officialRoleEquipmentCards")
+    layout = QVBoxLayout(group)
+    layout.setSpacing(8)
+    if context_key == "theory":
+        layout.addWidget(QLabel(
             "官方推荐主属性：" + (
                 "、".join(
                     _attribute_name(detail, property_id)
@@ -1040,110 +989,73 @@ def _build_equipment_detail_content(
                 ) or "未提供"
             )
         ))
-        layout.addWidget(core_group)
-        modules = list((detail.get("equipment_plan") or {}).get("module_item_ids") or ())
-        drive_group = QGroupBox(f"驱动 ({len(modules)}个)")
-        drive_layout = QVBoxLayout(drive_group)
-        for item_id in modules:
-            drive_layout.addWidget(QLabel(
-                str(detail.get("item_names", {}).get(item_id, item_id))
-            ))
-        if not modules:
-            drive_layout.addWidget(QLabel("官方方案未提供驱动布局。"))
-        layout.addWidget(drive_group)
-        layout.addStretch()
-        return content
 
-    items = list(context.get("items") or ())
-    cores = [item for item in items if str(item.get("kind") or "") == "core"]
-    modules = [item for item in items if str(item.get("kind") or "") != "core"]
-    core_group = QGroupBox("空幕")
-    core_group.setObjectName("officialRoleEquipmentDetailCore")
-    core_layout = QVBoxLayout(core_group)
-    if not cores:
-        core_layout.addWidget(QLabel("暂无空幕。"))
-    for item in cores:
-        core_layout.addWidget(_old_style_equipment_card(window, detail, item, core=True))
-        gain = calculate_official_role_item_gain(detail, context_key, item)
-        margin = QLabel(
-            f"直伤收益: {gain['gain_percent']:+.2f}%" if gain else "直伤收益: --"
-        )
-        margin.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:12px;")
-        core_layout.addWidget(margin, alignment=Qt.AlignRight)
-        if context_key == "saved":
-            replace = QPushButton("替换优化")
-            replace.setObjectName("btnSecondary")
-            replace.clicked.connect(
-                lambda _checked=False, target=dict(item): _show_replacement_optimizer(
-                    window, detail, target,
-                )
+    grid = QGridLayout()
+    grid.setHorizontalSpacing(10)
+    grid.setVerticalSpacing(10)
+    if context_key == "theory":
+        for index, (kind, item_id) in enumerate(theory_items):
+            grid.addWidget(
+                WarehouseResultCard(
+                    {
+                        "kind": kind,
+                        "display_name": str(
+                            detail.get("item_names", {}).get(item_id, item_id)
+                            or ("空幕" if kind == "core" else "驱动")
+                        ),
+                        "item_name": str(item_id or ""),
+                        "item_icon_path": detail.get("item_icon_paths", {}).get(
+                            str(item_id or "")
+                        ),
+                        "quality": "gold",
+                        "quality_color": "#e3a23b",
+                        "level": 0,
+                        "max_level": 0,
+                        "level_known": False,
+                        "main_stats": (),
+                        "sub_stats": (),
+                    },
+                    score=None,
+                    grade=None,
+                    direct_damage_score=None,
+                    parent=window if isinstance(window, QWidget) else None,
+                ),
+                index // 3,
+                index % 3,
+                Qt.AlignLeft | Qt.AlignTop,
             )
-            core_layout.addWidget(replace, alignment=Qt.AlignRight)
-    layout.addWidget(core_group)
-
-    drive_group = QGroupBox(f"驱动 ({len(modules)}个)")
-    drive_group.setObjectName("officialRoleEquipmentDetailDrives")
-    drive_layout = QVBoxLayout(drive_group)
-    if not modules:
-        drive_layout.addWidget(QLabel("暂无驱动。"))
-    for item in modules:
-        drive_layout.addWidget(_old_style_equipment_card(window, detail, item, core=False))
-        gain = calculate_official_role_item_gain(detail, context_key, item)
-        margin = QLabel(
-            f"直伤收益: {gain['gain_percent']:+.2f}%" if gain else "直伤收益: --"
-        )
-        margin.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:12px;")
-        drive_layout.addWidget(margin, alignment=Qt.AlignRight)
-        if context_key == "saved":
-            replace = QPushButton("替换优化")
-            replace.setObjectName("btnSecondary")
-            replace.clicked.connect(
-                lambda _checked=False, target=dict(item): _show_replacement_optimizer(
-                    window, detail, target,
+        if not theory_items:
+            grid.addWidget(QLabel("官方方案未提供空幕或驱动。"), 0, 0)
+    else:
+        if not items:
+            grid.addWidget(QLabel("暂无空幕或驱动。"), 0, 0)
+        for index, item in enumerate(items):
+            replacement_callback = None
+            if context_key == "saved":
+                replacement_callback = (
+                    lambda target=dict(item): _show_replacement_optimizer(
+                        window, detail, target,
+                    )
                 )
+            gain = calculate_official_role_item_gain(detail, context_key, item)
+            grid.addWidget(
+                _equipment_item_card(
+                    window,
+                    detail,
+                    item,
+                    core=str(item.get("kind") or "") == "core",
+                    direct_damage_score=(
+                        float(gain["gain_percent"]) if gain else None
+                    ),
+                    replacement_callback=replacement_callback,
+                ),
+                index // 3,
+                index % 3,
+                Qt.AlignLeft | Qt.AlignTop,
             )
-            drive_layout.addWidget(replace, alignment=Qt.AlignRight)
-    layout.addWidget(drive_group)
-    layout.addStretch()
-    return content
-
-
-def _show_combined_equipment_details(
-    window, detail: dict, initial_context: str = "current",
-) -> None:
-    dialog = QDialog(window)
-    role_name = str((detail.get("character") or {}).get("name_zh") or "角色")
-    dialog.setWindowTitle(f"{role_name} - 空幕 / 驱动详情")
-    dialog.resize(1000, 700)
-    root = QVBoxLayout(dialog)
-    header = QHBoxLayout()
-    header.addWidget(QLabel("装备方案："))
-    selector = NoWheelComboBox()
-    for key in ("current", "saved", "theory"):
-        selector.addItem(detail["equipment_contexts"][key]["title"], key)
-    index = selector.findData(initial_context)
-    selector.setCurrentIndex(index if index >= 0 else 0)
-    header.addWidget(selector)
-    header.addStretch()
-    root.addLayout(header)
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    root.addWidget(scroll)
-
-    def refresh() -> None:
-        old = scroll.takeWidget()
-        if old is not None:
-            old.deleteLater()
-        scroll.setWidget(
-            _build_equipment_detail_content(window, detail, str(selector.currentData()))
-        )
-
-    selector.currentIndexChanged.connect(refresh)
-    refresh()
-    close = QPushButton("关闭")
-    close.clicked.connect(dialog.accept)
-    root.addWidget(close)
-    dialog.exec()
+    grid.setColumnStretch(3, 1)
+    layout.addLayout(grid)
+    return group
 
 
 def _aggregate_equipment_stats(detail: dict, context_key: str) -> list[tuple[str, str]]:
@@ -1180,7 +1092,7 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
     top.addWidget(count_label)
     top.addStretch()
     context_combo = NoWheelComboBox()
-    for key in ("current", "saved", "theory"):
+    for key in ("current", "saved"):
         context_combo.addItem(detail["equipment_contexts"][key]["title"], key)
     wanted_context = str(editor.get("equipment_context_key") or "current")
     context_index = context_combo.findData(wanted_context)
@@ -1208,22 +1120,25 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
             margin_label.setText(f"直伤收益: {gain['gain_percent']:+.2f}%")
         else:
             margin_label.setText("直伤收益: --")
-        rows = _aggregate_equipment_stats(detail, context_key)
+        rows = _aggregate_equipment_stats(calculation_detail, context_key)
         if not rows:
             summary_layout.addWidget(QLabel("（暂无驱动/空幕，请先同步背包或保存配装方案）"))
-            return
-        info_group = QGroupBox("汇总属性（实时计算）")
-        info_group.setStyleSheet(themed_style("QGroupBox{border:1px solid #30363d;border-radius:5px;padding:8px}"))
-        info_layout = QVBoxLayout(info_group)
-        for name, value in rows:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(name))
-            row.addStretch()
-            label = QLabel(value)
-            label.setStyleSheet("color:#58a6ff;font-weight:700;")
-            row.addWidget(label)
-            info_layout.addLayout(row)
-        summary_layout.addWidget(info_group)
+        else:
+            info_group = QGroupBox("汇总属性（实时计算）")
+            info_group.setStyleSheet(themed_style("QGroupBox{border:1px solid #30363d;border-radius:5px;padding:8px}"))
+            info_layout = QVBoxLayout(info_group)
+            for name, value in rows:
+                row = QHBoxLayout()
+                row.addWidget(QLabel(name))
+                row.addStretch()
+                label = QLabel(value)
+                label.setStyleSheet("color:#58a6ff;font-weight:700;")
+                row.addWidget(label)
+                info_layout.addLayout(row)
+            summary_layout.addWidget(info_group)
+        summary_layout.addWidget(
+            _build_equipment_cards_group(window, calculation_detail, context_key)
+        )
 
     def change_context() -> None:
         editor["equipment_context_key"] = str(context_combo.currentData())
@@ -1232,14 +1147,6 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
     context_combo.currentIndexChanged.connect(change_context)
     _register_calculation_refresh(editor, refresh_summary)
     refresh_summary()
-    details = QPushButton("查看空幕 / 驱动详情")
-    details.setObjectName("btnSecondary")
-    details.clicked.connect(
-        lambda: _show_combined_equipment_details(
-            window, _calculation_detail(detail, editor), str(context_combo.currentData())
-        )
-    )
-    layout.addWidget(details)
     return group
 
 
@@ -1248,36 +1155,8 @@ def _build_weight_group(
 ) -> QGroupBox:
     group = QGroupBox("词条权重")
     group.setObjectName("officialRoleWeightGroup")
-    layout = QHBoxLayout(group)
+    layout = QVBoxLayout(group)
     layout.setSpacing(8)
-
-    identity = QWidget()
-    identity.setFixedWidth(132)
-    identity_layout = QVBoxLayout(identity)
-    identity_layout.setContentsMargins(0, 0, 0, 0)
-    identity_layout.setSpacing(6)
-    identity_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-    icon_path = detail.get("icon_path")
-    if icon_path:
-        pixmap = QPixmap(str(icon_path))
-        if not pixmap.isNull():
-            avatar = QLabel()
-            avatar.setObjectName("officialRoleWeightAvatar")
-            avatar.setFixedSize(88, 88)
-            avatar.setScaledContents(True)
-            avatar.setPixmap(pixmap)
-            identity_layout.addWidget(avatar, alignment=Qt.AlignHCenter)
-    role_name = QLabel(str(detail["character"].get("name_zh") or character_id))
-    role_name.setAlignment(Qt.AlignHCenter)
-    role_name.setStyleSheet("font-weight:bold;color:#58a6ff;")
-    identity_layout.addWidget(role_name)
-    source = str(detail.get("property_weight_source") or "default")
-    source_label = QLabel("账号权重" if detail.get("property_weights_from_account") else f"推荐权重 · {source}")
-    source_label.setAlignment(Qt.AlignHCenter)
-    source_label.setStyleSheet("color:#8b949e;font-size:11px;")
-    source_label.setWordWrap(True)
-    identity_layout.addWidget(source_label)
-    layout.addWidget(identity)
 
     editor_panel = QWidget()
     editor_layout = QVBoxLayout(editor_panel)
@@ -1285,6 +1164,14 @@ def _build_weight_group(
     editor_layout.setSpacing(8)
     top = QHBoxLayout()
     top.addWidget(QLabel("词条权重:"))
+    source = str(detail.get("property_weight_source") or "default")
+    source_label = QLabel(
+        "账号权重"
+        if detail.get("property_weights_from_account")
+        else f"推荐权重 · {source}"
+    )
+    source_label.setStyleSheet("color:#8b949e;font-size:11px;")
+    top.addWidget(source_label)
     top.addStretch()
     add = QPushButton("+ 添加词条")
     add.setObjectName("btnAction")
@@ -1398,12 +1285,12 @@ def _populate_role_tab(window, scroll: QScrollArea, character_id: int) -> None:
     form = QVBoxLayout(content)
     form.setSpacing(15)
     form.setContentsMargins(15, 15, 15, 15)
-    form.addWidget(_build_weight_group(window, character_id, detail, editor))
-    form.addWidget(_build_margin_group(window, character_id, detail, editor))
-    form.addWidget(_build_damage_formula_group(detail, editor))
-    form.addWidget(_build_drive_summary_group(window, detail, editor))
     form.addWidget(_build_base_group(window, character_id, detail, editor))
+    form.addWidget(_build_margin_group(window, character_id, detail, editor))
     form.addWidget(_build_fork_group(window, character_id, detail, editor))
+    form.addWidget(_build_drive_summary_group(window, detail, editor))
+    form.addWidget(_build_damage_formula_group(detail, editor))
+    form.addWidget(_build_weight_group(window, character_id, detail, editor))
     form.addSpacing(100)
     form.addStretch()
     scroll.setWidget(content)
@@ -1540,7 +1427,6 @@ def _refresh_my_role(window) -> None:
     layout.addLayout(search_row)
     tabs = QTabWidget()
     tabs.setObjectName("officialRoleTabs")
-    tabs.setMovable(True)
     tab_ids = {}
     for role in roles:
         scroll = QScrollArea()
@@ -1550,6 +1436,20 @@ def _refresh_my_role(window) -> None:
         index = tabs.addTab(scroll, str(role.get("name_zh") or character_id))
         tabs.tabBar().setTabData(index, character_id)
         tab_ids[character_id] = index
+
+    window._official_role_tab_order_binding = bind_persistent_tab_order(
+        tabs,
+        item_id_at=lambda index: int(tabs.tabBar().tabData(index)),
+        save_order=lambda character_ids: save_official_role_tab_order(
+            runtime.USER_DATABASE_PATH,
+            tuple(int(character_id) for character_id in character_ids),
+        ),
+        on_error=lambda exc: QMessageBox.warning(
+            window,
+            "保存角色顺序失败",
+            str(exc),
+        ),
+    )
 
     def load_visible(index: int) -> None:
         if index < 0:

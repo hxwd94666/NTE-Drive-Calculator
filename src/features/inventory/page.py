@@ -1191,11 +1191,7 @@ def _optimize_saved_equipment(
     # Only the visual structure is shared: all items below still come from one
     # stable SQLite snapshot and the replacement is saved as a SQLite plan.
     item_label = current.get(EQUIP_SHAPE_ID) if item_kind == "drive" else current.get(EQUIP_SET_NAME)
-    asset_catalog = (
-        None
-        if item_kind == "drive"
-        else GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
-    )
+    asset_catalog = None if item_kind == "drive" else GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
     dialog = QDialog(self)
     dialog.setWindowTitle(f"{role_name} · {title}")
     dialog.resize(850, 650)
@@ -1209,7 +1205,8 @@ def _optimize_saved_equipment(
     layout.addWidget(role_header)
     summary_text = (
         f"当前直伤收益：{current_margin:+.2f}%（候选按直伤收益排序）"
-        if rank_by_damage else "候选按当前词条配装权重评分排序"
+        if rank_by_damage
+        else "候选按当前词条配装权重评分排序"
     )
     summary = QLabel(
         f"{summary_text}；仅显示同{('形状' if item_kind == 'drive' else '套装')}的候选装备，"
