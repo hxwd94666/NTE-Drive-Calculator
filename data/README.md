@@ -3,9 +3,13 @@
 `game_static.sqlite3` 是应用随安装包分发的只读基础数据库。它由开发者从
 本机准备好的游戏官方文件生成，普通用户不需要另外下载。
 
-当前数据集：`unversioned_20260722_combat`
+当前数据集：`unversioned_20260723_update`
 当前结构版本：`11`
-当前 SHA-256：`1064E2A8DC77ED6D9D5CE1895C8998D8E1F84E3517A35F33BDD6D0B7D91D55BD`
+当前 SHA-256：`1CAA1AA6BEFDECD3E871778EB2214368A07116276386B62C982CBD93F3F29FFF`
+
+2026-07-23 官方文件更新涉及角色、伊洛伊觉醒、弧盘、怪物、深渊和技能伤害数据。
+发行库继续保留 19 条工坊缓存权重和 2 条默认权重；伊洛伊 `1075` 当前仍使用默认权重，
+待配置 Open API Key 后由同步脚本在线刷新。
 
 发行数据库保留规范化业务表、来源文件相对路径、来源文件哈希、来源行键和
 来源行内容哈希。`source_row.payload_json` 必须全部为 `NULL`，完整来源原文和
@@ -14,12 +18,18 @@
 重新生成时使用：
 
 ```powershell
+$localConfig = if ($env:NTE_LOCAL_CONFIG) { Get-Content -Raw -LiteralPath $env:NTE_LOCAL_CONFIG | ConvertFrom-Json } else { $null }
+$gameDataSource = if ($localConfig) { $localConfig.official_content_root } else { "../Content" }
+$gameDataWorkspace = if ($localConfig) { $localConfig.game_data_workspace } else { "build" }
+$gameDataSetId = if ($localConfig) { $localConfig.dataset_id } else { "game-version_and_date" }
+$gameDataAsOf = if ($localConfig) { $localConfig.as_of } else { "YYYY-MM-DD" }
+
 python tools/game_data/build_static_database.py `
-  --source "D:\path\to\game_official_data\Content" `
+  --source $gameDataSource `
   --output "data\game_static.sqlite3" `
-  --report-dir "D:\path\to\game_data_workspace\reports\distribution_database" `
-  --dataset-id "game-version_and_date" `
-  --as-of 2026-07-19 `
+  --report-dir "$gameDataWorkspace\reports\distribution_database" `
+  --dataset-id $gameDataSetId `
+  --as-of $gameDataAsOf `
   --omit-source-payloads
 ```
 

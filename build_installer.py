@@ -4,7 +4,7 @@ Build the Windows installer for NTE Drive Calc.
 
 Requirements:
     - A PyInstaller app bundle in dist/NTE_Drive_Calc
-    - Inno Setup 6 installed, or INNO_SETUP_ISCC pointing to ISCC.exe
+    - Inno Setup 6 installed, --iscc provided, or INNO_SETUP_ISCC pointing to ISCC.exe
 
 Typical usage:
     .\.venv\Scripts\python.exe build_installer.py
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -43,6 +44,7 @@ APP_EXE_NAME = "NTE_Drive_Calc.exe"
 APP_ID = "{{D7DA28BE-8A19-4E05-9216-3F16C4C2C820}"
 CORE_CONFIG_FILES = ("roles.json", "sets.json", "stats.json", "shapes.json",
                      "my_roles_model.json", "tapes.json", "weapons.json")
+LOCAL_CONFIG_ENV = "NTE_LOCAL_CONFIG"
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> None:
@@ -51,6 +53,35 @@ def _run(cmd: list[str], cwd: Path = ROOT) -> None:
 
 def _running_in_automation() -> bool:
     return build_cli.running_in_automation()
+
+
+def _load_local_config(path: Path | None) -> dict[str, object]:
+    if path is None:
+        return {}
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Local config file not found: {resolved}")
+    data = json.loads(resolved.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Local config must be a JSON object: {resolved}")
+    return data
+
+
+def _configured_path(
+    explicit: Path | None,
+    environment_name: str,
+    config: dict[str, object],
+    config_key: str,
+) -> Path | None:
+    if explicit is not None:
+        return explicit
+    environment_value = os.environ.get(environment_name)
+    if environment_value:
+        return Path(environment_value)
+    config_value = config.get(config_key)
+    if isinstance(config_value, str) and config_value:
+        return Path(config_value)
+    return None
 
 
 def _choose_workshop_sync_mode(skip_workshop_sync: bool, require_workshop_sync: bool) -> tuple[bool, bool]:
@@ -63,13 +94,17 @@ def _choose_workshop_sync_mode(skip_workshop_sync: bool, require_workshop_sync: 
     return build_cli.choose_build_mode()
 
 
-def _find_iscc() -> Path | None:
+def _find_iscc(explicit_path: Path | None = None) -> Path | None:
+    if explicit_path is not None:
+        explicit_path = explicit_path.expanduser().resolve()
+        if not explicit_path.is_file():
+            raise FileNotFoundError(f"Inno Setup compiler not found: {explicit_path}")
+        return explicit_path
+
     candidates = [
         os.environ.get("INNO_SETUP_ISCC"),
         shutil.which("ISCC.exe"),
         str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Inno Setup 6" / "ISCC.exe"),
-        r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-        r"C:\Program Files\Inno Setup 6\ISCC.exe",
     ]
     for candidate in candidates:
         if candidate and Path(candidate).exists():
@@ -92,7 +127,16 @@ def _find_package_dir(package_name: str) -> Path | None:
     return Path(spec.origin).parent
 
 
-def _find_vigem_installer() -> tuple[Path, bool]:
+def _find_vigem_installer(explicit_path: Path | None = None) -> tuple[Path, bool]:
+    if explicit_path is not None:
+        explicit_path = explicit_path.expanduser().resolve()
+        if not explicit_path.is_file():
+            raise FileNotFoundError(f"ViGEmBus installer not found: {explicit_path}")
+        suffix = explicit_path.suffix.lower()
+        if suffix not in {".exe", ".msi"}:
+            raise ValueError("ViGEmBus installer must be an .exe or .msi file.")
+        return explicit_path, suffix == ".exe"
+
     if VIGEM_BUNDLE_EXE.exists():
         return VIGEM_BUNDLE_EXE, True
 
@@ -402,14 +446,48 @@ end;
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build NTE Drive Calc installer.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=(
+            Path(os.environ[LOCAL_CONFIG_ENV])
+            if os.environ.get(LOCAL_CONFIG_ENV)
+            else None
+        ),
+        help=f"Path to a repository-external JSON config; may also use {LOCAL_CONFIG_ENV}.",
+    )
     parser.add_argument("--version", default=os.environ.get("APP_VERSION") or _read_app_version())
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
     parser.add_argument("--skip-workshop-sync", action="store_true", help="Do not sync workshop weights before building the app bundle.")
     parser.add_argument("--require-workshop-sync", action="store_true", help="Fail release packaging if workshop weight sync cannot run.")
+    parser.add_argument(
+        "--iscc",
+        type=Path,
+        help="Path to ISCC.exe; overrides INNO_SETUP_ISCC and automatic discovery.",
+    )
+    parser.add_argument(
+        "--vigem-installer",
+        type=Path,
+        default=None,
+        help="Path to a ViGEmBus .exe or .msi installer; may also use NTE_VIGEM_INSTALLER.",
+    )
     args = parser.parse_args()
 
     try:
+        local_config = _load_local_config(args.config)
+        args.iscc = _configured_path(
+            args.iscc,
+            "INNO_SETUP_ISCC",
+            local_config,
+            "inno_setup_iscc",
+        )
+        args.vigem_installer = _configured_path(
+            args.vigem_installer,
+            "NTE_VIGEM_INSTALLER",
+            local_config,
+            "vigem_installer",
+        )
         skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode(
             args.skip_workshop_sync,
             args.require_workshop_sync,
@@ -419,14 +497,14 @@ def main() -> int:
             skip_workshop_sync=skip_workshop_sync,
             require_workshop_sync=require_workshop_sync,
         )
-        vigem_installer, vigem_is_exe = _find_vigem_installer()
+        vigem_installer, vigem_is_exe = _find_vigem_installer(args.vigem_installer)
         _write_iss(version=args.version, vigem_installer=vigem_installer, vigem_is_exe=vigem_is_exe)
 
         if args.generate_only:
             build_cli.ok("Generate-only mode complete.")
             return 0
 
-        iscc = _find_iscc()
+        iscc = _find_iscc(args.iscc)
         if not iscc:
             build_cli.warn("Inno Setup compiler was not found.")
             build_cli.warn("Install Inno Setup 6, or set INNO_SETUP_ISCC to ISCC.exe.")

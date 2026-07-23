@@ -1,8 +1,34 @@
 # 校验仓库视图的官方快照投影与轻量筛选。
 import unittest
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
 
 
 class WarehouseInventoryTests(unittest.TestCase):
+    def test_core_and_module_use_distinct_packaged_item_images(self):
+        from src.features.inventory.warehouse import warehouse_item_view
+
+        core = warehouse_item_view(
+            {"kind": "core", "item_id": "Lakshana_orange"},
+            asset_root=ASSET_ROOT,
+        )
+        module = warehouse_item_view(
+            {"kind": "module", "item_id": "cell3_style1_1_Orange"},
+            asset_root=ASSET_ROOT,
+        )
+
+        self.assertEqual(
+            ASSET_ROOT / "equipment" / "core" / "Lakshana_orange.png",
+            core["item_icon_path"],
+        )
+        self.assertEqual(
+            ASSET_ROOT / "equipment" / "module" / "cell3_style1_1_Orange.png",
+            module["item_icon_path"],
+        )
+
     def test_scan_dual_thread_and_amd_controls_remain_mutually_exclusive(self):
         from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
         from src.features.allocation.execute_page import _build_scan_processing_options

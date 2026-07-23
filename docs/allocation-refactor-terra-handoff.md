@@ -4,7 +4,7 @@
 
 适用模型：GPT-5.6 Terra，建议先使用高推理
 
-仓库：`C:\softwares\codes\codes\NTE-Drive-Calculator`
+仓库：`.`
 
 分支：`2.0.0`
 
@@ -33,10 +33,10 @@
 
 开始工作前使用 `nte-drive-calculator-dev` 技能并完整读取：
 
-- `C:\Users\14125\.codex\skills\nte-drive-calculator-dev\SKILL.md`
-- `C:\Users\14125\.codex\skills\nte-drive-calculator-dev\references\data-and-sqlite.md`
-- 涉及页面时读取 `C:\Users\14125\.codex\skills\nte-drive-calculator-dev\references\ui-and-release.md`
-- 涉及保存方案或一键装配时读取 `C:\Users\14125\.codex\skills\nte-drive-calculator-dev\references\sync-and-equipment.md`
+- `nte-drive-calculator-dev` 技能说明
+- `nte-drive-calculator-dev` 的数据与 SQLite 参考
+- 涉及页面时读取 `nte-drive-calculator-dev` 的 UI 与发布参考
+- 涉及保存方案或一键装配时读取 `nte-drive-calculator-dev` 的同步与装配参考
 
 相关项目文档：
 
@@ -392,7 +392,7 @@ git diff --check
 ```text
 接手 NTE-Drive-Calculator 2.0.0 的词条权重配装重构。
 
-仓库：C:\softwares\codes\codes\NTE-Drive-Calculator
+仓库：.
 分支：2.0.0
 当前提交：907fa14
 
@@ -518,7 +518,7 @@ OK
 ```text
 请以 high 推理强度审计 NTE-Drive-Calculator 2.0.0 当前未提交的“词条权重配装重构第一阶段”改动，并在审计后给出下一阶段目标建议。
 
-仓库：C:\softwares\codes\codes\NTE-Drive-Calculator
+仓库：.
 分支：2.0.0
 基础 HEAD：907fa14
 
@@ -623,7 +623,7 @@ OK
 固定交接文档：
 
 ```text
-C:\softwares\codes\codes\NTE-Drive-Calculator\docs\allocation-refactor-terra-handoff.md
+docs/allocation-refactor-terra-handoff.md
 ```
 
 ## 21. 下一阶段：可直接交给 Terra high 的提示词
@@ -631,10 +631,10 @@ C:\softwares\codes\codes\NTE-Drive-Calculator\docs\allocation-refactor-terra-han
 ```text
 继续 NTE-Drive-Calculator 2.0.0 的词条权重配装重构，只完成第 2 阶段：“用户库 v5 版本化优化偏好基础”。
 
-仓库：C:\softwares\codes\codes\NTE-Drive-Calculator
+仓库：.
 分支：2.0.0
 基础 HEAD：907fa14
-交接文档：C:\softwares\codes\codes\NTE-Drive-Calculator\docs\allocation-refactor-terra-handoff.md
+交接文档：docs/allocation-refactor-terra-handoff.md
 
 同时使用：
 - nte-drive-calculator-dev
@@ -1521,7 +1521,7 @@ OK
 - 新增 `tools/game_data/sync_recommended_weights.py`：开发期从异环工坊开放 API 拉取后，先完成规范化和校验，再原子替换 `data/game_static.sqlite3` 中的推荐权重。`build_exe.py` 的开发同步入口已改用该工具，不再更新 `config/roles.json`。
 - API 未返回的角色固定使用增伤 0.75、暴击 1.0、爆伤 1.0、攻击力% 0.70。当前发行库中伊洛伊 `1075` 明确为 `default`。
 - 当前开发机没有 `WORKSHOP_API_KEY`，因此无法声称完成了 2026-07-22 的在线刷新。现有 v11 发行库使用仓库最后一次 API 同步缓存导入并标为 `workshop_cache`：用户角色目录 19 人中 18 个缓存、伊洛伊 1 个默认；若把两条主角配装图纸 ID 一并计入，静态表共 21 条、19 个缓存、2 个默认。这次导入仅用于生成只读二进制，应用运行时和新同步工具都不读取旧 JSON。拿到 key 后需运行新工具，将可用记录更新为 `workshop_api`。
-- 当前发行库数据集仍为 `unversioned_20260722_combat`，importer/schema 为 11，SHA-256 为 `1064E2A8DC77ED6D9D5CE1895C8998D8E1F84E3517A35F33BDD6D0B7D91D55BD`，外键检查 0 项。
+- 当前发行库数据集为 `unversioned_20260723_update`，importer/schema 为 11，SHA-256 为 `1CAA1AA6BEFDECD3E871778EB2214368A07116276386B62C982CBD93F3F29FFF`，外键检查 0 项。2026-07-23 更新继续保留 `workshop_cache=19/default=2`；伊洛伊 `1075` 尚无在线 API 结果，仍使用默认权重。
 
 ### UI 与计算接线
 
@@ -1623,3 +1623,69 @@ OK
 - `tests/test_official_role_page.py` 新增首块顺序与头像唯一性、等级和装备上下文动态刷新、重复控件清理、旧详情三段结构、逐件收益及旧卡片/`V_4` 形状映射断言。
 - 改动相关回归：`python -m unittest tests.test_official_role_page tests.test_damage_calculation_service tests.test_encoding_guard`，39 项通过；相关源码 `py_compile`、1200×900 主页面离屏检查和 1000×700 详情离屏检查通过。按用户要求未运行全量回归。
 - 未写真实账号数据库、未执行真实装配、未暂存、提交或推送；受保护的伤害服务、文档和测试未修改。
+
+## 52. 新角色与词条配装共享空幕/驱动加成口径（2026-07-23）
+
+### 共享计算与问题修复
+
+- 新增 `official_equipment_bonus_service`，新角色页的空幕/驱动汇总、新角色页整体直伤收益输入和词条配装结果的“空幕属性汇总”统一调用同一个官方 ID 计算函数，不再分别直接累加快照 `main_stats/sub_stats`。
+- 空幕继续使用快照中的真实主副词条；驱动忽略快照中的等级主属性，按旧配装口径由格数推导固有攻击力和生命值，再叠加副词条。金、紫、蓝分别复用现有 `calculate_drive_main_stats()` 的 `1.0 / 0.8 / 0.6` 品质系数。
+- 词条配装汇总同时按角色 `extra_shape_label` 统计匹配驱动，并把 `extra_shape_buffs` 的旧百分比显示值规范化为官方小数后叠加。百分比标记由静态属性目录传入，不再靠固定属性黑名单猜测。
+- 新角色页整体直伤收益通过同一共享装备总量进入既有 `DamageCalculationService`；驱动快照主属性即使随等级变化或异常，也不会再与格数固有白值重复计算。
+- 按用户要求未修改旧角色页、旧配装页及其底层汇总实现；本节只改两个新页面和新共享服务。
+
+### 改动相关验证
+
+- 新增金/紫/蓝两格驱动固有白值、空幕主副词条、空驱动过滤、角色形状额外加成和词条配装共享汇总回归；新角色详情额外验证驱动快照主属性不会改变整体直伤收益，并显示四格金色驱动的 `+92` 攻击与 `+1120` 生命汇总。
+- 改动相关回归：`python -m unittest tests.test_bonus_summary tests.test_character_stat_engine tests.test_official_equipment_bonus_service tests.test_official_role_page tests.test_weighted_allocation_ui tests.test_encoding_guard`，69 项通过；`git diff --check` 通过。
+- 未修改受保护伤害服务，未写真实账号数据库，未执行真实装配，未暂存、提交或推送。
+
+第 5 阶段继续停在 **Sol high 增量只读复审** 门前。下一模型只审计第 52 节：确认两个新页面确实共享同一装备加成函数；驱动固有白值按格数和品质生成且不重复累加快照主属性；角色形状加成只按匹配驱动件数叠加；旧版本页面保持不变。复审不跑全量、不写真实账号库，也不扩展到伤害公式。
+
+## 53. 新版配装三层存储与确认保存事务审计（2026-07-23）
+
+### 当前结构确认
+
+- 实际背包已由不可变 `inventory_snapshot / inventory_item / inventory_item_stat` 表完整表达；每件空幕或驱动保存官方 UID、词条、品质、等级、当前使用角色及驱动位置，稳定快照可作为计算固定输入。
+- 新版最后一次计算结果目前只存在于内存 `WeightedAllocationPreview`，没有独立的计算批次、角色结果和分配项持久化表。当前“恢复”实际依赖已保存方案重新计算，不等同于保留最后一次未确认计算方案。
+- 已保存方案使用 `loadout_plan / loadout_plan_item`，每个角色只能有一条 active 方案，但没有保存批次 ID，也没有数据库级“所有 active 方案中同一装备 UID 只能出现一次”的约束。
+
+### 当前确认保存缺口
+
+- `save_weighted_allocation_preview()` 按角色循环调用 `save_role_plan()`；每个角色内部独立提交。后续角色失败时，前面角色已经保存，整次多角色确认不是原子事务。
+- 保存桥接会确认每个 UID 存在于计算固定快照且 kind 正确，但不会确认固定快照仍是当前实际背包，也不会在保存入口重新验证所有角色合并后的 UID 唯一性。
+- `save_loadout_plan(is_active=True)` 只停用同一角色的旧 active 方案。若新方案使用了其他角色已保存方案中的空幕或驱动，旧角色方案不会先“脱下”这些 UID，因此 active 保存空间可能出现跨角色重复占用。
+- 实际一键装配服务会在执行前重新读取当前稳定背包，并由游戏 RPC 完成真实移动，再用新快照确认；“保存方案”不应直接修改实际背包或调用装配 RPC。
+
+### 建议事务边界
+
+- 增加持久化计算批次：批次头固定账号、背包快照、偏好版本、静态数据版本和求解器版本；角色结果与装备分配项作为不可变子记录。最后一次计算与用户已确认方案由状态明确区分。
+- 用户确认时先在内存完成全量校验：计算批次仍属于当前账号；固定快照满足选定的过期策略；全部 UID 在实际稳定背包存在、kind 一致、角色间无重复；驱动坐标与空幕数量合法。
+- 在一个 `BEGIN IMMEDIATE` 事务内读取全部 active 保存方案，先从所有角色方案中移除本次计算占用的 UID，再整体覆盖本次计算涉及的角色。被抢占但未参与本次计算的角色应生成一条扣除 UID 后的新修订；若已不完整则明确标记 incomplete，而不是保留可执行 ready 状态。
+- 最终提交前再次验证 active 保存空间的全局 UID 唯一性；任一步失败则整批回滚。建议增加保存批次表和当前分配表，并由当前分配表对 `(uid_serial, uid_slot)` 建立主键/唯一约束，`loadout_plan` 继续保留历史审计。
+
+本节只完成数据结构与事务审计，未修改 schema、DAO、保存流程或真实账号数据库。下一步实现应先由 Terra medium 完成 schema/DAO/纯事务测试，再进入 Sol high 只读审计；不要直接从 UI 循环保存角色。
+
+## 54. 新版词条配装原子保存、替换与优化统一（2026-07-23）
+
+### 公共保存边界
+
+- `SavedStateLoadoutBridge` 新增只校验和转换、不写数据库的 `prepare_role_plan()`；原有 `save_role_plan()` 继续复用它，旧页面默认保存行为不变。
+- 新版 `save_weighted_allocation_preview()` 不再逐角色提交，而是先准备全部角色方案，再一次调用 `UserDataDao.replace_active_loadout_plans()`。任一角色、UID、坐标或快照校验失败时，整批回滚。
+- DAO 在同一个 `BEGIN IMMEDIATE` 中同时校验计算固定快照和当前实际稳定背包：全部空幕/驱动必须仍存在且 kind 一致，批次内 UID 必须全局唯一，每个激活方案至少保留一个驱动。
+- 提交前会停用本次涉及角色的旧 active 方案；若新方案抢占其他角色已保存方案中的装备，会先从该角色方案卸下冲突 UID，再生成新的 active 修订。完全被清空的角色不再保留 active 方案；残余修订把 `payload.source` 标为 `active_plan_overlay`，避免被新版页面误识别为可精确恢复的原始计算结果。
+- 插入全部新方案后再次扫描所有 active 方案的 UID；只要仍有跨角色重复占用，事务整体回滚。保存仍只修改用户 SQLite，不调用游戏装配 RPC。
+
+### 新页面替换与优化
+
+- 新页面保存、角色/全体装配、空幕替换和驱动优化统一复用当前预览及账号校验，并通过“当前预览已经保存”公共门禁决定是否先保存。
+- 替换预览更新抽成纯函数：固定使用计算上下文中的候选，校验装备类型、驱动形状及当前方案全局 UID 唯一性，只替换一个目标 UID，并按原分配项评分重算角色和总评分。
+- 旧库存替换弹窗新增可选持久化回调；旧页面不传回调时仍走原单角色保存，新词条配装页面传入原子保存回调，因此替换/优化确认后不会先留下跨角色重复方案。
+
+### 改动相关验证与剩余项
+
+- 新增跨角色抢占后自动卸下、批次中重复 UID 拒绝、当前实际背包二次校验、任一角色失败整批回滚、替换候选占用冲突拒绝及新版替换重新原子保存回归。
+- 改动相关回归：`python -m unittest tests.test_saved_state_loadout_bridge tests.test_user_data_dao tests.test_weighted_allocation_ui tests.test_sqlite_equipment_replacement tests.test_saved_plan_optimization_context tests.test_encoding_guard -q`，90 项通过；相关源码 `compileall` 与 `git diff --check` 通过。
+- 本节没有新增 schema 或计算批次表；第 53 节建议的“最后一次未确认计算结果持久化/批次审计 ID”仍是后续独立工作，不影响本节确认保存事务。未写真实账号数据库，未执行真实装配，未修改受保护伤害文件，未暂存、提交或推送。
+
+第 5 阶段继续停在 **Sol high 增量只读复审** 门前。下一模型只审计第 54 节：确认批量覆盖只在一个事务中提交；当前实际背包校验不会被固定快照替代；被抢占角色的残余方案不会参与精确恢复；新版替换回调失败时旧页面默认路径不受影响。复审不运行真实装配、不写真实账号库，也不扩展到持久化计算批次。

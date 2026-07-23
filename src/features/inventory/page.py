@@ -939,6 +939,7 @@ def _sqlite_inventory_item_display(row, suit_names):
         EQUIP_SHAPE_ID: _display_shape_id(row.get("geometry")),
         EQUIP_SUB_STATS: _official_stat_values(row.get("sub_stats")),
         EQUIP_QUALITY: quality,
+        "_item_id": str(row.get("item_id") or ""),
         "is_duplicate_drive": bool(row.get("is_duplicate_drive")),
         "duplicate_group_id": row.get("duplicate_group_id"),
         "duplicate_index": row.get("duplicate_index"),
@@ -949,11 +950,12 @@ def _sqlite_inventory_item_display(row, suit_names):
 
 
 def _replacement_item_icon(asset_catalog, item_kind, item):
-    """Resolve the packaged official Empty Curtain image for a replacement card."""
-    if item_kind == "drive" or asset_catalog is None:
+    """Resolve the packaged official core or module image for a replacement card."""
+    if asset_catalog is None:
         return None
     item_id = str(item.get("_item_id") or "")
-    return asset_catalog.equipment_icon(item_id) if item_id else None
+    kind = "module" if item_kind == "drive" else "core"
+    return asset_catalog.inventory_item_icon(kind, item_id) if item_id else None
 
 
 def _replacement_assignments(plan, old_uid, replacement):
@@ -1087,6 +1089,7 @@ def _optimize_saved_equipment(
     core_term: str = "卡带",
     assignment_scores_override: dict[str, float] | None = None,
     exclude_used_by_others: bool = False,
+    replacement_persister=None,
 ):
     """Restore per-card optimization using only the active SQLite plan snapshot."""
     try:
@@ -1258,13 +1261,16 @@ def _optimize_saved_equipment(
                 assignment_scores.pop(str(uid), None)
                 assignment_scores[str(selected.get(EQUIP_UID) or "")] = float(selected_score)
                 replacement_payload["assignment_scores"] = assignment_scores
-                with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
-                    dao.save_loadout_plan(
-                        name=str(plan.get("name") or f"优化方案：{role_name}"), character_id=int(plan["character_id"]),
-                        assignments=assignments, source_snapshot_id=int(plan["source_snapshot_id"]), status="saved",
-                        score=float(plan.get("score") or 0.0) - current_score + selected_score,
-                        payload=replacement_payload, is_active=True,
-                    )
+                if callable(replacement_persister):
+                    replacement_persister(selected, selected_score, current_score)
+                else:
+                    with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
+                        dao.save_loadout_plan(
+                            name=str(plan.get("name") or f"优化方案：{role_name}"), character_id=int(plan["character_id"]),
+                            assignments=assignments, source_snapshot_id=int(plan["source_snapshot_id"]), status="saved",
+                            score=float(plan.get("score") or 0.0) - current_score + selected_score,
+                            payload=replacement_payload, is_active=True,
+                        )
             except Exception as exc:
                 QMessageBox.warning(dialog, "替换失败", str(exc))
                 return

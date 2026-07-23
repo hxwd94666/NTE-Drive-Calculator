@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from src.app import runtime
 from src.services.character_weight_service import ensure_account_character_weights
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
@@ -200,14 +201,20 @@ def _fork_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
     return totals
 
 
-def _equipment_property_stats(items: list[dict[str, Any]]) -> dict[str, float]:
-    totals: dict[str, float] = {}
-    for item in items:
-        for stat in [*(item.get("main_stats") or ()), *(item.get("sub_stats") or ())]:
-            property_id = str(stat.get("property_id") or "")
-            if property_id:
-                totals[property_id] = totals.get(property_id, 0.0) + float(stat.get("value") or 0.0)
-    return totals
+def _equipment_property_stats(
+    detail: Mapping[str, Any], items: list[dict[str, Any]],
+) -> dict[str, float]:
+    property_percent = {
+        str(property_id): bool(attribute.get("show_percent"))
+        for property_id, attribute in (detail.get("attributes") or {}).items()
+    }
+    return {
+        row.property_id: row.value
+        for row in calculate_official_equipment_stats(
+            items,
+            property_percent=property_percent,
+        )
+    }
 
 
 def _property_stats_by_source(
@@ -215,7 +222,7 @@ def _property_stats_by_source(
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     fork_stats = _fork_property_stats(detail)
     context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
-    equipment_stats = _equipment_property_stats(list(context.get("items") or ()))
+    equipment_stats = _equipment_property_stats(detail, list(context.get("items") or ()))
     totals = dict(fork_stats)
     for property_id, value in equipment_stats.items():
         totals[property_id] = totals.get(property_id, 0.0) + value
@@ -696,14 +703,20 @@ def load_official_role_detail(
         attributes = {
             row["attribute_id"]: row for row in static_dao.list_equipment_attributes()
         }
+        equipment_items = static_dao.list_equipment_items()
         item_names = {
             row["item_id"]: row.get("name_zh") or row["item_id"]
-            for row in static_dao.list_equipment_items()
+            for row in equipment_items
         }
         item_icon_paths = {
-            item_id: icon_path
-            for item_id in item_names
-            if (icon_path := catalog.equipment_icon(item_id)) is not None
+            str(row["item_id"]): icon_path
+            for row in equipment_items
+            if (
+                icon_path := catalog.inventory_item_icon(
+                    str(row.get("kind") or ""),
+                    str(row["item_id"]),
+                )
+            ) is not None
         }
     theory_ids = _theory_properties(weights)
     has_saved_weights = any(float(value) > 0 for value in weights.values())

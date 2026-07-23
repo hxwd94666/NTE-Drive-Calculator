@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
 from src.app import runtime
 from src.app.theme import theme_color
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -172,7 +173,43 @@ def _equipment_placeholder(shape: str, quality: str) -> QPixmap:
     return QPixmap()
 
 
-def warehouse_item_view(row: Mapping[str, Any], *, source: str = "nte_core") -> dict[str, Any]:
+@lru_cache(maxsize=4)
+def _asset_catalog(asset_root: str) -> GameUiAssetCatalog:
+    return GameUiAssetCatalog(asset_root)
+
+
+def _equipment_item_icon(
+    kind: str,
+    item_id: Any,
+    *,
+    asset_root: str | Path | None = None,
+) -> Path | None:
+    item_id = str(item_id or "")
+    if not item_id:
+        return None
+    runtime_root = getattr(runtime, "ASSET_DIR", None)
+    root = (
+        Path(asset_root)
+        if asset_root is not None
+        else Path(runtime_root) / "game_ui"
+        if runtime_root is not None
+        else Path.cwd() / "assets" / "game_ui"
+    )
+    return _asset_catalog(str(root.expanduser().resolve())).inventory_item_icon(kind, item_id)
+
+
+@lru_cache(maxsize=256)
+def _equipment_item_pixmap(path_text: str) -> QPixmap:
+    path = Path(path_text)
+    return QPixmap(str(path)) if path.is_file() else QPixmap()
+
+
+def warehouse_item_view(
+    row: Mapping[str, Any],
+    *,
+    source: str = "nte_core",
+    asset_root: str | Path | None = None,
+) -> dict[str, Any]:
     """Turn one official SQLite item into the compact card data used by the view."""
     source = str(source or "")
     level_known = source != "gamepad"
@@ -203,6 +240,11 @@ def warehouse_item_view(row: Mapping[str, Any], *, source: str = "nte_core") -> 
         "quality_label": quality_label,
         "quality_color": quality_color,
         "item_name": item_name,
+        "item_icon_path": _equipment_item_icon(
+            kind,
+            row.get("item_id"),
+            asset_root=asset_root,
+        ),
         "suit_name": suit_name,
         "display_name": display_name,
         "title": title,
@@ -518,7 +560,12 @@ class WarehouseCardDelegate(QStyledItemDelegate):
         left, top, width = rect.left() + 12, rect.top() + 10, rect.width() - 24
         quality_color = str(item.get("quality_color") or "#8b949e")
         icon_rect = QRect(left, top, 44, 44)
-        placeholder = _equipment_placeholder(str(item.get("shape") or "H_3"), str(item.get("quality") or "gold"))
+        placeholder = _equipment_item_pixmap(str(item.get("item_icon_path") or ""))
+        if placeholder.isNull():
+            placeholder = _equipment_placeholder(
+                str(item.get("shape") or "H_3"),
+                str(item.get("quality") or "gold"),
+            )
         if not placeholder.isNull():
             painter.drawPixmap(icon_rect, placeholder)
         else:

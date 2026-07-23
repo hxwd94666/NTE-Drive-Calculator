@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -24,7 +24,8 @@ from src.features.inventory import page as inventory_page
 from src.features.weighted_allocation.runner import (
     WeightedAllocationPersistence, WeightedAllocationPreview, WeightedAllocationRequest,
     read_weighted_allocation_persistence, restore_weighted_allocation_preview,
-    run_weighted_allocation, save_weighted_allocation_preview,
+    replace_weighted_allocation_assignment, run_weighted_allocation,
+    save_weighted_allocation_preview,
 )
 from src.services.allocation_solver import AllocationSolveResult, RoleAllocationOption
 from src.services.allocation_context import AllocationContext
@@ -32,6 +33,7 @@ from src.services.character_weight_service import (
     ensure_account_character_weights, save_account_character_weights,
 )
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import (
     AllocationInventoryProjectionError, legacy_shape_id,
 )
@@ -184,16 +186,24 @@ def refresh_weighted_allocation_page(window) -> None:
                 )
                 for row in attributes
             }
+            window._weighted_property_percent = {
+                str(row["attribute_id"]): bool(row.get("show_percent"))
+                for row in attributes
+            }
             window._weighted_main_property_by_label = dict(main_choices)
             window._weighted_substat_property_by_label = dict(substat_choices)
+            equipment_items = dao.list_equipment_items()
             window._weighted_item_names = {
                 str(row["item_id"]): str(row.get("name_zh") or row["item_id"])
-                for row in dao.list_equipment_items()
+                for row in equipment_items
             }
             asset_catalog = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
             window._weighted_item_icons = {
-                item_id: asset_catalog.equipment_icon(item_id)
-                for item_id in window._weighted_item_names
+                str(row["item_id"]): asset_catalog.inventory_item_icon(
+                    str(row.get("kind") or ""),
+                    str(row["item_id"]),
+                )
+                for row in equipment_items
             }
         role_names = {str(row.get("name_zh") or row["character_id"]): int(row["character_id"]) for row in characters}
         window._weighted_role_ids = role_names
@@ -619,11 +629,8 @@ def _on_error(window, error: str) -> None:
 def start_weighted_allocation_save(
     window, after_save: Callable[[], None] | None = None,
 ) -> None:
-    preview = getattr(window, "_weighted_allocation_preview", None)
-    if not isinstance(preview, WeightedAllocationPreview):
-        return
-    if preview.user_database_path != Path(runtime.USER_DATABASE_PATH):
-        QMessageBox.warning(window, "账号已切换", "请在当前账号重新计算后再保存。")
+    preview = _validated_weighted_preview(window, action_name="保存")
+    if preview is None:
         return
     worker = WorkerThread(target=lambda: save_weighted_allocation_preview(preview), parent=window)
     # Keep the QThread reachable for its complete lifetime.  A local variable
@@ -720,29 +727,18 @@ def _perform_weighted_equipment_action(
 def _request_weighted_equipment(
     window, *, mode: str, role_name: str | None = None,
 ) -> None:
-    preview = getattr(window, "_weighted_allocation_preview", None)
-    if not isinstance(preview, WeightedAllocationPreview) or not preview.result.unified.selected:
-        QMessageBox.information(window, "无法装配", "请先完成一次有效的配装计算。")
-        return
-    if preview.user_database_path != Path(runtime.USER_DATABASE_PATH):
-        QMessageBox.warning(window, "账号已切换", "请在当前账号重新计算后再装配。")
+    preview = _validated_weighted_preview(window, action_name="装配")
+    if preview is None:
         return
     action = lambda: _perform_weighted_equipment_action(
         window, mode=mode, role_name=role_name,
     )
-    if getattr(window, "_weighted_allocation_saved_preview", None) is preview:
-        action()
-        return
-    start_weighted_allocation_save(window, after_save=action)
+    _run_after_weighted_preview_saved(window, preview, action)
 
 
 def _request_weighted_replacement(window, role_name: str, assignment, role) -> None:
-    preview = getattr(window, "_weighted_allocation_preview", None)
-    if not isinstance(preview, WeightedAllocationPreview):
-        QMessageBox.information(window, "无法替换", "请先完成一次有效的配装计算。")
-        return
-    if preview.user_database_path != Path(runtime.USER_DATABASE_PATH):
-        QMessageBox.warning(window, "账号已切换", "请在当前账号重新计算后再替换。")
+    preview = _validated_weighted_preview(window, action_name="替换")
+    if preview is None:
         return
     weights = _display_weights(window, role)
     main_weights = _display_main_weights(window, role)
@@ -771,10 +767,41 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
             core_term="空幕",
             assignment_scores_override=assignment_scores,
             exclude_used_by_others=True,
-            after_replace=lambda selected, selected_score, current_score: _on_weighted_replacement_done(
+            replacement_persister=lambda selected, selected_score, current_score: _on_weighted_replacement_done(
                 window, preview, assignment.uid, selected, selected_score, current_score,
             ),
         )
+
+    _run_after_weighted_preview_saved(window, preview, action)
+
+
+def _validated_weighted_preview(
+    window,
+    *,
+    action_name: str,
+) -> WeightedAllocationPreview | None:
+    """Return the current account's complete preview for save-dependent actions."""
+
+    preview = getattr(window, "_weighted_allocation_preview", None)
+    if not isinstance(preview, WeightedAllocationPreview) or not preview.result.unified.selected:
+        QMessageBox.information(
+            window, f"无法{action_name}", "请先完成一次有效的配装计算。"
+        )
+        return None
+    if preview.user_database_path != Path(runtime.USER_DATABASE_PATH):
+        QMessageBox.warning(
+            window, "账号已切换", f"请在当前账号重新计算后再{action_name}。"
+        )
+        return None
+    return preview
+
+
+def _run_after_weighted_preview_saved(
+    window,
+    preview: WeightedAllocationPreview,
+    action: Callable[[], None],
+) -> None:
+    """Run an action only after the exact in-memory preview is persisted."""
 
     if getattr(window, "_weighted_allocation_saved_preview", None) is preview:
         action()
@@ -791,58 +818,20 @@ def _on_weighted_replacement_done(
     current_score: float,
 ) -> None:
     if getattr(window, "_weighted_allocation_preview", None) is not preview:
-        return
+        raise RuntimeError("当前计算结果已变化，请重新打开替换窗口。")
     new_uid = (int(selected["_uid_slot"]), int(selected["_uid_serial"]))
-    candidate = next(
-        (item for item in preview.context.candidates if item.uid == new_uid), None,
+    updated_preview = replace_weighted_allocation_assignment(
+        preview,
+        old_uid=old_uid,
+        new_uid=new_uid,
+        new_score=float(selected_score),
     )
-    if candidate is None:
-        _mark_weighted_preferences_dirty(window)
-        window.weighted_status_label.setText("替换方案已保存；当前结果无法刷新，请重新计算。")
-        return
-    changed_option = None
-    updated_options = []
-    for option in preview.result.unified.selected:
-        assignments = []
-        changed = False
-        for item in option.assignments:
-            if item.uid != old_uid:
-                assignments.append(item)
-                continue
-            assignments.append(replace(
-                item,
-                uid=new_uid,
-                item_id=candidate.item_id,
-                suit_id=candidate.suit_id,
-                geometry=candidate.geometry,
-                score=float(selected_score),
-                contributions=(),
-            ))
-            changed = True
-        if changed:
-            changed_option = replace(
-                option,
-                score=float(option.score) - float(current_score) + float(selected_score),
-                assignments=tuple(assignments),
-            )
-            updated_options.append(changed_option)
-        else:
-            updated_options.append(option)
-    if changed_option is None:
-        _mark_weighted_preferences_dirty(window)
-        window.weighted_status_label.setText("替换方案已保存；当前结果已变化，请重新计算。")
-        return
-    updated_unified = replace(
-        preview.result.unified,
-        total_score=sum(float(option.score) for option in updated_options),
-        selected=tuple(updated_options),
-        explanation=tuple(preview.result.unified.explanation) + ("用户手动优化替换",),
-    )
-    updated_result = replace(preview.result, unified=updated_unified)
-    updated_preview = replace(preview, result=updated_result)
+    save_weighted_allocation_preview(updated_preview)
     window._weighted_allocation_preview = updated_preview
     window._weighted_allocation_saved_preview = updated_preview
-    render_weighted_allocation_result(window, updated_result, updated_preview.context)
+    render_weighted_allocation_result(
+        window, updated_preview.result, updated_preview.context
+    )
     _set_weighted_equipment_actions_enabled(window, True)
     window.weighted_status_label.setText(
         "替换已保存为新的 SQLite 配装方案；重新计算会重新生成推荐方案。"
@@ -1061,20 +1050,35 @@ def _display_stat_value(value: float, percent: bool) -> float:
     return round(float(value) * (100.0 if percent else 1.0), 2)
 
 
-def _official_summary_rows(window, option: RoleAllocationOption, candidates: dict) -> list[tuple[str, str, float]]:
-    totals: dict[str, float] = {}
-    percent: dict[str, bool] = {}
-    for assignment in option.assignments:
-        candidate = candidates.get(assignment.uid)
-        if candidate is None:
-            continue
-        for stat in (*candidate.main_stats, *candidate.sub_stats):
-            totals[stat.property_id] = totals.get(stat.property_id, 0.0) + float(stat.value)
-            percent[stat.property_id] = percent.get(stat.property_id, False) or bool(stat.percent)
+def _official_summary_rows(
+    window, option: RoleAllocationOption, candidates: dict, role=None,
+) -> list[tuple[str, str, float, bool]]:
+    selected = [
+        candidate
+        for assignment in option.assignments
+        if (candidate := candidates.get(assignment.uid)) is not None
+    ]
+    extra_shape_label = getattr(role, "extra_shape_label", "") if role is not None else ""
+    if not isinstance(extra_shape_label, str):
+        extra_shape_label = ""
+    extra_shape_buffs = getattr(role, "extra_shape_buffs", ()) if role is not None else ()
+    if not isinstance(extra_shape_buffs, (Mapping, tuple, list)):
+        extra_shape_buffs = ()
+    totals = calculate_official_equipment_stats(
+        selected,
+        extra_shape_label=extra_shape_label,
+        extra_shape_buffs=extra_shape_buffs,
+        property_percent=getattr(window, "_weighted_property_percent", {}) or {},
+    )
     labels = getattr(window, "_weighted_property_names", {})
     return [
-        (property_id, labels.get(property_id, property_id), _display_stat_value(value, percent[property_id]))
-        for property_id, value in totals.items()
+        (
+            total.property_id,
+            labels.get(total.property_id, total.property_id),
+            _display_stat_value(total.value, total.percent),
+            total.percent,
+        )
+        for total in totals
     ]
 
 
@@ -1083,7 +1087,9 @@ def _summary_value_text(value: float, percent: bool) -> str:
     return f"+{number}{'%' if percent else ''}"
 
 
-def _summary_row(window, property_id: str, label: str, value: float, weight: float) -> QWidget:
+def _summary_row(
+    window, property_id: str, label: str, value: float, percent: bool, weight: float,
+) -> QWidget:
     row = QFrame()
     row.setFixedHeight(26)
     row.setStyleSheet(themed_style(
@@ -1094,8 +1100,7 @@ def _summary_row(window, property_id: str, label: str, value: float, weight: flo
     color = legacy_results._stat_c(window, weight) if weight > 0 else theme_color("#8b949e")
     name = QLabel(label)
     name.setStyleSheet(f"font-size:10px;font-weight:700;color:{color};border:none;background:transparent")
-    is_percent = property_id not in {"AtkAdd", "DefAdd", "HPMaxAdd", "MagBase", "UnbalIntensityBase"}
-    val = QLabel(_summary_value_text(value, is_percent))
+    val = QLabel(_summary_value_text(value, percent))
     val.setStyleSheet("font-size:10px;font-weight:800;color:#f0f6fc;border:none;background:transparent")
     val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
     layout.addWidget(name, 1)
@@ -1110,8 +1115,12 @@ def _show_official_summary_dialog(window, role_name: str, rows, weights: dict[st
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(14, 14, 14, 14)
     layout.setSpacing(8)
-    for property_id, label, value in rows:
-        layout.addWidget(_summary_row(window, property_id, label, value, weights.get(property_id, 0.0)))
+    for property_id, label, value, percent in rows:
+        layout.addWidget(
+            _summary_row(
+                window, property_id, label, value, percent, weights.get(property_id, 0.0),
+            )
+        )
     buttons = QDialogButtonBox(QDialogButtonBox.Ok)
     buttons.accepted.connect(dialog.accept)
     layout.addWidget(buttons)
@@ -1121,7 +1130,7 @@ def _show_official_summary_dialog(window, role_name: str, rows, weights: dict[st
 def _official_bonus_summary_panel(
     window, role_name: str, option: RoleAllocationOption, candidates: dict, role,
 ) -> QWidget | None:
-    rows = _official_summary_rows(window, option, candidates)
+    rows = _official_summary_rows(window, option, candidates, role)
     weights = dict(getattr(role, "effective_property_weights", ()) if role else ())
     rows.sort(key=lambda item: (-weights.get(item[0], 0.0), item[1]))
     if not rows:
@@ -1150,8 +1159,12 @@ def _official_bonus_summary_panel(
         header.addWidget(more)
     header.addStretch()
     layout.addLayout(header)
-    for property_id, label, value in rows[:5]:
-        layout.addWidget(_summary_row(window, property_id, label, value, weights.get(property_id, 0.0)))
+    for property_id, label, value, percent in rows[:5]:
+        layout.addWidget(
+            _summary_row(
+                window, property_id, label, value, percent, weights.get(property_id, 0.0),
+            )
+        )
     layout.addStretch()
     return panel
 
@@ -1176,25 +1189,6 @@ def _legacy_quality(quality: str | None) -> str:
 
     return {"orange": "Gold", "purple": "Purple", "blue": "Blue"}.get(
         str(quality or "").lower(), "Gold"
-    )
-
-
-def _property_summary(option: RoleAllocationOption, candidates: dict, labels: dict[str, str]) -> str:
-    """Show the selected equipment's readable stat totals beside the old cards."""
-
-    totals: dict[str, float] = {}
-    percent: dict[str, bool] = {}
-    for assignment in option.assignments:
-        candidate = candidates.get(assignment.uid)
-        if candidate is None:
-            continue
-        for stat in (*candidate.main_stats, *candidate.sub_stats):
-            totals[stat.property_id] = totals.get(stat.property_id, 0.0) + float(stat.value)
-            percent[stat.property_id] = percent.get(stat.property_id, False) or bool(stat.percent)
-    return "　".join(
-        f"{labels.get(property_id, property_id)} +{value * 100 if percent[property_id] else value:g}"
-        f"{'%' if percent[property_id] else ''}"
-        for property_id, value in sorted(totals.items(), key=lambda entry: labels.get(entry[0], entry[0]))
     )
 
 

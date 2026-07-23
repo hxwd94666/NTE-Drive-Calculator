@@ -1755,6 +1755,288 @@ class UserDataDao:
             connection.rollback()
             raise UserDataError("无法保存装配方案") from exc
 
+    def replace_active_loadout_plans(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+    ) -> tuple[int, ...]:
+        """原子覆盖多个角色方案，并从其他激活方案卸下被占用装备。"""
+
+        normalized_plans: list[dict[str, Any]] = []
+        target_characters: set[int] = set()
+        claimed_uids: dict[tuple[int, int], int] = {}
+        for plan_index, raw_plan in enumerate(plans):
+            plan = _plain_object(raw_plan, f"plans[{plan_index}]")
+            name = str(plan.get("name") or "").strip()
+            if not name:
+                raise UserDataValidationError("装配方案名称不能为空")
+            character_id = _integer(
+                plan.get("character_id"), "character_id", minimum=1
+            )
+            if character_id in target_characters:
+                raise UserDataValidationError("批量保存中不能重复覆盖同一角色")
+            target_characters.add(character_id)
+            snapshot_id = _integer(
+                plan.get("source_snapshot_id"), "source_snapshot_id", minimum=1
+            )
+            status = str(plan.get("status") or "ready").strip()
+            if not status:
+                raise UserDataValidationError("装配方案状态不能为空")
+            normalized_assignments: list[dict[str, Any]] = []
+            role_uids: set[tuple[int, int]] = set()
+            for ordinal, raw_assignment in enumerate(plan.get("assignments") or ()):
+                assignment = _plain_object(
+                    raw_assignment, f"plans[{plan_index}].assignments[{ordinal}]"
+                )
+                serial = _integer(
+                    assignment.get("uid_serial"), "assignment uid_serial", minimum=0
+                )
+                slot = _integer(
+                    assignment.get("uid_slot"), "assignment uid_slot", minimum=0
+                )
+                kind = assignment.get("kind")
+                if kind not in ("module", "core"):
+                    raise UserDataValidationError(
+                        "装配项 kind 必须是 module 或 core"
+                    )
+                uid = (slot, serial)
+                if uid in role_uids:
+                    raise UserDataValidationError(
+                        "同一装配方案不能重复使用相同 UID"
+                    )
+                if uid in claimed_uids:
+                    raise UserDataValidationError(
+                        f"批量保存中的装备 UID {uid} 同时分配给多个角色"
+                    )
+                role_uids.add(uid)
+                claimed_uids[uid] = character_id
+                for coordinate in ("target_row", "target_column"):
+                    value = assignment.get(coordinate)
+                    if value is not None and _integer(value, coordinate) not in range(1, 6):
+                        raise UserDataValidationError(
+                            f"{coordinate} 必须在 1 到 5 之间"
+                        )
+                normalized_assignments.append(assignment)
+            if not any(item["kind"] == "module" for item in normalized_assignments):
+                raise UserDataValidationError("每个激活方案至少需要一个驱动")
+            normalized_plans.append({
+                "name": name,
+                "character_id": character_id,
+                "source_snapshot_id": snapshot_id,
+                "status": status,
+                "score": (
+                    float(plan["score"]) if plan.get("score") is not None else None
+                ),
+                "payload": dict(plan.get("payload") or {}),
+                "assignments": normalized_assignments,
+            })
+        if not normalized_plans:
+            raise UserDataValidationError("没有可保存的装配方案")
+
+        connection = self._db()
+        now = _utc_now()
+
+        def insert_plan(plan: Mapping[str, Any], *, is_active: bool = True) -> int:
+            cursor = connection.execute(
+                """
+                INSERT INTO loadout_plan(
+                    name, character_id, source_snapshot_id, status, score,
+                    payload_json, is_active, created_at_utc, updated_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    plan["name"], plan["character_id"], plan["source_snapshot_id"],
+                    plan["status"], plan.get("score"),
+                    _json(dict(plan.get("payload") or {})), int(is_active), now, now,
+                ),
+            )
+            plan_id = int(cursor.lastrowid)
+            for ordinal, assignment in enumerate(plan.get("assignments") or ()):
+                connection.execute(
+                    """
+                    INSERT INTO loadout_plan_item(
+                        plan_id, ordinal, uid_serial, uid_slot, kind,
+                        target_row, target_column, rotation, raw_assignment_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        plan_id, ordinal, assignment["uid_serial"],
+                        assignment["uid_slot"], assignment["kind"],
+                        assignment.get("target_row"),
+                        assignment.get("target_column"),
+                        assignment.get("rotation"), _json(dict(assignment)),
+                    ),
+                )
+            return plan_id
+
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            inventory_by_snapshot: dict[int, dict[tuple[int, int], str]] = {}
+            for snapshot_id in {
+                int(plan["source_snapshot_id"]) for plan in normalized_plans
+            }:
+                snapshot = connection.execute(
+                    """
+                    SELECT complete, declared_item_count, stored_item_count
+                    FROM inventory_snapshot WHERE snapshot_id = ?
+                    """,
+                    (snapshot_id,),
+                ).fetchone()
+                if (
+                    snapshot is None
+                    or not bool(snapshot["complete"])
+                    or int(snapshot["declared_item_count"])
+                    != int(snapshot["stored_item_count"])
+                ):
+                    raise UserDataValidationError(
+                        f"背包快照不可用于保存：{snapshot_id}"
+                    )
+                inventory_by_snapshot[snapshot_id] = {
+                    (int(row["uid_slot"]), int(row["uid_serial"])): str(row["kind"])
+                    for row in connection.execute(
+                        """
+                        SELECT uid_slot, uid_serial, kind
+                        FROM inventory_item WHERE snapshot_id = ?
+                        """,
+                        (snapshot_id,),
+                    )
+                }
+            current_snapshot = connection.execute(
+                """
+                SELECT snapshot_id
+                FROM inventory_snapshot
+                WHERE complete = 1 AND source IN ('nte_core', 'gamepad')
+                ORDER BY CASE source WHEN 'nte_core' THEN 0 ELSE 1 END,
+                         captured_at_utc DESC, snapshot_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if current_snapshot is None:
+                raise UserDataValidationError("当前没有可用于保存的稳定背包快照")
+            current_snapshot_id = int(current_snapshot["snapshot_id"])
+            current_inventory = inventory_by_snapshot.get(current_snapshot_id)
+            if current_inventory is None:
+                current_inventory = {
+                    (int(row["uid_slot"]), int(row["uid_serial"])): str(row["kind"])
+                    for row in connection.execute(
+                        """
+                        SELECT uid_slot, uid_serial, kind
+                        FROM inventory_item WHERE snapshot_id = ?
+                        """,
+                        (current_snapshot_id,),
+                    )
+                }
+            for plan in normalized_plans:
+                inventory = inventory_by_snapshot[int(plan["source_snapshot_id"])]
+                for assignment in plan["assignments"]:
+                    uid = (
+                        int(assignment["uid_slot"]),
+                        int(assignment["uid_serial"]),
+                    )
+                    if inventory.get(uid) != assignment["kind"]:
+                        raise UserDataValidationError(
+                            f"装备 UID {uid} 不在方案固定的背包快照中"
+                        )
+                    if current_inventory.get(uid) != assignment["kind"]:
+                        raise UserDataValidationError(
+                            f"装备 UID {uid} 已不在当前实际稳定背包中"
+                        )
+
+            affected_plans = [
+                plan
+                for plan in self.list_loadout_plans()
+                if plan["is_active"] and (
+                    int(plan["character_id"]) in target_characters
+                    or any(
+                        (int(item["uid_slot"]), int(item["uid_serial"]))
+                        in claimed_uids
+                        for item in plan["assignments"]
+                    )
+                )
+            ]
+            for plan in affected_plans:
+                connection.execute(
+                    """
+                    UPDATE loadout_plan
+                    SET is_active = 0, updated_at_utc = ?
+                    WHERE plan_id = ?
+                    """,
+                    (now, int(plan["plan_id"])),
+                )
+                if int(plan["character_id"]) in target_characters:
+                    continue
+                removed_uids = [
+                    (int(item["uid_slot"]), int(item["uid_serial"]))
+                    for item in plan["assignments"]
+                    if (
+                        int(item["uid_slot"]), int(item["uid_serial"])
+                    ) in claimed_uids
+                ]
+                residual_assignments = [
+                    dict(item["raw_assignment"])
+                    for item in plan["assignments"]
+                    if (
+                        int(item["uid_slot"]), int(item["uid_serial"])
+                    ) not in claimed_uids
+                ]
+                if not residual_assignments:
+                    continue
+                residual_payload = dict(plan.get("payload") or {})
+                previous_source = residual_payload.get("source")
+                residual_payload["source"] = "active_plan_overlay"
+                residual_payload["active_plan_overlay"] = {
+                    "previous_plan_id": int(plan["plan_id"]),
+                    "previous_source": previous_source,
+                    "removed_uids": [
+                        {"uid_slot": slot, "uid_serial": serial}
+                        for slot, serial in removed_uids
+                    ],
+                    "replaced_by_character_ids": sorted(target_characters),
+                }
+                insert_plan({
+                    "name": plan["name"],
+                    "character_id": int(plan["character_id"]),
+                    "source_snapshot_id": plan.get("source_snapshot_id"),
+                    "status": (
+                        "ready"
+                        if any(
+                            item.get("kind") == "module"
+                            for item in residual_assignments
+                        )
+                        else "incomplete"
+                    ),
+                    "score": None,
+                    "payload": residual_payload,
+                    "assignments": residual_assignments,
+                })
+
+            saved_plan_ids = tuple(insert_plan(plan) for plan in normalized_plans)
+            duplicate = connection.execute(
+                """
+                SELECT item.uid_slot, item.uid_serial, COUNT(*) AS use_count
+                FROM loadout_plan_item AS item
+                JOIN loadout_plan AS plan USING(plan_id)
+                WHERE plan.is_active = 1
+                GROUP BY item.uid_slot, item.uid_serial
+                HAVING COUNT(*) > 1
+                LIMIT 1
+                """
+            ).fetchone()
+            if duplicate is not None:
+                raise UserDataValidationError(
+                    "保存后仍存在被多个激活方案占用的装备 UID："
+                    f"({duplicate['uid_slot']}, {duplicate['uid_serial']})"
+                )
+            connection.commit()
+            return saved_plan_ids
+        except (sqlite3.Error, UserDataValidationError) as exc:
+            connection.rollback()
+            if isinstance(exc, UserDataValidationError):
+                raise
+            raise UserDataError("无法原子覆盖激活装配方案") from exc
+        except BaseException:
+            connection.rollback()
+            raise
+
     def list_loadout_plans(self, character_id: int | None = None) -> list[dict[str, Any]]:
         where = "" if character_id is None else "WHERE character_id = ?"
         parameters = () if character_id is None else (_integer(character_id, "character_id", minimum=1),)

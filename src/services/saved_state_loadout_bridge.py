@@ -32,6 +32,32 @@ class SavedLoadoutPlan:
     module_count: int
 
 
+@dataclass(frozen=True)
+class PreparedLoadoutPlan:
+    """已校验、尚未写入 SQLite 的角色配装方案。"""
+
+    name: str
+    role_name: str
+    character_id: int
+    snapshot_id: int
+    status: str
+    score: float | None
+    assignments: tuple[dict[str, Any], ...]
+    payload: dict[str, Any]
+    module_count: int
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "character_id": self.character_id,
+            "source_snapshot_id": self.snapshot_id,
+            "status": self.status,
+            "score": self.score,
+            "assignments": self.assignments,
+            "payload": self.payload,
+        }
+
+
 def character_ids_for_saved_role(
     role_name: str,
     roles_db: Mapping[str, Any],
@@ -307,6 +333,40 @@ class SavedStateLoadoutBridge:
         score: float | None = None,
         payload: Mapping[str, Any] | None = None,
     ) -> SavedLoadoutPlan:
+        prepared = self.prepare_role_plan(
+            role_name=role_name,
+            role_state=role_state,
+            character_id=character_id,
+            snapshot_id=snapshot_id,
+            name=name,
+            score=score,
+            payload=payload,
+        )
+        plan_id = self.user_dao.save_loadout_plan(
+            **prepared.as_record(),
+            is_active=True,
+        )
+        return SavedLoadoutPlan(
+            plan_id=plan_id,
+            role_name=prepared.role_name,
+            character_id=prepared.character_id,
+            snapshot_id=prepared.snapshot_id,
+            module_count=prepared.module_count,
+        )
+
+    def prepare_role_plan(
+        self,
+        *,
+        role_name: str,
+        role_state: Mapping[str, Any],
+        character_id: int,
+        snapshot_id: int | None = None,
+        name: str | None = None,
+        score: float | None = None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> PreparedLoadoutPlan:
+        """校验并转换角色方案，但不启动写事务。"""
+
         selected_snapshot_id = (
             self.user_dao.current_inventory_snapshot_id()
             if snapshot_id is None
@@ -384,24 +444,18 @@ class SavedStateLoadoutBridge:
         module_count = sum(item["kind"] == "module" for item in assignments)
         if module_count <= 0:
             raise SavedStateLoadoutError(f"角色 [{role_name}] 没有可装配的驱动")
-        plan_id = self.user_dao.save_loadout_plan(
+        return PreparedLoadoutPlan(
             name=name or f"配装页：{role_name}",
-            character_id=character_id,
-            source_snapshot_id=selected_snapshot_id,
-            status="ready",
-            assignments=assignments,
-            payload=payload or {
-                "schema": "saved-state-official-loadout-v1",
-                "source": "equipment_page",
-                "source_role_name": role_name,
-            },
-            score=score,
-            is_active=True,
-        )
-        return SavedLoadoutPlan(
-            plan_id=plan_id,
             role_name=role_name,
             character_id=character_id,
             snapshot_id=selected_snapshot_id,
+            status="ready",
+            assignments=tuple(assignments),
+            payload=dict(payload or {
+                "schema": "saved-state-official-loadout-v1",
+                "source": "equipment_page",
+                "source_role_name": role_name,
+            }),
+            score=score,
             module_count=module_count,
         )

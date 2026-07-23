@@ -930,7 +930,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         }
 
         old_config_dir = getattr(runtime, "CONFIG_DIR", None)
-        runtime.CONFIG_DIR = Path("F:/NTE/config")
+        runtime.CONFIG_DIR = Path("test-runtime/config")
         try:
             drive_widget._build_drive_detail_content(window, layout, "A", [], role_data["drive"]["drives"], role_data["drive"]["drives"], role_data)
         finally:
@@ -1005,7 +1005,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         }
 
         old_config_dir = getattr(runtime, "CONFIG_DIR", None)
-        runtime.CONFIG_DIR = Path("F:/NTE/config")
+        runtime.CONFIG_DIR = Path("test-runtime/config")
         try:
             drive_widget._build_drive_detail_content(
                 window,
@@ -1083,7 +1083,7 @@ class ExecutePageWorkflowTests(unittest.TestCase):
         }
 
         old_config_dir = getattr(runtime, "CONFIG_DIR", None)
-        runtime.CONFIG_DIR = Path("F:/NTE/config")
+        runtime.CONFIG_DIR = Path("test-runtime/config")
         try:
             drive_widget._build_drive_detail_content(
                 window,

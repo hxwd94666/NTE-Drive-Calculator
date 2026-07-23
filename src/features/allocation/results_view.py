@@ -1191,10 +1191,10 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
         # instead of becoming a small icon inside a large blank box.
         image_size = {"inventory": 52, "result": 60}.get(card_variant, 64)
         pm=(
-            _get_shape_pixmap(shape_id,image_size,quality)
-            if shape_id else QPixmap(str(item_icon_path)).scaled(
+            QPixmap(str(item_icon_path)).scaled(
                 image_size, image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation,
             )
+            if item_icon_path else _get_shape_pixmap(shape_id,image_size,quality)
         )
         if not pm.isNull():
             img_lbl=QLabel(); img_lbl.setPixmap(pm); img_lbl.setFixedSize(image_size,image_size); img_lbl.setScaledContents(True)

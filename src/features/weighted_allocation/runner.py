@@ -338,12 +338,12 @@ def save_weighted_allocation_preview(preview: WeightedAllocationPreview) -> tupl
             for character in static_dao.list_characters()
         }
         bridge = SavedStateLoadoutBridge(user_dao, static_dao)
-        saved_plan_ids: list[int] = []
+        prepared_plans: list[dict[str, Any]] = []
         for option in result.unified.selected:
             role_name = role_names.get(option.character_id)
             if role_name is None:
                 raise RuntimeError(f"静态数据集中找不到角色 {option.character_id}。")
-            saved = bridge.save_role_plan(
+            prepared = bridge.prepare_role_plan(
                 role_name=role_name,
                 role_state=_role_state(option),
                 character_id=option.character_id,
@@ -370,8 +370,85 @@ def save_weighted_allocation_preview(preview: WeightedAllocationPreview) -> tupl
                     },
                 },
             )
-            saved_plan_ids.append(saved.plan_id)
-    return tuple(saved_plan_ids)
+            prepared_plans.append(prepared.as_record())
+        return user_dao.replace_active_loadout_plans(prepared_plans)
+
+
+def replace_weighted_allocation_assignment(
+    preview: WeightedAllocationPreview,
+    *,
+    old_uid: tuple[int, int],
+    new_uid: tuple[int, int],
+    new_score: float,
+) -> WeightedAllocationPreview:
+    """Replace one assignment while preserving board layout and global UID uniqueness."""
+
+    if not isinstance(preview, WeightedAllocationPreview):
+        raise TypeError("replacement requires a WeightedAllocationPreview")
+    candidate = next(
+        (item for item in preview.context.candidates if item.uid == new_uid),
+        None,
+    )
+    if candidate is None:
+        raise RuntimeError(f"替换装备 UID {new_uid} 不在计算固定的背包快照中。")
+    used_uids = {
+        assignment.uid
+        for option in preview.result.unified.selected
+        for assignment in option.assignments
+        if assignment.uid != old_uid
+    }
+    if new_uid in used_uids:
+        raise RuntimeError(f"替换装备 UID {new_uid} 已被当前方案中的其他角色使用。")
+
+    changed_count = 0
+    updated_options: list[RoleAllocationOption] = []
+    for option in preview.result.unified.selected:
+        updated_assignments = []
+        previous_score = 0.0
+        option_changed = False
+        for assignment in option.assignments:
+            if assignment.uid != old_uid:
+                updated_assignments.append(assignment)
+                continue
+            if candidate.kind != assignment.kind:
+                raise RuntimeError("替换装备类型与当前位置不一致。")
+            if (
+                assignment.kind == "module"
+                and str(candidate.geometry or "").casefold()
+                != str(assignment.geometry or "").casefold()
+            ):
+                raise RuntimeError("替换驱动形状与当前位置不一致。")
+            updated_assignments.append(replace(
+                assignment,
+                uid=new_uid,
+                item_id=candidate.item_id,
+                suit_id=candidate.suit_id,
+                geometry=candidate.geometry,
+                score=float(new_score),
+                contributions=(),
+            ))
+            previous_score = float(assignment.score)
+            option_changed = True
+            changed_count += 1
+        updated_options.append(
+            replace(
+                option,
+                score=float(option.score) - previous_score + float(new_score),
+                assignments=tuple(updated_assignments),
+            )
+            if option_changed else option
+        )
+    if changed_count != 1:
+        raise RuntimeError(
+            f"当前方案中应恰好存在一个待替换 UID {old_uid}，实际为 {changed_count} 个。"
+        )
+    unified = replace(
+        preview.result.unified,
+        total_score=sum(float(option.score) for option in updated_options),
+        selected=tuple(updated_options),
+        explanation=tuple(preview.result.unified.explanation) + ("用户手动优化替换",),
+    )
+    return replace(preview, result=replace(preview.result, unified=unified))
 
 
 def _role_state(option: RoleAllocationOption) -> dict[str, object]:

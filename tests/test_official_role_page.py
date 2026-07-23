@@ -428,6 +428,19 @@ class OfficialRolePageTests(unittest.TestCase):
         with UserDataDao(self.database) as dao:
             dao.import_inventory_snapshot(_snapshot_with_drive(character_id))
         detail = load_official_role_detail(self.database, character_id)
+        gain = calculate_official_role_equipment_gain(detail, "current")
+        mutated = copy.deepcopy(detail)
+        drive = next(
+            item for item in mutated["equipment_contexts"]["current"]["items"]
+            if item["kind"] == "module"
+        )
+        drive["main_stats"] = [{
+            "property_id": "AtkAdd", "value": 9999.0, "percent": False,
+        }]
+        mutated_gain = calculate_official_role_equipment_gain(mutated, "current")
+        self.assertIsNotNone(gain)
+        self.assertIsNotNone(mutated_gain)
+        self.assertAlmostEqual(gain["gain_percent"], mutated_gain["gain_percent"])
         host = QWidget()
         content = page._build_equipment_detail_content(host, detail, "current")
         groups = [group.title() for group in content.findChildren(QGroupBox)]
@@ -441,6 +454,13 @@ class OfficialRolePageTests(unittest.TestCase):
         ]
         self.assertEqual(2, len(margins))
         self.assertTrue(all(margin != "直伤收益: --" for margin in margins))
+        summary_values = {
+            label.text()
+            for label in content.findChildren(QLabel)
+            if label.text().startswith("+")
+        }
+        self.assertIn("+92", summary_values)
+        self.assertIn("+1120", summary_values)
 
         legacy_calls = []
         legacy_host = QWidget()

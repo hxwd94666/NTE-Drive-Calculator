@@ -41,6 +41,7 @@ from src.services.official_role_page_service import (
     load_official_role_index,
 )
 from src.services.character_weight_service import save_account_character_weights
+from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.widgets import NoWheelDoubleSpinBox, match_pinyin
@@ -786,6 +787,9 @@ def _old_style_equipment_card(window, detail: dict, item: dict, *, core: bool) -
     return window._equip_card(
         label, "", sub_stats, shape_id, uid, weights, score_info, quality,
         card_variant="inventory",
+        item_icon_path=detail.get("item_icon_paths", {}).get(
+            str(item.get("item_id") or "")
+        ),
     )
 
 
@@ -924,20 +928,21 @@ def _aggregate_equipment_stats(detail: dict, context_key: str) -> list[tuple[str
             (_attribute_name(detail, property_id), "目标词条")
             for property_id in detail["equipment_contexts"]["theory"].get("property_ids") or ()
         ]
-    totals = {}
-    percents = {}
-    for item in detail["equipment_contexts"][context_key].get("items") or ():
-        for stat in [*(item.get("main_stats") or ()), *(item.get("sub_stats") or ())]:
-            property_id = str(stat.get("property_id") or "")
-            totals[property_id] = totals.get(property_id, 0.0) + float(stat.get("value") or 0.0)
-            percents[property_id] = bool(stat.get("percent"))
+    property_percent = {
+        str(property_id): bool(attribute.get("show_percent"))
+        for property_id, attribute in (detail.get("attributes") or {}).items()
+    }
+    totals = calculate_official_equipment_stats(
+        detail["equipment_contexts"][context_key].get("items") or (),
+        property_percent=property_percent,
+    )
     rows = []
-    for property_id, value in totals.items():
-        shown = value * 100 if percents.get(property_id) else value
+    for total in totals:
+        shown = total.value * 100 if total.percent else total.value
         text = f"+{shown:.2f}".rstrip("0").rstrip(".")
-        if percents.get(property_id):
+        if total.percent:
             text += "%"
-        rows.append((_attribute_name(detail, property_id), text))
+        rows.append((_attribute_name(detail, total.property_id), text))
     return rows
 
 

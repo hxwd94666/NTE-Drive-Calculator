@@ -19,6 +19,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "008_game_static_combat_context.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -63,7 +64,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(10, schema_version)
+        self.assertEqual(11, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         self.assertEqual(0, absolute_path_count)
@@ -115,6 +116,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("enemy_combat_profile", tables)
         self.assertIn("monster_instance_profile", tables)
         self.assertIn("abyss_level_monster_spawn", tables)
+        self.assertIn("character_weight_recommendation", tables)
+        self.assertIn("character_weight_recommendation_property", tables)
 
     def test_schema_uses_source_shape_ids_without_legacy_aliases(self):
         schema = "\n".join(path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)

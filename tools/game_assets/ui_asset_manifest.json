@@ -1,6 +1,17 @@
 {
-  "manifest_version": 1,
+  "manifest_version": 2,
   "source_data_table": "/Game/DataTable/Character/DT_Character",
+  "database_groups": [
+    "equipment_modules",
+    "fork_items"
+  ],
+  "monster_tables": [
+    {"static_table": "monster_static_big_world", "source_table": "DataTable/Monster/DT_MonsterStaticData_BigWorld.json"},
+    {"static_table": "monster_static_big_world_gameplay", "source_table": "DataTable/Monster/DT_MonsterStaticData_BigWorld_Gameplay.json"},
+    {"static_table": "monster_static_big_world_quest", "source_table": "DataTable/Monster/DT_MonsterStaticData_BigWorld_Quest.json"},
+    {"static_table": "monster_static_clone", "source_table": "DataTable/Monster/DT_MonsterStaticData_Clone.json"},
+    {"static_table": "monster_static_abyss", "source_table": "DataTable/Monster/DT_MonsterStaticData_Abyss.json"}
+  ],
   "characters": [
     {"character_id": 1003, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_003_256.player_003_256", "output": "characters/player_003_256.png"},
     {"character_id": 1004, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_004_256.player_004_256", "output": "characters/player_004_256.png"},

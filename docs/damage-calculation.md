@@ -221,11 +221,11 @@ DOT 结算总伤害 = Σ(第 i 层剩余时长 × DOT 单跳伤害)
 
 源数据路径：
 
-`C:\softwares\codes\utils\异环\UnrealExporter\output_combat\HT\Content\DataTable\skill\DT_SkillDamageData.json`
+`../Content/DataTable/skill/DT_SkillDamageData.json`
 
 SDK 结构为 `FSkillDamageExecutionData`，位于：
 
-`C:\softwares\codes\utils\异环\5.6.1-0+UE5-HT(1)\5.6.1-0+UE5-HT\CppSDK\SDK\HTGame_structs.hpp`。
+`../CppSDK/SDK/HTGame_structs.hpp`。
 
 ### 环合 16 档
 

@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -15,7 +16,7 @@ from src.features.weighted_allocation.runner import (
     WeightedAllocationPersistence, WeightedAllocationRequest,
     WeightedSavedAssignmentSignature, WeightedSavedPlanSignature,
     read_weighted_allocation_persistence, run_weighted_allocation,
-    save_weighted_allocation_preview,
+    replace_weighted_allocation_assignment, save_weighted_allocation_preview,
 )
 from src.services.allocation_context import (
     AllocationCandidate, OfficialShape, OfficialShapeCell, OfficialStat,
@@ -305,6 +306,54 @@ class WeightedAllocationUiTests(unittest.TestCase):
         self.assertIsNone(source["main_value"])
         self.assertEqual({"暴击率%": 10.0}, source["sub_stats"])
 
+    def test_official_summary_reuses_old_shape_quality_and_role_bonus_rules(self):
+        core = AllocationCandidate(
+            1, 1, "core", "core", None, None, None, "orange", 20, 20,
+            False, False, False, None, False, None, None, None,
+            (OfficialStat("CritBase", 0.3, True),),
+            (OfficialStat("AtkUp", 0.1, True),),
+        )
+        module = AllocationCandidate(
+            2, 1, "module", "module", None, "Shu2", 2, "purple", 0, 20,
+            False, False, False, None, False, None, None, None,
+            (
+                OfficialStat("AtkAdd", 8.0, False),
+                OfficialStat("HPMaxAdd", 112.0, False),
+            ),
+            (OfficialStat("CritBase", 0.02, True),),
+        )
+        option = RoleAllocationOption(
+            1055, 1, 0.0, (),
+            (
+                AllocationAssignment(core.uid, "core", "core", None, None, (), None, 0.0, (), ()),
+                AllocationAssignment(module.uid, "module", "module", None, "Shu2", (), None, 0.0, (), ()),
+            ),
+            (), (),
+        )
+        host = SimpleNamespace(
+            _weighted_property_names={
+                "CritBase": "暴击率", "AtkUp": "攻击力%",
+                "AtkAdd": "攻击力", "HPMaxAdd": "生命值",
+            },
+            _weighted_property_percent={"CritBase": True, "AtkUp": True},
+        )
+        role = SimpleNamespace(
+            extra_shape_label="Type-2",
+            extra_shape_buffs=(("CritBase", 6.0),),
+        )
+
+        rows = {
+            property_id: (value, percent)
+            for property_id, _label, value, percent in page._official_summary_rows(
+                host, option, {core.uid: core, module.uid: module}, role,
+            )
+        }
+
+        self.assertEqual((38.0, True), rows["CritBase"])
+        self.assertEqual((10.0, True), rows["AtkUp"])
+        self.assertEqual((33.6, False), rows["AtkAdd"])
+        self.assertEqual((448.0, False), rows["HPMaxAdd"])
+
     def test_candidate_drive_card_can_show_replace_inside_its_header(self):
         class Host(AllocationResultsMixin, QWidget):
             pass
@@ -324,7 +373,7 @@ class WeightedAllocationUiTests(unittest.TestCase):
     def test_replacement_empty_curtain_cards_resolve_official_item_images(self):
         catalog = MagicMock()
         icon_path = Path("assets/game_ui/equipment/core/Lakshana_orange.png")
-        catalog.equipment_icon.return_value = icon_path
+        catalog.inventory_item_icon.return_value = icon_path
         item = inventory_page._sqlite_inventory_item_display(
             {
                 "kind": "core", "item_id": "Lakshana_orange", "suit_id": "Suit4",
@@ -338,8 +387,21 @@ class WeightedAllocationUiTests(unittest.TestCase):
 
         self.assertEqual("Lakshana_orange", item["_item_id"])
         self.assertEqual(icon_path, resolved)
-        catalog.equipment_icon.assert_called_once_with("Lakshana_orange")
-        self.assertIsNone(inventory_page._replacement_item_icon(catalog, "drive", item))
+        catalog.inventory_item_icon.assert_called_once_with("core", "Lakshana_orange")
+
+        drive = inventory_page._sqlite_inventory_item_display(
+            {
+                "kind": "module", "item_id": "cell3_style1_1_Orange",
+                "uid_slot": 1, "uid_serial": 3, "quality": "orange",
+                "geometry": "EquipmentGeometry_Hen3", "sub_stats": {},
+            },
+            {},
+        )
+        inventory_page._replacement_item_icon(catalog, "drive", drive)
+        self.assertEqual("cell3_style1_1_Orange", drive["_item_id"])
+        catalog.inventory_item_icon.assert_called_with(
+            "module", "cell3_style1_1_Orange"
+        )
 
     def test_equipment_actions_reuse_configured_and_automatic_implementations(self):
         selected = (MagicMock(character_id=1055), MagicMock(character_id=1051))
@@ -421,6 +483,7 @@ class WeightedAllocationUiTests(unittest.TestCase):
         self.assertFalse(kwargs["rank_by_damage"])
         self.assertEqual("空幕", kwargs["core_term"])
         self.assertTrue(kwargs["exclude_used_by_others"])
+        self.assertTrue(callable(kwargs["replacement_persister"]))
 
     def test_replacement_saves_current_preview_before_opening_dialog(self):
         assignment = MagicMock(kind="core", uid=(3, 4))
@@ -470,7 +533,8 @@ class WeightedAllocationUiTests(unittest.TestCase):
         )
         host = MagicMock(_weighted_allocation_preview=preview)
 
-        with patch.object(page, "render_weighted_allocation_result") as render, \
+        with patch.object(page, "save_weighted_allocation_preview", return_value=(7,)) as save, \
+             patch.object(page, "render_weighted_allocation_result") as render, \
              patch.object(page, "_set_weighted_equipment_actions_enabled") as enable:
             page._on_weighted_replacement_done(
                 host, preview, old.uid,
@@ -481,8 +545,52 @@ class WeightedAllocationUiTests(unittest.TestCase):
         self.assertIs(updated, host._weighted_allocation_saved_preview)
         self.assertEqual(new.uid, updated.result.unified.selected[0].assignments[0].uid)
         self.assertEqual(95.0, updated.result.unified.selected[0].score)
+        save.assert_called_once_with(updated)
         render.assert_called_once()
         enable.assert_called_once_with(host, True)
+
+    def test_replacement_rejects_uid_already_used_by_another_selected_role(self):
+        old = AllocationCandidate(
+            2, 1, "module", "old", "Suit4", "shu2", 2, "purple", 60, 60,
+            False, False, False, None, False, None, None, None, (), (),
+        )
+        claimed = AllocationCandidate(
+            3, 1, "module", "claimed", "Suit4", "shu2", 2, "purple", 60, 60,
+            False, False, False, None, False, None, None, None, (), (),
+        )
+        first = RoleAllocationOption(
+            1055, 1, 40.0, (),
+            (AllocationAssignment(
+                old.uid, "module", "old", "Suit4", "shu2", (), None,
+                40.0, (), (),
+            ),),
+            (("H_2", "H_2"),), (),
+        )
+        second = RoleAllocationOption(
+            1003, 1, 55.0, (),
+            (AllocationAssignment(
+                claimed.uid, "module", "claimed", "Suit4", "shu2", (), None,
+                55.0, (), (),
+            ),),
+            (("H_2", "H_2"),), (),
+        )
+        preview = page.WeightedAllocationPreview(
+            result=AllocationSolveResult(
+                1, 2, 3, "test", 1, (),
+                UnifiedAllocation(
+                    "role_priority", 95.0, (first, second), (), (),
+                ),
+            ),
+            static_dataset=MagicMock(),
+            account_id="default",
+            user_database_path=Path("account.sqlite"),
+            context=MagicMock(candidates=(old, claimed)),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "其他角色"):
+            replace_weighted_allocation_assignment(
+                preview, old_uid=old.uid, new_uid=claimed.uid, new_score=60.0
+            )
 
     def test_legacy_quality_names_match_result_card_contract(self):
         self.assertEqual("Gold", page._legacy_quality("orange"))
@@ -649,7 +757,10 @@ class WeightedAllocationUiTests(unittest.TestCase):
         user.__enter__.return_value = user
         static.__enter__.return_value = static
         static.list_characters.return_value = [{"character_id": 1055, "name_zh": "九原"}]
-        bridge.save_role_plan.return_value = MagicMock(plan_id=7)
+        prepared = MagicMock()
+        prepared.as_record.return_value = {"payload": "prepared"}
+        bridge.prepare_role_plan.return_value = prepared
+        user.replace_active_loadout_plans.return_value = (7,)
 
         with patch("src.features.weighted_allocation.runner.UserDataDao", return_value=user), \
              patch("src.features.weighted_allocation.runner.StaticGameDataDao", return_value=static), \
@@ -657,8 +768,11 @@ class WeightedAllocationUiTests(unittest.TestCase):
             plan_ids = save_weighted_allocation_preview(preview)
 
         self.assertEqual((7,), plan_ids)
-        payload = bridge.save_role_plan.call_args.kwargs["payload"]
+        payload = bridge.prepare_role_plan.call_args.kwargs["payload"]
         self.assertEqual({"nte-module-2-1": 40.0}, payload["assignment_scores"])
+        user.replace_active_loadout_plans.assert_called_once_with(
+            [{"payload": "prepared"}]
+        )
 
     def test_runner_can_skip_hidden_role_top_k_work(self):
         request = WeightedAllocationRequest(Path(__file__), 1, 2, 3, 1, False)

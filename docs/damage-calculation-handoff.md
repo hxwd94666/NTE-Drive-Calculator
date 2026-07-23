@@ -38,7 +38,7 @@
 
 Content 根目录：
 
-`C:\softwares\codes\utils\异环\UnrealExporter\output_combat\HT\Content`
+`../Content`
 
 | 数据 | Content 相对路径 | 当前用途 |
 | --- | --- | --- |
@@ -71,10 +71,10 @@ Content 根目录：
 
 ```powershell
 python tools/game_data/build_static_database.py `
-  --source "C:\softwares\codes\utils\异环\UnrealExporter\output_combat\HT\Content" `
+  --source "../Content" `
   --output "data\game_static.sqlite3" `
-  --report-dir "C:\Temp\nte-drive-calculator-static-db-report" `
-  --dataset-id "unversioned_20260722_combat" `
+  --report-dir "build/static-db-report" `
+  --dataset-id "unversioned_20260723_update" `
   --as-of 2026-07-22 `
   --omit-source-payloads
 ```

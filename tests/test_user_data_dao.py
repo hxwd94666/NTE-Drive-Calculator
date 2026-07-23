@@ -630,6 +630,155 @@ class UserDataDaoTest(unittest.TestCase):
         self.assertEqual(self.dao.get_loadout_plan(plan_id)["plan_id"], plan_id)
         self.assertIsNone(self.dao.get_loadout_plan(plan_id + 1000))
 
+    def test_batch_replace_strips_claimed_uid_from_other_active_role(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(11, 22), item(12, 23), item(13, 24)])
+        )
+        old_plan_id = self.dao.save_loadout_plan(
+            name="旧角色方案",
+            character_id=1003,
+            source_snapshot_id=snapshot_id,
+            status="ready",
+            is_active=True,
+            assignments=[
+                {
+                    "uid_serial": 11, "uid_slot": 22, "kind": "module",
+                    "target_row": 1, "target_column": 1, "rotation": 0,
+                },
+                {
+                    "uid_serial": 12, "uid_slot": 23, "kind": "module",
+                    "target_row": 2, "target_column": 2, "rotation": 0,
+                },
+            ],
+            payload={"source_role_name": "旧角色"},
+        )
+
+        saved_ids = self.dao.replace_active_loadout_plans([{
+            "name": "新角色方案",
+            "character_id": 1055,
+            "source_snapshot_id": snapshot_id,
+            "status": "ready",
+            "assignments": [
+                {
+                    "uid_serial": 11, "uid_slot": 22, "kind": "module",
+                    "target_row": 1, "target_column": 1, "rotation": 0,
+                },
+                {
+                    "uid_serial": 13, "uid_slot": 24, "kind": "module",
+                    "target_row": 2, "target_column": 2, "rotation": 0,
+                },
+            ],
+            "payload": {"source_role_name": "新角色"},
+        }])
+
+        self.assertEqual(1, len(saved_ids))
+        self.assertFalse(self.dao.get_loadout_plan(old_plan_id)["is_active"])
+        active = [plan for plan in self.dao.list_loadout_plans() if plan["is_active"]]
+        self.assertEqual({1003, 1055}, {plan["character_id"] for plan in active})
+        residual = next(plan for plan in active if plan["character_id"] == 1003)
+        self.assertEqual(
+            [(23, 12)],
+            [
+                (row["uid_slot"], row["uid_serial"])
+                for row in residual["assignments"]
+            ],
+        )
+        self.assertEqual(
+            old_plan_id,
+            residual["payload"]["active_plan_overlay"]["previous_plan_id"],
+        )
+        self.assertEqual("active_plan_overlay", residual["payload"]["source"])
+        active_uids = [
+            (row["uid_slot"], row["uid_serial"])
+            for plan in active
+            for row in plan["assignments"]
+        ]
+        self.assertEqual(len(active_uids), len(set(active_uids)))
+
+    def test_batch_replace_rolls_back_every_role_when_one_uid_is_missing(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(11, 22), item(12, 23)])
+        )
+        old_plan_id = self.dao.save_loadout_plan(
+            name="原方案",
+            character_id=1003,
+            source_snapshot_id=snapshot_id,
+            status="ready",
+            is_active=True,
+            assignments=[{
+                "uid_serial": 11, "uid_slot": 22, "kind": "module",
+                "target_row": 1, "target_column": 1, "rotation": 0,
+            }],
+        )
+        plan_count = len(self.dao.list_loadout_plans())
+
+        with self.assertRaisesRegex(UserDataValidationError, "不在方案固定"):
+            self.dao.replace_active_loadout_plans([
+                {
+                    "name": "第一角色",
+                    "character_id": 1003,
+                    "source_snapshot_id": snapshot_id,
+                    "assignments": [{
+                        "uid_serial": 12, "uid_slot": 23, "kind": "module",
+                        "target_row": 1, "target_column": 1, "rotation": 0,
+                    }],
+                },
+                {
+                    "name": "第二角色",
+                    "character_id": 1055,
+                    "source_snapshot_id": snapshot_id,
+                    "assignments": [{
+                        "uid_serial": 99, "uid_slot": 99, "kind": "module",
+                        "target_row": 1, "target_column": 1, "rotation": 0,
+                    }],
+                },
+            ])
+
+        self.assertEqual(plan_count, len(self.dao.list_loadout_plans()))
+        self.assertTrue(self.dao.get_loadout_plan(old_plan_id)["is_active"])
+
+    def test_batch_replace_rejects_uid_shared_by_incoming_roles(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
+        shared_assignment = {
+            "uid_serial": 11, "uid_slot": 22, "kind": "module",
+            "target_row": 1, "target_column": 1, "rotation": 0,
+        }
+
+        with self.assertRaisesRegex(UserDataValidationError, "多个角色"):
+            self.dao.replace_active_loadout_plans([
+                {
+                    "name": "第一角色", "character_id": 1003,
+                    "source_snapshot_id": snapshot_id,
+                    "assignments": [shared_assignment],
+                },
+                {
+                    "name": "第二角色", "character_id": 1055,
+                    "source_snapshot_id": snapshot_id,
+                    "assignments": [shared_assignment],
+                },
+            ])
+
+        self.assertEqual([], self.dao.list_loadout_plans())
+
+    def test_batch_replace_revalidates_the_current_actual_inventory(self) -> None:
+        calculation_snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(11, 22)])
+        )
+        self.dao.import_inventory_snapshot(snapshot(2, [item(12, 23)]))
+
+        with self.assertRaisesRegex(UserDataValidationError, "当前实际稳定背包"):
+            self.dao.replace_active_loadout_plans([{
+                "name": "过期计算方案",
+                "character_id": 1003,
+                "source_snapshot_id": calculation_snapshot_id,
+                "assignments": [{
+                    "uid_serial": 11, "uid_slot": 22, "kind": "module",
+                    "target_row": 1, "target_column": 1, "rotation": 0,
+                }],
+            }])
+
+        self.assertEqual([], self.dao.list_loadout_plans())
+
     def test_finds_active_plan_by_ui_role_name_without_json_state(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
         plan_id = self.dao.save_loadout_plan(

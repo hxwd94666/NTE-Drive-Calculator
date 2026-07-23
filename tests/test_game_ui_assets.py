@@ -42,11 +42,36 @@ class GameUiAssetTests(unittest.TestCase):
             }
         self.assertEqual(core_ids, set(manifest["equipment_items"]))
 
+    def test_all_static_modules_and_forks_have_official_id_mappings(self) -> None:
+        manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
+        with StaticGameDataDao(PROJECT_ROOT / "data" / "game_static.sqlite3") as dao:
+            module_ids = {
+                str(row["item_id"])
+                for row in dao.list_equipment_items()
+                if row["kind"] == "module"
+            }
+            fork_ids = {str(row["fork_id"]) for row in dao.list_forks()}
+        self.assertEqual(module_ids, set(manifest["equipment_modules"]))
+        self.assertEqual(fork_ids, set(manifest["fork_items"]))
+        self.assertGreater(len(manifest["monster_icons"]), 0)
+
     def test_catalog_resolves_ids_and_rejects_missing_keys(self) -> None:
         catalog = GameUiAssetCatalog(ASSET_ROOT)
         self.assertTrue(catalog.character_icon(1003).is_file())
         self.assertTrue(catalog.attribute_icon("crit_rate").is_file())
         self.assertTrue(catalog.equipment_icon("Lakshana_orange").is_file())
+        self.assertTrue(catalog.module_icon("cell3_style1_1_Orange").is_file())
+        self.assertEqual(
+            catalog.equipment_icon("Lakshana_orange"),
+            catalog.inventory_item_icon("core", "Lakshana_orange"),
+        )
+        self.assertEqual(
+            catalog.module_icon("cell3_style1_1_Orange"),
+            catalog.inventory_item_icon("module", "cell3_style1_1_Orange"),
+        )
+        self.assertIsNone(catalog.inventory_item_icon("unknown", "Lakshana_orange"))
+        self.assertTrue(catalog.fork_icon("fork_yuren").is_file())
+        self.assertIsNone(catalog.monster_icon("monster_static_big_world", "unknown"))
         self.assertIsNone(catalog.character_icon(999999))
 
     def test_builder_resizes_and_deduplicates_shared_outputs(self) -> None:
@@ -81,7 +106,12 @@ class GameUiAssetTests(unittest.TestCase):
                 encoding="utf-8",
             )
             output = root / "output"
-            result = build_assets(content, manifest_path, output)
+            result = build_assets(
+                content,
+                manifest_path,
+                output,
+                root / "external-static.sqlite3",
+            )
 
             self.assertEqual(1, result["total_files"])
             self.assertEqual("characters/shared.png", result["characters"]["1"])

@@ -11,14 +11,20 @@
 
 ## 角色数据源清单
 
+开发者本机的绝对路径、数据集编号和日期统一保存在仓库外的 JSON 配置中。
+设置 `NTE_LOCAL_CONFIG` 后可直接读取；未设置时仍可使用公开的相对路径示例：
+
 ```powershell
-$gameDataSource = "D:\path\to\game_official_data\Content"
-$gameDataWorkspace = "D:\path\to\game_data_workspace"
+$localConfig = if ($env:NTE_LOCAL_CONFIG) { Get-Content -Raw -LiteralPath $env:NTE_LOCAL_CONFIG | ConvertFrom-Json } else { $null }
+$gameDataSource = if ($localConfig) { $localConfig.official_content_root } else { "../Content" }
+$gameDataWorkspace = if ($localConfig) { $localConfig.game_data_workspace } else { "." }
+$gameDataSetId = if ($localConfig) { $localConfig.dataset_id } else { "release_YYYYMMDD" }
+$gameDataAsOf = if ($localConfig) { $localConfig.as_of } else { "YYYY-MM-DD" }
 
 python tools/game_data/catalog_characters.py `
   --source $gameDataSource `
   --output-dir "$gameDataWorkspace\reports\characters" `
-  --as-of 2026-07-18
+  --as-of $gameDataAsOf
 ```
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
@@ -30,8 +36,8 @@ python tools/game_data/build_static_database.py `
   --source $gameDataSource `
   --output "$gameDataWorkspace\build\game_static.sqlite3" `
   --report-dir "$gameDataWorkspace\reports\static_database" `
-  --dataset-id "release_20260718" `
-  --as-of 2026-07-18
+  --dataset-id $gameDataSetId `
+  --as-of $gameDataAsOf
 ```
 
 提交到项目并随安装包分发的数据库必须省略来源行原文：
@@ -41,8 +47,8 @@ python tools/game_data/build_static_database.py `
   --source $gameDataSource `
   --output "data\game_static.sqlite3" `
   --report-dir "$gameDataWorkspace\reports\distribution_database" `
-  --dataset-id "release_20260718" `
-  --as-of 2026-07-18 `
+  --dataset-id $gameDataSetId `
+  --as-of $gameDataAsOf `
   --omit-source-payloads
 ```
 
@@ -97,7 +103,7 @@ schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级
 ```powershell
 [Environment]::SetEnvironmentVariable(
   "NTE_GAME_STATIC_DB",
-  "D:\path\to\game_data_workspace\build\game_static.sqlite3",
+  "build/game_static.sqlite3",
   "User"
 )
 ```

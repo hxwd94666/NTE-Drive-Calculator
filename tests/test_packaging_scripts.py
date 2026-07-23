@@ -1,5 +1,6 @@
 # 测试打包脚本的版本和编码输出。
 import codecs
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,41 @@ from src.app.constants import APP_VERSION
 class PackagingScriptTests(unittest.TestCase):
     def test_installer_version_comes_from_app_constants(self):
         self.assertEqual(APP_VERSION, build_installer._read_app_version())
+
+    def test_explicit_external_installer_tools_are_supported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            iscc = root / "ISCC.exe"
+            vigem = root / "ViGEmBusSetup_x64.msi"
+            iscc.touch()
+            vigem.touch()
+
+            self.assertEqual(iscc.resolve(), build_installer._find_iscc(iscc))
+            self.assertEqual(
+                (vigem.resolve(), False),
+                build_installer._find_vigem_installer(vigem),
+            )
+
+    def test_installer_tool_paths_can_come_from_external_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path = root / "local.paths.json"
+            iscc = root / "ISCC.exe"
+            config_path.write_text(
+                json.dumps({"inno_setup_iscc": str(iscc)}),
+                encoding="utf-8",
+            )
+
+            config = build_installer._load_local_config(config_path)
+            with patch.dict("os.environ", {}, clear=True):
+                configured = build_installer._configured_path(
+                    None,
+                    "INNO_SETUP_ISCC",
+                    config,
+                    "inno_setup_iscc",
+                )
+
+            self.assertEqual(iscc, configured)
 
     def test_generated_installer_script_is_utf8_bom_with_chinese_text(self):
         build_installer._write_iss(APP_VERSION, build_installer.VIGEM_BUNDLE_EXE, True)
