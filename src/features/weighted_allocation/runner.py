@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -21,9 +20,19 @@ from src.services.allocation_context import (
     StaticDatasetReference,
     build_allocation_context,
 )
-from src.services.allocation_solver import AllocationSolveResult, RoleAllocationOption, solve_allocation_context
+from src.services.allocation_solver import (
+    AllocationAssignment,
+    AllocationSolveResult,
+    RoleAllocationOption,
+    solve_allocation_context,
+)
 from src.services.saved_state_loadout_bridge import SavedStateLoadoutBridge
 from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.services.virtual_equipment_service import (
+    grid_count_from_geometry,
+    virtual_equipment_item_id,
+    virtual_equipment_uid,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -90,6 +99,11 @@ class WeightedSavedAssignmentSignature:
     target_row: int | None
     target_column: int | None
     score: float | None
+    virtual: bool = False
+    item_id: str | None = None
+    suit_id: str | None = None
+    geometry: str | None = None
+    grid_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +217,40 @@ def read_weighted_allocation_persistence(
                         in (plan["payload"].get("assignment_scores") or {})
                         else None
                     ),
+                    virtual=bool(
+                        (item.get("raw_assignment") or {}).get("virtual")
+                    ),
+                    item_id=(
+                        (item.get("raw_assignment") or {})
+                        .get("virtual_equipment", {})
+                        .get("item_id")
+                    ),
+                    suit_id=(
+                        (item.get("raw_assignment") or {})
+                        .get("virtual_equipment", {})
+                        .get("suit_id")
+                    ),
+                    geometry=(
+                        (item.get("raw_assignment") or {}).get("geometry")
+                        or (item.get("raw_assignment") or {})
+                        .get("virtual_equipment", {})
+                        .get("geometry")
+                    ),
+                    grid_count=(
+                        int(
+                            (item.get("raw_assignment") or {}).get("grid_count")
+                            or (item.get("raw_assignment") or {})
+                            .get("virtual_equipment", {})
+                            .get("grid_count")
+                        )
+                        if (
+                            (item.get("raw_assignment") or {}).get("grid_count")
+                            or (item.get("raw_assignment") or {})
+                            .get("virtual_equipment", {})
+                            .get("grid_count")
+                        ) is not None
+                        else None
+                    ),
                 )
                 for item in plan.get("assignments") or ()
             ),
@@ -226,15 +274,13 @@ def read_weighted_allocation_persistence(
 def restore_weighted_allocation_preview(
     persistence: WeightedAllocationPersistence,
 ) -> WeightedAllocationPreview | None:
-    """Rebuild and verify the exact active saved result for UI restoration."""
+    """Rebuild a saved result against the current official static constraints."""
 
     if not isinstance(persistence, WeightedAllocationPersistence):
         raise TypeError("restoring requires WeightedAllocationPersistence")
     if persistence.restore_request is None:
         return None
     preview = run_weighted_allocation(persistence.restore_request)
-    if preview.static_dataset != persistence.static_dataset:
-        raise RuntimeError("已保存方案使用的静态数据版本与当前版本不一致。")
     expected = {plan.character_id: plan for plan in persistence.saved_plans}
     selected = {option.character_id: option for option in preview.result.unified.selected}
     if set(selected) != set(expected):
@@ -243,19 +289,12 @@ def restore_weighted_allocation_preview(
     for option in preview.result.unified.selected:
         character_id = option.character_id
         signature = expected[character_id]
-        if option.used_uids == signature.uids and math.isclose(
-            option.score, signature.score, rel_tol=0.0, abs_tol=0.005,
-        ):
-            updated_options.append(option)
-            continue
         updated_options.append(_restore_saved_option(preview.context, option, signature))
-    if all(left is right for left, right in zip(updated_options, preview.result.unified.selected)):
-        return preview
     unified = replace(
         preview.result.unified,
         total_score=sum(float(option.score) for option in updated_options),
         selected=tuple(updated_options),
-        explanation=tuple(preview.result.unified.explanation) + ("已恢复用户手动优化替换",),
+        explanation=tuple(preview.result.unified.explanation) + ("已按当前官方蓝图恢复保存方案",),
     )
     return replace(preview, result=replace(preview.result, unified=unified))
 
@@ -266,21 +305,35 @@ def _restore_saved_option(context, option, signature: WeightedSavedPlanSignature
         str(shape.shape_id).removeprefix("EquipmentGeometry_").casefold(): shape
         for shape in context.shapes
     }
-    base_modules = {assignment.board_cells: assignment for assignment in option.assignments if assignment.kind == "module"}
-    base_core = next((assignment for assignment in option.assignments if assignment.kind == "core"), None)
+    role = next(
+        (role for role in context.roles if role.character_id == signature.character_id),
+        None,
+    )
+    if role is None:
+        raise RuntimeError(f"角色 {signature.character_id} 缺少当前官方蓝图。")
+    official_cells = {
+        (int(cell.row), int(cell.column))
+        for cell in role.equipment.cells
+    }
     restored = []
+    occupied_cells: set[tuple[int, int]] = set()
+    board_labels: list[tuple[str, tuple[tuple[int, int], ...]]] = []
     for saved in signature.assignments:
         candidate = candidates.get(saved.uid)
-        if candidate is None or candidate.kind != saved.kind or saved.score is None:
+        if (
+            (candidate is None and not saved.virtual)
+            or (candidate is not None and candidate.kind != saved.kind)
+            or saved.score is None
+        ):
             raise RuntimeError(
                 f"角色 {signature.character_id} 的手动替换方案缺少可验证的装备或评分。"
             )
+        geometry = candidate.geometry if candidate is not None else saved.geometry
         if saved.kind == "core":
-            base = base_core
             board_cells = ()
         else:
             shape = shapes.get(
-                str(candidate.geometry or "").removeprefix("EquipmentGeometry_").casefold()
+                str(geometry or "").removeprefix("EquipmentGeometry_").casefold()
             )
             if shape is None or saved.target_row is None or saved.target_column is None:
                 raise RuntimeError(f"角色 {signature.character_id} 的手动驱动缺少官方坐标。")
@@ -288,20 +341,53 @@ def _restore_saved_option(context, option, signature: WeightedSavedPlanSignature
                 (saved.target_row + int(cell.x), saved.target_column + int(cell.y))
                 for cell in shape.cells
             ))
-            base = base_modules.get(board_cells)
-        if base is None:
-            raise RuntimeError(f"角色 {signature.character_id} 的手动替换布局与固定图纸不一致。")
-        restored.append(replace(
-            base,
+            if (
+                not set(board_cells) <= official_cells
+                or occupied_cells.intersection(board_cells)
+            ):
+                raise RuntimeError(
+                    f"角色 {signature.character_id} 的手动替换布局不符合当前官方蓝图。"
+                )
+            occupied_cells.update(board_cells)
+            board_labels.append((
+                str(shape.legacy_shape_id or geometry or shape.shape_id),
+                board_cells,
+            ))
+        restored.append(AllocationAssignment(
             uid=saved.uid,
-            item_id=candidate.item_id,
-            suit_id=candidate.suit_id,
-            geometry=candidate.geometry,
+            kind=saved.kind,
+            item_id=(
+                candidate.item_id
+                if candidate is not None
+                else saved.item_id
+                or virtual_equipment_item_id(saved.kind, geometry)
+            ),
+            suit_id=candidate.suit_id if candidate is not None else saved.suit_id,
+            geometry=geometry,
             board_cells=board_cells,
+            official_recommendation_item_id=None,
             score=float(saved.score),
             contributions=(),
+            compatibility=("已保存方案", "当前官方蓝图校验"),
+            virtual=saved.virtual,
+            grid_count=(
+                candidate.grid_count if candidate is not None else saved.grid_count
+            ),
         ))
-    return replace(option, score=signature.score, assignments=tuple(restored))
+    if occupied_cells != official_cells:
+        raise RuntimeError(
+            f"角色 {signature.character_id} 的手动替换布局未完整覆盖当前官方蓝图。"
+        )
+    generated_board: list[list[str | int]] = [[-1] * 5 for _ in range(5)]
+    for label, board_cells in board_labels:
+        for row, column in board_cells:
+            generated_board[row - 1][column - 1] = label
+    return replace(
+        option,
+        score=signature.score,
+        assignments=tuple(restored),
+        generated_board=tuple(tuple(row) for row in generated_board),
+    )
 
 
 def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAllocationPreview:
@@ -403,7 +489,7 @@ def replace_weighted_allocation_assignment(
     new_uid: tuple[int, int],
     new_score: float,
 ) -> WeightedAllocationPreview:
-    """Replace one assignment while preserving board layout and global UID uniqueness."""
+    """Move one real item and leave a virtual placeholder in its old role."""
 
     if not isinstance(preview, WeightedAllocationPreview):
         raise TypeError("replacement requires a WeightedAllocationPreview")
@@ -413,49 +499,91 @@ def replace_weighted_allocation_assignment(
     )
     if candidate is None:
         raise RuntimeError(f"替换装备 UID {new_uid} 不在计算固定的背包快照中。")
-    used_uids = {
-        assignment.uid
-        for option in preview.result.unified.selected
-        for assignment in option.assignments
-        if assignment.uid != old_uid
-    }
-    if new_uid in used_uids:
-        raise RuntimeError(f"替换装备 UID {new_uid} 已被当前方案中的其他角色使用。")
+    target_owner = next(
+        (
+            option
+            for option in preview.result.unified.selected
+            if any(assignment.uid == old_uid for assignment in option.assignments)
+        ),
+        None,
+    )
+    displaced_owner = next(
+        (
+            option
+            for option in preview.result.unified.selected
+            if any(assignment.uid == new_uid for assignment in option.assignments)
+        ),
+        None,
+    )
+    if target_owner is None:
+        raise RuntimeError(f"当前临时方案中不存在待替换 UID {old_uid}。")
+    if displaced_owner is target_owner:
+        raise RuntimeError("不能用同一角色当前方案中的另一件装备重复占位。")
 
     changed_count = 0
+    displaced_count = 0
     updated_options: list[RoleAllocationOption] = []
     for option in preview.result.unified.selected:
         updated_assignments = []
-        previous_score = 0.0
+        option_score = float(option.score)
         option_changed = False
-        for assignment in option.assignments:
-            if assignment.uid != old_uid:
-                updated_assignments.append(assignment)
+        for ordinal, assignment in enumerate(option.assignments):
+            if assignment.uid == old_uid:
+                if candidate.kind != assignment.kind:
+                    raise RuntimeError("替换装备类型与当前位置不一致。")
+                if (
+                    assignment.kind == "module"
+                    and str(candidate.geometry or "").casefold()
+                    != str(assignment.geometry or "").casefold()
+                ):
+                    raise RuntimeError("替换驱动形状与当前位置不一致。")
+                updated_assignments.append(replace(
+                    assignment,
+                    uid=new_uid,
+                    item_id=candidate.item_id,
+                    suit_id=candidate.suit_id,
+                    geometry=candidate.geometry,
+                    score=float(new_score),
+                    contributions=(),
+                    virtual=False,
+                    grid_count=candidate.grid_count,
+                ))
+                option_score += float(new_score) - float(assignment.score)
+                option_changed = True
+                changed_count += 1
                 continue
-            if candidate.kind != assignment.kind:
-                raise RuntimeError("替换装备类型与当前位置不一致。")
-            if (
-                assignment.kind == "module"
-                and str(candidate.geometry or "").casefold()
-                != str(assignment.geometry or "").casefold()
-            ):
-                raise RuntimeError("替换驱动形状与当前位置不一致。")
-            updated_assignments.append(replace(
-                assignment,
-                uid=new_uid,
-                item_id=candidate.item_id,
-                suit_id=candidate.suit_id,
-                geometry=candidate.geometry,
-                score=float(new_score),
-                contributions=(),
-            ))
-            previous_score = float(assignment.score)
-            option_changed = True
-            changed_count += 1
+            if assignment.uid == new_uid:
+                virtual_uid = virtual_equipment_uid(
+                    character_id=option.character_id,
+                    displaced_uid=new_uid,
+                    ordinal=ordinal,
+                    kind=assignment.kind,
+                )
+                geometry = assignment.geometry
+                updated_assignments.append(replace(
+                    assignment,
+                    uid=virtual_uid,
+                    item_id=assignment.item_id,
+                    suit_id=assignment.suit_id,
+                    score=0.0,
+                    contributions=(),
+                    compatibility=("跨角色借装占位", "不属于背包候选池"),
+                    virtual=True,
+                    grid_count=(
+                        assignment.grid_count
+                        or grid_count_from_geometry(geometry)
+                        or None
+                    ),
+                ))
+                option_score -= float(assignment.score)
+                option_changed = True
+                displaced_count += 1
+                continue
+            updated_assignments.append(assignment)
         updated_options.append(
             replace(
                 option,
-                score=float(option.score) - previous_score + float(new_score),
+                score=option_score,
                 assignments=tuple(updated_assignments),
             )
             if option_changed else option
@@ -464,11 +592,17 @@ def replace_weighted_allocation_assignment(
         raise RuntimeError(
             f"当前方案中应恰好存在一个待替换 UID {old_uid}，实际为 {changed_count} 个。"
         )
+    if displaced_owner is not None and displaced_count != 1:
+        raise RuntimeError(
+            f"当前临时方案中的被借装备 UID {new_uid} 无法唯一定位。"
+        )
     unified = replace(
         preview.result.unified,
         total_score=sum(float(option.score) for option in updated_options),
         selected=tuple(updated_options),
-        explanation=tuple(preview.result.unified.explanation) + ("用户手动优化替换",),
+        explanation=tuple(preview.result.unified.explanation) + (
+            "用户手动优化替换；跨角色借装时原槽位使用虚拟占位",
+        ),
     )
     return replace(preview, result=replace(preview.result, unified=unified))
 
@@ -480,6 +614,21 @@ def _role_state(option: RoleAllocationOption) -> dict[str, object]:
         {
             EQUIP_UID: f"nte-module-{assignment.uid[0]}-{assignment.uid[1]}",
             EQUIP_SHAPE_ID: str(legacy_shape_id(assignment.geometry or "")),
+            "geometry": assignment.geometry,
+            "grid_count": assignment.grid_count,
+            "virtual": assignment.virtual,
+            "virtual_equipment": (
+                {
+                    "item_id": assignment.item_id,
+                    "kind": "module",
+                    "suit_id": assignment.suit_id,
+                    "geometry": assignment.geometry,
+                    "grid_count": assignment.grid_count,
+                    "quality": "orange",
+                }
+                if assignment.virtual
+                else None
+            ),
         }
         for assignment in option.assignments
         if assignment.kind == "module"
@@ -489,6 +638,23 @@ def _role_state(option: RoleAllocationOption) -> dict[str, object]:
         ROLE_BLUEPRINT_LAYOUT: [list(row) for row in option.generated_board],
         ROLE_EQUIPPED_DRIVES: drives,
         ROLE_EQUIPPED_TAPE: (
-            {EQUIP_UID: f"nte-core-{core.uid[0]}-{core.uid[1]}"} if core is not None else None
+            {
+                EQUIP_UID: f"nte-core-{core.uid[0]}-{core.uid[1]}",
+                "virtual": core.virtual,
+                "virtual_equipment": (
+                    {
+                        "item_id": core.item_id,
+                        "kind": "core",
+                        "suit_id": core.suit_id,
+                        "geometry": None,
+                        "grid_count": None,
+                        "quality": "orange",
+                    }
+                    if core.virtual
+                    else None
+                ),
+            }
+            if core is not None
+            else None
         ),
     }

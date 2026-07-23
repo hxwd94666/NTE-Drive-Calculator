@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.features.drive_assembly.blocks import matrix_groups_in_scan_order
 from src.services.allocation_context import AllocationCandidate, AllocationContext, AllocationRolePreference
 
 
@@ -34,6 +35,8 @@ class AllocationAssignment:
     score: float
     contributions: tuple[StatContribution, ...]
     compatibility: tuple[str, ...]
+    virtual: bool = False
+    grid_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,11 +97,13 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
     if not plan.get("valid"):
         return None
     board = tuple(tuple(row) for row in (plan.get("blueprint") or {}).get("board", ()))
-    cells_by_shape: dict[str, list[tuple[int, int]]] = {}
-    for row, values in enumerate(board, start=1):
-        for column, value in enumerate(values, start=1):
-            if isinstance(value, str):
-                cells_by_shape.setdefault(value, []).append((row, column))
+    groups_by_shape: dict[str, list[tuple[tuple[int, int], ...]]] = {}
+    for shape_id, cells in matrix_groups_in_scan_order(
+        [[str(cell) for cell in row] for row in board]
+    ):
+        groups_by_shape.setdefault(
+            str(shape_id).strip().casefold(), []
+        ).append(tuple(cells))
     assignments: list[AllocationAssignment] = []
     role_key = run.role_key(role.character_id)
     tape = plan.get("assigned_tape")
@@ -106,15 +111,26 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
         item = run.candidates_by_legacy_uid[tape.uid]
         assignments.append(AllocationAssignment(item.uid, "core", item.item_id, item.suit_id, None, (), None,
             float(tape.role_scores.get(role_key, 0.0)), _contributions(item, role),
-            ("ScoringEngine 标准化核心评分", "用户核心主词条过滤")))
+            ("ScoringEngine 标准化核心评分", "用户核心主词条过滤"),
+            grid_count=item.grid_count))
     for drives, slot_label in ((plan.get("assigned_set_drives", ()) or (), "套装必要形状"),
                                (plan.get("assigned_extra_drives", ()) or (), "额外形状")):
         for drive in drives:
             item = run.candidates_by_legacy_uid[drive.uid]
+            shape_groups = groups_by_shape.get(
+                str(drive.shape_id).strip().casefold(), []
+            )
+            if not shape_groups:
+                raise AllocationSolverError(
+                    f"角色 {role.character_id} 的图纸无法为驱动形状 {drive.shape_id} 分配独立格块"
+                )
             assignments.append(AllocationAssignment(item.uid, "module", item.item_id, item.suit_id, item.geometry,
-                tuple(cells_by_shape.get(str(drive.shape_id), ())), None,
+                shape_groups.pop(0), None,
                 float(drive.role_scores.get(role_key, 0.0)), _contributions(item, role),
-                ("ScoringEngine 标准化驱动评分", "PuzzleCombinatorics + DFSPuzzleSolver", slot_label)))
+                ("ScoringEngine 标准化驱动评分", "PuzzleCombinatorics + DFSPuzzleSolver", slot_label),
+                grid_count=item.grid_count))
+    if any(groups for groups in groups_by_shape.values()):
+        raise AllocationSolverError(f"角色 {role.character_id} 的图纸存在未绑定驱动格块")
     if not assignments:
         return None
     return RoleAllocationOption(role.character_id, rank, float(plan.get("score", 0.0)), (), tuple(assignments), board,

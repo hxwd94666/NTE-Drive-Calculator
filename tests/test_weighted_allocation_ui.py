@@ -683,8 +683,8 @@ class WeightedAllocationUiTests(unittest.TestCase):
             "profile_version": 16,
             "solver_version": "allocation-context-v1",
             "static_dataset": {
-                "schema_version": 11, "dataset_id": "dataset",
-                "importer_version": 11, "built_at_utc": "now",
+                "schema_version": 12, "dataset_id": "dataset",
+                "importer_version": 12, "built_at_utc": "now",
             },
         }
         dao.list_loadout_plans.return_value = [{

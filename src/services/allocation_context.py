@@ -417,7 +417,7 @@ def _workshop_role_values(
     character_name: str,
     workshop_roles: Mapping[str, Any], *, catalog: StatCatalog,
     attribute_id_by_name: Mapping[str, str],
-) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
+) -> tuple[dict[str, float], dict[str, float]]:
     character_token = str(character_id)
     raw = next(
         (
@@ -438,12 +438,59 @@ def _workshop_role_values(
     if not isinstance(raw, Mapping):
         # A missing synced role is a supported state.  It must not silently use
         # the official equipment-plan recommendation as a scoring substitute.
-        return {}, {}, "", {}
+        return {}, {}
     return (
         _workshop_weight_ids(raw.get("weights"), catalog=catalog, attribute_id_by_name=attribute_id_by_name),
         _workshop_weight_ids(raw.get("main_weights"), catalog=catalog, attribute_id_by_name=attribute_id_by_name),
-        str(raw.get("extra_shape_label") or ""),
-        _workshop_weight_ids(raw.get("extra_shape_buffs"), catalog=catalog, attribute_id_by_name=attribute_id_by_name),
+    )
+
+
+def _allocation_role_values(
+    user_dao: UserDataDao,
+    static_dao: StaticGameDataDao,
+    character_id: int,
+    character_name: str,
+    workshop_roles: Mapping[str, Any],
+    *,
+    catalog: StatCatalog | None,
+    attribute_id_by_name: Mapping[str, str],
+) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
+    account_weights = user_dao.get_character_weight_preferences(character_id)
+    recommended_weights = static_dao.get_character_recommended_weights(character_id)
+    weight_record = account_weights or recommended_weights
+    if weight_record is not None:
+        weights = {
+            str(property_id): float(weight)
+            for property_id, weight in (
+                weight_record.get("property_weights") or {}
+            ).items()
+        }
+        main_weights = {
+            str(property_id): float(weight)
+            for property_id, weight in (
+                weight_record.get("main_property_weights") or {}
+            ).items()
+        }
+    elif catalog is None:
+        weights = {}
+        main_weights = {}
+    else:
+        weights, main_weights = _workshop_role_values(
+            character_id,
+            character_name,
+            workshop_roles,
+            catalog=catalog,
+            attribute_id_by_name=attribute_id_by_name,
+        )
+    shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+    return (
+        weights,
+        main_weights,
+        str(shape_bonus.get("shape_label") or ""),
+        {
+            str(row["property_id"]): float(row["display_value"])
+            for row in shape_bonus.get("properties") or ()
+        },
     )
 
 
@@ -616,12 +663,13 @@ def build_allocation_context(
                 static_dao, row, known_character_ids=known_character_ids,
             ),
             workshop_values=(
-                _workshop_role_values(
+                _allocation_role_values(
+                    user_dao,
+                    static_dao,
                     int(row["character_id"]),
                     character_name_by_id.get(int(row["character_id"]), ""), workshop_roles,
                     catalog=catalog, attribute_id_by_name=attribute_id_by_name,
                 )
-                if catalog is not None else ({}, {}, "", {})
             ),
             known_suit_ids=set(suits_by_id),
         )

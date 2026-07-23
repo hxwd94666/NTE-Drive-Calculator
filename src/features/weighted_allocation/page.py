@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame,
     QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QFormLayout, QScrollArea, QVBoxLayout, QWidget,
+    QFormLayout, QGridLayout, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from src.app import runtime
@@ -21,6 +21,7 @@ from src.features.allocation.priority_groups import priority_groups_to_links
 from src.features.allocation.role_selector import RoleSelector, resolve_priority_choice
 from src.features.allocation import results_view as legacy_results
 from src.features.inventory import page as inventory_page
+from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
 from src.features.weighted_allocation.runner import (
     WeightedAllocationPersistence, WeightedAllocationPreview, WeightedAllocationRequest,
     read_weighted_allocation_persistence, restore_weighted_allocation_preview,
@@ -29,16 +30,37 @@ from src.features.weighted_allocation.runner import (
 )
 from src.services.allocation_solver import AllocationSolveResult, RoleAllocationOption
 from src.services.allocation_context import AllocationContext
+from src.services.account_settings_service import AccountSettingsService
 from src.services.character_weight_service import (
     ensure_account_character_weights, save_account_character_weights,
 )
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
+from src.services.equipment_level_projection_service import (
+    project_equipment_items_to_max_level,
+)
+from src.services.official_role_page_service import (
+    calculate_official_role_attribute_summaries,
+    calculate_official_role_item_gain,
+    calculate_official_role_margins,
+    load_official_role_detail,
+)
 from src.services.sqlite_allocation_inventory import (
     AllocationInventoryProjectionError, legacy_shape_id,
 )
+from src.services.virtual_equipment_service import (
+    virtual_equipment_inventory_item,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.ui.attribute_summary_panel import (
+    AttributeSummaryLoadout,
+    AttributeSummaryPanel,
+    AttributeSummaryRow,
+)
+from src.ui.equipment_replacement_dialog import (
+    EquipmentReplacementCard,
+    show_equipment_replacement_dialog,
+)
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
 
@@ -692,8 +714,7 @@ def _configured_equipment_apply_method(window) -> str:
     if callable(settings_reader):
         settings = settings_reader()
     else:
-        with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
-            settings = dao.get_sync_settings()
+        settings = AccountSettingsService(runtime.USER_DATABASE_PATH).load("sync")
     method = str(settings.get("equipment_apply_method") or "").strip()
     if method not in {"nte_core", "gamepad"}:
         raise RuntimeError("装配执行方式无效，请先在设置中重新保存。")
@@ -751,7 +772,6 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         return
     weights = _display_weights(window, role)
     main_weights = _display_main_weights(window, role)
-    uid = f"nte-{'core' if assignment.kind == 'core' else 'module'}-{assignment.uid[0]}-{assignment.uid[1]}"
     role_option = next(
         (
             option for option in preview.result.unified.selected
@@ -759,29 +779,282 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         ),
         None,
     )
-    assignment_scores = {
-        f"nte-{item.kind}-{item.uid[0]}-{item.uid[1]}": float(item.score)
-        for item in (role_option.assignments if role_option is not None else ())
-    }
+    if role_option is None:
+        QMessageBox.warning(window, "无法替换", "当前角色结果已变化，请重新计算。")
+        return
 
-    def action() -> None:
-        inventory_page._optimize_saved_equipment(
+    same_role_uids = {
+        item.uid
+        for item in role_option.assignments
+        if item.uid != assignment.uid
+    }
+    temporary_owner_by_uid = {
+        item.uid: option.character_id
+        for option in preview.result.unified.selected
+        for item in option.assignments
+        if not item.virtual
+    }
+    role_names = getattr(window, "_weighted_role_names", {})
+    asset_catalog = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
+
+    def annotate_temporary_owner(
+        item: dict[str, Any], uid: tuple[int, int],
+    ) -> dict[str, Any]:
+        owner_id = temporary_owner_by_uid.get(uid)
+        if owner_id is None:
+            return item
+        result = dict(item)
+        result["equipped"] = True
+        result["equipped_character_id"] = owner_id
+        result["equipped_character_name"] = str(
+            role_names.get(owner_id, owner_id)
+        )
+        icon_path = asset_catalog.character_icon(owner_id)
+        if icon_path is not None:
+            result["equipped_character_icon_path"] = str(icon_path)
+        return result
+
+    candidate_map = {
+        candidate.uid: candidate
+        for candidate in preview.context.candidates
+    }
+    compatible = []
+    for candidate in preview.context.candidates:
+        if candidate.uid == assignment.uid or candidate.uid in same_role_uids:
+            continue
+        if candidate.kind != assignment.kind:
+            continue
+        if (
+            not assignment.virtual
+            and str(candidate.suit_id or "") != str(assignment.suit_id or "")
+        ):
+            continue
+        if (
+            assignment.kind == "module"
+            and str(candidate.geometry or "").casefold()
+            != str(assignment.geometry or "").casefold()
+        ):
+            continue
+        compatible.append(candidate)
+    if not compatible:
+        QMessageBox.information(
             window,
-            role_name,
-            "tape" if assignment.kind == "core" else "drive",
-            uid,
-            weights_override=weights,
-            main_weights_override=main_weights,
-            rank_by_damage=False,
-            core_term="空幕",
-            assignment_scores_override=assignment_scores,
-            exclude_used_by_others=True,
-            replacement_persister=lambda selected, selected_score, current_score: _on_weighted_replacement_done(
-                window, preview, assignment.uid, selected, selected_score, current_score,
+            "替换优化",
+            "当前计算临时候选池中没有可替换的同套装、同形状装备。",
+        )
+        return
+
+    source_rows = [
+        annotate_temporary_owner(
+            _allocation_candidate_row(
+                window, item, candidate_map.get(item.uid)
+            ),
+            item.uid,
+        )
+        for item in role_option.assignments
+    ]
+    with StaticGameDataDao() as static_dao:
+        projected = project_equipment_items_to_max_level(
+            [
+                *source_rows,
+                *(
+                    annotate_temporary_owner(
+                        _allocation_candidate_row(
+                            window, assignment, candidate
+                        ),
+                        candidate.uid,
+                    )
+                    for candidate in compatible
+                ),
+            ],
+            static_dao,
+        )
+    source_count = len(source_rows)
+    projected_current_items = projected[:source_count]
+    projected_candidates = projected[source_count:]
+    current_item = next(
+        (
+            item
+            for item in projected_current_items
+            if (
+                int(item.get("uid_slot") or 0),
+                int(item.get("uid_serial") or 0),
+            ) == assignment.uid
+        ),
+        None,
+    )
+    if current_item is None:
+        QMessageBox.warning(window, "无法替换", "当前装备不在计算临时候选池中。")
+        return
+
+    def item_score(item: Mapping[str, Any]) -> float:
+        sub_stats = {
+            str((stat.get("names") or {}).get("zh_cn") or stat.get("property_id") or ""):
+            float(stat.get("value") or 0.0)
+            for stat in item.get("sub_stats") or ()
+        }
+        quality = _legacy_quality(str(item.get("quality") or ""))
+        if str(item.get("kind") or "") == "core":
+            main_stat = next(
+                (
+                    str(
+                        (stat.get("names") or {}).get("zh_cn")
+                        or stat.get("property_id")
+                        or ""
+                    )
+                    for stat in item.get("main_stats") or ()
+                ),
+                "",
+            )
+            return float(legacy_results._score_tape_dict(
+                window,
+                main_stat,
+                sub_stats,
+                weights,
+                quality,
+                main_weights,
+            ))
+        try:
+            shape_id = legacy_shape_id(str(item.get("geometry") or ""))
+        except AllocationInventoryProjectionError:
+            shape_id = str(item.get("geometry") or "")
+        return float(legacy_results._score_drive_dict(
+            window,
+            sub_stats,
+            shape_id,
+            weights,
+            quality,
+        ))
+
+    context_key = "_weighted_replacement"
+    detail = load_official_role_detail(
+        preview.user_database_path,
+        role_option.character_id,
+    )
+    context = {
+        "title": "词条配装临时结果",
+        "items": tuple(projected_current_items),
+        "available": True,
+    }
+    full_detail = {
+        **detail,
+        "equipment_contexts": {
+            **(detail.get("equipment_contexts") or {}),
+            context_key: context,
+        },
+    }
+    current_gain = calculate_official_role_item_gain(
+        full_detail,
+        context_key,
+        current_item,
+    )
+    current_direct_damage_score = (
+        float(current_gain["gain_percent"]) if current_gain else None
+    )
+
+    def direct_damage_score(
+        candidate_item: Mapping[str, Any],
+    ) -> float | None:
+        replaced = tuple(
+            candidate_item
+            if (
+                int(item.get("uid_slot") or 0),
+                int(item.get("uid_serial") or 0),
+            ) == assignment.uid
+            else item
+            for item in projected_current_items
+        )
+        candidate_detail = {
+            **full_detail,
+            "equipment_contexts": {
+                **full_detail["equipment_contexts"],
+                context_key: {**context, "items": replaced},
+            },
+        }
+        item_gain = calculate_official_role_item_gain(
+            candidate_detail,
+            context_key,
+            candidate_item,
+        )
+        return float(item_gain["gain_percent"]) if item_gain else None
+
+    def card(
+        item: Mapping[str, Any],
+        *,
+        score: float,
+        direct_damage_score: float | None,
+        payload,
+    ) -> EquipmentReplacementCard:
+        view = warehouse_item_view(item)
+        icon_path = getattr(window, "_weighted_item_icons", {}).get(
+            str(item.get("item_id") or "")
+        )
+        if icon_path:
+            view["item_icon_path"] = icon_path
+        area = (
+            15
+            if str(item.get("kind") or "") == "core"
+            else int(item.get("grid_count") or 0)
+        )
+        return EquipmentReplacementCard(
+            key=f"{item.get('uid_slot')}:{item.get('uid_serial')}",
+            item_view=view,
+            score=score,
+            grade=legacy_results._calc_grade(window, score, area),
+            direct_damage_score=direct_damage_score,
+            payload=payload,
+            note=(
+                f"将从 {view.get('equipped_character_name')} 的临时方案借用，"
+                "并为其原槽位补入金色占位装备。"
+                if view.get("equipped_character_name")
+                else ""
             ),
         )
 
-    _run_after_weighted_preview_saved(window, preview, action)
+    current_score = item_score(current_item)
+    current_card = card(
+        current_item,
+        score=current_score,
+        direct_damage_score=current_direct_damage_score,
+        payload=None,
+    )
+    choices = []
+    for candidate, item in zip(compatible, projected_candidates):
+        score = item_score(item)
+        choices.append(card(
+            item,
+            score=score,
+            direct_damage_score=direct_damage_score(item),
+            payload={
+                "_uid_slot": candidate.uid_slot,
+                "_uid_serial": candidate.uid_serial,
+                "score": score,
+            },
+        ))
+    choices.sort(
+        key=lambda choice: float(choice.score or 0.0),
+        reverse=True,
+    )
+
+    show_equipment_replacement_dialog(
+        window,
+        title=f"{role_name} · 替换优化",
+        role_name=role_name,
+        summary=(
+            "候选与持有者只来自当前词条配装临时结果，不读取活动配装库；"
+            "借用其他角色装备后会在其原槽位生成可继续替换的金色占位装备。"
+        ),
+        current=current_card,
+        candidates=choices[:30],
+        on_confirm=lambda choice: _on_weighted_replacement_done(
+            window,
+            preview,
+            assignment.uid,
+            choice.payload,
+            float(choice.score or 0.0),
+            current_score,
+        ),
+    )
 
 
 def _validated_weighted_preview(
@@ -907,7 +1180,21 @@ def _role_option_card(
     layout.addLayout(role_header)
     layout.addSpacing(6)
 
-    summary_panel = _official_bonus_summary_panel(window, name, option, candidates or {}, role)
+    candidate_map = candidates or {}
+    summary_core = candidate_map.get(core.uid) if core is not None else None
+    summary_drives = [
+        candidate
+        for assignment in modules
+        if (candidate := candidate_map.get(assignment.uid)) is not None
+    ]
+    summary_panel = _official_bonus_summary_panel(
+        window,
+        name,
+        option.character_id,
+        summary_core,
+        summary_drives,
+        role,
+    )
     if option.generated_board:
         layout.addWidget(legacy_results._section_label(window, "拼图图纸:"))
         board_row = QHBoxLayout()
@@ -921,25 +1208,42 @@ def _role_option_card(
     elif summary_panel is not None:
         layout.addWidget(summary_panel)
     weights = _display_weights(window, role)
-    if core:
-        layout.addWidget(legacy_results._section_label(window, "空幕:"))
-        layout.addWidget(_legacy_equipment_card(
-            window, core, candidates or {}, weights, shape_resources or {},
-            replacement_callback=lambda current=core: _request_weighted_replacement(
-                window, name, current, role,
-            ),
-        ))
-    else:
+    if core is None:
         layout.addWidget(QLabel(_missing_core_text(window, role)))
-    if modules:
-        layout.addWidget(legacy_results._section_label(window, f"驱动 ({len(modules)}个):"))
-        for module in modules:
-            layout.addWidget(_legacy_equipment_card(
-                window, module, candidates or {}, weights, shape_resources or {},
-                replacement_callback=lambda current=module: _request_weighted_replacement(
-                    window, name, current, role,
+    equipment_assignments = ([core] if core is not None else []) + modules
+    if equipment_assignments:
+        direct_damage_scores = _allocation_direct_damage_scores(
+            window,
+            option,
+            candidate_map,
+        )
+        layout.addWidget(
+            legacy_results._section_label(
+                window, f"空幕 / 驱动 ({len(equipment_assignments)}件):"
+            )
+        )
+        equipment_grid = QGridLayout()
+        equipment_grid.setHorizontalSpacing(10)
+        equipment_grid.setVerticalSpacing(10)
+        for index, assignment in enumerate(equipment_assignments):
+            equipment_grid.addWidget(
+                _result_equipment_card(
+                    window,
+                    assignment,
+                    candidates or {},
+                    weights,
+                    shape_resources or {},
+                    replacement_callback=lambda current=assignment: _request_weighted_replacement(
+                        window, name, current, role,
+                    ),
+                    direct_damage_score=direct_damage_scores.get(assignment.uid),
                 ),
-            ))
+                index // 4,
+                index % 4,
+                Qt.AlignLeft | Qt.AlignTop,
+            )
+        equipment_grid.setColumnStretch(4, 1)
+        layout.addLayout(equipment_grid)
     return card
 
 
@@ -957,19 +1261,6 @@ def _result_badge(title: str, value: str, color: str) -> QWidget:
     value_label.setStyleSheet(f"font-size:14px;font-weight:800;color:{color};border:none")
     layout.addWidget(value_label)
     return frame
-
-
-def _property_summary_panel(summary: str) -> QWidget:
-    panel = QGroupBox("空幕属性汇总")
-    panel.setStyleSheet(themed_style(
-        "QGroupBox{background:#161b22;border:1px solid #30363d;"
-        "border-radius:8px;margin-top:8px;padding:12px}"
-    ))
-    layout = QVBoxLayout(panel)
-    label = QLabel(summary)
-    label.setWordWrap(True)
-    layout.addWidget(label)
-    return panel
 
 
 def _display_weights(window, role) -> dict[str, float]:
@@ -1059,137 +1350,247 @@ def _display_stat_value(value: float, percent: bool) -> float:
     return round(float(value) * (100.0 if percent else 1.0), 2)
 
 
-def _official_summary_rows(
-    window, option: RoleAllocationOption, candidates: dict, role=None,
-) -> list[tuple[str, str, float, bool]]:
-    selected = [
-        candidate
-        for assignment in option.assignments
-        if (candidate := candidates.get(assignment.uid)) is not None
-    ]
-    extra_shape_label = getattr(role, "extra_shape_label", "") if role is not None else ""
-    if not isinstance(extra_shape_label, str):
-        extra_shape_label = ""
-    extra_shape_buffs = getattr(role, "extra_shape_buffs", ()) if role is not None else ()
-    if not isinstance(extra_shape_buffs, (Mapping, tuple, list)):
-        extra_shape_buffs = ()
-    totals = calculate_official_equipment_stats(
-        selected,
-        extra_shape_label=extra_shape_label,
-        extra_shape_buffs=extra_shape_buffs,
-        property_percent=getattr(window, "_weighted_property_percent", {}) or {},
-    )
+def _allocation_candidate_row(window, assignment, candidate) -> dict[str, Any]:
     labels = getattr(window, "_weighted_property_names", {})
-    return [
-        (
-            total.property_id,
-            labels.get(total.property_id, total.property_id),
-            _display_stat_value(total.value, total.percent),
-            total.percent,
+    item_names = getattr(window, "_weighted_item_names", {})
+    suit_names = getattr(window, "_weighted_suit_names", {})
+
+    def stats(values) -> list[dict[str, Any]]:
+        return [
+            {
+                "property_id": stat.property_id,
+                "value": float(stat.value),
+                "percent": bool(stat.percent),
+                "names": {
+                    "zh_cn": labels.get(stat.property_id, stat.property_id),
+                },
+            }
+            for stat in values
+        ]
+
+    if candidate is None:
+        if getattr(assignment, "virtual", False):
+            item = virtual_equipment_inventory_item({
+                "uid_slot": assignment.uid[0],
+                "uid_serial": assignment.uid[1],
+                "kind": assignment.kind,
+                "geometry": assignment.geometry,
+                "grid_count": assignment.grid_count,
+                "virtual": True,
+                "virtual_equipment": {
+                    "item_id": assignment.item_id,
+                    "kind": assignment.kind,
+                    "suit_id": assignment.suit_id,
+                    "geometry": assignment.geometry,
+                    "grid_count": assignment.grid_count,
+                    "quality": "orange",
+                },
+            })
+            item["names"] = {
+                "zh_cn": item_names.get(
+                    assignment.item_id, assignment.item_id
+                )
+            }
+            item["suit_names"] = {
+                "zh_cn": suit_names.get(
+                    assignment.suit_id,
+                    assignment.suit_id or "",
+                )
+            }
+            return item
+        return {
+            "uid": {"slot": assignment.uid[0], "serial": assignment.uid[1]},
+            "uid_slot": assignment.uid[0],
+            "uid_serial": assignment.uid[1],
+            "kind": assignment.kind,
+            "item_id": assignment.item_id,
+            "suit_id": assignment.suit_id,
+            "geometry": assignment.geometry,
+            "grid_count": assignment.grid_count,
+            "quality": "orange",
+            "level": 0,
+            "max_level": 0,
+            "names": {
+                "zh_cn": item_names.get(assignment.item_id, assignment.item_id),
+            },
+            "suit_names": {
+                "zh_cn": suit_names.get(
+                    assignment.suit_id,
+                    assignment.suit_id or "",
+                ),
+            },
+            "main_stats": (),
+            "sub_stats": (),
+        }
+    return {
+        "uid": {"slot": candidate.uid_slot, "serial": candidate.uid_serial},
+        "uid_slot": candidate.uid_slot,
+        "uid_serial": candidate.uid_serial,
+        "kind": candidate.kind,
+        "item_id": candidate.item_id,
+        "suit_id": candidate.suit_id,
+        "geometry": candidate.geometry,
+        "grid_count": candidate.grid_count,
+        "quality": candidate.quality,
+        "level": candidate.level,
+        "max_level": candidate.max_level,
+        "names": {
+            "zh_cn": item_names.get(candidate.item_id, candidate.item_id),
+        },
+        "suit_names": {
+            "zh_cn": suit_names.get(candidate.suit_id, candidate.suit_id or ""),
+        },
+        "main_stats": stats(candidate.main_stats),
+        "sub_stats": stats(candidate.sub_stats),
+    }
+
+
+def _allocation_direct_damage_scores(
+    window,
+    option: RoleAllocationOption,
+    candidates: Mapping[tuple[int, int], Any],
+) -> dict[tuple[int, int], float]:
+    items_by_uid = {
+        assignment.uid: _allocation_candidate_row(
+            window,
+            assignment,
+            candidates.get(assignment.uid),
         )
-        for total in totals
+        for assignment in option.assignments
+    }
+    if not items_by_uid:
+        return {}
+    try:
+        detail = load_official_role_detail(
+            runtime.USER_DATABASE_PATH,
+            option.character_id,
+        )
+    except (OSError, ValueError):
+        return {}
+    context_key = "_weighted_result"
+    detail = {
+        **detail,
+        "equipment_contexts": {
+            **(detail.get("equipment_contexts") or {}),
+            context_key: {
+                "title": "词条配装结果",
+                "items": tuple(items_by_uid.values()),
+                "available": True,
+            },
+        },
+    }
+    result: dict[tuple[int, int], float] = {}
+    for uid, item in items_by_uid.items():
+        gain = calculate_official_role_item_gain(detail, context_key, item)
+        if gain is not None:
+            result[uid] = float(gain["gain_percent"])
+    return result
+
+
+def _official_summary_rows_by_mode(
+    window,
+    loadout: AttributeSummaryLoadout,
+    role=None,
+) -> dict[str, tuple[AttributeSummaryRow, ...]]:
+    selected = [
+        item
+        for item in (loadout.core, *loadout.drives)
+        if item is not None
     ]
+    detail = load_official_role_detail(
+        runtime.USER_DATABASE_PATH,
+        loadout.character_id,
+    )
+    summaries = calculate_official_role_attribute_summaries(
+        detail,
+        selected,
+    )
+    weights = dict(
+        getattr(role, "effective_property_weights", ()) if role else ()
+    )
 
-
-def _summary_value_text(value: float, percent: bool) -> str:
-    number = f"{value:.2f}".rstrip("0").rstrip(".")
-    return f"+{number}{'%' if percent else ''}"
-
-
-def _summary_row(
-    window, property_id: str, label: str, value: float, percent: bool, weight: float,
-) -> QWidget:
-    row = QFrame()
-    row.setFixedHeight(26)
-    row.setStyleSheet(themed_style(
-        "QFrame{background:#161b22;border:1px solid #21262d;border-radius:5px;padding:2px 6px}"
-    ))
-    layout = QHBoxLayout(row)
-    layout.setContentsMargins(6, 1, 6, 1)
-    color = legacy_results._stat_c(window, weight) if weight > 0 else theme_color("#8b949e")
-    name = QLabel(label)
-    name.setStyleSheet(f"font-size:10px;font-weight:700;color:{color};border:none;background:transparent")
-    val = QLabel(_summary_value_text(value, percent))
-    val.setStyleSheet("font-size:10px;font-weight:800;color:#f0f6fc;border:none;background:transparent")
-    val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    layout.addWidget(name, 1)
-    layout.addWidget(val)
-    return row
-
-
-def _show_official_summary_dialog(window, role_name: str, rows, weights: dict[str, float]) -> None:
-    dialog = QDialog(window if isinstance(window, QWidget) else None)
-    dialog.setWindowTitle(f"{role_name} 空幕属性汇总")
-    dialog.setMinimumSize(360, 420)
-    layout = QVBoxLayout(dialog)
-    layout.setContentsMargins(14, 14, 14, 14)
-    layout.setSpacing(8)
-    for property_id, label, value, percent in rows:
-        layout.addWidget(
-            _summary_row(
-                window, property_id, label, value, percent, weights.get(property_id, 0.0),
+    def rows(mode: str) -> tuple[AttributeSummaryRow, ...]:
+        result = [
+            AttributeSummaryRow(
+                key=total.key,
+                label=total.label,
+                value=_display_stat_value(total.value, total.percent),
+                percent=total.percent,
+                weight=max(
+                    (
+                        float(weights.get(property_id, 0.0))
+                        for property_id in total.weight_property_ids
+                    ),
+                    default=0.0,
+                ),
             )
-        )
-    buttons = QDialogButtonBox(QDialogButtonBox.Ok)
-    buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
-    dialog.exec()
+            for total in summaries.get(mode, ())
+        ]
+        result.sort(key=lambda item: (-item.weight, item.label))
+        return tuple(result)
+
+    return {
+        "equipment": rows("equipment"),
+        "character": rows("character"),
+    }
 
 
 def _official_bonus_summary_panel(
-    window, role_name: str, option: RoleAllocationOption, candidates: dict, role,
-) -> QWidget | None:
-    rows = _official_summary_rows(window, option, candidates, role)
-    weights = dict(getattr(role, "effective_property_weights", ()) if role else ())
-    rows.sort(key=lambda item: (-weights.get(item[0], 0.0), item[1]))
-    if not rows:
-        return None
-    panel = QFrame()
-    panel.setMinimumWidth(300)
-    panel.setStyleSheet(themed_style(
-        "QFrame{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px}"
-    ))
-    layout = QVBoxLayout(panel)
-    layout.setContentsMargins(7, 5, 7, 5)
-    layout.setSpacing(4)
-    header = QHBoxLayout()
-    mode = QPushButton("空幕属性汇总")
-    mode.setCheckable(True)
-    mode.setChecked(True)
-    mode.setStyleSheet(themed_style(
-        "QPushButton{background:#1f6feb22;color:#58a6ff;border:1px solid #58a6ff;"
-        "border-radius:6px;font-size:10px;font-weight:700;padding:2px 6px;min-height:22px}"
-    ))
-    header.addWidget(mode)
-    if len(rows) > 5:
-        more = legacy_results._bonus_more_button(
-            lambda _checked=False: _show_official_summary_dialog(window, role_name, rows, weights)
-        )
-        header.addWidget(more)
-    header.addStretch()
-    layout.addLayout(header)
-    for property_id, label, value, percent in rows[:5]:
-        layout.addWidget(
-            _summary_row(
-                window, property_id, label, value, percent, weights.get(property_id, 0.0),
-            )
-        )
-    layout.addStretch()
-    return panel
+    window,
+    role_name: str,
+    character_id: int,
+    core,
+    drives,
+    role,
+) -> QWidget:
+    return AttributeSummaryPanel.from_loadout(
+        role_name,
+        character_id=character_id,
+        core=core,
+        drives=drives,
+        selected_core_type=(
+            getattr(role, "core_main_property_id", None)
+            if role is not None
+            else None
+        ),
+        rows_provider=lambda loadout: _official_summary_rows_by_mode(
+            window,
+            loadout,
+            role,
+        ),
+        parent=window if isinstance(window, QWidget) else None,
+        color_for_weight=lambda weight: legacy_results._stat_c(window, weight),
+    )
 
 
-def _legacy_equipment_card(
+def _result_equipment_card(
     window, assignment, candidates: dict, weights: dict, shape_resources: dict[str, str],
     replacement_callback=None,
+    direct_damage_score: float | None = None,
 ) -> QWidget:
-    source = _legacy_equipment_source(window, assignment, candidates, shape_resources)
-    is_core = assignment.kind == "core"
-    label = source["display_name"] if is_core else _geometry_display_name(assignment.geometry)
-    return legacy_results._equip_card(
-        window, label, source["main_stats"], source["sub_stats"], source["shape_id"], "", weights,
-        (assignment.score, legacy_results._calc_grade(window, assignment.score, source["area"])),
-        source["quality"], replacement_callback=replacement_callback,
-        card_variant="result", item_icon_path=source["icon_path"],
+    del weights, shape_resources
+    candidate = candidates.get(assignment.uid)
+    item = _allocation_candidate_row(window, assignment, candidate)
+    view = warehouse_item_view(item)
+    icon_path = getattr(window, "_weighted_item_icons", {}).get(
+        assignment.item_id
+    )
+    if icon_path:
+        view["item_icon_path"] = icon_path
+    area = (
+        15
+        if assignment.kind == "core"
+        else int(candidate.grid_count or 0)
+        if candidate is not None
+        else int(assignment.grid_count or 0)
+    )
+    return WarehouseResultCard(
+        view,
+        score=assignment.score,
+        grade=legacy_results._calc_grade(window, assignment.score, area),
+        direct_damage_score=direct_damage_score,
+        replacement_callback=replacement_callback,
+        parent=window if isinstance(window, QWidget) else None,
     )
 
 
