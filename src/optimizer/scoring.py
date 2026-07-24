@@ -11,6 +11,7 @@ from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.character_weight_service import is_unmodified_account_weight_cache
 
 
 # 旧评分器仍以这些显示名匹配 OCR 装备；角色和权重本身已迁到 SQLite。
@@ -97,6 +98,8 @@ class ScoringEngine:
                         if user_dao is not None
                         else None
                     )
+                    if record is None or is_unmodified_account_weight_cache(record):
+                        record = static_dao.get_character_recommended_weights(character_id)
                     if record is None:
                         continue
                     weights = {

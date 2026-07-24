@@ -178,7 +178,7 @@ python main.py
 
 ## 许可证与第三方组件
 
-项目自有源代码以 [AGPL-3.0](LICENSE) 发布。随程序分发的 `nte-core.exe`、`dwmapi.dll` 与 ViGEmBus 是独立组件，其来源、适用条款和通知见 [NOTICE](NOTICE)、[第三方组件说明](THIRD_PARTY_NOTICES.md) 及 `third_party/`；根许可证不会改写它们各自的许可证或授权。
+项目自有源代码以 [AGPL-3.0](LICENSE) 发布。随程序分发的 `nte-core.exe`、`dwmapi.dll` 与 ViGEmBus 是独立组件，其来源、适用条款和通知见 [NOTICE](NOTICE) 及 `third_party/`；根许可证不会改写它们各自的许可证或授权。
 
 本工具为非官方玩家工具。游戏名称、角色、素材及相关权利归各自权利人所有；使用抓包、插件或自动化功能前，请自行确认适用的游戏规则、服务条款和当地法律。
 

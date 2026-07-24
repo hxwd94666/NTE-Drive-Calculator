@@ -287,7 +287,7 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
             resolve_character_id_for_saved_role("主角", roles, self.user_dao),
         )
 
-    def test_male_protagonist_selects_1046_from_current_instance(self) -> None:
+    def test_protagonist_always_prefers_female_template_over_current_instance(self) -> None:
         character_uid = {"slot": 71, "serial": 710}
         self.user_dao.import_inventory_snapshot(
             _snapshot(
@@ -313,7 +313,7 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            1046,
+            1051,
             resolve_character_id_for_saved_role("主角", roles, self.user_dao),
         )
 
@@ -357,12 +357,21 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            1046,
+            1051,
             resolve_character_id_for_saved_role(
                 "主角",
                 roles,
                 self.user_dao,
                 snapshot_id=requested_snapshot_id,
+            ),
+        )
+
+    def test_static_protagonist_without_instance_uses_female_template(self) -> None:
+        self.assertEqual(
+            1051,
+            resolve_character_id_for_static_role(
+                "「零」", self.static_dao, self.user_dao,
+                snapshot_id=self.snapshot_id,
             ),
         )
 

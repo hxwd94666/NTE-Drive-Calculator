@@ -26,6 +26,9 @@ class DriveShape(BaseModel):
 class BaseEquipment(BaseModel):
     uid: str
     item_type: Literal["drive", "tape"]
+    # 官方静态物品 ID。旧来源可以没有它；SQLite 快照投影会保留它，
+    # 以便配装结果复用 game_ui 中对应的卡带/驱动图像。
+    item_id: str = ""
     quality: Literal["Gold", "Purple", "Blue"]
     area: int
     sub_stats: Dict[str, float] = Field(default_factory=dict)

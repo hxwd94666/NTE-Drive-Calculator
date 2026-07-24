@@ -8,6 +8,7 @@ contact the workshop API and never read the legacy roles.json weight cache.
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import shutil
 import sqlite3
@@ -23,13 +24,49 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.domain.recommended_weights import parse_workshop_recommendations
-from src.features.settings.workshop_weights import fetch_workshop_weight_configs
 from tools import build_cli
 from tools.game_data.build_graduation_templates import populate_graduation_templates
-from tools.sync_workshop_weights import resolve_api_key
+from tools.game_data.workshop_api import fetch_workshop_weight_configs
 
 
 MINIMUM_SCHEMA_VERSION = 11
+_ENV_KEY_NAMES = ("WORKSHOP_API_KEY", "YIHUAN_WORKSHOP_API_KEY", "NTE_WORKSHOP_API_KEY")
+
+
+def _load_dotenv(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        normalized_key = key.strip()
+        if normalized_key:
+            values[normalized_key] = value.strip().strip('"').strip("'")
+    return values
+
+
+def resolve_api_key(
+    env_file: Path,
+    *,
+    prompt_when_missing: bool = False,
+    allow_normal_fallback: bool = False,
+) -> tuple[str, str]:
+    """Resolve only the build-time API key; no user config is read or written."""
+
+    file_values = _load_dotenv(env_file)
+    for key in _ENV_KEY_NAMES:
+        value = os.environ.get(key) or file_values.get(key)
+        if value:
+            return value.strip(), ".env"
+    if not prompt_when_missing:
+        return "", ""
+    if allow_normal_fallback and build_cli.choose_missing_api_key_action() != "manual":
+        return "", "normal"
+    value = getpass.getpass("请输入 WORKSHOP_API_KEY（输入内容不会显示）: ").strip()
+    return (value, "manual") if value else ("", "")
 
 
 def _schema_version(connection: sqlite3.Connection) -> int:

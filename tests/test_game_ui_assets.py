@@ -8,6 +8,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from src.app import runtime
+from src.features.allocation.results_view import _equipment_item_icon_path
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from tools.game_assets.build_ui_assets import build_assets
@@ -73,6 +75,21 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertTrue(catalog.fork_icon("fork_yuren").is_file())
         self.assertIsNone(catalog.monster_icon("monster_static_big_world", "unknown"))
         self.assertIsNone(catalog.character_icon(999999))
+
+    def test_legacy_allocation_result_resolves_projected_core_image(self) -> None:
+        old_asset_dir = getattr(runtime, "ASSET_DIR", None)
+        try:
+            runtime.ASSET_DIR = PROJECT_ROOT / "assets"
+            icon_path = _equipment_item_icon_path(
+                {"item_id": "Lakshana_orange"}, "core",
+            )
+        finally:
+            if old_asset_dir is None:
+                delattr(runtime, "ASSET_DIR")
+            else:
+                runtime.ASSET_DIR = old_asset_dir
+        self.assertIsNotNone(icon_path)
+        self.assertTrue(Path(icon_path).is_file())
 
     def test_builder_resizes_and_deduplicates_shared_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -31,13 +31,10 @@ from functools import lru_cache
 
 from src.app import runtime
 from src.models.equipment import Tape
-from src.app.theme import theme_rgba, themed_style
+from src.app.theme import GRADE_COLORS, theme_rgba, themed_style
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.widgets import SearchableComboBox
-
-GRADE_COLORS = {"ACE": "#ffa726", "SSS": "#ffa726", "SS": "#f0883e", "S": "#f0883e", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
-
 
 @lru_cache(maxsize=96)
 def _official_role_portrait(role_name: str) -> QPixmap:

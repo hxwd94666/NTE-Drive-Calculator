@@ -146,7 +146,12 @@ def _on_done(window, preview: WeightedAllocationPreview) -> None:
     window.weighted_save_button.setEnabled(bool(preview.result.unified.selected))
     captured_at = preview.context.snapshot.captured_at_utc
     window.weighted_status_label.setText(f"计算完成。背包数据截至 {captured_at}")
-    render_weighted_allocation_result(window, preview.result, preview.context)
+    render_weighted_allocation_result(
+        window,
+        preview.result,
+        preview.context,
+        role_details=preview.role_details,
+    )
     _set_weighted_equipment_actions_enabled(window, bool(preview.result.unified.selected))
 
 
@@ -433,6 +438,7 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
     context = {
         "title": "词条配装临时结果",
         "items": tuple(projected_current_items),
+        "calculation_items": tuple(projected_current_items),
         "available": True,
     }
     full_detail = {
@@ -467,7 +473,11 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
             **full_detail,
             "equipment_contexts": {
                 **full_detail["equipment_contexts"],
-                context_key: {**context, "items": replaced},
+                context_key: {
+                    **context,
+                    "items": replaced,
+                    "calculation_items": replaced,
+                },
             },
         }
         item_gain = calculate_official_role_item_gain(
@@ -611,11 +621,12 @@ def _on_weighted_replacement_done(
     window._weighted_allocation_preview = updated_preview
     window._weighted_allocation_saved_preview = updated_preview
     render_weighted_allocation_result(
-        window, updated_preview.result, updated_preview.context
+        window,
+        updated_preview.result,
+        updated_preview.context,
+        role_details=updated_preview.role_details,
     )
     _set_weighted_equipment_actions_enabled(window, True)
     window.weighted_status_label.setText(
         "替换已保存为新的 SQLite 配装方案；重新计算会重新生成推荐方案。"
     )
-
-

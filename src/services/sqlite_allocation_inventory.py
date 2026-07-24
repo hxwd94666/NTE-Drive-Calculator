@@ -183,6 +183,7 @@ class SqliteAllocationInventory:
             base = {
                 "uid": f"nte-{uid_prefix}-{item['uid_slot']}-{item['uid_serial']}",
                 "item_type": "drive" if kind == "module" else "tape",
+                "item_id": str(item.get("item_id") or ""),
                 "quality": self._quality(item.get("quality")),
                 "area": int(item.get("grid_count") or 15),
                 "sub_stats": _stats(item.get("sub_stats") or []),

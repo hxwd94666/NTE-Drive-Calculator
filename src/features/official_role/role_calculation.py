@@ -33,6 +33,7 @@ from PySide6.QtWidgets import QHeaderView
 from src.app import runtime
 from src.app.theme import themed_style
 from src.domain.stat_catalog import StatCatalog
+from src.services.graduation_bonus_service import graduation_extra_shape_stats
 from src.features.allocation import results_view as legacy_results
 from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
 from src.services.official_role_page_service import (
@@ -171,12 +172,17 @@ def _graduation_template_with_weight_substats(detail: dict) -> dict | None:
         }
 
     equipment = [dict(item) for item in template.get("equipment") or ()]
+    extra_shape_stats = graduation_extra_shape_stats(
+        detail.get("shape_bonus"),
+        int(template.get("extra_shape_count") or 0),
+        attributes,
+    )
     for item in equipment:
         if str(item.get("kind") or "") == "module":
             item["sub_stats"] = [
                 stat(property_id, catalog.gold_base_values, float(template.get("drive_area") or 20))
                 for property_id in selected
-            ]
+            ] + [dict(row) for row in extra_shape_stats]
         elif str(item.get("kind") or "") == "core":
             item["sub_stats"] = [
                 stat(property_id, catalog.tape_stat_values, 1.0)
@@ -557,6 +563,5 @@ def _build_damage_formula_group(detail: dict, editor: dict) -> QGroupBox:
     _register_calculation_refresh(editor, refresh)
     refresh()
     return group
-
 
 

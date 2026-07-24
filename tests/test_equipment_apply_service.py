@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from src.services.character_instance_cache import CharacterInstanceCache
 from src.services.equipment_apply_service import EquipmentApplyError, EquipmentApplyService
 from src.services.inventory_sync_service import InventorySyncState
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -282,6 +283,40 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             {"slot": 300, "serial": 301},
             EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current),
         )
+
+    def test_manual_instance_mapping_takes_priority_over_history(self) -> None:
+        self.dao.upsert_character_instance_mapping(1003, {"slot": 300, "serial": 301})
+        current = self.dao.import_inventory_snapshot(
+            snapshot(5, [item(11, "module"), item(22, "core")])
+        )
+
+        self.assertEqual(
+            {"slot": 300, "serial": 301},
+            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(1003, current),
+        )
+
+    def test_resolves_uid_from_account_scoped_public_instance_cache(self) -> None:
+        cache_path = Path(self.temp_dir.name) / "public-instance-cache.sqlite3"
+        with CharacterInstanceCache(cache_path) as cache:
+            cache.upsert("apply-test", 2000, {"slot": 300, "serial": 301}, source="snapshot")
+        current = self.dao.import_inventory_snapshot(
+            snapshot(5, [item(11, "module"), item(22, "core")])
+        )
+        self.assertEqual(
+            {"slot": 300, "serial": 301},
+            EquipmentApplyService(
+                self.dao, self.sync, instance_cache_path=str(cache_path),
+            ).resolve_character_uid(2000, current),
+        )
+
+    def test_existing_private_mapping_is_mirrored_to_public_instance_cache(self) -> None:
+        cache_path = Path(self.temp_dir.name) / "public-instance-cache.sqlite3"
+        service = EquipmentApplyService(
+            self.dao, self.sync, instance_cache_path=str(cache_path),
+        )
+        service.resolve_character_uid(1003, self.sync.state.last_snapshot_id)
+        with CharacterInstanceCache(cache_path) as cache:
+            self.assertEqual(CHARACTER_UID, cache.get("apply-test", 1003))
 
     def test_rejects_missing_equipment_capability_before_rpc(self) -> None:
         self.sync.core_hello_result = {"capabilities": ["inventory"]}

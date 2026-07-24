@@ -286,6 +286,52 @@ class UserDataDaoTest(unittest.TestCase):
         )
         self.assertEqual({"CritBase": 1.25}, reseeded["property_weights"])
         self.assertEqual("fixture", reseeded["source_dataset_id"])
+        self.assertEqual("account", reseeded["source_kind"])
+
+    def test_unmodified_weight_cache_refreshes_but_account_edit_does_not(self) -> None:
+        self.dao.seed_character_weight_preferences(
+            1075,
+            source_dataset_id="public-v1",
+            source_kind="default",
+            properties=[
+                {"property_id": "CritBase", "weight": 1.0, "main_weight": 1.0},
+            ],
+        )
+        refreshed = self.dao.refresh_unmodified_character_weight_preferences(
+            1075,
+            source_dataset_id="public-v2",
+            source_kind="default",
+            properties=[
+                {"property_id": "CritBase", "weight": 1.4, "main_weight": 0.8},
+            ],
+        )
+        assert refreshed is not None
+        self.assertEqual({"CritBase": 1.4}, refreshed["property_weights"])
+        self.assertEqual("public-v2", refreshed["source_dataset_id"])
+        self.assertEqual("default", refreshed["source_kind"])
+        self.assertEqual(refreshed["seeded_at_utc"], refreshed["updated_at_utc"])
+
+        customized = self.dao.save_character_weight_preferences(
+            1075,
+            properties=[
+                {"property_id": "CritBase", "weight": 2.0, "main_weight": 1.2},
+            ],
+        )
+        self.assertEqual("account", customized["source_kind"])
+        self.assertIsNone(
+            self.dao.refresh_unmodified_character_weight_preferences(
+                1075,
+                source_dataset_id="public-v3",
+                source_kind="default",
+                properties=[
+                    {"property_id": "CritBase", "weight": 9.0, "main_weight": 9.0},
+                ],
+            )
+        )
+        self.assertEqual(
+            {"CritBase": 2.0},
+            self.dao.get_character_weight_preferences(1075)["property_weights"],
+        )
 
     def test_character_weights_reject_negative_or_duplicate_properties(self) -> None:
         with self.assertRaises(UserDataValidationError):

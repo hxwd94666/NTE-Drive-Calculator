@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 import copy
+from functools import lru_cache
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
@@ -88,6 +90,7 @@ from src.optimizer.contracts import (
     plan_drives,
 )
 from src.features.inventory.warehouse import warehouse_shape_pixmap as _get_shape_pixmap
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.utils.logger import logger
 
@@ -121,6 +124,26 @@ def _section_label(self,text):
     label=QLabel(text)
     label.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#c9d1d9;border:none;background:transparent;padding:2px 0"))
     return label
+
+
+@lru_cache(maxsize=256)
+def _game_ui_equipment_icon(kind: str, item_id: str) -> str | None:
+    """Resolve a packaged official equipment image once per item ID."""
+    if not item_id:
+        return None
+    asset_root = Path(getattr(runtime, "ASSET_DIR", Path("assets"))) / "game_ui"
+    icon_path = GameUiAssetCatalog(asset_root).inventory_item_icon(kind, item_id)
+    return str(icon_path) if icon_path is not None else None
+
+
+def _equipment_item_icon_path(item, kind: str) -> str | None:
+    """Read a projected official item ID without requiring a legacy model change."""
+    item_id = str(_diff_value(item, "item_id", "") or "")
+    if not item_id:
+        official = _diff_value(item, "official", {})
+        if isinstance(official, dict):
+            item_id = str(official.get("item_id") or "")
+    return _game_ui_equipment_icon(kind, item_id)
 
 def _render_results(self,plan):
     if not plan: return
@@ -207,7 +230,7 @@ def _render_results(self,plan):
             tape_uid=str(_diff_value(tape,"uid","") or "")
             tape_changed=bool(_diff_value(tape,"is_changed",False) or tape_uid in changed_uids)
             gl.addWidget(self._section_label("卡带:"))
-            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,is_discarded=bool(getattr(tape,"discarded",False)),main_weights=main_wts,card_variant="result"))
+            gl.addWidget(self._equip_card(tape.set_name,tape.main_stats,tape.sub_stats,None,tape.uid,wts,(t_score,t_grade),tape.quality,is_new=(tape_uid in added_uids and not tape_changed),is_changed=tape_changed,is_discarded=bool(getattr(tape,"discarded",False)),main_weights=main_wts,card_variant="result",item_icon_path=_equipment_item_icon_path(tape,"core")))
 
         if drives:
             gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))

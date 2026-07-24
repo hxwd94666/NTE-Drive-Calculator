@@ -897,6 +897,70 @@ class StaticGameDataDao:
         ]
         return plan
 
+    def list_equipment_plans(self) -> list[dict[str, Any]]:
+        """Return every official equipment plan without per-role query fan-out.
+
+        The weighted-allocation page needs the full role directory.  Keeping
+        this as a batch query prevents its initial render from issuing the five
+        plan queries once for every character.
+        """
+
+        plans = self._rows(
+            """
+            SELECT p.character_id, c.name_zh AS character_name_zh,
+                   p.core_item_id, core.name_zh AS core_name_zh,
+                   p.core_level, p.module_level, p.reference_score,
+                   p.background_path, p.character_image_path, p.source_row_id
+            FROM equipment_plan AS p
+            JOIN character AS c USING (character_id)
+            JOIN equipment_item AS core ON core.item_id = p.core_item_id
+            ORDER BY p.character_id
+            """
+        )
+        by_character_id = {
+            int(plan["character_id"]): plan for plan in plans
+        }
+        collections = (
+            (
+                "core_attribute_ids",
+                "equipment_plan_core_attribute",
+                "attribute_id",
+            ),
+            (
+                "recommended_attribute_ids",
+                "equipment_plan_recommended_attribute",
+                "attribute_id",
+            ),
+            ("module_item_ids", "equipment_plan_module", "item_id"),
+        )
+        for key, table, value_column in collections:
+            for plan in plans:
+                plan[key] = []
+            for row in self._rows(
+                f"SELECT character_id, {value_column} FROM {table} "
+                "ORDER BY character_id, ordinal"
+            ):
+                plan = by_character_id.get(int(row["character_id"]))
+                if plan is not None:
+                    plan[key].append(row[value_column])
+        for plan in plans:
+            plan["cells"] = []
+        for row in self._rows(
+            """
+            SELECT character_id, row, column, anchor_item_id
+            FROM equipment_plan_cell
+            ORDER BY character_id, row, column
+            """
+        ):
+            plan = by_character_id.get(int(row["character_id"]))
+            if plan is not None:
+                plan["cells"].append({
+                    "row": row["row"],
+                    "column": row["column"],
+                    "anchor_item_id": row["anchor_item_id"],
+                })
+        return plans
+
     def get_character_default_suit(self, character_id: int) -> dict[str, Any] | None:
         """返回官方配装图纸中卡带所属的默认套装。"""
 

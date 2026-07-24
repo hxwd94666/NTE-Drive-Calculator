@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.character_weight_service import is_unmodified_account_weight_cache
 
 
 ALLOCATION_CONTEXT_SOLVER_VERSION = "allocation-context-v1"
@@ -358,7 +359,11 @@ def _allocation_role_values(
     character_id: int,
 ) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
     account_weights = user_dao.get_character_weight_preferences(character_id)
-    weight_record = account_weights
+    weight_record = (
+        static_dao.get_character_recommended_weights(character_id)
+        if account_weights is None or is_unmodified_account_weight_cache(account_weights)
+        else account_weights
+    )
     if weight_record is not None:
         weights = {
             str(property_id): float(weight)

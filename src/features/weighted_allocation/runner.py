@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from src.optimizer.contracts import (
     EQUIP_SHAPE_ID,
@@ -27,6 +27,7 @@ from src.services.allocation_solver import (
     solve_allocation_context,
 )
 from src.services.saved_state_loadout_bridge import SavedStateLoadoutBridge
+from src.services.official_role_page_service import load_official_role_detail
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.services.virtual_equipment_service import (
     grid_count_from_geometry,
@@ -58,6 +59,10 @@ class WeightedAllocationPreview:
     account_id: str
     user_database_path: Path
     context: AllocationContext
+    # Built on the solver worker from the same frozen request.  These details
+    # intentionally exclude current/saved inventory contexts: result cards
+    # provide the immutable AllocationContext candidates themselves.
+    role_details: Mapping[int, Mapping[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,15 +398,29 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
             profile_version=int(request.profile_version),
             solver_version=ALLOCATION_CONTEXT_SOLVER_VERSION,
         )
+    result = solve_allocation_context(
+        context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
+        allow_missing_core=True,
+    )
+    role_details: dict[int, Mapping[str, Any]] = {}
+    for option in result.unified.selected:
+        try:
+            role_details[option.character_id] = load_official_role_detail(
+                request.user_database_path,
+                option.character_id,
+                include_inventory_contexts=False,
+            )
+        except (OSError, ValueError):
+            # The allocation itself remains valid when an optional UI-only
+            # damage summary cannot be prepared for one official role.
+            continue
     return WeightedAllocationPreview(
-        result=solve_allocation_context(
-            context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
-            allow_missing_core=True,
-        ),
+        result=result,
         static_dataset=context.static_dataset,
         account_id=context.account_id,
         user_database_path=request.user_database_path,
         context=context,
+        role_details=role_details,
     )
 
 

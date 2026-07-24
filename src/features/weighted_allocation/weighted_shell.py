@@ -63,6 +63,7 @@ from src.ui.equipment_replacement_dialog import (
 )
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
+from .weighted_static_catalog import get_weighted_static_catalog
 from .weighted_preferences import (
     _load_weighted_persistence,
     _mark_weighted_preferences_dirty,
@@ -120,6 +121,9 @@ def build_weighted_allocation_page(window) -> QWidget:
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setWidget(page)
+    # Result cards subscribe to this viewport and are created only when they
+    # enter it.  Retaining the reference also keeps the old page API intact.
+    window.weighted_page_scroll = scroll
     layout = QVBoxLayout(page)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(12)
@@ -193,50 +197,47 @@ def refresh_weighted_allocation_page(window) -> None:
     if not hasattr(window, "weighted_role_selector"):
         return
     try:
-        with StaticGameDataDao() as dao:
-            all_characters = [row for row in dao.list_characters() if dao.get_equipment_plan(int(row["character_id"]))]
-            characters = all_characters
-            suit_defaults: dict[int, str] = {}
-            for row in characters:
-                character_id = int(row["character_id"])
-                plan = dao.get_equipment_plan(character_id) or {}
-                core_template = dao.get_equipment_item(str(plan.get("core_item_id") or ""))
-                if core_template and core_template.get("suit_id"):
-                    suit_defaults[character_id] = str(core_template["suit_id"])
-            attributes = dao.list_equipment_attributes()
-            known_attribute_ids = {str(row["attribute_id"]) for row in attributes}
-            main_choices = [choice for choice in _MAIN_PROPERTY_CHOICES if choice[1] in known_attribute_ids]
-            substat_choices = [choice for choice in _SUBSTAT_PROPERTY_CHOICES if choice[1] in known_attribute_ids]
-            window._weighted_suit_names = {
-                str(row["suit_id"]): str(row.get("name_zh") or row["suit_id"])
-                for row in dao.list_suits()
-            }
-            window._weighted_property_names = {
-                str(row["attribute_id"]): _RESULT_PROPERTY_LABELS.get(
-                    str(row["attribute_id"]),
-                    str(row.get("filter_name_zh") or row.get("display_name_zh") or row["attribute_id"]),
-                )
-                for row in attributes
-            }
-            window._weighted_property_percent = {
-                str(row["attribute_id"]): bool(row.get("show_percent"))
-                for row in attributes
-            }
-            window._weighted_main_property_by_label = dict(main_choices)
-            window._weighted_substat_property_by_label = dict(substat_choices)
-            equipment_items = dao.list_equipment_items()
-            window._weighted_item_names = {
-                str(row["item_id"]): str(row.get("name_zh") or row["item_id"])
-                for row in equipment_items
-            }
-            asset_catalog = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui")
-            window._weighted_item_icons = {
-                str(row["item_id"]): asset_catalog.inventory_item_icon(
-                    str(row.get("kind") or ""),
-                    str(row["item_id"]),
-                )
-                for row in equipment_items
-            }
+        catalog = get_weighted_static_catalog(runtime.ASSET_DIR / "game_ui")
+        characters = [
+            row for row in catalog.characters
+            if int(row["character_id"]) in catalog.plans_by_character_id
+        ]
+        suit_defaults: dict[int, str] = {}
+        item_by_id = {
+            str(row["item_id"]): row for row in catalog.equipment_items
+        }
+        for row in characters:
+            character_id = int(row["character_id"])
+            plan = catalog.plans_by_character_id[character_id]
+            core_template = item_by_id.get(str(plan.get("core_item_id") or "")) or {}
+            if core_template.get("suit_id"):
+                suit_defaults[character_id] = str(core_template["suit_id"])
+        attributes = catalog.attributes
+        known_attribute_ids = {str(row["attribute_id"]) for row in attributes}
+        main_choices = [choice for choice in _MAIN_PROPERTY_CHOICES if choice[1] in known_attribute_ids]
+        substat_choices = [choice for choice in _SUBSTAT_PROPERTY_CHOICES if choice[1] in known_attribute_ids]
+        window._weighted_suit_names = {
+            str(row["suit_id"]): str(row.get("name_zh") or row["suit_id"])
+            for row in catalog.suits
+        }
+        window._weighted_property_names = {
+            str(row["attribute_id"]): _RESULT_PROPERTY_LABELS.get(
+                str(row["attribute_id"]),
+                str(row.get("filter_name_zh") or row.get("display_name_zh") or row["attribute_id"]),
+            )
+            for row in attributes
+        }
+        window._weighted_property_percent = {
+            str(row["attribute_id"]): bool(row.get("show_percent"))
+            for row in attributes
+        }
+        window._weighted_main_property_by_label = dict(main_choices)
+        window._weighted_substat_property_by_label = dict(substat_choices)
+        window._weighted_item_names = {
+            str(row["item_id"]): str(row.get("name_zh") or row["item_id"])
+            for row in catalog.equipment_items
+        }
+        window._weighted_item_icons = dict(catalog.item_icons)
         role_names = {str(row.get("name_zh") or row["character_id"]): int(row["character_id"]) for row in characters}
         window._weighted_role_ids = role_names
         window._weighted_role_names = {value: key for key, value in role_names.items()}
@@ -269,5 +270,3 @@ def refresh_weighted_allocation_page(window) -> None:
             window.weighted_status_label.setText("请选择角色并设置优先级。")
     except Exception as exc:
         window.weighted_status_label.setText(f"无法读取角色目录：{exc}")
-
-

@@ -10,8 +10,11 @@ from PySide6.QtCore import QObject, QEvent
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMessageBox
 
-GRADE_COLORS = {"ACE": "#ffa726", "SSS": "#ffa726", "SS": "#f0883e", "S": "#f0883e", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
-GRADE_BGS = {"ACE": "#ffa72630", "SSS": "#ffa72620", "SS": "#f0883e18", "S": "#f0883e18", "A": "#7ec8e318", "B": "#5b9bd515", "C": "#4a7fb512", "D": "#3d5a8010"}
+# S/SS and SSS/ACE deliberately use the opposite emphasis tiers.  All scoring
+# surfaces import these shared values so that the grade meaning stays visual
+# consistent between allocation, calculation, identification and replacement.
+GRADE_COLORS = {"ACE": "#f0883e", "SSS": "#f0883e", "SS": "#ffa726", "S": "#ffa726", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
+GRADE_BGS = {"ACE": "#f0883e30", "SSS": "#f0883e20", "SS": "#ffa72618", "S": "#ffa72618", "A": "#7ec8e318", "B": "#5b9bd515", "C": "#4a7fb512", "D": "#3d5a8010"}
 
 DARK_STYLE = """
 QMainWindow{background:#0d1117;border:1px solid #21262d;border-radius:10px}

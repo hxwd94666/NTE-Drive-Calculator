@@ -216,8 +216,11 @@ def _page_my_role(window) -> QWidget:
         """
     ))
     header = QHBoxLayout()
-    header.addWidget(QLabel("编辑角色详情："))
-    header.addStretch()
+    search = QLineEdit()
+    search.setObjectName("officialRoleSearch")
+    search.setPlaceholderText("搜索角色（支持拼音）...")
+    search.setClearButtonEnabled(True)
+    header.addWidget(search, 1)
     reset = QPushButton("重置")
     reset.setObjectName("btnDanger")
     reset.setToolTip("放弃当前角色尚未保存的修改，重新读取账号数据库")
@@ -239,6 +242,7 @@ def _page_my_role(window) -> QWidget:
     window.my_role_form_widget = content
     window.my_role_form_layout = content_layout
     window._official_role_page = page
+    window.official_role_search = search
     window._official_role_dirty_ids = set()
     window._official_role_editors = {}
     window._my_role_dirty = False
@@ -258,14 +262,9 @@ def _refresh_my_role(window) -> None:
         layout.addWidget(QLabel("暂无官方角色数据。"))
         return
 
-    search = QLineEdit()
-    search.setObjectName("officialRoleSearch")
-    search.setPlaceholderText("搜索角色（支持拼音）...")
-    search.setClearButtonEnabled(True)
-    search_row = QHBoxLayout()
-    search_row.addWidget(search)
-    search_row.addStretch()
-    layout.addLayout(search_row)
+    search = getattr(window, "official_role_search", None)
+    if not isinstance(search, QLineEdit):
+        return
     tabs = QTabWidget()
     tabs.setObjectName("officialRoleTabs")
     tab_ids = {}
@@ -305,11 +304,19 @@ def _refresh_my_role(window) -> None:
             tabs.setTabVisible(index, not keyword or match_pinyin(tabs.tabText(index), keyword))
 
     tabs.currentChanged.connect(load_visible)
+    previous_filter = getattr(window, "_official_role_search_filter", None)
+    previous_search = getattr(window, "_official_role_search_filter_widget", None)
+    if previous_filter is not None and previous_search is search:
+        try:
+            search.textChanged.disconnect(previous_filter)
+        except (RuntimeError, TypeError):
+            pass
     search.textChanged.connect(filter_tabs)
+    window._official_role_search_filter = filter_tabs
+    window._official_role_search_filter_widget = search
     wanted_index = tab_ids.get(current_id, 0)
     tabs.setCurrentIndex(wanted_index)
     load_visible(tabs.currentIndex())
-    window.official_role_search = search
     window.official_role_tabs = tabs
     layout.addWidget(tabs)
 
@@ -331,4 +338,3 @@ def confirm_pending_my_role_changes(window) -> bool:
     window._official_role_dirty_ids.clear()
     window._my_role_dirty = False
     return True
-

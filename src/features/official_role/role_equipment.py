@@ -300,6 +300,11 @@ def _build_equipment_cards_group(
         items = list(context.get("items") or ())
         items.sort(key=lambda item: 0 if str(item.get("kind") or "") == "core" else 1)
         item_count = len(items)
+    calculation_by_uid = {
+        (int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0)): item
+        for item in context.get("calculation_items") or ()
+        if int(item.get("uid_slot") or 0) or int(item.get("uid_serial") or 0)
+    } if context_key != "theory" else {}
 
     group = QGroupBox(f"空幕 / 驱动详情 ({item_count}件)")
     group.setObjectName("officialRoleEquipmentCards")
@@ -355,6 +360,10 @@ def _build_equipment_cards_group(
         if not items:
             grid.addWidget(QLabel("暂无空幕或驱动。"), 0, 0)
         for index, item in enumerate(items):
+            display_item = calculation_by_uid.get(
+                (int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0)),
+                item,
+            )
             replacement_callback = None
             if context_key == "saved":
                 replacement_callback = (
@@ -367,8 +376,8 @@ def _build_equipment_cards_group(
                 _equipment_item_card(
                     window,
                     detail,
-                    item,
-                    core=str(item.get("kind") or "") == "core",
+                    display_item,
+                    core=str(display_item.get("kind") or "") == "core",
                     direct_damage_score=(
                         float(gain["gain_percent"]) if gain else None
                     ),
@@ -393,8 +402,19 @@ def _aggregate_equipment_stats(detail: dict, context_key: str) -> list[tuple[str
         str(property_id): bool(attribute.get("show_percent"))
         for property_id, attribute in (detail.get("attributes") or {}).items()
     }
+    shape_bonus = detail.get("shape_bonus") or {}
+    context = detail["equipment_contexts"][context_key]
     totals = calculate_official_equipment_stats(
-        detail["equipment_contexts"][context_key].get("items") or (),
+        context.get("calculation_items", context.get("items") or ()),
+        extra_shape_label=str(shape_bonus.get("shape_label") or ""),
+        extra_shape_buffs=tuple(
+            (
+                str(row.get("property_id") or ""),
+                float(row.get("display_value") or 0.0),
+            )
+            for row in shape_bonus.get("properties") or ()
+            if str(row.get("property_id") or "")
+        ),
         property_percent=property_percent,
     )
     rows = []
@@ -473,5 +493,3 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
     _register_calculation_refresh(editor, refresh_summary)
     refresh_summary()
     return group
-
-

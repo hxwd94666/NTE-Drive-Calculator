@@ -338,6 +338,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
         with StaticGameDataDao(self.database_path) as dao:
             character = dao.get_character(1001)
             plan = dao.get_equipment_plan(1001)
+            plans = dao.list_equipment_plans()
             default_suit = dao.get_character_default_suit(1001)
             forks = dao.list_forks()
             role_templates = dao.list_role_template_characters()
@@ -345,6 +346,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.assertEqual(character["classification"], "playable")
         self.assertEqual(plan["core_item_id"], "Core1")
         self.assertEqual(plan["module_item_ids"], ["Module1"])
+        self.assertEqual(plans, [plan])
         self.assertEqual({"suit_id": "Suit1", "suit_name_zh": "官方数据空幕"}, default_suit)
         self.assertEqual(forks[0]["exclusive_character_ids"], [1001])
         self.assertEqual(role_templates[0]["character_id"], 1001)

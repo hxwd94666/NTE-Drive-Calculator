@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.domain.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
+from src.services.graduation_bonus_service import graduation_extra_shape_stats
 from src.services.official_role_page_service import (
     calculate_official_role_margins,
     load_official_role_detail,
@@ -71,135 +72,29 @@ def populate_logical_character_shape_bonuses(
 
     # The legacy role profile has been retired.  Account-owned shape settings
     # must not be reintroduced into the immutable database during a rebuild.
-    if not (config_dir / "roles.json").is_file():
-        return 0
-
-    roles = _read_json(config_dir / "roles.json")
-    character_rows = connection.execute(
-        """
-        SELECT c.character_id, c.name_zh, a.logical_character_key,
-               a.canonical_character_id, a.classification
-        FROM character AS c
-        JOIN character_annotation AS a USING (character_id)
-        """
-    ).fetchall()
-    character_by_id = {int(row[0]): row for row in character_rows}
-    character_rows_by_name: dict[str, list[sqlite3.Row | tuple[Any, ...]]] = {}
-    character_rows_by_logical_key: dict[str, list[sqlite3.Row | tuple[Any, ...]]] = {}
-    for row in character_rows:
-        if row[1] is not None:
-            character_rows_by_name.setdefault(str(row[1]), []).append(row)
-        character_rows_by_logical_key.setdefault(str(row[2]), []).append(row)
-    known_property_ids = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT attribute_id FROM equipment_attribute"
-        ).fetchall()
-    }
+    # Clear rows that may have been created by an older release, then keep the
+    # official static database as the sole source of shape metadata.
+    del config_dir
     connection.execute("DELETE FROM logical_character_shape_bonus_property")
     connection.execute("DELETE FROM logical_character_shape_bonus")
-    # v14 stored one duplicate row per concrete avatar ID. v15 supersedes it.
     connection.execute("DELETE FROM character_shape_bonus_property")
     connection.execute("DELETE FROM character_shape_bonus")
-    rules: dict[str, tuple[str, int, tuple[tuple[str, float], ...]]] = {}
-    for role_name, raw in roles.items():
-        if not isinstance(raw, Mapping):
-            continue
-        shape_label = str(raw.get("extra_shape_label") or "").strip()
-        numbers = re.findall(r"\d+", shape_label)
-        if not shape_label or not numbers:
-            continue
-        character_ids = {
-            int(value)
-            for value in (
-                [raw.get("workshop_item_id")]
-                + list(raw.get("workshop_item_ids") or ())
-            )
-            if value is not None
-            and str(value).isdigit()
-            and int(value) in character_by_id
-        }
-        if not character_ids:
-            character_ids.update(
-                int(row[0])
-                for row in character_rows_by_name.get(str(role_name), ())
-                if str(row[4]) != "combat_transformation"
-            )
-        logical_keys = {
-            str(character_by_id[character_id][2])
-            for character_id in character_ids
-        }
-        if not logical_keys:
-            continue
-        if len(logical_keys) != 1:
-            raise RuntimeError(
-                f"角色 [{role_name}] 同时映射到多个逻辑角色：{sorted(logical_keys)}"
-            )
-        logical_key = next(iter(logical_keys))
-        properties = tuple(
-            (property_id, float(value))
-            for name, value in (raw.get("extra_shape_buffs") or {}).items()
-            if (
-                property_id := _property_id(str(name))
-            ) is not None
-            and property_id in known_property_ids
-            and float(value)
-        )
-        rule = (shape_label, int(numbers[-1]), properties)
-        existing = rules.get(logical_key)
-        if existing is not None and existing != rule:
-            raise RuntimeError(
-                f"逻辑角色 {logical_key!r} 存在互相冲突的形状规则"
-            )
-        rules[logical_key] = rule
-
-    for logical_key, (shape_label, grid_count, properties) in sorted(rules.items()):
-        representatives = character_rows_by_logical_key[logical_key]
-        representative_character_id = min(
-            int(row[0])
-            for row in representatives
-            if str(row[4]) != "combat_transformation"
-        )
-        connection.execute(
-            """
-            INSERT INTO logical_character_shape_bonus(
-                logical_character_key, representative_character_id,
-                shape_label, shape_grid_count, source_kind
-            ) VALUES (?, ?, ?, ?, 'legacy_role_profile')
-            """,
-            (
-                logical_key,
-                representative_character_id,
-                shape_label,
-                grid_count,
-            ),
-        )
-        connection.executemany(
-            """
-            INSERT INTO logical_character_shape_bonus_property(
-                logical_character_key, property_id, display_value, ordinal
-            ) VALUES (?, ?, ?, ?)
-            """,
-            [
-                (logical_key, property_id, value, ordinal)
-                for ordinal, (property_id, value) in enumerate(properties)
-            ],
-        )
-    return len(rules)
-
+    return 0
 
 def _top_stat_names(
     values: Mapping[str, Any],
     weights: Mapping[str, float],
 ) -> tuple[str, ...]:
     rows = [
-        (str(name), float(weights.get(property_id, 0.0)))
+        (str(property_id), str(name), float(weights.get(property_id, 0.0)))
         for name in values
         if (property_id := _property_id(str(name))) is not None
         and float(weights.get(property_id, 0.0)) > 0
     ]
-    rows.sort(key=lambda row: (-row[1], row[0]))
-    return tuple(name for name, _weight in rows[:4])
+    # Keep the static template's tie-breaker identical to the role page,
+    # which sorts official property IDs after weight.
+    rows.sort(key=lambda row: (-row[2], row[0]))
+    return tuple(name for _property_id, name, _weight in rows[:4])
 
 
 def _stat(
@@ -219,16 +114,10 @@ def _stat(
     }
 
 
-def _role_configs(config_dir: Path) -> tuple[dict[int, tuple[str, dict]], dict]:
-    roles_path = config_dir / "roles.json"
-    roles = _read_json(roles_path) if roles_path.is_file() else {}
-    by_character: dict[int, tuple[str, dict]] = {}
-    for role_name, role in roles.items():
-        values = role.get("workshop_item_ids") or [role.get("workshop_item_id")]
-        for value in values:
-            if value not in (None, ""):
-                by_character[int(value)] = (str(role_name), dict(role))
-    return by_character, _read_json(config_dir / "stats.json")
+def _stats(config_dir: Path) -> dict[str, Any]:
+    """Read shared stat values; character recommendations come from SQLite."""
+
+    return _read_json(config_dir / "stats.json")
 
 
 def _template_profile(detail: Mapping[str, Any]) -> dict[str, Any]:
@@ -262,6 +151,32 @@ def _template_profile(detail: Mapping[str, Any]) -> dict[str, Any]:
     return profile
 
 
+def _extra_shape_drive_count(
+    shape_bonus: Mapping[str, Any],
+    equipment_plan: Mapping[str, Any] | None,
+    equipment_by_id: Mapping[str, Mapping[str, Any]],
+) -> int:
+    """Count the role's bonus-shape modules from its invariant blueprint set.
+
+    A label such as ``Type-3`` identifies the grid size, not the number of
+    bonus modules.  One role can have multiple valid board layouts, but their
+    module multiset is fixed, so the official plan is the canonical and stable
+    source for this count.
+    """
+
+    target_grid_count = int(shape_bonus.get("shape_grid_count") or 0)
+    if target_grid_count <= 0:
+        numbers = re.findall(r"\d+", str(shape_bonus.get("shape_label") or ""))
+        target_grid_count = int(numbers[-1]) if numbers else 0
+    if target_grid_count <= 0 or not equipment_plan:
+        return 0
+    return sum(
+        int((equipment_by_id.get(str(item_id)) or {}).get("grid_count") or 0)
+        == target_grid_count
+        for item_id in equipment_plan.get("module_item_ids") or ()
+    )
+
+
 def populate_graduation_templates(
     connection: sqlite3.Connection,
     *,
@@ -273,7 +188,7 @@ def populate_graduation_templates(
     connection.row_factory = sqlite3.Row
     connection.execute("BEGIN IMMEDIATE")
     connection.execute("DELETE FROM character_graduation_template")
-    role_configs, stats = _role_configs(config_dir)
+    stats = _stats(config_dir)
     gold_values = dict(stats.get("gold_base_values") or {})
     core_sub_values = dict(stats.get("tape_stat_values") or {})
     # The weight editor and the graduation reference must share the strict
@@ -314,58 +229,50 @@ def populate_graduation_templates(
                     ).get("suit_id")
                     for character in characters
                 }
+                equipment_plans = {
+                    int(character["character_id"]): static_dao.get_equipment_plan(
+                        int(character["character_id"])
+                    )
+                    for character in characters
+                }
+                equipment_by_id = {
+                    str(item["item_id"]): item
+                    for item in static_dao.list_equipment_items()
+                }
+                recommendations = {
+                    int(row["character_id"]): row
+                    for row in static_dao.list_character_recommended_weights()
+                }
             for character in characters:
                 character_id = int(character["character_id"])
                 detail = load_official_role_detail(user_database, character_id)
-                configured = role_configs.get(character_id)
-                if configured is None:
-                    role_name = str(character.get("name_zh") or character_id)
-                    role_config: dict[str, Any] = {}
-                    source_kind = "official_default"
-                    weights = dict(detail.get("property_weights") or {})
-                    main_weights = dict(detail.get("main_property_weights") or weights)
-                    shape_numbers = re.findall(
-                        r"\d+", str((detail.get("shape_bonus") or {}).get("shape_label") or "")
-                    )
-                    extra_shape_count = int(shape_numbers[-1]) if shape_numbers else 0
-                else:
-                    role_name, role_config = configured
-                    source_kind = "legacy_role_config"
-                    weights = _property_weights(role_config.get("weights") or {})
-                    main_weights = _property_weights(
-                        role_config.get("main_weights") or role_config.get("weights") or {}
-                    )
-                    shape_numbers = re.findall(
-                        r"\d+", str(role_config.get("extra_shape_label") or "")
-                    )
-                    extra_shape_count = int(shape_numbers[-1]) if shape_numbers else 0
+                recommendation = recommendations.get(character_id) or {}
+                # The API synchronization above writes these rows into the
+                # same temporary static database before templates are built.
+                # Runtime account preferences deliberately do not participate.
+                source_kind = "official_default"
+                weights = dict(recommendation.get("property_weights") or {})
+                main_weights = dict(
+                    recommendation.get("main_property_weights") or weights
+                )
+                extra_shape_count = _extra_shape_drive_count(
+                    detail.get("shape_bonus") or {},
+                    equipment_plans.get(character_id),
+                    equipment_by_id,
+                )
                 drive_names = _top_stat_names(gold_values, weights)
                 core_sub_names = _top_stat_names(core_sub_values, weights)
                 if len(drive_names) < 4 or len(core_sub_names) < 4:
-                    fallback = dict(detail.get("property_weights") or {})
+                    fallback = dict(recommendation.get("property_weights") or {})
                     drive_names = _top_stat_names(gold_values, fallback)
                     core_sub_names = _top_stat_names(core_sub_values, fallback)
                 if len(drive_names) < 4 or len(core_sub_names) < 4:
                     raise ValueError(f"角色 {character_id} 缺少四条毕业副词条")
 
-                extra_stats = (
-                    [
-                        {
-                            "property_id": str(row["property_id"]),
-                            "value": float(row["display_value"]) * extra_shape_count,
-                            "percent": str(row["property_id"]) in percent_property_ids,
-                        }
-                        for row in (detail.get("shape_bonus") or {}).get("properties") or ()
-                    ]
-                    if configured is None
-                    else [
-                        _stat(
-                            name,
-                            float(value) * extra_shape_count,
-                            percent_property_ids=percent_property_ids,
-                        )
-                        for name, value in (role_config.get("extra_shape_buffs") or {}).items()
-                    ]
+                extra_stats = graduation_extra_shape_stats(
+                    detail.get("shape_bonus"),
+                    extra_shape_count,
+                    detail.get("attributes"),
                 )
                 module = {
                     "kind": "module",
@@ -408,10 +315,7 @@ def populate_graduation_templates(
                     raise ValueError(f"角色 {character_id} 缺少毕业空幕主词条")
 
                 profile = _template_profile(detail)
-                configured_suit_id = suits_by_name.get(
-                    str(role_config.get("default_set") or "")
-                )
-                suit_id = configured_suit_id or official_suits.get(character_id)
+                suit_id = official_suits.get(character_id)
                 best_name = candidate_names[0]
                 best_damage = -1.0
                 best_equipment: list[dict[str, Any]] = []

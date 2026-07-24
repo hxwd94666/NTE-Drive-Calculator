@@ -11,6 +11,9 @@ This product includes components with separate license terms:
   NTE Drive Calc does not alter that component's separate rights or notices.
 - ViGEmBus is distributed under BSD-3-Clause. Its license and attribution are
   in third_party/vigembus/.
+- Npcap is not bundled. The application only links users to its official
+  installer; any future bundled redistribution requires a separate Npcap OEM
+  redistribution authorization.
 
 Neverness To Everness / 异环 names, characters, artwork, logos and other game
 materials are property of their respective rights holders. NTE Drive Calc is

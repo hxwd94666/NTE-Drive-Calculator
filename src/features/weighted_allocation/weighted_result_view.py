@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame,
     QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
@@ -116,7 +116,11 @@ def _request_weighted_replacement(*args, **kwargs):
     from .weighted_workflow import _request_weighted_replacement as request
     return request(*args, **kwargs)
 def render_weighted_allocation_result(
-    window, result: AllocationSolveResult, context: AllocationContext | None = None,
+    window,
+    result: AllocationSolveResult,
+    context: AllocationContext | None = None,
+    *,
+    role_details: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> None:
     _clear_layout(window.weighted_result_layout)
     card = window._card("计算结果")
@@ -125,18 +129,130 @@ def render_weighted_allocation_result(
     candidates = {candidate.uid: candidate for candidate in (context.candidates if context else ())}
     role_preferences = {role.character_id: role for role in (context.roles if context else ())}
     shape_resources = _shape_resource_ids(context)
-    for option in result.unified.selected:
-        card_layout.addWidget(_role_option_card(
-            window, option, candidates, role_preferences.get(option.character_id), shape_resources,
-        ))
+    # One role result needs the same official detail for its summary and its
+    # per-item direct-damage scores.  Keep it for this immutable result rather
+    # than reopening SQLite twice while building the same card.
+    detail_cache: dict[int, Mapping[str, Any] | None] = dict(role_details or {})
+    card_layout.addWidget(_LazyWeightedRoleCards(
+        window,
+        tuple(result.unified.selected),
+        candidates,
+        role_preferences,
+        shape_resources,
+        detail_cache,
+        parent=card,
+    ))
     if result.unified.unassigned_character_ids:
         card_layout.addWidget(QLabel(_unassigned_reason(window, context, result.unified.unassigned_character_ids)))
     window.weighted_result_layout.addWidget(card)
 
 
+class _LazyWeightedRoleCards(QWidget):
+    """Create result cards only near the visible page viewport.
+
+    A full role card owns a puzzle widget, an attribute summary and up to eight
+    equipment widgets.  Keeping placeholders for off-screen roles avoids a
+    long main-thread stall after the solver finishes while preserving the
+    existing result order and per-role actions.
+    """
+
+    _PREFETCH_PIXELS = 360
+    _PLACEHOLDER_HEIGHT = 260
+
+    def __init__(
+        self,
+        window,
+        options: tuple[RoleAllocationOption, ...],
+        candidates: Mapping[tuple[int, int], Any],
+        roles: Mapping[int, Any],
+        shape_resources: Mapping[str, str],
+        detail_cache: dict[int, Mapping[str, Any] | None],
+        *,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._window = window
+        self._candidates = candidates
+        self._roles = roles
+        self._shape_resources = shape_resources
+        self._detail_cache = detail_cache
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(10)
+        self._pending: dict[QWidget, RoleAllocationOption] = {}
+        self._initial_load = True
+        for option in options:
+            placeholder = QFrame(self)
+            placeholder.setMinimumHeight(self._PLACEHOLDER_HEIGHT)
+            placeholder.setStyleSheet(themed_style(
+                "QFrame{border:1px solid #30363d;border-radius:10px;background:#0d1117}"
+            ))
+            placeholder_layout = QVBoxLayout(placeholder)
+            name = getattr(window, "_weighted_role_names", {}).get(
+                option.character_id, "角色"
+            )
+            placeholder_layout.addWidget(QLabel(f"正在准备 {name} 的结果…"))
+            placeholder_layout.addStretch()
+            self._layout.addWidget(placeholder)
+            self._pending[placeholder] = option
+        page_scroll = getattr(window, "weighted_page_scroll", None)
+        self._page_scroll = page_scroll if isinstance(page_scroll, QScrollArea) else None
+        if self._page_scroll is not None:
+            self._page_scroll.verticalScrollBar().valueChanged.connect(
+                self._load_visible_cards
+            )
+        QTimer.singleShot(0, self._load_visible_cards)
+
+    def _load_visible_cards(self, *_args) -> None:
+        if not self._pending:
+            return
+        if self._page_scroll is None:
+            targets = tuple(self._pending)
+        else:
+            viewport = self._page_scroll.viewport()
+            targets = tuple(
+                placeholder
+                for placeholder in self._pending
+                if self._is_near_viewport(placeholder, viewport)
+            )
+            # Before the layout has been shown Qt can report no geometry.  The
+            # first card must still appear so the user gets an immediate result.
+            if not targets and self._initial_load:
+                targets = (next(iter(self._pending)),)
+        self._initial_load = False
+        if not targets:
+            return
+        for placeholder in targets:
+            option = self._pending.pop(placeholder, None)
+            if option is None:
+                continue
+            index = self._layout.indexOf(placeholder)
+            self._layout.removeWidget(placeholder)
+            placeholder.deleteLater()
+            self._layout.insertWidget(index, _role_option_card(
+                self._window,
+                option,
+                dict(self._candidates),
+                self._roles.get(option.character_id),
+                dict(self._shape_resources),
+                self._detail_cache,
+            ))
+        if self._pending:
+            QTimer.singleShot(0, self._load_visible_cards)
+
+    def _is_near_viewport(self, placeholder: QWidget, viewport: QWidget) -> bool:
+        top = viewport.mapFromGlobal(placeholder.mapToGlobal(QPoint(0, 0))).y()
+        bottom = top + max(placeholder.height(), self._PLACEHOLDER_HEIGHT)
+        return (
+            bottom >= -self._PREFETCH_PIXELS
+            and top <= viewport.height() + self._PREFETCH_PIXELS
+        )
+
+
 def _role_option_card(
     window, option: RoleAllocationOption, candidates: dict = None, role=None,
     shape_resources: dict[str, str] | None = None,
+    detail_cache: dict[int, Mapping[str, Any] | None] | None = None,
 ) -> QWidget:
     name = getattr(window, "_weighted_role_names", {}).get(option.character_id, "角色")
     card = QGroupBox()
@@ -182,6 +298,7 @@ def _role_option_card(
         for assignment in modules
         if (candidate := candidate_map.get(assignment.uid)) is not None
     ]
+    detail = _weighted_result_role_detail(window, option.character_id, detail_cache)
     summary_panel = _official_bonus_summary_panel(
         window,
         name,
@@ -189,6 +306,7 @@ def _role_option_card(
         summary_core,
         summary_drives,
         role,
+        detail,
     )
     if option.generated_board:
         layout.addWidget(legacy_results._section_label(window, "拼图图纸:"))
@@ -214,6 +332,7 @@ def _role_option_card(
             window,
             option,
             candidate_map,
+            detail=detail,
         )
         layout.addWidget(
             legacy_results._section_label(
@@ -244,6 +363,25 @@ def _role_option_card(
         equipment_grid.setColumnStretch(4, 1)
         layout.addLayout(equipment_grid)
     return card
+
+
+def _weighted_result_role_detail(
+    window,
+    character_id: int,
+    detail_cache: dict[int, Mapping[str, Any] | None] | None,
+) -> Mapping[str, Any] | None:
+    """Load one role detail once for the lifetime of a rendered result."""
+
+    cache = detail_cache if detail_cache is not None else {}
+    if character_id not in cache:
+        try:
+            cache[character_id] = load_official_role_detail(
+                runtime.USER_DATABASE_PATH,
+                character_id,
+            )
+        except (OSError, ValueError):
+            cache[character_id] = None
+    return cache[character_id]
 
 
 def _result_badge(title: str, value: str, color: str) -> QWidget:
@@ -448,6 +586,8 @@ def _allocation_direct_damage_scores(
     window,
     option: RoleAllocationOption,
     candidates: Mapping[tuple[int, int], Any],
+    *,
+    detail: Mapping[str, Any] | None = None,
 ) -> dict[tuple[int, int], float]:
     items_by_uid = {
         assignment.uid: _allocation_candidate_row(
@@ -459,13 +599,12 @@ def _allocation_direct_damage_scores(
     }
     if not items_by_uid:
         return {}
-    try:
-        detail = load_official_role_detail(
-            runtime.USER_DATABASE_PATH,
-            option.character_id,
-        )
-    except (OSError, ValueError):
+    if detail is None:
         return {}
+    with StaticGameDataDao() as static_dao:
+        calculation_items = project_equipment_items_to_max_level(
+            items_by_uid.values(), static_dao,
+        )
     context_key = "_weighted_result"
     detail = {
         **detail,
@@ -474,6 +613,7 @@ def _allocation_direct_damage_scores(
             context_key: {
                 "title": "词条配装结果",
                 "items": tuple(items_by_uid.values()),
+                "calculation_items": tuple(calculation_items),
                 "available": True,
             },
         },
@@ -490,16 +630,15 @@ def _official_summary_rows_by_mode(
     window,
     loadout: AttributeSummaryLoadout,
     role=None,
+    detail: Mapping[str, Any] | None = None,
 ) -> dict[str, tuple[AttributeSummaryRow, ...]]:
     selected = [
         item
         for item in (loadout.core, *loadout.drives)
         if item is not None
     ]
-    detail = load_official_role_detail(
-        runtime.USER_DATABASE_PATH,
-        loadout.character_id,
-    )
+    if detail is None:
+        return {"equipment": (), "character": ()}
     summaries = calculate_official_role_attribute_summaries(
         detail,
         selected,
@@ -541,7 +680,10 @@ def _official_bonus_summary_panel(
     core,
     drives,
     role,
+    detail: Mapping[str, Any] | None = None,
 ) -> QWidget:
+    if detail is None:
+        return None
     return AttributeSummaryPanel.from_loadout(
         role_name,
         character_id=character_id,
@@ -556,6 +698,7 @@ def _official_bonus_summary_panel(
             window,
             loadout,
             role,
+            detail,
         ),
         parent=window if isinstance(window, QWidget) else None,
         color_for_weight=lambda weight: legacy_results._stat_c(window, weight),
@@ -666,5 +809,3 @@ def _missing_core_text(window, role) -> str:
     suit = suits.get(role.target_suit_id, role.target_suit_id or "任意套装")
     attribute = attributes.get(role.core_main_property_id, role.core_main_property_id or "任意主词条")
     return f"空幕缺失：缺少 {suit}＋{attribute} 主词条空幕（驱动图纸已匹配）"
-
-

@@ -11,11 +11,29 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
+def is_unmodified_account_weight_cache(record: Mapping[str, Any] | None) -> bool:
+    """Whether a private row is only a refreshable copy of public weights."""
+
+    if not isinstance(record, Mapping):
+        return False
+    return (
+        str(record.get("source_kind") or "") == "default"
+        and str(record.get("seeded_at_utc") or "")
+        == str(record.get("updated_at_utc") or "")
+    )
+
+
 def ensure_account_character_weights(
     user_database_path: str | Path,
     character_ids: Iterable[int] | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Read existing account weight rows without importing bundled recommendations."""
+    """Refresh public defaults while preserving only genuine account edits.
+
+    Public recommendations always live in ``game_static.sqlite3``.  The
+    account database stores a refreshable ``default`` cache for untouched
+    roles; saving a role changes its source to ``account`` and freezes it
+    against later public-data updates.
+    """
 
     with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
         wanted_ids = (
@@ -26,10 +44,32 @@ def ensure_account_character_weights(
                 for row in static_dao.list_role_template_characters()
             ]
         )
-        result = {}
+        dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
+        result: dict[int, dict[str, Any]] = {}
         for character_id in wanted_ids:
+            recommended = static_dao.get_character_recommended_weights(character_id)
+            if recommended is None:
+                continue
+            properties = list(recommended.get("properties") or ())
+            if not properties:
+                continue
             existing = user_dao.get_character_weight_preferences(character_id)
-            if existing is not None:
+            if existing is None:
+                result[character_id] = user_dao.seed_character_weight_preferences(
+                    character_id,
+                    properties=properties,
+                    source_dataset_id=dataset_id,
+                    source_kind="default",
+                )
+            elif is_unmodified_account_weight_cache(existing):
+                refreshed = user_dao.refresh_unmodified_character_weight_preferences(
+                    character_id,
+                    properties=properties,
+                    source_dataset_id=dataset_id,
+                    source_kind="default",
+                )
+                result[character_id] = refreshed or existing
+            else:
                 result[character_id] = existing
         return result
 

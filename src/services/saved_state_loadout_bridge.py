@@ -19,6 +19,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 _SAVED_UID_PATTERN = re.compile(
     r"^nte-(?P<kind>module|core)-(?P<slot>\d+)-(?P<serial>\d+)$"
 )
+_KNOWN_FEMALE_AVATAR_IDS = frozenset({1051})
 
 
 class SavedStateLoadoutError(RuntimeError):
@@ -93,9 +94,13 @@ def character_id_for_saved_role(
     role_name: str,
     roles_db: Mapping[str, Any],
 ) -> int:
-    """兼容单 ID 调用方；多 ID 角色应使用当前背包自动解析。"""
+    """兼容单 ID 调用方；主角变体始终优先使用女性官方 ID。"""
 
-    return character_ids_for_saved_role(role_name, roles_db)[0]
+    candidates = character_ids_for_saved_role(role_name, roles_db)
+    return next(
+        (candidate for candidate in candidates if candidate in _KNOWN_FEMALE_AVATAR_IDS),
+        candidates[0],
+    )
 
 
 def resolve_character_id_for_saved_role(
@@ -108,6 +113,12 @@ def resolve_character_id_for_saved_role(
     """用固定稳定快照中的角色实例 UID 选择账号实际使用的官方角色 ID。"""
 
     candidates = character_ids_for_saved_role(role_name, roles_db)
+    female_candidate = next(
+        (candidate for candidate in candidates if candidate in _KNOWN_FEMALE_AVATAR_IDS),
+        None,
+    )
+    if female_candidate is not None:
+        return female_candidate
     if len(candidates) == 1:
         return candidates[0]
     selected_snapshot_id = (
@@ -220,6 +231,21 @@ def character_ids_for_static_role(
     return ids
 
 
+def _female_avatar_candidate(
+    candidates: tuple[int, ...],
+    static_dao: StaticGameDataDao,
+) -> int | None:
+    """Choose a female avatar template before any historical instance lookup."""
+
+    female_ids = []
+    for character_id in candidates:
+        character = static_dao.get_character(character_id) or {}
+        actor_path = str(character.get("actor_path") or "").casefold()
+        if "female" in actor_path or "_female" in actor_path:
+            female_ids.append(character_id)
+    return min(female_ids) if female_ids else None
+
+
 def resolve_character_id_for_static_role(
     role_name: str,
     static_dao: StaticGameDataDao,
@@ -230,6 +256,9 @@ def resolve_character_id_for_static_role(
     """从官方静态角色与固定快照确定角色 ID，主角保留历史和映射兜底。"""
 
     candidates = character_ids_for_static_role(role_name, static_dao)
+    female_candidate = _female_avatar_candidate(candidates, static_dao)
+    if female_candidate is not None:
+        return female_candidate
     if len(candidates) == 1:
         return candidates[0]
 

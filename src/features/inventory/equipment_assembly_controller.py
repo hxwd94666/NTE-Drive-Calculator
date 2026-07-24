@@ -438,6 +438,21 @@ def _report_fast_apply_progress(progress_callback, *, current: int, total: int, 
 
 
 def _prompt_character_identity_requests(self, requests: list[dict]) -> dict[str, dict] | None:
+    missing_cache = [request for request in requests if "无法从当前或历史稳定背包确定" in str(request.get("reason") or "")]
+    if missing_cache:
+        roles = "、".join(str(request["role_name"]) for request in missing_cache)
+        QMessageBox.information(
+            self,
+            "需要采集角色实例",
+            f"[{roles}] 尚未在当前账号的人物实例缓存中留下 UID。\n\n"
+            "请按以下步骤为这些从未被 nte-core 观察过的角色采集实例 UID：\n"
+            "1. 在游戏内进入该角色的配装页，使用“智能装配”完成一次配装；\n"
+            "2. 重新登录游戏；\n"
+            "3. 启动背包同步，并等待完成一次稳定快照。\n\n"
+            "程序会自动写入账号私有缓存和本机公共缓存；之后该角色即可直接使用极速装配。\n\n"
+            "角色 UID 不会与其他账号混用。",
+        )
+        return None
     overrides: dict[str, dict] = {}
     for request in requests:
         role_name = request["role_name"]
@@ -601,6 +616,19 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
     worker.start()
 
 
+def _confirm_automatic_assembly_fallback(self, detail: str) -> bool:
+    """Ask before falling back from native-UID fast assembly to UI automation."""
+
+    result = QMessageBox.question(
+        self,
+        "切换自动装配",
+        f"{detail}\n\n是否改用逐步自动装配？",
+        QMessageBox.Yes | QMessageBox.Cancel,
+        QMessageBox.Cancel,
+    )
+    return result == QMessageBox.Yes
+
+
 def _preview_nte_core_assemble_role(self, role_name: str, *, confirmed: bool = False) -> None:
     """确认后通过装备插件极速装配一个已保存角色方案。"""
 
@@ -608,23 +636,23 @@ def _preview_nte_core_assemble_role(self, role_name: str, *, confirmed: bool = F
         with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
             plan = user_dao.get_active_loadout_plan_for_role(role_name)
             source_snapshot_id = plan.get("source_snapshot_id") if plan else None
-            source = (
-                user_dao.inventory_snapshot_summary(int(source_snapshot_id)).get("source")
-                if source_snapshot_id is not None
-                and user_dao.inventory_snapshot_summary(int(source_snapshot_id)) is not None
-                else None
+            source_summary = (
+                user_dao.inventory_snapshot_summary(int(source_snapshot_id))
+                if source_snapshot_id is not None else None
             )
+            source = source_summary.get("source") if source_summary else None
     except Exception as exc:
         QMessageBox.warning(self, "极速装配", f"无法读取已保存方案：{exc}")
         return
     if source == "gamepad":
-        QMessageBox.information(
+        if _confirm_automatic_assembly_fallback(
             self,
-            "切换自动装配",
-            "未找到抓包稳定快照。视觉扫描库存不包含本地组件所需的原生 UID，"
-            "将改用逐步自动装配。",
-        )
-        _preview_automatic_assemble_role(self, role_name, confirmed=confirmed)
+            "当前已保存方案来自视觉扫描快照，装备 UID 是视觉扫描生成的临时标识；"
+            "极速装配只能写入抓包同步（nte_core）提供的游戏原生 UID。\n\n"
+            "为避免写入错误装备，可以改用逐步自动装配。若要使用极速装配，请完成一次背包同步，"
+            "再重新计算并保存该角色的方案。",
+        ):
+            _preview_automatic_assemble_role(self, role_name, confirmed=confirmed)
         return
 
     if confirmed:
@@ -673,15 +701,16 @@ def _preview_nte_core_assemble_all_roles(
     if nte_roles:
         role_names = list(nte_roles) if requested_roles else sorted(nte_roles)
     elif visual_roles:
-        QMessageBox.information(
+        if _confirm_automatic_assembly_fallback(
             self,
-            "切换自动装配",
-            "未找到抓包稳定快照。视觉扫描库存不包含本地组件所需的原生 UID，"
-            "将改用逐步自动装配。",
-        )
-        _preview_automatic_assemble_all_roles(
-            self, role_names=list(requested_roles) if requested_roles else None,
-        )
+            "当前已保存方案来自视觉扫描快照，装备 UID 是视觉扫描生成的临时标识；"
+            "极速装配只能写入抓包同步（nte_core）提供的游戏原生 UID。\n\n"
+            "为避免写入错误装备，可以改用逐步自动装配。若要使用极速装配，请完成一次背包同步，"
+            "再重新计算并保存方案。",
+        ):
+            _preview_automatic_assemble_all_roles(
+                self, role_names=list(requested_roles) if requested_roles else None,
+            )
         return
     else:
         QMessageBox.information(self, "极速装配", "当前没有来自官方背包快照的已保存方案。请先重新计算并保存。")
@@ -903,4 +932,3 @@ def _preview_assemble_role(self, role_name: str) -> None:
         _preview_nte_core_assemble_role(self, role_name, confirmed=True)
     elif mode == "automatic":
         _preview_automatic_assemble_role(self, role_name, confirmed=True)
-

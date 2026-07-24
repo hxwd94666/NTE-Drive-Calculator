@@ -201,7 +201,6 @@ _append_add_data(equipment_plugin_path, ".")
 for notice_path in (
     ROOT / "LICENSE",
     ROOT / "NOTICE",
-    ROOT / "THIRD_PARTY_NOTICES.md",
     THIRD_PARTY_DIR / "equipment-plugin" / "NOTICE.md",
     THIRD_PARTY_DIR / "vigembus" / "NOTICE.md",
     THIRD_PARTY_DIR / "vigembus" / "LICENSE-BSD-3-Clause.txt",

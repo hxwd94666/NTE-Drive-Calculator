@@ -180,10 +180,27 @@ def _theory_properties(weights: Mapping[str, float]) -> tuple[str, ...]:
     return tuple(selected)
 
 
-def _resolved_plan_items(user_dao: UserDataDao, plan: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def _resolved_plan_items(
+    user_dao: UserDataDao,
+    plan: Mapping[str, Any] | None,
+    *,
+    snapshot_items: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve a plan while reusing an already loaded source snapshot.
+
+    The detail model needs both the saved assignments and the replacement pool.
+    They are two views of one immutable snapshot, so issuing a second full
+    ``list_inventory_items`` query only adds UI latency and can obscure the
+    snapshot boundary during a concurrent sync.
+    """
+
     if not plan or plan.get("source_snapshot_id") is None:
         return []
-    items = user_dao.list_inventory_items(int(plan["source_snapshot_id"]))
+    items = (
+        [dict(item) for item in snapshot_items]
+        if snapshot_items is not None
+        else user_dao.list_inventory_items(int(plan["source_snapshot_id"]))
+    )
     by_uid = {(int(item["uid_serial"]), int(item["uid_slot"])): item for item in items}
     resolved = []
     for assignment in plan.get("assignments") or []:
@@ -257,17 +274,11 @@ def calculate_official_role_attribute_summaries(
         str(property_id): bool(attribute.get("show_percent"))
         for property_id, attribute in attributes.items()
     }
-    shape_bonus = detail.get("shape_bonus") or {}
+    extra_shape_label, extra_shape_buffs = _shape_bonus_parameters(detail)
     equipment_totals = calculate_official_equipment_stats(
         items,
-        extra_shape_label=str(shape_bonus.get("shape_label") or ""),
-        extra_shape_buffs=tuple(
-            (
-                str(row.get("property_id") or ""),
-                float(row.get("display_value") or 0.0),
-            )
-            for row in shape_bonus.get("properties") or ()
-        ),
+        extra_shape_label=extra_shape_label,
+        extra_shape_buffs=extra_shape_buffs,
         property_percent=property_percent,
     )
     equipment_rows = tuple(
@@ -375,17 +386,78 @@ def calculate_official_role_attribute_summaries(
     }
 
 
+def _shape_bonus_parameters(
+    detail: Mapping[str, Any],
+) -> tuple[str, tuple[tuple[str, float], ...]]:
+    """Normalize the account-resolved extra-shape bonus for every panel path."""
+
+    shape_bonus = detail.get("shape_bonus") or {}
+    return (
+        str(shape_bonus.get("shape_label") or ""),
+        tuple(
+            (
+                str(row.get("property_id") or ""),
+                float(row.get("display_value") or 0.0),
+            )
+            for row in shape_bonus.get("properties") or ()
+            if str(row.get("property_id") or "")
+        ),
+    )
+
+
+def _item_uid(item: Mapping[str, Any]) -> tuple[int, int] | None:
+    """Return a native inventory UID in its stable ``(slot, serial)`` order."""
+
+    raw_uid = item.get("uid") or {}
+    if isinstance(raw_uid, Mapping) and raw_uid:
+        return int(raw_uid.get("slot") or 0), int(raw_uid.get("serial") or 0)
+    if "uid_slot" in item or "uid_serial" in item:
+        return int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0)
+    return None
+
+
+def _context_calculation_items(context: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Use a matching full-level projection without reading a stale replacement list.
+
+    A replacement context changes ``items`` first.  Its max-level projection
+    must change in the same operation; otherwise the direct-damage calculation
+    silently keeps scoring the previous equipment set.  When the two UID sets
+    differ, the caller's current items are the only coherent calculation input.
+    """
+
+    if "calculation_items" in context:
+        calculation_items = list(context.get("calculation_items") or ())
+        items = list(context.get("items") or ())
+        calculation_uids = {
+            _item_uid(item)
+            for item in calculation_items
+            if _item_uid(item) is not None
+        }
+        item_uids = {
+            _item_uid(item)
+            for item in items
+            if _item_uid(item) is not None
+        }
+        if calculation_uids == item_uids:
+            return calculation_items
+        return items
+    return list(context.get("items") or ())
+
+
 def _equipment_property_stats(
-    detail: Mapping[str, Any], items: list[dict[str, Any]],
+    detail: Mapping[str, Any], items: list[dict[str, Any]], *, include_shape_bonus: bool = True,
 ) -> dict[str, float]:
     property_percent = {
         str(property_id): bool(attribute.get("show_percent"))
         for property_id, attribute in (detail.get("attributes") or {}).items()
     }
+    extra_shape_label, extra_shape_buffs = _shape_bonus_parameters(detail)
     return {
         row.property_id: row.value
         for row in calculate_official_equipment_stats(
             items,
+            extra_shape_label=extra_shape_label if include_shape_bonus else "",
+            extra_shape_buffs=extra_shape_buffs if include_shape_bonus else (),
             property_percent=property_percent,
         )
     }
@@ -396,7 +468,9 @@ def _property_stats_by_source(
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     fork_stats = _fork_property_stats(detail)
     context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
-    equipment_stats = _equipment_property_stats(detail, list(context.get("items") or ()))
+    equipment_stats = _equipment_property_stats(
+        detail, _context_calculation_items(context),
+    )
     totals = dict(fork_stats)
     for property_id, value in equipment_stats.items():
         totals[property_id] = totals.get(property_id, 0.0) + value
@@ -514,7 +588,7 @@ def calculate_official_role_equipment_gain(
         **detail,
         "equipment_contexts": {
             **(detail.get("equipment_contexts") or {}),
-            context_key: {**context, "items": ()},
+            context_key: {**context, "items": (), "calculation_items": ()},
         },
     }
     baseline_inputs = _role_panel_damage_inputs(baseline_detail, context_key)
@@ -562,14 +636,18 @@ def calculate_official_role_item_gain(
     context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
     remaining = tuple(
         candidate
-        for candidate in context.get("items") or ()
+        for candidate in _context_calculation_items(context)
         if not _same_inventory_item(candidate, item)
     )
     baseline_detail = {
         **detail,
         "equipment_contexts": {
             **(detail.get("equipment_contexts") or {}),
-            context_key: {**context, "items": remaining},
+            context_key: {
+                **context,
+                "items": remaining,
+                "calculation_items": remaining,
+            },
         },
     }
     baseline_inputs = _role_panel_damage_inputs(baseline_detail, context_key)
@@ -644,7 +722,11 @@ def replacement_candidates_for_official_role(
         (item for item in items if _same_inventory_item(item, target)),
         dict(target),
     )
-    full_level_context = {**context, "items": items}
+    full_level_context = {
+        **context,
+        "items": items,
+        "calculation_items": items,
+    }
     full_level_detail = {
         **detail,
         "equipment_contexts": {
@@ -672,7 +754,11 @@ def replacement_candidates_for_official_role(
             **full_level_detail,
             "equipment_contexts": {
                 **(full_level_detail.get("equipment_contexts") or {}),
-                context_key: {**full_level_context, "items": replaced},
+                context_key: {
+                    **full_level_context,
+                    "items": replaced,
+                    "calculation_items": replaced,
+                },
             },
         }
         margins = calculate_official_role_margins(candidate_detail, context_key)
@@ -821,7 +907,9 @@ def calculate_official_role_margins(detail: Mapping[str, Any], context_key: str)
     }
     rows = []
     for property_id, label, field, unit, is_percent in candidates:
-        if property_id not in configured:
+        # 异能伤害属于角色固有边际项；即使用户没有把它作为配装权重，
+        # 也必须展示对应元素的 1.25% 单位收益。
+        if property_id not in configured and property_id != element_property:
             continue
         updated = []
         for item in inputs:
@@ -929,7 +1017,22 @@ def calculate_official_role_damage_breakdown(
         {"source": "角色基础", "label": "暴击率", "value": 0.05, "percent": True},
         {"source": "角色基础", "label": "暴击伤害", "value": 0.50, "percent": True},
     ]
-    for source, source_stats in (("弧盘", fork_stats), ("空幕/驱动", equipment_stats)):
+    context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
+    raw_equipment_stats = _equipment_property_stats(
+        detail,
+        _context_calculation_items(context),
+        include_shape_bonus=False,
+    )
+    shape_stats = {
+        property_id: value - raw_equipment_stats.get(property_id, 0.0)
+        for property_id, value in equipment_stats.items()
+        if value - raw_equipment_stats.get(property_id, 0.0)
+    }
+    for source, source_stats in (
+        ("弧盘", fork_stats),
+        ("空幕/驱动", raw_equipment_stats),
+        ("额外形状", shape_stats),
+    ):
         for property_id, value in source_stats.items():
             if value:
                 attribute = (detail.get("attributes") or {}).get(property_id) or {}
@@ -1086,8 +1189,14 @@ def load_official_role_detail(
     character_id: int,
     *,
     asset_root: str | Path | None = None,
+    include_inventory_contexts: bool = True,
 ) -> dict[str, Any]:
-    """Resolve one page model from static SQLite plus the account SQLite pointers."""
+    """Resolve one page model from static SQLite plus account SQLite pointers.
+
+    Result calculation only needs the role's panel model; it supplies its own
+    pinned items.  ``include_inventory_contexts=False`` avoids loading a saved
+    plan's whole snapshot merely to render an unrelated allocation result.
+    """
 
     catalog = GameUiAssetCatalog(_asset_root(asset_root))
     ensure_account_character_weights(user_database_path, (character_id,))
@@ -1104,47 +1213,77 @@ def load_official_role_detail(
             character, growth_rows, forks, skills, 0
         )
         profile["persisted"] = saved_profile is not None
-        current_items = user_dao.list_current_inventory_items(
-            equipped=True, character_id=character_id
-        )
-        plans = [plan for plan in user_dao.list_loadout_plans(character_id) if plan["is_active"]]
-        saved_plan = plans[0] if plans else None
-        saved_items = _resolved_plan_items(user_dao, saved_plan)
-        replacement_items = (
-            user_dao.list_inventory_items(int(saved_plan["source_snapshot_id"]))
-            if saved_plan and saved_plan.get("source_snapshot_id") is not None
-            else []
-        )
-        characters = {
-            int(row["character_id"]): row
-            for row in static_dao.list_characters()
-        }
-        owner_by_uid: dict[tuple[int, int], int] = {}
-        for row in user_dao.list_active_loadout_equipment_owners():
-            owner_by_uid.setdefault(
-                (int(row["uid_slot"]), int(row["uid_serial"])),
-                int(row["character_id"]),
+        current_items: list[dict[str, Any]] = []
+        saved_plan: Mapping[str, Any] | None = None
+        saved_items: list[dict[str, Any]] = []
+        replacement_items: list[dict[str, Any]] = []
+        if include_inventory_contexts:
+            current_items = user_dao.list_current_inventory_items(
+                equipped=True, character_id=character_id
             )
-        for item in replacement_items:
-            uid = (int(item["uid_slot"]), int(item["uid_serial"]))
-            owner_id = owner_by_uid.get(uid)
-            item["equipped"] = False
-            item["equipped_character_id"] = None
-            item["equipped_character_name"] = ""
-            item.pop("equipped_character_icon_path", None)
-            if owner_id is None:
-                continue
-            owner = characters.get(owner_id) or {}
-            item["equipped"] = True
-            item["equipped_character_id"] = owner_id
-            item["equipped_character_name"] = str(
-                owner.get("name_zh") or owner_id
+            plans = [
+                plan for plan in user_dao.list_loadout_plans(character_id)
+                if plan["is_active"]
+            ]
+            saved_plan = plans[0] if plans else None
+            replacement_items = (
+                user_dao.list_inventory_items(int(saved_plan["source_snapshot_id"]))
+                if saved_plan and saved_plan.get("source_snapshot_id") is not None
+                else []
             )
-            owner_icon = catalog.character_icon(owner_id)
-            if owner_icon is not None:
-                item["equipped_character_icon_path"] = str(owner_icon)
+            saved_items = _resolved_plan_items(
+                user_dao,
+                saved_plan,
+                snapshot_items=replacement_items,
+            )
+            characters = {
+                int(row["character_id"]): row
+                for row in static_dao.list_characters()
+            }
+            owner_by_uid: dict[tuple[int, int], int] = {}
+            for row in user_dao.list_active_loadout_equipment_owners():
+                owner_by_uid.setdefault(
+                    (int(row["uid_slot"]), int(row["uid_serial"])),
+                    int(row["character_id"]),
+                )
+            for item in replacement_items:
+                uid = (int(item["uid_slot"]), int(item["uid_serial"]))
+                owner_id = owner_by_uid.get(uid)
+                item["equipped"] = False
+                item["equipped_character_id"] = None
+                item["equipped_character_name"] = ""
+                item.pop("equipped_character_icon_path", None)
+                if owner_id is None:
+                    continue
+                owner = characters.get(owner_id) or {}
+                item["equipped"] = True
+                item["equipped_character_id"] = owner_id
+                item["equipped_character_name"] = str(
+                    owner.get("name_zh") or owner_id
+                )
+                owner_icon = catalog.character_icon(owner_id)
+                if owner_icon is not None:
+                    item["equipped_character_icon_path"] = str(owner_icon)
         equipment_plan = static_dao.get_equipment_plan(character_id)
-        shape_bonus = static_dao.get_character_shape_bonus(character_id)
+        static_shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+        shape_bonus_override = user_dao.get_character_shape_bonus_preferences(
+            character_id
+        )
+        shape_bonus = {
+            **static_shape_bonus,
+            **({
+                "shape_label": str(shape_bonus_override.get("shape_label") or ""),
+                "properties": list(shape_bonus_override.get("properties") or ()),
+            } if shape_bonus_override is not None else {}),
+        }
+        current_calculation_items = project_equipment_items_to_max_level(
+            current_items,
+            static_dao,
+        )
+        saved_calculation_items = project_equipment_items_to_max_level(
+            saved_items,
+            static_dao,
+        )
         graduation_template = static_dao.get_character_graduation_template(character_id)
         account_weights = user_dao.get_character_weight_preferences(character_id)
         weight_record = account_weights or {}
@@ -1223,11 +1362,13 @@ def load_official_role_detail(
             "current": {
                 "title": "游戏当前",
                 "items": current_items,
+                "calculation_items": current_calculation_items,
                 "available": bool(current_items),
             },
             "saved": {
                 "title": "已保存配装",
                 "items": saved_items,
+                "calculation_items": saved_calculation_items,
                 "plan": saved_plan,
                 "available": bool(saved_items),
             },

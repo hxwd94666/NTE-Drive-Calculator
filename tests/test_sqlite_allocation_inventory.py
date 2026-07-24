@@ -122,6 +122,7 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
         self.assertTrue(drive["official"]["is_duplicate_drive"])
         core = next(row for row in result.items if row["item_type"] == "tape")
         self.assertEqual(core["uid"], "nte-core-22-202")
+        self.assertEqual(core["item_id"], "GetEfficiency_orange")
         self.assertEqual(core["shape_id"], "TAPE_15")
         self.assertEqual(core["set_name"], "失落光芒")
         self.assertEqual(core["main_stats"], "光属性异能伤害增强%")

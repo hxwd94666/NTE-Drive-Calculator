@@ -233,7 +233,12 @@ def _on_weighted_restore_done(
     window._weighted_allocation_preview = preview
     window._weighted_allocation_saved_preview = preview
     window.weighted_save_button.setEnabled(bool(preview.result.unified.selected))
-    render_weighted_allocation_result(window, preview.result, preview.context)
+    render_weighted_allocation_result(
+        window,
+        preview.result,
+        preview.context,
+        role_details=preview.role_details,
+    )
     _set_weighted_equipment_actions_enabled(window, bool(preview.result.unified.selected))
     window.weighted_status_label.setText(
         f"已自动读取保存方案：{len(preview.result.unified.selected)} 个角色，"
@@ -473,5 +478,4 @@ def _current_snapshot_and_profile(window) -> tuple[int, int, int]:
             profile = dao.get_optimization_profile(int(profile["profile_id"]))
         version = profile["version"]
         return int(snapshot["snapshot_id"]), int(profile["profile_id"]), int(version["version_number"])
-
 

@@ -518,7 +518,9 @@ class OptimizationProfileDaoMixin:
                 ],
             )
             connection.execute(
-                "UPDATE character_weight_preference_seed SET updated_at_utc = ? WHERE character_id = ?",
+                """UPDATE character_weight_preference_seed
+                   SET source_kind = 'account', updated_at_utc = ?
+                   WHERE character_id = ?""",
                 (_utc_now(), raw_character_id),
             )
             connection.commit()
@@ -582,11 +584,13 @@ class OptimizationProfileDaoMixin:
                     for row in rows
                 ],
             )
+            now = _utc_now()
             connection.execute(
                 """UPDATE character_weight_preference_seed
-                   SET source_dataset_id = ?, source_kind = ?, updated_at_utc = ?
+                   SET source_dataset_id = ?, source_kind = 'default',
+                       seeded_at_utc = ?, updated_at_utc = ?
                    WHERE character_id = ?""",
-                (dataset_id, normalized_source_kind, _utc_now(), raw_character_id),
+                (dataset_id, now, now, raw_character_id),
             )
             connection.commit()
         except sqlite3.Error as exc:

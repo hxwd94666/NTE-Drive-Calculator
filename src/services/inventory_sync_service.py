@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol
 
 from src.integrations.nte_core import NteCoreClient
 from src.services.account_settings_service import AccountSettingsService
+from src.services.character_instance_cache import mirror_user_character_instance_cache
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -397,6 +398,10 @@ class InventorySyncService:
                         )
                         continue
                     stabilizer.mark_committed(stable.fingerprint)
+                    try:
+                        mirror_user_character_instance_cache(dao)
+                    except Exception as exc:
+                        logger.warning(f"同步公共角色实例缓存失败，将在极速装配时重试：{exc}")
                     if self._template_refresh is not None:
                         try:
                             refreshed = self._template_refresh()
