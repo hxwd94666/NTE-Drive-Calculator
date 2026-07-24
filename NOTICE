@@ -7,7 +7,7 @@ This product includes components with separate license terms:
   is distributed under AGPL-3.0. Its binary, license, source location and
   third-party notices are in third_party/nte-core/.
 - The dwmapi.dll equipment plugin is supplied by the same collaboration
-  project under its contributor authorization. The Apache-2.0 license for
+  project under its contributor authorization. The AGPL-3.0 license for
   NTE Drive Calc does not alter that component's separate rights or notices.
 - ViGEmBus is distributed under BSD-3-Clause. Its license and attribution are
   in third_party/vigembus/.
