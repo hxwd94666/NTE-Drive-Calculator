@@ -248,6 +248,7 @@ def nte_core_candidates() -> list[Path]:
         )
     candidates.extend(
         [
+            project_root / "third_party" / "nte-core" / "bin" / "nte-core.exe",
             project_root / "nte-core.exe",
             project_root / "tools" / "nte-core.exe",
             project_root.parent / "target" / "release" / "nte-core.exe",

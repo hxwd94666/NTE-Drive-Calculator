@@ -105,8 +105,13 @@ class PackagingScriptTests(unittest.TestCase):
         source = Path("build_exe.py").read_text(encoding="utf-8")
 
         self.assertIn('NTE_CORE_ENV = "NTE_CORE_EXE"', source)
+        self.assertIn('THIRD_PARTY_DIR / "nte-core" / "bin" / "nte-core.exe"', source)
+        self.assertIn('EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"', source)
+        self.assertIn('THIRD_PARTY_DIR / "equipment-plugin" / "bin" / "dwmapi.dll"', source)
         self.assertIn('_append_add_data(SQLITE_SCHEMA_DIR, "src/storage/sqlite/schema")', source)
         self.assertIn('_append_add_binary(nte_core_path, ".")', source)
+        self.assertIn('"SOURCE.md"', source)
+        self.assertIn('ROOT / "NOTICE"', source)
         self.assertIn('STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"', source)
         self.assertIn('_required_build_file("发行版静态数据库", STATIC_DATABASE_PATH)', source)
         self.assertIn('_append_add_data(static_database_path, "data")', source)
@@ -114,13 +119,25 @@ class PackagingScriptTests(unittest.TestCase):
         workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertNotIn("NTE_GAME_STATIC_DB_URL", workflow)
 
-    def test_release_workflow_downloads_pinned_nte_core_with_hash_check(self):
+    def test_installer_prefers_the_organized_vigembus_location(self):
+        source = Path("build_installer.py").read_text(encoding="utf-8")
+
+        self.assertIn('THIRD_PARTY_DIR / "vigembus" / "bin"', source)
+        self.assertIn("LEGACY_VIGEM_BUNDLE_EXE", source)
+
+    def test_release_workflow_uses_the_committed_nte_core_component(self):
         workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 
-        self.assertIn("v0.3.3-build-73-65585f1", workflow)
-        self.assertIn("NTE_CORE_ARCHIVE_SHA256", workflow)
-        self.assertIn("nte-core-windows-x64.zip", workflow)
-        self.assertIn('"NTE_CORE_EXE=$coreExe"', workflow)
+        self.assertNotIn("NTE_CORE_RELEASE_TAG", workflow)
+        self.assertNotIn("nte-core-windows-x64.zip", workflow)
+        self.assertIn("actions/checkout@v7", workflow)
+
+    def test_committed_nte_core_binary_has_redistribution_records(self):
+        component_dir = Path("third_party/nte-core")
+
+        self.assertTrue((component_dir / "bin" / "nte-core.exe").is_file())
+        self.assertTrue((component_dir / "LICENSE").is_file())
+        self.assertTrue((component_dir / "SOURCE.md").is_file())
 
     def test_release_workflow_supports_manual_release_publish(self):
         workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")

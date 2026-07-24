@@ -13,6 +13,7 @@ import shutil
 
 GAME_EXECUTABLE_NAME = "HTGame.exe"
 PLUGIN_FILENAME = "dwmapi.dll"
+PACKAGED_PLUGIN_RELATIVE_PATH = Path("third_party") / "equipment-plugin" / "bin" / PLUGIN_FILENAME
 STANDARD_GAME_EXECUTABLE_RELATIVE_PATH = (
     Path("Neverness To Everness")
     / "Client"
@@ -65,8 +66,22 @@ def plugin_dll(path: str | Path) -> Path:
 
 
 def packaged_plugin_dll(application_root: str | Path) -> Path:
-    """Return the app-root DLL shipped with this exact application build."""
-    return plugin_dll(Path(application_root) / PLUGIN_FILENAME)
+    """Return the packaged plugin, preferring the source-tree component layout.
+
+    PyInstaller releases keep the DLL beside the executable for compatibility with
+    existing installs, while source builds keep it under ``third_party``.
+    """
+
+    root = Path(application_root)
+    candidates = (
+        root / PACKAGED_PLUGIN_RELATIVE_PATH,
+        root / PLUGIN_FILENAME,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return plugin_dll(candidate)
+    checked = "、".join(str(candidate) for candidate in candidates)
+    raise EquipmentPluginDeploymentError(f"未找到打包的 {PLUGIN_FILENAME}；已检查：{checked}")
 
 
 def _disk_roots() -> list[Path]:

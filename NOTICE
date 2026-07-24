@@ -1,0 +1,17 @@
+NTE Drive Calc
+Copyright 2026 NTE Drive Calc contributors
+
+This product includes components with separate license terms:
+
+- nte-core, supplied by the kongbaiz/nte-dps-toolkit collaboration project,
+  is distributed under AGPL-3.0. Its binary, license, source location and
+  third-party notices are in third_party/nte-core/.
+- The dwmapi.dll equipment plugin is supplied by the same collaboration
+  project under its contributor authorization. The Apache-2.0 license for
+  NTE Drive Calc does not alter that component's separate rights or notices.
+- ViGEmBus is distributed under BSD-3-Clause. Its license and attribution are
+  in third_party/vigembus/.
+
+Neverness To Everness / 异环 names, characters, artwork, logos and other game
+materials are property of their respective rights holders. NTE Drive Calc is
+an unofficial, unaffiliated player tool.

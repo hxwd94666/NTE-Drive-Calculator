@@ -11,6 +11,7 @@ from src.services.equipment_plugin_deployment import (
     deploy_plugin,
     find_game_executables,
     game_executable,
+    packaged_plugin_dll,
     restore_plugin,
 )
 
@@ -94,3 +95,11 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
 
     def test_accepts_a_quoted_path_copied_from_windows_explorer(self) -> None:
         self.assertEqual(game_executable(f'"{self.executable}"'), self.executable.resolve())
+
+    def test_prefers_the_organized_third_party_plugin_location(self) -> None:
+        organized = self.root / "third_party" / "equipment-plugin" / "bin"
+        organized.mkdir(parents=True)
+        plugin = organized / "dwmapi.dll"
+        plugin.write_bytes(b"plugin")
+
+        self.assertEqual(packaged_plugin_dll(self.root), plugin.resolve())

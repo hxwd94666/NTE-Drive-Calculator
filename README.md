@@ -6,7 +6,7 @@
 
 把《异环》背包截图变成可计算库存，用算法完成驱动卡带鉴定与全角色配装，并实现自动装配。
 
-[![Version](https://img.shields.io/badge/version-1.3.0-2f81f7)](https://github.com/hxwd94666/NTE-Drive-Calc/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-2f81f7)](https://github.com/hxwd94666/NTE-Drive-Calc/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)](#environment)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)](#development)
 [![UI](https://img.shields.io/badge/UI-PySide6-41cd52)](#intro)
@@ -155,7 +155,7 @@
 
 ## 🧑‍💻本地开发
 
-`2.0.0` 分支正在把运行数据迁移到 SQLite，并以游戏官方 ID 作为新服务层的数据边界。当前已提供主页工作台、后台稳定背包同步、官方蓝图配装基线和带新快照验证的一键装配服务。详细设计见 [架构说明](docs/architecture.md) 与 [扩展指南](docs/extension-guide.md)。
+`2.0.0` 已使用 SQLite 作为运行数据边界，并以游戏官方 ID 驱动角色、库存和配装服务。详细设计见 [架构说明](docs/architecture.md) 与 [扩展指南](docs/extension-guide.md)。
 
 ```powershell
 python -m venv .venv
@@ -175,6 +175,12 @@ python main.py
 ```powershell
 .\.venv\Scripts\python.exe .\build_installer.py
 ```
+
+## 许可证与第三方组件
+
+项目自有源代码以 [Apache-2.0](LICENSE) 发布。随程序分发的 `nte-core.exe`、`dwmapi.dll` 与 ViGEmBus 是独立组件，其来源、适用条款和通知见 [NOTICE](NOTICE)、[第三方组件说明](THIRD_PARTY_NOTICES.md) 及 `third_party/`；Apache-2.0 不会改写它们各自的许可证或授权。
+
+本工具为非官方玩家工具。游戏名称、角色、素材及相关权利归各自权利人所有；使用抓包、插件或自动化功能前，请自行确认适用的游戏规则、服务条款和当地法律。
 
 ## 👥贡献者
 

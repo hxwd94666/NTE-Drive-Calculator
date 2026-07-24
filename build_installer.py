@@ -27,6 +27,7 @@ from tools import build_cli
 
 
 ROOT = Path(__file__).parent.resolve()
+THIRD_PARTY_DIR = ROOT / "third_party"
 DIST_APP = ROOT / "dist" / "NTE_Drive_Calc"
 APP_EXE = DIST_APP / "NTE_Drive_Calc.exe"
 APP_INTERNAL = DIST_APP / "_internal"
@@ -37,7 +38,8 @@ INSTALLER_DIR = ROOT / "installer"
 OUTPUT_DIR = INSTALLER_DIR / "output"
 ISS_PATH = INSTALLER_DIR / "NTE_Drive_Calc.iss"
 APP_ICON = ROOT / "assets" / "app_icon.ico"
-VIGEM_BUNDLE_EXE = ROOT / "ViGEmBus_1.22.0_x64_x86_arm64.exe"
+VIGEM_BUNDLE_EXE = THIRD_PARTY_DIR / "vigembus" / "bin" / "ViGEmBus_1.22.0_x64_x86_arm64.exe"
+LEGACY_VIGEM_BUNDLE_EXE = ROOT / "ViGEmBus_1.22.0_x64_x86_arm64.exe"
 
 APP_NAME = "NTE Drive Calc"
 APP_EXE_NAME = "NTE_Drive_Calc.exe"
@@ -136,8 +138,9 @@ def _find_vigem_installer(explicit_path: Path | None = None) -> tuple[Path, bool
             raise ValueError("ViGEmBus installer must be an .exe or .msi file.")
         return explicit_path, suffix == ".exe"
 
-    if VIGEM_BUNDLE_EXE.exists():
-        return VIGEM_BUNDLE_EXE, True
+    for bundled_installer in (VIGEM_BUNDLE_EXE, LEGACY_VIGEM_BUNDLE_EXE):
+        if bundled_installer.exists():
+            return bundled_installer, True
 
     pkg_dir = _find_package_dir("vgamepad")
     if pkg_dir is None:

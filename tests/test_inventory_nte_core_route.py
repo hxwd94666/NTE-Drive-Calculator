@@ -81,6 +81,79 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
 
         self.assertTrue(page_module._confirm_automatic_assembly_duplicate_warning(FakeWindow()))
 
+    def test_visual_snapshot_confirms_before_fast_assembly_falls_back(self) -> None:
+        from src.app import runtime
+
+        class PlansDao:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def get_active_loadout_plan_for_role(self, _role_name):
+                return {"source_snapshot_id": 7}
+            def inventory_snapshot_summary(self, _snapshot_id):
+                return {"source": "gamepad"}
+
+        messages = []
+        calls = []
+        old_dao = page_module.UserDataDao
+        old_confirm = page_module._confirm_automatic_assembly_fallback
+        old_automatic = page_module._preview_automatic_assemble_role
+        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
+        try:
+            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
+            page_module._confirm_automatic_assembly_fallback = lambda _window, detail: messages.append(detail) or True
+            page_module._preview_automatic_assemble_role = (
+                lambda _window, role_name, *, confirmed: calls.append((role_name, confirmed))
+            )
+            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            page_module._preview_nte_core_assemble_role(
+                object(), "视觉角色", confirmed=True,
+            )
+        finally:
+            page_module.UserDataDao = old_dao
+            page_module._confirm_automatic_assembly_fallback = old_confirm
+            page_module._preview_automatic_assemble_role = old_automatic
+            if old_path is None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            else:
+                runtime.USER_DATABASE_PATH = old_path
+
+        self.assertEqual([("视觉角色", True)], calls)
+        self.assertIn("视觉扫描快照", messages[0])
+        self.assertIn("原生 UID", messages[0])
+
+    def test_visual_snapshot_does_not_start_automatic_assembly_when_fallback_is_cancelled(self) -> None:
+        from src.app import runtime
+
+        class PlansDao:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def get_active_loadout_plan_for_role(self, _role_name):
+                return {"source_snapshot_id": 7}
+            def inventory_snapshot_summary(self, _snapshot_id):
+                return {"source": "gamepad"}
+
+        calls = []
+        old_dao = page_module.UserDataDao
+        old_confirm = page_module._confirm_automatic_assembly_fallback
+        old_automatic = page_module._preview_automatic_assemble_role
+        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
+        try:
+            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
+            page_module._confirm_automatic_assembly_fallback = lambda *_args: False
+            page_module._preview_automatic_assemble_role = lambda *_args, **_kwargs: calls.append("started")
+            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            page_module._preview_nte_core_assemble_role(object(), "视觉角色", confirmed=True)
+        finally:
+            page_module.UserDataDao = old_dao
+            page_module._confirm_automatic_assembly_fallback = old_confirm
+            page_module._preview_automatic_assemble_role = old_automatic
+            if old_path is None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            else:
+                runtime.USER_DATABASE_PATH = old_path
+
+        self.assertEqual([], calls)
+
 
 if __name__ == "__main__":
     unittest.main()

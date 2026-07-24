@@ -28,11 +28,15 @@ ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 SPEC = ROOT / "NTE_Drive_Calc.spec"
+THIRD_PARTY_DIR = ROOT / "third_party"
 SQLITE_SCHEMA_DIR = ROOT / "src" / "storage" / "sqlite" / "schema"
 NTE_CORE_ENV = "NTE_CORE_EXE"
+EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
 STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
 NTE_CORE_RELEASE_FILES = (
     "LICENSE",
+    "SOURCE.md",
+    "COMPONENT.md",
     "BUILD_VARIANT.md",
     "CLI_PROTOCOL_ZH.md",
     "CLI_PROTOCOL.md",
@@ -140,27 +144,43 @@ def _required_build_file(label: str, *candidates: str | Path | None) -> Path:
     return path
 
 
+def _nte_core_metadata_directories(executable: Path) -> tuple[Path, ...]:
+    """Find release notices for both the source-tree and downloaded layouts."""
+
+    directories = (executable.parent, executable.parent.parent)
+    unique: list[Path] = []
+    for directory in directories:
+        if directory not in unique:
+            unique.append(directory)
+    return tuple(unique)
+
+
 # 用户数据库首次运行时需要 SQL 结构文件；PyInstaller 不会自动收集非 Python 文件。
 if not SQLITE_SCHEMA_DIR.is_dir():
     raise FileNotFoundError(f"SQLite schema 目录不存在：{SQLITE_SCHEMA_DIR}")
 _append_add_data(SQLITE_SCHEMA_DIR, "src/storage/sqlite/schema")
 
-# nte-core 是随应用运行的本地组件。开发机可放在项目根目录，自动构建则通过
-# NTE_CORE_EXE 指向从合作项目固定 Release 下载的文件。
+# nte-core 是随应用运行的本地组件。正式构建使用仓库内已审计的组件；
+# NTE_CORE_EXE 和项目根目录候选仅用于兼容现有开发环境。
 nte_core_path = _required_build_file(
     "nte-core.exe",
     os.environ.get(NTE_CORE_ENV),
+    THIRD_PARTY_DIR / "nte-core" / "bin" / "nte-core.exe",
     ROOT / "nte-core.exe",
     ROOT / "build_resources" / "nte-core" / "nte-core.exe",
 )
 _append_add_binary(nte_core_path, ".")
 
 # Release 目录若提供许可证和协议说明，则一并放入安装包，便于审计和再分发。
+nte_core_metadata_dirs = _nte_core_metadata_directories(nte_core_path)
 for release_name in NTE_CORE_RELEASE_FILES:
-    release_file = nte_core_path.parent / release_name
-    if release_file.is_file():
+    release_file = next(
+        (directory / release_name for directory in nte_core_metadata_dirs if (directory / release_name).is_file()),
+        None,
+    )
+    if release_file is not None:
         _append_add_data(release_file, "licenses/nte-core")
-if not (nte_core_path.parent / "LICENSE").is_file():
+if not any((directory / "LICENSE").is_file() for directory in nte_core_metadata_dirs):
     build_cli.warn("nte-core 目录没有 LICENSE；本地测试可继续，正式发布必须使用完整 Release 目录")
 
 # 发行版静态数据库直接随源码仓库维护，确保本地构建和 GitHub Release 使用同一数据集。
@@ -169,8 +189,25 @@ _append_add_data(static_database_path, "data")
 build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
 
 # 环境配置页会显式部署该 DLL 至用户选择的游戏目录；安装器本身不会修改游戏目录。
-equipment_plugin_path = _required_build_file("dwmapi.dll 装备插件", ROOT / "dwmapi.dll")
+equipment_plugin_path = _required_build_file(
+    "dwmapi.dll 装备插件",
+    os.environ.get(EQUIPMENT_PLUGIN_ENV),
+    THIRD_PARTY_DIR / "equipment-plugin" / "bin" / "dwmapi.dll",
+    ROOT / "dwmapi.dll",
+)
 _append_add_data(equipment_plugin_path, ".")
+
+# 随包携带第三方声明，二进制实际位置可变但许可信息必须可审计。
+for notice_path in (
+    ROOT / "LICENSE",
+    ROOT / "NOTICE",
+    ROOT / "THIRD_PARTY_NOTICES.md",
+    THIRD_PARTY_DIR / "equipment-plugin" / "NOTICE.md",
+    THIRD_PARTY_DIR / "vigembus" / "NOTICE.md",
+    THIRD_PARTY_DIR / "vigembus" / "LICENSE-BSD-3-Clause.txt",
+):
+    if notice_path.is_file():
+        _append_add_data(notice_path, "licenses")
 
 
 def _find_package_dir(package_name: str) -> Path | None:
