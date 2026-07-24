@@ -371,11 +371,11 @@ class SavedStateLoadoutBridge:
     ) -> PreparedLoadoutPlan:
         """校验并转换角色方案，但不启动写事务。"""
 
-        selected_snapshot_id = (
-            self.user_dao.current_inventory_snapshot_id()
-            if snapshot_id is None
-            else snapshot_id
-        )
+        if snapshot_id is None:
+            raise SavedStateLoadoutError(
+                "保存配装方案必须显式指定计算使用的稳定背包快照"
+            )
+        selected_snapshot_id = int(snapshot_id)
         if selected_snapshot_id is None:
             raise SavedStateLoadoutError("用户数据库中还没有稳定背包快照")
         if self.user_dao.inventory_snapshot_summary(selected_snapshot_id) is None:

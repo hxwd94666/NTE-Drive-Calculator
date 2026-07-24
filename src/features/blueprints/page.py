@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import Counter
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
@@ -84,7 +84,7 @@ def _official_board(plan: dict) -> list[list[int]]:
 
 
 def _preferred_extra_label(plan: dict, item_by_id: dict[str, dict], suit_shape_ids: list[str], shape_models: dict[str, DriveShape]) -> str:
-    """从官方推荐模块中推导原图纸算法的散件偏好，而不读取旧 roles.json。"""
+    """从官方推荐模块中推导图纸算法的散件偏好。"""
     recommended = [
         str(item_by_id[item_id].get("geometry_id") or "")
         for item_id in plan.get("module_item_ids") or []
@@ -245,10 +245,15 @@ def _draw_blueprints(self, filter_text=""):
         visible_blueprints = (
             role_data["blueprints"]
             if role_name == show_all_for
-            else role_data["blueprints"][:3]
+            else role_data["blueprints"][:4]
         )
+        plans_grid = QGridLayout()
+        plans_grid.setHorizontalSpacing(16)
+        plans_grid.setVerticalSpacing(10)
         for index, blueprint in enumerate(visible_blueprints, start=1):
-            row = QHBoxLayout()
+            plan_card = QWidget()
+            row = QHBoxLayout(plan_card)
+            row.setContentsMargins(0, 0, 0, 0)
             row.setSpacing(10)
             row.addWidget(PuzzleBoardWidget(blueprint["board"], cell_size=28), 0, Qt.AlignTop)
             extras = QWidget()
@@ -269,10 +274,11 @@ def _draw_blueprints(self, filter_text=""):
             image_row.addStretch()
             extras_layout.addLayout(image_row)
             row.addWidget(extras, 1)
-            group_layout.addLayout(row)
+            plans_grid.addWidget(plan_card, (index - 1) // 2, (index - 1) % 2)
+        group_layout.addLayout(plans_grid)
         hidden_count = len(role_data["blueprints"]) - len(visible_blueprints)
         if hidden_count > 0:
-            more = QLabel(f"仅展示前 3 套图纸；另有 {hidden_count} 套可行方案未展示。")
+            more = QLabel(f"仅展示前 4 套图纸；另有 {hidden_count} 套可行方案未展示。")
             more.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
             group_layout.addWidget(more)
         self._bp_content_layout.addWidget(group)

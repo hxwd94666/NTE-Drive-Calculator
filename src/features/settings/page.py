@@ -199,9 +199,6 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     sync_actions = QHBoxLayout()
     sync_actions.addWidget(save_sync_button)
     sync_actions.addWidget(prune_snapshots_button)
-    environment_button = QPushButton("环境配置")
-    environment_button.clicked.connect(window._focus_environment_configuration)
-    sync_actions.addWidget(environment_button)
     sync_actions.addStretch()
     sync_card.layout().addLayout(sync_actions)
 

@@ -1,3 +1,4 @@
+# 验证二件套图纸选择的额外形状加成。
 """二件套图纸选择的额外形状加成回归测试。"""
 
 from __future__ import annotations

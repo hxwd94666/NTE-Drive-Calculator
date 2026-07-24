@@ -3,7 +3,7 @@
 
 The solver still uses display names and puzzle matrices internally, but these
 structures are derived only from official static data and account-scoped SQLite
-weight preferences.  No roles.json or sets.json is read here.
+ weight preferences.  No legacy JSON configuration is read here.
 """
 
 from __future__ import annotations

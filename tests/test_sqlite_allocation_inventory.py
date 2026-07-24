@@ -102,7 +102,7 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
             )
         )
 
-        result = SqliteAllocationInventory(self.user_dao, self.static_dao).build()
+        result = SqliteAllocationInventory(self.user_dao, self.static_dao).build(snapshot_id)
 
         self.assertEqual(result.snapshot_id, snapshot_id)
         self.assertEqual(result.discarded_count, 1)
@@ -125,6 +125,12 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
         self.assertEqual(core["shape_id"], "TAPE_15")
         self.assertEqual(core["set_name"], "失落光芒")
         self.assertEqual(core["main_stats"], "光属性异能伤害增强%")
+
+    def test_rejects_implicit_current_snapshot(self) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError, "必须显式指定稳定背包快照",
+        ):
+            SqliteAllocationInventory(self.user_dao, self.static_dao).build()
 
 
 if __name__ == "__main__":

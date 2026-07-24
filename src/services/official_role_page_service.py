@@ -1147,8 +1147,7 @@ def load_official_role_detail(
         shape_bonus = static_dao.get_character_shape_bonus(character_id)
         graduation_template = static_dao.get_character_graduation_template(character_id)
         account_weights = user_dao.get_character_weight_preferences(character_id)
-        workshop_weights = static_dao.get_character_recommended_weights(character_id)
-        weight_record = account_weights or workshop_weights or {}
+        weight_record = account_weights or {}
         weights = {
             str(key): float(value)
             for key, value in (weight_record.get("property_weights") or {}).items()

@@ -430,7 +430,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
 
     def test_single_role_button_executes_confirmed_plan(self):
-        import src.features.inventory.page as page_module
+        import src.features.inventory.equipment_assembly_controller as page_module
 
         calls = []
         old_select = page_module._select_single_role_assembly_mode
@@ -446,7 +446,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertEqual([("真红", {"confirmed": True})], calls)
 
     def test_all_role_button_does_not_execute_when_cancelled(self):
-        import src.features.inventory.page as page_module
+        import src.features.inventory.equipment_assembly_controller as page_module
         from src.app import runtime
 
         calls = []
@@ -477,7 +477,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertEqual([], calls)
 
     def test_all_role_button_executes_current_game_role_flow_when_confirmed(self):
-        import src.features.inventory.page as page_module
+        import src.features.inventory.equipment_assembly_controller as page_module
         from src.app import runtime
 
         class PlansDao:
@@ -511,7 +511,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertEqual([["抓包角色"]], calls)
 
     def test_weighted_result_can_limit_fast_equipment_to_its_selected_roles(self):
-        import src.features.inventory.page as page_module
+        import src.features.inventory.equipment_assembly_controller as page_module
         from src.app import runtime
 
         class PlansDao:
@@ -547,7 +547,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertEqual([["当前角色"]], calls)
 
     def test_weighted_result_can_limit_automatic_equipment_to_its_selected_roles(self):
-        import src.features.inventory.page as page_module
+        import src.features.inventory.equipment_assembly_controller as page_module
         from src.app import runtime
 
         class PlansDao:
@@ -584,7 +584,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertEqual([["当前角色"]], calls)
 
     def test_confirmed_assembly_minimizes_calculator_before_execution(self):
-        import src.features.inventory.page as page_module
+        import src.features.inventory.equipment_assembly_controller as page_module
 
         class Signal:
             def __init__(self): self.callback = None

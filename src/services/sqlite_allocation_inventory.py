@@ -154,24 +154,28 @@ class SqliteAllocationInventory:
         弃置状态是游戏内标记，不是“不可装配”状态；因此保留在候选集中并透传给结果 UI。
         """
 
-        pinned_snapshot_id = (
-            self.user_dao.current_inventory_snapshot_id()
-            if snapshot_id is None
-            else int(snapshot_id)
-        )
+        if snapshot_id is None:
+            raise AllocationInventoryProjectionError(
+                "配装库存投影必须显式指定稳定背包快照"
+            )
+        pinned_snapshot_id = int(snapshot_id)
         if pinned_snapshot_id is None:
             raise AllocationInventoryProjectionError(
                 "尚无稳定背包快照，请先在首页启动背包同步并进入游戏"
             )
-        if self.user_dao.inventory_snapshot_summary(pinned_snapshot_id) is None:
-            raise AllocationInventoryProjectionError(
-                f"稳定背包快照 {pinned_snapshot_id} 不存在"
+        try:
+            _summary, snapshot_items = self.user_dao.export_inventory_snapshot(
+                pinned_snapshot_id
             )
+        except Exception as exc:
+            raise AllocationInventoryProjectionError(
+                f"稳定背包快照 {pinned_snapshot_id} 不可用"
+            ) from exc
 
         suit_names = self._suit_names()
         projected: list[dict[str, Any]] = []
         discarded_count = 0
-        for item in self.user_dao.list_inventory_items(pinned_snapshot_id):
+        for item in snapshot_items:
             if item.get("discarded"):
                 discarded_count += 1
             kind = item.get("kind")
@@ -249,10 +253,30 @@ class SqliteAllocationInventory:
         )
 
 
-def load_current_inventory_projection(database_path: str | None = None) -> list[dict[str, Any]]:
-    """为旧 UI 提供 SQLite 快照投影，不读取 real_inventory.json。"""
+def load_inventory_projection(
+    database_path: str | None,
+    snapshot_id: int,
+) -> list[dict[str, Any]]:
+    """投影指定快照，供结果差异等历史方案展示使用。"""
+
     if database_path is None:
         from src.app import runtime
         database_path = str(runtime.USER_DATABASE_PATH)
     with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
-        return [dict(item) for item in SqliteAllocationInventory(user_dao, static_dao).build().items]
+        return [
+            dict(item)
+            for item in SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id).items
+        ]
+
+
+def load_current_inventory_projection(database_path: str | None = None) -> list[dict[str, Any]]:
+    """兼容入口：明确读取调用时的当前快照，不用于已保存方案。"""
+
+    if database_path is None:
+        from src.app import runtime
+        database_path = str(runtime.USER_DATABASE_PATH)
+    with UserDataDao(database_path) as user_dao:
+        snapshot_id = user_dao.current_inventory_snapshot_id()
+    if snapshot_id is None:
+        raise AllocationInventoryProjectionError("尚无稳定背包快照")
+    return load_inventory_projection(database_path, snapshot_id)

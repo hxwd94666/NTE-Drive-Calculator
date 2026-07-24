@@ -51,7 +51,7 @@ class VisionInventorySnapshotTests(unittest.TestCase):
 
         self.assertEqual(snapshot_id, self.user_dao.current_inventory_snapshot_id())
         self.assertEqual("gamepad", self.user_dao.inventory_snapshot_summary(snapshot_id)["source"])
-        projection = SqliteAllocationInventory(self.user_dao, self.static_dao).build()
+        projection = SqliteAllocationInventory(self.user_dao, self.static_dao).build(snapshot_id)
         self.assertEqual(snapshot_id, projection.snapshot_id)
         self.assertEqual({"drive", "tape"}, {row["item_type"] for row in projection.items})
         drive = next(row for row in projection.items if row["item_type"] == "drive")
@@ -75,7 +75,10 @@ class VisionInventorySnapshotTests(unittest.TestCase):
             next(row for row in exported["items"] if row["kind"] == "module")["geometry"],
         )
 
-    def test_nte_core_snapshot_has_priority_over_visual_scan(self) -> None:
+    def test_latest_complete_snapshot_wins_regardless_of_source(self) -> None:
+        nte_snapshot_id = self.user_dao.import_inventory_snapshot(
+            {"complete": True, "item_count": 0, "items": []}, source="nte_core"
+        )
         visual_snapshot_id = import_vision_inventory(
             self.database_path,
             [{
@@ -83,12 +86,8 @@ class VisionInventorySnapshotTests(unittest.TestCase):
                 "shape_id": "H_2", "main_stats": {"攻击力": 42}, "sub_stats": {"暴击率%": 2.0},
             }],
         )
-        nte_snapshot_id = self.user_dao.import_inventory_snapshot(
-            {"complete": True, "item_count": 0, "items": []}, source="nte_core"
-        )
-
         self.assertNotEqual(visual_snapshot_id, nte_snapshot_id)
-        self.assertEqual(nte_snapshot_id, self.user_dao.current_inventory_snapshot_id())
+        self.assertEqual(visual_snapshot_id, self.user_dao.current_inventory_snapshot_id())
 
     def test_visual_scan_normalizes_legacy_heng_shape_and_short_stat_names(self) -> None:
         snapshot_id = import_vision_inventory(

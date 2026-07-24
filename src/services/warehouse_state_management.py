@@ -93,7 +93,10 @@ class WarehouseStateManagementService:
     def evaluate(self, config: dict, selected_roles: list[str] | None = None) -> WarehouseStateManagementPlan:
         """Build state changes from the current snapshot without changing game state."""
         with self.dao_factory(self.database_path) as user_dao, self.static_dao_factory() as static_dao:
-            projection = SqliteAllocationInventory(user_dao, static_dao).build()
+            snapshot_id = user_dao.current_inventory_snapshot_id()
+            if snapshot_id is None:
+                raise WarehouseStateManagementError("尚无稳定背包快照，无法管理仓库")
+            projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
             snapshot_id = projection.snapshot_id
             source_rows = user_dao.list_inventory_items(snapshot_id)
 

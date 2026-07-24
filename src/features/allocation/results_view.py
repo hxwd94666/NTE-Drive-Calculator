@@ -40,7 +40,6 @@ from src.features.allocation.bonus_summary import (
     fallback_tape_main_value,
     format_bonus_delta_value,
     format_bonus_value,
-    get_my_role_entry,
     has_bonus_delta,
     is_highlighted_bonus_stat,
     item_value,
@@ -99,7 +98,7 @@ __all__ = [
     '_diff_item_card', '_diff_item_score_info', '_plan_diff_text', '_sync_role_drive_replacement',
     '_sync_role_tape_replacement', '_stat_w', '_stat_c', '_weighted_score', '_quality_coef',
     '_canonical_stat_name', '_stat_number_value', '_item_value', '_add_stat_total', '_fallback_tape_main_value',
-    '_extra_shape_area', '_equipment_bonus_rows', '_get_my_role_entry', '_role_base_bonus_rows',
+    '_extra_shape_area', '_equipment_bonus_rows', '_role_base_bonus_rows',
     '_merge_bonus_row_lists', '_synthesize_character_bonus_rows', '_bonus_rows_for_mode',
     '_bonus_summary_mode_label', '_make_bonus_mode_switch',
     '_clear_layout_widgets', '_format_bonus_value', '_role_stat_priority_stats',
@@ -338,17 +337,7 @@ def _loadout_items_from_role_data(role_data):
 def _diff_saved_sources(self, role_name):
     role_data=(getattr(self,"equipped_state",{}) or {}).get(role_name,{})
     items=_loadout_items_from_role_data(role_data)
-    if items:
-        return items
-    state_mgr=getattr(self,"state_mgr",None)
-    if state_mgr is not None and hasattr(state_mgr,"load_state"):
-        try:
-            loaded=state_mgr.load_state() or {}
-        except Exception:
-            loaded={}
-        role_data=loaded.get(role_name,{}) if isinstance(loaded,dict) else {}
-        return _loadout_items_from_role_data(role_data)
-    return []
+    return items
 
 def _previous_loadout_from_diff(self, role_name, tape, drives, role_diff):
     role_diff=role_diff or {}
@@ -377,19 +366,23 @@ def _diff_plan_sources(self, role_name):
 
 def _diff_inventory_sources(self):
     path_key=str(getattr(runtime, "USER_DATABASE_PATH", ""))
+    snapshot_id=getattr(self,"_pending_allocation_snapshot_id",None)
+    if snapshot_id is None:
+        return {}
+    cache_key=(path_key,int(snapshot_id))
     cached=getattr(self,"_diff_inventory_index_cache",None)
-    if cached and cached[0]==path_key:
+    if cached and cached[0]==cache_key:
         return cached[1]
     index={}
     try:
-        from src.services.sqlite_allocation_inventory import load_current_inventory_projection
-        data=load_current_inventory_projection(path_key)
+        from src.services.sqlite_allocation_inventory import load_inventory_projection
+        data=load_inventory_projection(path_key,int(snapshot_id))
     except Exception:
         data=[]
     for item in data:
         if isinstance(item,dict) and item.get("uid"):
             index[str(item["uid"])]=item
-    setattr(self,"_diff_inventory_index_cache",(path_key,index))
+    setattr(self,"_diff_inventory_index_cache",(cache_key,index))
     return index
 
 def _parse_diff_display_name(item):
@@ -677,7 +670,6 @@ def _sync_role_drive_replacement(self, role_name, old_uid, new_drive):
     new_score=self._score_drive_dict(new_sub_stats,new_shape,weights,new_quality)
     new_area=int(new_drive.get(EQUIP_AREA) or getattr(self,"_shape_areas",{}).get(new_shape,3) or 3)
 
-    old_state=copy.deepcopy(getattr(self,"equipped_state",{}) or {})
     saved_changed=_sync_saved_drive_replacement(self,role_name,old_uid,new_drive,new_score,new_area)
     state=getattr(self,"equipped_state",{}) or {}
     role_state=state.get(role_name,{}) if isinstance(state,dict) else {}
@@ -686,14 +678,6 @@ def _sync_role_drive_replacement(self, role_name, old_uid, new_drive):
         return False
 
     if saved_changed:
-        state_mgr=getattr(self,"state_mgr",None)
-        if state_mgr is not None and hasattr(state_mgr,"_build_role_diff") and isinstance(role_state,dict):
-            role_diff=state_mgr._build_role_diff(old_state.get(role_name),role_state)
-            if role_diff.get(DIFF_CHANGED):
-                role_state[ROLE_LAST_DIFF]=role_diff
-                last_diffs=dict(getattr(self,"_my_role_equipment_last_diffs",{}) or {})
-                last_diffs[role_name]=role_diff
-                self._my_role_equipment_last_diffs=last_diffs
         _apply_saved_role_equipment_diff(self,role_name)
         _persist_saved_equipment_sync(self)
     else:
@@ -715,7 +699,6 @@ def _sync_role_tape_replacement(self, role_name, old_uid, new_tape):
     quality=new_tape.get(EQUIP_QUALITY,"Gold")
     new_score=self._score_tape_dict(main_stat,sub_stats,weights,quality,main_weights)
 
-    old_state=copy.deepcopy(getattr(self,"equipped_state",{}) or {})
     saved_changed=_sync_saved_tape_replacement(self,role_name,new_tape,new_score)
     state=getattr(self,"equipped_state",{}) or {}
     role_state=state.get(role_name,{}) if isinstance(state,dict) else {}
@@ -723,14 +706,6 @@ def _sync_role_tape_replacement(self, role_name, old_uid, new_tape):
     if not saved_changed and not existing_diff.get(DIFF_CHANGED):
         return False
     if saved_changed:
-        state_mgr=getattr(self,"state_mgr",None)
-        if state_mgr is not None and hasattr(state_mgr,"_build_role_diff") and isinstance(role_state,dict):
-            role_diff=state_mgr._build_role_diff(old_state.get(role_name),role_state)
-            if role_diff.get(DIFF_CHANGED):
-                role_state[ROLE_LAST_DIFF]=role_diff
-                last_diffs=dict(getattr(self,"_my_role_equipment_last_diffs",{}) or {})
-                last_diffs[role_name]=role_diff
-                self._my_role_equipment_last_diffs=last_diffs
         _apply_saved_role_equipment_diff(self,role_name)
         _persist_saved_equipment_sync(self)
     else:
@@ -795,9 +770,6 @@ def _extra_shape_area(self, role_name):
 
 def _equipment_bonus_rows(self, role_name, tape, drives):
     return equipment_bonus_rows(BonusSummaryContext.from_window(self), role_name, tape, drives)
-
-def _get_my_role_entry(self, role_name):
-    return get_my_role_entry(role_name)
 
 def _role_base_bonus_rows(self, role_name):
     return role_base_bonus_rows(BonusSummaryContext.from_window(self), role_name)
@@ -1059,8 +1031,7 @@ def _refresh_bonus_summary_panel(self, box, role_name, tape, drives, compare_wit
     self._clear_layout_widgets(content_layout)
     _configure_bonus_more_button(box._bonus_summary_more_button)
     if compare_with_saved:
-        # Saved SQLite plans carry their own immutable diff.  Do not fall back
-        # to legacy equipped_state.json when that authoritative payload exists.
+        # Saved SQLite plans carry their own immutable diff.
         persisted_diff = role_diff if isinstance(role_diff, dict) and role_diff.get(DIFF_CHANGED) else None
         effective_diff = persisted_diff or resolve_comparison_role_diff(self,role_name)
         if persisted_diff is not None:

@@ -33,16 +33,6 @@ from src.optimizer.contracts import (
 )
 
 
-def load_my_roles_model() -> dict[str, Any]:
-    """Temporary compatibility source for result-panel-only legacy models.
-
-    The calculation page no longer creates or reads ``my_roles.json``.  The
-    legacy model file is optional, so an empty mapping keeps result rendering
-    available while the panel data is migrated to the official SQLite tables.
-    """
-    return {}
-
-
 BonusRows = list[tuple[str, float]]
 AlignedBonusRow = dict[str, Any]
 
@@ -64,7 +54,6 @@ class BonusSummaryContext:
     shape_areas: dict[str, Any]
     stats_config: dict[str, Any]
     stat_alias_mapping: dict[str, str]
-    role_models: dict[str, Any] = field(default_factory=dict)
     weapons_db: dict[str, Any] = field(default_factory=dict)
     custom_weapons: dict[str, str] = field(default_factory=dict)
 
@@ -82,16 +71,11 @@ class BonusSummaryContext:
         for role_name, plan in (getattr(window, "final_plan", {}) or {}).items():
             if isinstance(plan, dict) and plan.get(PLAN_CUSTOM_WEAPON):
                 custom_weapons[role_name] = plan[PLAN_CUSTOM_WEAPON]
-        try:
-            role_models = load_my_roles_model()
-        except (AttributeError, OSError):
-            role_models = {}
         return cls(
             roles_db=getattr(window, "roles_db", {}) or {},
             shape_areas=getattr(window, "_shape_areas", {}) or {},
             stats_config=stats_config if isinstance(stats_config, dict) else {},
             stat_alias_mapping=aliases,
-            role_models=role_models,
             weapons_db=getattr(window, "weapons_db", {}) or {},
             custom_weapons=custom_weapons,
         )
@@ -99,7 +83,7 @@ class BonusSummaryContext:
 
 def _character_context(ctx: BonusSummaryContext) -> CharacterStatContext:
     return CharacterStatContext(
-        role_models=ctx.role_models,
+        role_models={},
         roles_db=ctx.roles_db,
         weapons_db=ctx.weapons_db,
         shape_areas=ctx.shape_areas,
@@ -191,15 +175,6 @@ def collect_added_uids(role_diff: dict[str, Any]) -> set[str]:
 def equipment_bonus_rows(ctx: BonusSummaryContext, role_name: str, tape, drives) -> BonusRows:
     totals = allocation_equipment_stats(_character_context(ctx), role_name, tape, drives)
     return sorted(((stat, value) for stat, value in totals.items() if value), key=lambda item: item[1], reverse=True)
-
-
-def get_my_role_entry(role_name: str) -> dict[str, Any]:
-    """Compatibility accessor; it intentionally returns the model default."""
-    try:
-        entry = load_my_roles_model().get(role_name, {})
-    except (AttributeError, OSError):
-        entry = {}
-    return entry if isinstance(entry, dict) else {}
 
 
 def role_base_bonus_rows(ctx: BonusSummaryContext, role_name: str) -> BonusRows:

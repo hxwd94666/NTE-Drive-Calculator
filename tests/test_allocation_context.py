@@ -255,6 +255,13 @@ class AllocationContextTests(unittest.TestCase):
 
     def test_protagonist_defaults_match_official_id_before_display_name(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(snapshot(1, [item(101, 11, kind="module")]))
+        # 角色权重属于账号数据，不再从旧 roles.json 或官方目录兜底。
+        self.user_dao.seed_character_weight_preferences(
+            1046,
+            properties=[{"property_id": "AtkAdd", "weight": 1.0, "main_weight": 0.0}],
+            source_dataset_id="test-dataset",
+            source_kind="test",
+        )
         profile = self.user_dao.create_optimization_profile(
             "protagonist workshop mapping",
             allocation_strategy="role_priority",
@@ -269,7 +276,7 @@ class AllocationContextTests(unittest.TestCase):
         role = context.roles[0]
         self.assertEqual(1046, role.character_id)
         self.assertEqual("Type-3", role.extra_shape_label)
-        self.assertTrue(role.effective_property_weights)
+        self.assertEqual((("AtkAdd", 1.0),), role.effective_property_weights)
 
     def test_rejects_unknown_static_role_suit_property_and_template_ids(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(

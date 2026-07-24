@@ -7,7 +7,7 @@ import re
 from typing import List, Tuple, Dict, Any, Optional
 from src.utils.logger import logger
 
-from .dao import load_stats, load_role
+from .dao import load_stats
 from .damage_model import (
     ABILITY_DAMAGE_STAT,
     LEGACY_ABILITY_DAMAGE_STAT,
@@ -112,7 +112,7 @@ def calc_drive_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
     返回 [(词条名, 数值), ...]
 
     Args:
-        role_data: 角色数据字典（来自 my_roles.json）
+    role_data: 角色数据字典（来自当前账号 SQLite 快照）
 
     Returns:
         List[Tuple[str, float]]: 汇总属性列表
@@ -256,7 +256,7 @@ def get_character_total_stats(role_data: dict) -> dict:
     获取角色所有来源的汇总属性（基础 + 驱动 + 武器 + 空幕）
 
     Args:
-        role_data: 角色数据字典（来自 my_roles.json）
+    role_data: 角色数据字典（来自当前账号 SQLite 快照）
 
     Returns:
         dict: 规范化后的属性字典（键名已统一映射）

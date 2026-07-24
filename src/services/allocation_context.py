@@ -358,8 +358,7 @@ def _allocation_role_values(
     character_id: int,
 ) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
     account_weights = user_dao.get_character_weight_preferences(character_id)
-    recommended_weights = static_dao.get_character_recommended_weights(character_id)
-    weight_record = account_weights or recommended_weights
+    weight_record = account_weights
     if weight_record is not None:
         weights = {
             str(property_id): float(weight)

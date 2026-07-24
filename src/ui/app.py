@@ -143,26 +143,16 @@ from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.official_role.page import confirm_pending_my_role_changes
 from src.features.configuration.page import (
-    add_role as config_add_role,
-    add_set as config_add_set,
     add_weight as config_add_weight,
     build_config_page,
     confirm_pending_config_changes as config_confirm_pending_config_changes,
-    config_add_item as config_add_config_item,
-    del_role as config_del_role,
-    del_set as config_del_set,
     del_weight as config_del_weight,
     refresh_config_forms as config_refresh_config_forms,
     render_roles_form,
-    render_sets_form,
     reset_config_form as config_reset_config_form,
     save_config_data as config_save_config_data,
     save_config_form as config_save_config_form,
-    save_role_field as config_save_role_field,
     save_role_weight_value as config_save_role_weight_value,
-    save_set_shapes as config_save_set_shapes,
-    save_single_extra_shape_buff as config_save_single_extra_shape_buff,
-    stat_choice_pool as config_stat_choice_pool,
     switch_config_form as config_switch_config_form,
 )
 from src.features.settings.page import build_settings_page
@@ -192,6 +182,13 @@ from src.services.inventory_sync_service import InventorySyncService, InventoryS
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.legacy_allocation_static_catalog import build_legacy_allocation_static_catalog
 from src.ui.main_window_mixins import FeatureMainWindowMixin
+from src.ui.controllers import (
+    environment_controller,
+    configuration_controller,
+    hotkey_controller,
+    inventory_sync_controller,
+    update_controller,
+)
 
 ACCOUNT_MANAGER = AccountManager(
     DATA_ROOT,
@@ -290,19 +287,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             self._toggle_log(True)
         self._load_data(); self._refresh_home(); self._maybe_auto_start_inventory_sync(); self._on_log("系统就绪"); self._maybe_show_quick_start(); self._maybe_check_updates_on_startup()
 
-    def _load_hotkey_config(self):
-        hotkeys=self._account_settings.load("hotkeys")
-        self._hk_capture=hotkeys["capture"]; self._hk_finish=hotkeys["finish"]; self._hk_stop=hotkeys["stop"]
-    def _save_hotkey_config(self):
-        self._account_settings.save(
-            "hotkeys",
-            {
-                "capture":self._hk_capture,
-                "finish":self._hk_finish,
-                "stop":self._hk_stop,
-            },
-        )
-
     def _load_update_config(self):
         return self._account_settings.load("update")
 
@@ -316,188 +300,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
         self._ui_preferences=self._account_settings.save(
             "ui",self._ui_preferences
         )
-
-    def _refresh_equipment_plugin_status(self):
-        label = getattr(self, "_npcap_status_label", None)
-        if label is not None:
-            label.setText(
-                "Npcap：已检测到" if npcap_installation_present()
-                else "Npcap：未检测到（请选择官方安装程序安装）"
-            )
-        plugin_label = getattr(self, "_equipment_plugin_status_label", None)
-        if plugin_label is None:
-            return
-        executable = getattr(self, "_equipment_plugin_game_executable_edit", None)
-        bundle_label = getattr(self, "_equipment_plugin_bundle_label", None)
-        if executable is None:
-            return
-        try:
-            bundled_plugin = packaged_plugin_dll(ROOT)
-            if bundle_label is not None:
-                bundle_label.setText(f"打包插件：{bundled_plugin}")
-        except EquipmentPluginDeploymentError:
-            bundled_plugin = None
-            if bundle_label is not None:
-                bundle_label.setText("打包插件缺失：请重新安装完整应用包")
-        if not executable.text().strip():
-            plugin_label.setText("尚未选择 HTGame.exe")
-        elif bundled_plugin is None:
-            plugin_label.setText("应用根目录缺少打包的 dwmapi.dll，无法部署")
-        else:
-            plugin_label.setText("已选择游戏目录；部署前仍需确认")
-
-    def _select_equipment_plugin_game_executable(self):
-        selected, _ = QFileDialog.getOpenFileName(
-            self, "选择游戏主程序", "", "HTGame.exe (HTGame.exe)"
-        )
-        if selected:
-            self._equipment_plugin_game_executable_edit.setText(selected)
-            self._refresh_equipment_plugin_status()
-
-    def _detect_equipment_plugin_game_executable(self):
-        current_worker = getattr(self, "_equipment_plugin_detection_worker", None)
-        if current_worker is not None and current_worker.isRunning():
-            return
-        button = getattr(self, "_equipment_plugin_detect_button", None)
-        if button is not None:
-            button.setEnabled(False)
-            button.setText("正在检测…")
-        worker = WorkerThread(target=find_game_executables, parent=self)
-        self._equipment_plugin_detection_worker = worker
-
-        def finish(candidates):
-            if button is not None:
-                button.setEnabled(True)
-                button.setText("自动检测")
-            choices = [str(path) for path in candidates]
-            if not choices:
-                QMessageBox.information(
-                    self,
-                    "检测游戏位置",
-                    "未自动找到 HTGame.exe。你可以手动填写或选择文件，定位步骤如下：\n\n"
-                    "1. 右键点击桌面游戏图标，选择“打开文件所在位置”。\n"
-                    "2. 进入 Client\\WindowsNoEditor\\HT\\Binaries\\Win64，找到 HTGame.exe。\n"
-                    "3. 右键点击 HTGame.exe，选择“复制文件地址”，再粘贴到游戏主程序方框。",
-                )
-                return
-            selected = choices[0]
-            if len(choices) > 1:
-                selected, accepted = QInputDialog.getItem(
-                    self, "选择游戏位置", "检测到多个 HTGame.exe，请选择正在使用的游戏：",
-                    choices, 0, False,
-                )
-                if not accepted:
-                    return
-            self._equipment_plugin_game_executable_edit.setText(selected)
-            self._refresh_equipment_plugin_status()
-
-        def failed(error):
-            if button is not None:
-                button.setEnabled(True)
-                button.setText("自动检测")
-            QMessageBox.warning(
-                self,
-                "检测游戏位置",
-                f"自动检测失败：{error}\n\n"
-                "你可以手动填写或选择文件：\n"
-                "1. 右键点击桌面游戏图标，选择“打开文件所在位置”。\n"
-                "2. 进入 Client\\WindowsNoEditor\\HT\\Binaries\\Win64，找到 HTGame.exe。\n"
-                "3. 右键点击 HTGame.exe，选择“复制文件地址”，再粘贴到游戏主程序方框。",
-            )
-
-        worker.result_ready.connect(finish)
-        worker.error.connect(failed)
-        worker.start()
-
-    def _open_npcap_download(self):
-        self._open_url("https://npcap.com/dist/npcap-1.88.exe")
-
-    def _show_npcap_status(self):
-        if npcap_installation_present():
-            QMessageBox.information(
-                self, "Npcap 状态", "已检测到 Npcap，背包同步环境已满足该项依赖。"
-            )
-            return
-        QMessageBox.warning(
-            self,
-            "Npcap 状态",
-            "未检测到 Npcap。背包同步无法通过本地核心组件读取游戏数据；"
-            "请点击“下载 Npcap 1.88”完成安装后再检测。",
-        )
-
-    def _deploy_equipment_plugin(self):
-        consent = getattr(self, "_equipment_plugin_consent", None)
-        if consent is None or not consent.isChecked():
-            QMessageBox.warning(self, "部署装备插件", "请先确认已获授权并理解这会修改所选游戏目录。")
-            return
-        executable = self._equipment_plugin_game_executable_edit.text().strip()
-        try:
-            source = packaged_plugin_dll(ROOT)
-        except EquipmentPluginDeploymentError as exc:
-            QMessageBox.warning(self, "部署装备插件", str(exc))
-            return
-        if QMessageBox.question(
-            self,
-            "确认部署装备插件",
-            "将把应用打包的 dwmapi.dll 复制到所选 HTGame.exe 同目录。\n"
-            "若目录已有同名文件，会先备份到当前账号数据目录。请先关闭游戏。\n\n"
-            f"游戏：{executable}\n打包插件：{source}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-        try:
-            deployed = deploy_plugin(
-                game_executable_path=executable,
-                plugin_dll_path=source,
-                backup_directory=ACCOUNT_DATA_ROOT / "equipment_plugin_backups",
-            )
-            self._ui_preferences.update({
-                "equipment_plugin_game_executable": str(deployed.game_executable),
-                "equipment_plugin_dll_source": str(source),
-                "equipment_plugin_backup_path": str(deployed.backup_path or ""),
-                "equipment_plugin_deployed_sha256": deployed.deployed_sha256,
-            })
-            self._save_ui_preferences()
-            self._equipment_plugin_status_label.setText("装备插件已部署；退出游戏前可在此还原。")
-            QMessageBox.information(self, "部署装备插件", "已部署 dwmapi.dll，并已记录可恢复信息。")
-        except EquipmentPluginDeploymentError as exc:
-            QMessageBox.warning(self, "部署装备插件", str(exc))
-
-    def _restore_equipment_plugin(self):
-        preferences = self._ui_preferences or {}
-        executable = self._equipment_plugin_game_executable_edit.text().strip()
-        deployed_sha256 = str(preferences.get("equipment_plugin_deployed_sha256") or "")
-        if not executable or not deployed_sha256:
-            QMessageBox.information(self, "还原装备插件", "当前账号没有可还原的部署记录。")
-            return
-        if QMessageBox.question(
-            self, "还原装备插件", "将还原部署前备份的 dwmapi.dll；若没有备份，则只删除本程序部署的文件。",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-        try:
-            restore_plugin(
-                game_executable_path=executable,
-                deployed_sha256=deployed_sha256,
-                backup_path=preferences.get("equipment_plugin_backup_path"),
-            )
-            self._ui_preferences.update({
-                "equipment_plugin_backup_path": "",
-                "equipment_plugin_deployed_sha256": "",
-            })
-            self._save_ui_preferences()
-            self._equipment_plugin_status_label.setText("已还原游戏目录中的 dwmapi.dll。")
-            QMessageBox.information(self, "还原装备插件", "已完成还原。")
-        except EquipmentPluginDeploymentError as exc:
-            QMessageBox.warning(self, "还原装备插件", str(exc))
-
-    def _focus_environment_configuration(self):
-        self._go("settings")
-        scroll = getattr(self, "_settings_scroll", None)
-        card = getattr(self, "_environment_configuration_card", None)
-        if scroll is not None and card is not None:
-            QTimer.singleShot(0, lambda: scroll.verticalScrollBar().setValue(card.y()))
 
     def _current_style_sheet(self):
         return current_style_sheet(QApplication.instance())
@@ -896,252 +698,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             self.home_account_label.setText(f"工作台数据暂时不可用：{exc}")
             logger.warning(f"刷新 2.0 工作台失败: {exc}")
 
-    def _start_inventory_sync(self):
-        service=self._inventory_sync_service
-        if service is not None and service.is_running:
-            return
-        service=InventorySyncService(USER_DATABASE_PATH)
-        service.add_state_handler(self.inventory_sync_state_signal.emit)
-        self._inventory_sync_service=service
-        service.start()
-
-    def _get_sync_settings(self):
-        return self._account_settings.load("sync")
-
-    def _save_sync_settings(self):
-        try:
-            was_running=bool(self._inventory_sync_service and self._inventory_sync_service.is_running)
-            values=self._account_settings.load("sync")
-            values.update(
-                {
-                    "inventory_sync_method":self._sync_inventory_method_combo.currentData(),
-                    "capture_device_id":self._sync_capture_device_edit.text(),
-                    "raw_capture_enabled":self._sync_raw_capture_toggle.isChecked(),
-                    "inventory_settle_seconds":self._sync_settle_spin.value(),
-                    "auto_start_inventory_sync":self._sync_auto_start_toggle.isChecked(),
-                    "inventory_snapshot_retention_count":self._snapshot_retention_spin.value(),
-                }
-            )
-            settings=self._account_settings.save("sync",values)
-            if was_running:
-                self._stop_inventory_sync()
-                self._start_inventory_sync()
-            QMessageBox.information(self,"同步设置","同步设置已保存。")
-            return settings
-        except Exception as exc:
-            QMessageBox.warning(self,"同步设置",f"保存失败：{exc}")
-            return None
-
-    def _prune_inventory_snapshots(self):
-        current_worker = getattr(self, "_snapshot_prune_worker", None)
-        if current_worker is not None and current_worker.isRunning():
-            QMessageBox.information(self, "快照维护", "历史快照正在清理，请等待当前任务完成。")
-            return
-        retain_recent = self._snapshot_retention_spin.value()
-        message = (
-            f"将保留最近 {retain_recent} 份稳定背包快照。\n\n"
-            "当前快照和所有已保存装配方案引用的快照会始终保留；"
-            "其他历史快照及其背包物品、词条记录将被删除。\n\n"
-            "此操作不会修改装配方案。是否继续？"
-        )
-        if QMessageBox.question(
-            self,
-            "确认清理历史快照",
-            message,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-
-        database_path = USER_DATABASE_PATH
-        if hasattr(self, "_prune_snapshots_button"):
-            self._prune_snapshots_button.setEnabled(False)
-        worker = WorkerThread(
-            target=lambda: self._prune_inventory_snapshots_task(
-                database_path, retain_recent
-            ),
-            parent=self,
-        )
-        self._snapshot_prune_worker = worker
-        worker.result_ready.connect(self._on_inventory_snapshots_pruned)
-        worker.error.connect(self._on_inventory_snapshot_prune_error)
-        worker.start()
-
-    @staticmethod
-    def _prune_inventory_snapshots_task(database_path, retain_recent):
-        with UserDataDao(database_path) as dao:
-            return dao.prune_inventory_snapshots(retain_recent=retain_recent)
-
-    def _on_inventory_snapshots_pruned(self, result):
-        if hasattr(self, "_prune_snapshots_button"):
-            self._prune_snapshots_button.setEnabled(True)
-        self._refresh_home()
-        QMessageBox.information(
-            self,
-            "快照维护完成",
-            "已清理 "
-            f"{result['deleted_snapshot_count']} 份历史快照，"
-            f"当前保留 {result['total_after']} 份。\n\n"
-            "当前快照和被装配方案引用的快照未被删除。"
-            "SQLite 数据库文件大小可能不会立刻缩小，但空间会供后续同步复用。",
-        )
-
-    def _on_inventory_snapshot_prune_error(self, error):
-        if hasattr(self, "_prune_snapshots_button"):
-            self._prune_snapshots_button.setEnabled(True)
-        QMessageBox.warning(self, "快照维护", f"清理失败：{error}")
-
-    def _maybe_auto_start_inventory_sync(self):
-        try:
-            settings=self._get_sync_settings()
-        except Exception as exc:
-            logger.debug(f"读取自动同步设置失败: {exc}")
-            return
-        if (
-            settings.get("inventory_sync_method")=="nte_core"
-            and settings.get("auto_start_inventory_sync")
-        ):
-            self._start_inventory_sync()
-
-    def _stop_inventory_sync(self):
-        service=self._inventory_sync_service
-        if service is None:
-            return
-        service.remove_state_handler(self.inventory_sync_state_signal.emit)
-        if service.is_running:
-            service.stop()
-        self._inventory_sync_service=None
-        if hasattr(self,"home_sync_badge"):
-            from src.ui.dashboard_widgets import set_status_badge
-            set_status_badge(self.home_sync_badge,"已停止","neutral")
-            self.home_sync_detail.setText("后台背包同步已停止，数据库中的稳定快照仍可用于计算。")
-            self.home_start_sync_button.setEnabled(True)
-            self.home_stop_sync_button.setEnabled(False)
-
-    def _on_inventory_sync_state(self,state):
-        if not isinstance(state,InventorySyncState):
-            return
-        refresh_warehouse = getattr(self, "_on_warehouse_sync_state", None)
-        if callable(refresh_warehouse):
-            refresh_warehouse(state)
-        if not hasattr(self,"home_sync_badge"):
-            return
-        from src.ui.dashboard_widgets import set_status_badge
-        tone={
-            "starting":"active","waiting":"warning","collecting":"active",
-            "saving":"active","listening":"success","error":"error","stopped":"neutral",
-        }.get(state.phase,"neutral")
-        label={
-            "starting":"启动中","waiting":"等待进入游戏","collecting":"接收中",
-            "saving":"保存中","listening":"后台监听","error":"同步异常","stopped":"已停止",
-        }.get(state.phase,state.phase)
-        set_status_badge(self.home_sync_badge,label,tone)
-        detail=state.message
-        if state.pending_item_count is not None:
-            detail+=f" · 当前 {state.pending_item_count} 件"
-        if state.error:
-            detail+=f"\n\n{inventory_sync_error_guidance(state.error_code, state.error)}"
-            detail+=f"\n\n技术详情：{state.error}"
-        self.home_sync_detail.setText(detail)
-        self.home_start_sync_button.setEnabled(not state.running)
-        self.home_stop_sync_button.setEnabled(state.running)
-        self.status_lbl.setText(label)
-        self.status_lbl.setStyleSheet(
-            "color:#f85149;font-size:12px" if state.phase=="error"
-            else "color:#3fb950;font-size:12px" if state.phase=="listening"
-            else "color:#d2991d;font-size:12px"
-        )
-        if state.phase=="listening" and state.last_snapshot_id is not None:
-            self._refresh_home()
-
-    # ── Page: Execute
-
-    # ── Page: Equipment
-
-    # ── Page: Identify
-
-    # ── Page: Blueprint
-
-    # ── Page: Config
-    def _page_config(self):
-        return build_config_page(self)
-
-    def _refresh_config_forms(self):
-        return config_refresh_config_forms(self,CONFIG_DIR)
-
-    def _confirm_leave_config_page(self):
-        return config_confirm_pending_config_changes(self,CONFIG_DIR)
-
-    def _confirm_leave_my_role_page(self):
-        return confirm_pending_my_role_changes(self)
-
-    def _switch_config_form(self,name):
-        return config_switch_config_form(self,name,CONFIG_DIR)
-
-    def _build_roles_form(self,data):
-        return render_roles_form(self,data)
-
-    def _build_sets_form(self,data):
-        return render_sets_form(self,data)
-
-    def _config_add_item(self):
-        return config_add_config_item(self,CONFIG_DIR)
-
-    def _add_weight(self,rn,data,cb,weight_field="weights"):
-        return config_add_weight(self,rn,data,cb,CONFIG_DIR,weight_field)
-
-    def _stat_choice_pool(self):
-        return config_stat_choice_pool(self)
-
-    def _save_single_extra_shape_buff(self,rn,raw_stat,value,data):
-        return config_save_single_extra_shape_buff(self,rn,raw_stat,value,data,CONFIG_DIR)
-
-    def _add_extra_shape_buff(self,rn,combo,spin,data,cb):
-        self._save_single_extra_shape_buff(rn,combo.currentText() or combo.currentData(),spin.value(),data)
-        cb()
-
-    def _save_extra_shape_buff_value(self,rn,key,value,data):
-        return self._save_single_extra_shape_buff(rn,key,value,data)
-
-    def _del_extra_shape_buff(self,rn,key,data,cb):
-        if rn in data:
-            data[rn].pop("extra_shape_buffs",None)
-            self._save_config_data(data)
-            cb()
-
-    def _save_role_weight_value(self,rn,key,value,data,weight_field="weights"):
-        return config_save_role_weight_value(self,rn,key,value,data,CONFIG_DIR,weight_field)
-
-    def _save_role_field(self,rn,key,value,data):
-        return config_save_role_field(self,rn,key,value,data,CONFIG_DIR)
-
-    def _del_weight(self,rn,key,data,cb,weight_field="weights"):
-        return config_del_weight(self,rn,key,data,cb,CONFIG_DIR,weight_field)
-
-    def _add_role(self,data):
-        return config_add_role(self,data,CONFIG_DIR)
-
-    def _del_role(self,rn,data,cb=None):
-        return config_del_role(self,rn,data,CONFIG_DIR,cb=cb)
-
-    def _save_set_shapes(self,set_name,line_edit,sd):
-        return config_save_set_shapes(self,set_name,line_edit,sd,CONFIG_DIR)
-
-    def _add_set(self,sd):
-        return config_add_set(self,sd,CONFIG_DIR)
-
-    def _del_set(self,sn,sd):
-        return config_del_set(self,sn,sd,CONFIG_DIR)
-
-    def _save_config_form(self):
-        return config_save_config_form(self,CONFIG_DIR,None)
-
-    def _reset_config_form(self):
-        return config_reset_config_form(self,CONFIG_DIR,BUNDLED_CONFIG_DIR)
-
-    def _save_config_data(self,data):
-        return config_save_config_data(self,data,CONFIG_DIR)
-
     def _settings_paths(self):
         return {
             "config_dir": CONFIG_DIR,
@@ -1152,148 +708,6 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
 
     def _page_settings(self):
         return build_settings_page(self,APP_VERSION,self._settings_paths,_iter_image_files,NETDISK_DOWNLOAD_LINKS)
-
-    def _maybe_check_updates_on_startup(self):
-        if self._update_config.get("never_remind"):
-            return
-        QTimer.singleShot(1200, lambda: self._check_updates(manual=False))
-
-    def _check_updates(self, manual=True):
-        if hasattr(self,"_update_worker") and self._update_worker.isRunning():
-            if manual:
-                self._update_status.setText("正在检查更新...")
-            return
-        self._update_check_manual=manual
-        if manual:
-            self._check_update_btn.setEnabled(False)
-            self._update_status.setText("正在检查更新...")
-        self._update_worker=WorkerThread(target=self._fetch_update_info,parent=self)
-        self._update_worker.result_ready.connect(self._on_update_checked)
-        self._update_worker.error.connect(self._on_update_error)
-        self._update_worker.start()
-
-    def _fetch_update_info(self):
-        return fetch_update_info(
-            GITHUB_LATEST_RELEASE_API,
-            GITHUB_RELEASES_URL,
-            APP_VERSION,
-        )
-
-    def _on_update_checked(self,info):
-        manual=getattr(self,"_update_check_manual",True)
-        if manual:
-            self._check_update_btn.setEnabled(True)
-        if not info.get("has_release"):
-            if info.get("error"):
-                self._update_status.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
-                if manual:
-                    self._show_update_failure_netdisk_prompt(info.get("error", ""))
-                return
-            self._update_status.setText(f"当前版本: {APP_VERSION}。{info.get('message','')}")
-            if manual:
-                QMessageBox.information(self,"检查更新","当前仓库还没有发布 Release。")
-            return
-
-        latest=info.get("latest") or "未知"
-        if info.get("newer"):
-            self._update_status.setText(f"发现新版本: {latest}（当前 {APP_VERSION}）")
-            if manual or self._should_show_startup_update(info):
-                self._show_update_dialog(info, manual=manual)
-        else:
-            self._update_status.setText(f"当前已是最新版本: {APP_VERSION}")
-            if manual:
-                QMessageBox.information(self,"检查更新",f"当前已是最新版本。\n当前版本: {APP_VERSION}\n最新版本: {latest}")
-
-    def _on_update_error(self,err):
-        manual=getattr(self,"_update_check_manual",True)
-        if manual:
-            self._check_update_btn.setEnabled(True)
-            self._update_status.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
-            self._show_update_failure_netdisk_prompt(err)
-            return
-        else:
-            if hasattr(self, "_update_status"):
-                self._update_status.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
-            logger.warning(f"启动自动检查更新失败: {err}")
-
-    def _should_show_startup_update(self, info):
-        return should_show_startup_update(self._update_config,info)
-
-    def _show_update_dialog(self, info, manual=False):
-        result=show_update_dialog(self,self._current_style_sheet(),info,APP_VERSION)
-        if result.get("never_remind"):
-            self._update_config["never_remind"]=True
-        if result.get("ignored_version"):
-            self._update_config["ignored_version"]=result["ignored_version"]
-        if result.get("changed"):
-            self._save_update_config()
-
-    def _show_update_failure_netdisk_prompt(self, detail=""):
-        box=QMessageBox(self)
-        box.setWindowTitle("检查更新失败")
-        box.setText("GitHub请求失败，可前往网盘链接查看版本更新情况")
-        if detail:
-            box.setInformativeText(str(detail))
-        go_btn=box.addButton("前往", QMessageBox.AcceptRole)
-        box.addButton("取消", QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is go_btn:
-            self._open_url(QUARK_NETDISK_URL)
-
-    def _open_update_homepage(self):
-        self._open_url(GITHUB_HOME_URL)
-
-    def _open_bilibili_homepage(self):
-        self._open_url(BILIBILI_HOME_URL)
-
-    def _show_netdisk_download_dialog(self, links):
-        links=tuple((str(name),str(url)) for name,url in links if name and url)
-        if not links:
-            return
-        box=QMessageBox(self)
-        box.setWindowTitle("网盘下载")
-        box.setText("请选择下载网盘")
-        box.setInformativeText("\n\n".join(f"{name}：\n{url}" for name,url in links))
-        box.setMinimumSize(620, 300)
-        box.setStyleSheet(box.styleSheet()+"\nQLabel{min-width:560px;}")
-        buttons=[]
-        for name,url in links:
-            button=box.addButton(f"打开{name}", QMessageBox.AcceptRole)
-            buttons.append((button,url))
-        box.addButton("取消", QMessageBox.RejectRole)
-        box.exec()
-        clicked=box.clickedButton()
-        for button,url in buttons:
-            if clicked is button:
-                self._open_url(url)
-                break
-
-    def _open_url(self,url):
-        try:
-            os.startfile(url)
-        except Exception:
-            import webbrowser
-            webbrowser.open(url)
-
-    def _is_newer_version(self,remote,current):
-        return is_newer_version(remote,current)
-
-    def _save_hotkeys(self, *, announce=False):
-        capture=self._hk_capture_edit.keySequence().toString().strip()
-        finish=self._hk_finish_edit.keySequence().toString().strip()
-        stop=self._hk_stop_edit.keySequence().toString().strip()
-        # A QKeySequenceEdit emits an empty intermediate sequence while a user
-        # replaces a binding.  Keep the last complete configuration until all
-        # fields are valid instead of surfacing an exception to the user.
-        if not all((capture, finish, stop)):
-            return False
-        self._hk_capture=capture
-        self._hk_finish=finish
-        self._hk_stop=stop
-        self._save_hotkey_config()
-        if announce:
-            QMessageBox.information(self,"保存","快捷键已保存！\n全局截图: "+self._hk_capture+"\n截图完成: "+self._hk_finish+"\n停止: "+self._hk_stop)
-        return True
 
     def _refresh_ss(self):
         usage=managed_screenshot_usage(SCREENSHOT_DIR, ACCOUNT_DATA_ROOT)
@@ -1312,6 +726,13 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
 # ── Facade
 
 # ── Entry
+environment_controller.install_methods(sys.modules[__name__], MainWindow)
+configuration_controller.install_methods(sys.modules[__name__], MainWindow)
+hotkey_controller.install_methods(sys.modules[__name__], MainWindow)
+inventory_sync_controller.install_methods(sys.modules[__name__], MainWindow)
+update_controller.install_methods(sys.modules[__name__], MainWindow)
+
+
 def _global_exception_handler(exc_type, exc_value, exc_tb):
     """全局异常处理，防止未捕获异常导致闪退"""
     import traceback as tb

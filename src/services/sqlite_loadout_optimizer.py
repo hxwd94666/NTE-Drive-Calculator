@@ -100,11 +100,11 @@ class SqliteLoadoutOptimizer:
         blueprint = self.static_dao.get_equipment_plan(character_id)
         if blueprint is None:
             raise LoadoutOptimizationError(f"角色 {character_id} 没有官方装备蓝图")
-        pinned_snapshot_id = (
-            self.user_dao.current_inventory_snapshot_id()
-            if snapshot_id is None
-            else int(snapshot_id)
-        )
+        if snapshot_id is None:
+            raise LoadoutOptimizationError(
+                "保存官方配装方案必须显式指定计算使用的稳定背包快照"
+            )
+        pinned_snapshot_id = int(snapshot_id)
         if pinned_snapshot_id is None:
             raise LoadoutOptimizationError("尚无稳定背包快照")
         if self.user_dao.inventory_snapshot_summary(pinned_snapshot_id) is None:

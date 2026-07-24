@@ -93,7 +93,6 @@ class AllocationResultsMixin:
     _fallback_tape_main_value = allocation_results_view._fallback_tape_main_value
     _extra_shape_area = allocation_results_view._extra_shape_area
     _equipment_bonus_rows = allocation_results_view._equipment_bonus_rows
-    _get_my_role_entry = allocation_results_view._get_my_role_entry
     _role_base_bonus_rows = allocation_results_view._role_base_bonus_rows
     _merge_bonus_row_lists = allocation_results_view._merge_bonus_row_lists
     _synthesize_character_bonus_rows = allocation_results_view._synthesize_character_bonus_rows

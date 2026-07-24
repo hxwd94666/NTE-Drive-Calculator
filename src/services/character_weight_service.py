@@ -1,5 +1,5 @@
 # 初始化并维护账号 SQLite 中可编辑的角色权重。
-"""Account-scoped editable character weights seeded from bundled recommendations."""
+"""Account-scoped editable character weights."""
 
 from __future__ import annotations
 
@@ -11,37 +11,13 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
-def _seed_rows(
-    recommendation: Mapping[str, Any],
-    known_property_ids: set[str],
-) -> list[dict[str, Any]]:
-    rows = []
-    seen = set()
-    for row in recommendation.get("properties") or ():
-        property_id = str(row.get("property_id") or "")
-        if property_id not in known_property_ids or property_id in seen:
-            continue
-        seen.add(property_id)
-        rows.append({
-            "property_id": property_id,
-            "weight": float(row.get("weight") or 0.0),
-            "main_weight": float(row.get("main_weight") or 0.0),
-        })
-    return rows
-
-
 def ensure_account_character_weights(
     user_database_path: str | Path,
     character_ids: Iterable[int] | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Seed missing account rows once; later bundled updates never overwrite user edits."""
+    """Read existing account weight rows without importing bundled recommendations."""
 
     with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
-        dataset = static_dao.summary()["dataset"]
-        dataset_id = str(dataset["dataset_id"])
-        known_property_ids = {
-            str(row["attribute_id"]) for row in static_dao.list_equipment_attributes()
-        }
         wanted_ids = (
             [int(character_id) for character_id in character_ids]
             if character_ids is not None
@@ -54,40 +30,7 @@ def ensure_account_character_weights(
         for character_id in wanted_ids:
             existing = user_dao.get_character_weight_preferences(character_id)
             if existing is not None:
-                recommendation = static_dao.get_character_recommended_weights(
-                    character_id
-                )
-                if (
-                    str(existing.get("source_kind") or "") == "default"
-                    and str(existing.get("seeded_at_utc") or "")
-                    == str(existing.get("updated_at_utc") or "")
-                    and recommendation is not None
-                    and str(recommendation.get("source_kind") or "") != "default"
-                ):
-                    refreshed = user_dao.refresh_unmodified_character_weight_preferences(
-                        character_id,
-                        properties=_seed_rows(
-                            recommendation,
-                            known_property_ids,
-                        ),
-                        source_dataset_id=dataset_id,
-                        source_kind=str(
-                            recommendation.get("source_kind") or "default"
-                        ),
-                    )
-                    if refreshed is not None:
-                        existing = refreshed
                 result[character_id] = existing
-                continue
-            recommendation = static_dao.get_character_recommended_weights(character_id)
-            if recommendation is None:
-                continue
-            result[character_id] = user_dao.seed_character_weight_preferences(
-                character_id,
-                properties=_seed_rows(recommendation, known_property_ids),
-                source_dataset_id=dataset_id,
-                source_kind=str(recommendation.get("source_kind") or "default"),
-            )
         return result
 
 
@@ -101,14 +44,13 @@ def save_account_character_weights(
     """Persist the account SQLite weights without changing static recommendations."""
 
     current = ensure_account_character_weights(user_database_path, (character_id,)).get(
-        int(character_id)
+        int(character_id), {}
     )
-    if current is None:
-        raise ValueError(f"角色 {character_id} 没有静态推荐权重")
     with StaticGameDataDao() as static_dao:
         known_property_ids = {
             str(row["attribute_id"]) for row in static_dao.list_equipment_attributes()
         }
+        dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
     normalized = {
         str(property_id): float(weight)
         for property_id, weight in property_weights.items()
@@ -145,6 +87,13 @@ def save_account_character_weights(
                 "main_weight": (normalized_main or {}).get(property_id, 0.0),
             })
     with UserDataDao(user_database_path) as user_dao:
+        if not current:
+            return user_dao.seed_character_weight_preferences(
+                int(character_id),
+                properties=rows,
+                source_dataset_id=dataset_id,
+                source_kind="account",
+            )
         return user_dao.save_character_weight_preferences(
             int(character_id), properties=rows
         )

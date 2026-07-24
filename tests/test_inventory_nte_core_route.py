@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-import src.features.inventory.page as page_module
+import src.features.inventory.equipment_assembly_controller as page_module
 
 
 class InventoryNteCoreRouteTests(unittest.TestCase):

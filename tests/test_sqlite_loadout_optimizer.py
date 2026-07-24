@@ -122,7 +122,7 @@ class SqliteLoadoutOptimizerTests(unittest.TestCase):
             )
         )
         self.first_snapshot_id = self.user_dao.import_inventory_snapshot(snapshot(1, items))
-        self.user_dao.import_inventory_snapshot(snapshot(2, []))
+        self.current_snapshot_id = self.user_dao.import_inventory_snapshot(snapshot(2, []))
 
     def tearDown(self) -> None:
         self.static_dao.close()
@@ -148,6 +148,12 @@ class SqliteLoadoutOptimizerTests(unittest.TestCase):
 
     def test_current_empty_snapshot_does_not_fall_back_to_historical_maximum(self) -> None:
         with self.assertRaisesRegex(LoadoutOptimizationError, "推荐核心"):
+            SqliteLoadoutOptimizer(self.static_dao, self.user_dao).optimize(
+                1003, snapshot_id=self.current_snapshot_id,
+            )
+
+    def test_rejects_implicit_current_snapshot(self) -> None:
+        with self.assertRaisesRegex(LoadoutOptimizationError, "必须显式指定"):
             SqliteLoadoutOptimizer(self.static_dao, self.user_dao).optimize(1003)
 
 

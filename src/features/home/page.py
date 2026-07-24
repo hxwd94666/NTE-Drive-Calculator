@@ -178,7 +178,7 @@ def build_home_page(window) -> QScrollArea:
     definitions = (
         ("inventory", "稳定背包", "等待首次同步"),
         ("module", "驱动", "原始游戏 UID"),
-        ("core", "空幕", "原始游戏 UID"),
+        ("core", "卡带", "原始游戏 UID"),
         ("equipped", "已装备", "按当前稳定快照"),
         ("plans", "配装方案", "保存在当前账号"),
         ("characters", "角色数据", "来自随程序静态数据库"),
@@ -219,6 +219,7 @@ def build_home_page(window) -> QScrollArea:
         ("计算配装", "execute"),
         ("查看方案", "equipment"),
         ("角色边际", "my_role"),
+        ("仓库管理", "warehouse"),
         ("空幕鉴定", "identify"),
     ):
         button = QPushButton(label)

@@ -132,6 +132,7 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
             role_name="测试角色",
             role_state=role_state,
             character_id=1003,
+            snapshot_id=self.snapshot_id,
         )
 
         plan = self.user_dao.get_loadout_plan(saved.plan_id)
@@ -175,6 +176,7 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
                 role_name="测试角色",
                 role_state=role_state,
                 character_id=1003,
+                snapshot_id=self.snapshot_id,
             )
 
     def test_saves_module_only_plan_when_no_core_is_available(self) -> None:
@@ -190,10 +192,17 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
         }
         saved = SavedStateLoadoutBridge(self.user_dao, self.static_dao).save_role_plan(
             role_name="测试角色", role_state=role_state, character_id=1003,
+            snapshot_id=self.snapshot_id,
         )
         plan = self.user_dao.get_loadout_plan(saved.plan_id)
         self.assertEqual(1, saved.module_count)
         self.assertEqual(["module"], [row["kind"] for row in plan["assignments"]])
+
+    def test_rejects_implicit_current_snapshot(self) -> None:
+        with self.assertRaisesRegex(SavedStateLoadoutError, "必须显式指定"):
+            SavedStateLoadoutBridge(self.user_dao, self.static_dao).prepare_role_plan(
+                role_name="测试角色", role_state={}, character_id=1003,
+            )
 
     def test_save_role_plan_uses_explicit_snapshot_after_current_changes(self) -> None:
         role_state = {

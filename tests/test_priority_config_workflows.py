@@ -11,20 +11,6 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 class PriorityGroupWorkflowTests(unittest.TestCase):
-    def test_role_weight_pools_keep_main_and_sub_stats_separate(self):
-        from src.features.configuration.page import (
-            _main_weight_choice_pool,
-            _sub_weight_choice_pool,
-        )
-
-        config_dir = Path("config")
-        sub_pool = _sub_weight_choice_pool(config_dir)
-        main_pool = _main_weight_choice_pool(config_dir)
-
-        self.assertIn("攻击力", sub_pool)
-        self.assertNotIn("治疗加成", sub_pool)
-        self.assertIn("治疗加成", main_pool)
-
     def test_priority_links_promote_boundary_splits_two_equal_batches(self):
         from src.features.allocation.priority_groups import (
             links_to_priority_groups,
@@ -418,44 +404,6 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
 
 class ConfigurationWorkflowTests(unittest.TestCase):
-    def test_reset_config_form_restores_bundled_config_after_confirm(self):
-        from src.features.configuration import page
-
-        with tempfile.TemporaryDirectory() as current_tmp, tempfile.TemporaryDirectory() as bundled_tmp:
-            current_dir = Path(current_tmp)
-            bundled_dir = Path(bundled_tmp)
-            (current_dir / "roles.json").write_text(
-                json.dumps({"旧角色": {"weights": {}}}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (bundled_dir / "roles.json").write_text(
-                json.dumps({"默认角色": {"weights": {}}}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            window = SimpleNamespace(
-                _current_config_name="roles.json",
-                _config_dirty=True,
-                _load_data=lambda: None,
-            )
-            original_warning = page.QMessageBox.warning
-            original_information = page.QMessageBox.information
-            original_switch = page.switch_config_form
-            switched = []
-            page.QMessageBox.warning = lambda *_args, **_kwargs: page.QMessageBox.Yes
-            page.QMessageBox.information = lambda *_args, **_kwargs: None
-            page.switch_config_form = lambda _window, name, _config_dir: switched.append(name)
-            try:
-                page.reset_config_form(window, current_dir, bundled_dir)
-            finally:
-                page.QMessageBox.warning = original_warning
-                page.QMessageBox.information = original_information
-                page.switch_config_form = original_switch
-
-            self.assertEqual({"默认角色": {"weights": {}}}, json.loads((current_dir / "roles.json").read_text(encoding="utf-8")))
-            self.assertFalse(window._config_dirty)
-            self.assertEqual(["roles.json"], switched)
-
     def test_roles_form_does_not_render_or_edit_legacy_board_matrix(self):
         from PySide6.QtWidgets import QApplication, QComboBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
@@ -470,22 +418,7 @@ class ConfigurationWorkflowTests(unittest.TestCase):
                 self.container = QWidget()
                 self.config_form_layout = QVBoxLayout(self.container)
 
-            def _stat_choice_pool(self):
-                return ["攻击力"]
-
-            def _save_role_field(self, *_args):
-                pass
-
-            def _save_single_extra_shape_buff(self, *_args):
-                pass
-
             def _save_role_weight_value(self, *_args):
-                pass
-
-            def _save_role_board_cell(self, *_args):
-                pass
-
-            def _del_role(self, *_args):
                 pass
 
             def _add_weight(self, *_args):
@@ -787,31 +720,3 @@ class UpdateWorkflowTests(unittest.TestCase):
         names = [item[0] for item in items]
         self.assertIn("异能伤害%", names)
         self.assertNotIn("元素" + "伤害%", names)
-
-
-class ConfigurationRoleOrderTests(unittest.TestCase):
-    def test_new_role_is_inserted_at_the_start_of_role_tabs(self):
-        from src.features.configuration import page as config_page
-
-        class Window:
-            all_set_names = ["套装A"]
-
-        saved = []
-        switched = []
-        old_get_text = config_page.QInputDialog.getText
-        old_save = config_page.save_config_data
-        old_switch = config_page.switch_config_form
-        config_page.QInputDialog.getText = lambda *_args, **_kwargs: ("新角色", True)
-        config_page.save_config_data = lambda _window, data, _config_dir: saved.append(list(data))
-        config_page.switch_config_form = lambda *_args, **kwargs: switched.append(kwargs.get("active_role"))
-        try:
-            data = {"旧角色A": {}, "旧角色B": {}}
-            config_page.add_role(Window(), data, Path("."))
-        finally:
-            config_page.QInputDialog.getText = old_get_text
-            config_page.save_config_data = old_save
-            config_page.switch_config_form = old_switch
-
-        self.assertEqual(["新角色", "旧角色A", "旧角色B"], list(data))
-        self.assertEqual([["新角色", "旧角色A", "旧角色B"]], saved)
-        self.assertEqual(["新角色"], switched)

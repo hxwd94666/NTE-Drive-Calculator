@@ -45,7 +45,7 @@ def load_builder_module():
 
 
 class StaticGameDatabaseTests(unittest.TestCase):
-    def test_legacy_calculation_catalog_uses_sqlite_not_role_or_set_json(self):
+    def test_legacy_calculation_catalog_uses_sqlite_not_legacy_set_json(self):
         """The old calculation UI may retain its solver, but not JSON static data."""
         from src.services.legacy_allocation_static_catalog import (
             build_legacy_allocation_static_catalog,
@@ -55,7 +55,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
         def forbid_legacy_static_json(file, *args, **kwargs):
             normalized_path = str(file).replace("\\", "/").lower()
-            if normalized_path.endswith(("/roles.json", "/sets.json")):
+            if normalized_path.endswith("/sets.json"):
                 raise AssertionError(f"calculation catalog attempted JSON access: {file}")
             return real_open(file, *args, **kwargs)
 

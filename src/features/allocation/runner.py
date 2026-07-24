@@ -41,7 +41,10 @@ def _run_allocation(self,strat,sel,cs,tape_main_filters=None,crit_priority_modes
         if not runtime.USER_DATABASE_PATH.is_file():
             raise RuntimeError("尚无官方背包数据，请先完成背包同步并生成稳定快照。")
         with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao, StaticGameDataDao() as static_dao:
-            projection = SqliteAllocationInventory(user_dao, static_dao).build()
+            snapshot_id = user_dao.current_inventory_snapshot_id()
+            if snapshot_id is None:
+                raise RuntimeError("尚无稳定背包快照，请先在首页启动背包同步并进入游戏。")
+            projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
         allocation_options = {
             "tape_main_filters": tape_main_filters or {},
             "crit_priority_modes": crit_priority_modes or {},
@@ -113,12 +116,6 @@ def _calculation_plan_diff(self, final_plan: dict) -> dict:
             return _sqlite_allocation_plan_diff(database_path, final_plan)
         except Exception as exc:
             logger.warning(f"读取 SQLite 配装差异失败，改用无数据库兼容基线：{exc}")
-    state_manager = getattr(self, "state_mgr", None)
-    if state_manager is not None and hasattr(state_manager, "load_state"):
-        try:
-            return build_plan_diff(state_manager.load_state() or {}, final_plan)
-        except Exception:
-            pass
     return build_plan_diff({}, final_plan)
 
 

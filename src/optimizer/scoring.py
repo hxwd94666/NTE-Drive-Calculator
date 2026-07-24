@@ -76,7 +76,7 @@ class ScoringEngine:
         return label
 
     def _load_roles_from_sqlite(self) -> None:
-        """Load scoring weights from account/static SQLite, never roles.json."""
+        """Load scoring weights from the current account SQLite database."""
 
         user_dao = None
         try:
@@ -97,8 +97,6 @@ class ScoringEngine:
                         if user_dao is not None
                         else None
                     )
-                    if record is None:
-                        record = static_dao.get_character_recommended_weights(character_id)
                     if record is None:
                         continue
                     weights = {
