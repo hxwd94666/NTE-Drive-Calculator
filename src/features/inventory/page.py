@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListView, QMessageBox, QPushButton, QScrollArea, \
+from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListView, QMessageBox, QProgressDialog, QPushButton, QScrollArea, \
     QVBoxLayout, QWidget
 
 from src.app import runtime
@@ -95,6 +95,9 @@ __all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equi
            '_saved_plan_diff_text', '_show_saved_plan_diff_dialog', '_clear_all_equipment', '_delete_role_equipment', '_optimize_saved_equipment',
            '_preview_assemble_role', '_preview_fast_assemble_all_roles', '_preview_automatic_assemble_all_roles']
 
+EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT = 520
+EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
+# Legacy test hosts and non-Qt callers retain the old batch-only path.
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
 
@@ -148,6 +151,9 @@ def _page_equipment(self):
     scroll=QScrollArea(); scroll.setWidgetResizable(True)
     self.equip_scroll = scroll
     self.equip_content=QWidget(); self.equip_content_layout=QVBoxLayout(self.equip_content); scroll.setWidget(self.equip_content)
+    scroll.verticalScrollBar().valueChanged.connect(
+        lambda _value: _schedule_visible_equipment_render(self)
+    )
     l.addWidget(scroll,1); return page
 
 
@@ -771,13 +777,65 @@ def _clear_equip_content(self):
         if it.widget(): it.widget().deleteLater()
 
 def _load_sqlite_equipment_display_states(database_path):
-    """Read display-only saved plans off the UI thread."""
+    """Read display-only saved plans off the UI thread with shared snapshots.
+
+    A multi-role allocation commonly binds every plan to one immutable
+    snapshot.  Re-reading that snapshot and static catalogs per card was the
+    principal loading bottleneck.
+    """
     with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
         plans = user_dao.list_active_loadout_plans_by_role()
-        return {
-            role_name: _sqlite_plan_display_state(plan, user_dao, static_dao)
-            for role_name, plan in plans.items()
+        snapshot_ids = {
+            int(plan["source_snapshot_id"])
+            for plan in plans.values()
+            if plan.get("source_snapshot_id") is not None
         }
+        referenced_uids_by_snapshot: dict[int, set[tuple[int, int]]] = {
+            snapshot_id: set() for snapshot_id in snapshot_ids
+        }
+        for plan in plans.values():
+            snapshot_id = int(plan["source_snapshot_id"])
+            for assignment in plan.get("assignments") or ():
+                raw = assignment.get("raw_assignment") or {}
+                if is_virtual_equipment_assignment(raw):
+                    continue
+                try:
+                    referenced_uids_by_snapshot[snapshot_id].add((
+                        int(assignment["uid_serial"]),
+                        int(assignment["uid_slot"]),
+                    ))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        inventory_by_snapshot = {
+            snapshot_id: {
+                (row["uid_serial"], row["uid_slot"]): row
+                for row in user_dao.list_inventory_items(
+                    snapshot_id,
+                    uids=referenced_uids_by_snapshot[snapshot_id],
+                )
+            }
+            for snapshot_id in snapshot_ids
+        }
+        shape_cells = {
+            shape["shape_id"]: shape.get("cells") or []
+            for shape in static_dao.list_shapes()
+        }
+        suit_names = {
+            str(suit["suit_id"]): str(suit.get("name_zh") or suit["suit_id"])
+            for suit in static_dao.list_suits()
+        }
+        displays = {}
+        for role_name, plan in plans.items():
+            display = _sqlite_plan_display_state(
+                plan,
+                user_dao,
+                static_dao,
+                inventory_by_snapshot=inventory_by_snapshot,
+                shape_cells=shape_cells,
+                suit_names=suit_names,
+            )
+            displays[role_name] = display
+        return displays
 
 
 def _queue_equipment_render(self, eq):
@@ -793,15 +851,115 @@ def _queue_equipment_render(self, eq):
     self._equip_render_token=object()
     token=self._equip_render_token
     self._equip_render_queue=roles
-    self._equip_render_index=0
-    self._equip_render_stretch_added=False
+    self._equip_lazy_entries = []
 
     if not roles:
         ph=QLabel("暂无已保存的配装。请先执行分配并保存。"); ph.setStyleSheet(themed_style("color:#6e7681;padding:24px")); ph.setAlignment(Qt.AlignCenter); self.equip_content_layout.addWidget(ph)
         self.equip_content_layout.addStretch()
         return
 
-    _render_equip_batch(self, token, EQUIPMENT_INITIAL_RENDER_COUNT)
+    if not isinstance(self, QWidget):
+        self._equip_render_queue = roles
+        self._equip_render_index = 0
+        self._equip_render_stretch_added = False
+        _render_equip_batch(self, token, EQUIPMENT_INITIAL_RENDER_COUNT)
+        return
+
+    for role_name, rd in roles:
+        slot = QWidget(self.equip_content)
+        slot.setObjectName("equipmentRolePlaceholder")
+        slot.setFixedHeight(EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT)
+        slot_layout = QVBoxLayout(slot)
+        slot_layout.setContentsMargins(0, 0, 0, 0)
+        placeholder = QLabel(f"{role_name} · 滚动到此处加载配装详情")
+        placeholder.setAlignment(Qt.AlignCenter)
+        placeholder.setStyleSheet(themed_style("color:#6e7681;font-size:12px"))
+        slot_layout.addWidget(placeholder)
+        self.equip_content_layout.addWidget(slot)
+        self._equip_lazy_entries.append({
+            "role_name": role_name,
+            "state": rd,
+            "slot": slot,
+            "layout": slot_layout,
+            "loaded": False,
+        })
+    self.equip_content_layout.addStretch()
+    _schedule_visible_equipment_render(self, token)
+    _start_equipment_graduation_load(self, token, [role_name for role_name, _rd in roles])
+
+
+def _schedule_visible_equipment_render(self, token=None):
+    current = token or getattr(self, "_equip_render_token", None)
+    if current is None:
+        return
+    QTimer.singleShot(0, lambda: _render_visible_equipment_roles(self, current))
+
+
+def _clear_layout_widgets(layout):
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
+
+
+def _render_lazy_equipment_entry(self, entry):
+    layout = entry["layout"]
+    _clear_layout_widgets(layout)
+    group = _render_equip_role(
+        self, entry["role_name"], entry["state"], target_layout=layout,
+    )
+    entry["loaded"] = True
+    entry["slot"].setFixedHeight(max(
+        EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT,
+        group.sizeHint().height() + 8,
+    ))
+
+
+def _render_visible_equipment_roles(self, token):
+    if token is not getattr(self, "_equip_render_token", None):
+        return
+    scroll = getattr(self, "equip_scroll", None)
+    if scroll is None:
+        return
+    viewport_top = scroll.verticalScrollBar().value()
+    viewport_height = max(1, scroll.viewport().height())
+    viewport_bottom = viewport_top + viewport_height * (1 + EQUIPMENT_VIEWPORT_PREFETCH_COUNT)
+    for entry in getattr(self, "_equip_lazy_entries", []):
+        if entry["loaded"]:
+            continue
+        slot = entry["slot"]
+        if slot.y() > viewport_bottom or slot.y() + slot.height() < viewport_top - viewport_height:
+            continue
+        _render_lazy_equipment_entry(self, entry)
+    value = getattr(self, "_equip_restore_scroll_value", None)
+    if value is not None:
+        scroll.verticalScrollBar().setValue(int(value))
+        self._equip_restore_scroll_value = None
+
+
+def _start_equipment_graduation_load(self, token, role_names):
+    """Load optional role-detail metrics after the initial card viewport is ready."""
+    worker = WorkerThread(
+        target=lambda: {
+            role_name: _saved_plan_graduation_info(role_name)
+            for role_name in role_names
+        },
+        parent=self,
+    )
+    self._equip_graduation_worker = worker
+
+    def apply_results(results):
+        if token is not getattr(self, "_equip_render_token", None):
+            return
+        for entry in getattr(self, "_equip_lazy_entries", []):
+            info = results.get(entry["role_name"]) if isinstance(results, dict) else None
+            entry["state"]["_graduation_info"] = info
+            if entry["loaded"]:
+                _render_lazy_equipment_entry(self, entry)
+
+    worker.result_ready.connect(apply_results)
+    worker.error.connect(lambda error: logger.debug("配装毕业率后台加载失败: {}", error))
+    worker.start()
 
 
 def _on_sqlite_equipment_display_loaded(self, token, eq):
@@ -870,12 +1028,28 @@ def _display_shape_id(geometry):
     return _OFFICIAL_SHAPE_LABELS.get(value, str(geometry or "未知形状"))
 
 
-def _sqlite_plan_display_state(plan, user_dao, static_dao):
+def _sqlite_plan_display_state(
+    plan,
+    user_dao,
+    static_dao,
+    *,
+    inventory_by_snapshot=None,
+    shape_cells=None,
+    suit_names=None,
+):
     """将活动 SQLite 方案转换为配装页展示模型；不读取旧 JSON。"""
     snapshot_id=int(plan["source_snapshot_id"])
-    items={(row["uid_serial"],row["uid_slot"]): row for row in user_dao.list_inventory_items(snapshot_id)}
-    shape_cells={shape["shape_id"]: shape.get("cells") or [] for shape in static_dao.list_shapes()}
-    suit_names={str(suit["suit_id"]): str(suit.get("name_zh") or suit["suit_id"]) for suit in static_dao.list_suits()}
+    if inventory_by_snapshot is None:
+        items={
+            (row["uid_serial"],row["uid_slot"]): row
+            for row in user_dao.list_inventory_items(snapshot_id)
+        }
+    else:
+        items=inventory_by_snapshot.get(snapshot_id, {})
+    if shape_cells is None:
+        shape_cells={shape["shape_id"]: shape.get("cells") or [] for shape in static_dao.list_shapes()}
+    if suit_names is None:
+        suit_names={str(suit["suit_id"]): str(suit.get("name_zh") or suit["suit_id"]) for suit in static_dao.list_suits()}
     payload=plan.get("payload") or {}
     last_diff=dict(payload.get("last_diff") or {})
     added_uids={str(uid) for uid in (last_diff.get(DIFF_ADDED_UIDS) or ()) if uid}
@@ -1433,9 +1607,9 @@ def _optimize_saved_equipment(
     dialog.exec()
 
 def _render_equip_batch(self, token, batch_size=None):
+    """Compatibility path for non-Qt callers; production uses viewport slots."""
     if token is not getattr(self,"_equip_render_token",None):
         return
-
     queue=getattr(self,"_equip_render_queue",[])
     index=getattr(self,"_equip_render_index",0)
     size=batch_size or EQUIPMENT_RENDER_BATCH_SIZE
@@ -1448,19 +1622,15 @@ def _render_equip_batch(self, token, batch_size=None):
     elif not getattr(self,"_equip_render_stretch_added",False):
         self.equip_content_layout.addStretch()
         self._equip_render_stretch_added=True
-        scroll = getattr(self, "equip_scroll", None)
-        value = getattr(self, "_equip_restore_scroll_value", None)
-        if scroll is not None and value is not None:
-            QTimer.singleShot(
-                0,
-                lambda current_scroll=scroll, saved_value=int(value): current_scroll.verticalScrollBar().setValue(saved_value),
-            )
-            self._equip_restore_scroll_value = None
 
-def _render_equip_role(self, role_name, rd):
+def _render_equip_role(self, role_name, rd, *, target_layout=None):
     role_cfg=self.roles_db.get(role_name,{})
     wts=role_cfg.get("weights",{})
-    graduation_info = _saved_plan_graduation_info(role_name)
+    graduation_info = rd.get("_graduation_info") if isinstance(rd, dict) else None
+    if graduation_info is None and "_sqlite_plan_id" not in rd:
+        # Retain the legacy/direct-call fallback; normal SQLite cards receive
+        # this value from the loading worker.
+        graduation_info = _saved_plan_graduation_info(role_name)
     main_wts=role_cfg.get("main_weights")
     is_sqlite_plan="_sqlite_plan_id" in rd
 
@@ -1507,8 +1677,10 @@ def _render_equip_role(self, role_name, rd):
     # Graduation is a role-total metric, not an individual drive/core score.
     # Keep it immediately to the left of the role's overall score.
     if graduation_info:
-        graduation_color = str(graduation_info.get("color") or "#ffaa00")
-        graduation_bg = theme_rgba(graduation_color, 0.10)
+        # It is a whole-role metric, so it deliberately shares the total
+        # score/grade color and exact badge framing.
+        graduation_color = gc
+        graduation_bg = gbg
         graduation_frame = QFrame()
         graduation_frame.setStyleSheet(
             f"QFrame{{background:{graduation_bg};border:1px solid {graduation_color};"
@@ -1592,7 +1764,8 @@ def _render_equip_role(self, role_name, rd):
             drive_changed=bool(d.get(EQUIP_IS_CHANGED))
             drive_uid=d.get(EQUIP_UID,"")
             gl.addWidget(self._equip_card(d.get(EQUIP_SHAPE_ID,""),"",d.get(EQUIP_SUB_STATS,{}),d.get(EQUIP_SHAPE_ID,""),drive_uid,wts,(d_s,d_g),d_q,is_new=bool(d.get(EQUIP_IS_NEW)) and not drive_changed,is_changed=drive_changed,is_discarded=bool(d.get("discarded")),is_duplicate_drive=bool(d.get("is_duplicate_drive")),replacement_callback=lambda rn=role_name, item_uid=drive_uid: self._optimize_saved_equipment(rn,"drive",item_uid),card_variant="inventory",item_icon_path=d.get("item_icon_path")))
-    self.equip_content_layout.addWidget(grp)
+    (target_layout or self.equip_content_layout).addWidget(grp)
+    return grp
 
 def _saved_plan_diff_text(self, role_name, diff):
     removed=diff.get(DIFF_REMOVED,[]) or []
@@ -1666,7 +1839,11 @@ def _assembly_report_dialog(action_name: str, report, expected_role_count: int |
     unrecognized = list(getattr(report, "unrecognized_roles", []) or [])
     verification_failures = list(getattr(report, "verification_failures", []) or [])
 
-    incomplete = bool(missing or skipped or duplicates or unrecognized or verification_failures)
+    # The roster scan crosses non-target roles.  Their OCR result is useful
+    # diagnostics, but cannot invalidate an assembly once every requested role
+    # has been found and executed.  A target recognition failure is already
+    # represented by ``missing``.
+    incomplete = bool(missing or skipped or duplicates or verification_failures)
     if expected_role_count is not None and role_count < expected_role_count:
         incomplete = True
     if role_count == 0:
@@ -1711,6 +1888,8 @@ def _assembly_report_dialog(action_name: str, report, expected_role_count: int |
                 lines.append(f"- {role_name}：未通过校验的驱动块 #{'、#'.join(block_ids)}")
     if incomplete:
         lines.append("请检查角色识别结果后重新执行。")
+    elif unrecognized:
+        lines.append("其余未识别槽位不属于本次目标角色，不影响本次装配结果。")
     return title, "\n".join(lines), not incomplete
 
 
@@ -1787,6 +1966,7 @@ def _run_nte_core_equipment_apply(
     *,
     identity_overrides: dict[str, dict] | None = None,
     job_id: int | None = None,
+    progress_callback=None,
 ) -> dict:
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None:
@@ -1802,13 +1982,22 @@ def _run_nte_core_equipment_apply(
                 raise RuntimeError(f"装配任务 {job_id} 不存在")
             user_dao.reset_failed_equipment_apply_job_items(job_id)
             prepared = [
-                {
+                ({
                     "job_item_id": row["job_item_id"],
                     "role_name": row["role_name"],
                     "character_id": row["character_id"],
                     "character_uid": row["character_uid"],
                     "plan_id": row["plan_id"],
-                }
+                } | {
+                    "module_count": sum(
+                        1 for assignment in (user_dao.get_loadout_plan(row["plan_id"]) or {}).get("assignments", [])
+                        if assignment["kind"] == "module"
+                    ),
+                    "core_count": sum(
+                        1 for assignment in (user_dao.get_loadout_plan(row["plan_id"]) or {}).get("assignments", [])
+                        if assignment["kind"] == "core"
+                    ),
+                })
                 for row in job["items"] if row["status"] in {"pending", "running", "failed"}
             ]
             if not prepared:
@@ -1861,6 +2050,7 @@ def _run_nte_core_equipment_apply(
                     "role_name": role_name, "character_id": character_id,
                     "character_uid": character_uid, "plan_id": plan["plan_id"],
                     "module_count": sum(1 for row in plan["assignments"] if row["kind"] == "module"),
+                    "core_count": sum(1 for row in plan["assignments"] if row["kind"] == "core"),
                 })
             if identity_requests:
                 return {"identity_requests": identity_requests}
@@ -1868,19 +2058,39 @@ def _run_nte_core_equipment_apply(
             for entry, prepared_role in zip(user_dao.get_equipment_apply_job(job_id)["items"], prepared):
                 prepared_role["job_item_id"] = entry["job_item_id"]
 
-        for prepared_role in prepared:
+        # A game-side equipment operation can temporarily move the capture
+        # listener out of ``listening``.  Validate and pin one login-time
+        # snapshot for the whole job; checking that volatile state again for
+        # every following role incorrectly aborts an otherwise valid job.
+        stable_snapshot_id = apply_service.require_stable_snapshot()
+        _report_fast_apply_progress(
+            progress_callback,
+            current=0,
+            total=len(prepared),
+            message="正在检查已保存方案…",
+        )
+        for index, prepared_role in enumerate(prepared, start=1):
             role_name = prepared_role["role_name"]
+            _report_fast_apply_progress(
+                progress_callback,
+                current=index - 1,
+                total=len(prepared),
+                message=f"正在下发 [{role_name}] 的装配指令…",
+            )
             user_dao.mark_equipment_apply_job_item(prepared_role["job_item_id"], status="running")
             try:
                 result = apply_service.apply_plan(
                     prepared_role["plan_id"],
                     character_uid=prepared_role["character_uid"],
                     timeout=30.0,
+                    verify_after_dispatch=False,
+                    stable_snapshot_id=stable_snapshot_id,
                 )
                 user_dao.mark_equipment_apply_job_item(
                     prepared_role["job_item_id"], status="succeeded",
                     before_snapshot_id=result.before_snapshot_id,
                     after_snapshot_id=result.after_snapshot_id,
+                    verified=result.verified,
                 )
                 applied.append(
                     {
@@ -1888,15 +2098,47 @@ def _run_nte_core_equipment_apply(
                         "character_id": prepared_role["character_id"],
                         "plan_id": prepared_role["plan_id"],
                         "module_count": prepared_role.get("module_count"),
+                        "core_count": prepared_role.get("core_count"),
                         "snapshot_id": result.after_snapshot_id,
+                        "verified": result.verified,
                         "already_applied": result.already_applied,
                     }
                 )
+                _report_fast_apply_progress(
+                    progress_callback,
+                    current=index,
+                    total=len(prepared),
+                    message=(
+                        f"[{role_name}] 已确认"
+                        if result.verified else f"[{role_name}] 指令已下发"
+                    ),
+                )
             except Exception as exc:
                 user_dao.mark_equipment_apply_job_item(prepared_role["job_item_id"], status="failed", error=str(exc))
+                _report_fast_apply_progress(
+                    progress_callback,
+                    current=index - 1,
+                    total=len(prepared),
+                    message=f"[{role_name}] 下发失败",
+                )
                 return {"job_id": job_id, "applied": applied, "failed_role": role_name, "error": str(exc), "completed": False}
         completed = user_dao.complete_equipment_apply_job_if_done(job_id)
     return {"job_id": job_id, "applied": applied, "completed": completed}
+
+
+def _report_fast_apply_progress(progress_callback, *, current: int, total: int, message: str) -> None:
+    """Safely bridge worker-side apply state to the UI progress dialog."""
+    if not callable(progress_callback):
+        return
+    try:
+        progress_callback({
+            "current": max(0, int(current)),
+            "total": max(1, int(total)),
+            "message": str(message),
+        })
+    except Exception:
+        # Progress UI must never make a successful equipment request fail.
+        logger.debug("极速装配进度回调失败", exc_info=True)
 
 
 def _prompt_character_identity_requests(self, requests: list[dict]) -> dict[str, dict] | None:
@@ -1932,16 +2174,59 @@ def _prompt_character_identity_requests(self, requests: list[dict]) -> dict[str,
 def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_overrides: dict[str, dict] | None = None, job_id: int | None = None) -> None:
     current_worker = getattr(self, "_equipment_apply_worker", None)
     if current_worker is not None and current_worker.isRunning():
-        QMessageBox.information(self, "正在装配", "已有装配任务正在执行，请等待结果验证完成。")
+        QMessageBox.information(self, "正在装配", "已有装配任务正在执行，请等待指令下发完成。")
         return
 
+    progress_state = {
+        "current": 0,
+        "total": max(1, len(role_names)),
+        "message": "正在准备极速装配…",
+    }
+    progress_dialog = QProgressDialog(
+        progress_state["message"], "", 0, progress_state["total"], self,
+    )
+    progress_dialog.setWindowTitle("极速装配进度")
+    progress_dialog.setWindowModality(Qt.WindowModal)
+    progress_dialog.setCancelButton(None)
+    progress_dialog.setAutoClose(False)
+    progress_dialog.setAutoReset(False)
+    progress_dialog.setMinimumDuration(0)
+    progress_dialog.setValue(0)
+    progress_dialog.show()
+
+    progress_timer = QTimer(progress_dialog)
+
+    def update_progress_dialog() -> None:
+        total = max(1, int(progress_state.get("total", 1)))
+        progress_dialog.setMaximum(total)
+        progress_dialog.setValue(min(total, max(0, int(progress_state.get("current", 0)))))
+        progress_dialog.setLabelText(str(progress_state.get("message") or "正在极速装配…"))
+
+    progress_timer.timeout.connect(update_progress_dialog)
+    progress_timer.start(80)
+
+    def update_progress(payload: dict) -> None:
+        progress_state.update(payload)
+
+    def close_progress_dialog() -> None:
+        progress_timer.stop()
+        progress_dialog.close()
+        progress_dialog.deleteLater()
+
     worker = WorkerThread(
-        target=lambda: _run_nte_core_equipment_apply(self, role_names, identity_overrides=identity_overrides, job_id=job_id),
+        target=lambda: _run_nte_core_equipment_apply(
+            self,
+            role_names,
+            identity_overrides=identity_overrides,
+            job_id=job_id,
+            progress_callback=update_progress,
+        ),
         parent=self,
     )
     self._equipment_apply_worker = worker
 
     def on_result(report: dict) -> None:
+        close_progress_dialog()
         requests = report.get("identity_requests") or []
         if requests:
             overrides = _prompt_character_identity_requests(self, requests)
@@ -1951,13 +2236,25 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
         applied = report.get("applied") or []
         details = "\n".join(
             f"• {row['role_name']}"
-            + (f"：{row['module_count']} 个驱动 + 1 个核心" if row.get("module_count") is not None else "：已确认")
+            + (
+                f"：{row['module_count']} 个驱动"
+                + (" + 1 个核心" if row.get("core_count") else "")
+                if row.get("module_count") is not None else "：已下发"
+            )
             + ("（原本已装好）" if row.get("already_applied") else "")
             for row in applied
         )
         changed_count = sum(not row.get("already_applied") for row in applied)
         unchanged_count = len(applied) - changed_count
-        summary = f"已确认 {len(applied)} 个角色的配装"
+        unverified_count = sum(
+            not row.get("verified", False) and not row.get("already_applied")
+            for row in applied
+        )
+        summary = (
+            f"已下发 {len(applied)} 个角色的配装"
+            if unverified_count
+            else f"已确认 {len(applied)} 个角色的配装"
+        )
         if unchanged_count:
             summary += f"（实际装配 {changed_count} 个，原本已装好 {unchanged_count} 个）"
         if report.get("failed_role"):
@@ -1984,12 +2281,18 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
             if retry == QMessageBox.Yes:
                 _start_nte_core_equipment_apply(self, [], job_id=report["job_id"])
             return
-        QMessageBox.information(self, "装配完成", f"{summary}。\n任务 #{report.get('job_id')} 已保存日志。\n\n{details}")
+        verification_note = (
+            "\n\n当前游戏内不会产生新的稳定背包快照；本次已完成装配前校验并下发指令。"
+            "请在下次登录后完成背包同步，以更新仓库显示。"
+            if unverified_count else ""
+        )
+        QMessageBox.information(self, "装配完成", f"{summary}。\n任务 #{report.get('job_id')} 已保存日志。\n\n{details}{verification_note}")
         refresh = getattr(self, "_refresh_equip", None)
         if callable(refresh):
             refresh()
 
     def on_error(message: str) -> None:
+        close_progress_dialog()
         QMessageBox.critical(
             self,
             "装配失败",

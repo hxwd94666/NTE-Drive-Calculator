@@ -10,7 +10,16 @@ class PuzzleCombinatorics:
         # Exclude virtual tape shape from physical puzzle
         self.shape_list = [shape for shape in shapes_db.values() if shape.shape_id != "TAPE_15"]
 
-    def generate_piece_combinations(self, set_shapes: List[str], extra_label: str) -> List[List[str]]:
+    def generate_piece_combinations(
+        self,
+        set_shapes: List[str],
+        extra_label: str,
+    ) -> List[List[str]]:
+        """生成填满底盘的驱动组合。
+
+        额外形状是组合择优条件，而非硬性限制：无套装和二件套均可用
+        其他形状补足无法整除的格位。
+        """
         set_area = sum(self.shapes_db[shape_id].area for shape_id in set_shapes)
         remain_area = 20 - set_area
 

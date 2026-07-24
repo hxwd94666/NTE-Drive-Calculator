@@ -168,6 +168,10 @@ static_database_path = _required_build_file("发行版静态数据库", STATIC_D
 _append_add_data(static_database_path, "data")
 build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
 
+# 环境配置页会显式部署该 DLL 至用户选择的游戏目录；安装器本身不会修改游戏目录。
+equipment_plugin_path = _required_build_file("dwmapi.dll 装备插件", ROOT / "dwmapi.dll")
+_append_add_data(equipment_plugin_path, ".")
+
 
 def _find_package_dir(package_name: str) -> Path | None:
     spec = importlib.util.find_spec(package_name)

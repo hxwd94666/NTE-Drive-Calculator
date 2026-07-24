@@ -63,10 +63,11 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
         _title, message, completed = _assembly_report_dialog("assembly", report)
 
-        self.assertFalse(completed)
+        self.assertTrue(completed)
         self.assertIn("第 3 个角色", message)
         self.assertIn("unknown-one", message)
         self.assertIn("第 8 个角色", message)
+        self.assertIn("不影响本次装配结果", message)
         self.assertIn("未读取到文字", message)
 
     def test_assembly_report_lists_missing_drive_block_ids(self):
@@ -375,7 +376,10 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             Path(temp_dir, "非目标角色.png").write_bytes(b"fake")
             roles = _role_recognition_candidates(["目标角色"], temp_dir, {"已保存角色": {}})
 
-        self.assertEqual(["目标角色", "已保存角色", "非目标角色"], roles)
+        self.assertEqual(["目标角色", "已保存角色"], roles[:2])
+        self.assertIn("非目标角色", roles)
+        self.assertIn("达芙蒂尔", roles)
+        self.assertIn("翳", roles)
 
     def test_role_recognition_candidates_include_role_aliases(self):
         import tempfile
@@ -385,7 +389,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             roles = _role_recognition_candidates(["主角"], temp_dir, {}, {"主角": "空月"})
 
-        self.assertEqual(["主角", "空月"], roles)
+        self.assertEqual(["主角", "空月"], roles[:2])
 
     def test_equipment_role_card_exposes_renamed_single_action_button(self):
         from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget

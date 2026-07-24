@@ -24,6 +24,86 @@ from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 
 
+_SYNC_ERROR_GUIDANCE = {
+    "NPCAP_NOT_FOUND": (
+        "原因：未安装 Npcap，或系统无法加载 Npcap 驱动。\n"
+        "处理：点击“环境配置”，在 Npcap 区下载并安装 Npcap 1.88；安装完成后重新启动背包同步。"
+    ),
+    "GAME_PROCESS_NOT_FOUND": (
+        "原因：未检测到正在运行的游戏进程。\n"
+        "处理：先启动游戏并停留在登录页，再重新启动背包同步。"
+    ),
+    "CAPTURE_DEVICE_NOT_FOUND": (
+        "原因：设置的抓包网卡不存在，或当前没有可用于游戏连接的网卡。\n"
+        "处理：在设置的“背包同步”中清空抓取网卡以恢复自动选择，或填写当前有效网卡后重试。"
+    ),
+    "SYSTEM_PROBE_FAILED": (
+        "原因：Windows 网络连接或进程探测失败。\n"
+        "处理：关闭游戏和本程序后重新打开；仍失败时检查安全软件拦截，并尝试以管理员身份运行。"
+    ),
+    "CAPTURE_ALREADY_RUNNING": (
+        "原因：nte-core 中已经存在一个抓包任务。\n"
+        "处理：先点击“停止同步”；若状态没有恢复，重启本程序后再同步。"
+    ),
+    "CAPTURE_NOT_RUNNING": (
+        "原因：nte-core 的抓包会话已经停止。\n"
+        "处理：点击“启动背包同步”重新建立会话。"
+    ),
+    "PROTOCOL_VERSION_MISMATCH": (
+        "原因：本程序与 nte-core 的协议版本不一致。\n"
+        "处理：重新安装同一发布包中的完整程序，不要混用旧版 nte-core.exe。"
+    ),
+    "HANDSHAKE_REQUIRED": (
+        "原因：本程序与 nte-core 的初始化握手未完成。\n"
+        "处理：重启本程序；仍失败时重新安装完整发布包。"
+    ),
+    "INVENTORY_NOT_READY": (
+        "原因：尚未捕获到完整背包数据。\n"
+        "处理：请从游戏登录页启动同步后再进入游戏，并等待背包数量稳定。"
+    ),
+    "NteCoreNotFoundError": (
+        "原因：程序目录中缺少 nte-core.exe。\n"
+        "处理：重新安装完整发布包，不要单独复制主程序运行。"
+    ),
+    "NteCoreTimeoutError": (
+        "原因：nte-core 在限定时间内没有响应。\n"
+        "处理：重启本程序；仍失败时检查安全软件是否拦截 nte-core.exe。"
+    ),
+    "NteCoreProcessError": (
+        "原因：nte-core.exe 无法启动或启动后异常退出。\n"
+        "处理：检查安全软件隔离记录与程序目录权限，然后重新安装完整发布包。"
+    ),
+    "SNAPSHOT_SAVE_FAILED": (
+        "原因：稳定背包已收到，但无法写入当前账号数据库。\n"
+        "处理：检查账号数据目录的写入权限和磁盘剩余空间；后台会自动重试。"
+    ),
+}
+
+
+def inventory_sync_error_guidance(error_code: str | None, error: str | None) -> str:
+    """Translate sync failures into concrete user actions while retaining diagnostics."""
+    code = str(error_code or "").strip()
+    if code in _SYNC_ERROR_GUIDANCE:
+        return _SYNC_ERROR_GUIDANCE[code]
+    detail = str(error or "").lower()
+    if "permission denied" in detail or "access is denied" in detail:
+        return (
+            "原因：程序没有权限启动组件或写入账号数据。\n"
+            "处理：检查程序和账号数据目录权限，并尝试以管理员身份运行。"
+        )
+    if "database is locked" in detail:
+        return (
+            "原因：当前账号数据库正被另一个程序或本程序的残留进程占用。\n"
+            "处理：关闭其他 NTE Drive Calc 窗口，重启本程序后再同步。"
+        )
+    if "no space" in detail or "disk full" in detail:
+        return "原因：磁盘空间不足。\n处理：清理程序所在盘或账号数据所在盘后重新同步。"
+    return (
+        "原因：背包同步组件发生未分类错误。\n"
+        "处理：先停止并重新启动同步；仍失败时查看下方技术详情和日志，再反馈完整错误。"
+    )
+
+
 def _section(title: str, description: str = "") -> tuple[QFrame, QVBoxLayout]:
     card = QFrame()
     card.setObjectName("card")
@@ -124,11 +204,11 @@ def build_home_page(window) -> QScrollArea:
     window.home_stop_sync_button = QPushButton("停止同步")
     window.home_stop_sync_button.clicked.connect(window._stop_inventory_sync)
     window.home_stop_sync_button.setEnabled(False)
-    sync_settings_button = QPushButton("同步设置")
-    sync_settings_button.clicked.connect(lambda _checked=False: window._go("settings"))
+    environment_button = QPushButton("环境配置")
+    environment_button.clicked.connect(window._focus_environment_configuration)
     sync_actions.addWidget(window.home_start_sync_button)
     sync_actions.addWidget(window.home_stop_sync_button)
-    sync_actions.addWidget(sync_settings_button)
+    sync_actions.addWidget(environment_button)
     sync_actions.addStretch()
     sync_layout.addLayout(sync_actions)
     root.addWidget(sync_card)

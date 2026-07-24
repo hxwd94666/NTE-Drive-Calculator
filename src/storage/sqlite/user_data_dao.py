@@ -1698,7 +1698,7 @@ class UserDataDao:
         self._db().execute("INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)", (raw_job_id, now, "失败角色已重置，等待重试"))
         self._db().commit()
 
-    def mark_equipment_apply_job_item(self, job_item_id: int, *, status: str, error: str | None = None, before_snapshot_id: int | None = None, after_snapshot_id: int | None = None) -> None:
+    def mark_equipment_apply_job_item(self, job_item_id: int, *, status: str, error: str | None = None, before_snapshot_id: int | None = None, after_snapshot_id: int | None = None, verified: bool = True) -> None:
         if status not in {"running", "succeeded", "failed"}:
             raise UserDataValidationError("装配任务项状态无效")
         raw_item_id = _integer(job_item_id, "job_item_id", minimum=1)
@@ -1714,7 +1714,11 @@ class UserDataDao:
             message, level = f"开始处理角色 [{item['role_name']}]", "info"
         elif status == "succeeded":
             connection.execute("UPDATE equipment_apply_job_item SET status = 'succeeded', before_snapshot_id = ?, after_snapshot_id = ?, completed_at_utc = ?, last_error = NULL WHERE job_item_id = ?", (before_snapshot_id, after_snapshot_id, now, raw_item_id))
-            message, level = f"角色 [{item['role_name']}] 装配已确认", "info"
+            message, level = (
+                (f"角色 [{item['role_name']}] 装配已确认", "info")
+                if verified
+                else (f"角色 [{item['role_name']}] 装配指令已下发，待下次稳定背包同步更新", "info")
+            )
         else:
             connection.execute("UPDATE equipment_apply_job_item SET status = 'failed', completed_at_utc = ?, last_error = ? WHERE job_item_id = ?", (now, str(error or "未知错误"), raw_item_id))
             connection.execute("UPDATE equipment_apply_job SET status = 'failed', last_error = ? WHERE job_id = ?", (str(error or "未知错误"), item["job_id"]))
@@ -1729,7 +1733,7 @@ class UserDataDao:
             return False
         now = _utc_now()
         self._db().execute("UPDATE equipment_apply_job SET status = 'completed', completed_at_utc = ?, last_error = NULL WHERE job_id = ?", (now, raw_job_id))
-        self._db().execute("INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)", (raw_job_id, now, "全部角色装配已确认"))
+        self._db().execute("INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)", (raw_job_id, now, "全部角色装配任务已完成"))
         self._db().commit()
         return True
 
@@ -1835,6 +1839,7 @@ class UserDataDao:
         equipped: bool | None = None,
         character_id: int | None = None,
         limit: int | None = None,
+        uids: Iterable[tuple[int, int]] | None = None,
     ) -> list[dict[str, Any]]:
         """读取指定快照，而不是在长时间计算中跟随 ``is_current`` 漂移。"""
 
@@ -1852,6 +1857,23 @@ class UserDataDao:
         if character_id is not None:
             conditions.append("equipped_character_id = ?")
             parameters.append(_integer(character_id, "character_id", minimum=1))
+        normalized_uids: tuple[tuple[int, int], ...] | None = None
+        if uids is not None:
+            normalized_uids = tuple(sorted({
+                (
+                    _integer(uid_serial, "uid_serial", minimum=1),
+                    _integer(uid_slot, "uid_slot", minimum=1),
+                )
+                for uid_serial, uid_slot in uids
+            }))
+            if not normalized_uids:
+                return []
+            conditions.append("(" + " OR ".join(
+                "(uid_serial = ? AND uid_slot = ?)"
+                for _uid in normalized_uids
+            ) + ")")
+            for uid_serial, uid_slot in normalized_uids:
+                parameters.extend((uid_serial, uid_slot))
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         limit_sql = ""
         if limit is not None:
@@ -1872,21 +1894,31 @@ class UserDataDao:
         )
         if not rows:
             return rows
+        stat_conditions = ["snapshot_id = ?"]
+        stat_parameters: list[Any] = [raw_snapshot_id]
+        selected_uids = tuple(sorted({
+            (int(row["uid_serial"]), int(row["uid_slot"])) for row in rows
+        }))
+        stat_conditions.append("(" + " OR ".join(
+            "(uid_serial = ? AND uid_slot = ?)" for _uid in selected_uids
+        ) + ")")
+        for uid_serial, uid_slot in selected_uids:
+            stat_parameters.extend((uid_serial, uid_slot))
         stats = self._rows(
-            """
+            f"""
             SELECT uid_serial, uid_slot, stat_group, ordinal, property_id,
                    value, is_percent, names_json
             FROM inventory_item_stat
-            WHERE snapshot_id = ?
+            WHERE {' AND '.join(stat_conditions)}
             ORDER BY uid_slot, uid_serial, stat_group, ordinal
             """,
-            (raw_snapshot_id,),
+            stat_parameters,
         )
         stats_by_uid: dict[tuple[int, int], dict[str, list[dict[str, Any]]]] = {}
-        selected_uids = {(row["uid_serial"], row["uid_slot"]) for row in rows}
+        selected_uid_set = set(selected_uids)
         for stat in stats:
             uid = (stat.pop("uid_serial"), stat.pop("uid_slot"))
-            if uid not in selected_uids:
+            if uid not in selected_uid_set:
                 continue
             group = stat.pop("stat_group")
             stat["percent"] = bool(stat.pop("is_percent"))
@@ -2395,36 +2427,6 @@ class UserDataDao:
                         (snapshot_id,),
                     )
                 }
-            current_snapshot = connection.execute(
-                """
-                SELECT snapshot_id
-                FROM inventory_snapshot
-                WHERE complete = 1 AND source IN ('nte_core', 'gamepad')
-                ORDER BY CASE source WHEN 'nte_core' THEN 0 ELSE 1 END,
-                         captured_at_utc DESC, snapshot_id DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            if current_snapshot is None:
-                raise UserDataValidationError("当前没有可用于保存的稳定背包快照")
-            current_snapshot_id = int(current_snapshot["snapshot_id"])
-            current_inventory = inventory_by_snapshot.get(current_snapshot_id)
-            if current_inventory is None:
-                current_inventory = {
-                    (
-                        int(row["uid_slot"]),
-                        int(row["uid_serial"]),
-                    ): inventory_assignment_item(row)
-                    for row in connection.execute(
-                        """
-                        SELECT uid_slot, uid_serial, kind, item_id, suit_id,
-                               geometry, grid_count, quality,
-                               names_json, suit_names_json
-                        FROM inventory_item WHERE snapshot_id = ?
-                        """,
-                        (current_snapshot_id,),
-                    )
-                }
             for plan in normalized_plans:
                 inventory = inventory_by_snapshot[int(plan["source_snapshot_id"])]
                 for assignment in plan["assignments"]:
@@ -2438,14 +2440,6 @@ class UserDataDao:
                         raise UserDataValidationError(
                             f"装备 UID {uid} 不在方案固定的背包快照中"
                         )
-                    if (
-                        (current_inventory.get(uid) or {}).get("kind")
-                        != assignment["kind"]
-                    ):
-                        raise UserDataValidationError(
-                            f"装备 UID {uid} 已不在当前实际稳定背包中"
-                        )
-
             affected_plans = [
                 plan
                 for plan in self.list_loadout_plans()

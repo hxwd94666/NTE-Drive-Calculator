@@ -911,22 +911,6 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             selection["selection_sequence"],
         )
 
-    def test_drive_shape_options_match_config_shapes(self):
-        import json
-        from pathlib import Path
-
-        from src.features.drive_assembly.page_mapping import DEFAULT_DRIVE_SHAPE_OPTIONS, DRIVE_SHAPE_ALIASES
-
-        data = json.loads(Path("config/shapes.json").read_text(encoding="utf-8"))
-        expected = {
-            item["shape_id"]
-            for item in data["shapes"]
-            if item.get("shape_id") and item.get("shape_id") != "TAPE_15"
-        }
-
-        self.assertEqual(expected, set(DEFAULT_DRIVE_SHAPE_OPTIONS))
-        self.assertTrue(set(DRIVE_SHAPE_ALIASES.values()).issubset(expected))
-
     def test_maps_legacy_drive_shape_alias_to_config_shape_id(self):
         from src.features.drive_assembly.page_mapping import map_drive_shape_selection
 

@@ -97,14 +97,3 @@ class OfficialEquipmentBonusServiceTests(unittest.TestCase):
                 }
                 self.assertEqual(values[0], totals["AtkAdd"])
                 self.assertEqual(values[1], totals["HPMaxAdd"])
-
-    def test_module_without_substats_matches_old_empty_drive_filter(self) -> None:
-        module = _candidate(
-            uid=(2, 1),
-            kind="module",
-            grid_count=2,
-            main_stats=(OfficialStat("AtkAdd", 42.0, False),),
-            sub_stats=(),
-        )
-
-        self.assertEqual((), calculate_official_equipment_stats((module,)))

@@ -193,23 +193,47 @@ class AllocationSolverTests(unittest.TestCase):
 
         self.assertIn((9, 9), result.unified.selected[0].used_uids)
 
-    def test_none_mode_keeps_a_main_filtered_core_without_module_set_target(self) -> None:
+    def test_none_mode_prefers_role_extra_shapes_without_module_set_target(self) -> None:
         base = fixture_role(1, weight_id="Score")
-        role = replace(base, target_suit_id=None, suit_requirement_mode="none", extra_shape_label="")
+        role = replace(
+            base,
+            target_suit_id=None,
+            suit_requirement_mode="none",
+            extra_shape_label="Type-5",
+        )
         candidates = [candidate((1, 1), kind="core", item_id="OtherSuitCore", geometry=None,
                                 suit_id="Other", stats={"Main": 1.0}, main=True)]
+        extra_shape_ids = ("ShapeA", "ShapeC", "ShapeD", "ExtraE")
         candidates.extend(
-            candidate((2, index), kind="module", item_id=f"Loose{index}", geometry="ShapeA",
+            candidate((2, index), kind="module", item_id=f"Loose{index}", geometry=shape_id,
                       suit_id="Other", stats={"Score": 1.0})
-            for index in range(1, 5)
+            for index, shape_id in enumerate(extra_shape_ids, start=1)
+        )
+        candidates.append(
+            candidate((2, 9), kind="module", item_id="WrongExtraShape", geometry="ShapeB",
+                      suit_id="Other", stats={"Score": 99.0})
+        )
+        shapes = tuple(
+            OfficialShape(
+                shape,
+                5,
+                tuple(OfficialShapeCell(0, column) for column in range(5)),
+                legacy_shape_id=shape,
+                legacy_label="Type-5" if shape in extra_shape_ids else "Other",
+            )
+            for shape in (*SHAPES, "ExtraE")
         )
 
-        result = solve_allocation_context(fixture_context((role,), tuple(candidates)), top_k=1)
+        result = solve_allocation_context(
+            replace(fixture_context((role,), tuple(candidates)), shapes=shapes),
+            top_k=1,
+        )
 
         selected = result.unified.selected[0]
         self.assertEqual((1, 1), selected.assignments[0].uid)
         self.assertEqual("Other", selected.assignments[0].suit_id)
         self.assertEqual(5, len(selected.assignments))
+        self.assertNotIn((2, 9), selected.used_uids)
 
     def test_weighted_entry_can_keep_a_complete_official_drive_set_when_core_is_missing(self) -> None:
         role = fixture_role(1, weight_id="Score")

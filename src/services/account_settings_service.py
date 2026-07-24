@@ -21,6 +21,10 @@ SETTING_GROUPS = frozenset({"sync", "hotkeys", "update", "ui"})
 _UI_RUNTIME_DEFAULTS = {
     "protagonist_game_name": "",
     "skip_protagonist_name_prompt": False,
+    "equipment_plugin_game_executable": "",
+    "equipment_plugin_dll_source": "",
+    "equipment_plugin_backup_path": "",
+    "equipment_plugin_deployed_sha256": "",
 }
 
 
@@ -220,4 +224,11 @@ class AccountSettingsService:
             normalized["skip_protagonist_name_prompt"] = bool(
                 normalized.get("skip_protagonist_name_prompt", False)
             )
+            for name in (
+                "equipment_plugin_game_executable",
+                "equipment_plugin_dll_source",
+                "equipment_plugin_backup_path",
+                "equipment_plugin_deployed_sha256",
+            ):
+                normalized[name] = str(normalized.get(name) or "").strip()
         return normalized

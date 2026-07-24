@@ -37,27 +37,6 @@ def _normalize_netdisk_links(netdisk_links=None):
     return tuple((str(name), str(url)) for name, url in netdisk_links if name and url)
 
 
-def _move_card_title_to_row(card, title, button):
-    layout = card.layout()
-    title_label = None
-    if layout and layout.count():
-        first_item = layout.itemAt(0)
-        first_widget = first_item.widget() if first_item else None
-        if isinstance(first_widget, QLabel) and first_widget.text() == title:
-            layout.takeAt(0)
-            title_label = first_widget
-    if title_label is None:
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-size:14px;font-weight:600;color:#58a6ff")
-
-    title_row = QHBoxLayout()
-    title_row.setSpacing(10)
-    title_row.addWidget(title_label)
-    title_row.addWidget(button)
-    title_row.addStretch()
-    layout.insertLayout(0, title_row)
-
-
 def build_settings_page(window, app_version, get_paths, iter_image_files, netdisk_links=None):
     page = QWidget()
     page.setObjectName("settingsPage")
@@ -65,6 +44,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     scroll.setObjectName("settingsScroll")
     scroll.setWidgetResizable(True)
     scroll.setWidget(page)
+    window._settings_scroll = scroll
     scroll.setStyleSheet(
         themed_style(
             "QScrollArea#settingsScroll{background:#0d1117;border:none}"
@@ -219,14 +199,85 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     sync_actions = QHBoxLayout()
     sync_actions.addWidget(save_sync_button)
     sync_actions.addWidget(prune_snapshots_button)
+    environment_button = QPushButton("环境配置")
+    environment_button.clicked.connect(window._focus_environment_configuration)
+    sync_actions.addWidget(environment_button)
     sync_actions.addStretch()
     sync_card.layout().addLayout(sync_actions)
+
+    plugin_card = window._card("环境配置")
+    window._environment_configuration_card = plugin_card
+    npcap_title = QLabel("Npcap · 背包同步必需")
+    npcap_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
+    plugin_card.layout().addWidget(npcap_title)
+    npcap_description = QLabel(
+        "背包同步通过 Npcap 读取游戏网络数据。未安装时无法使用本地核心组件同步背包；"
+        "请下载并完成官方安装程序。"
+    )
+    npcap_description.setWordWrap(True)
+    npcap_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+    plugin_card.layout().addWidget(npcap_description)
+    npcap_row = QHBoxLayout()
+    npcap_install_button = QPushButton("下载 Npcap 1.88")
+    npcap_install_button.clicked.connect(window._open_npcap_download)
+    npcap_row.addWidget(npcap_install_button)
+    npcap_status_button = QPushButton("检测 Npcap 状态")
+    npcap_status_button.clicked.connect(window._show_npcap_status)
+    npcap_row.addWidget(npcap_status_button)
+    npcap_row.addStretch()
+    plugin_card.layout().addLayout(npcap_row)
+    equipment_plugin_title = QLabel("装备插件 · 极速装配必需")
+    equipment_plugin_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
+    plugin_card.layout().addWidget(equipment_plugin_title)
+    equipment_plugin_description = QLabel(
+        "极速装配通过随应用打包的 dwmapi.dll 向游戏下发装备指令。"
+        "请选择或自动检测 HTGame.exe，确认后会将 DLL 复制到其同目录；已有同名文件会先备份。"
+    )
+    equipment_plugin_description.setWordWrap(True)
+    equipment_plugin_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+    plugin_card.layout().addWidget(equipment_plugin_description)
+    plugin_form = QFormLayout()
+    window._equipment_plugin_game_executable_edit = QLineEdit()
+    window._equipment_plugin_game_executable_edit.setPlaceholderText(
+        "可手动粘贴 HTGame.exe 的完整文件地址"
+    )
+    window._equipment_plugin_game_executable_edit.setText(
+        str((getattr(window, "_ui_preferences", {}) or {}).get("equipment_plugin_game_executable") or "")
+    )
+    window._equipment_plugin_game_executable_edit.textChanged.connect(
+        lambda _text: window._refresh_equipment_plugin_status()
+    )
+    game_picker = QPushButton("选择 HTGame.exe")
+    game_picker.clicked.connect(window._select_equipment_plugin_game_executable)
+    game_row = QHBoxLayout()
+    game_row.addWidget(window._equipment_plugin_game_executable_edit, 1)
+    game_row.addWidget(game_picker)
+    window._equipment_plugin_detect_button = QPushButton("自动检测")
+    window._equipment_plugin_detect_button.clicked.connect(window._detect_equipment_plugin_game_executable)
+    game_row.addWidget(window._equipment_plugin_detect_button)
+    plugin_form.addRow("游戏主程序:", game_row)
+    plugin_card.layout().addLayout(plugin_form)
+    window._equipment_plugin_consent = QCheckBox("我确认已获插件使用授权，并同意修改以上选择的游戏目录")
+    plugin_card.layout().addWidget(window._equipment_plugin_consent)
+    window._equipment_plugin_status_label = QLabel()
+    window._equipment_plugin_status_label.setWordWrap(True)
+    window._equipment_plugin_status_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+    plugin_card.layout().addWidget(window._equipment_plugin_status_label)
+    plugin_actions = QHBoxLayout()
+    deploy_plugin_button = QPushButton("部署装备插件")
+    deploy_plugin_button.setObjectName("btnPrimary")
+    deploy_plugin_button.clicked.connect(window._deploy_equipment_plugin)
+    plugin_actions.addWidget(deploy_plugin_button)
+    restore_plugin_button = QPushButton("还原游戏目录")
+    restore_plugin_button.setObjectName("btnDanger")
+    restore_plugin_button.clicked.connect(window._restore_equipment_plugin)
+    plugin_actions.addWidget(restore_plugin_button)
+    plugin_actions.addStretch()
+    plugin_card.layout().addLayout(plugin_actions)
+    refresher = getattr(window, "_refresh_equipment_plugin_status", None)
+    if callable(refresher):
+        refresher()
     hotkey_card = window._card("快捷键绑定")
-    save_hotkeys = QPushButton("保存快捷键")
-    save_hotkeys.setObjectName("btnPrimary")
-    save_hotkeys.setFixedWidth(112)
-    save_hotkeys.clicked.connect(window._save_hotkeys)
-    _move_card_title_to_row(hotkey_card, "快捷键绑定", save_hotkeys)
 
     form = QFormLayout()
     form.setSpacing(10)
@@ -257,6 +308,26 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     stop_row.addWidget(window._hk_stop_edit)
     stop_row.addStretch()
     form.addRow(stop_row)
+
+    def save_hotkeys_when_complete(_sequence) -> None:
+        # QKeySequenceEdit temporarily clears its value before it accepts a
+        # replacement shortcut.  Do not persist that transient blank state.
+        editors = (
+            window._hk_capture_edit,
+            window._hk_finish_edit,
+            window._hk_stop_edit,
+        )
+        if all(editor.keySequence().toString().strip() for editor in editors):
+            window._save_hotkeys()
+
+    # Every completed edit is persisted immediately, removing a separate save
+    # step without treating the editor's intermediate blank state as a value.
+    for editor in (
+        window._hk_capture_edit,
+        window._hk_finish_edit,
+        window._hk_stop_edit,
+    ):
+        editor.keySequenceChanged.connect(save_hotkeys_when_complete)
 
     hotkey_card.layout().addLayout(form)
     layout.addWidget(hotkey_card)
@@ -291,6 +362,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     update_row.addStretch()
     update_card.layout().addLayout(update_row)
     layout.addWidget(update_card)
+    layout.addWidget(plugin_card)
     layout.addWidget(sync_card)
 
     paths = get_paths()

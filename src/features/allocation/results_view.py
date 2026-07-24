@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from src.app import runtime
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
-from src.app.theme import GRADE_COLORS, current_style_sheet, current_theme_name, theme_color, theme_rgba, themed_style
+from src.app.theme import GRADE_COLORS, current_style_sheet, theme_color, theme_rgba, themed_style
 from src.features.allocation.bonus_summary import (
     BonusSummaryContext,
     add_stat_total,
@@ -1182,11 +1182,6 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
     # item.  Keep the status mutually exclusive even if an older caller supplies
     # both flags.
     is_new = bool(is_new) and not bool(is_changed)
-    if current_theme_name() == "light":
-        QUALITY_COLORS={"Gold":"#9a6700","Purple":"#8250df","Blue":"#0969da"}
-    else:
-        QUALITY_COLORS={"Gold":"#ffd700","Purple":"#ffe082","Blue":"#58a6ff"}
-    QUALITY_LABELS={"Gold":"金","Purple":"紫","Blue":"蓝"}
     w=QWidget(); w.setObjectName("equipmentCard")
     w.setStyleSheet(themed_style("QWidget#equipmentCard{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:9px 13px;margin:3px 0}"))
     outer=QHBoxLayout(w); outer.setSpacing(12); outer.setContentsMargins(14,2,2,2)
@@ -1248,17 +1243,6 @@ def _equip_card(self,label,main_stat,sub_stats,shape_id,uid,weights,score_info=N
     if status_labels and shape_id:
         for status_label in status_labels:
             hdr.addWidget(status_label, 0, Qt.AlignTop)
-    # 品质标签只在卡带上展示；驱动品质由图标颜色区分。
-    if quality and not shape_id:
-        qcolor=QUALITY_COLORS.get(quality,theme_color("#8b949e")); qlabel=QUALITY_LABELS.get(quality,quality)
-        if quality == "Purple":
-            qcolor="#a371f7"
-        qbg=theme_rgba(qcolor, 0.10)
-        q_lbl=QLabel(qlabel)
-        quality_font_size = header_font_size or 11
-        quality_pad = "5px 9px" if is_feature_card else "2px 7px"
-        q_lbl.setStyleSheet(f"font-size:{quality_font_size}px;font-weight:700;color:{qcolor};border:1px solid {qcolor};border-radius:5px;padding:{quality_pad};background:{qbg}")
-        hdr.addWidget(q_lbl, 0, Qt.AlignTop)
     # Main stat as colored block (same style as sub stats)
     if main_stat:
         main_weight_source=main_weights if isinstance(main_weights, dict) else weights

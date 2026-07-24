@@ -411,8 +411,26 @@ def load_warehouse_snapshot(database_path: str | Path) -> dict[str, Any]:
             for character in static_dao.list_characters()
             if character.get("character_id") is not None
         }
+        character_ids_by_instance = {
+            (int(mapping["uid_slot"]), int(mapping["uid_serial"])): int(mapping["character_id"])
+            for mapping in dao.list_character_instance_mappings()
+        }
     for row in rows:
         character_id = row.get("equipped_character_id")
+        if character_id is None and isinstance(
+            row.get("equipped_character_uid"), Mapping
+        ):
+            character_uid = row["equipped_character_uid"]
+            try:
+                character_id = character_ids_by_instance.get((
+                    int(character_uid["slot"]), int(character_uid["serial"]),
+                ))
+            except (KeyError, TypeError, ValueError):
+                character_id = None
+            if character_id is not None:
+                # This is a display-only recovery from historical snapshot
+                # evidence.  It never alters the captured inventory row.
+                row["equipped_character_id"] = character_id
         if isinstance(character_id, int):
             row["equipped_character_name"] = character_names.get(character_id, "")
     return {
@@ -659,7 +677,16 @@ class WarehouseCardDelegate(QStyledItemDelegate):
             level = "未知等级"
         self._text(painter, QRect(left + 52, top + 23, width - 112, 16), level, quality_color, 9)
         if item.get("equipped"):
-            avatar = _legacy_character_avatar(str(item.get("equipped_character_name") or ""))
+            # Packet snapshots contain an official character ID.  Prefer its
+            # packaged portrait; the legacy display-name lookup misses newer
+            # or renamed roles and left equipped items with no image.
+            avatar = _equipment_item_pixmap(
+                str(item.get("equipped_character_icon_path") or "")
+            )
+            if avatar.isNull():
+                avatar = _legacy_character_avatar(
+                    str(item.get("equipped_character_name") or "")
+                )
             if not avatar.isNull():
                 painter.drawPixmap(avatar_rect, avatar)
             else:

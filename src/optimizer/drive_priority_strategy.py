@@ -108,7 +108,7 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
         role_bps_list, valid_roles = self._build_matrix_environment(priority_list)
         if not valid_roles: return {}
 
-        best_team_score, best_allocation = -1.0, {}
+        best_team_score, best_team_rank_score, best_allocation = -1.0, -1.0, {}
         best_priority_hits = -1
         combo_count = 0
 
@@ -118,7 +118,6 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
             drives_pool,
             custom_sets,
             crit_priority_modes,
-            include_extra_shape_bonus=False,
         ):
             combo_count += 1
             if combo_count % 50 == 0:
@@ -130,7 +129,6 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
                 drives_pool,
                 custom_sets,
                 crit_priority_modes,
-                include_extra_shape_bonus=False,
             )
             if slots is None: continue
 
@@ -140,6 +138,7 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
             is_valid = True
             temp_alloc = self._init_temp_alloc(valid_roles, assigned_tapes)
             team_score = sum(alloc["score"] for alloc in temp_alloc.values())
+            team_rank_score = team_score
             priority_hits = 0
 
             for r_idx, c_idx in zip(row_ind, col_ind):
@@ -157,14 +156,22 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
 
                 temp_alloc[role]["score"] += profit
                 team_score += profit
+                team_rank_score += ranking_matrix[r_idx, c_idx]
                 priority_hits += self._stat_priority_hit_count(
                     role, drive, crit_priority_modes.get(role)
                 )
 
-            if is_valid and (priority_hits, team_score) > (best_priority_hits, best_team_score):
+            if is_valid and (priority_hits, team_rank_score, team_score) > (
+                best_priority_hits,
+                best_team_rank_score,
+                best_team_score,
+            ):
                 best_priority_hits = priority_hits
-                best_team_score, best_allocation = team_score, temp_alloc
+                best_team_score, best_team_rank_score, best_allocation = (
+                    team_score,
+                    team_rank_score,
+                    temp_alloc,
+                )
 
         logger.info(f"  全局最优: 评估完毕，共 {combo_count} 组。")
         return best_allocation
-

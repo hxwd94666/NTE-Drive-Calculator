@@ -64,7 +64,10 @@ class FakeSyncService:
             last_item_count=2,
         )
         self.params = None
+        self.module_calls = []
         self.verify_correctly = True
+        self.emit_snapshot = True
+        self.wait_calls = 0
 
     def equip_one_key(self, **kwargs):
         self.params = kwargs
@@ -77,16 +80,44 @@ class FakeSyncService:
                 row["equipped_placement"] = {"row": 2, "column": 3}
         if not self.verify_correctly:
             rows[0]["equipped_placement"] = {"row": 5, "column": 5}
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(2, rows))
-        self.state = InventorySyncState(
-            phase="listening",
-            running=True,
-            last_snapshot_id=snapshot_id,
-            last_item_count=2,
-        )
+        if self.emit_snapshot:
+            snapshot_id = self.dao.import_inventory_snapshot(snapshot(2, rows))
+            self.state = InventorySyncState(
+                phase="listening",
+                running=True,
+                last_snapshot_id=snapshot_id,
+                last_item_count=2,
+            )
+        return {"status": "dispatched"}
+
+    def equip_module(self, **kwargs):
+        return self._apply_module(**kwargs)
+
+    def move_module_to_character(self, **kwargs):
+        return self._apply_module(**kwargs)
+
+    def _apply_module(self, **kwargs):
+        self.module_calls.append(kwargs)
+        rows = [copy.deepcopy(item(11, "module")), copy.deepcopy(item(22, "core"))]
+        rows[0]["equipped"] = True
+        rows[0]["equipped_character_uid"] = dict(CHARACTER_UID)
+        rows[0]["equipped_character_id"] = 1003
+        rows[0]["equipped_placement"] = {
+            "row": kwargs["row"],
+            "column": kwargs["column"],
+        }
+        if self.emit_snapshot:
+            snapshot_id = self.dao.import_inventory_snapshot(snapshot(2, rows))
+            self.state = InventorySyncState(
+                phase="listening",
+                running=True,
+                last_snapshot_id=snapshot_id,
+                last_item_count=2,
+            )
         return {"status": "dispatched"}
 
     def wait_for_snapshot(self, *, after_snapshot_id=None, timeout=30.0):
+        self.wait_calls += 1
         if self.state.last_snapshot_id <= after_snapshot_id:
             raise TimeoutError
         return self.state
@@ -167,6 +198,69 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.assertEqual(result.before_snapshot_id, result.after_snapshot_id)
         self.assertEqual(result.rpc_result, {"status": "already_applied"})
         self.assertIsNone(self.sync.params)
+
+    def test_driver_only_plan_keeps_existing_core_and_dispatches_module_move(self) -> None:
+        plan_id = self.dao.save_loadout_plan(
+            name="仅驱动装配测试",
+            character_id=1003,
+            source_snapshot_id=1,
+            status="ready",
+            assignments=[
+                {
+                    "uid_serial": 11,
+                    "uid_slot": 11,
+                    "kind": "module",
+                    "target_row": 2,
+                    "target_column": 3,
+                    "rotation": 0,
+                },
+            ],
+        )
+
+        result = EquipmentApplyService(self.dao, self.sync).apply_plan(plan_id)
+
+        self.assertTrue(result.verified)
+        self.assertEqual(self.sync.params, None)
+        self.assertEqual(
+            self.sync.module_calls,
+            [{
+                "character": CHARACTER_UID,
+                "equipment": {"slot": 11, "serial": 11},
+                "row": 2,
+                "column": 3,
+            }],
+        )
+
+    def test_fast_dispatch_does_not_wait_for_a_new_inventory_snapshot(self) -> None:
+        self.sync.emit_snapshot = False
+
+        result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+            self.plan_id,
+            verify_after_dispatch=False,
+        )
+
+        self.assertFalse(result.verified)
+        self.assertEqual(result.before_snapshot_id, result.after_snapshot_id)
+        self.assertEqual(self.sync.wait_calls, 0)
+        self.assertEqual(self.sync.params["character"], CHARACTER_UID)
+
+    def test_pinned_snapshot_allows_later_fast_dispatch_after_listener_changes(self) -> None:
+        before_snapshot_id = self.sync.state.last_snapshot_id
+        self.sync.state = InventorySyncState(
+            phase="capturing",
+            running=True,
+            last_snapshot_id=before_snapshot_id,
+            last_item_count=2,
+        )
+
+        result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+            self.plan_id,
+            stable_snapshot_id=before_snapshot_id,
+            verify_after_dispatch=False,
+        )
+
+        self.assertFalse(result.verified)
+        self.assertEqual(result.before_snapshot_id, before_snapshot_id)
 
     def test_resolves_uid_from_history_when_character_is_currently_empty(self) -> None:
         current = self.dao.import_inventory_snapshot(

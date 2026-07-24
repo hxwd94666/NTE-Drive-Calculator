@@ -49,16 +49,6 @@ ROLE_LIST_GRID_COLUMNS = 3
 ROLE_LIST_GRID_ROWS = 4
 ROLE_LIST_FIRST_PAGE_SIZE = ROLE_LIST_GRID_COLUMNS * ROLE_LIST_GRID_ROWS
 ROLE_LIST_INITIAL_LEFT_RESET_COUNT = 4
-# Known OCR misreads observed in the in-game role-name region.  These are
-# applied only when the canonical role is present in the active blueprint.
-ROLE_OCR_CORRECTIONS = {
-    "医殿B朴": "翳",
-    # The single-character name 翳 is commonly read as the longer fragment
-    # “医设醫” in the in-game role-name region.
-    "医设": "翳",
-}
-
-
 @dataclass(frozen=True)
 class RoleRecognition:
     """A normalized role recognition result."""
@@ -341,9 +331,6 @@ def resolve_role_recognition(
 
     text_parts = [str(text).strip() for text in ocr_texts if str(text).strip()]
     raw_text = "".join(text_parts)
-    corrected_role = _resolve_known_role_ocr_correction(text_parts, expected_roles)
-    if corrected_role:
-        return RoleRecognition(corrected_role, "ocr_correction", 1.0, raw_text)
     role_from_ocr = _resolve_role_name_from_ocr(text_parts, expected_roles, ocr_cutoff)
     if role_from_ocr:
         role_name, method, confidence = role_from_ocr
@@ -359,30 +346,11 @@ def resolve_role_recognition(
     return RoleRecognition(None, "unrecognized", 0.0, raw_text)
 
 
-def _resolve_known_role_ocr_correction(
-    text_parts: list[str],
-    expected_roles: list[str] | tuple[str, ...],
-) -> str | None:
-    """Return a canonical role for a known, otherwise ambiguous OCR error."""
-
-    candidates = {str(role).strip() for role in expected_roles if str(role).strip()}
-    if not candidates:
-        return None
-    sources = [normalize_name(text) for text in [*text_parts, "".join(text_parts)]]
-    for mistaken_text, canonical_role in ROLE_OCR_CORRECTIONS.items():
-        if canonical_role not in candidates:
-            continue
-        mistaken_key = normalize_name(mistaken_text)
-        if mistaken_key and any(mistaken_key in source for source in sources):
-            return canonical_role
-    return None
-
-
 def _resolve_yi_ocr_fallback(
     text_parts: list[str],
     expected_roles: list[str] | tuple[str, ...],
 ) -> str | None:
-    """Identify 翳 from a residual OCR fragment containing 医/醫.
+    """Identify 翳 from an otherwise unmatched OCR fragment containing 医/醫.
 
     This is intentionally evaluated only after normal OCR matching failed,
     and only if 翳 is an active candidate.  It therefore cannot override a
@@ -415,6 +383,10 @@ def _resolve_role_name_from_ocr(
         if resolved:
             return resolved, "ocr", 1.0
 
+    repeated_role = _resolve_repeated_role_name(sources, candidates)
+    if repeated_role:
+        return repeated_role, "ocr_repeated_name", 1.0
+
     scored: list[tuple[float, str]] = []
     for role_name in candidates:
         role_key = normalize_name(role_name)
@@ -433,6 +405,28 @@ def _resolve_role_name_from_ocr(
     if best_score < 0.5 or best_score - second_score < 0.15:
         return None
     return best_role, "ocr_fuzzy", round(best_score, 4)
+
+
+def _resolve_repeated_role_name(
+    sources: list[str],
+    candidates: list[str],
+) -> str | None:
+    """Resolve the unique role name repeated inside an OCR result.
+
+    The primary and expanded name crops can overlap, and the game UI can add
+    level or other text.  Thus ``海月海月S云`` and ``浔女浔`` both carry the
+    same reliable signal: a unique canonical name appears at least twice.
+    This is data-driven over the active role candidates, not a per-name OCR map.
+    """
+
+    matches: set[str] = set()
+    for source in sources:
+        source_key = normalize_name(source)
+        for role_name in candidates:
+            role_key = normalize_name(role_name)
+            if role_key and source_key.count(role_key) >= 2:
+                matches.add(role_name)
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def _role_ocr_similarity(source: str, role_key: str) -> float:
@@ -517,8 +511,9 @@ def recognize_current_role_from_image(
     fallback_region = map_current_role_name_region(screen_size, content_rect, expanded=True)
     fallback_crop = _crop(image, fallback_region)
     fallback_texts = ocr_engine.extract_text(fallback_crop)
-    combined_texts = list(primary_texts or []) + list(fallback_texts or [])
-    fallback_result = resolve_role_recognition(combined_texts, expected_roles)
+    # The expanded crop contains the primary crop.  Evaluate it on its own first
+    # so a valid name is not doubled in diagnostics (for example 娜娜莉娜娜莉6).
+    fallback_result = resolve_role_recognition(fallback_texts, expected_roles)
     if fallback_result.role_name:
         return _normalize_role_alias(RoleRecognition(
             fallback_result.role_name,
@@ -526,7 +521,12 @@ def recognize_current_role_from_image(
             fallback_result.confidence,
             fallback_result.raw_text,
         ), role_aliases)
-    return _normalize_role_alias(fallback_result, role_aliases)
+
+    # Retain a final combined attempt for split OCR fragments.  This is also
+    # where repeated one-character names such as 浔女浔 are resolved.
+    combined_texts = list(primary_texts or []) + list(fallback_texts or [])
+    combined_result = resolve_role_recognition(combined_texts, expected_roles)
+    return _normalize_role_alias(combined_result, role_aliases)
 
 
 def plan_role_assembly_from_observations(

@@ -179,7 +179,56 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         self.assertEqual("ocr_fuzzy", result.method)
         self.assertGreaterEqual(result.confidence, 0.6)
 
-    def test_recognizes_known_ocr_error_for_yi(self):
+    def test_repeated_ocr_name_with_trailing_level_resolves_to_nana_li(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(
+            ["娜娜莉娜娜莉6"],
+            ["娜娜莉", "浔"],
+        )
+
+        self.assertEqual("娜娜莉", result.role_name)
+        self.assertEqual("ocr_repeated_name", result.method)
+
+    def test_repeated_single_character_role_ocr_is_resolved(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(
+            ["浔女浔"],
+            ["娜娜莉", "浔", "翳"],
+        )
+
+        self.assertEqual("浔", result.role_name)
+        self.assertEqual("ocr_repeated_name", result.method)
+
+    def test_repeated_roster_name_with_trailing_noise_resolves(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(
+            ["达芙蒂尔达芙蒂尔"],
+            ["达芙蒂尔", "阿德勒", "翳"],
+        )
+
+        self.assertEqual("达芙蒂尔", result.role_name)
+        self.assertEqual("ocr_repeated_name", result.method)
+
+    def test_known_yi_misread_resolves_when_static_candidate_is_available(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(["医设"], ["达芙蒂尔", "翳"])
+
+        self.assertEqual("翳", result.role_name)
+        self.assertEqual("ocr_yi_fallback", result.method)
+
+    def test_yi_fallback_does_not_override_a_normal_role_match(self):
+        from src.features.drive_assembly.role_flow import resolve_role_recognition
+
+        result = resolve_role_recognition(["医设"], ["医设", "翳"])
+
+        self.assertEqual("医设", result.role_name)
+        self.assertEqual("ocr", result.method)
+
+    def test_falls_back_to_yi_for_ocr_misread_when_other_roles_do_not_match(self):
         from src.features.drive_assembly.role_flow import resolve_role_recognition
 
         result = resolve_role_recognition(
@@ -188,10 +237,10 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         )
 
         self.assertEqual("\u7ff3", result.role_name)
-        self.assertEqual("ocr_correction", result.method)
+        self.assertEqual("ocr_yi_fallback", result.method)
         self.assertEqual("\u533b\u6bbfB\u6734", result.raw_text)
 
-    def test_recognizes_observed_ocr_fragment_for_yi(self):
+    def test_falls_back_to_yi_for_ocr_fragment_when_other_roles_do_not_match(self):
         from src.features.drive_assembly.role_flow import resolve_role_recognition
 
         result = resolve_role_recognition(
@@ -200,7 +249,7 @@ class DriveAssemblyRoleFlowTests(unittest.TestCase):
         )
 
         self.assertEqual("\u7ff3", result.role_name)
-        self.assertEqual("ocr_correction", result.method)
+        self.assertEqual("ocr_yi_fallback", result.method)
         self.assertEqual("\u533b\u8bbe\u91ab", result.raw_text)
 
     def test_falls_back_to_yi_for_unmatched_ocr_containing_yi_radical(self):

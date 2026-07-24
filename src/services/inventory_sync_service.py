@@ -47,6 +47,7 @@ class InventorySyncState:
     last_item_count: int | None = None
     last_synced_at_utc: str | None = None
     error: str | None = None
+    error_code: str | None = None
     updated_at_utc: str = ""
 
 
@@ -62,6 +63,8 @@ class _CoreClient(Protocol):
     def start_capture(self, **kwargs: Any) -> Mapping[str, Any]: ...
     def stop_capture(self) -> Mapping[str, Any]: ...
     def equip_one_key(self, **kwargs: Any) -> Any: ...
+    def equip_module(self, **kwargs: Any) -> Any: ...
+    def move_module_to_character(self, **kwargs: Any) -> Any: ...
     def set_item_discarded(self, **kwargs: Any) -> Any: ...
     def set_item_locked(self, **kwargs: Any) -> Any: ...
     def close(self) -> None: ...
@@ -153,6 +156,36 @@ class InventorySyncService:
             timeout=timeout,
         )
 
+    def equip_module(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+        row: int,
+        column: int,
+    ) -> Any:
+        """装配一个未装备驱动，用于没有卡带的驱动-only 方案。"""
+
+        client = self._equipment_client()
+        return client.equip_module(
+            character=character, equipment=equipment, row=row, column=column,
+        )
+
+    def move_module_to_character(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+        row: int,
+        column: int,
+    ) -> Any:
+        """移动已装备驱动，用于没有卡带的驱动-only 方案。"""
+
+        client = self._equipment_client()
+        return client.move_module_to_character(
+            character=character, equipment=equipment, row=row, column=column,
+        )
+
     def set_item_discarded(self, *, equipment: Mapping[str, Any], discarded: bool) -> Any:
         """复用持续运行的核心进程更新单件装备的弃置状态。"""
         client = self._equipment_client()
@@ -216,6 +249,7 @@ class InventorySyncService:
             running=True,
             capturing=False,
             error=None,
+            error_code=None,
         )
         self._thread = threading.Thread(
             target=self._run,
@@ -359,6 +393,7 @@ class InventorySyncService:
                             running=True,
                             capturing=True,
                             error=f"{type(exc).__name__}: {exc}",
+                            error_code="SNAPSHOT_SAVE_FAILED",
                         )
                         continue
                     stabilizer.mark_committed(stable.fingerprint)
@@ -398,6 +433,7 @@ class InventorySyncService:
                         last_item_count=stable.item_count,
                         last_synced_at_utc=_utc_now(),
                         error=None,
+                        error_code=None,
                     )
         except Exception as exc:
             fatal_error = exc
@@ -407,6 +443,11 @@ class InventorySyncService:
                 running=False,
                 capturing=False,
                 error=f"{type(exc).__name__}: {exc}",
+                error_code=(
+                    str(getattr(exc, "domain_code"))
+                    if getattr(exc, "domain_code", None)
+                    else type(exc).__name__
+                ),
             )
         finally:
             if client is not None:

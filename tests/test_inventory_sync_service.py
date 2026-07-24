@@ -95,6 +95,15 @@ class FakeCoreClient:
             handler(event)
 
 
+class FakeDomainError(RuntimeError):
+    domain_code = "NPCAP_NOT_FOUND"
+
+
+class FailingCaptureCoreClient(FakeCoreClient):
+    def start_capture(self, **kwargs):
+        raise FakeDomainError("Npcap is unavailable")
+
+
 class InventorySyncServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -226,6 +235,22 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.assertTrue(self.core.capture_stopped)
         self.assertTrue(self.core.closed)
         self.assertEqual("stopped", self.service.state.phase)
+
+    def test_preserves_core_domain_code_for_workbench_guidance(self) -> None:
+        failing_core = FailingCaptureCoreClient()
+        service = InventorySyncService(
+            self.database_path,
+            account_id="tester",
+            account_name="测试账号",
+            client_factory=lambda: failing_core,
+            poll_seconds=0.005,
+        )
+
+        service.start()
+        state = service.wait_for_phase("error", timeout=2.0)
+
+        self.assertEqual("NPCAP_NOT_FOUND", state.error_code)
+        self.assertFalse(state.running)
 
 
 if __name__ == "__main__":

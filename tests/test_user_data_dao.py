@@ -591,10 +591,24 @@ class UserDataDaoTest(unittest.TestCase):
         self.assertEqual(2, len(self.dao.list_inventory_items(second_id)))
         self.assertEqual(second_id, self.dao.current_inventory_snapshot_id())
         self.assertEqual(first_id, self.dao.inventory_snapshot_summary(first_id)["snapshot_id"])
-
         diff = self.dao.inventory_snapshot_diff(first_id, second_id)
         self.assertEqual(1, diff["added_count"])
         self.assertEqual(0, diff["removed_count"])
+
+    def test_inventory_uid_filter_keeps_only_requested_item_and_stats(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [
+            item(1, 1), item(2, 2), item(3, 3),
+        ]))
+
+        rows = self.dao.list_inventory_items(snapshot_id, uids=[(2, 2)])
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual((2, 2), (rows[0]["uid_serial"], rows[0]["uid_slot"]))
+        self.assertEqual(["AtkUp"], [stat["property_id"] for stat in rows[0]["main_stats"]])
+        self.assertEqual(
+            ["CritBase", "AtkAdd"],
+            [stat["property_id"] for stat in rows[0]["sub_stats"]],
+        )
 
     def test_exports_snapshot_from_one_read_transaction_when_background_prunes(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
@@ -798,24 +812,27 @@ class UserDataDaoTest(unittest.TestCase):
 
         self.assertEqual([], self.dao.list_loadout_plans())
 
-    def test_batch_replace_revalidates_the_current_actual_inventory(self) -> None:
+    def test_batch_replace_keeps_plan_bound_to_its_source_snapshot(self) -> None:
         calculation_snapshot_id = self.dao.import_inventory_snapshot(
             snapshot(1, [item(11, 22)])
         )
         self.dao.import_inventory_snapshot(snapshot(2, [item(12, 23)]))
 
-        with self.assertRaisesRegex(UserDataValidationError, "当前实际稳定背包"):
-            self.dao.replace_active_loadout_plans([{
-                "name": "过期计算方案",
-                "character_id": 1003,
-                "source_snapshot_id": calculation_snapshot_id,
-                "assignments": [{
-                    "uid_serial": 11, "uid_slot": 22, "kind": "module",
-                    "target_row": 1, "target_column": 1, "rotation": 0,
-                }],
-            }])
+        saved_ids = self.dao.replace_active_loadout_plans([{
+            "name": "历史计算方案",
+            "character_id": 1003,
+            "source_snapshot_id": calculation_snapshot_id,
+            "assignments": [{
+                "uid_serial": 11, "uid_slot": 22, "kind": "module",
+                "target_row": 1, "target_column": 1, "rotation": 0,
+            }],
+        }])
 
-        self.assertEqual([], self.dao.list_loadout_plans())
+        self.assertEqual(1, len(saved_ids))
+        self.assertEqual(
+            calculation_snapshot_id,
+            self.dao.get_loadout_plan(saved_ids[0])["source_snapshot_id"],
+        )
 
     def test_finds_active_plan_by_ui_role_name_without_json_state(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))

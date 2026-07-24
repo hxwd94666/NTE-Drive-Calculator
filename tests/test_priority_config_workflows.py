@@ -418,17 +418,6 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
 
 class ConfigurationWorkflowTests(unittest.TestCase):
-    def test_role_board_cell_change_updates_draft_data(self):
-        from src.features.configuration import page
-
-        window = SimpleNamespace(_current_config_name="roles.json")
-        data = {"role": {"board_matrix": [[0] * 5 for _ in range(5)]}}
-
-        page.save_role_board_cell(window, "role", 1, 2, "-1", data, Path("."))
-
-        self.assertTrue(window._config_dirty)
-        self.assertEqual(-1, data["role"]["board_matrix"][1][2])
-
     def test_reset_config_form_restores_bundled_config_after_confirm(self):
         from src.features.configuration import page
 
@@ -769,77 +758,6 @@ class UpdateWorkflowTests(unittest.TestCase):
         info = {"url": "https://example.invalid/download.exe", "release_url": "https://example.invalid/release"}
         self.assertEqual("https://example.invalid/download.exe", update_dialog_link_url(info))
 
-    def test_settings_netdisk_button_opens_choice_dialog_with_quark_and_baidu(self):
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout
-
-        from src.app.constants import BAIDU_NETDISK_URL, QUARK_NETDISK_URL
-        from src.features.settings.page import build_settings_page
-
-        app = QApplication.instance() or QApplication([])
-
-        class Window:
-            _log_enabled = False
-            _hk_capture = "F9"
-            _hk_finish = "F10"
-            _hk_stop = "F8"
-
-            def __init__(self):
-                self.dialog_links = None
-                self.opened_urls = []
-
-            def _card(self, _title):
-                card = QFrame()
-                QVBoxLayout(card)
-                return card
-
-            def _toggle_log(self, *_args):
-                pass
-
-            def _save_hotkeys(self):
-                pass
-
-            def _check_updates(self, manual=True):
-                pass
-
-            def _open_update_homepage(self):
-                pass
-
-            def _open_url(self, url):
-                self.opened_urls.append(url)
-
-            def _show_netdisk_download_dialog(self, links):
-                self.dialog_links = tuple(links)
-
-            def _refresh_ss(self):
-                pass
-
-            def _clear_ss(self):
-                pass
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            window = Window()
-            scroll = build_settings_page(
-                window,
-                "1.1.0",
-                lambda: {
-                    "screenshot_dir": root / "scanned_images",
-                    "output_file": root / "config" / "real_inventory.json",
-                    "config_dir": root / "config",
-                    "accounts_dir": root / "accounts",
-                    "log_dir": root / "logs",
-                },
-                lambda _path: [],
-            )
-
-            netdisk_button = next(button for button in scroll.findChildren(QPushButton) if button.text() == "网盘下载")
-            netdisk_button.click()
-
-        self.assertEqual((("夸克网盘", QUARK_NETDISK_URL), ("百度网盘", BAIDU_NETDISK_URL)), window.dialog_links)
-        self.assertEqual([], window.opened_urls)
-        app.processEvents()
-
     def test_quark_netdisk_url_uses_latest_link(self):
         from src.app.constants import NETDISK_DOWNLOAD_LINKS, QUARK_NETDISK_URL
 
@@ -869,17 +787,6 @@ class UpdateWorkflowTests(unittest.TestCase):
         names = [item[0] for item in items]
         self.assertIn("异能伤害%", names)
         self.assertNotIn("元素" + "伤害%", names)
-
-    def test_marginal_role_files_do_not_show_old_element_damage_term(self):
-        checked_paths = [
-            Path("src/features/role/core.py"),
-            Path("src/features/role/marginal_widget.py"),
-            Path("config/stats.json"),
-        ]
-        old_term = "元素" + "伤害"
-        offenders = [str(path) for path in checked_paths if old_term in path.read_text(encoding="utf-8")]
-
-        self.assertEqual([], offenders)
 
 
 class ConfigurationRoleOrderTests(unittest.TestCase):

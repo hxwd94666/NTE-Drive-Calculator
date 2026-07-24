@@ -47,6 +47,7 @@ from src.features.drive_assembly.role_flow import (
 )
 from src.scanner.ocr_engine import OCREngine
 from src.scanner.window_capture import capture_foreground_window, game_content_rect
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao, StaticGameDataError
 from src.utils.logger import logger
 
 
@@ -337,17 +338,8 @@ def _execute_roles_from_current_game_page(
     )
     if not _is_role_detail_startup_recognition(startup_recognition):
         logger.warning(
-            "Assembly was not started because the current page is not a recognized role detail page | "
+            "Current page was not recognized as role detail; continuing automatic assembly as requested | "
             f"OCR={startup_recognition.raw_text!r} | record_dir={recorder.directory}"
-        )
-        return execute_role_traversal_assembly_plan(
-            {
-                "plans": [],
-                "missing_roles": required_roles,
-                "unrecognized": [{"roster_index": 0, "raw_text": startup_recognition.raw_text}],
-            },
-            assembly_plan,
-            backend=backend,
         )
     logger.info(
         "驱动装配角色扫描开始 | "
@@ -598,7 +590,7 @@ def _role_recognition_candidates(
     equipped_state: dict[str, Any] | None,
     role_name_aliases: dict[str, str] | None = None,
 ) -> list[str]:
-    """Return all role names that can help identify the sidebar roster."""
+    """Return the complete role-name set used to identify the game roster."""
 
     names: list[str] = []
     for role in required_roles:
@@ -610,11 +602,33 @@ def _role_recognition_candidates(
         for canonical, alias in role_name_aliases.items():
             _append_unique_role_name(names, canonical)
             _append_unique_role_name(names, alias)
+    for role_name in _static_role_name_candidates():
+        _append_unique_role_name(names, role_name)
     template_dir = Path(template_root)
     if template_dir.exists():
         for path in sorted(template_dir.glob("*.png")):
             _append_unique_role_name(names, path.stem)
     return names
+
+
+def _static_role_name_candidates() -> list[str]:
+    """Load every playable name from the bundled static database.
+
+    Assembly plans contain only the selected roles, while the RS roster scan
+    necessarily crosses every owned role.  Restricting OCR candidates to the
+    plan therefore made fully legible non-target roles appear unrecognized.
+    """
+
+    try:
+        with StaticGameDataDao() as static_dao:
+            return [
+                str(character.get("name_zh") or "").strip()
+                for character in static_dao.list_role_template_characters()
+                if str(character.get("name_zh") or "").strip()
+            ]
+    except StaticGameDataError as exc:
+        logger.warning(f"角色识别静态角色库不可用，将仅使用方案与模板候选 | {exc}")
+        return []
 
 
 def _append_unique_role_name(names: list[str], role_name: Any) -> None:

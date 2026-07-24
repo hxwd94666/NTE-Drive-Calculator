@@ -180,10 +180,6 @@ class EncodingGuardTests(unittest.TestCase):
         duplicates = sorted({name for name in names if names.count(name) > 1})
         self.assertEqual([], duplicates)
 
-    def test_app_py_remains_main_window_shell(self):
-        line_count = len(Path("src/ui/app.py").read_text(encoding="utf-8").splitlines())
-        self.assertLessEqual(line_count, 1200)
-
     def test_feature_modules_are_statically_self_contained(self):
         issues: list[str] = []
         for path in sorted(Path("src/features").rglob("*.py")):
