@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame,
     QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
@@ -30,6 +30,7 @@ from src.features.weighted_allocation.runner import (
 )
 from src.services.allocation_solver import AllocationSolveResult, RoleAllocationOption
 from src.services.allocation_context import AllocationContext
+from src.services.allocation_legacy_adapter import score_allocation_candidate
 from src.services.account_settings_service import AccountSettingsService
 from src.services.character_weight_service import (
     ensure_account_character_weights, save_account_character_weights,
@@ -43,9 +44,6 @@ from src.services.official_role_page_service import (
     calculate_official_role_item_gain,
     calculate_official_role_margins,
     load_official_role_detail,
-)
-from src.services.sqlite_allocation_inventory import (
-    AllocationInventoryProjectionError, legacy_shape_id,
 )
 from src.services.virtual_equipment_service import (
     virtual_equipment_inventory_item,
@@ -64,12 +62,7 @@ from src.ui.equipment_replacement_dialog import (
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
 from .weighted_preferences import _current_snapshot_and_profile
-from .weighted_result_view import (
-    _allocation_candidate_row,
-    _display_main_weights,
-    _display_weights,
-    _legacy_quality,
-)
+from .weighted_result_view import _allocation_candidate_row
 
 
 _INTERNAL_PROFILE_NAME = "__weighted_allocation_role_priority__"
@@ -274,8 +267,6 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
     preview = _validated_weighted_preview(window, action_name="替换")
     if preview is None:
         return
-    weights = _display_weights(window, role)
-    main_weights = _display_main_weights(window, role)
     role_option = next(
         (
             option for option in preview.result.unified.selected
@@ -392,43 +383,13 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         return
 
     def item_score(item: Mapping[str, Any]) -> float:
-        sub_stats = {
-            str((stat.get("names") or {}).get("zh_cn") or stat.get("property_id") or ""):
-            float(stat.get("value") or 0.0)
-            for stat in item.get("sub_stats") or ()
-        }
-        quality = _legacy_quality(str(item.get("quality") or ""))
-        if str(item.get("kind") or "") == "core":
-            main_stat = next(
-                (
-                    str(
-                        (stat.get("names") or {}).get("zh_cn")
-                        or stat.get("property_id")
-                        or ""
-                    )
-                    for stat in item.get("main_stats") or ()
-                ),
-                "",
-            )
-            return float(legacy_results._score_tape_dict(
-                window,
-                main_stat,
-                sub_stats,
-                weights,
-                quality,
-                main_weights,
-            ))
-        try:
-            shape_id = legacy_shape_id(str(item.get("geometry") or ""))
-        except AllocationInventoryProjectionError:
-            shape_id = str(item.get("geometry") or "")
-        return float(legacy_results._score_drive_dict(
-            window,
-            sub_stats,
-            shape_id,
-            weights,
-            quality,
-        ))
+        uid = (int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0))
+        candidate = candidate_map.get(uid)
+        if candidate is None:
+            if assignment.virtual and uid == assignment.uid:
+                return float(assignment.score)
+            raise RuntimeError(f"替换装备 UID {uid} 不在计算固定的背包快照中。")
+        return score_allocation_candidate(preview.context, role, candidate)
 
     context_key = "_weighted_replacement"
     detail = load_official_role_detail(
@@ -560,8 +521,6 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
             preview,
             assignment.uid,
             choice.payload,
-            float(choice.score or 0.0),
-            current_score,
         ),
     )
 
@@ -605,8 +564,6 @@ def _on_weighted_replacement_done(
     preview: WeightedAllocationPreview,
     old_uid: tuple[int, int],
     selected: dict[str, Any],
-    selected_score: float,
-    current_score: float,
 ) -> None:
     if getattr(window, "_weighted_allocation_preview", None) is not preview:
         raise RuntimeError("当前计算结果已变化，请重新打开替换窗口。")
@@ -615,16 +572,40 @@ def _on_weighted_replacement_done(
         preview,
         old_uid=old_uid,
         new_uid=new_uid,
-        new_score=float(selected_score),
     )
     save_weighted_allocation_preview(updated_preview)
     window._weighted_allocation_preview = updated_preview
     window._weighted_allocation_saved_preview = updated_preview
+    page_scroll = getattr(window, "weighted_page_scroll", None)
+    scroll_value = (
+        page_scroll.verticalScrollBar().value()
+        if isinstance(page_scroll, QScrollArea)
+        else None
+    )
+    restore_character_id = next(
+        (
+            option.character_id
+            for option in preview.result.unified.selected
+            if any(assignment.uid == old_uid for assignment in option.assignments)
+        ),
+        None,
+    )
+    restore_viewport_offset = None
+    if isinstance(page_scroll, QScrollArea) and restore_character_id is not None:
+        for card in window.weighted_result_widget.findChildren(QWidget):
+            if card.property("weighted_character_id") == restore_character_id:
+                restore_viewport_offset = page_scroll.viewport().mapFromGlobal(
+                    card.mapToGlobal(QPoint(0, 0))
+                ).y()
+                break
     render_weighted_allocation_result(
         window,
         updated_preview.result,
         updated_preview.context,
         role_details=updated_preview.role_details,
+        restore_scroll_value=scroll_value,
+        restore_character_id=restore_character_id,
+        restore_viewport_offset=restore_viewport_offset,
     )
     _set_weighted_equipment_actions_enabled(window, True)
     window.weighted_status_label.setText(

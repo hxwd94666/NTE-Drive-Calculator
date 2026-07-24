@@ -730,6 +730,7 @@ class UserDataDaoTest(unittest.TestCase):
             source_snapshot_id=snapshot_id,
             status="ready",
             is_active=True,
+            score=60.0,
             assignments=[
                 {
                     "uid_serial": 11, "uid_slot": 22, "kind": "module",
@@ -740,7 +741,13 @@ class UserDataDaoTest(unittest.TestCase):
                     "target_row": 2, "target_column": 2, "rotation": 0,
                 },
             ],
-            payload={"source_role_name": "旧角色"},
+            payload={
+                "source_role_name": "旧角色",
+                "assignment_scores": {
+                    "nte-module-22-11": 25.0,
+                    "nte-module-23-12": 35.0,
+                },
+            },
         )
 
         saved_ids = self.dao.replace_active_loadout_plans([{
@@ -785,6 +792,11 @@ class UserDataDaoTest(unittest.TestCase):
             residual["payload"]["active_plan_overlay"]["previous_plan_id"],
         )
         self.assertEqual("active_plan_overlay", residual["payload"]["source"])
+        self.assertEqual(35.0, residual["score"])
+        self.assertEqual(
+            0.0,
+            residual["payload"]["assignment_scores"][placeholder_uid],
+        )
         active_uids = [
             (row["uid_slot"], row["uid_serial"])
             for plan in active

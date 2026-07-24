@@ -109,6 +109,41 @@ def _weights(role: AllocationRolePreference, names: Mapping[str, str], *, main: 
     return {names.get(property_id, property_id): float(weight) for property_id, weight in source}
 
 
+def score_allocation_candidate(
+    context: AllocationContext,
+    role: AllocationRolePreference,
+    candidate: AllocationCandidate,
+) -> float:
+    """Score one frozen candidate with precisely the solver's score policy.
+
+    Replacement previews must not use the old page-only display scorer: its
+    input weights are expressed differently and, for cores, can inflate the
+    main-stat contribution.  This projection is deliberately the same one
+    used by :func:`run_legacy_allocation` before ``ScoringEngine`` scores its
+    inventory.
+    """
+
+    inventory, candidates_by_legacy_uid = _legacy_items(context)
+    legacy_uid = _uid(candidate)
+    if candidates_by_legacy_uid.get(legacy_uid) is None:
+        raise ValueError(f"候选装备 {candidate.uid} 不在固定背包上下文中")
+    item = next((item for item in inventory if item.uid == legacy_uid), None)
+    if item is None:
+        raise ValueError(f"候选装备 {candidate.uid} 无法投影为评分对象")
+    names = _attribute_names(context)
+    weights = _weights(role, names, main=False)
+    scoring = ScoringEngine()
+    max_weight = scoring._get_max_theoretical_weight(weights)
+    if isinstance(item, Drive):
+        return float(scoring.calculate_drive_score(item, weights, max_weight))
+    return float(scoring.calculate_cartridge_score(
+        item,
+        weights,
+        max_weight,
+        _weights(role, names, main=True),
+    ))
+
+
 def _role_config(
     context: AllocationContext,
     selected_roles: Sequence[AllocationRolePreference],

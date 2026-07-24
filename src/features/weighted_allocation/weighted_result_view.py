@@ -121,6 +121,9 @@ def render_weighted_allocation_result(
     context: AllocationContext | None = None,
     *,
     role_details: Mapping[int, Mapping[str, Any]] | None = None,
+    restore_scroll_value: int | None = None,
+    restore_character_id: int | None = None,
+    restore_viewport_offset: int | None = None,
 ) -> None:
     _clear_layout(window.weighted_result_layout)
     card = window._card("计算结果")
@@ -140,6 +143,9 @@ def render_weighted_allocation_result(
         role_preferences,
         shape_resources,
         detail_cache,
+        restore_scroll_value=restore_scroll_value,
+        restore_character_id=restore_character_id,
+        restore_viewport_offset=restore_viewport_offset,
         parent=card,
     ))
     if result.unified.unassigned_character_ids:
@@ -168,6 +174,9 @@ class _LazyWeightedRoleCards(QWidget):
         shape_resources: Mapping[str, str],
         detail_cache: dict[int, Mapping[str, Any] | None],
         *,
+        restore_scroll_value: int | None = None,
+        restore_character_id: int | None = None,
+        restore_viewport_offset: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -181,8 +190,15 @@ class _LazyWeightedRoleCards(QWidget):
         self._layout.setSpacing(10)
         self._pending: dict[QWidget, RoleAllocationOption] = {}
         self._initial_load = True
+        self._restore_scroll_value = restore_scroll_value
+        self._restore_character_id = restore_character_id
+        self._restore_viewport_offset = restore_viewport_offset
+        self._loaded_cards: dict[int, QWidget] = {}
+        self._restore_attempts = 0
+        self._restore_scheduled = False
         for option in options:
             placeholder = QFrame(self)
+            placeholder.setProperty("weighted_character_id", option.character_id)
             placeholder.setMinimumHeight(self._PLACEHOLDER_HEIGHT)
             placeholder.setStyleSheet(themed_style(
                 "QFrame{border:1px solid #30363d;border-radius:10px;background:#0d1117}"
@@ -198,10 +214,16 @@ class _LazyWeightedRoleCards(QWidget):
         page_scroll = getattr(window, "weighted_page_scroll", None)
         self._page_scroll = page_scroll if isinstance(page_scroll, QScrollArea) else None
         if self._page_scroll is not None:
-            self._page_scroll.verticalScrollBar().valueChanged.connect(
+            scrollbar = self._page_scroll.verticalScrollBar()
+            scrollbar.valueChanged.connect(
                 self._load_visible_cards
             )
+            # ``setWidgetResizable`` recalculates this range after each lazy
+            # card replaces its placeholder.  Restore only after the current
+            # range exists instead of letting an early setValue clamp to zero.
+            scrollbar.rangeChanged.connect(self._schedule_scroll_restore)
         QTimer.singleShot(0, self._load_visible_cards)
+        self._schedule_scroll_restore()
 
     def _load_visible_cards(self, *_args) -> None:
         if not self._pending:
@@ -219,6 +241,17 @@ class _LazyWeightedRoleCards(QWidget):
             # first card must still appear so the user gets an immediate result.
             if not targets and self._initial_load:
                 targets = (next(iter(self._pending)),)
+            if self._restore_character_id is not None:
+                focus = next(
+                    (
+                        placeholder
+                        for placeholder, option in self._pending.items()
+                        if option.character_id == self._restore_character_id
+                    ),
+                    None,
+                )
+                if focus is not None and focus not in targets:
+                    targets = (*targets, focus)
         self._initial_load = False
         if not targets:
             return
@@ -229,16 +262,71 @@ class _LazyWeightedRoleCards(QWidget):
             index = self._layout.indexOf(placeholder)
             self._layout.removeWidget(placeholder)
             placeholder.deleteLater()
-            self._layout.insertWidget(index, _role_option_card(
+            role_card = _role_option_card(
                 self._window,
                 option,
                 dict(self._candidates),
                 self._roles.get(option.character_id),
                 dict(self._shape_resources),
                 self._detail_cache,
-            ))
+            )
+            role_card.setProperty("weighted_character_id", option.character_id)
+            self._loaded_cards[option.character_id] = role_card
+            self._layout.insertWidget(index, role_card)
         if self._pending:
             QTimer.singleShot(0, self._load_visible_cards)
+        self._schedule_scroll_restore()
+
+    def _schedule_scroll_restore(self, *_args) -> None:
+        if self._page_scroll is None:
+            return
+        if self._restore_scheduled:
+            return
+        focus_card = self._loaded_cards.get(self._restore_character_id)
+        if focus_card is None and self._restore_scroll_value is None:
+            return
+        self._restore_scheduled = True
+        QTimer.singleShot(50, self._restore_scroll_position)
+
+    def _restore_scroll_position(self) -> None:
+        self._restore_scheduled = False
+        if self._page_scroll is None:
+            return
+        focus_card = self._loaded_cards.get(self._restore_character_id)
+        if focus_card is None and self._restore_scroll_value is None:
+            return
+
+        page = self._page_scroll.widget()
+        if page is not None and page.layout() is not None:
+            page.layout().activate()
+        self._layout.activate()
+        scrollbar = self._page_scroll.verticalScrollBar()
+        if focus_card is not None and self._restore_viewport_offset is not None:
+            if page is not None:
+                target_top = focus_card.mapTo(page, QPoint(0, 0)).y()
+                desired_value = max(0, target_top - self._restore_viewport_offset)
+                scrollbar.setValue(desired_value)
+                viewport = self._page_scroll.viewport()
+                target_top_in_view = viewport.mapFromGlobal(
+                    focus_card.mapToGlobal(QPoint(0, 0))
+                ).y()
+                if (
+                    target_top_in_view < 0
+                    or target_top_in_view > viewport.height() - 24
+                ):
+                    self._page_scroll.ensureWidgetVisible(focus_card, 0, 24)
+        elif self._restore_scroll_value is not None:
+            scrollbar.setValue(self._restore_scroll_value)
+
+        self._restore_attempts += 1
+        if self._restore_attempts < 6:
+            # The final loaded role card is taller than its placeholder.  A few
+            # short retries preserve the position through those size changes.
+            self._schedule_scroll_restore()
+        else:
+            self._restore_scroll_value = None
+            self._restore_character_id = None
+            self._restore_viewport_offset = None
 
     def _is_near_viewport(self, placeholder: QWidget, viewport: QWidget) -> bool:
         top = viewport.mapFromGlobal(placeholder.mapToGlobal(QPoint(0, 0))).y()

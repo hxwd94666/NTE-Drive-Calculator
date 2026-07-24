@@ -792,7 +792,8 @@ def save_official_role_replacement(
     target: Mapping[str, Any],
     replacement: Mapping[str, Any],
     *,
-    score: float | None = None,
+    replacement_score: float | None = None,
+    current_score: float | None = None,
 ) -> int:
     """Persist one accepted saved-plan replacement as the next active plan."""
 
@@ -834,6 +835,27 @@ def save_official_role_replacement(
         f"nte-{replacement_kind}-{replacement.get('uid_slot')}-{replacement.get('uid_serial')}"
     )
     payload = dict(plan.get("payload") or {})
+    assignment_scores = dict(payload.get("assignment_scores") or {})
+    previous_assignment_score = assignment_scores.pop(target_display_uid, None)
+    if replacement_score is not None:
+        assignment_scores[replacement_display_uid] = float(replacement_score)
+    if previous_assignment_score is None:
+        previous_assignment_score = current_score
+    plan_score = plan.get("score")
+    if (
+        plan_score is not None
+        and replacement_score is not None
+        and previous_assignment_score is not None
+    ):
+        saved_score: float | None = (
+            float(plan_score)
+            - float(previous_assignment_score)
+            + float(replacement_score)
+        )
+    else:
+        # Do not ever write direct damage into the equipment-score column.
+        # Retaining the prior verified score is safer than inventing a total.
+        saved_score = float(plan_score) if plan_score is not None else None
     payload.update({
         "source": "official_role_replacement",
         "replaces_plan_id": plan.get("plan_id"),
@@ -850,6 +872,8 @@ def save_official_role_replacement(
             DIFF_REMOVED: [{EQUIP_UID: target_display_uid}],
         },
     })
+    if assignment_scores:
+        payload["assignment_scores"] = assignment_scores
     role_name = str((detail.get("character") or {}).get("name_zh") or plan["character_id"])
     with UserDataDao(user_database_path) as user_dao:
         saved_plan_ids = user_dao.replace_active_loadout_plans([{
@@ -862,7 +886,7 @@ def save_official_role_replacement(
                 if any(is_virtual_equipment_assignment(row) for row in assignments)
                 else "saved"
             ),
-            "score": score,
+            "score": saved_score,
             "payload": payload,
         }])
     return saved_plan_ids[0]

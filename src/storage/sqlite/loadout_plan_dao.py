@@ -542,6 +542,28 @@ class LoadoutPlanDaoMixin:
                         virtual_changes.append((uid, assignment))
                     residual_assignments.append(assignment)
                 residual_payload = dict(plan.get("payload") or {})
+                assignment_scores = dict(residual_payload.get("assignment_scores") or {})
+                removed_score = 0.0
+                known_removed_scores = True
+                for uid, assignment in virtual_changes:
+                    previous_key = (
+                        f"nte-{assignment['kind']}-{uid[0]}-{uid[1]}"
+                    )
+                    previous_score = assignment_scores.pop(previous_key, None)
+                    if previous_score is None:
+                        known_removed_scores = False
+                    else:
+                        removed_score += float(previous_score)
+                    virtual_key = (
+                        f"nte-{assignment['kind']}-0-{assignment['uid_serial']}"
+                    )
+                    assignment_scores[virtual_key] = 0.0
+                previous_score = plan.get("score")
+                residual_score = (
+                    max(0.0, float(previous_score) - removed_score)
+                    if previous_score is not None and known_removed_scores
+                    else float(previous_score) if previous_score is not None else None
+                )
                 previous_source = residual_payload.get("source")
                 residual_payload["source"] = "active_plan_overlay"
                 residual_payload["active_plan_overlay"] = {
@@ -577,12 +599,14 @@ class LoadoutPlanDaoMixin:
                         for display_uid in removed_display_uids
                     ],
                 }
+                if assignment_scores:
+                    residual_payload["assignment_scores"] = assignment_scores
                 insert_plan({
                     "name": plan["name"],
                     "character_id": int(plan["character_id"]),
                     "source_snapshot_id": plan.get("source_snapshot_id"),
                     "status": "incomplete",
-                    "score": None,
+                    "score": residual_score,
                     "payload": residual_payload,
                     "assignments": residual_assignments,
                 })
@@ -746,4 +770,3 @@ class LoadoutPlanDaoMixin:
             "quick_check": quick_check,
             "foreign_key_errors": foreign_key_errors,
         }
-

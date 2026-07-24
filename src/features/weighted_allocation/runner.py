@@ -20,6 +20,7 @@ from src.services.allocation_context import (
     StaticDatasetReference,
     build_allocation_context,
 )
+from src.services.allocation_legacy_adapter import score_allocation_candidate
 from src.services.allocation_solver import (
     AllocationAssignment,
     AllocationSolveResult,
@@ -484,7 +485,6 @@ def replace_weighted_allocation_assignment(
     *,
     old_uid: tuple[int, int],
     new_uid: tuple[int, int],
-    new_score: float,
 ) -> WeightedAllocationPreview:
     """Move one real item and leave a virtual placeholder in its old role."""
 
@@ -516,13 +516,19 @@ def replace_weighted_allocation_assignment(
         raise RuntimeError(f"当前临时方案中不存在待替换 UID {old_uid}。")
     if displaced_owner is target_owner:
         raise RuntimeError("不能用同一角色当前方案中的另一件装备重复占位。")
+    target_role = next(
+        (role for role in preview.context.roles if role.character_id == target_owner.character_id),
+        None,
+    )
+    if target_role is None:
+        raise RuntimeError(f"当前方案中不存在角色 {target_owner.character_id} 的评分配置。")
+    replacement_score = score_allocation_candidate(preview.context, target_role, candidate)
 
     changed_count = 0
     displaced_count = 0
     updated_options: list[RoleAllocationOption] = []
     for option in preview.result.unified.selected:
         updated_assignments = []
-        option_score = float(option.score)
         option_changed = False
         for ordinal, assignment in enumerate(option.assignments):
             if assignment.uid == old_uid:
@@ -540,12 +546,11 @@ def replace_weighted_allocation_assignment(
                     item_id=candidate.item_id,
                     suit_id=candidate.suit_id,
                     geometry=candidate.geometry,
-                    score=float(new_score),
+                    score=replacement_score,
                     contributions=(),
                     virtual=False,
                     grid_count=candidate.grid_count,
                 ))
-                option_score += float(new_score) - float(assignment.score)
                 option_changed = True
                 changed_count += 1
                 continue
@@ -572,19 +577,21 @@ def replace_weighted_allocation_assignment(
                         or None
                     ),
                 ))
-                option_score -= float(assignment.score)
                 option_changed = True
                 displaced_count += 1
                 continue
             updated_assignments.append(assignment)
-        updated_options.append(
-            replace(
+        if option_changed:
+            # A role score is the sum of every concrete slot, not merely the
+            # previous total plus a delta.  Rebuilding it also protects an
+            # older or overlay plan whose stored total was absent/stale.
+            updated_options.append(replace(
                 option,
-                score=option_score,
+                score=sum(float(item.score) for item in updated_assignments),
                 assignments=tuple(updated_assignments),
-            )
-            if option_changed else option
-        )
+            ))
+        else:
+            updated_options.append(option)
     if changed_count != 1:
         raise RuntimeError(
             f"当前方案中应恰好存在一个待替换 UID {old_uid}，实际为 {changed_count} 个。"

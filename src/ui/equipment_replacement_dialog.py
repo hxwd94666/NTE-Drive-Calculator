@@ -48,31 +48,63 @@ def _stat_key(stat: Mapping[str, Any]) -> str:
     return str(stat.get("property_id") or stat.get("label") or "")
 
 
-def _comparison_item_views(
-    selected: Mapping[str, Any],
-    current: Mapping[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Color stats that exist on only one side of a replacement comparison."""
+def _stat_numeric_value(stat: Mapping[str, Any] | None) -> float:
+    value = (stat or {}).get("value") or 0.0
+    if isinstance(value, str):
+        value = value.replace("+", "").replace("%", "").strip()
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
-    left = deepcopy(dict(selected))
-    right = deepcopy(dict(current))
-    left_stats = [
-        *(left.get("main_stats") or ()),
-        *(left.get("sub_stats") or ()),
-    ]
-    right_stats = [
-        *(right.get("main_stats") or ()),
-        *(right.get("sub_stats") or ()),
-    ]
-    left_keys = {_stat_key(stat) for stat in left_stats if _stat_key(stat)}
-    right_keys = {_stat_key(stat) for stat in right_stats if _stat_key(stat)}
-    for stat in left_stats:
-        if _stat_key(stat) in left_keys - right_keys:
-            stat["comparison_background"] = "#2ea043"
-    for stat in right_stats:
-        if _stat_key(stat) in right_keys - left_keys:
-            stat["comparison_background"] = "#f85149"
-    return left, right
+
+def _comparison_item_views(
+    current: Mapping[str, Any],
+    selected: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Mark each displayed stat by its actual old-to-new direction.
+
+    Both exclusive stats and the same stat with a different value are relevant:
+    the current card is red for a loss and the selected card is green for a
+    gain.  The former implementation reversed the sides and only handled
+    exclusive property IDs, which made a replacement appear to have gains only.
+    """
+
+    old_view = deepcopy(dict(current))
+    new_view = deepcopy(dict(selected))
+
+    def stats(view: Mapping[str, Any]) -> list[dict[str, Any]]:
+        return [
+            stat
+            for stat in [
+                *(view.get("main_stats") or ()),
+                *(view.get("sub_stats") or ()),
+            ]
+            if isinstance(stat, dict) and _stat_key(stat)
+        ]
+
+    old_stats = stats(old_view)
+    new_stats = stats(new_view)
+    old_by_key = {_stat_key(stat): stat for stat in old_stats}
+    new_by_key = {_stat_key(stat): stat for stat in new_stats}
+    for key in set(old_by_key) | set(new_by_key):
+        old_stat = old_by_key.get(key)
+        new_stat = new_by_key.get(key)
+        old_value = _stat_numeric_value(old_stat)
+        new_value = _stat_numeric_value(new_stat)
+        if abs(new_value - old_value) < 0.0001:
+            continue
+        if new_value > old_value:
+            if old_stat is not None:
+                old_stat["comparison_background"] = "#f85149"
+            if new_stat is not None:
+                new_stat["comparison_background"] = "#2ea043"
+        else:
+            if old_stat is not None:
+                old_stat["comparison_background"] = "#2ea043"
+            if new_stat is not None:
+                new_stat["comparison_background"] = "#f85149"
+    return old_view, new_view
 
 
 def show_equipment_replacement_dialog(
@@ -192,7 +224,7 @@ def show_equipment_replacement_dialog(
         selected[0] = choice
         for key, card in candidate_widgets.items():
             card.set_selected(key == choice.key)
-        left_view, right_view = _comparison_item_views(
+        current_view, selected_view = _comparison_item_views(
             current.item_view,
             choice.item_view,
         )
@@ -201,7 +233,7 @@ def show_equipment_replacement_dialog(
             if widget is not None:
                 widget.deleteLater()
         selected_copy = WarehouseResultCard(
-            right_view,
+            selected_view,
             score=choice.score,
             grade=choice.grade,
             direct_damage_score=choice.direct_damage_score,
@@ -215,7 +247,7 @@ def show_equipment_replacement_dialog(
             if widget is not None:
                 widget.deleteLater()
         compared_current = WarehouseResultCard(
-            left_view,
+            current_view,
             score=current.score,
             grade=current.grade,
             direct_damage_score=current.direct_damage_score,

@@ -263,7 +263,8 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
             detail,
             target,
             row["item"],
-            score=float(row["damage"]),
+            replacement_score=choice.score,
+            current_score=current.score,
         )
 
     accepted = show_equipment_replacement_dialog(
