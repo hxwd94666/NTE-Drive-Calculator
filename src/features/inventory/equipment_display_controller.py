@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListView, QMessageBox, QProgressDialog, QPushButton, QScrollArea, \
     QVBoxLayout, QWidget
 
@@ -142,6 +142,9 @@ def _page_equipment(self):
     scroll.verticalScrollBar().valueChanged.connect(
         lambda _value: _schedule_visible_equipment_render(self)
     )
+    scroll.verticalScrollBar().rangeChanged.connect(
+        lambda _minimum, _maximum: _schedule_equipment_restore_anchor(self)
+    )
     l.addWidget(scroll,1); return page
 
 
@@ -149,6 +152,103 @@ def _clear_equip_content(self):
     while self.equip_content_layout.count():
         it=self.equip_content_layout.takeAt(0)
         if it.widget(): it.widget().deleteLater()
+
+
+def _capture_equipment_restore_anchor(self, preferred_role_name=None):
+    """Record a role-card anchor before asynchronously rebuilding the page.
+
+    A scrollbar value is not stable here: cards begin as fixed-height
+    placeholders and grow after their lazy content (and graduation data) is
+    rendered.  Keeping the role and its viewport offset lets us restore the
+    user's actual context after that geometry settles.
+    """
+    scroll = getattr(self, "equip_scroll", None)
+    if scroll is None:
+        return None
+    bar = scroll.verticalScrollBar()
+    entries = list(getattr(self, "_equip_lazy_entries", []) or [])
+    target = next(
+        (entry for entry in entries if entry.get("role_name") == preferred_role_name),
+        None,
+    )
+    if target is None:
+        viewport = scroll.viewport()
+        viewport_top = bar.value()
+        viewport_bottom = viewport_top + max(1, viewport.height())
+        target = next(
+            (
+                entry for entry in entries
+                if (slot := entry.get("slot")) is not None
+                and slot.y() + slot.height() > viewport_top
+                and slot.y() < viewport_bottom
+            ),
+            None,
+        )
+    anchor = {
+        "role_name": target.get("role_name") if target else preferred_role_name,
+        "viewport_offset": None,
+        "scroll_value": bar.value(),
+        "load_token": None,
+        "render_token": None,
+        "attempts": 0,
+        "scheduled": False,
+    }
+    if target is not None and target.get("slot") is not None:
+        slot_top = scroll.viewport().mapFromGlobal(
+            target["slot"].mapToGlobal(QPoint(0, 0))
+        ).y()
+        anchor["viewport_offset"] = slot_top
+    return anchor
+
+
+def _schedule_equipment_restore_anchor(self, token=None):
+    anchor = getattr(self, "_equip_restore_anchor", None)
+    if not isinstance(anchor, dict) or anchor.get("scheduled"):
+        return
+    render_token = anchor.get("render_token")
+    if render_token is None or (token is not None and token is not render_token):
+        return
+    if render_token is not getattr(self, "_equip_render_token", None):
+        return
+    anchor["scheduled"] = True
+    QTimer.singleShot(50, lambda current=render_token: _restore_equipment_anchor(self, current))
+
+
+def _restore_equipment_anchor(self, token):
+    anchor = getattr(self, "_equip_restore_anchor", None)
+    if not isinstance(anchor, dict) or anchor.get("render_token") is not token:
+        return
+    anchor["scheduled"] = False
+    if token is not getattr(self, "_equip_render_token", None):
+        return
+    scroll = getattr(self, "equip_scroll", None)
+    if scroll is None:
+        self._equip_restore_anchor = None
+        return
+    entry = next(
+        (
+            item for item in getattr(self, "_equip_lazy_entries", [])
+            if item.get("role_name") == anchor.get("role_name")
+        ),
+        None,
+    )
+    if entry is not None and not entry.get("loaded"):
+        _render_lazy_equipment_entry(self, entry)
+    if entry is not None and entry.get("slot") is not None:
+        slot_top = entry["slot"].mapTo(self.equip_content, QPoint(0, 0)).y()
+        offset = anchor.get("viewport_offset")
+        desired = slot_top - int(offset) if offset is not None else slot_top
+        scroll.verticalScrollBar().setValue(max(0, desired))
+    else:
+        scroll.verticalScrollBar().setValue(int(anchor.get("scroll_value") or 0))
+    anchor["attempts"] = int(anchor.get("attempts") or 0) + 1
+    # Card height can still change once the queued render and graduation
+    # worker complete.  A few event-loop turns are enough to settle it while
+    # avoiding a persistent fight against a user's later manual scrolling.
+    if anchor["attempts"] < 8:
+        _schedule_equipment_restore_anchor(self, token)
+    else:
+        self._equip_restore_anchor = None
 
 def _load_sqlite_equipment_display_states(database_path):
     """Read display-only saved plans off the UI thread with shared snapshots.
@@ -292,6 +392,7 @@ def _render_lazy_equipment_entry(self, entry):
         EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT,
         group.sizeHint().height() + 8,
     ))
+    _schedule_equipment_restore_anchor(self)
 
 
 def _render_visible_equipment_roles(self, token):
@@ -303,6 +404,17 @@ def _render_visible_equipment_roles(self, token):
     viewport_top = scroll.verticalScrollBar().value()
     viewport_height = max(1, scroll.viewport().height())
     viewport_bottom = viewport_top + viewport_height * (1 + EQUIPMENT_VIEWPORT_PREFETCH_COUNT)
+    anchor = getattr(self, "_equip_restore_anchor", None)
+    if isinstance(anchor, dict) and anchor.get("render_token") is token:
+        target = next(
+            (
+                entry for entry in getattr(self, "_equip_lazy_entries", [])
+                if entry.get("role_name") == anchor.get("role_name")
+            ),
+            None,
+        )
+        if target is not None and not target.get("loaded"):
+            _render_lazy_equipment_entry(self, target)
     for entry in getattr(self, "_equip_lazy_entries", []):
         if entry["loaded"]:
             continue
@@ -310,10 +422,7 @@ def _render_visible_equipment_roles(self, token):
         if slot.y() > viewport_bottom or slot.y() + slot.height() < viewport_top - viewport_height:
             continue
         _render_lazy_equipment_entry(self, entry)
-    value = getattr(self, "_equip_restore_scroll_value", None)
-    if value is not None:
-        scroll.verticalScrollBar().setValue(int(value))
-        self._equip_restore_scroll_value = None
+    _schedule_equipment_restore_anchor(self, token)
 
 
 def _start_equipment_graduation_load(self, token, role_names):
@@ -335,6 +444,7 @@ def _start_equipment_graduation_load(self, token, role_names):
             entry["state"]["_graduation_info"] = info
             if entry["loaded"]:
                 _render_lazy_equipment_entry(self, entry)
+        _schedule_equipment_restore_anchor(self, token)
 
     worker.result_ready.connect(apply_results)
     worker.error.connect(lambda error: logger.debug("配装毕业率后台加载失败: {}", error))
@@ -346,6 +456,10 @@ def _on_sqlite_equipment_display_loaded(self, token, eq):
         return
     _clear_equip_content(self)
     _queue_equipment_render(self, eq if isinstance(eq, dict) else {})
+    anchor = getattr(self, "_equip_restore_anchor", None)
+    if isinstance(anchor, dict) and anchor.get("load_token") is token:
+        anchor["render_token"] = getattr(self, "_equip_render_token", None)
+        _schedule_equipment_restore_anchor(self, anchor["render_token"])
 
 
 def _on_sqlite_equipment_display_error(self, token, error):
@@ -360,13 +474,19 @@ def _on_sqlite_equipment_display_error(self, token, error):
         f"详细原因：{error}",
     )
     _clear_equip_content(self)
+    self._equip_restore_anchor = None
     _queue_equipment_render(self, {})
 
 
-def _refresh_equip(self):
-    scroll = getattr(self, "equip_scroll", None)
-    if scroll is not None:
-        self._equip_restore_scroll_value = scroll.verticalScrollBar().value()
+def _refresh_equip(self, *, restore_role_name=None):
+    self._equip_restore_anchor = _capture_equipment_restore_anchor(
+        self, preferred_role_name=restore_role_name,
+    )
+    # Invalidate old lazy/graduation callbacks while the SQLite read runs.
+    # Previously they could redraw deleted slots between the two clears below.
+    self._equip_render_token = object()
+    self._equip_lazy_entries = []
+    self._equip_render_queue = []
     _clear_equip_content(self)
     # The production page may contain many plans and each requires snapshot
     # projection.  Keep database work off the Qt event loop; plain test hosts
@@ -374,6 +494,9 @@ def _refresh_equip(self):
     if isinstance(self, QWidget):
         token=object()
         self._equip_load_token=token
+        anchor = getattr(self, "_equip_restore_anchor", None)
+        if isinstance(anchor, dict):
+            anchor["load_token"] = token
         loading=QLabel("正在读取已保存的配装…")
         loading.setStyleSheet(themed_style("color:#8b949e;padding:24px"))
         loading.setAlignment(Qt.AlignCenter)
@@ -917,7 +1040,7 @@ def _optimize_saved_equipment(
                 QMessageBox.warning(dialog, "替换失败", str(exc))
                 return
             dialog.accept()
-            self._refresh_equip()
+            self._refresh_equip(restore_role_name=role_name)
             if callable(after_replace):
                 after_replace(selected, selected_score, current_score)
             QMessageBox.information(self, "优化替换", "已保存为新的配装方案。")
