@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol
 
 from src.integrations.nte_core import NteCoreClient
 from src.services.account_settings_service import AccountSettingsService
+from src.services.raw_capture_retention import prune_raw_capture_files
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -88,6 +89,7 @@ class InventorySyncService:
         settle_seconds: float | None = None,
         capture_device_id: str | None = None,
         raw_capture_enabled: bool | None = None,
+        raw_capture_directory: str | Path | None = None,
         poll_seconds: float = 0.05,
         template_refresh: Callable[[], Any] | None = None,
     ) -> None:
@@ -103,6 +105,11 @@ class InventorySyncService:
         self._settle_seconds = settle_seconds
         self._capture_device_id = capture_device_id
         self._raw_capture_enabled = raw_capture_enabled
+        self._raw_capture_directory = (
+            Path(raw_capture_directory).expanduser().resolve()
+            if raw_capture_directory is not None
+            else None
+        )
         self._poll_seconds = poll_seconds
         self._template_refresh = template_refresh
 
@@ -329,6 +336,13 @@ class InventorySyncService:
                 raw_enabled = self._raw_capture_enabled
                 if raw_enabled is None:
                     raw_enabled = bool(settings.get("raw_capture_enabled"))
+                if raw_enabled and self._raw_capture_directory is not None:
+                    self._raw_capture_directory.mkdir(parents=True, exist_ok=True)
+                    self._prune_raw_captures()
+                    logger.info(
+                        "已启用 nte-core 原始抓包诊断，.pcapng 将保存至：{}",
+                        self._raw_capture_directory,
+                    )
                 client.start_capture(
                     profile="inventory",
                     device_name=capture_device,
@@ -509,6 +523,7 @@ class InventorySyncService:
                     client.stop_capture()
                 except Exception:
                     pass
+                self._prune_raw_captures()
                 try:
                     client.close()
                 except Exception:
@@ -522,6 +537,24 @@ class InventorySyncService:
                     capturing=False,
                     pending_item_count=None,
                 )
+
+    def _prune_raw_captures(self) -> None:
+        """Best-effort cleanup; packet capture must never fail because pruning did."""
+        if self._raw_capture_directory is None:
+            return
+        try:
+            result = prune_raw_capture_files(self._raw_capture_directory)
+        except Exception as exc:
+            logger.warning(f"清理 nte-core .pcapng 诊断文件失败：{exc}")
+            return
+        if result.deleted_count:
+            logger.info(
+                "已自动清理 {} 个旧 .pcapng 诊断文件，释放 {:.1f} MiB；"
+                "当前保留 {} 个",
+                result.deleted_count,
+                result.deleted_bytes / (1024 * 1024),
+                result.retained_count,
+            )
 
     def stop(self, timeout: float = 10.0) -> None:
         if timeout <= 0:

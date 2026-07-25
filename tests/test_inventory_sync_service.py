@@ -146,6 +146,27 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.assertEqual("inventory", self.core.capture_params["profile"])
         self.assertEqual("disabled", self.core.capture_params["raw_capture"])
 
+    def test_enables_pcapng_capture_only_when_requested(self) -> None:
+        core = FakeCoreClient()
+        capture_directory = Path(self.temp_dir.name) / "raw_capture"
+        service = InventorySyncService(
+            self.database_path,
+            account_id="tester",
+            account_name="测试账号",
+            client_factory=lambda: core,
+            raw_capture_enabled=True,
+            raw_capture_directory=capture_directory,
+            poll_seconds=0.005,
+        )
+        try:
+            service.start()
+            service.wait_for_phase("waiting", timeout=2.0)
+            self.assertEqual("enabled", core.capture_params["raw_capture"])
+            self.assertTrue(capture_directory.is_dir())
+        finally:
+            if service.is_running:
+                service.stop()
+
     def test_reuses_running_core_process_for_one_key_equipment(self) -> None:
         self._start()
         result = self.service.equip_one_key(

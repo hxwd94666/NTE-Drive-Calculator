@@ -3,17 +3,20 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QMessageBox
 
 from src.app import runtime
 from src.app.workers import WorkerThread
 from src.features.home.page import inventory_sync_error_guidance
 from src.services.inventory_sync_service import InventorySyncService, InventorySyncState
+from src.integrations.nte_core import NteCoreClient
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 from src.utils.logger import logger
 
-_METHOD_NAMES = ["_start_inventory_sync","_get_sync_settings","_save_sync_settings","_prune_inventory_snapshots","_prune_inventory_snapshots_task","_on_inventory_snapshots_pruned","_on_inventory_snapshot_prune_error","_maybe_auto_start_inventory_sync","_stop_inventory_sync","_on_inventory_sync_state"]
+_METHOD_NAMES = ["_start_inventory_sync","_get_sync_settings","_save_sync_settings","_open_raw_capture_directory","_prune_inventory_snapshots","_prune_inventory_snapshots_task","_on_inventory_snapshots_pruned","_on_inventory_snapshot_prune_error","_maybe_auto_start_inventory_sync","_stop_inventory_sync","_on_inventory_sync_state"]
 
 
 def install_methods(app_module, window_cls) -> None:
@@ -24,13 +27,33 @@ def _start_inventory_sync(self):
     service=self._inventory_sync_service
     if service is not None and service.is_running:
         return
-    service=InventorySyncService(runtime.USER_DATABASE_PATH)
+    raw_capture_directory = runtime.LOG_DIR / "nte_core" / "raw_capture"
+    service=InventorySyncService(
+        runtime.USER_DATABASE_PATH,
+        client_factory=lambda: NteCoreClient(
+            data_dir=raw_capture_directory,
+            cwd=runtime.APP_DIR,
+        ),
+        raw_capture_directory=raw_capture_directory,
+    )
     service.add_state_handler(self.inventory_sync_state_signal.emit)
     self._inventory_sync_service=service
     service.start()
 
 def _get_sync_settings(self):
     return self._account_settings.load("sync")
+
+
+def _open_raw_capture_directory(self):
+    directory = runtime.LOG_DIR / "nte_core" / "raw_capture"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
+    except OSError as exc:
+        QMessageBox.warning(self, "诊断抓包", f"无法打开抓包目录：{exc}")
+        return
+    if not opened:
+        QMessageBox.information(self, "诊断抓包", f"抓包目录：\n{directory}")
 
 def _save_sync_settings(self):
     try:

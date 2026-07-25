@@ -174,9 +174,24 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     )
     sync_form.addRow("自动启动:", window._sync_auto_start_toggle)
 
-    window._sync_raw_capture_toggle = QCheckBox("保存底层诊断文件（排错时才开启）")
+    window._sync_raw_capture_toggle = QCheckBox("保存原始抓包（.pcapng，排错时才开启）")
     window._sync_raw_capture_toggle.setChecked(bool(settings["raw_capture_enabled"]))
-    sync_form.addRow("诊断文件:", window._sync_raw_capture_toggle)
+    window._sync_raw_capture_toggle.setToolTip(
+        "文件仅保存到当前账号的 logs/nte_core/raw_capture。"
+        "停止同步后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
+        "正在写入和最新的一份不会被删除。"
+    )
+    raw_capture_row = QHBoxLayout()
+    raw_capture_row.addWidget(window._sync_raw_capture_toggle)
+    raw_capture_open_button = QPushButton("打开抓包目录")
+    raw_capture_open_handler = getattr(window, "_open_raw_capture_directory", None)
+    if callable(raw_capture_open_handler):
+        raw_capture_open_button.clicked.connect(raw_capture_open_handler)
+    else:
+        raw_capture_open_button.setEnabled(False)
+    raw_capture_row.addWidget(raw_capture_open_button)
+    raw_capture_row.addStretch()
+    sync_form.addRow("诊断抓包:", raw_capture_row)
     sync_card.layout().addLayout(sync_form)
 
     save_sync_button = QPushButton("保存同步设置")
