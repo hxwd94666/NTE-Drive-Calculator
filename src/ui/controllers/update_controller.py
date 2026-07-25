@@ -171,8 +171,8 @@ def _show_mirror_cdk_required_dialog(self):
     message = QLabel(
         "请先填写 Mirror CDK 后再下载。<br><br>"
         "可前往 Mirror 酱获取 CDK："
-        '<a href="https://mirrorchyan.com/zh/projects">'
-        "https://mirrorchyan.com/zh/projects</a>"
+        '<a href="https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&amp;channel=stable">'
+        "https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&amp;channel=stable</a>"
     )
     message.setWordWrap(True)
     message.setTextFormat(Qt.RichText)
