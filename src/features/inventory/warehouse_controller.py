@@ -703,6 +703,21 @@ def _on_warehouse_state_plan_ready(self, plan):
 def _on_warehouse_state_applied(self, result):
     self._set_warehouse_management_busy(False)
     summary = result.summary
+    applied_states = {
+        str(change.get("uid") or ""): str(change.get("target_state") or "")
+        for change in getattr(result, "changes", ())
+        if str(change.get("uid") or "") and str(change.get("target_state") or "") in {"normal", "locked", "discarded"}
+    }
+    # A stable SQLite snapshot is only captured on the login screen, whereas
+    # nte-core has already acknowledged these state RPCs.  Reflect that
+    # acknowledgement in the displayed fixed snapshot immediately; a later
+    # capture remains the authoritative reconciliation point.
+    if applied_states:
+        self._warehouse_all_items = [
+            warehouse_item_with_state(item, applied_states.get(str(item.get("uid") or ""), "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal"))
+            if str(item.get("uid") or "") in applied_states else item
+            for item in getattr(self, "_warehouse_all_items", [])
+        ]
     QMessageBox.information(
         self,
         "仓库管理完成",
@@ -716,6 +731,8 @@ def _on_warehouse_state_applied(self, result):
         str(item.get("uid")): "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal"
         for item in getattr(self, "_warehouse_all_items", [])
     }
+    self._apply_warehouse_filters()
+    self._on_warehouse_selection_changed()
     self._update_warehouse_save_state()
 
 
@@ -737,5 +754,4 @@ def _set_warehouse_management_busy(self, busy: bool, hint: str = ""):
     if busy and hasattr(self, "warehouse_hint"):
         self.warehouse_hint.setText(hint)
         self.warehouse_hint.show()
-
 

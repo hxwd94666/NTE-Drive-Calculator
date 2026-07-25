@@ -50,6 +50,11 @@ class WarehouseStateManagementPlan:
 class WarehouseStateManagementResult:
     before_snapshot_id: int
     summary: dict[str, int]
+    # nte-core confirms that these RPCs have been accepted, but a new stable
+    # inventory snapshot is only available after returning to the game login
+    # screen.  Keep the accepted changes so the warehouse can immediately
+    # update its in-memory presentation instead of displaying stale flags.
+    changes: tuple[dict[str, Any], ...] = ()
 
 
 def _compat_uid(row: Mapping[str, Any]) -> str:
@@ -187,21 +192,30 @@ class WarehouseStateManagementService:
                 (row["uid_slot"], row["uid_serial"]): row
                 for row in user_dao.list_inventory_items(plan.snapshot_id)
             }
+            applied_changes: list[dict[str, Any]] = []
             for change in plan.changes:
                 equipment = dict(change["equipment"])
                 row = current_rows.get((equipment["slot"], equipment["serial"]))
                 if row is None:
                     raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
                 self._apply_one(row, str(change["target_state"]), equipment)
+                # Rule-generated changes already have the presentation UID,
+                # while manually-created plans do not.  Return one consistent
+                # form so the warehouse can update the affected card at once.
+                applied_change = dict(change)
+                applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
+                applied_changes.append(applied_change)
 
         if not plan.changes:
             return WarehouseStateManagementResult(
                 before_snapshot_id=plan.snapshot_id,
                 summary=summarize_state_changes([]),
+                changes=(),
             )
         return WarehouseStateManagementResult(
             before_snapshot_id=plan.snapshot_id,
             summary=summarize_state_changes(list(plan.changes)),
+            changes=tuple(applied_changes),
         )
 
     def _apply_one(self, row: Mapping[str, Any], target_state: str, equipment: dict[str, int]) -> None:

@@ -104,6 +104,13 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertEqual(7, result.before_snapshot_id)
         self.assertEqual(1, result.summary["discard_set_count"])
         self.assertEqual(1, result.summary["lock_clear_count"])
+        self.assertEqual(
+            (
+                {"uid": "nte-core-1-10", "target_state": "discarded", "current_state": "normal", "equipment": {"slot": 1, "serial": 10}},
+                {"uid": "nte-core-2-20", "target_state": "normal", "current_state": "locked", "equipment": {"slot": 2, "serial": 20}},
+            ),
+            result.changes,
+        )
 
 
 if __name__ == "__main__":
