@@ -6,11 +6,12 @@
 
 获取《异环》背包数据转为可计算库存，用算法完成驱动卡带鉴定与全角色配装，并实现自动装配。
 
-[![Version](https://img.shields.io/badge/version-2.0.0-2f81f7)](https://github.com/hxwd94666/NTE-Drive-Calc/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)](#environment)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)](#development)
-[![UI](https://img.shields.io/badge/UI-PySide6-41cd52)](#intro)
-[![Download](https://img.shields.io/badge/download-GitHub%20Release-238636)](https://github.com/hxwd94666/NTE-Drive-Calc/releases)
+[![Download](https://img.shields.io/badge/download-GitHub%20Release-238636)](https://github.com/hxwd94666/NTE-Drive-Calculator/releases)
+[![下载量](https://img.shields.io/github/downloads/hxwd94666/NTE-Drive-Calculator/total?label=downloads&color=238636)](https://github.com/hxwd94666/NTE-Drive-Calculator/releases)
+[![Stars](https://img.shields.io/github/stars/hxwd94666/NTE-Drive-Calculator?label=stars&color=f4b400)](https://github.com/hxwd94666/NTE-Drive-Calculator/stargazers)
+
 
 [下载安装](#download) · [功能亮点](#features) · [快速开始](#quick-start) · [反馈问题](#feedback)
 
@@ -94,8 +95,9 @@
 推荐下载最新版安装包：
 
 - GitHub Release: <https://github.com/hxwd94666/NTE-Drive-Calc/releases>
-- 夸克网盘: <https://pan.quark.cn/s/82f16b845aec>
-- 百度网盘: <https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke>
+- Mirror酱（付费）: <https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&channel=stable>
+- 夸克网盘（免费）: <https://pan.quark.cn/s/82f16b845aec>
+- 百度网盘（免费）: <https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke>
 - B站主页: <https://b23.tv/nXJGdh3>
 > 每次更新使用网盘转存本人会有一定收益，手机转存收益更高，可将此当做无消费支持。
 
