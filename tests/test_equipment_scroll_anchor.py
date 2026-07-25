@@ -1,3 +1,4 @@
+# 验证已保存配装页的懒加载角色锚点恢复。
 """Regression coverage for the saved-plan page's lazy-render scroll anchor."""
 
 import os

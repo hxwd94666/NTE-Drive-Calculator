@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.services.character_instance_cache import CharacterInstanceCache
 from src.services.equipment_apply_service import EquipmentApplyError, EquipmentApplyService
 from src.services.inventory_sync_service import InventorySyncState
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -39,7 +38,7 @@ def item(serial: int, kind: str, *, equipped: bool = False) -> dict:
     }
 
 
-def snapshot(generation: int, items: list[dict]) -> dict:
+def snapshot(generation: int, items: list[dict], *, characters: list[dict] | None = None) -> dict:
     return {
         "method": "event.inventory.snapshot",
         "params": {
@@ -49,6 +48,8 @@ def snapshot(generation: int, items: list[dict]) -> dict:
             "observed_at_unix_ms": 1_800_000_000_000 + generation,
             "item_count": len(items),
             "items": items,
+            "character_count": len(characters or []),
+            "characters": characters or [],
         },
     }
 
@@ -263,9 +264,12 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.assertFalse(result.verified)
         self.assertEqual(result.before_snapshot_id, before_snapshot_id)
 
-    def test_resolves_uid_from_history_when_character_is_currently_empty(self) -> None:
+    def test_resolves_uid_from_current_snapshot_character_list_when_character_is_empty(self) -> None:
         current = self.dao.import_inventory_snapshot(
-            snapshot(4, [item(11, "module"), item(22, "core")])
+            snapshot(
+                4, [item(11, "module"), item(22, "core")],
+                characters=[{"character_id": 1003, "uid": CHARACTER_UID}],
+            )
         )
 
         resolved = EquipmentApplyService(
@@ -295,28 +299,25 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             EquipmentApplyService(self.dao, self.sync).resolve_character_uid(1003, current),
         )
 
-    def test_resolves_uid_from_account_scoped_public_instance_cache(self) -> None:
-        cache_path = Path(self.temp_dir.name) / "public-instance-cache.sqlite3"
-        with CharacterInstanceCache(cache_path) as cache:
-            cache.upsert("apply-test", 2000, {"slot": 300, "serial": 301}, source="snapshot")
+    def test_rejects_missing_current_character_instance_instead_of_using_public_cache(self) -> None:
         current = self.dao.import_inventory_snapshot(
             snapshot(5, [item(11, "module"), item(22, "core")])
         )
-        self.assertEqual(
-            {"slot": 300, "serial": 301},
-            EquipmentApplyService(
-                self.dao, self.sync, instance_cache_path=str(cache_path),
-            ).resolve_character_uid(2000, current),
-        )
+        with self.assertRaisesRegex(EquipmentApplyError, "当前稳定背包快照"):
+            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current)
 
-    def test_existing_private_mapping_is_mirrored_to_public_instance_cache(self) -> None:
-        cache_path = Path(self.temp_dir.name) / "public-instance-cache.sqlite3"
-        service = EquipmentApplyService(
-            self.dao, self.sync, instance_cache_path=str(cache_path),
+    def test_current_snapshot_character_uid_beats_manual_fallback(self) -> None:
+        self.dao.upsert_character_instance_mapping(1003, {"slot": 300, "serial": 301})
+        current = self.dao.import_inventory_snapshot(
+            snapshot(
+                5, [item(11, "module"), item(22, "core")],
+                characters=[{"character_id": 1003, "uid": CHARACTER_UID}],
+            )
         )
-        service.resolve_character_uid(1003, self.sync.state.last_snapshot_id)
-        with CharacterInstanceCache(cache_path) as cache:
-            self.assertEqual(CHARACTER_UID, cache.get("apply-test", 1003))
+        self.assertEqual(
+            CHARACTER_UID,
+            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(1003, current),
+        )
 
     def test_rejects_missing_equipment_capability_before_rpc(self) -> None:
         self.sync.core_hello_result = {"capabilities": ["inventory"]}

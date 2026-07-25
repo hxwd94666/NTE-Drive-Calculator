@@ -256,8 +256,25 @@ writing a business inventory file. Before the first complete snapshot it returns
 `INVENTORY_NOT_READY`.
 
 Inventory results and `event.inventory.snapshot` contain `generation`,
-`observed_at_unix_ms`, `complete`, `item_count`, and `items`. Event notifications
-also contain the global event `sequence`. Internal item IDs are mapped as:
+`observed_at_unix_ms`, `complete`, `character_count`, `characters`, `item_count`,
+and `items`. Event notifications also contain the global event `sequence`.
+Captured character instances are mapped independently of equipment ownership:
+
+```json
+{
+  "uid":{"slot":3,"serial":4},
+  "character_id":1075
+}
+```
+
+`characters` includes every character instance resolved from the current
+inventory connection, including characters with no equipped Console items.
+Character UIDs are account- and connection-specific and must not be reused
+across another account or connection. After the first complete inventory
+snapshot, a character-list-only change publishes a new inventory generation
+even when `items` is unchanged.
+
+Internal item IDs are mapped as:
 
 ```json
 {
@@ -278,7 +295,8 @@ their stable IDs and values while optional metadata remains null.
 `equipped_character_id` is the stable character ID used as the key in
 `res/data/characters/characters.json`; it is null when the item is unequipped or
 the owner has not been resolved. `equipped_character_uid` remains the
-account-specific character item instance UID.
+account-specific character item instance UID and matches `characters[].uid` when
+the owner mapping is available.
 `equipped_placement` is the equipped module's 1-based anchor position. It is
 null for cores, unequipped modules, or when the module position has not been
 resolved yet.
@@ -288,6 +306,9 @@ resolved yet.
 Equipment methods call ABI v4 / IPC v3 of `nte-equipment-plugin` through the
 local `\\.\pipe\nte-equipment-plugin-v3` named pipe. They do not inject or load
 the plugin; the matching plugin build must already be loaded by `HTGame.exe`.
+GUI users can install or remove the embedded plugin from **Console → Console
+Loadout** after closing the game and accepting the timed risk confirmation. The
+stdio Core itself never changes the game directory.
 Every character or equipment UID uses the same `{"slot":1,"serial":2}` shape
 returned by inventory snapshots. Both components must be nonzero and neither
 may be `4294967295` (`u32::MAX`). Module rows and columns are 1-based and must
@@ -363,7 +384,10 @@ the GUI. The result is null before any combat or abyss data exists. Otherwise it
 contains total duration, damage, DPS, damage taken, hit count, character rows,
 skill rows, both abyss halves, and the redacted parse-quality counters. Stable
 `dps_time_mode` values are `subtract_time_stop` and `wall_clock`; quality source
-values are `live`, `pcapng_replay`, `json_replay`, and `unknown`.
+values are `live`, `pcapng_replay`, `json_replay`, and `unknown`. Each skill row's
+`name` prefers a stable ability or GameplayEffect grouping key over a localized
+UI snapshot; optional `ability_name` and `gameplay_effect_name` fields expose the
+stable GA/GE identifiers when available.
 
 The external battle DTO is an explicit field-by-field mapping from the internal
 `CombatSessionSummary`; internal Rust serialization is not exposed as the API.

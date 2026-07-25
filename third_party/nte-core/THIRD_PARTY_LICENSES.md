@@ -15,6 +15,7 @@ Resolved from `Cargo.toml` and `Cargo.lock` with `cargo metadata --format-versio
 | `base64` | 0.22.1 | MIT OR Apache-2.0 | https://github.com/marshallpierce/rust-base64 |
 | `chrono` | 0.4.45 | MIT OR Apache-2.0 | https://github.com/chronotope/chrono |
 | `crossbeam-channel` | 0.5.15 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
+| `ed25519-dalek` | 3.0.0 | BSD-3-Clause | https://github.com/dalek-cryptography/curve25519-dalek |
 | `eframe` | 0.34.3 | MIT OR Apache-2.0 | https://github.com/emilk/egui |
 | `egui_material_icons` | 0.6.0 | [MIT](licenses/egui_material_icons-LICENSE-MIT.txt); embedded Material Symbols font is [Apache-2.0](licenses/material_symbols-LICENSE-APACHE-2.0.txt) | https://github.com/lucasmerlin/hello_egui/tree/main/crates/egui_material_icons |
 | `hex` | 0.4.3 | MIT OR Apache-2.0 | https://github.com/KokaKiwi/rust-hex |
@@ -23,10 +24,13 @@ Resolved from `Cargo.toml` and `Cargo.lock` with `cargo metadata --format-versio
 | `pcap-file` | 2.0.0 | MIT | https://github.com/courvoif/pcap-file |
 | `raw-window-handle` | 0.6.2 | MIT OR Apache-2.0 OR Zlib | https://github.com/rust-windowing/raw-window-handle |
 | `rfd` | 0.15.4 | MIT | https://github.com/PolyMeilex/rfd |
+| `semver` | 1.0.28 | MIT OR Apache-2.0 | https://github.com/dtolnay/semver |
 | `serde` | 1.0.228 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
 | `serde_json` | 1.0.150 | MIT OR Apache-2.0 | https://github.com/serde-rs/json |
+| `sha2` | 0.11.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes |
 | `windows-sys` | 0.60.2 direct; additional transitive versions may appear | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | `winresource` | 0.1.31 | MIT | https://github.com/BenjaminRi/winresource |
+| `zip` | 7.2.0 | MIT | https://github.com/zip-rs/zip2 |
 
 `egui_material_icons` embeds Google's Material Symbols Rounded font. Google publishes Material Symbols under Apache-2.0: https://github.com/google/material-design-icons. The release workflow includes both license texts in every binary archive.
 

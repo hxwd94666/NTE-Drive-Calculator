@@ -26,6 +26,13 @@ from .user_data_support import (
     _utc_now,
 )
 
+# SQLite is frequently built with the default 999 host-parameter limit.  Each
+# equipment UID consumes two parameters, while the snapshot id consumes one.
+# Keep comfortably below that portable limit when reading a full inventory.
+_SQLITE_QUERY_PARAMETER_BUDGET = 900
+_UID_PAIR_QUERY_BATCH_SIZE = (_SQLITE_QUERY_PARAMETER_BUDGET - 1) // 2
+
+
 class InventorySnapshotDaoMixin:
     @staticmethod
     def _snapshot_payload(snapshot: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -122,6 +129,34 @@ class InventorySnapshotDaoMixin:
             normalized_items.append((item, serial, slot, self._validated_stats(item, index)))
         _mark_duplicate_modules([item for item, _serial, _slot, _stats in normalized_items])
 
+        # nte-core v0.3.5+ provides independent character instances in the
+        # snapshot, including characters with no equipped module/core.  These
+        # rows are the authoritative fast-assembly identity source; do not
+        # infer them from equipment ownership.
+        raw_characters = payload.get("characters", [])
+        if not isinstance(raw_characters, list):
+            raise UserDataValidationError("快照 characters 必须是数组")
+        declared_character_count = payload.get("character_count")
+        if declared_character_count is not None:
+            if _integer(declared_character_count, "snapshot character_count", minimum=0) != len(raw_characters):
+                raise UserDataValidationError(
+                    f"快照 character_count 为 {declared_character_count}，但 characters 实际有 {len(raw_characters)} 条"
+                )
+        normalized_characters: list[tuple[int, int, int]] = []
+        seen_character_ids: set[int] = set()
+        seen_character_uids: set[tuple[int, int]] = set()
+        for index, raw_character in enumerate(raw_characters):
+            character = _plain_object(raw_character, f"characters[{index}]")
+            character_id = _integer(character.get("character_id"), f"characters[{index}].character_id", minimum=1)
+            uid = _plain_object(character.get("uid"), f"characters[{index}].uid")
+            character_slot = _integer(uid.get("slot"), f"characters[{index}].uid.slot", minimum=1)
+            character_serial = _integer(uid.get("serial"), f"characters[{index}].uid.serial", minimum=1)
+            if character_id in seen_character_ids or (character_slot, character_serial) in seen_character_uids:
+                raise UserDataValidationError("快照包含重复角色实例")
+            seen_character_ids.add(character_id)
+            seen_character_uids.add((character_slot, character_serial))
+            normalized_characters.append((character_id, character_slot, character_serial))
+
         connection = self._db()
         now = _utc_now()
         try:
@@ -203,6 +238,24 @@ class InventorySnapshotDaoMixin:
                             snapshot_id, snapshot_id, now, now,
                         ),
                     )
+            for character_id, character_slot, character_serial in normalized_characters:
+                connection.execute(
+                    """
+                    INSERT INTO character_instance_mapping(
+                        character_id, uid_slot, uid_serial, source,
+                        first_seen_snapshot_id, last_seen_snapshot_id,
+                        created_at_utc, updated_at_utc
+                    ) VALUES (?, ?, ?, 'snapshot', ?, ?, ?, ?)
+                    ON CONFLICT(character_id, uid_slot, uid_serial) DO UPDATE SET
+                        source = 'snapshot',
+                        last_seen_snapshot_id = excluded.last_seen_snapshot_id,
+                        updated_at_utc = excluded.updated_at_utc
+                    """,
+                    (
+                        character_id, character_slot, character_serial,
+                        snapshot_id, snapshot_id, now, now,
+                    ),
+                )
             connection.execute("UPDATE inventory_snapshot SET is_current = 0 WHERE is_current = 1")
             connection.execute(
                 "UPDATE inventory_snapshot SET is_current = 1 WHERE snapshot_id = ?",
@@ -477,26 +530,33 @@ class InventorySnapshotDaoMixin:
         )
         if not rows:
             return rows
-        stat_conditions = ["snapshot_id = ?"]
-        stat_parameters: list[Any] = [raw_snapshot_id]
         selected_uids = tuple(sorted({
             (int(row["uid_serial"]), int(row["uid_slot"])) for row in rows
         }))
-        stat_conditions.append("(" + " OR ".join(
-            "(uid_serial = ? AND uid_slot = ?)" for _uid in selected_uids
-        ) + ")")
-        for uid_serial, uid_slot in selected_uids:
-            stat_parameters.extend((uid_serial, uid_slot))
-        stats = self._rows(
-            f"""
-            SELECT uid_serial, uid_slot, stat_group, ordinal, property_id,
-                   value, is_percent, names_json
-            FROM inventory_item_stat
-            WHERE {' AND '.join(stat_conditions)}
-            ORDER BY uid_slot, uid_serial, stat_group, ordinal
-            """,
-            stat_parameters,
-        )
+        stats: list[dict[str, Any]] = []
+        # A 2,000-item inventory needs 4,001 bound parameters if queried in
+        # one statement.  That raises "too many SQL variables" on the normal
+        # SQLite build, preventing the virtualized warehouse from loading at
+        # all.  The card model remains virtualized; only this SQLite fetch is
+        # split into stable, order-preserving UID batches.
+        for start in range(0, len(selected_uids), _UID_PAIR_QUERY_BATCH_SIZE):
+            uid_batch = selected_uids[start:start + _UID_PAIR_QUERY_BATCH_SIZE]
+            stat_parameters: list[Any] = [raw_snapshot_id]
+            for uid_serial, uid_slot in uid_batch:
+                stat_parameters.extend((uid_serial, uid_slot))
+            uid_sql = " OR ".join(
+                "(uid_serial = ? AND uid_slot = ?)" for _uid in uid_batch
+            )
+            stats.extend(self._rows(
+                f"""
+                SELECT uid_serial, uid_slot, stat_group, ordinal, property_id,
+                       value, is_percent, names_json
+                FROM inventory_item_stat
+                WHERE snapshot_id = ? AND ({uid_sql})
+                ORDER BY uid_slot, uid_serial, stat_group, ordinal
+                """,
+                stat_parameters,
+            ))
         stats_by_uid: dict[tuple[int, int], dict[str, list[dict[str, Any]]]] = {}
         selected_uid_set = set(selected_uids)
         for stat in stats:

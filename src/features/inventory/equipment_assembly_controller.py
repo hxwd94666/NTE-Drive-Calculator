@@ -438,19 +438,16 @@ def _report_fast_apply_progress(progress_callback, *, current: int, total: int, 
 
 
 def _prompt_character_identity_requests(self, requests: list[dict]) -> dict[str, dict] | None:
-    missing_cache = [request for request in requests if "无法从当前或历史稳定背包确定" in str(request.get("reason") or "")]
-    if missing_cache:
-        roles = "、".join(str(request["role_name"]) for request in missing_cache)
+    missing_instances = [request for request in requests if "当前稳定背包快照未包含" in str(request.get("reason") or "")]
+    if missing_instances:
+        roles = "、".join(str(request["role_name"]) for request in missing_instances)
         QMessageBox.information(
             self,
             "需要采集角色实例",
-            f"[{roles}] 尚未在当前账号的人物实例缓存中留下 UID。\n\n"
-            "请按以下步骤为这些从未被 nte-core 观察过的角色采集实例 UID：\n"
-            "1. 在游戏内进入该角色的配装页，使用“智能装配”完成一次配装；\n"
-            "2. 重新登录游戏；\n"
-            "3. 启动背包同步，并等待完成一次稳定快照。\n\n"
-            "程序会自动写入账号私有缓存和本机公共缓存；之后该角色即可直接使用极速装配。\n\n"
-            "角色 UID 不会与其他账号混用。",
+            f"[{roles}] 尚未出现在当前稳定背包快照的角色实例列表中。\n\n"
+            "请保持游戏在线并启动背包同步，等待新 nte-core 完成一次稳定快照。"
+            "新核心会直接采集全部角色（包括未装备驱动或卡带的角色），"
+            "采集完成后即可极速装配，无需在游戏内先给角色配装。",
         )
         return None
     overrides: dict[str, dict] = {}

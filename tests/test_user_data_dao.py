@@ -656,6 +656,17 @@ class UserDataDaoTest(unittest.TestCase):
             [stat["property_id"] for stat in rows[0]["sub_stats"]],
         )
 
+    def test_reads_two_thousand_inventory_items_without_exceeding_sqlite_variable_limit(self) -> None:
+        """Warehouse reads every UID, so this must work on SQLite's 999-bind build."""
+        rows = [item(index, index) for index in range(1, 2001)]
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, rows))
+
+        loaded = self.dao.list_inventory_items(snapshot_id)
+
+        self.assertEqual(2000, len(loaded))
+        self.assertEqual(2000, sum(len(row["main_stats"]) for row in loaded))
+        self.assertEqual(4000, sum(len(row["sub_stats"]) for row in loaded))
+
     def test_exports_snapshot_from_one_read_transaction_when_background_prunes(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
         original_summary = self.dao.inventory_snapshot_summary

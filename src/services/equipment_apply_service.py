@@ -8,11 +8,6 @@ from dataclasses import dataclass
 import time
 from typing import Any, Protocol
 
-from src.services.character_instance_cache import (
-    CharacterInstanceCache,
-    default_character_instance_cache_path,
-    mirror_user_character_instance_cache,
-)
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 from .inventory_sync_service import InventorySyncState
@@ -85,52 +80,9 @@ class EquipmentApplyService:
 
     def __init__(
         self, user_dao: UserDataDao, sync_service: _LiveInventorySync,
-        *, instance_cache_path: str | None = None,
     ) -> None:
         self.user_dao = user_dao
         self.sync_service = sync_service
-        self.instance_cache_path = instance_cache_path
-        self._instance_cache_mirrored = False
-
-    def _mirror_instance_cache(self) -> None:
-        """Bootstrap the public-local cache from existing private mappings once."""
-        if self._instance_cache_mirrored:
-            return
-        self._instance_cache_mirrored = True
-        try:
-            mirror_user_character_instance_cache(
-                self.user_dao,
-                cache_path=self.instance_cache_path,
-            )
-        except Exception:
-            # A cache mirror can be recreated later from private data, so it
-            # must never block a valid equipment action.
-            pass
-
-    def _remember_character_uid(
-        self, character_id: int, uid: Mapping[str, Any], *, source: str,
-    ) -> None:
-        """Keep an account-scoped copy outside user data without blocking apply."""
-        try:
-            with CharacterInstanceCache(
-                self.instance_cache_path
-                or default_character_instance_cache_path(self.user_dao.database_path)
-            ) as cache:
-                cache.upsert(self.user_dao.profile()["account_id"], character_id, uid, source=source)
-        except Exception:
-            # The account database remains the authority.  A read-only install
-            # must not make an otherwise valid fast-assembly request fail.
-            pass
-
-    def _shared_cached_character_uid(self, character_id: int) -> dict[str, int] | None:
-        try:
-            with CharacterInstanceCache(
-                self.instance_cache_path
-                or default_character_instance_cache_path(self.user_dao.database_path)
-            ) as cache:
-                return cache.get(self.user_dao.profile()["account_id"], character_id)
-        except Exception:
-            return None
 
     def require_stable_snapshot(self) -> int:
         """Validate the live sync once and return the snapshot to pin for a job."""
@@ -148,89 +100,42 @@ class EquipmentApplyService:
         snapshot_id: int,
         explicit_uid: Mapping[str, Any] | None = None,
     ) -> dict[str, int]:
-        """解析账号内角色实例 UID；当前为空时回查该账号的稳定历史快照。"""
+        """从当前完整 nte-core 快照的独立角色列表解析实例 UID。"""
 
         if explicit_uid is not None:
             return _uid(explicit_uid, "character")
 
-        self._mirror_instance_cache()
-
-        def candidates_for(candidate_snapshot_id: int) -> set[tuple[int, int]]:
-            candidates: set[tuple[int, int]] = set()
-            for item in self.user_dao.list_inventory_items(
-                candidate_snapshot_id,
-                equipped=True,
-                character_id=character_id,
-            ):
-                raw_uid = item.get("equipped_character_uid")
-                if isinstance(raw_uid, Mapping):
-                    validated = _uid(raw_uid, "equipped_character_uid")
-                    candidates.add((validated["slot"], validated["serial"]))
-            return candidates
-
-        current_candidates = candidates_for(snapshot_id)
+        mapped_rows = self.user_dao.list_character_instance_mappings(character_id)
+        current_candidates = {
+            (int(row["uid_slot"]), int(row["uid_serial"]))
+            for row in mapped_rows
+            if row.get("source") == "snapshot"
+            and row.get("last_seen_snapshot_id") == snapshot_id
+        }
         if len(current_candidates) == 1:
             slot, serial = next(iter(current_candidates))
-            uid = {"slot": slot, "serial": serial}
-            self._remember_character_uid(character_id, uid, source="snapshot")
-            return uid
+            return {"slot": slot, "serial": serial}
         if len(current_candidates) > 1:
             raise EquipmentApplyError(
                 f"当前稳定背包中角色 {character_id} 对应多个角色实例 UID"
             )
 
-        # nte-core 目前只能从“装备已穿在角色身上”的背包项中观察角色 UID。
-        # 所以一旦已从任意稳定快照得到并持久化实例映射，缓存就是当前账号
-        # 的稳定身份来源；不能让更早的历史快照噪声抢在它前面导致手动选择。
-        mapped_rows = self.user_dao.list_character_instance_mappings(character_id)
+        # A manual selection remains useful only for old snapshots collected
+        # before nte-core exposed `characters`; it never overrides a current
+        # independently captured character UID.
         manual_candidates = {
             (row["uid_slot"], row["uid_serial"])
             for row in mapped_rows if row.get("source") == "manual"
         }
         if len(manual_candidates) == 1:
             slot, serial = next(iter(manual_candidates))
-            uid = {"slot": slot, "serial": serial}
-            self._remember_character_uid(character_id, uid, source="manual")
-            return uid
+            return {"slot": slot, "serial": serial}
         if len(manual_candidates) > 1:
             raise EquipmentApplyError(
                 f"角色 {character_id} 存在多个手动保存的实例 UID，请在装配前整理映射"
             )
-        mapped_candidates = {
-            (row["uid_slot"], row["uid_serial"])
-            for row in mapped_rows
-        }
-        if len(mapped_candidates) == 1:
-            slot, serial = next(iter(mapped_candidates))
-            uid = {"slot": slot, "serial": serial}
-            self._remember_character_uid(character_id, uid, source="snapshot")
-            return uid
-        if len(mapped_candidates) > 1:
-            raise EquipmentApplyError(
-                f"角色 {character_id} 存在多个已保存的实例 UID，请在装配前手动选择"
-            )
-
-        shared_cached_uid = self._shared_cached_character_uid(character_id)
-        if shared_cached_uid is not None:
-            return _uid(shared_cached_uid, "public_character_instance_cache")
-
-        historical_candidates: set[tuple[int, int]] = set()
-        for summary in self.user_dao.list_inventory_snapshots():
-            historical_snapshot_id = int(summary["snapshot_id"])
-            if historical_snapshot_id >= snapshot_id:
-                continue
-            historical_candidates.update(candidates_for(historical_snapshot_id))
-        if len(historical_candidates) == 1:
-            slot, serial = next(iter(historical_candidates))
-            uid = {"slot": slot, "serial": serial}
-            self._remember_character_uid(character_id, uid, source="snapshot")
-            return uid
-        if len(historical_candidates) > 1:
-            raise EquipmentApplyError(
-                f"角色 {character_id} 在历史稳定背包中对应多个实例 UID，无法安全选择"
-            )
         raise EquipmentApplyError(
-            "无法从当前或历史稳定背包确定角色实例 UID，请手动选择并保存该角色实例"
+            "当前稳定背包快照未包含该角色实例 UID；请启动背包同步并等待新 nte-core 完成一次稳定快照"
         )
 
     @staticmethod

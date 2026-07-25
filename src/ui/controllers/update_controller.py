@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import threading
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QMessageBox, QVBoxLayout
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QMessageBox, QProgressDialog, QVBoxLayout
 
 from src.app.constants import (
     APP_VERSION,
@@ -17,6 +20,7 @@ from src.app.constants import (
 )
 from src.app.workers import WorkerThread
 from src.features.settings.updates import (
+    download_update_installer,
     fetch_update_info,
     is_newer_version,
     should_show_startup_update,
@@ -31,8 +35,29 @@ _METHOD_NAMES = [
     "_show_update_dialog", "_show_update_failure_netdisk_prompt", "_open_update_homepage",
     "_open_bilibili_homepage", "_show_netdisk_download_dialog", "_open_url",
     "_is_newer_version", "_mirror_cdk_value", "_save_mirror_cdk",
-    "_start_mirror_download", "_on_mirror_download_ready",
+    "_start_mirror_download", "_on_mirror_download_ready", "_start_mirror_installer_download",
+    "_on_mirror_download_progress", "_on_mirror_installer_downloaded", "_on_mirror_installer_download_error",
+    "_finish_mirror_download_ui", "_launch_mirror_installer",
 ]
+
+
+class _MirrorInstallerDownloadWorker(WorkerThread):
+    progress = Signal(int, int)
+
+    def __init__(self, url: str, parent=None):
+        self._url = url
+        self._cancel_event = threading.Event()
+        super().__init__(target=self._download, parent=parent)
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
+
+    def _download(self):
+        return download_update_installer(
+            self._url,
+            progress_callback=lambda current, total: self.progress.emit(current, total),
+            cancel_check=self._cancel_event.is_set,
+        )
 
 
 def install_methods(app_module, window_cls) -> None:
@@ -144,19 +169,98 @@ def _start_mirror_download(self):
 
 
 def _on_mirror_download_ready(self, info):
-    if hasattr(self, "_mirror_download_btn"):
-        self._mirror_download_btn.setEnabled(True)
     url = str(info.get("url") or "").strip()
     if url:
-        self._update_status.setText("已获取 Mirror 下载地址，正在打开下载…")
-        self._open_url(url)
+        self._start_mirror_installer_download(url)
         return
+    if hasattr(self, "_mirror_download_btn"):
+        self._mirror_download_btn.setEnabled(True)
     self._update_status.setText("未获取到 Mirror 下载地址。")
     detail = info.get("message") or info.get("error") or "请确认 CDK 有效，且存在可下载的新版本。"
     QMessageBox.information(
         self, "Mirror 下载",
         "未获取到下载地址。请确认 CDK 有效，且存在可下载的新版本。\n\n" + str(detail),
     )
+
+
+def _start_mirror_installer_download(self, url):
+    """Download and launch the installer without sending the user to a browser."""
+    self._update_status.setText("正在通过 Mirror 酱下载更新安装程序…")
+    progress = QProgressDialog("正在下载更新安装程序…", "取消", 0, 0, self)
+    progress.setWindowTitle("Mirror 下载")
+    progress.setWindowModality(Qt.WindowModal)
+    progress.setAutoClose(False)
+    progress.setAutoReset(False)
+    progress.setMinimumDuration(0)
+    progress.show()
+    self._mirror_download_progress_dialog = progress
+    worker = _MirrorInstallerDownloadWorker(str(url), parent=self)
+    self._mirror_installer_download_worker = worker
+    progress.canceled.connect(worker.cancel)
+    worker.progress.connect(self._on_mirror_download_progress)
+    worker.result_ready.connect(self._on_mirror_installer_downloaded)
+    worker.error.connect(self._on_mirror_installer_download_error)
+    worker.start()
+
+
+def _on_mirror_download_progress(self, downloaded, total):
+    progress = getattr(self, "_mirror_download_progress_dialog", None)
+    if progress is None:
+        return
+    if total > 0:
+        progress.setRange(0, total)
+        progress.setValue(min(downloaded, total))
+        progress.setLabelText(f"正在下载更新安装程序… {downloaded / 1024 / 1024:.1f} / {total / 1024 / 1024:.1f} MB")
+    else:
+        progress.setRange(0, 0)
+        progress.setLabelText(f"正在下载更新安装程序… {downloaded / 1024 / 1024:.1f} MB")
+
+
+def _finish_mirror_download_ui(self):
+    progress = getattr(self, "_mirror_download_progress_dialog", None)
+    if progress is not None:
+        progress.close()
+        progress.deleteLater()
+    self._mirror_download_progress_dialog = None
+    if hasattr(self, "_mirror_download_btn"):
+        self._mirror_download_btn.setEnabled(True)
+
+
+def _on_mirror_installer_downloaded(self, result):
+    self._finish_mirror_download_ui()
+    path = Path(str((result or {}).get("path") or ""))
+    if not path.is_file():
+        self._on_mirror_installer_download_error("安装程序下载完成后未找到文件。")
+        return
+    self._update_status.setText("安装程序下载完成，正在自动启动…")
+    QTimer.singleShot(150, lambda: self._launch_mirror_installer(str(path)))
+
+
+def _on_mirror_installer_download_error(self, error):
+    self._finish_mirror_download_ui()
+    message = str(error or "安装程序下载失败，请稍后重试。")
+    if "已取消更新下载安装包" in message:
+        self._update_status.setText("已取消 Mirror 下载。")
+        return
+    self._update_status.setText("Mirror 下载失败。")
+    QMessageBox.warning(self, "Mirror 下载", "下载或启动安装程序失败，请稍后重试。\n\n" + message)
+
+
+def _launch_mirror_installer(self, path):
+    installer = Path(path)
+    if not installer.is_file():
+        self._on_mirror_installer_download_error("安装程序文件不存在。")
+        return
+    try:
+        subprocess.Popen([str(installer)], cwd=str(installer.parent))
+    except OSError as exc:
+        self._on_mirror_installer_download_error(str(exc))
+        return
+    self._update_status.setText("安装程序已启动，当前程序即将退出。")
+    logger.info("Mirror 更新安装程序已启动: {}", installer)
+    application = QApplication.instance()
+    if application is not None:
+        QTimer.singleShot(250, application.quit)
 
 
 def _show_mirror_cdk_required_dialog(self):

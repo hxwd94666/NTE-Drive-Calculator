@@ -91,6 +91,46 @@ def _canonical_item(item: Mapping[str, Any]) -> dict[str, Any]:
     return canonical
 
 
+def _canonical_characters(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Validate and canonically order independent nte-core character UIDs.
+
+    Newer cores emit every observed character, including characters without
+    equipment.  This list therefore belongs to the snapshot identity just as
+    much as the inventory item list does.
+    """
+    characters = payload.get("characters", [])
+    if not isinstance(characters, list):
+        raise ValueError("背包快照 characters 必须是数组")
+    declared_count = payload.get("character_count")
+    if declared_count is not None:
+        if isinstance(declared_count, bool) or not isinstance(declared_count, int) or declared_count < 0:
+            raise ValueError("背包快照 character_count 必须是非负整数")
+        if declared_count != len(characters):
+            raise ValueError(
+                f"背包快照声明 {declared_count} 个角色，但实际包含 {len(characters)} 条"
+            )
+    result: list[dict[str, Any]] = []
+    seen_character_ids: set[int] = set()
+    seen_uids: set[tuple[int, int]] = set()
+    for index, raw_character in enumerate(characters):
+        if not isinstance(raw_character, Mapping):
+            raise ValueError(f"角色实例 characters[{index}] 必须是对象")
+        character_id = _integer_or_none(raw_character.get("character_id"))
+        uid = raw_character.get("uid")
+        if character_id is None or character_id <= 0 or not isinstance(uid, Mapping):
+            raise ValueError(f"角色实例 characters[{index}] 缺少有效 character_id 或 uid")
+        slot = _integer_or_none(uid.get("slot"))
+        serial = _integer_or_none(uid.get("serial"))
+        if slot is None or serial is None or slot <= 0 or serial <= 0:
+            raise ValueError(f"角色实例 characters[{index}].uid 必须包含正整数 slot/serial")
+        if character_id in seen_character_ids or (slot, serial) in seen_uids:
+            raise ValueError("背包快照包含重复角色实例")
+        seen_character_ids.add(character_id)
+        seen_uids.add((slot, serial))
+        result.append({"character_id": character_id, "uid": {"slot": slot, "serial": serial}})
+    return sorted(result, key=lambda value: (value["character_id"], value["uid"]["slot"], value["uid"]["serial"]))
+
+
 def _validated_content(
     snapshot: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any], int, frozenset[tuple[int, int]], str]:
@@ -134,7 +174,7 @@ def _validated_content(
         )
     )
     content = json.dumps(
-        canonical_items,
+        {"items": canonical_items, "characters": _canonical_characters(payload)},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

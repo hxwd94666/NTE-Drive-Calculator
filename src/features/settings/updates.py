@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 import urllib.error
 import urllib.request
 from urllib.parse import urlencode
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
@@ -17,6 +20,12 @@ from src.app.theme import themed_style
 
 UPDATE_FAILURE_MESSAGE = "Mirror 酱更新服务请求失败，请稍后重试。"
 UPDATE_CHECK_TIMEOUT_SECONDS = 5
+UPDATE_DOWNLOAD_TIMEOUT_SECONDS = 30
+_UPDATE_DOWNLOAD_CHUNK_SIZE = 128 * 1024
+
+
+class UpdateDownloadCancelled(RuntimeError):
+    """Raised when the user cancels an in-app installer download."""
 
 
 def is_newer_version(remote, current) -> bool:
@@ -98,6 +107,68 @@ def fetch_update_info(
         "message": str(data.get("release_note") or "").strip(),
         "name": latest,
     }
+
+
+def download_update_installer(
+    url: str,
+    *,
+    destination_dir: str | os.PathLike[str] | None = None,
+    timeout: int = UPDATE_DOWNLOAD_TIMEOUT_SECONDS,
+    progress_callback=None,
+    cancel_check=None,
+) -> dict:
+    """Download a Mirror installer to a temporary directory.
+
+    The URL returned by Mirror is short-lived, so the file is deliberately not
+    stored in account settings.  A partial file is never launched and is
+    removed if downloading fails or is cancelled.
+    """
+    if not str(url).strip().lower().startswith(("https://", "http://")):
+        raise ValueError("Mirror 下载地址无效。")
+    if cancel_check and cancel_check():
+        raise UpdateDownloadCancelled("已取消更新下载安装包。")
+
+    target_dir = Path(destination_dir) if destination_dir else Path(tempfile.mkdtemp(prefix="NTE-Drive-Calc-update-"))
+    target_dir.mkdir(parents=True, exist_ok=True)
+    final_path = target_dir / "NTE-Drive-Calc-update.exe"
+    partial_path = final_path.with_suffix(".exe.part")
+    downloaded = 0
+    expected = 0
+    try:
+        request = urllib.request.Request(
+            str(url).strip(),
+            headers={"User-Agent": "NTE-Drive-Calc updater", "Accept": "application/octet-stream"},
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            try:
+                expected = max(0, int(response.headers.get("Content-Length") or 0))
+            except (TypeError, ValueError):
+                expected = 0
+            if progress_callback:
+                progress_callback(0, expected)
+            with partial_path.open("wb") as stream:
+                while True:
+                    if cancel_check and cancel_check():
+                        raise UpdateDownloadCancelled("已取消更新下载安装包。")
+                    block = response.read(_UPDATE_DOWNLOAD_CHUNK_SIZE)
+                    if not block:
+                        break
+                    if downloaded == 0 and not block.startswith(b"MZ"):
+                        raise RuntimeError("下载内容不是有效的 Windows 安装程序。")
+                    stream.write(block)
+                    downloaded += len(block)
+                    if progress_callback:
+                        progress_callback(downloaded, expected)
+        if downloaded < 2:
+            raise RuntimeError("下载的安装程序为空或不完整。")
+        if expected and downloaded != expected:
+            raise RuntimeError("安装程序下载不完整，请重新下载。")
+        os.replace(partial_path, final_path)
+        return {"path": str(final_path), "downloaded": downloaded, "total": expected}
+    except BaseException:
+        partial_path.unlink(missing_ok=True)
+        final_path.unlink(missing_ok=True)
+        raise
 
 
 def update_dialog_link_url(info: dict) -> str:

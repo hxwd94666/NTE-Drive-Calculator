@@ -137,6 +137,21 @@ def resolve_character_id_for_saved_role(
 
     def instances_in(candidate_snapshot_id: int) -> dict[int, set[tuple[int, int]]]:
         instance_uids: dict[int, set[tuple[int, int]]] = {}
+        for character_id in candidate_set:
+            for row in user_dao.list_character_instance_mappings(character_id):
+                if (
+                    row.get("source") != "snapshot"
+                    or row.get("last_seen_snapshot_id") != candidate_snapshot_id
+                ):
+                    continue
+                instance_uids.setdefault(character_id, set()).add((
+                    int(row["uid_slot"]), int(row["uid_serial"]),
+                ))
+        return instance_uids
+
+    def legacy_equipped_instances_in(candidate_snapshot_id: int) -> dict[int, set[tuple[int, int]]]:
+        """Compatibility for snapshots imported before core exposed characters."""
+        instance_uids: dict[int, set[tuple[int, int]]] = {}
         for item in user_dao.list_inventory_items(candidate_snapshot_id, equipped=True):
             character_id = item.get("equipped_character_id")
             character_uid = item.get("equipped_character_uid")
@@ -168,6 +183,8 @@ def resolve_character_id_for_saved_role(
         )
 
     resolved = resolve_instances(instances_in(selected_snapshot_id))
+    if resolved is None:
+        resolved = resolve_instances(legacy_equipped_instances_in(selected_snapshot_id))
     if resolved is not None:
         return resolved
 
@@ -266,10 +283,13 @@ def resolve_character_id_for_static_role(
 
     def candidates_in(candidate_snapshot_id: int) -> set[int]:
         return {
-            int(item["equipped_character_id"])
-            for item in user_dao.list_inventory_items(candidate_snapshot_id, equipped=True)
-            if item.get("equipped_character_id") in candidate_set
-            and isinstance(item.get("equipped_character_uid"), Mapping)
+            candidate
+            for candidate in candidate_set
+            if any(
+                row.get("source") == "snapshot"
+                and row.get("last_seen_snapshot_id") == candidate_snapshot_id
+                for row in user_dao.list_character_instance_mappings(candidate)
+            )
         }
 
     found = candidates_in(snapshot_id)

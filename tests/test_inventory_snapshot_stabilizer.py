@@ -36,6 +36,7 @@ def snapshot(
     generation: int = 1,
     sequence: int = 1,
     complete: bool = True,
+    characters: list[dict] | None = None,
 ) -> dict:
     return {
         "jsonrpc": "2.0",
@@ -44,6 +45,8 @@ def snapshot(
             "complete": complete,
             "item_count": len(items),
             "items": list(items),
+            "character_count": len(characters or []),
+            "characters": characters or [],
             "generation": generation,
             "sequence": sequence,
         },
@@ -153,6 +156,21 @@ class InventorySnapshotStabilizerTests(unittest.TestCase):
         self.stabilizer.offer(snapshot(first, item(2), sequence=1))
         duplicate = self.stabilizer.offer(snapshot(item(2), second, sequence=2))
         self.assertEqual("duplicate", duplicate.status)
+
+    def test_character_instance_changes_create_a_new_stable_snapshot(self) -> None:
+        first = snapshot(
+            item(1), sequence=1,
+            characters=[{"character_id": 1003, "uid": {"slot": 7, "serial": 70}}],
+        )
+        self.stabilizer.offer(first)
+        self.clock.advance(3.0)
+        self._commit_ready()
+
+        changed = self.stabilizer.offer(snapshot(
+            item(1), sequence=2,
+            characters=[{"character_id": 1003, "uid": {"slot": 8, "serial": 80}}],
+        ))
+        self.assertEqual("collecting", changed.status)
 
 
 if __name__ == "__main__":

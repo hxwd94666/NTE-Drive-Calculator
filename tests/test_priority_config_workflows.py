@@ -598,6 +598,77 @@ class UpdateWorkflowTests(unittest.TestCase):
             requested_urls[0],
         )
 
+    def test_mirror_installer_download_writes_valid_exe_and_reports_progress(self):
+        from src.features.settings import updates
+
+        class Response:
+            headers = {"Content-Length": "8"}
+
+            def __init__(self):
+                self._blocks = [b"MZtest", b"ok", b""]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _size):
+                return self._blocks.pop(0)
+
+        original_urlopen = updates.urllib.request.urlopen
+        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
+        updates_progress = []
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result = updates.download_update_installer(
+                    "https://download.example/NTE-Drive-Calc.exe",
+                    destination_dir=temp_dir,
+                    progress_callback=lambda current, total: updates_progress.append((current, total)),
+                )
+                installer = Path(result["path"])
+                self.assertEqual(b"MZtestok", installer.read_bytes())
+                self.assertEqual(8, result["downloaded"])
+        finally:
+            updates.urllib.request.urlopen = original_urlopen
+
+        self.assertEqual((0, 8), updates_progress[0])
+        self.assertEqual((8, 8), updates_progress[-1])
+
+    def test_mirror_installer_download_removes_partial_file_when_cancelled(self):
+        from src.features.settings import updates
+
+        class Response:
+            headers = {"Content-Length": "16"}
+
+            def __init__(self):
+                self._blocks = [b"MZfirst", b"second", b""]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _size):
+                return self._blocks.pop(0)
+
+        original_urlopen = updates.urllib.request.urlopen
+        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
+        cancelled = {"value": False}
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                with self.assertRaises(updates.UpdateDownloadCancelled):
+                    updates.download_update_installer(
+                        "https://download.example/NTE-Drive-Calc.exe",
+                        destination_dir=temp_dir,
+                        progress_callback=lambda *_args: cancelled.__setitem__("value", True),
+                        cancel_check=lambda: cancelled["value"],
+                    )
+                self.assertEqual([], list(Path(temp_dir).iterdir()))
+        finally:
+            updates.urllib.request.urlopen = original_urlopen
+
     def test_update_check_uses_mirror_without_cdk_and_keeps_github_release_link(self):
         from src.ui.controllers import update_controller
 

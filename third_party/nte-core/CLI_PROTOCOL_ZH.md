@@ -198,7 +198,18 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 
 返回最新完整背包快照，不会自行开始抓包，也不会写业务背包文件。首次完整快照出现前返回 `INVENTORY_NOT_READY`。
 
-背包结果和 `event.inventory.snapshot` 都包含 `generation`、`observed_at_unix_ms`、`complete`、`item_count` 和 `items`；事件还包含全局 `sequence`。内部物品 ID 映射为：
+背包结果和 `event.inventory.snapshot` 都包含 `generation`、`observed_at_unix_ms`、`complete`、`character_count`、`characters`、`item_count` 和 `items`；事件还包含全局 `sequence`。抓包得到的角色实例独立于装备归属映射：
+
+```json
+{
+  "uid":{"slot":3,"serial":4},
+  "character_id":1075
+}
+```
+
+`characters` 包含当前背包连接中已经解析出的全部角色实例，包括没有装备任何空幕的角色。角色 UID 只属于当前账号和连接，不应跨账号或连接复用。首次完整背包快照产生后，即使 `items` 没有变化，独立角色列表发生变化也会发布新的背包 generation。
+
+内部物品 ID 映射为：
 
 ```json
 {
@@ -213,14 +224,16 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 ```
 
 内部拼写错误 `solt` 不会暴露。已知装备定义包括 kind、quality、geometry、grid、suit ID、物品/套装多语言名称、等级上限和多语言属性元数据。未知物品或属性定义会保留稳定 ID 和数值，可选元数据保持 null，不会伪造。
-`equipped_character_id` 是 `res/data/characters/characters.json` 中作为键使用的稳定角色 ID；物品未装备或尚未解析出装备者时为 null。`equipped_character_uid` 仍表示当前账号内的角色物品实例 UID。
+`equipped_character_id` 是 `res/data/characters/characters.json` 中作为键使用的稳定角色 ID；物品未装备或尚未解析出装备者时为 null。`equipped_character_uid` 仍表示当前账号内的角色物品实例 UID；装备者映射可用时，它与 `characters[].uid` 一致。
 `equipped_placement` 表示已装备驱动块从 1 开始的锚点行列；卡带、未装备驱动块或尚未解析出位置时为 null。
 
 ## 装备方法
 
 装备方法通过本机命名管道 `\\.\pipe\nte-equipment-plugin-v3` 调用
 `nte-equipment-plugin` ABI v4 / IPC v3。Core 不负责注入或加载插件；与当前
-客户端匹配的插件必须已经由 `HTGame.exe` 加载。角色与装备 UID 都使用背包
+客户端匹配的插件必须已经由 `HTGame.exe` 加载。GUI 用户可在关闭游戏后，从
+“控制台 → 空幕”经过定时风险确认来安装或移除内嵌插件；stdio Core 本身始终
+不会修改游戏目录。角色与装备 UID 都使用背包
 快照返回的 `{"slot":1,"serial":2}` 结构；两个分量都必须非零，且都不能为
 `4294967295`（`u32::MAX`）。驱动块行列从 1 开始，且必须同时位于 `1..5`。
 `equip_one_key` 的每个位置项形如
@@ -287,7 +300,7 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 }
 ```
 
-`subtract_time_stop` 必填，选择与 GUI 相同的计时口径。尚无战斗或深渊数据时 result 为 null；否则包含总时长、伤害、DPS、承伤、命中数、角色行、技能行、深渊上下半和脱敏解析质量计数。稳定的 `dps_time_mode` 值为 `subtract_time_stop` 与 `wall_clock`；quality source 值为 `live`、`pcapng_replay`、`json_replay` 和 `unknown`。
+`subtract_time_stop` 必填，选择与 GUI 相同的计时口径。尚无战斗或深渊数据时 result 为 null；否则包含总时长、伤害、DPS、承伤、命中数、角色行、技能行、深渊上下半和脱敏解析质量计数。稳定的 `dps_time_mode` 值为 `subtract_time_stop` 与 `wall_clock`；quality source 值为 `live`、`pcapng_replay`、`json_replay` 和 `unknown`。技能行的 `name` 优先采用与界面语言无关的 Ability 或 GameplayEffect 分组键；存在对应身份时，附加的可选字段 `ability_name` 与 `gameplay_effect_name` 提供稳定 GA/GE 标识。
 
 外部战斗 DTO 由内部 `CombatSessionSummary` 显式逐字段映射，不直接暴露内部 Rust 序列化结构。所有数值都来自已验证的战斗状态，并保证是有限 JSON 数字。
 

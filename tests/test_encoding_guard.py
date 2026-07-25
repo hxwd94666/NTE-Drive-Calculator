@@ -49,6 +49,7 @@ def _repo_python_files() -> list[Path]:
         path for path in ROOT.rglob("*.py")
         if path.is_file()
         and not excluded_parts.intersection(path.relative_to(ROOT).parts)
+        and not any(part.startswith("nte-core-windows-x64") for part in path.relative_to(ROOT).parts)
     )
 
 
