@@ -19,7 +19,7 @@ INSERT INTO application_setting_default(setting_key, value_json, description_zh)
 ),
 (
     'update',
-    '{"never_remind":false,"ignored_version":""}',
+    '{"never_remind":false,"ignored_version":"","mirror_cdk":""}',
     '软件更新提醒默认设置'
 ),
 (

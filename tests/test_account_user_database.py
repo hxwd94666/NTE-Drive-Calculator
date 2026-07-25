@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from src.features.accounts.manager import AccountManager
+from src.services.account_settings_service import AccountSettingsService
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -37,6 +38,21 @@ class AccountUserDatabaseTests(unittest.TestCase):
             manager.rename_account(account_id, "新名称")
             with UserDataDao(database_path) as database:
                 self.assertEqual(database.profile()["account_name"], "新名称")
+
+    def test_mirror_cdk_is_account_scoped_update_setting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self.make_manager(Path(temporary))
+            first = manager.initialize()
+            second_id = manager.create_account("第二账号")
+            second_path = manager.account_dir(second_id) / "user_data.sqlite3"
+
+            first_settings = AccountSettingsService(first.user_database_path)
+            second_settings = AccountSettingsService(second_path)
+            self.assertEqual(first_settings.load("update")["mirror_cdk"], "")
+            first_settings.save("update", {"mirror_cdk": "0001bf-private"})
+
+            self.assertEqual(first_settings.load("update")["mirror_cdk"], "0001bf-private")
+            self.assertEqual(second_settings.load("update")["mirror_cdk"], "")
 
 
 if __name__ == "__main__":

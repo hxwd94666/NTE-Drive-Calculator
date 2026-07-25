@@ -20,8 +20,6 @@ from src.app.constants import (
     BILIBILI_HOME_URL,
     CORE_CONFIG_FILES,
     GITHUB_HOME_URL,
-    GITHUB_LATEST_RELEASE_API,
-    GITHUB_RELEASES_URL,
     NETDISK_DOWNLOAD_LINKS,
     QUARK_NETDISK_URL,
 )
@@ -160,12 +158,6 @@ from src.features.home.page import (
     build_home_page,
     inventory_sync_error_guidance,
     refresh_home_page,
-)
-from src.features.settings.updates import (
-    fetch_update_info,
-    is_newer_version,
-    should_show_startup_update,
-    show_update_dialog,
 )
 from src.app.workers import WorkerThread
 from src.services.equipment_plugin_deployment import (

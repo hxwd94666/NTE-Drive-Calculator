@@ -468,14 +468,13 @@ class UpdateWorkflowTests(unittest.TestCase):
         try:
             updates.fetch_update_info(
                 "https://example.invalid/latest",
-                "https://example.invalid/releases",
                 "1.1.0",
             )
         finally:
             updates.urllib.request.urlopen = original_urlopen
 
         self.assertTrue(seen_timeouts)
-        self.assertTrue(all(timeout <= 3 for timeout in seen_timeouts))
+        self.assertTrue(all(timeout <= 5 for timeout in seen_timeouts))
 
     def test_startup_update_error_updates_status_without_prompt(self):
         import src.ui.app as app_module
@@ -499,7 +498,7 @@ class UpdateWorkflowTests(unittest.TestCase):
         window = Window()
         app_module.MainWindow._on_update_error(window, "timeout")
 
-        self.assertIn("GitHub请求失败", window._update_status.text)
+        self.assertIn("Mirror 酱", window._update_status.text)
         self.assertEqual([], window.prompts)
 
     def test_update_network_failure_returns_user_facing_result(self):
@@ -512,7 +511,6 @@ class UpdateWorkflowTests(unittest.TestCase):
         try:
             info = updates.fetch_update_info(
                 "https://example.invalid/latest",
-                "https://example.invalid/releases",
                 "1.1.0",
                 timeout=1,
             )
@@ -521,26 +519,29 @@ class UpdateWorkflowTests(unittest.TestCase):
 
         self.assertFalse(info["has_release"])
         self.assertFalse(info["newer"])
-        self.assertEqual("https://example.invalid/releases", info["url"])
-        self.assertEqual("GitHub请求失败，可前往网盘链接查看版本更新情况", info["message"])
+        self.assertEqual("", info["url"])
+        self.assertEqual("Mirror 酱更新服务请求失败，请稍后重试。", info["message"])
         self.assertNotIn("Traceback", info["message"])
 
-    def test_update_rate_limit_returns_user_facing_result(self):
+    def test_mirror_error_code_returns_user_facing_result(self):
         from src.features.settings import updates
 
         original_urlopen = updates.urllib.request.urlopen
-        error = urllib.error.HTTPError(
-            "https://example.invalid/latest",
-            403,
-            "rate limit exceeded",
-            hdrs=None,
-            fp=None,
-        )
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: (_ for _ in ()).throw(error)
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return '{"code":4001,"msg":"CDK 无效"}'.encode("utf-8")
+
+        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
         try:
             info = updates.fetch_update_info(
                 "https://example.invalid/latest",
-                "https://example.invalid/releases",
                 "1.1.0",
                 timeout=1,
             )
@@ -549,9 +550,9 @@ class UpdateWorkflowTests(unittest.TestCase):
 
         self.assertFalse(info["has_release"])
         self.assertTrue(info["error"])
-        self.assertEqual("GitHub请求失败，可前往网盘链接查看版本更新情况", info["message"])
+        self.assertEqual("CDK 无效", info["message"])
 
-    def test_update_rate_limit_falls_back_to_latest_release_page(self):
+    def test_mirror_update_response_includes_version_notes_and_download_url(self):
         from src.features.settings import updates
 
         class Response:
@@ -562,128 +563,63 @@ class UpdateWorkflowTests(unittest.TestCase):
                 return False
 
             def read(self):
-                return b"{}"
-
-            def geturl(self):
-                return "https://github.com/example/project/releases/tag/1.1.1"
+                return (
+                    '{"code":0,"msg":"success","data":{'
+                    '"version_name":"v2.1.0","url":"https://download.example/file",'
+                    '"release_note":"修复配装页面"}}'
+                ).encode("utf-8")
 
         original_urlopen = updates.urllib.request.urlopen
-        error = urllib.error.HTTPError(
-            "https://api.github.com/repos/example/project/releases/latest",
-            403,
-            "rate limit exceeded",
-            hdrs=None,
-            fp=None,
+        requested_urls = []
+
+        def fake_urlopen(request, **_kwargs):
+            url = request.full_url if hasattr(request, "full_url") else str(request)
+            requested_urls.append(url)
+            return Response()
+
+        updates.urllib.request.urlopen = fake_urlopen
+        try:
+            info = updates.fetch_update_info(
+                "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest",
+                "2.0.0",
+                cdk="0001bf xxxxxx",
+                timeout=1,
+            )
+        finally:
+            updates.urllib.request.urlopen = original_urlopen
+
+        self.assertTrue(info["has_release"])
+        self.assertTrue(info["newer"])
+        self.assertEqual("v2.1.0", info["latest"])
+        self.assertEqual("https://download.example/file", info["url"])
+        self.assertEqual("修复配装页面", info["message"])
+        self.assertEqual(
+            "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest?current_version=2.0.0&cdk=0001bf+xxxxxx",
+            requested_urls[0],
         )
 
-        def fake_urlopen(request, **_kwargs):
-            url = request.full_url if hasattr(request, "full_url") else str(request)
-            if "api.github.com" in url:
-                raise error
-            return Response()
+    def test_update_check_uses_mirror_without_cdk_and_keeps_github_release_link(self):
+        from src.ui.controllers import update_controller
 
-        updates.urllib.request.urlopen = fake_urlopen
+        captured = {}
+        original_fetch = update_controller.fetch_update_info
+
+        def fake_fetch(api_url, version, *, cdk=""):
+            captured.update(api_url=api_url, version=version, cdk=cdk)
+            return {"has_release": True, "latest": "v2.0.1"}
+
+        class Window:
+            pass
+
+        update_controller.fetch_update_info = fake_fetch
         try:
-            info = updates.fetch_update_info(
-                "https://api.github.com/repos/example/project/releases/latest",
-                "https://github.com/example/project/releases",
-                "1.1.0",
-                timeout=1,
-            )
+            info = update_controller._fetch_update_info(Window())
         finally:
-            updates.urllib.request.urlopen = original_urlopen
+            update_controller.fetch_update_info = original_fetch
 
-        self.assertTrue(info["has_release"])
-        self.assertTrue(info["newer"])
-        self.assertEqual("1.1.1", info["latest"])
-        self.assertEqual("https://github.com/example/project/releases/tag/1.1.1", info["release_url"])
-
-    def test_update_check_reads_release_notes_from_atom_feed_without_api_call(self):
-        from src.features.settings import updates
-
-        atom = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <link rel="alternate" type="text/html" href="https://github.com/example/project/releases/tag/1.1.1"/>
-    <title>NTE_Drive_Calc_Setup_1.1.1.exe</title>
-    <content type="html">&lt;p&gt;新功能：&lt;br&gt;1. 修复更新说明&lt;/p&gt;</content>
-  </entry>
-</feed>"""
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return atom.encode("utf-8")
-
-        original_urlopen = updates.urllib.request.urlopen
-
-        def fake_urlopen(request, **_kwargs):
-            url = request.full_url if hasattr(request, "full_url") else str(request)
-            if "api.github.com" in url:
-                raise AssertionError("update check should not call GitHub REST API by default")
-            self.assertTrue(url.endswith("/releases.atom"))
-            return Response()
-
-        updates.urllib.request.urlopen = fake_urlopen
-        try:
-            info = updates.fetch_update_info(
-                "https://api.github.com/repos/example/project/releases/latest",
-                "https://github.com/example/project/releases",
-                "1.1.0",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertTrue(info["has_release"])
-        self.assertTrue(info["newer"])
-        self.assertEqual("1.1.1", info["latest"])
-        self.assertEqual("https://github.com/example/project/releases/tag/1.1.1", info["release_url"])
-        self.assertIn("新功能", info["message"])
-        self.assertIn("修复更新说明", info["message"])
-
-    def test_update_check_falls_back_to_latest_release_page_without_api_call(self):
-        from src.features.settings import updates
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def geturl(self):
-                return "https://github.com/example/project/releases/tag/1.1.1"
-
-        original_urlopen = updates.urllib.request.urlopen
-
-        def fake_urlopen(request, **_kwargs):
-            url = request.full_url if hasattr(request, "full_url") else str(request)
-            if "api.github.com" in url:
-                raise AssertionError("update check should not call GitHub REST API by default")
-            if url.endswith(".atom"):
-                raise urllib.error.URLError("feed unavailable")
-            return Response()
-
-        updates.urllib.request.urlopen = fake_urlopen
-        try:
-            info = updates.fetch_update_info(
-                "https://api.github.com/repos/example/project/releases/latest",
-                "https://github.com/example/project/releases",
-                "1.1.0",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertTrue(info["has_release"])
-        self.assertTrue(info["newer"])
-        self.assertEqual("1.1.1", info["latest"])
+        self.assertEqual("", captured["cdk"])
+        self.assertIn("mirrorchyan.com/api/resources/NTE-Drive-Calc/latest", captured["api_url"])
+        self.assertTrue(info["release_url"].endswith("/releases"))
 
     def test_update_dialog_link_prefers_download_url(self):
         from src.features.settings.updates import update_dialog_link_url

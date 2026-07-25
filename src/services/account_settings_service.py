@@ -26,6 +26,12 @@ _UI_RUNTIME_DEFAULTS = {
     "equipment_plugin_backup_path": "",
     "equipment_plugin_deployed_sha256": "",
 }
+_UPDATE_RUNTIME_DEFAULTS = {
+    # Kept account-scoped in the private SQLite database.  Older bundled
+    # static databases do not yet include this key, so retain a safe runtime
+    # default during the transition.
+    "mirror_cdk": "",
+}
 
 
 class AccountSettingsService:
@@ -145,6 +151,8 @@ class AccountSettingsService:
         effective_defaults = dict(defaults)
         if key == "ui":
             effective_defaults.update(_UI_RUNTIME_DEFAULTS)
+        elif key == "update":
+            effective_defaults.update(_UPDATE_RUNTIME_DEFAULTS)
         normalized = {
             name: value.get(name, default)
             for name, default in effective_defaults.items()
@@ -202,6 +210,9 @@ class AccountSettingsService:
             normalized["never_remind"] = bool(normalized["never_remind"])
             normalized["ignored_version"] = str(
                 normalized["ignored_version"] or ""
+            ).strip()
+            normalized["mirror_cdk"] = str(
+                normalized.get("mirror_cdk") or ""
             ).strip()
         elif key == "ui":
             for name in (

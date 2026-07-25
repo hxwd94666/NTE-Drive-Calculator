@@ -97,7 +97,7 @@
 - 夸克网盘: <https://pan.quark.cn/s/82f16b845aec>
 - 百度网盘: <https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke>
 - B站主页: <https://b23.tv/nXJGdh3>
-> 每次更新使用网盘转存会有一定收益，手机转存收益更高，大家可以支持一下。
+> 每次更新使用网盘转存本人会有一定收益，手机转存收益更高，可将此当做无消费支持。
 
 安装时建议保留 `Install ViGEmBus virtual gamepad driver` 勾选。扫描功能需要虚拟手柄驱动来模拟背包翻页操作。
 
@@ -171,11 +171,20 @@ python main.py
 .\.venv\Scripts\python.exe .\build_installer.py
 ```
 
-## 许可证与第三方组件
+## 📑许可证与第三方组件
 
 项目自有源代码以 [AGPL-3.0](LICENSE) 发布。随程序分发的 `nte-core.exe`、`dwmapi.dll` 与 ViGEmBus 是独立组件，其来源、适用条款和通知见 [NOTICE](NOTICE) 及 `third_party/`；根许可证不会改写它们各自的许可证或授权。
 
 本工具为非官方玩家工具。游戏名称、角色、素材及相关权利归各自权利人所有；使用抓包、插件或自动化功能前，请自行确认适用的游戏规则、服务条款和当地法律。
+
+
+## 💖支持我们 
+
+[<img width="150" alt="赞助我们" src="https://pic1.afdiancdn.com/static/img/welcome/button-sponsorme.png">](https://afdian.com/a/hxwd94666)
+
+喜欢我们项目的话，可以考虑支持一下哦~
+
+目前打赏用户可进群及时反馈bug和提出新功能需求！
 
 ## 👥贡献者
 
