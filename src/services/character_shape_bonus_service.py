@@ -19,7 +19,9 @@ def _shape_grid_count(shape_label: str) -> int:
     match = re.search(r"(\d+)", str(shape_label or ""))
     grid_count = int(match.group(1)) if match is not None else 0
     if grid_count <= 0:
-        raise ValueError("额外形状标签必须包含有效格数，例如 Type-3")
+        raise ValueError(
+            f"额外形状标签必须包含有效格数，例如 Type-3（当前值：{shape_label!r}）"
+        )
     return grid_count
 
 
@@ -41,7 +43,6 @@ def save_public_character_shape_bonus(
     if raw_character_id <= 0:
         raise ValueError("character_id 必须为正整数")
     normalized_label = str(shape_label or "").strip()
-    grid_count = _shape_grid_count(normalized_label)
     if not isinstance(property_values, Mapping):
         raise ValueError("额外形状加成必须是属性映射")
     normalized_properties: list[tuple[str, float]] = []
@@ -72,6 +73,18 @@ def save_public_character_shape_bonus(
         if character is None or not character["logical_character_key"]:
             raise ValueError(f"公共静态数据库没有角色 {raw_character_id} 的逻辑角色标识")
         logical_key = str(character["logical_character_key"])
+        existing = connection.execute(
+            """SELECT representative_character_id, source_kind, shape_label
+               FROM logical_character_shape_bonus
+               WHERE logical_character_key = ?""",
+            (logical_key,),
+        ).fetchone()
+        # Editing only the numeric bonus must not fail merely because a stale
+        # UI draft did not retain the already configured label.
+        effective_label = normalized_label or str(
+            existing["shape_label"] if existing is not None else ""
+        ).strip()
+        grid_count = _shape_grid_count(effective_label)
         known_properties = {
             str(row[0])
             for row in connection.execute("SELECT attribute_id FROM equipment_attribute")
@@ -84,12 +97,6 @@ def save_public_character_shape_bonus(
             raise ValueError(f"额外形状加成包含未知官方属性：{'、'.join(unknown)}")
 
         connection.execute("BEGIN IMMEDIATE")
-        existing = connection.execute(
-            """SELECT representative_character_id, source_kind
-               FROM logical_character_shape_bonus
-               WHERE logical_character_key = ?""",
-            (logical_key,),
-        ).fetchone()
         representative_id = (
             int(existing["representative_character_id"])
             if existing is not None else raw_character_id
@@ -107,7 +114,7 @@ def save_public_character_shape_bonus(
                    shape_label = excluded.shape_label,
                    shape_grid_count = excluded.shape_grid_count,
                    source_kind = excluded.source_kind""",
-            (logical_key, representative_id, normalized_label, grid_count, source_kind),
+            (logical_key, representative_id, effective_label, grid_count, source_kind),
         )
         connection.execute(
             "DELETE FROM logical_character_shape_bonus_property WHERE logical_character_key = ?",

@@ -65,3 +65,21 @@ class CharacterShapeBonusServiceTests(unittest.TestCase):
         )
         self.assertEqual("default", after["source_kind"])
         self.assertEqual(before["updated_at_utc"], after["updated_at_utc"])
+
+    def test_keeps_current_public_label_when_a_bonus_only_save_has_empty_label(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "game_static.sqlite3"
+            shutil.copy2(PROJECT_DATABASE, database)
+
+            saved = save_public_character_shape_bonus(
+                1051,
+                shape_label="",
+                property_values={"AtkUp": 10.0},
+                database_path=database,
+            )
+
+        self.assertTrue(saved["shape_label"].startswith("Type-"))
+        self.assertEqual(
+            [("AtkUp", 10.0)],
+            [(row["property_id"], row["display_value"]) for row in saved["properties"]],
+        )
