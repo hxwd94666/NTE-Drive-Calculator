@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import shutil
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -67,11 +68,13 @@ def snapshot(generation: int, items: list[dict]) -> dict:
 
 class AllocationContextTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.static_database_path = Path(self.temp_dir.name) / "game_static.sqlite3"
+        shutil.copy2(STATIC_DATABASE_PATH, self.static_database_path)
         self.static_database_env = patch.dict(
-            "os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}
+            "os.environ", {STATIC_DATABASE_ENV: str(self.static_database_path)}
         )
         self.static_database_env.start()
-        self.temp_dir = tempfile.TemporaryDirectory()
         self.user_dao = UserDataDao(
             Path(self.temp_dir.name) / "user.sqlite3", account_id="allocation-context"
         )
@@ -233,16 +236,23 @@ class AllocationContextTests(unittest.TestCase):
         )
         self.assertTrue(context.roles[0].extra_shape_label)
 
-    def test_context_uses_account_shape_bonus_override(self) -> None:
+    def test_context_uses_public_shape_bonus_override(self) -> None:
+        from src.services.character_shape_bonus_service import (
+            save_public_character_shape_bonus,
+        )
+
         snapshot_id = self.user_dao.import_inventory_snapshot(
             snapshot(1, [item(101, 11, kind="module")])
         )
         profile = self._profile()
-        self.user_dao.save_character_shape_bonus_preferences(
+        self.static_dao.close()
+        save_public_character_shape_bonus(
             1003,
             shape_label="Type-4",
             property_values={"CritBase": 8.0},
+            database_path=self.static_database_path,
         )
+        self.static_dao = StaticGameDataDao()
 
         context = build_allocation_context(
             self.user_dao, self.static_dao, snapshot_id=snapshot_id,

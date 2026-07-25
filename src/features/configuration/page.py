@@ -25,12 +25,11 @@ from src.app.theme import themed_style
 from src.domain.stat_catalog import StatCatalog
 from src.services.character_weight_service import (
     ensure_account_character_weights,
-    save_account_character_shape_bonus,
     save_account_character_weights,
 )
+from src.services.character_shape_bonus_service import save_public_character_shape_bonus
 from src.services.official_role_page_service import load_official_role_index
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 _ACCOUNT_WEIGHT_CONFIG = "account_weights"
@@ -125,11 +124,6 @@ def _account_weight_config() -> dict[str, dict]:
         runtime.USER_DATABASE_PATH,
         character_ids,
     )
-    with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
-        account_shape_bonuses = {
-            character_id: user_dao.get_character_shape_bonus_preferences(character_id)
-            for character_id in character_ids
-        }
     with StaticGameDataDao() as static_dao:
         attributes = {
             str(row["attribute_id"]): row
@@ -179,20 +173,11 @@ def _account_weight_config() -> dict[str, dict]:
             character_id = int(character["character_id"])
             record = account_weights.get(character_id) or {}
             shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
-            shape_override = account_shape_bonuses.get(character_id)
-            shape_label = (
-                str(shape_override.get("shape_label") or "")
-                if shape_override is not None
-                else str(shape_bonus.get("shape_label") or "")
-            )
-            shape_buffs = (
-                dict(shape_override.get("property_values") or {})
-                if shape_override is not None
-                else {
-                    str(row["property_id"]): float(row["display_value"])
-                    for row in shape_bonus.get("properties") or ()
-                }
-            )
+            shape_label = str(shape_bonus.get("shape_label") or "")
+            shape_buffs = {
+                str(row["property_id"]): float(row["display_value"])
+                for row in shape_bonus.get("properties") or ()
+            }
             result[str(character.get("name_zh") or character_id)] = {
                 "character_id": character_id,
                 "source_kind": str(record.get("source_kind") or "default"),
@@ -312,7 +297,7 @@ def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
     current_label = str(role_data.get("extra_shape_label") or "")
     value.setCurrentText(current_label)
     value.setPlaceholderText("选择额外形状标签")
-    value.setToolTip("选择额外形状标签；点击“保存”后才写入当前账号 SQLite。")
+    value.setToolTip("选择额外形状标签；点击“保存”后写入本机公共 SQLite，所有账号共用。")
     value.currentTextChanged.connect(
         lambda text, rn=role_name: save_extra_shape_label(window, rn, text, data)
     )
@@ -339,7 +324,7 @@ def _add_extra_shape_buff_row(
         property_combo.addItem(str(label), str(property_id))
     selected_index = property_combo.findData(str(selected_property))
     property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
-    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后才写入当前账号 SQLite。")
+    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后写入本机公共 SQLite，所有账号共用。")
     row.addWidget(property_combo, 1)
     value_spin = NoWheelDoubleSpinBox()
     value_spin.setRange(0, 1000000)
@@ -348,7 +333,7 @@ def _add_extra_shape_buff_row(
     value_spin.setValue(float(selected_value))
     value_spin.setKeyboardTracking(False)
     value_spin.setEnabled(bool(property_combo.currentData()))
-    value_spin.setToolTip("额外形状加成数值；点击“保存”后才写入当前账号 SQLite。")
+    value_spin.setToolTip("额外形状加成数值；点击“保存”后写入本机公共 SQLite，所有账号共用。")
     row.addWidget(value_spin)
     form_layout.addLayout(row)
 
@@ -602,8 +587,7 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
             character_id = int(role_data["character_id"])
             if character_id not in shape_bonus_dirty_ids:
                 continue
-            save_account_character_shape_bonus(
-                runtime.USER_DATABASE_PATH,
+            save_public_character_shape_bonus(
                 character_id,
                 shape_label=str(role_data.get("extra_shape_label") or ""),
                 property_values=role_data.get("extra_shape_buffs") or {},
@@ -620,7 +604,7 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     QMessageBox.information(
         window,
         "保存",
-        "词条权重和额外形状加成已保存到当前账号 SQLite。",
+        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到本机公共 SQLite。",
     )
 
 

@@ -139,6 +139,61 @@ class EquipmentApplyService:
         )
 
     @staticmethod
+    def _validate_native_plan_assignments(plan: Mapping[str, Any]) -> tuple[list[dict], list[dict]]:
+        """Reject display-only/partial plans before any equipment RPC is sent."""
+
+        assignments = list(plan.get("assignments") or ())
+        modules = [item for item in assignments if item.get("kind") == "module"]
+        cores = [item for item in assignments if item.get("kind") == "core"]
+        for assignment in assignments:
+            raw_assignment = assignment.get("raw_assignment")
+            virtual = isinstance(raw_assignment, Mapping) and bool(raw_assignment.get("virtual"))
+            if virtual or int(assignment.get("uid_slot") or 0) <= 0:
+                raise EquipmentApplyError(
+                    "方案包含虚拟补位驱动（slot=0），它不属于真实背包，不能极速装配；"
+                    "请重新计算并保存完整方案"
+                )
+        if str(plan.get("status") or "") != "ready":
+            raise EquipmentApplyError(
+                "该方案仍是不完整方案，不能极速装配；请用当前稳定背包重新计算并保存"
+            )
+        if not 1 <= len(modules) <= 64 or len(cores) > 1:
+            raise EquipmentApplyError("装配方案必须包含 1..64 个驱动，且至多包含 1 个核心")
+        return modules, cores
+
+    def validate_plan_for_fast_apply(
+        self, plan_id: int, *, stable_snapshot_id: int,
+    ) -> dict[str, Any]:
+        """Check every native UID before creating or resuming an apply job.
+
+        This deliberately validates the whole plan before the first RPC.  A
+        historical incomplete plan may contain visual virtual placeholders;
+        discovering one after previous roles were dispatched leaves a job only
+        partially applied.
+        """
+
+        snapshot_id = int(stable_snapshot_id)
+        if self.user_dao.inventory_snapshot_summary(snapshot_id) is None:
+            raise EquipmentApplyError("指定的稳定背包快照不存在")
+        plan = self.user_dao.get_loadout_plan(plan_id)
+        if plan is None:
+            raise EquipmentApplyError(f"装配方案 {plan_id} 不存在")
+        modules, cores = self._validate_native_plan_assignments(plan)
+        inventory_by_uid = {
+            (item["uid_serial"], item["uid_slot"]): item
+            for item in self.user_dao.list_inventory_items(snapshot_id)
+        }
+        for assignment in modules:
+            uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
+            if inventory_by_uid.get(uid_pair, {}).get("kind") != "module":
+                raise EquipmentApplyError(f"方案驱动 UID {uid_pair} 不在当前稳定背包中")
+        for assignment in cores:
+            uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
+            if inventory_by_uid.get(uid_pair, {}).get("kind") != "core":
+                raise EquipmentApplyError(f"方案核心 UID {uid_pair} 不在当前稳定背包中")
+        return plan
+
+    @staticmethod
     def _plan_mismatch(
         *,
         items: list[dict[str, Any]],
@@ -259,14 +314,12 @@ class EquipmentApplyService:
             if self.user_dao.inventory_snapshot_summary(before_snapshot_id) is None:
                 raise EquipmentApplyError("指定的稳定背包快照不存在")
 
-        plan = self.user_dao.get_loadout_plan(plan_id)
-        if plan is None:
-            raise EquipmentApplyError(f"装配方案 {plan_id} 不存在")
+        plan = self.validate_plan_for_fast_apply(
+            plan_id, stable_snapshot_id=before_snapshot_id,
+        )
         assignments = plan["assignments"]
         modules = [item for item in assignments if item["kind"] == "module"]
         cores = [item for item in assignments if item["kind"] == "core"]
-        if not 1 <= len(modules) <= 64 or len(cores) > 1:
-            raise EquipmentApplyError("装配方案必须包含 1..64 个驱动，且至多包含 1 个核心")
 
         current_items = self.user_dao.list_inventory_items(before_snapshot_id)
         by_uid = {

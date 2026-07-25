@@ -648,3 +648,20 @@ class InventorySnapshotDaoMixin:
             (snapshot_id,),
         )
         return _decoded(row["raw_snapshot_json"], {}) if row is not None else None
+
+    def snapshot_has_independent_character_instances(self, snapshot_id: int) -> bool:
+        """Whether this immutable snapshot was emitted with ``characters``.
+
+        Old nte-core snapshots can still have mappings inferred from equipped
+        equipment.  Those mappings are useful for display, but they cannot
+        prove that every owned character UID was captured.  Keep this check on
+        the original event payload so the sync UI can distinguish that legacy
+        condition from a v0.3.5+ independent-character snapshot.
+        """
+
+        raw_snapshot_id = _integer(snapshot_id, "snapshot_id", minimum=1)
+        raw = self.raw_snapshot(raw_snapshot_id)
+        if not isinstance(raw, Mapping):
+            return False
+        payload = raw.get("params") if raw.get("method") == "event.inventory.snapshot" else raw
+        return isinstance(payload, Mapping) and isinstance(payload.get("characters"), list)

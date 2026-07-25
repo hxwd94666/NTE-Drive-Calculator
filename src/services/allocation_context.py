@@ -381,21 +381,11 @@ def _allocation_role_values(
         weights = {}
         main_weights = {}
     shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
-    shape_override = user_dao.get_character_shape_bonus_preferences(character_id)
-    if shape_override is not None:
-        extra_shape_label = str(shape_override.get("shape_label") or "")
-        extra_shape_buffs = {
-            str(property_id): float(value)
-            for property_id, value in (
-                shape_override.get("property_values") or {}
-            ).items()
-        }
-    else:
-        extra_shape_label = str(shape_bonus.get("shape_label") or "")
-        extra_shape_buffs = {
-            str(row["property_id"]): float(row["display_value"])
-            for row in shape_bonus.get("properties") or ()
-        }
+    extra_shape_label = str(shape_bonus.get("shape_label") or "")
+    extra_shape_buffs = {
+        str(row["property_id"]): float(row["display_value"])
+        for row in shape_bonus.get("properties") or ()
+    }
     return (
         weights,
         main_weights,

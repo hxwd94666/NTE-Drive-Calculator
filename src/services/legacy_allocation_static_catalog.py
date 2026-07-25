@@ -16,7 +16,6 @@ from src.models.equipment import DriveShape
 from src.optimizer.scoring import ScoringEngine
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 _LEGACY_SHAPE_LABELS = {
@@ -59,20 +58,8 @@ def build_legacy_allocation_static_catalog(
     sets_db: dict[str, dict[str, Any]] = {}
     shapes_db: dict[str, DriveShape] = {}
     board_matrices: dict[str, list[list[int]]] = {}
-    database_path = Path(user_database_path) if user_database_path is not None else None
-
     with StaticGameDataDao() as static_dao:
         characters = static_dao.list_role_template_characters()
-        shape_bonus_overrides: dict[int, dict[str, Any]] = {}
-        if database_path is not None and database_path.is_file():
-            with UserDataDao(database_path) as user_dao:
-                shape_bonus_overrides = {
-                    character_id: override
-                    for character in characters
-                    if (override := user_dao.get_character_shape_bonus_preferences(
-                        character_id := int(character["character_id"])
-                    )) is not None
-                }
         for suit in static_dao.list_suits():
             name = str(suit.get("name_zh") or suit["suit_id"])
             sets_db[name] = {
@@ -103,27 +90,12 @@ def build_legacy_allocation_static_catalog(
             if suit_name not in sets_db:
                 raise ValueError(f"角色 [{role_name}] 的官方默认套装不存在：{suit_name}")
             shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
-            shape_override = shape_bonus_overrides.get(character_id)
-            extra_shape_label = (
-                str(shape_override.get("shape_label") or "")
-                if shape_override is not None
-                else str(shape_bonus.get("shape_label") or "")
-            )
-            extra_shape_buffs = (
-                {
-                    attributes[property_id]: float(value)
-                    for property_id, value in (
-                        shape_override.get("property_values") or {}
-                    ).items()
-                    if attributes.get(str(property_id))
-                }
-                if shape_override is not None
-                else {
-                    attributes[str(row["property_id"])]: float(row["display_value"])
-                    for row in shape_bonus.get("properties") or ()
-                    if attributes.get(str(row["property_id"]))
-                }
-            )
+            extra_shape_label = str(shape_bonus.get("shape_label") or "")
+            extra_shape_buffs = {
+                attributes[str(row["property_id"])]: float(row["display_value"])
+                for row in shape_bonus.get("properties") or ()
+                if attributes.get(str(row["property_id"]))
+            }
             scoring_role = scoring.roles_db.get(role_name, {})
             roles_db[role_name] = {
                 "character_id": character_id,

@@ -1,5 +1,6 @@
 # 测试静态游戏数据库结构及其构建规则。
 import importlib.util
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -68,9 +69,9 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertGreater(len(catalog.sets_db), 0)
         self.assertGreater(len(catalog.shapes_db), 0)
 
-    def test_legacy_calculation_catalog_uses_account_shape_bonus_override(self):
-        from src.services.character_weight_service import (
-            save_account_character_shape_bonus,
+    def test_legacy_calculation_catalog_uses_public_shape_bonus(self):
+        from src.services.character_shape_bonus_service import (
+            save_public_character_shape_bonus,
         )
         from src.services.legacy_allocation_static_catalog import (
             build_legacy_allocation_static_catalog,
@@ -79,18 +80,20 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "user.sqlite3"
+            static_database = Path(directory) / "game_static.sqlite3"
+            shutil.copy2(PROJECT_DATABASE_PATH, static_database)
             with UserDataDao(database, account_id="shape-override"):
                 pass
-            save_account_character_shape_bonus(
-                database,
-                1051,
-                shape_label="Type-4",
-                property_values={"CritBase": 8.0},
-            )
-            catalog = build_legacy_allocation_static_catalog(
-                config_dir=PROJECT_ROOT / "config",
-                user_database_path=database,
-            )
+            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}):
+                save_public_character_shape_bonus(
+                    1051,
+                    shape_label="Type-4",
+                    property_values={"CritBase": 8.0},
+                )
+                catalog = build_legacy_allocation_static_catalog(
+                    config_dir=PROJECT_ROOT / "config",
+                    user_database_path=database,
+                )
 
         self.assertEqual("Type-4", catalog.roles_db["「零」"]["extra_shape_label"])
         self.assertEqual(
@@ -98,12 +101,15 @@ class StaticGameDatabaseTests(unittest.TestCase):
             catalog.roles_db["「零」"]["extra_shape_buffs"],
         )
 
-    def test_weight_page_saves_shape_bonus_override_to_account_sqlite(self):
+    def test_weight_page_saves_shape_bonus_to_public_sqlite(self):
         from src.features.configuration import page as configuration_page
+        from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
         from src.storage.sqlite.user_data_dao import UserDataDao
 
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "user.sqlite3"
+            static_database = Path(directory) / "game_static.sqlite3"
+            shutil.copy2(PROJECT_DATABASE_PATH, static_database)
             with UserDataDao(database, account_id="weight-page"):
                 pass
             window = SimpleNamespace(
@@ -123,21 +129,23 @@ class StaticGameDatabaseTests(unittest.TestCase):
                 reloaded=False,
             )
             window._load_data = lambda: setattr(window, "reloaded", True)
-            with patch.object(
-                configuration_page.runtime, "USER_DATABASE_PATH", database,
-                create=True,
-            ), patch.object(
-                configuration_page.QMessageBox, "information",
-            ), patch.object(configuration_page.QMessageBox, "warning"):
+            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}), \
+                 patch.object(configuration_page.runtime, "USER_DATABASE_PATH", database, create=True), \
+                 patch.object(configuration_page.QMessageBox, "information"), \
+                 patch.object(configuration_page.QMessageBox, "warning"):
                 configuration_page.save_config_form(window, PROJECT_ROOT / "config", None)
             with UserDataDao(database) as user_dao:
                 weights = user_dao.get_character_weight_preferences(1051)
-                shape_bonus = user_dao.get_character_shape_bonus_preferences(1051)
+            with StaticGameDataDao(static_database) as static_dao:
+                shape_bonus = static_dao.get_character_shape_bonus(1051)
 
         self.assertTrue(window.reloaded)
         self.assertEqual({"CritBase": 1.25}, weights["property_weights"])
         self.assertEqual("Type-2", shape_bonus["shape_label"])
-        self.assertEqual({"AtkUp": 15.0}, shape_bonus["property_values"])
+        self.assertEqual(
+            [("AtkUp", 15.0)],
+            [(row["property_id"], row["display_value"]) for row in shape_bonus["properties"]],
+        )
 
     def test_checked_in_distribution_database_has_no_source_payloads(self):
         self.assertTrue(PROJECT_DATABASE_PATH.is_file())

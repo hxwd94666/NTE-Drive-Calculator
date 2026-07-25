@@ -33,18 +33,27 @@ def item(serial: int, *, level: int = 1, equipped: bool = False) -> dict:
     }
 
 
-def snapshot(*items: dict, generation: int = 1, sequence: int = 1) -> dict:
+def snapshot(
+    *items: dict,
+    generation: int = 1,
+    sequence: int = 1,
+    characters: list[dict] | None = None,
+) -> dict:
+    params = {
+        "complete": True,
+        "item_count": len(items),
+        "items": list(items),
+        "generation": generation,
+        "sequence": sequence,
+        "observed_at_unix_ms": 1_800_000_000_000 + sequence,
+    }
+    if characters is not None:
+        params["characters"] = characters
+        params["character_count"] = len(characters)
     return {
         "jsonrpc": "2.0",
         "method": "event.inventory.snapshot",
-        "params": {
-            "complete": True,
-            "item_count": len(items),
-            "items": list(items),
-            "generation": generation,
-            "sequence": sequence,
-            "observed_at_unix_ms": 1_800_000_000_000 + sequence,
-        },
+        "params": params,
     }
 
 
@@ -162,6 +171,42 @@ class InventorySyncServiceTests(unittest.TestCase):
             self.assertEqual(1, dao.current_inventory_summary()["stored_item_count"])
             self.assertEqual(1, dao.summary()["snapshot_count"])
         self.assertEqual([True], self.template_refreshes)
+
+    def test_legacy_snapshot_is_not_presented_as_fast_assembly_ready(self) -> None:
+        """A pre-v0.3.5 snapshot has items but no independent character UIDs."""
+
+        self._start()
+        self.core.emit(snapshot(item(1), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        with UserDataDao(self.database_path) as dao:
+            self.assertFalse(
+                dao.snapshot_has_independent_character_instances(first.last_snapshot_id)
+            )
+
+        self.service.stop()
+        self.service.start()
+        state = self.service.wait_for_phase("listening", timeout=2.0)
+        self.assertIn("旧版背包快照", state.message)
+
+    def test_keeps_new_character_instance_candidate_when_legacy_event_follows(self) -> None:
+        """A trailing old-format event must not cancel the v0.3.5 upgrade."""
+
+        self._start()
+        self.core.emit(snapshot(item(1), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+
+        self.service.start()
+        self.service.wait_for_phase("listening", timeout=2.0)
+        characters = [{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}]
+        self.core.emit(snapshot(item(1), generation=2, sequence=2, characters=characters))
+        self.service.wait_for_phase("collecting", timeout=2.0)
+        self.core.emit(snapshot(item(1), generation=2, sequence=3))
+        second = self.service.wait_for_snapshot(after_snapshot_id=first.last_snapshot_id, timeout=2.0)
+
+        with UserDataDao(self.database_path) as dao:
+            self.assertTrue(dao.snapshot_has_independent_character_instances(second.last_snapshot_id))
+            self.assertEqual(1001, dao.list_character_instance_mappings()[0]["character_id"])
 
     def test_two_separate_change_bursts_create_two_atomic_versions(self) -> None:
         self._start()

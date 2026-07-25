@@ -269,7 +269,12 @@ class InventorySyncService:
             event = self._latest_inventory_event
             self._latest_inventory_event = None
             self._event_ready.clear()
-            return event
+        return event
+
+    @staticmethod
+    def _event_has_independent_character_instances(event: Mapping[str, Any]) -> bool:
+        payload = event.get("params") if event.get("method") == "event.inventory.snapshot" else event
+        return isinstance(payload, Mapping) and isinstance(payload.get("characters"), list)
 
     def _open_dao(self) -> UserDataDao:
         kwargs: dict[str, Any] = {}
@@ -301,6 +306,11 @@ class InventorySyncService:
                 )
                 stabilizer = InventorySnapshotStabilizer(settle_seconds)
                 current_id = dao.current_inventory_snapshot_id()
+                current_has_character_instances = (
+                    dao.snapshot_has_independent_character_instances(current_id)
+                    if current_id is not None
+                    else False
+                )
                 if current_id is not None:
                     previous = dao.raw_snapshot(current_id)
                     if previous:
@@ -329,7 +339,12 @@ class InventorySyncService:
                     "waiting" if current_summary is None else "listening",
                     "等待进入游戏并接收完整背包"
                     if current_summary is None
-                    else "背包已同步，正在后台监听变化",
+                    else (
+                        "当前为旧版背包快照，未包含独立角色实例；"
+                        "正在等待新 nte-core 写入完整角色快照"
+                        if not current_has_character_instances
+                        else "背包已同步，正在后台监听变化"
+                    ),
                     running=True,
                     capturing=True,
                     last_snapshot_id=current_id,
@@ -345,6 +360,22 @@ class InventorySyncService:
                     self._event_ready.wait(self._poll_seconds)
                     event = self._take_latest_event()
                     if event is not None:
+                        # Some transitions from the old capture stream emit a
+                        # legacy inventory event immediately after the new
+                        # v0.3.5 event.  If the saved snapshot is legacy and a
+                        # candidate already has independent character UIDs,
+                        # allowing that fallback through would erase the
+                        # candidate as a mere "revert" before it can settle.
+                        # Only prefer the richer event during this one-time
+                        # format upgrade; normal inventory changes remain
+                        # governed by the stabilizer.
+                        if (
+                            not current_has_character_instances
+                            and not self._event_has_independent_character_instances(event)
+                            and stabilizer.pending_has_independent_character_instances
+                        ):
+                            logger.debug("忽略紧随角色实例快照后的旧格式背包事件")
+                            continue
                         result = stabilizer.offer(event)
                         if result.status in {"collecting", "changed"}:
                             self._publish(
@@ -360,7 +391,13 @@ class InventorySyncService:
                         elif result.status == "reverted":
                             self._publish(
                                 "listening",
-                                "背包变化已撤销，继续后台监听",
+                                (
+                                    "收到与旧版快照相同的背包内容；其中未包含独立角色实例，"
+                                    "极速装配仍不可用。请确认本次运行的是新 nte-core，"
+                                    "并等待其输出带 characters 的完整快照"
+                                    if not current_has_character_instances
+                                    else "背包变化已撤销，继续后台监听"
+                                ),
                                 running=True,
                                 capturing=True,
                                 pending_item_count=None,
@@ -397,6 +434,7 @@ class InventorySyncService:
                         )
                         continue
                     stabilizer.mark_committed(stable.fingerprint)
+                    current_has_character_instances = dao.snapshot_has_independent_character_instances(snapshot_id)
                     if self._template_refresh is not None:
                         try:
                             refreshed = self._template_refresh()

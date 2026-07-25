@@ -216,6 +216,13 @@ class InventorySnapshotStabilizer:
         return self._candidate.item_count if self._candidate is not None else None
 
     @property
+    def pending_has_independent_character_instances(self) -> bool:
+        """Whether the pending candidate carries a ``characters`` payload."""
+
+        candidate = self._candidate
+        return candidate is not None and isinstance(candidate.payload.get("characters"), list)
+
+    @property
     def committed_fingerprint(self) -> str | None:
         return self._committed_fingerprint
 

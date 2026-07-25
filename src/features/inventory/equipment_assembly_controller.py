@@ -270,6 +270,7 @@ def _run_nte_core_equipment_apply(
 
     identity_overrides = identity_overrides or {}
     applied: list[dict] = []
+    pinned_snapshot_id: int | None = None
     with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
         apply_service = EquipmentApplyService(user_dao, sync_service)
         if job_id is not None:
@@ -298,6 +299,19 @@ def _run_nte_core_equipment_apply(
             ]
             if not prepared:
                 return {"job_id": job_id, "applied": [], "completed": job["status"] == "completed"}
+            pinned_snapshot_id = apply_service.require_stable_snapshot()
+            preflight_errors = []
+            for prepared_role in prepared:
+                try:
+                    apply_service.validate_plan_for_fast_apply(
+                        prepared_role["plan_id"], stable_snapshot_id=pinned_snapshot_id,
+                    )
+                except Exception as exc:
+                    preflight_errors.append({
+                        "role_name": prepared_role["role_name"], "error": str(exc),
+                    })
+            if preflight_errors:
+                return {"job_id": job_id, "applied": [], "preflight_errors": preflight_errors}
         else:
             initial_snapshot_id = user_dao.current_inventory_snapshot_id()
             if initial_snapshot_id is None:
@@ -307,6 +321,7 @@ def _run_nte_core_equipment_apply(
             # 方案移走而暂时全身为空，此时再从当前快照解析会失败。
             prepared: list[dict] = []
             identity_requests: list[dict] = []
+            preflight_errors: list[dict] = []
             for role_name in role_names:
                 plan = user_dao.get_active_loadout_plan_for_role(role_name)
                 if plan is None:
@@ -324,6 +339,13 @@ def _run_nte_core_equipment_apply(
                         f"装配前检查 [{role_name}] 失败，视觉扫描库存没有本地组件可用的原生 UID。"
                         "请改用自动装配；极速装配仅支持抓包稳定快照。"
                     )
+                try:
+                    apply_service.validate_plan_for_fast_apply(
+                        plan["plan_id"], stable_snapshot_id=initial_snapshot_id,
+                    )
+                except Exception as exc:
+                    preflight_errors.append({"role_name": role_name, "error": str(exc)})
+                    continue
                 override = identity_overrides.get(role_name)
                 try:
                     character_id = int(override["character_id"]) if override else int(plan["character_id"])
@@ -348,6 +370,8 @@ def _run_nte_core_equipment_apply(
                     "module_count": sum(1 for row in plan["assignments"] if row["kind"] == "module"),
                     "core_count": sum(1 for row in plan["assignments"] if row["kind"] == "core"),
                 })
+            if preflight_errors:
+                return {"applied": [], "preflight_errors": preflight_errors}
             if identity_requests:
                 return {"identity_requests": identity_requests}
             job_id = user_dao.create_equipment_apply_job(initial_snapshot_id, prepared)
@@ -358,7 +382,7 @@ def _run_nte_core_equipment_apply(
         # listener out of ``listening``.  Validate and pin one login-time
         # snapshot for the whole job; checking that volatile state again for
         # every following role incorrectly aborts an otherwise valid job.
-        stable_snapshot_id = apply_service.require_stable_snapshot()
+        stable_snapshot_id = pinned_snapshot_id or apply_service.require_stable_snapshot()
         _report_fast_apply_progress(
             progress_callback,
             current=0,
@@ -535,6 +559,19 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
 
     def on_result(report: dict) -> None:
         close_progress_dialog()
+        preflight_errors = report.get("preflight_errors") or []
+        if preflight_errors:
+            details = "\n".join(
+                f"• [{row.get('role_name', '未知角色')}]：{row.get('error', '方案不可用')}"
+                for row in preflight_errors
+            )
+            QMessageBox.warning(
+                self,
+                "极速装配未开始",
+                "没有向游戏发送任何装配指令。以下已保存方案不能用于极速装配：\n\n"
+                f"{details}\n\n请重新计算并保存完整方案后再试。",
+            )
+            return
         requests = report.get("identity_requests") or []
         if requests:
             overrides = _prompt_character_identity_requests(self, requests)

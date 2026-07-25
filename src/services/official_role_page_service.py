@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from src.app import runtime
-from src.services.character_weight_service import ensure_account_character_weights
+from src.services.character_weight_service import (
+    ensure_account_character_weights,
+    is_unmodified_account_weight_cache,
+)
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.equipment_level_projection_service import (
     project_equipment_items_to_max_level,
@@ -1290,16 +1293,7 @@ def load_official_role_detail(
                     item["equipped_character_icon_path"] = str(owner_icon)
         equipment_plan = static_dao.get_equipment_plan(character_id)
         static_shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
-        shape_bonus_override = user_dao.get_character_shape_bonus_preferences(
-            character_id
-        )
-        shape_bonus = {
-            **static_shape_bonus,
-            **({
-                "shape_label": str(shape_bonus_override.get("shape_label") or ""),
-                "properties": list(shape_bonus_override.get("properties") or ()),
-            } if shape_bonus_override is not None else {}),
-        }
+        shape_bonus = static_shape_bonus
         current_calculation_items = project_equipment_items_to_max_level(
             current_items,
             static_dao,
@@ -1310,7 +1304,11 @@ def load_official_role_detail(
         )
         graduation_template = static_dao.get_character_graduation_template(character_id)
         account_weights = user_dao.get_character_weight_preferences(character_id)
-        weight_record = account_weights or {}
+        weight_record = (
+            static_dao.get_character_recommended_weights(character_id)
+            if account_weights is None or is_unmodified_account_weight_cache(account_weights)
+            else account_weights
+        ) or {}
         weights = {
             str(key): float(value)
             for key, value in (weight_record.get("property_weights") or {}).items()
@@ -1378,9 +1376,15 @@ def load_official_role_detail(
             for key, value in (weight_record.get("main_property_weights") or {}).items()
         },
         "property_weight_source": str(weight_record.get("source_kind") or "default"),
-        "property_weights_from_account": account_weights is not None,
+        "property_weights_from_account": bool(
+            account_weights is not None
+            and not is_unmodified_account_weight_cache(account_weights)
+        ),
         "theory_weights": theory_weights,
-        "theory_weights_persisted": account_weights is not None,
+        "theory_weights_persisted": bool(
+            account_weights is not None
+            and not is_unmodified_account_weight_cache(account_weights)
+        ),
         "replacement_items": replacement_items,
         "equipment_contexts": {
             "current": {

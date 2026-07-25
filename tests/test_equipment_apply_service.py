@@ -325,6 +325,27 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
         self.assertIsNone(self.sync.params)
 
+    def test_rejects_virtual_incomplete_plan_before_any_equipment_rpc(self) -> None:
+        plan_id = self.dao.save_loadout_plan(
+            name="虚拟补位方案",
+            character_id=1003,
+            source_snapshot_id=1,
+            status="incomplete",
+            assignments=[{
+                "uid_serial": 6_247_664_025_326_415_460,
+                "uid_slot": 0,
+                "kind": "module",
+                "target_row": 2,
+                "target_column": 1,
+                "rotation": 0,
+                "virtual": True,
+            }],
+        )
+
+        with self.assertRaisesRegex(EquipmentApplyError, "虚拟补位驱动"):
+            EquipmentApplyService(self.dao, self.sync).apply_plan(plan_id)
+        self.assertIsNone(self.sync.params)
+
     def test_rejects_snapshot_that_does_not_confirm_target_position(self) -> None:
         self.sync.verify_correctly = False
         with self.assertRaisesRegex(EquipmentApplyError, "装配位置不一致"):

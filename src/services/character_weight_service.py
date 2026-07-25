@@ -137,32 +137,3 @@ def save_account_character_weights(
         return user_dao.save_character_weight_preferences(
             int(character_id), properties=rows
         )
-
-
-def save_account_character_shape_bonus(
-    user_database_path: str | Path,
-    character_id: int,
-    *,
-    shape_label: str,
-    property_values: Mapping[str, float],
-) -> dict[str, Any]:
-    """Persist an account-local override of a role's extra shape bonus."""
-
-    with StaticGameDataDao() as static_dao:
-        known_property_ids = {
-            str(row["attribute_id"])
-            for row in static_dao.list_equipment_attributes()
-        }
-    normalized = {
-        str(property_id): float(value)
-        for property_id, value in property_values.items()
-        if str(property_id) in known_property_ids
-    }
-    if len(normalized) != len(property_values):
-        raise ValueError("额外形状加成包含未知官方属性")
-    with UserDataDao(user_database_path) as user_dao:
-        return user_dao.save_character_shape_bonus_preferences(
-            int(character_id),
-            shape_label=shape_label,
-            property_values=normalized,
-        )
