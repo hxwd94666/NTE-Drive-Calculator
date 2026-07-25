@@ -378,19 +378,41 @@ class InventorySnapshotDaoMixin:
         return self.inventory_snapshot_summary(snapshot_id) if snapshot_id is not None else None
 
     def current_inventory_snapshot_id(self) -> int | None:
-        """返回最新完整库存，不因来源类型而偏向较旧的快照。"""
+        """返回当前完整库存。
+
+        ``import_inventory_snapshot`` atomically moves ``is_current`` to the
+        newly imported complete snapshot.  This intentionally lets a completed
+        full visual scan replace an older nte-core capture: visual snapshots
+        have no game-side ``observed_at_unix_ms``, so ordering that field first
+        would otherwise keep an arbitrarily old capture active forever.
+        """
 
         row = self._one(
             """
             SELECT snapshot_id
             FROM inventory_snapshot
-            WHERE complete = 1 AND source IN ('nte_core', 'gamepad')
-            ORDER BY observed_at_unix_ms DESC NULLS LAST,
-                     captured_at_utc DESC, snapshot_id DESC
+            WHERE is_current = 1
+              AND complete = 1
+              AND source IN ('nte_core', 'gamepad')
+            ORDER BY snapshot_id DESC
             LIMIT 1
             """
         )
-        return int(row["snapshot_id"]) if row is not None else None
+        if row is not None:
+            return int(row["snapshot_id"])
+
+        # Compatibility for databases created before the current pointer was
+        # introduced or manually repaired databases with no marked snapshot.
+        fallback = self._one(
+            """
+            SELECT snapshot_id
+            FROM inventory_snapshot
+            WHERE complete = 1 AND source IN ('nte_core', 'gamepad')
+            ORDER BY captured_at_utc DESC, snapshot_id DESC
+            LIMIT 1
+            """
+        )
+        return int(fallback["snapshot_id"]) if fallback is not None else None
 
     def inventory_snapshot_summary(self, snapshot_id: int) -> dict[str, Any] | None:
         """读取指定不可变快照的摘要，供计算任务固定输入版本。"""

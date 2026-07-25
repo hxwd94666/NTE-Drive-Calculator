@@ -71,6 +71,9 @@ class BatchProcessor:
         logger.info("=" * 60)
 
         self.shape_recognizer = ShapeRecognizer(template_dir=os.path.join(config_dir, "templates"))
+        # 全量/增量、离线/手柄扫描最终均通过本处理器解析截图；在这里统一
+        # 校验模板，避免模板目录意外丢失时让大量驱动逐张识别失败。
+        self.shape_recognizer.require_complete_templates()
         self.ocr_engine = OCREngine(backend_preference=ocr_backend_preference)
         self.parser = DriveDataParser(config_dir=config_dir)
         self.inventory = []

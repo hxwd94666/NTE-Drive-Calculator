@@ -89,6 +89,35 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         self.assertNotEqual(visual_snapshot_id, nte_snapshot_id)
         self.assertEqual(visual_snapshot_id, self.user_dao.current_inventory_snapshot_id())
 
+    def test_full_visual_scan_replaces_nte_core_snapshot_with_observed_timestamp(self) -> None:
+        nte_snapshot_id = self.user_dao.import_inventory_snapshot(
+            {
+                "complete": True,
+                "generation": 99,
+                "sequence": 99,
+                "observed_at_unix_ms": 1_900_000_000_000,
+                "item_count": 0,
+                "items": [],
+            },
+            source="nte_core",
+        )
+        visual_snapshot_id = import_vision_inventory(
+            self.database_path,
+            [{
+                "uid": "drive_visual_latest", "item_type": "drive", "quality": "Gold", "area": 2,
+                "shape_id": "H_2", "main_stats": {"攻击力": 42}, "sub_stats": {"暴击率%": 2.0},
+            }],
+        )
+
+        self.assertNotEqual(visual_snapshot_id, nte_snapshot_id)
+        self.assertEqual(visual_snapshot_id, self.user_dao.current_inventory_snapshot_id())
+        current_ids = {
+            row["snapshot_id"]
+            for row in self.user_dao.list_inventory_snapshots()
+            if row["is_current"]
+        }
+        self.assertEqual({visual_snapshot_id}, current_ids)
+
     def test_visual_scan_normalizes_legacy_heng_shape_and_short_stat_names(self) -> None:
         snapshot_id = import_vision_inventory(
             self.database_path,

@@ -18,6 +18,7 @@ from src.features.inventory_import import duplicate_filter
 from src.features.identification import parser as identify_parser
 from src.optimizer.scoring import ScoringEngine
 from src.scanner.parser import DriveDataParser
+from src.scanner.shape_recognizer import ShapeRecognizer
 
 
 class _FakeItem:
@@ -732,6 +733,23 @@ class GameContentRectTests(unittest.TestCase):
 
         _name, regions = ScannerConfig.get_region_profiles(2560, 1600)[0]
         self.assertEqual(ScannerConfig.REGIONS_2K["drive_shape_icon"], regions["drive_shape_icon"])
+
+
+class ShapeTemplateReadinessTests(unittest.TestCase):
+    def test_missing_canonical_template_is_reported_before_parsing(self):
+        recognizer = ShapeRecognizer.__new__(ShapeRecognizer)
+        recognizer.valid_shape_ids = {"H_2", "V_2"}
+        recognizer.templates = {"H_2": object()}
+
+        with self.assertRaisesRegex(RuntimeError, "V_2"):
+            recognizer.require_complete_templates()
+
+    def test_complete_canonical_templates_are_accepted(self):
+        recognizer = ShapeRecognizer.__new__(ShapeRecognizer)
+        recognizer.valid_shape_ids = {"H_2", "V_2"}
+        recognizer.templates = {"H_2": object(), "V_2": object()}
+
+        recognizer.require_complete_templates()
 
 
 class EquipmentClassifierTests(unittest.TestCase):

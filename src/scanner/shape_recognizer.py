@@ -61,6 +61,30 @@ class ShapeRecognizer:
 
         logger.info(f"形状识别器就绪，已加载 {len(self.templates)} 个模板。")
 
+    def require_complete_templates(self) -> None:
+        """确认当前解析所需的基础驱动形状模板均可用。
+
+        模板来自仓库界面的截图，而不是游戏图鉴资源；它们的背景和裁切方式
+        与识别区域一致。缺少模板时继续解析会把所有驱动误判为 ``Unknown``，
+        因此应在创建解析管线时立即中止，而不是在每一张截图上产生失败记录。
+        """
+        loaded_shape_ids = set(self.templates)
+        if self.valid_shape_ids:
+            missing_shape_ids = sorted(self.valid_shape_ids - loaded_shape_ids)
+            if not missing_shape_ids:
+                return
+            missing_text = "、".join(missing_shape_ids)
+            raise RuntimeError(
+                "驱动形状模板不完整，缺少："
+                f"{missing_text}。请恢复 config/templates 中对应的基础模板图片后重试。"
+            )
+
+        if loaded_shape_ids:
+            return
+        raise RuntimeError(
+            "未加载到任何驱动形状模板。请恢复 config/templates 中的基础模板图片后重试。"
+        )
+
     def recognize(self, image_input: Union[str, np.ndarray]) -> dict:
         """识别形状：支持传入文件路径或灰度矩阵"""
         if isinstance(image_input, str):
