@@ -435,6 +435,18 @@ class InventorySyncService:
                         continue
                     stabilizer.mark_committed(stable.fingerprint)
                     current_has_character_instances = dao.snapshot_has_independent_character_instances(snapshot_id)
+                    character_payload = stable.payload.get("characters")
+                    character_count = (
+                        len(character_payload)
+                        if isinstance(character_payload, list)
+                        else 0
+                    )
+                    logger.info(
+                        "已保存稳定背包快照 #{}：{} 件装备，{} 个独立角色实例",
+                        snapshot_id,
+                        stable.item_count,
+                        character_count,
+                    )
                     if self._template_refresh is not None:
                         try:
                             refreshed = self._template_refresh()

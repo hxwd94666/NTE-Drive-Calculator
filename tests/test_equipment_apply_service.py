@@ -299,11 +299,32 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             EquipmentApplyService(self.dao, self.sync).resolve_character_uid(1003, current),
         )
 
-    def test_rejects_missing_current_character_instance_instead_of_using_public_cache(self) -> None:
+    def test_resolves_uid_from_account_snapshot_cache_when_current_core_event_omits_role(self) -> None:
+        """A shortened nte-core ``characters`` list must not discard a known account UID."""
+
+        self.dao.import_inventory_snapshot(
+            snapshot(
+                5, [item(11, "module"), item(22, "core")],
+                characters=[{"character_id": 2000, "uid": {"slot": 300, "serial": 301}}],
+            )
+        )
+        current = self.dao.import_inventory_snapshot(
+            snapshot(
+                6, [item(11, "module"), item(22, "core")],
+                characters=[{"character_id": 1003, "uid": CHARACTER_UID}],
+            )
+        )
+
+        self.assertEqual(
+            {"slot": 300, "serial": 301},
+            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current),
+        )
+
+    def test_rejects_missing_character_instance_when_account_cache_is_empty(self) -> None:
         current = self.dao.import_inventory_snapshot(
             snapshot(5, [item(11, "module"), item(22, "core")])
         )
-        with self.assertRaisesRegex(EquipmentApplyError, "当前稳定背包快照"):
+        with self.assertRaisesRegex(EquipmentApplyError, "角色实例缓存"):
             EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current)
 
     def test_current_snapshot_character_uid_beats_manual_fallback(self) -> None:

@@ -9,6 +9,7 @@ import time
 from typing import Any, Protocol
 
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.utils.logger import logger
 
 from .inventory_sync_service import InventorySyncState
 
@@ -100,7 +101,14 @@ class EquipmentApplyService:
         snapshot_id: int,
         explicit_uid: Mapping[str, Any] | None = None,
     ) -> dict[str, int]:
-        """从当前完整 nte-core 快照的独立角色列表解析实例 UID。"""
+        """解析账号私有缓存中的角色实例 UID。
+
+        当前稳定快照始终优先。部分 nte-core 会话会在同一账号、同一背包
+        内容下间歇性漏报少量 ``characters`` 条目；角色实例 UID 本身并不会
+        因这类背包事件改变，因此在当前快照缺失时允许回退到该账号此前唯一
+        观察到的 snapshot 映射。装备 UID 仍必须由 *当前* 稳定快照校验，
+        不能因此跨账号或使用过期背包。
+        """
 
         if explicit_uid is not None:
             return _uid(explicit_uid, "character")
@@ -134,8 +142,36 @@ class EquipmentApplyService:
             raise EquipmentApplyError(
                 f"角色 {character_id} 存在多个手动保存的实例 UID，请在装配前整理映射"
             )
+
+        # nte-core 0.3.5 的角色列表在实际使用中可能发生临时缩短（例如同一
+        # 账号上一份快照有 14 名角色、下一份只有 12 名）。映射表属于账号
+        # 私有缓存，且角色 UID 在该账号内稳定；只有历史记录唯一时才回退，
+        # 多个候选仍要求用户明确选择，避免猜测角色实例。
+        cached_candidates = {
+            (int(row["uid_slot"]), int(row["uid_serial"]))
+            for row in mapped_rows
+            if row.get("source") == "snapshot"
+            and row.get("last_seen_snapshot_id") is not None
+            and int(row["last_seen_snapshot_id"]) != int(snapshot_id)
+        }
+        if len(cached_candidates) == 1:
+            slot, serial = next(iter(cached_candidates))
+            logger.warning(
+                "当前稳定快照未返回角色 {} 的实例 UID，"
+                "回退使用该账号此前采集的唯一实例缓存（slot={}, serial={}）",
+                character_id,
+                slot,
+                serial,
+            )
+            return {"slot": slot, "serial": serial}
+        if len(cached_candidates) > 1:
+            raise EquipmentApplyError(
+                f"角色 {character_id} 在账号实例缓存中存在多个 UID，"
+                "请先在一键装配中手动选择角色实例并保存映射"
+            )
         raise EquipmentApplyError(
-            "当前稳定背包快照未包含该角色实例 UID；请启动背包同步并等待新 nte-core 完成一次稳定快照"
+            "当前稳定背包和该账号的角色实例缓存均未包含该角色 UID；"
+            "请启动背包同步并等待 nte-core 完成一次稳定快照"
         )
 
     @staticmethod
