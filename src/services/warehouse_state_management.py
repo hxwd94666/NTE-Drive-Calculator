@@ -115,6 +115,7 @@ class WarehouseStateManagementService:
             post_actions_config=config,
             selected_roles=selected_roles,
             config_dir=self.config_dir,
+            user_database_path=self.database_path,
         ).evaluate(parsed_items, inventory)
         changes: list[dict[str, Any]] = []
         for change in evaluation.state_changes:

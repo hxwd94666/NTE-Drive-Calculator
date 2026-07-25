@@ -434,7 +434,10 @@ def _start_identify_items(self,items):
 def _get_identify_blueprints(self):
     if self._identify_blueprint_cache:
         return self._identify_blueprint_cache
-    orchestrator=NTEPipelineOrchestrator(config_dir=str(runtime.CONFIG_DIR))
+    orchestrator=NTEPipelineOrchestrator(
+        config_dir=str(runtime.CONFIG_DIR),
+        user_database_path=runtime.USER_DATABASE_PATH,
+    )
     roles=list(orchestrator.roles_db.keys())
     blueprints=orchestrator.solve_blueprints(roles)
     self._identify_blueprint_cache=(orchestrator,blueprints)
@@ -442,7 +445,10 @@ def _get_identify_blueprints(self):
 
 def _run_identify_item(self,item):
     orchestrator,blueprints=self._get_identify_blueprints()
-    scoring=ScoringEngine(str(runtime.CONFIG_DIR))
+    scoring=ScoringEngine(
+        str(runtime.CONFIG_DIR),
+        user_database_path=runtime.USER_DATABASE_PATH,
+    )
     rows=[]
     if isinstance(item,Tape):
         item_set=orchestrator._resolve_set_name(item.set_name)

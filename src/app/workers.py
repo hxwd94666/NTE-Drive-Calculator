@@ -178,6 +178,7 @@ class GamepadScanParseWorkerThread(QThread):
                 post_actions_config=self.post_actions_config,
                 selected_roles=self.selected_roles,
                 config_dir=str(runtime.CONFIG_DIR),
+                user_database_path=runtime.USER_DATABASE_PATH,
                 parse_during_scan=self.parse_during_scan,
                 low_load_mode=self.amd_compatibility,
             )

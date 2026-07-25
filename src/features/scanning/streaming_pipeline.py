@@ -89,6 +89,7 @@ def run_streaming_scan_parse(
     post_actions_config: dict | None = None,
     selected_roles: list[str] | None = None,
     config_dir=None,
+    user_database_path=None,
     parse_during_scan: bool | None = None,
     low_load_mode: bool = False,
 ) -> dict:
@@ -124,6 +125,7 @@ def run_streaming_scan_parse(
             post_actions_config=effective_post_config,
             selected_roles=selected_roles,
             config_dir=config_dir,
+            user_database_path=user_database_path,
         ).evaluate(scan_result.parsed_items, processor.inventory)
         InventoryCommitService(processor, scanner).commit()
         post_action_summary = GamepadStateSyncRunner(

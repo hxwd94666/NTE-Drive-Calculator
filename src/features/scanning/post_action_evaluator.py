@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from src.features.scanning.post_actions import (
@@ -32,23 +33,35 @@ class PostActionEvaluator:
         post_actions_config: dict | None = None,
         selected_roles: list[str] | None = None,
         config_dir=None,
+        user_database_path: str | Path | None = None,
     ):
         self.raw_config = post_actions_config
         self.selected_roles = selected_roles
         self.config_dir = config_dir
+        # 仓库管理和鉴定都必须按当前账号的自定义权重评分；未自定义
+        # 的角色仍由 ScoringEngine 自动回退到公共 SQLite 推荐权重。
+        self.user_database_path = (
+            Path(user_database_path) if user_database_path is not None else None
+        )
 
     def evaluate(self, parsed_items: list[tuple[int, object, str]], inventory) -> PostActionEvaluation:
         effective_config = merge_post_action_config(self.raw_config) if self.raw_config else None
         if not effective_config or not post_actions_enabled(effective_config):
             return PostActionEvaluation(config=effective_config, enabled=False)
 
-        scoring = ScoringEngine(str(self.config_dir or "config"))
+        scoring = ScoringEngine(
+            str(self.config_dir or "config"),
+            user_database_path=self.user_database_path,
+        )
         has_preserve_rules = bool(effective_config.get("preserve_rules"))
         if not scoring.roles_db and not has_preserve_rules:
             return PostActionEvaluation(config=effective_config, enabled=True)
 
         scoring.evaluate_global_inventory(inventory)
-        score_context = PostActionScoreContext.from_config_dir(str(self.config_dir or "config"))
+        score_context = PostActionScoreContext.from_config_dir(
+            str(self.config_dir or "config"),
+            user_database_path=self.user_database_path,
+        )
         if score_context.strict:
             logger.info(
                 "[状态管理] 已启用实际可用角色评分: "

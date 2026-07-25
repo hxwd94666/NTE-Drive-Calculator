@@ -10,6 +10,7 @@ from typing import Any
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.optimizer.scoring import ScoringEngine
 from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.utils.set_name import normalize_set_display_name
 
 
 GRADE_ORDER = ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]
@@ -251,9 +252,17 @@ class PostActionScoreContext:
     role_sets: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def from_config_dir(cls, config_dir: str | None) -> "PostActionScoreContext":
+    def from_config_dir(
+        cls,
+        config_dir: str | None,
+        *,
+        user_database_path: str | None = None,
+    ) -> "PostActionScoreContext":
         try:
-            orchestrator = NTEPipelineOrchestrator(config_dir=str(config_dir or "config"))
+            orchestrator = NTEPipelineOrchestrator(
+                config_dir=str(config_dir or "config"),
+                user_database_path=user_database_path,
+            )
             role_names = list(orchestrator.roles_db.keys())
             blueprints = orchestrator.solve_blueprints(role_names)
         except Exception:
@@ -268,7 +277,11 @@ class PostActionScoreContext:
             except Exception:
                 continue
             role_sets[role_name] = target_set
-            tape_roles_by_set.setdefault(target_set, set()).add(role_name)
+            # 库存投影会移除展示用的「」外框，而静态套装表通常保留它。
+            # 两种文本都属于同一套装；若只保存原始键，卡带会得到 0 个
+            # 可用角色，继而被误判为 D 级并弃置。
+            for set_key in {str(target_set), normalize_set_display_name(target_set)}:
+                tape_roles_by_set.setdefault(set_key, set()).add(role_name)
 
             for blueprint in blueprints.get(role_name, []) or []:
                 shape_ids = list(blueprint.get("set_pieces", []) or []) + list(blueprint.get("extra_pieces", []) or [])
@@ -314,11 +327,17 @@ def _type_range_matches(item: BaseEquipment, module_config: dict) -> bool:
             DEFAULT_EXCLUDED_SHAPE_IDS,
         )
     if isinstance(item, Tape):
-        return _range_value_matches(
-            str(getattr(item, "set_name", "") or ""),
-            module_config.get("set_names"),
-            DEFAULT_EXCLUDED_SET_NAMES,
-        )
+        selected_sets = module_config.get("set_names")
+        item_set = normalize_set_display_name(getattr(item, "set_name", ""))
+        if selected_sets is None:
+            return item_set not in {
+                normalize_set_display_name(value)
+                for value in DEFAULT_EXCLUDED_SET_NAMES
+            }
+        return item_set in {
+            normalize_set_display_name(value)
+            for value in selected_sets
+        }
     return True
 
 
@@ -447,7 +466,22 @@ def _usable_role_names(
     if isinstance(item, Drive):
         allowed = score_context.drive_roles_by_shape.get(str(getattr(item, "shape_id", "") or ""), set())
     elif isinstance(item, Tape):
-        allowed = score_context.tape_roles_by_set.get(str(getattr(item, "set_name", "") or ""), set())
+        raw_set = str(getattr(item, "set_name", "") or "")
+        allowed = score_context.tape_roles_by_set.get(raw_set, set())
+        if not allowed:
+            normalized_set = normalize_set_display_name(raw_set)
+            allowed = score_context.tape_roles_by_set.get(normalized_set, set())
+        if not allowed:
+            # 兼容已构造的旧上下文：它可能只存了带「」的静态名称。
+            normalized_set = normalize_set_display_name(raw_set)
+            allowed = next(
+                (
+                    roles
+                    for set_name, roles in score_context.tape_roles_by_set.items()
+                    if normalize_set_display_name(set_name) == normalized_set
+                ),
+                set(),
+            )
     else:
         allowed = set()
     filtered = [role for role in role_names if role in allowed]
