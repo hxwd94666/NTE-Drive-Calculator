@@ -175,6 +175,29 @@ def update_dialog_link_url(info: dict) -> str:
     return str(info.get("url") or info.get("release_url") or "")
 
 
+def update_notes_markdown(message: object) -> str:
+    """Normalize common release-note shorthand into Qt-compatible Markdown."""
+
+    text = str(message or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return "此版本没有填写更新说明。"
+    normalized_lines: list[str] = []
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        # GitHub users often write ``1.修复内容``.  GitHub renders it
+        # leniently, while Qt requires a space after the marker to create a
+        # separate list item instead of one long paragraph.
+        line = re.sub(r"^(\s*\d+)\.(?=\S)", r"\1. ", line)
+        line = re.sub(r"^(\s*[-*+])(?=\S)", r"\1 ", line)
+        # Qt merges adjacent quote lines into one paragraph.  Keep each
+        # support/download call-to-action visibly separate.
+        next_line = lines[index + 1] if index + 1 < len(lines) else ""
+        if line.lstrip().startswith(">") and next_line.lstrip().startswith(">"):
+            line += "  "
+        normalized_lines.append(line)
+    return "\n".join(normalized_lines)
+
+
 def should_show_startup_update(update_config: dict, info: dict) -> bool:
     latest = str(info.get("latest") or "")
     if update_config.get("never_remind"):
@@ -205,9 +228,7 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -
     notes.setMinimumHeight(220)
     notes.setOpenExternalLinks(True)
     notes.setTextInteractionFlags(Qt.TextBrowserInteraction)
-    notes.setMarkdown(
-        (info.get("message") or "").strip() or "此版本没有填写更新说明。"
-    )
+    notes.setMarkdown(update_notes_markdown(info.get("message")))
     layout.addWidget(notes, 1)
     release_url = str(info.get("release_url") or "").strip()
     if release_url:

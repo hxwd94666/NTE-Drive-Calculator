@@ -717,13 +717,16 @@ class UpdateWorkflowTests(unittest.TestCase):
             show_update_dialog(
                 QWidget(), "", {
                     "latest": "2.0.1",
-                    "message": "## 修复\n[查看详情](https://example.invalid/details)",
+                    "message": "## 修复\n1.修复第一项\n2.修复第二项\n[查看详情](https://example.invalid/details)\n> 💖 支持\n> 💡 下载",
                 }, "2.0.0",
             )
         finally:
             QDialog.exec = original_exec
 
         self.assertIn('href="https://example.invalid/details"', captured["html"])
+        self.assertIn("修复第一项", captured["html"])
+        self.assertIn("修复第二项", captured["html"])
+        self.assertEqual(2, captured["html"].count("margin-left:40px"))
         self.assertTrue(captured["external"])
 
     def test_quark_netdisk_url_uses_latest_link(self):
