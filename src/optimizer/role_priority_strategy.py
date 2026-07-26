@@ -31,6 +31,32 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
             buckets.setdefault(drive.shape_id, []).append((index, drive))
         return buckets
 
+    def _missing_drive_reason(
+        self,
+        role_name: str,
+        shape_id: str,
+        drive_buckets: dict[str, list[tuple[int, Drive]]],
+        used_indices: set[int],
+        crit_rate_caps: Dict[str, float] | None,
+    ) -> str:
+        """Describe why one blueprint slot cannot be filled.
+
+        This deliberately distinguishes an exhausted candidate shape from a
+        hard critical-rate cap.  Both used to collapse into the UI's opaque
+        “无有效配装方案”, making a stale cap look like missing inventory.
+        """
+        same_shape = [
+            (index, drive)
+            for index, drive in drive_buckets.get(shape_id, [])
+            if index not in used_indices
+        ]
+        if not same_shape:
+            return f"候选池缺少 {shape_id} 驱动（图纸无法填满）"
+        cap = self._crit_rate_cap(role_name, crit_rate_caps)
+        if cap is not None:
+            return f"暴击率上限 {cap:g}% 使 {shape_id} 驱动无法加入当前组合"
+        return f"{shape_id} 驱动候选无法满足图纸约束"
+
     def _find_best_fit(self, role_name: str, blueprint: Dict, available_pool: List[Drive], target_set: str,
                        crit_mode: str | None = None, assigned_tape: Tape | None = None,
                        crit_rate_caps: Dict[str, float] | None = None) -> Dict:
@@ -64,7 +90,17 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 used_indices.add(best_idx)
                 current_crit = self._current_role_crit(role_name, assigned_tape, assigned_set + assigned_extra)
             else:
-                return {"valid": False, "score": 0.0}
+                return {
+                    "valid": False,
+                    "score": 0.0,
+                    "reason": self._missing_drive_reason(
+                        role_name,
+                        req_shape,
+                        drive_buckets,
+                        used_indices,
+                        crit_rate_caps,
+                    ),
+                }
 
         for req_shape in extra_shapes:
             candidates = [
@@ -87,7 +123,17 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 used_indices.add(best_idx)
                 current_crit = self._current_role_crit(role_name, assigned_tape, assigned_set + assigned_extra)
             else:
-                return {"valid": False, "score": 0.0}
+                return {
+                    "valid": False,
+                    "score": 0.0,
+                    "reason": self._missing_drive_reason(
+                        role_name,
+                        req_shape,
+                        drive_buckets,
+                        used_indices,
+                        crit_rate_caps,
+                    ),
+                }
 
         assigned_drives = assigned_set + assigned_extra
         return {"valid": True, "blueprint": blueprint, "assigned_set_drives": assigned_set,
@@ -95,6 +141,42 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                 "rank_score": round(total_rank_score, 2),
                 "stat_priority_hits": self._stat_priority_total_hits(role_name, assigned_drives, crit_mode),
                 "stat_priority_key": self._stat_priority_key_for_items(role_name, assigned_drives, crit_mode)}
+
+    def _tape_candidates_for_capped_role(
+        self,
+        role_name: str,
+        assigned_tapes: Dict[str, Tape | None],
+        tapes_pool: Dict[str, List[Tape]],
+        used_tape_uids: set[str],
+        custom_sets: Dict[str, str],
+    ) -> list[Tape | None]:
+        """Return legal alternatives when a critical cap makes the best tape fail.
+
+        Cards are initially assigned by score, before drive combinations are
+        known.  A high-score critical-rate card can therefore make every
+        subsequent drive choice exceed the cap while a non-critical card in
+        the same suit would work.  Keep already-reserved/used cards unique,
+        then let the normal blueprint fit choose the highest valid option.
+        """
+        primary = assigned_tapes.get(role_name)
+        reserved_elsewhere = {
+            tape.uid
+            for other_role, tape in assigned_tapes.items()
+            if other_role != role_name and isinstance(tape, Tape)
+        }
+        candidates: list[Tape | None] = []
+        if isinstance(primary, Tape) and primary.uid not in used_tape_uids:
+            candidates.append(primary)
+        for tape in tapes_pool.get(role_name, []):
+            if (
+                tape.uid in used_tape_uids
+                or tape.uid in reserved_elsewhere
+                or not self._tape_matches_core_target(role_name, tape, custom_sets)
+            ):
+                continue
+            if all(not isinstance(existing, Tape) or existing.uid != tape.uid for existing in candidates):
+                candidates.append(tape)
+        return candidates or [None]
 
     def _normalize_priority_groups(self, priority_list: List[str], priority_groups: list[list[str]] | None) -> list[list[str]]:
         if not priority_groups:
@@ -633,6 +715,7 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
         priority_groups = self._normalize_priority_groups(priority_list, priority_groups)
         assigned_tapes = self._pre_allocate_tapes_for_groups(priority_groups, custom_sets, tapes_pool, crit_priority_modes)
         final_allocation = {}
+        used_tape_uids: set[str] = set()
 
         for group in priority_groups:
             if len(group) > 1:
@@ -657,6 +740,12 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
                         crit_priority_modes, crit_rate_caps,
                     )
                 final_allocation.update(group_allocation)
+                used_tape_uids.update(
+                    tape.uid
+                    for plan in group_allocation.values()
+                    for tape in [plan.get("assigned_tape")]
+                    if isinstance(tape, Tape)
+                )
                 used_uids = self._allocated_drive_uids(group_allocation)
                 drives_pool = [d for d in drives_pool if d.uid not in used_uids]
                 continue
@@ -669,31 +758,46 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
             role_drives_pool = self._filter_drives_by_shapes(drives_pool, required_shapes)
             logger.info(f"  [{role_name}] 匹配中... (图纸数: {len(blueprints)}, 候选池: {len(role_drives_pool)})")
 
-            role_tape = assigned_tapes.get(role_name)
-            tape_score = role_tape.role_scores.get(role_name, 0.0) if role_tape else 0.0
-
             best_plan = {"valid": False, "score": -1.0, "rank_score": -1.0, "stat_priority_key": ()}
+            failure_reasons: list[str] = []
+            cap_enabled = self._crit_rate_cap(role_name, crit_rate_caps) is not None
+            tape_candidates = (
+                self._tape_candidates_for_capped_role(
+                    role_name, assigned_tapes, tapes_pool, used_tape_uids, custom_sets,
+                )
+                if cap_enabled
+                else [assigned_tapes.get(role_name)]
+            )
 
             for bp in blueprints:
-                if crit_rate_caps:
-                    plan = self._find_best_fit(
-                        role_name,
-                        bp,
-                        role_drives_pool,
-                        target_set,
-                        crit_priority_modes.get(role_name),
-                        role_tape,
-                        crit_rate_caps,
-                    )
-                else:
-                    plan = self._find_best_fit(
-                        role_name,
-                        bp,
-                        role_drives_pool,
-                        target_set,
-                        crit_priority_modes.get(role_name),
-                    )
-                if plan["valid"]:
+                for role_tape in tape_candidates:
+                    tape_score = role_tape.role_scores.get(role_name, 0.0) if role_tape else 0.0
+                    # Keep the long-standing non-cap call shape intact:
+                    # extensions/tests may override this method with the
+                    # historic five-argument signature.
+                    if cap_enabled:
+                        plan = self._find_best_fit(
+                            role_name,
+                            bp,
+                            role_drives_pool,
+                            target_set,
+                            crit_priority_modes.get(role_name),
+                            role_tape,
+                            crit_rate_caps,
+                        )
+                    else:
+                        plan = self._find_best_fit(
+                            role_name,
+                            bp,
+                            role_drives_pool,
+                            target_set,
+                            crit_priority_modes.get(role_name),
+                        )
+                    if not plan["valid"]:
+                        reason = str(plan.get("reason") or "").strip()
+                        if reason:
+                            failure_reasons.append(reason)
+                        continue
                     total_score = plan["score"] + tape_score
                     total_rank_score = plan.get("rank_score", plan["score"]) + tape_score
                     priority_key = tuple(plan.get("stat_priority_key", ()) or ())
@@ -711,9 +815,12 @@ class RolePriorityStrategy(AllocationMatrixBuilder):
             if best_plan["valid"]:
                 best_plan.pop("rank_score", None)
                 final_allocation[role_name] = best_plan
+                if isinstance(best_plan.get("assigned_tape"), Tape):
+                    used_tape_uids.add(best_plan["assigned_tape"].uid)
                 used_uids = set(d.uid for d in best_plan["assigned_set_drives"]) | set(d.uid for d in best_plan["assigned_extra_drives"])
                 drives_pool = [d for d in drives_pool if d.uid not in used_uids]
             else:
-                final_allocation[role_name] = {"valid": False}
+                reason = next(iter(dict.fromkeys(failure_reasons)), "没有可用图纸或无法凑齐图纸所需形状")
+                final_allocation[role_name] = {"valid": False, "reason": reason}
 
         return final_allocation

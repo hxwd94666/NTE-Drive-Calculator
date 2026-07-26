@@ -141,6 +141,21 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         self.assertEqual({"攻击力": 24.0, "防御力": 16.0, "生命值": 280.0}, drive["sub_stats"])
         self.assertEqual("攻击力%", tape["main_stats"])
 
+    def test_visual_tape_persists_the_catalogued_max_level_main_value(self) -> None:
+        snapshot_id = import_vision_inventory(
+            self.database_path,
+            [{
+                "uid": "tape_visual_main", "item_type": "tape", "quality": "Gold", "area": 15,
+                "set_name": "失落光芒", "main_stats": "暴击率", "sub_stats": {"攻击力%": 10.0},
+            }],
+        )
+
+        core = self.user_dao.list_inventory_items(snapshot_id, kind="core")[0]
+        self.assertEqual("CritBase", core["main_stats"][0]["property_id"])
+        # SQLite stores percentage values as fractions.  The visual importer
+        # must store the configured 30% max-level value, not its old 1% stub.
+        self.assertAlmostEqual(0.30, core["main_stats"][0]["value"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,17 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPlainTextEdit,
+    QVBoxLayout,
+)
 
 from src.app import runtime
 from src.app.workers import WorkerThread
@@ -16,9 +26,13 @@ from src.services.equipment_plugin_deployment import (
     packaged_plugin_dll,
     restore_plugin,
 )
+from src.services.nte_core_diagnostics import (
+    collect_nte_core_diagnostics,
+    format_nte_core_diagnostics,
+)
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-_METHOD_NAMES = ["_refresh_equipment_plugin_status","_select_equipment_plugin_game_executable","_detect_equipment_plugin_game_executable","_open_npcap_download","_show_npcap_status","_deploy_equipment_plugin","_restore_equipment_plugin","_focus_environment_configuration"]
+_METHOD_NAMES = ["_refresh_equipment_plugin_status","_select_equipment_plugin_game_executable","_detect_equipment_plugin_game_executable","_open_npcap_download","_show_npcap_status","_diagnose_nte_core","_show_nte_core_diagnostic_report","_deploy_equipment_plugin","_restore_equipment_plugin","_focus_environment_configuration"]
 
 
 def install_methods(app_module, window_cls) -> None:
@@ -133,6 +147,57 @@ def _show_npcap_status(self):
         "请点击“下载 Npcap 1.88”完成安装后再检测。",
     )
 
+
+def _diagnose_nte_core(self):
+    current_worker = getattr(self, "_nte_core_diagnostic_worker", None)
+    if current_worker is not None and current_worker.isRunning():
+        QMessageBox.information(self, "nte-core 诊断", "诊断正在进行，请稍候。")
+        return
+    button = getattr(self, "_nte_core_diagnostic_button", None)
+    if button is not None:
+        button.setEnabled(False)
+        button.setText("诊断中…")
+    worker = WorkerThread(
+        target=lambda: collect_nte_core_diagnostics(cwd=runtime.APP_DIR), parent=self
+    )
+    self._nte_core_diagnostic_worker = worker
+
+    def finish(result):
+        if button is not None:
+            button.setEnabled(True)
+            button.setText("诊断 nte-core")
+        self._show_nte_core_diagnostic_report(format_nte_core_diagnostics(result))
+
+    def failed(error):
+        if button is not None:
+            button.setEnabled(True)
+            button.setText("诊断 nte-core")
+        QMessageBox.warning(self, "nte-core 诊断", f"诊断程序执行失败：{error}")
+
+    worker.result_ready.connect(finish)
+    worker.error.connect(failed)
+    worker.start()
+
+
+def _show_nte_core_diagnostic_report(self, report: str):
+    dialog = QDialog(self)
+    dialog.setWindowTitle("nte-core 诊断结果")
+    dialog.resize(720, 510)
+    layout = QVBoxLayout(dialog)
+    hint = QLabel("以下信息可直接复制后发送用于排查；本操作不会启动抓包或保存原始数据。")
+    hint.setWordWrap(True)
+    layout.addWidget(hint)
+    content = QPlainTextEdit(dialog)
+    content.setReadOnly(True)
+    content.setPlainText(report)
+    layout.addWidget(content, 1)
+    actions = QDialogButtonBox(QDialogButtonBox.Close, parent=dialog)
+    copy_button = actions.addButton("复制诊断", QDialogButtonBox.ActionRole)
+    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(report))
+    actions.rejected.connect(dialog.reject)
+    layout.addWidget(actions)
+    dialog.exec()
+
 def _deploy_equipment_plugin(self):
     consent = getattr(self, "_equipment_plugin_consent", None)
     if consent is None or not consent.isChecked():
@@ -206,4 +271,3 @@ def _focus_environment_configuration(self):
     card = getattr(self, "_environment_configuration_card", None)
     if scroll is not None and card is not None:
         QTimer.singleShot(0, lambda: scroll.verticalScrollBar().setValue(card.y()))
-

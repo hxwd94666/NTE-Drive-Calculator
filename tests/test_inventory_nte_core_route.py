@@ -4,11 +4,81 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import src.features.inventory.equipment_assembly_controller as page_module
 
 
 class InventoryNteCoreRouteTests(unittest.TestCase):
+    def test_fast_apply_runs_resolved_roles_before_reporting_missing_instances(self) -> None:
+        from src.app import runtime
+
+        class Dao:
+            def __init__(self):
+                self.prepared = []
+
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def current_inventory_snapshot_id(self): return 10
+            def get_active_loadout_plan_for_role(self, role_name):
+                character_id = 1001 if role_name == "可装配" else 1002
+                return {
+                    "plan_id": character_id,
+                    "character_id": character_id,
+                    "source_snapshot_id": 10,
+                    "assignments": [{"kind": "module"}],
+                }
+            def inventory_snapshot_summary(self, _snapshot_id): return {"source": "nte_core"}
+            def create_equipment_apply_job(self, _snapshot_id, prepared):
+                self.prepared = list(prepared)
+                return 99
+            def get_equipment_apply_job(self, _job_id):
+                return {"items": [
+                    {"job_item_id": index + 1, **entry}
+                    for index, entry in enumerate(self.prepared)
+                ]}
+            def mark_equipment_apply_job_item(self, *_args, **_kwargs): pass
+            def complete_equipment_apply_job_if_done(self, _job_id): return True
+
+        class ApplyService:
+            def __init__(self, *_args): pass
+            def validate_plan_for_fast_apply(self, *_args, **_kwargs): pass
+            def resolve_character_uid(self, character_id, *_args, **_kwargs):
+                if character_id == 1002:
+                    raise RuntimeError("当前稳定背包和该账号的角色实例缓存均未包含该角色 UID")
+                return {"slot": 1, "serial": 2}
+            def require_stable_snapshot(self): return 10
+            def apply_plan(self, plan_id, **_kwargs):
+                return SimpleNamespace(
+                    before_snapshot_id=10,
+                    after_snapshot_id=10,
+                    verified=False,
+                    already_applied=False,
+                )
+
+        dao = Dao()
+        old_dao = page_module.UserDataDao
+        old_service = page_module.EquipmentApplyService
+        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
+        try:
+            page_module.UserDataDao = lambda *_args, **_kwargs: dao
+            page_module.EquipmentApplyService = ApplyService
+            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            report = page_module._run_nte_core_equipment_apply(
+                SimpleNamespace(_inventory_sync_service=object()),
+                ["可装配", "实例缺失"],
+            )
+        finally:
+            page_module.UserDataDao = old_dao
+            page_module.EquipmentApplyService = old_service
+            if old_path is None:
+                delattr(runtime, "USER_DATABASE_PATH")
+            else:
+                runtime.USER_DATABASE_PATH = old_path
+
+        self.assertEqual(["可装配"], [row["role_name"] for row in report["applied"]])
+        self.assertEqual(["实例缺失"], [row["role_name"] for row in report["identity_requests"]])
+
     def test_single_role_routes_to_fast_mode_when_selected(self) -> None:
         calls = []
 

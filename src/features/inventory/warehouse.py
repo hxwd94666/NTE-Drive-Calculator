@@ -19,7 +19,9 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QWidget
 
 from src.app import runtime
 from src.app.theme import GRADE_COLORS, theme_color
+from src.domain.stat_catalog import StatCatalog
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.services.sqlite_allocation_inventory import legacy_stat_name
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -159,6 +161,45 @@ def _stat_view(stat: Mapping[str, Any], *, main: bool = False) -> dict[str, Any]
     }
 
 
+@lru_cache(maxsize=1)
+def _visual_core_main_values() -> dict[str, float]:
+    """Map official property IDs to max-level card-main values for old scans."""
+    catalog = StatCatalog.from_config_dir()
+    values: dict[str, float] = {}
+    for property_id in set(_STAT_LABELS) | {
+        "DamageUpChaosBase", "DamageUpCosmosBase", "DamageUpIncantationBase",
+        "DamageUpLakshanaBase", "DamageUpNatureBase", "DamageUpPsycheBase",
+        "DamageUpPsychicallyBase",
+    }:
+        stat_name = legacy_stat_name(property_id)
+        if stat_name in catalog.tape_main_values:
+            values[property_id] = float(catalog.tape_main_values[stat_name])
+    return values
+
+
+def _warehouse_main_stats(row: Mapping[str, Any], source: str) -> list[Mapping[str, Any]]:
+    """Keep pre-fix visual snapshots readable without mutating user SQLite data."""
+    stats = [stat for stat in row.get("main_stats") or [] if isinstance(stat, Mapping)]
+    if (
+        source != "gamepad"
+        or str(row.get("kind") or "") != "core"
+        or not str(row.get("item_id") or "").startswith("vision_core_")
+    ):
+        return stats
+    values = _visual_core_main_values()
+    normalized: list[Mapping[str, Any]] = []
+    for stat in stats:
+        property_id = str(stat.get("property_id") or "")
+        main_value = values.get(property_id)
+        if main_value is None:
+            normalized.append(stat)
+            continue
+        replacement = dict(stat)
+        replacement["value"] = main_value / 100.0 if bool(stat.get("percent")) else main_value
+        normalized.append(replacement)
+    return normalized
+
+
 def _template_root_candidates() -> tuple[Path, ...]:
     candidates: list[Path] = []
     for source in (
@@ -184,6 +225,19 @@ def warehouse_shape_pixmap(geometry_or_shape: Any, quality: str = "Gold") -> QPi
     return _equipment_item_pixmap(str(path or ""))
 
 
+def warehouse_core_pixmap(suit_id: Any, quality: str = "Gold") -> QPixmap:
+    """Return a representative card-tape image without falling back to a drive.
+
+    Vision snapshots deliberately use local ``vision_core_*`` IDs, which do
+    not exist in the packaged manifest.  A card still has its official suit
+    and quality, so those are enough to choose the matching official card
+    artwork for every visual scan/parse route.
+    """
+    item_id = _representative_core_item_id(str(suit_id or ""), _quality_key(quality))
+    path = _equipment_item_icon("core", item_id)
+    return _equipment_item_pixmap(str(path or ""))
+
+
 @lru_cache(maxsize=48)
 def _representative_module_item_id(shape: str, quality: str) -> str:
     """Find one official module matching a geometry/quality pair for UI-only use."""
@@ -199,6 +253,25 @@ def _representative_module_item_id(shape: str, quality: str) -> str:
         ):
             return str(row.get("item_id") or "")
     return ""
+
+
+@lru_cache(maxsize=64)
+def _representative_core_item_id(suit_id: str, quality: str) -> str:
+    """Find a non-guide official card matching a visual card's suit/quality."""
+    try:
+        with StaticGameDataDao() as static_dao:
+            rows = static_dao.list_equipment_items("core")
+    except Exception:
+        return ""
+    matches = [
+        row for row in rows
+        if str(row.get("suit_id") or "") == suit_id
+        and _quality_key(row.get("quality")) == quality
+    ]
+    for row in matches:
+        if not bool(row.get("is_guide_item")):
+            return str(row.get("item_id") or "")
+    return str(matches[0].get("item_id") or "") if matches else ""
 
 
 @lru_cache(maxsize=4)
@@ -224,6 +297,25 @@ def _equipment_item_icon(
         else Path.cwd() / "assets" / "game_ui"
     )
     return _asset_catalog(str(root.expanduser().resolve())).inventory_item_icon(kind, item_id)
+
+
+def _warehouse_item_icon(
+    row: Mapping[str, Any],
+    *,
+    asset_root: str | Path | None = None,
+) -> Path | None:
+    """Resolve an item image, including synthetic visual-snapshot card IDs."""
+    kind = str(row.get("kind") or "")
+    icon = _equipment_item_icon(kind, row.get("item_id"), asset_root=asset_root)
+    if icon is not None or kind != "core":
+        return icon
+    # A core from an OCR/gamepad snapshot has no official item ID by design.
+    # Do not let the caller's generic H_3 fallback render it as a drive.
+    fallback_item_id = _representative_core_item_id(
+        str(row.get("suit_id") or ""),
+        _quality_key(row.get("quality")),
+    )
+    return _equipment_item_icon("core", fallback_item_id, asset_root=asset_root)
 
 
 def _character_icon(
@@ -272,7 +364,7 @@ def warehouse_item_view(
     quality_label, quality_color = _QUALITY_META.get(quality_key, (str(row.get("quality") or "未知"), "#8b949e"))
     item_name = _localized(row.get("names"), str(row.get("item_id") or "未知装备"))
     suit_name = _display_suit_name(_localized(row.get("suit_names"), str(row.get("suit_id") or "未识别套装")))
-    main_stat_rows = [_stat_view(stat, main=True) for stat in row.get("main_stats") or [] if isinstance(stat, Mapping)]
+    main_stat_rows = [_stat_view(stat, main=True) for stat in _warehouse_main_stats(row, source)]
     sub_stat_rows = [_stat_view(stat) for stat in row.get("sub_stats") or [] if isinstance(stat, Mapping)]
     stats = [f"{stat['label']}  {stat['value']}" for stat in [*main_stat_rows, *sub_stat_rows]]
     kind_label = "驱动" if kind == "module" else "卡带" if kind == "core" else kind or "未知"
@@ -297,11 +389,7 @@ def warehouse_item_view(
         "quality_label": quality_label,
         "quality_color": quality_color,
         "item_name": item_name,
-        "item_icon_path": _equipment_item_icon(
-            kind,
-            row.get("item_id"),
-            asset_root=asset_root,
-        ),
+        "item_icon_path": _warehouse_item_icon(row, asset_root=asset_root),
         "suit_name": suit_name,
         "display_name": display_name,
         "title": title,
@@ -649,7 +737,11 @@ class WarehouseCardDelegate(QStyledItemDelegate):
         quality_color = str(item.get("quality_color") or "#8b949e")
         icon_rect = QRect(left, top, 44, 44)
         placeholder = _equipment_item_pixmap(str(item.get("item_icon_path") or ""))
-        if placeholder.isNull():
+        if placeholder.isNull() and item.get("kind") == "core":
+            placeholder = warehouse_core_pixmap(
+                item.get("suit_id"), str(item.get("quality") or "gold"),
+            )
+        if placeholder.isNull() and item.get("kind") != "core":
             placeholder = warehouse_shape_pixmap(
                 str(item.get("shape") or "H_3"),
                 str(item.get("quality") or "gold"),
@@ -789,7 +881,11 @@ class WarehouseResultCard(QWidget):
         quality_color = str(item.get("quality_color") or "#8b949e")
         icon_rect = QRect(left, top, 44, 44)
         pixmap = _equipment_item_pixmap(str(item.get("item_icon_path") or ""))
-        if pixmap.isNull():
+        if pixmap.isNull() and item.get("kind") == "core":
+            pixmap = warehouse_core_pixmap(
+                item.get("suit_id"), str(item.get("quality") or "gold"),
+            )
+        if pixmap.isNull() and item.get("kind") != "core":
             pixmap = warehouse_shape_pixmap(
                 str(item.get("shape") or "H_3"),
                 str(item.get("quality") or "gold"),

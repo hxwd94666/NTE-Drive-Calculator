@@ -270,6 +270,7 @@ def _run_nte_core_equipment_apply(
 
     identity_overrides = identity_overrides or {}
     applied: list[dict] = []
+    identity_requests: list[dict] = []
     pinned_snapshot_id: int | None = None
     with UserDataDao(runtime.USER_DATABASE_PATH) as user_dao:
         apply_service = EquipmentApplyService(user_dao, sync_service)
@@ -320,7 +321,6 @@ def _run_nte_core_equipment_apply(
             # 必须在第一条装配指令前缓存全部角色 UID。后续角色可能因装备被前面的
             # 方案移走而暂时全身为空，此时再从当前快照解析会失败。
             prepared: list[dict] = []
-            identity_requests: list[dict] = []
             preflight_errors: list[dict] = []
             for role_name in role_names:
                 plan = user_dao.get_active_loadout_plan_for_role(role_name)
@@ -372,8 +372,15 @@ def _run_nte_core_equipment_apply(
                 })
             if preflight_errors:
                 return {"applied": [], "preflight_errors": preflight_errors}
-            if identity_requests:
-                return {"identity_requests": identity_requests}
+            # 角色实例 UID 与装备 UID 的可用性彼此独立。nte-core 偶发漏报
+            # characters 时，不能让一个未采集到的角色阻断其余角色的极速装配；
+            # 先为所有已解析实例建立任务，缺失项在任务完成后统一报告。
+            if not prepared:
+                return {
+                    "applied": [],
+                    "identity_requests": identity_requests,
+                    "completed": True,
+                }
             job_id = user_dao.create_equipment_apply_job(initial_snapshot_id, prepared)
             for entry, prepared_role in zip(user_dao.get_equipment_apply_job(job_id)["items"], prepared):
                 prepared_role["job_item_id"] = entry["job_item_id"]
@@ -441,9 +448,21 @@ def _run_nte_core_equipment_apply(
                     total=len(prepared),
                     message=f"[{role_name}] 下发失败",
                 )
-                return {"job_id": job_id, "applied": applied, "failed_role": role_name, "error": str(exc), "completed": False}
+                return {
+                    "job_id": job_id,
+                    "applied": applied,
+                    "identity_requests": identity_requests,
+                    "failed_role": role_name,
+                    "error": str(exc),
+                    "completed": False,
+                }
         completed = user_dao.complete_equipment_apply_job_if_done(job_id)
-    return {"job_id": job_id, "applied": applied, "completed": completed}
+    return {
+        "job_id": job_id,
+        "applied": applied,
+        "identity_requests": identity_requests,
+        "completed": completed,
+    }
 
 
 def _report_fast_apply_progress(progress_callback, *, current: int, total: int, message: str) -> None:
@@ -461,8 +480,38 @@ def _report_fast_apply_progress(progress_callback, *, current: int, total: int, 
         logger.debug("极速装配进度回调失败", exc_info=True)
 
 
+def _is_missing_character_instance_request(request: dict) -> bool:
+    reason = str(request.get("reason") or "")
+    return (
+        "角色实例缓存均未包含" in reason
+        or "当前稳定背包快照未包含" in reason
+    )
+
+
+def _show_fast_apply_identity_gaps(self, requests: list[dict], applied: list[dict]) -> None:
+    """Report unresolved UIDs only after every independently runnable role ran."""
+    missing_instances = [request for request in requests if _is_missing_character_instance_request(request)]
+    ambiguous_instances = [request for request in requests if request not in missing_instances]
+    lines = []
+    if applied:
+        lines.append(f"已先完成 {len(applied)} 个可获取角色实例的极速装配。")
+    if missing_instances:
+        lines.append("以下角色尚未获取到可用的角色实例 UID，未执行极速装配：")
+        lines.extend(f"• {request['role_name']}" for request in missing_instances)
+    if ambiguous_instances:
+        lines.append("以下角色存在无法安全确定的角色实例 UID，未执行极速装配：")
+        lines.extend(f"• {request['role_name']}" for request in ambiguous_instances)
+    lines.extend((
+        "",
+        "请保持游戏在线后重新启动背包同步，等待新的稳定快照，再重试未完成角色。",
+        "若多次同步仍无法获取这些角色的实例 UID，建议改用自动装配；"
+        "也可以在游戏内手动完成这些角色的配装。",
+    ))
+    QMessageBox.warning(self, "部分角色未极速装配", "\n".join(lines))
+
+
 def _prompt_character_identity_requests(self, requests: list[dict]) -> dict[str, dict] | None:
-    missing_instances = [request for request in requests if "当前稳定背包快照未包含" in str(request.get("reason") or "")]
+    missing_instances = [request for request in requests if _is_missing_character_instance_request(request)]
     if missing_instances:
         roles = "、".join(str(request["role_name"]) for request in missing_instances)
         QMessageBox.information(
@@ -470,8 +519,7 @@ def _prompt_character_identity_requests(self, requests: list[dict]) -> dict[str,
             "需要采集角色实例",
             f"[{roles}] 尚未出现在当前稳定背包快照的角色实例列表中。\n\n"
             "请保持游戏在线并启动背包同步，等待新 nte-core 完成一次稳定快照。"
-            "新核心会直接采集全部角色（包括未装备驱动或卡带的角色），"
-            "采集完成后即可极速装配，无需在游戏内先给角色配装。",
+            "若多次同步仍未出现该角色，建议改用自动装配或在游戏内手动配装。",
         )
         return None
     overrides: dict[str, dict] = {}
@@ -572,13 +620,8 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
                 f"{details}\n\n请重新计算并保存完整方案后再试。",
             )
             return
-        requests = report.get("identity_requests") or []
-        if requests:
-            overrides = _prompt_character_identity_requests(self, requests)
-            if overrides is not None:
-                _start_nte_core_equipment_apply(self, role_names, identity_overrides=overrides)
-            return
         applied = report.get("applied") or []
+        requests = report.get("identity_requests") or []
         details = "\n".join(
             f"• {row['role_name']}"
             + (
@@ -625,6 +668,12 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
             )
             if retry == QMessageBox.Yes:
                 _start_nte_core_equipment_apply(self, [], job_id=report["job_id"])
+            return
+        if requests:
+            _show_fast_apply_identity_gaps(self, requests, applied)
+            refresh = getattr(self, "_refresh_equip", None)
+            if callable(refresh):
+                refresh()
             return
         verification_note = (
             "\n\n当前游戏内不会产生新的稳定背包快照；本次已完成装配前校验并下发指令。"

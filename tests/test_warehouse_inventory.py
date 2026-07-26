@@ -29,6 +29,41 @@ class WarehouseInventoryTests(unittest.TestCase):
             module["item_icon_path"],
         )
 
+    def test_visual_core_uses_matching_suit_artwork_not_a_drive_fallback(self):
+        from src.features.inventory.warehouse import warehouse_item_view
+
+        core = warehouse_item_view(
+            {
+                "kind": "core",
+                "item_id": "vision_core_316",
+                "suit_id": "Suit6",
+                "quality": "orange",
+            },
+            source="gamepad",
+            asset_root=ASSET_ROOT,
+        )
+
+        self.assertEqual(
+            ASSET_ROOT / "equipment" / "core" / "Cosmos_orange.png",
+            core["item_icon_path"],
+        )
+
+    def test_pre_fix_visual_core_displays_the_max_level_main_value(self):
+        from src.features.inventory.warehouse import warehouse_item_view
+
+        core = warehouse_item_view(
+            {
+                "kind": "core",
+                "item_id": "vision_core_318",
+                "suit_id": "Suit6",
+                "quality": "orange",
+                "main_stats": [{"property_id": "CritBase", "value": 0.01, "percent": True}],
+            },
+            source="gamepad",
+        )
+
+        self.assertEqual("+30%", core["main_stats"][0]["value"])
+
     def test_scan_dual_thread_and_amd_controls_remain_mutually_exclusive(self):
         from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
         from src.features.allocation.execute_page import _build_scan_processing_options

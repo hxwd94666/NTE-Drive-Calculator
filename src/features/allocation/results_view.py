@@ -156,7 +156,11 @@ def _render_results(self,plan):
     plan_diffs=getattr(self,"allocation_plan_diff",{}) or {}
     for role,p in plan.items():
         if not p or not p.get(PLAN_VALID):
-            self.result_content_layout.addWidget(QLabel(f"❌ {role}: 无有效配装方案")); continue
+            reason = str((p or {}).get("reason") or "无法凑齐图纸所需的卡带或驱动")
+            failure = QLabel(f"❌ {role}: 无有效配装方案\n原因：{reason}")
+            failure.setWordWrap(True)
+            failure.setStyleSheet(themed_style("color:#f85149;padding:8px 2px"))
+            self.result_content_layout.addWidget(failure); continue
         role_diff=plan_diffs.get(role,{}) or {}
         added_uids=set(role_diff.get(DIFF_ADDED_UIDS,set()) or set())
         changed_uids=set(p.get(PLAN_CHANGED_UIDS,set()) or set()) if isinstance(p,dict) else set()

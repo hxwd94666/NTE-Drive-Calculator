@@ -9,6 +9,7 @@ from typing import Any
 
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.domain.stat_catalog import StatCatalog
 from src.services.sqlite_allocation_inventory import AllocationInventoryProjectionError, legacy_shape_id
 from src.utils.set_name import normalize_set_display_name
 
@@ -50,11 +51,6 @@ _STAT_LABEL_ALIASES = {
     "咒属性伤害": "咒属性异能伤害增强%", "魂属性伤害": "魂属性异能伤害增强%",
     "相属性伤害": "相属性异能伤害增强%",
 }
-_CORE_MAIN_STAT_ALIASES = {
-    "攻击": "攻击力%", "攻击力": "攻击力%",
-    "防御": "防御力%", "防御力": "防御力%",
-    "生命": "生命值%", "生命值": "生命值%",
-}
 _PERCENT_PROPERTY_IDS = frozenset(
     value for key, value in _PROPERTY_IDS.items() if key.endswith("%") or key in {"暴击率", "暴击伤害"}
 )
@@ -85,11 +81,25 @@ def _stat(label: Any, value: Any) -> dict[str, Any]:
     }
 
 
-def _stats(value: Any, *, core: bool = False) -> list[dict[str, Any]]:
+def _stats(
+    value: Any,
+    *,
+    core: bool = False,
+    stat_catalog: StatCatalog | None = None,
+) -> list[dict[str, Any]]:
     if core:
-        raw_name = str(value or "").strip().replace("百分比", "%")
-        normalized_name = _STAT_LABEL_ALIASES.get(raw_name, raw_name)
-        return [_stat(_CORE_MAIN_STAT_ALIASES.get(normalized_name, normalized_name), 1.0)]
+        # The scanner only reads a card's main-stat *name*.  Its value must
+        # therefore be restored from the shared max-level catalogue, rather
+        # than being persisted as the old placeholder ``1`` / ``1%``.  The
+        # latter made every visual card look like a level-0 card in warehouse
+        # and detail views even though the solver treats card mains as maxed.
+        catalog = stat_catalog or StatCatalog.from_config_dir()
+        main_name = catalog.normalize_tape_main_stat(value)
+        if main_name == "未知主词条" or main_name not in catalog.tape_main_values:
+            raise VisionInventorySnapshotError(
+                f"视觉扫描卡带主词条无法匹配：{str(value or '').strip() or '<empty>'}"
+            )
+        return [_stat(main_name, catalog.tape_main_values[main_name])]
     if not isinstance(value, Mapping):
         raise VisionInventorySnapshotError("视觉扫描驱动缺少词条列表")
     return [_stat(label, amount) for label, amount in value.items()]
@@ -102,6 +112,7 @@ def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: Static
     never eligible for nte-core's native-UID equipment RPC.
     """
     suits = {_compact_set_name(row.get("name_zh")): str(row["suit_id"]) for row in static_dao.list_suits()}
+    stat_catalog = StatCatalog.from_config_dir()
     normalized: list[dict[str, Any]] = []
     for ordinal, source in enumerate(items, start=1):
         item = dict(source)
@@ -155,7 +166,11 @@ def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: Static
             row["geometry"] = "Core"
             row["grid"] = 15
             row["suit_names"] = {"zh-CN": set_name}
-            row["main_stats"] = _stats(item.get("main_stats"), core=True)
+            row["main_stats"] = _stats(
+                item.get("main_stats"),
+                core=True,
+                stat_catalog=stat_catalog,
+            )
         normalized.append(row)
     return {"complete": True, "item_count": len(normalized), "items": normalized}
 

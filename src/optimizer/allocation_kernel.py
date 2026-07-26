@@ -110,7 +110,14 @@ class AllocationKernel:
             if not initial_invalid:
                 return initial
             for role in initial_invalid:
-                initial[role] = {"valid": False, "reason": "未满足核心或模块完整性"}
+                # Strategy-level reasons retain useful context such as a
+                # critical-rate cap or an absent required shape.  Only add
+                # the historic generic fallback when structural validation is
+                # the first layer to discover the failure.
+                plan = dict(initial.get(role) or {})
+                plan["valid"] = False
+                plan.setdefault("reason", "未满足核心或模块完整性")
+                initial[role] = plan
             return initial
 
         pending = [frozenset()]
@@ -140,7 +147,10 @@ class AllocationKernel:
 
         failed = self._execute_once(request, frozenset())
         for role in self._invalid_roles(request, failed):
-            failed[role] = {"valid": False, "reason": "未满足核心、模块或属性限制"}
+            plan = dict(failed.get(role) or {})
+            plan["valid"] = False
+            plan.setdefault("reason", "未满足核心、模块或属性限制")
+            failed[role] = plan
         return failed
 
     def _execute_once(self, request: AllocationKernelRequest, excluded_uids: frozenset[str]) -> dict:

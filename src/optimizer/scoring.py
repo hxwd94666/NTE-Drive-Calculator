@@ -345,7 +345,25 @@ class ScoringEngine:
                     ),
                     reverse=True,
                 )
-                final_role_tapes.extend(bucket[:tape_top_k_per_set_per_role])
+                # Keep the normal top-K fast path, but retain the best card
+                # of every main-stat type in the same suit as well.  A pure
+                # score cutoff otherwise drops all non-critical cards for a
+                # crit-weighted role, even when a critical-rate cap later
+                # makes one of those cards the only legal choice.
+                selected_uids: set[str] = set()
+                for tape in bucket[:tape_top_k_per_set_per_role]:
+                    final_role_tapes.append(tape)
+                    selected_uids.add(str(tape.uid))
+                seen_main_stats: set[str] = set()
+                for tape in bucket:
+                    main_stat = self.stat_catalog.normalize_tape_main_stat(tape.main_stats)
+                    main_key = main_stat if main_stat != "未知主词条" else str(tape.main_stats or "")
+                    if main_key in seen_main_stats:
+                        continue
+                    seen_main_stats.add(main_key)
+                    if str(tape.uid) not in selected_uids:
+                        final_role_tapes.append(tape)
+                        selected_uids.add(str(tape.uid))
 
             final_role_tapes.sort(key=lambda x: x.role_scores[role_name], reverse=True)
             optimal_tapes[role_name] = final_role_tapes
