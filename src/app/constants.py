@@ -1,7 +1,7 @@
 # 集中定义应用版本、链接和说明文案常量。
 """Application constants shared by UI and feature modules."""
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 ALLOCATION_TOTAL_SCORE_AREA = 35
 GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
