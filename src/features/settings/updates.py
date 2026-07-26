@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout
 
 from src.app.constants import NETDISK_DOWNLOAD_LINKS
 from src.app.theme import themed_style
@@ -200,10 +200,14 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -
     subtitle = QLabel(f"当前版本: {app_version}")
     subtitle.setStyleSheet(themed_style("color:#8b949e"))
     layout.addWidget(subtitle)
-    notes = QTextEdit()
+    notes = QTextBrowser()
     notes.setReadOnly(True)
     notes.setMinimumHeight(220)
-    notes.setPlainText((info.get("message") or "").strip() or "此版本没有填写更新说明。")
+    notes.setOpenExternalLinks(True)
+    notes.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    notes.setMarkdown(
+        (info.get("message") or "").strip() or "此版本没有填写更新说明。"
+    )
     layout.addWidget(notes, 1)
     release_url = str(info.get("release_url") or "").strip()
     if release_url:

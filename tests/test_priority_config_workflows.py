@@ -698,6 +698,34 @@ class UpdateWorkflowTests(unittest.TestCase):
         info = {"url": "https://example.invalid/download.exe", "release_url": "https://example.invalid/release"}
         self.assertEqual("https://example.invalid/download.exe", update_dialog_link_url(info))
 
+    def test_update_dialog_renders_markdown_notes_with_clickable_links(self):
+        from PySide6.QtWidgets import QApplication, QDialog, QTextBrowser, QWidget
+        from src.features.settings.updates import show_update_dialog
+
+        _app = QApplication.instance() or QApplication([])
+        captured = {}
+        original_exec = QDialog.exec
+
+        def fake_exec(dialog):
+            browser = dialog.findChild(QTextBrowser)
+            captured["html"] = browser.toHtml() if browser is not None else ""
+            captured["external"] = browser.openExternalLinks() if browser is not None else False
+            return QDialog.Rejected
+
+        QDialog.exec = fake_exec
+        try:
+            show_update_dialog(
+                QWidget(), "", {
+                    "latest": "2.0.1",
+                    "message": "## 修复\n[查看详情](https://example.invalid/details)",
+                }, "2.0.0",
+            )
+        finally:
+            QDialog.exec = original_exec
+
+        self.assertIn('href="https://example.invalid/details"', captured["html"])
+        self.assertTrue(captured["external"])
+
     def test_quark_netdisk_url_uses_latest_link(self):
         from src.app.constants import NETDISK_DOWNLOAD_LINKS, QUARK_NETDISK_URL
 
