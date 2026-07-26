@@ -90,6 +90,33 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertFalse(completed)
         self.assertIn("#5", message)
 
+    def test_assembly_report_explains_duplicate_drive_verification_failure(self):
+        from src.features.inventory.page import _assembly_report_dialog
+
+        report = SimpleNamespace(
+            role_reports=[object()],
+            executed_actions=20,
+            missing_roles=[],
+            skipped_roles=[],
+            duplicate_roles=[],
+            unrecognized_roles=[],
+            verification_failures=[
+                {
+                    "role_name": "早雾",
+                    "missing_blocks": [
+                        {"block_id": 49, "is_duplicate_drive": True, "duplicate_count": 2},
+                    ],
+                },
+            ],
+        )
+
+        _title, message, completed = _assembly_report_dialog("自动装配", report)
+
+        self.assertFalse(completed)
+        self.assertIn("重复驱动块 #49", message)
+        self.assertIn("自动装配无法唯一定位目标", message)
+        self.assertIn("手动补装", message)
+
     def test_enables_randomization_when_the_assembly_backend_supports_it(self):
         from src.features.drive_assembly.ui_bridge import _enable_assembly_randomization
 

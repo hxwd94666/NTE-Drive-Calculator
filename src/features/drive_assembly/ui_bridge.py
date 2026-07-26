@@ -656,7 +656,18 @@ def verify_blueprint_against_screenshot(
         x = int(position[0]) - int(getattr(rect, "left", 0))
         y = int(position[1]) - int(getattr(rect, "top", 0))
         if not _sample_position_looks_occupied(image, x, y, sample_radius, brightness_threshold):
-            missing.append({"block_id": block.get("block_id"), "position": tuple(position)})
+            drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
+            missing_block = {
+                "block_id": block.get("block_id"),
+                "position": tuple(position),
+            }
+            if _is_duplicate_drive_block(block):
+                missing_block.update({
+                    "is_duplicate_drive": True,
+                    "duplicate_count": block.get("duplicate_count") or drive.get("duplicate_count"),
+                    "shape_id": block.get("drive_type") or drive.get("shape_id"),
+                })
+            missing.append(missing_block)
     return {"ok": not missing, "missing_blocks": missing}
 
 

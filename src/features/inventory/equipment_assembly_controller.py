@@ -170,20 +170,51 @@ def _assembly_report_dialog(action_name: str, report, expected_role_count: int |
             raw_text = str(entry.get("raw_text") or "").strip() or "未读取到文字"
             lines.append(f"- {position}（OCR：{raw_text}）")
     if verification_failures:
-        lines.append(f"图纸截图校验失败：{len(verification_failures)} 个。")
+        lines.append(f"图纸截图校验失败：{len(verification_failures)} 个角色。")
+        duplicate_missing: list[tuple[str, str, int | None]] = []
+        ordinary_missing: list[tuple[str, str]] = []
+        empty_screenshots: list[str] = []
         for failure in verification_failures:
             if not isinstance(failure, dict):
                 continue
             role_name = str(failure.get("role_name") or "未知角色")
-            block_ids = [
-                str(item.get("block_id"))
-                for item in (failure.get("missing_blocks") or [])
-                if isinstance(item, dict) and item.get("block_id") is not None
-            ]
-            if block_ids:
-                lines.append(f"- {role_name}：未通过校验的驱动块 #{'、#'.join(block_ids)}")
-    if incomplete:
+            if failure.get("reason") == "empty_screenshot":
+                empty_screenshots.append(role_name)
+                continue
+            for item in (failure.get("missing_blocks") or []):
+                if not isinstance(item, dict) or item.get("block_id") is None:
+                    continue
+                block_id = str(item["block_id"])
+                if item.get("is_duplicate_drive"):
+                    duplicate_missing.append((
+                        role_name,
+                        block_id,
+                        int(item["duplicate_count"])
+                        if item.get("duplicate_count") is not None else None,
+                    ))
+                else:
+                    ordinary_missing.append((role_name, block_id))
+        for role_name, block_id, duplicate_count in duplicate_missing:
+            count_text = f"（同条件驱动共 {duplicate_count} 个）" if duplicate_count else ""
+            lines.append(
+                f"- {role_name}：重复驱动块 #{block_id}{count_text} 未能确认装入。"
+            )
+        for role_name, block_id in ordinary_missing:
+            lines.append(f"- {role_name}：驱动块 #{block_id} 未通过截图校验。")
+        for role_name in empty_screenshots:
+            lines.append(f"- {role_name}：未取得游戏截图，无法确认图纸结果。")
+        if duplicate_missing:
+            lines.append(
+                "原因：这些驱动在游戏筛选器中的形状、品质和词条条件相同，"
+                "自动装配无法唯一定位目标，可能装错同类驱动或留下空位。"
+            )
+            lines.append(
+                "处理：请在游戏内手动补装上述驱动；也可先让重复驱动的等级、锁定或弃置状态不同后再重试。"
+            )
+    if incomplete and (missing or skipped or duplicates):
         lines.append("请检查角色识别结果后重新执行。")
+    elif incomplete and verification_failures and not duplicate_missing:
+        lines.append("请检查游戏画面是否稳定、图纸位置是否正确后重新执行。")
     elif unrecognized:
         lines.append("其余未识别槽位不属于本次目标角色，不影响本次装配结果。")
     return title, "\n".join(lines), not incomplete
