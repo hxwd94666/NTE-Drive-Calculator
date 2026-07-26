@@ -160,6 +160,51 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         )
         self.sync = FakeSyncService(self.dao, before)
 
+    def test_fast_apply_uses_current_male_protagonist_instance(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(
+                2,
+                [item(11, "module"), item(22, "core")],
+                characters=[
+                    {"character_id": 1046, "uid": {"slot": 104, "serial": 600}},
+                ],
+            )
+        )
+        service = EquipmentApplyService(self.dao, FakeSyncService(self.dao, snapshot_id))
+
+        self.assertEqual(
+            1046,
+            service.resolve_fast_apply_character_id(1051, snapshot_id),
+        )
+        self.assertEqual(
+            {"slot": 104, "serial": 600},
+            service.resolve_character_uid(1046, snapshot_id),
+        )
+
+    def test_fast_apply_protagonist_preference_validates_snapshot_presence(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(
+                2,
+                [item(11, "module"), item(22, "core")],
+                characters=[
+                    {"character_id": 1046, "uid": {"slot": 104, "serial": 600}},
+                    {"character_id": 1051, "uid": {"slot": 105, "serial": 601}},
+                ],
+            )
+        )
+        service = EquipmentApplyService(self.dao, FakeSyncService(self.dao, snapshot_id))
+
+        self.assertEqual(1051, service.resolve_fast_apply_character_id(1051, snapshot_id))
+        self.assertEqual(
+            (1051, 1046),
+            service.resolve_fast_apply_character_ids(1051, snapshot_id),
+        )
+        self.assertEqual(
+            1046,
+            service.resolve_fast_apply_character_id(
+                1051, snapshot_id, protagonist_target="male"
+            ),
+        )
     def tearDown(self) -> None:
         self.dao.close()
         self.temp_dir.cleanup()

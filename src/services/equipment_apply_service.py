@@ -15,6 +15,7 @@ from .inventory_sync_service import InventorySyncState
 
 
 MAX_UID_COMPONENT = 4_294_967_295
+_PROTAGONIST_CHARACTER_IDS = {1046: "male", 1051: "female"}
 
 
 class EquipmentApplyError(RuntimeError):
@@ -94,6 +95,73 @@ class EquipmentApplyService:
         if snapshot_id is None or state.last_snapshot_id != snapshot_id:
             raise EquipmentApplyError("同步状态与当前稳定背包快照不一致，请等待同步完成")
         return snapshot_id
+
+    def resolve_fast_apply_character_id(
+        self,
+        planned_character_id: int,
+        snapshot_id: int,
+        *,
+        protagonist_target: str = "auto",
+    ) -> int:
+        """Resolve the live target ID without changing the calculation template.
+
+        The saved protagonist plan deliberately uses the female static template
+        (1051) for scoring.  The game-side character instance, however, can be
+        male (1046).  Pick that live instance from the *pinned* snapshot before
+        dispatching the plugin command; other roles retain their saved ID.
+        """
+
+        return self.resolve_fast_apply_character_ids(
+            planned_character_id,
+            snapshot_id,
+            protagonist_target=protagonist_target,
+        )[0]
+
+    def resolve_fast_apply_character_ids(
+        self,
+        planned_character_id: int,
+        snapshot_id: int,
+        *,
+        protagonist_target: str = "auto",
+    ) -> tuple[int, ...]:
+        """Return ordered live targets; a dual protagonist tries female then male."""
+
+        planned_id = int(planned_character_id)
+        if planned_id not in _PROTAGONIST_CHARACTER_IDS:
+            return (planned_id,)
+
+        target = str(protagonist_target or "auto").strip().lower()
+        if target not in {"auto", "female", "male"}:
+            target = "auto"
+        present_ids = {
+            character_id
+            for character_id in _PROTAGONIST_CHARACTER_IDS
+            if any(
+                row.get("source") == "snapshot"
+                and row.get("last_seen_snapshot_id") == snapshot_id
+                for row in self.user_dao.list_character_instance_mappings(character_id)
+            )
+        }
+        requested_id = (
+            1051 if target == "female" else 1046 if target == "male" else None
+        )
+        if requested_id is not None:
+            if requested_id not in present_ids:
+                requested_label = "女主" if requested_id == 1051 else "男主"
+                raise EquipmentApplyError(
+                    f"当前稳定背包快照未包含{requested_label}主角实例 UID；"
+                    "请改为自动或选择当前账号实际主角"
+                )
+            return (requested_id,)
+        if len(present_ids) == 1:
+            return (next(iter(present_ids)),)
+        if len(present_ids) == 2:
+            # Compatibility default: historical plans and all score templates
+            # use the female variant.  A dual-instance snapshot has no active
+            # avatar marker, so retry the male instance only if female dispatch
+            # fails instead of guessing before the first plugin call.
+            return (1051, 1046)
+        return (planned_id,)
 
     def resolve_character_uid(
         self,
@@ -326,6 +394,7 @@ class EquipmentApplyService:
         plan_id: int,
         *,
         character_uid: Mapping[str, Any] | None = None,
+        target_character_id: int | None = None,
         timeout: float = 30.0,
         verify_after_dispatch: bool = True,
         stable_snapshot_id: int | None = None,
@@ -352,6 +421,11 @@ class EquipmentApplyService:
 
         plan = self.validate_plan_for_fast_apply(
             plan_id, stable_snapshot_id=before_snapshot_id,
+        )
+        effective_character_id = int(
+            plan["character_id"]
+            if target_character_id is None
+            else target_character_id
         )
         assignments = plan["assignments"]
         modules = [item for item in assignments if item["kind"] == "module"]
@@ -397,21 +471,21 @@ class EquipmentApplyService:
                 raise EquipmentApplyError("核心不能包含旋转参数")
 
         resolved_character_uid = self.resolve_character_uid(
-            plan["character_id"], before_snapshot_id, character_uid
+            effective_character_id, before_snapshot_id, character_uid
         )
         current_mismatch = (
             self._plan_mismatch(
                 items=current_items,
                 modules=modules,
                 core_assignment=core_assignment,
-                character_id=plan["character_id"],
+                character_id=effective_character_id,
                 character_uid=resolved_character_uid,
             )
             if core_assignment is not None
             else self._module_plan_mismatch(
                 items=current_items,
                 modules=modules,
-                character_id=plan["character_id"],
+                character_id=effective_character_id,
                 character_uid=resolved_character_uid,
             )
         )
@@ -503,14 +577,14 @@ class EquipmentApplyService:
                 items=self.user_dao.list_inventory_items(after_snapshot_id),
                 modules=modules,
                 core_assignment=core_assignment,
-                character_id=plan["character_id"],
+                character_id=effective_character_id,
                 character_uid=resolved_character_uid,
             )
             if core_assignment is not None
             else self._module_plan_mismatch(
                 items=self.user_dao.list_inventory_items(after_snapshot_id),
                 modules=modules,
-                character_id=plan["character_id"],
+                character_id=effective_character_id,
                 character_uid=resolved_character_uid,
             )
         )

@@ -37,6 +37,17 @@ def _normalize_netdisk_links(netdisk_links=None):
     return tuple((str(name), str(url)) for name, url in netdisk_links if name and url)
 
 
+def refresh_account_scoped_settings(window) -> None:
+    """Refresh already-built settings controls after an account switch."""
+
+    preferences = getattr(window, "_ui_preferences", {}) or {}
+    edit = getattr(window, "_protagonist_game_name_edit", None)
+    if edit is not None:
+        edit.blockSignals(True)
+        edit.setText(str(preferences.get("protagonist_game_name") or ""))
+        edit.blockSignals(False)
+
+
 def build_settings_page(window, app_version, get_paths, iter_image_files, netdisk_links=None):
     page = QWidget()
     page.setObjectName("settingsPage")

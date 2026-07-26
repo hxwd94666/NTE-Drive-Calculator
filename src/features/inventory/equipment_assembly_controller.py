@@ -347,19 +347,39 @@ def _run_nte_core_equipment_apply(
                     preflight_errors.append({"role_name": role_name, "error": str(exc)})
                     continue
                 override = identity_overrides.get(role_name)
+                character_id = int(plan["character_id"])
                 try:
-                    character_id = int(override["character_id"]) if override else int(plan["character_id"])
-                    if character_id != int(plan["character_id"]):
-                        raise RuntimeError("手动选择的角色 ID 与该 SQLite 方案不匹配")
-                    character_uid = apply_service.resolve_character_uid(
-                        character_id, initial_snapshot_id,
-                        explicit_uid=override.get("character_uid") if override else None,
+                    candidate_character_ids = apply_service.resolve_fast_apply_character_ids(
+                        int(plan["character_id"]),
+                        initial_snapshot_id,
                     )
+                    target_candidates: list[dict] = []
+                    for candidate_character_id in candidate_character_ids:
+                        if override is not None:
+                            override_character_id = int(override["character_id"])
+                            if override_character_id != candidate_character_id:
+                                continue
+                        target_candidates.append({
+                            "character_id": candidate_character_id,
+                            "character_uid": apply_service.resolve_character_uid(
+                                candidate_character_id,
+                                initial_snapshot_id,
+                                explicit_uid=override.get("character_uid") if override else None,
+                            ),
+                        })
+                    if not target_candidates:
+                        raise RuntimeError("当前主角实例与手动选择结果不匹配")
+                    character_id = int(target_candidates[0]["character_id"])
+                    if override is not None:
+                        override_character_id = int(override["character_id"])
+                        if override_character_id != character_id:
+                            raise RuntimeError("手动选择的角色实例与当前主角装配目标不匹配")
+                    character_uid = target_candidates[0]["character_uid"]
                 except Exception as exc:
                     identity_requests.append(
                         {
                             "role_name": role_name,
-                            "candidate_character_ids": [int(plan["character_id"])],
+                            "candidate_character_ids": [character_id],
                             "reason": str(exc),
                         }
                     )
@@ -367,6 +387,7 @@ def _run_nte_core_equipment_apply(
                 prepared.append({
                     "role_name": role_name, "character_id": character_id,
                     "character_uid": character_uid, "plan_id": plan["plan_id"],
+                    "fallback_targets": target_candidates[1:],
                     "module_count": sum(1 for row in plan["assignments"] if row["kind"] == "module"),
                     "core_count": sum(1 for row in plan["assignments"] if row["kind"] == "core"),
                 })
@@ -406,13 +427,41 @@ def _run_nte_core_equipment_apply(
             )
             user_dao.mark_equipment_apply_job_item(prepared_role["job_item_id"], status="running")
             try:
-                result = apply_service.apply_plan(
-                    prepared_role["plan_id"],
-                    character_uid=prepared_role["character_uid"],
-                    timeout=30.0,
-                    verify_after_dispatch=False,
-                    stable_snapshot_id=stable_snapshot_id,
-                )
+                target_candidates = [
+                    {
+                        "character_id": prepared_role["character_id"],
+                        "character_uid": prepared_role["character_uid"],
+                    },
+                    *list(prepared_role.get("fallback_targets") or ()),
+                ]
+                result = None
+                applied_character_id = int(prepared_role["character_id"])
+                last_error: Exception | None = None
+                for target_index, target in enumerate(target_candidates):
+                    try:
+                        applied_character_id = int(target["character_id"])
+                        result = apply_service.apply_plan(
+                            prepared_role["plan_id"],
+                            character_uid=target["character_uid"],
+                            target_character_id=applied_character_id,
+                            timeout=30.0,
+                            verify_after_dispatch=False,
+                            stable_snapshot_id=stable_snapshot_id,
+                        )
+                        if target_index:
+                            logger.warning(
+                                "主角女主实例装配失败后，已改用男主实例下发成功"
+                            )
+                        break
+                    except Exception as exc:
+                        last_error = exc
+                        if target_index + 1 >= len(target_candidates):
+                            raise
+                        logger.warning(
+                            "主角女主实例装配失败，正在尝试男主实例：{}", exc
+                        )
+                if result is None:
+                    raise last_error or RuntimeError("主角装配未返回结果")
                 user_dao.mark_equipment_apply_job_item(
                     prepared_role["job_item_id"], status="succeeded",
                     before_snapshot_id=result.before_snapshot_id,
@@ -422,7 +471,7 @@ def _run_nte_core_equipment_apply(
                 applied.append(
                     {
                         "role_name": role_name,
-                        "character_id": prepared_role["character_id"],
+                        "character_id": applied_character_id,
                         "plan_id": prepared_role["plan_id"],
                         "module_count": prepared_role.get("module_count"),
                         "core_count": prepared_role.get("core_count"),

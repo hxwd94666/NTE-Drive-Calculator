@@ -153,7 +153,7 @@ from src.features.configuration.page import (
     save_role_weight_value as config_save_role_weight_value,
     switch_config_form as config_switch_config_form,
 )
-from src.features.settings.page import build_settings_page
+from src.features.settings.page import build_settings_page, refresh_account_scoped_settings
 from src.features.home.page import (
     build_home_page,
     inventory_sync_error_guidance,
@@ -536,6 +536,7 @@ class MainWindow(FeatureMainWindowMixin, QMainWindow):
             self._save_ui_preferences()
         self._apply_theme_preference()
         self._toggle_log(bool(self._ui_preferences["log_enabled"]))
+        refresh_account_scoped_settings(self)
         if hasattr(self,"_identify_capture_dir"):
             self._identify_capture_dir=ACCOUNT_DATA_ROOT/"identify_captures"
         self.final_plan=None

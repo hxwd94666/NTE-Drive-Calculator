@@ -54,6 +54,20 @@ class AccountUserDatabaseTests(unittest.TestCase):
             self.assertEqual(first_settings.load("update")["mirror_cdk"], "0001bf-private")
             self.assertEqual(second_settings.load("update")["mirror_cdk"], "")
 
+    def test_protagonist_game_name_is_account_scoped_ui_setting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self.make_manager(Path(temporary))
+            first = manager.initialize()
+            second_id = manager.create_account("第二账号")
+            second_path = manager.account_dir(second_id) / "user_data.sqlite3"
+
+            first_settings = AccountSettingsService(first.user_database_path)
+            second_settings = AccountSettingsService(second_path)
+            first_settings.save("ui", {"protagonist_game_name": "无度"})
+
+            self.assertEqual(first_settings.load("ui")["protagonist_game_name"], "无度")
+            self.assertEqual(second_settings.load("ui")["protagonist_game_name"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

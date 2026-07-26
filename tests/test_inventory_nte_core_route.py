@@ -43,6 +43,8 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         class ApplyService:
             def __init__(self, *_args): pass
             def validate_plan_for_fast_apply(self, *_args, **_kwargs): pass
+            def resolve_fast_apply_character_ids(self, character_id, *_args, **_kwargs):
+                return (character_id,)
             def resolve_character_uid(self, character_id, *_args, **_kwargs):
                 if character_id == 1002:
                     raise RuntimeError("当前稳定背包和该账号的角色实例缓存均未包含该角色 UID")

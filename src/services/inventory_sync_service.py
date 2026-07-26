@@ -14,6 +14,7 @@ from typing import Any, Literal, Protocol
 from src.integrations.nte_core import NteCoreClient
 from src.services.account_settings_service import AccountSettingsService
 from src.services.raw_capture_retention import prune_raw_capture_files
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -33,6 +34,31 @@ SyncPhase = Literal[
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _format_character_instances_for_log(characters: object) -> str:
+    """Render stable, human-readable character identities for sync logs."""
+
+    if not isinstance(characters, list):
+        return "无独立角色实例"
+    ids = [
+        int(row["character_id"])
+        for row in characters
+        if isinstance(row, Mapping) and isinstance(row.get("character_id"), int)
+    ]
+    names: dict[int, str] = {}
+    try:
+        with StaticGameDataDao() as static_dao:
+            names = {
+                int(row["character_id"]): str(row.get("name_zh") or "未知角色")
+                for row in static_dao.list_characters()
+            }
+    except Exception as exc:
+        logger.warning(f"读取角色名称用于背包同步日志失败：{exc}")
+    return "、".join(
+        f"{names.get(character_id, '未知角色')}({character_id})"
+        for character_id in ids
+    ) or "无独立角色实例"
 
 
 @dataclass(frozen=True)
@@ -330,6 +356,7 @@ class InventorySyncService:
                 self._client = client
                 client.start()
                 client.add_event_handler("event.inventory.snapshot", self._on_inventory_event)
+                logger.info("背包同步已连接 nte-core，正在启动 inventory 抓包")
                 capture_device = self._capture_device_id
                 if capture_device is None:
                     capture_device = settings.get("capture_device_id")
@@ -348,6 +375,7 @@ class InventorySyncService:
                     device_name=capture_device,
                     raw_capture="enabled" if raw_enabled else "disabled",
                 )
+                logger.info("背包同步抓包已启动，等待完整背包快照")
                 current_summary = dao.current_inventory_summary()
                 self._publish(
                     "waiting" if current_summary is None else "listening",
@@ -392,6 +420,10 @@ class InventorySyncService:
                             continue
                         result = stabilizer.offer(event)
                         if result.status in {"collecting", "changed"}:
+                            logger.info(
+                                "已接收背包快照候选：{} 件装备，等待内容稳定",
+                                result.item_count,
+                            )
                             self._publish(
                                 "collecting",
                                 f"已接收 {result.item_count} 件，等待背包内容稳定",
@@ -403,6 +435,7 @@ class InventorySyncService:
                                 error=None,
                             )
                         elif result.status == "reverted":
+                            logger.info("收到未变更的背包快照，继续监听")
                             self._publish(
                                 "listening",
                                 (
@@ -437,6 +470,7 @@ class InventorySyncService:
                             protocol_version=self._protocol_version(client),
                         )
                     except Exception as exc:
+                        logger.error(f"保存稳定背包失败，将自动重试：{type(exc).__name__}: {exc}")
                         retry_save_at = time.monotonic() + 2.0
                         self._publish(
                             "error",
@@ -460,6 +494,11 @@ class InventorySyncService:
                         snapshot_id,
                         stable.item_count,
                         character_count,
+                    )
+                    logger.info(
+                        "快照 #{} 角色实例：{}",
+                        snapshot_id,
+                        _format_character_instances_for_log(character_payload),
                     )
                     if self._template_refresh is not None:
                         try:
@@ -501,6 +540,7 @@ class InventorySyncService:
                     )
         except Exception as exc:
             fatal_error = exc
+            logger.error(f"背包同步服务异常停止：{type(exc).__name__}: {exc}")
             self._publish(
                 "error",
                 "背包同步服务已停止",
@@ -530,6 +570,7 @@ class InventorySyncService:
                     pass
             self._client = None
             if fatal_error is None:
+                logger.info("背包同步已停止")
                 self._publish(
                     "stopped",
                     "背包同步已停止",
