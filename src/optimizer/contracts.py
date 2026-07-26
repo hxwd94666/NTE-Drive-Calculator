@@ -12,8 +12,8 @@ from typing import Any, Literal, NotRequired, TypedDict
 from src.models.equipment import Drive, Tape
 
 
-StrategyMode = Literal["role_priority", "drive_priority", "global_optimal"]
-STRATEGY_MODES: tuple[StrategyMode, ...] = ("role_priority", "drive_priority", "global_optimal")
+StrategyMode = Literal["role_priority", "global_optimal"]
+STRATEGY_MODES: tuple[StrategyMode, ...] = ("role_priority", "global_optimal")
 
 PLAN_VALID = "valid"
 PLAN_BLUEPRINT = "blueprint"
@@ -55,9 +55,12 @@ DIFF_ADDED = "added"
 DIFF_REMOVED = "removed"
 
 
-class CandidatePool(TypedDict):
+class CandidatePool(TypedDict, total=False):
     drives: list[Drive]
     tapes: dict[str, list[Tape]]
+    # 已评分的完整驱动库存。常规分配仍只消费 ``drives`` 的 Top-K 并集；
+    # 同级组补齐和全局无解扩展才可显式读取该集合。
+    all_drives: list[Drive]
 
 
 class Blueprint(TypedDict, total=False):

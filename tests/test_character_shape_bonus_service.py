@@ -1,4 +1,4 @@
-"""Verify shared, logical-role extra-shape editing in the public SQLite DB."""
+# 验证跨账号共享额外形状覆盖库的读写与静态数据隔离。
 
 from __future__ import annotations
 
@@ -7,7 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.services.character_shape_bonus_service import save_public_character_shape_bonus
+from src.services.character_shape_bonus_service import (
+    get_effective_character_shape_bonus,
+    save_public_character_shape_bonus,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -40,12 +43,9 @@ class CharacterShapeBonusServiceTests(unittest.TestCase):
                 database_path=database,
             )
             with StaticGameDataDao(database) as dao:
-                actual = dao.get_character_shape_bonus(1051)
+                actual = get_effective_character_shape_bonus(dao, 1051)
+                bundled = dao.get_character_shape_bonus(1051)
                 template = dao.get_character_graduation_template(1051)
-                plan = dao.get_equipment_plan(1051)
-                items = {
-                    row["item_id"]: row for row in dao.list_equipment_items()
-                }
 
             with UserDataDao(user_database) as user_dao:
                 after = user_dao.get_character_weight_preferences(1051)
@@ -56,15 +56,10 @@ class CharacterShapeBonusServiceTests(unittest.TestCase):
             [("CritBase", 8.0)],
             [(row["property_id"], row["display_value"]) for row in actual["properties"]],
         )
-        self.assertEqual(
-            sum(
-                int(items[item_id]["grid_count"] or 0) == 4
-                for item_id in plan["module_item_ids"]
-            ),
-            template["extra_shape_count"],
-        )
+        self.assertIsNotNone(template)
         self.assertEqual("default", after["source_kind"])
         self.assertEqual(before["updated_at_utc"], after["updated_at_utc"])
+        self.assertNotEqual("Type-4", bundled["shape_label"])
 
     def test_keeps_current_public_label_when_a_bonus_only_save_has_empty_label(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

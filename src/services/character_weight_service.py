@@ -23,6 +23,21 @@ def is_unmodified_account_weight_cache(record: Mapping[str, Any] | None) -> bool
     )
 
 
+def _same_weight_rows(
+    existing: Mapping[str, Any], properties: Iterable[Mapping[str, Any]],
+) -> bool:
+    def normalized(rows: Iterable[Mapping[str, Any]]) -> list[tuple[str, float, float]]:
+        return [
+            (
+                str(row.get("property_id") or ""),
+                float(row.get("weight") or 0.0),
+                float(row.get("main_weight") or 0.0),
+            )
+            for row in rows
+        ]
+    return normalized(existing.get("properties") or ()) == normalized(properties)
+
+
 def ensure_account_character_weights(
     user_database_path: str | Path,
     character_ids: Iterable[int] | None = None,
@@ -62,13 +77,19 @@ def ensure_account_character_weights(
                     source_kind="default",
                 )
             elif is_unmodified_account_weight_cache(existing):
-                refreshed = user_dao.refresh_unmodified_character_weight_preferences(
-                    character_id,
-                    properties=properties,
-                    source_dataset_id=dataset_id,
-                    source_kind="default",
-                )
-                result[character_id] = refreshed or existing
+                if (
+                    str(existing.get("source_dataset_id") or "") == dataset_id
+                    and _same_weight_rows(existing, properties)
+                ):
+                    result[character_id] = existing
+                else:
+                    refreshed = user_dao.refresh_unmodified_character_weight_preferences(
+                        character_id,
+                        properties=properties,
+                        source_dataset_id=dataset_id,
+                        source_kind="default",
+                    )
+                    result[character_id] = refreshed or existing
             else:
                 result[character_id] = existing
         return result
@@ -134,6 +155,49 @@ def save_account_character_weights(
                 source_dataset_id=dataset_id,
                 source_kind="account",
             )
+        existing_rows = [
+            (
+                str(row["property_id"]), float(row.get("weight") or 0.0),
+                float(row.get("main_weight") or 0.0),
+            )
+            for row in current.get("properties") or ()
+        ]
+        proposed_rows = [
+            (
+                str(row["property_id"]), float(row.get("weight") or 0.0),
+                float(row.get("main_weight") or 0.0),
+            )
+            for row in rows
+        ]
+        # A no-op Save must remain a refreshable ``default`` row.  Otherwise
+        # merely opening a form and pressing Save permanently blocks Workshop
+        # updates for that character.
+        if existing_rows == proposed_rows:
+            return current
         return user_dao.save_character_weight_preferences(
             int(character_id), properties=rows
         )
+
+
+def reset_account_character_weights(
+    user_database_path: str | Path,
+    character_ids: Iterable[int],
+) -> dict[int, dict[str, Any]]:
+    """Restore selected roles to current public defaults in one account DB."""
+
+    wanted_ids = tuple(dict.fromkeys(int(character_id) for character_id in character_ids))
+    if not wanted_ids:
+        return {}
+    with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
+        dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
+        restored: dict[int, dict[str, Any]] = {}
+        for character_id in wanted_ids:
+            recommended = static_dao.get_character_recommended_weights(character_id)
+            if recommended is None or not recommended.get("properties"):
+                continue
+            restored[character_id] = user_dao.reset_character_weight_preferences_to_default(
+                character_id,
+                properties=list(recommended["properties"]),
+                source_dataset_id=dataset_id,
+            )
+        return restored

@@ -5,23 +5,25 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
+from functools import lru_cache
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
 from src.app import runtime
-from src.services.character_weight_service import (
-    ensure_account_character_weights,
-    is_unmodified_account_weight_cache,
-)
+from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.equipment_level_projection_service import (
     project_equipment_items_to_max_level,
 )
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
+from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
 from src.services.virtual_equipment_service import (
+    grid_count_from_geometry,
     is_virtual_equipment_assignment,
     virtual_equipment_inventory_item,
 )
+from src.optimizer.scoring import ScoringEngine
 from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
@@ -77,6 +79,10 @@ _ROLE_PANEL_MARGINAL_UNITS = {
     "DamageUpGeneralBase": 0.01,
     "AtkUp": 0.0125,
     "AtkAdd": 8.0,
+    "HPMaxUp": 0.0125,
+    "HPMaxAdd": 100.0,
+    "DefUp": 0.0175,
+    "DefAdd": 8.0,
     "ElementDamage": 0.0125,
 }
 
@@ -670,7 +676,7 @@ def calculate_official_role_item_gain(
 def replacement_candidates_for_official_role(
     detail: Mapping[str, Any], context_key: str, target: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
-    """Rank same-slot SQLite inventory replacements by the page's direct damage.
+    """Rank same-slot SQLite inventory replacements by final-weight score.
 
     Replacement is intentionally limited to a saved SQLite loadout: it retains
     the stored grid coordinates and never writes an ad-hoc JSON equipment list.
@@ -739,6 +745,13 @@ def replacement_candidates_for_official_role(
     }
     baseline = calculate_official_role_margins(full_level_detail, context_key)
     baseline_damage = float((baseline or {}).get("damage") or 0.0)
+    final_weights = calculate_official_role_final_weights(
+        full_level_detail,
+        context_key,
+        margins=baseline,
+        base_property_weights=detail.get("property_weights") or {},
+        base_main_property_weights=detail.get("main_property_weights") or {},
+    )
     current_gain = calculate_official_role_item_gain(
         full_level_detail,
         context_key,
@@ -746,6 +759,12 @@ def replacement_candidates_for_official_role(
     )
     current_direct_damage_score = (
         float(current_gain["gain_percent"]) if current_gain else None
+    )
+    current_score = calculate_official_role_hidden_equipment_score(
+        full_level_detail,
+        projected_target,
+        property_weights=final_weights["property_weights"],
+        main_property_weights=final_weights["main_property_weights"],
     )
     ranked: list[dict[str, Any]] = []
     for candidate in projected_candidates:
@@ -766,8 +785,6 @@ def replacement_candidates_for_official_role(
         }
         margins = calculate_official_role_margins(candidate_detail, context_key)
         damage = float((margins or {}).get("damage") or 0.0)
-        if damage <= 0:
-            continue
         candidate_gain = calculate_official_role_item_gain(
             candidate_detail,
             context_key,
@@ -779,6 +796,13 @@ def replacement_candidates_for_official_role(
             "baseline_damage": baseline_damage,
             "damage": damage,
             "current_direct_damage_score": current_direct_damage_score,
+            "current_score": current_score,
+            "score": calculate_official_role_hidden_equipment_score(
+                candidate_detail,
+                candidate,
+                property_weights=final_weights["property_weights"],
+                main_property_weights=final_weights["main_property_weights"],
+            ),
             "direct_damage_score": (
                 float(candidate_gain["gain_percent"]) if candidate_gain else None
             ),
@@ -786,7 +810,13 @@ def replacement_candidates_for_official_role(
                 (damage / baseline_damage - 1.0) * 100.0 if baseline_damage > 0 else 0.0
             ),
         })
-    return sorted(ranked, key=lambda row: float(row["damage"]), reverse=True)
+    return sorted(
+        ranked,
+        key=lambda row: (
+            -float(row["score"]),
+            -float(row.get("damage") or 0.0),
+        ),
+    )
 
 
 def save_official_role_replacement(
@@ -911,8 +941,6 @@ def calculate_official_role_margins(detail: Mapping[str, Any], context_key: str)
         str((detail.get("character") or {}).get("element_type") or "")
     )
     candidates = [
-        ("AtkUp", "攻击力%", "attack_up", _ROLE_PANEL_MARGINAL_UNITS["AtkUp"], True),
-        ("AtkAdd", "攻击力", "attack_add", _ROLE_PANEL_MARGINAL_UNITS["AtkAdd"], False),
         ("CritBase", "暴击率%", "crit_rate", _ROLE_PANEL_MARGINAL_UNITS["CritBase"], True),
         (
             "CritDamageBase", "暴击伤害%", "crit_damage",
@@ -923,21 +951,30 @@ def calculate_official_role_margins(detail: Mapping[str, Any], context_key: str)
             _ROLE_PANEL_MARGINAL_UNITS["DamageUpGeneralBase"], True,
         ),
     ]
+    scaling_candidates = {
+        DamageScalingStat.ATTACK: (
+            ("AtkUp", "攻击力%", "attack_up", _ROLE_PANEL_MARGINAL_UNITS["AtkUp"], True),
+            ("AtkAdd", "攻击力", "attack_add", _ROLE_PANEL_MARGINAL_UNITS["AtkAdd"], False),
+        ),
+        DamageScalingStat.HEALTH: (
+            ("HPMaxUp", "生命值%", "health_up", _ROLE_PANEL_MARGINAL_UNITS["HPMaxUp"], True),
+            ("HPMaxAdd", "生命值", "health_add", _ROLE_PANEL_MARGINAL_UNITS["HPMaxAdd"], False),
+        ),
+        DamageScalingStat.DEFENSE: (
+            ("DefUp", "防御力%", "defense_up", _ROLE_PANEL_MARGINAL_UNITS["DefUp"], True),
+            ("DefAdd", "防御力", "defense_add", _ROLE_PANEL_MARGINAL_UNITS["DefAdd"], False),
+        ),
+    }
+    candidates.extend(scaling_candidates.get(inputs[0].scaling_stat, ()))
     if element_property:
         candidates.append((
             element_property, "异能伤害%", "damage_increases",
             _ROLE_PANEL_MARGINAL_UNITS["ElementDamage"], True,
         ))
-    configured = {
-        str(property_id)
-        for property_id in (detail.get("property_weights") or DEFAULT_THEORY_PROPERTY_IDS)
-    }
     rows = []
     for property_id, label, field, unit, is_percent in candidates:
         # 异能伤害属于角色固有边际项；即使用户没有把它作为配装权重，
         # 也必须展示对应元素的 1.25% 单位收益。
-        if property_id not in configured and property_id != element_property:
-            continue
         updated = []
         for item in inputs:
             if field == "damage_increases":
@@ -972,6 +1009,139 @@ def calculate_official_role_margins(detail: Mapping[str, Any], context_key: str)
         "context_key": context_key,
         "warning": "精炼被保存为官方弧盘指针；其条件被动尚未规范化为静态数值。",
     }
+
+
+def _normalized_direct_damage_weights(
+    base_weights: Mapping[str, float], margins: Mapping[str, Any] | None,
+) -> tuple[dict[str, float], frozenset[str]]:
+    """Build the role page's read-only final weights from marginal damage."""
+
+    weights = {str(key): float(value) for key, value in base_weights.items()}
+    rows = list((margins or {}).get("rows") or ())
+    formula_ids = frozenset(
+        str(row.get("property_id") or "") for row in rows
+    ) - {""}
+    positive_gains = [
+        float(row.get("gain_percent") or 0.0)
+        for row in rows
+        if math.isfinite(float(row.get("gain_percent") or 0.0))
+        and float(row.get("gain_percent") or 0.0) > 0.0
+    ]
+    maximum_gain = max(positive_gains, default=0.0)
+    for row in rows:
+        property_id = str(row.get("property_id") or "")
+        if not property_id:
+            continue
+        gain = float(row.get("gain_percent") or 0.0)
+        weights[property_id] = (
+            max(0.0, gain) / maximum_gain
+            if maximum_gain > 0.0 and math.isfinite(gain)
+            else 0.0
+        )
+    return weights, formula_ids
+
+
+@lru_cache(maxsize=4)
+def _replacement_scoring_engine(config_dir: str) -> ScoringEngine:
+    """Reuse stat-name normalization while a replacement dialog is open."""
+
+    return ScoringEngine(config_dir=config_dir, roles_db={})
+
+
+def calculate_official_role_final_weights(
+    detail: Mapping[str, Any],
+    context_key: str,
+    *,
+    margins: Mapping[str, Any] | None = None,
+    base_property_weights: Mapping[str, float] | None = None,
+    base_main_property_weights: Mapping[str, float] | None = None,
+) -> dict[str, Any]:
+    """Resolve the exact final weights displayed by the role-page table.
+
+    Formula properties use current marginal direct-damage ratios; properties
+    absent from the formula retain the account's base weight.  Both role-page
+    and weighted-allocation replacement flows call this function so their
+    hidden candidate score cannot drift from the visible table.
+    """
+
+    resolved_margins = margins if margins is not None else calculate_official_role_margins(
+        detail, context_key,
+    )
+    property_weights, formula_ids = _normalized_direct_damage_weights(
+        base_property_weights or detail.get("property_weights") or {},
+        resolved_margins,
+    )
+    main_property_weights, _unused = _normalized_direct_damage_weights(
+        base_main_property_weights or detail.get("main_property_weights") or {},
+        resolved_margins,
+    )
+    return {
+        "property_weights": property_weights,
+        "main_property_weights": main_property_weights,
+        "formula_property_ids": formula_ids,
+        "margins": resolved_margins,
+    }
+
+
+def calculate_official_role_hidden_equipment_score(
+    detail: Mapping[str, Any],
+    item: Mapping[str, Any],
+    *,
+    property_weights: Mapping[str, float],
+    main_property_weights: Mapping[str, float] | None = None,
+) -> float:
+    """Score one candidate with the role page's final weights, not direct damage.
+
+    This is intentionally the same category/quality/shape scoring model used
+    by result cards.  It is a hidden ordering metric for replacement choices;
+    direct-damage gain remains a separate display-only metric.
+    """
+
+    engine = _replacement_scoring_engine(
+        str(getattr(runtime, "CONFIG_DIR", "config"))
+    )
+    weights = {
+        _property_label(detail, str(property_id)): float(value)
+        for property_id, value in property_weights.items()
+    }
+    main_weights = {
+        _property_label(detail, str(property_id)): float(value)
+        for property_id, value in (main_property_weights or property_weights).items()
+    }
+    maximum_weight = engine._get_max_theoretical_weight(weights)
+    if maximum_weight <= 0:
+        return 0.0
+    quality = {
+        "orange": "Gold", "gold": "Gold", "purple": "Purple", "blue": "Blue",
+    }.get(str(item.get("quality") or "").casefold(), "Gold")
+    quality_coefficient = engine.quality_map.get(quality, 1.0)
+    sub_weight = sum(
+        engine._get_flexible_weight(
+            _property_label(detail, str(stat.get("property_id") or "")), weights,
+        )
+        for stat in item.get("sub_stats") or ()
+    )
+    if str(item.get("kind") or "") == "core":
+        main_property_id = str(
+            next(iter(item.get("main_stats") or ()), {}).get("property_id") or ""
+        )
+        main_weight = engine._get_flexible_weight(
+            _property_label(detail, main_property_id), main_weights,
+        )
+        return round(
+            main_weight * 50.0 * quality_coefficient
+            + (10.0 / maximum_weight) * sub_weight * 10.0 * quality_coefficient,
+            2,
+        )
+    area = int(item.get("grid_count") or 0) or grid_count_from_geometry(
+        item.get("geometry")
+    )
+    if area <= 0 or sub_weight <= 0:
+        return 0.0
+    return round(
+        (10.0 / maximum_weight) * sub_weight * area * quality_coefficient,
+        2,
+    )
 
 
 def _property_label(detail: Mapping[str, Any], property_id: str) -> str:
@@ -1226,7 +1396,6 @@ def load_official_role_detail(
     """
 
     catalog = GameUiAssetCatalog(_asset_root(asset_root))
-    ensure_account_character_weights(user_database_path, (character_id,))
     with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
         character = static_dao.get_character(character_id)
         if character is None:
@@ -1292,7 +1461,9 @@ def load_official_role_detail(
                 if owner_icon is not None:
                     item["equipped_character_icon_path"] = str(owner_icon)
         equipment_plan = static_dao.get_equipment_plan(character_id)
-        static_shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+        static_shape_bonus = get_effective_character_shape_bonus(
+            static_dao, character_id,
+        ) or {}
         shape_bonus = static_shape_bonus
         current_calculation_items = project_equipment_items_to_max_level(
             current_items,
@@ -1303,12 +1474,13 @@ def load_official_role_detail(
             static_dao,
         )
         graduation_template = static_dao.get_character_graduation_template(character_id)
-        account_weights = user_dao.get_character_weight_preferences(character_id)
-        weight_record = (
-            static_dao.get_character_recommended_weights(character_id)
-            if account_weights is None or is_unmodified_account_weight_cache(account_weights)
-            else account_weights
-        ) or {}
+        # 角色页只读显示当前账号在“权重”页已保存的基础权重；角色页本身
+        # 绝不写回它。账号尚未生成该角色记录时，才回落公共默认。
+        public_weight_record = (
+            static_dao.get_character_recommended_weights(character_id) or {}
+        )
+        account_weight_record = user_dao.get_character_weight_preferences(character_id)
+        weight_record = account_weight_record or public_weight_record
         weights = {
             str(key): float(value)
             for key, value in (weight_record.get("property_weights") or {}).items()
@@ -1317,6 +1489,12 @@ def load_official_role_detail(
             row["attribute_id"]: row for row in static_dao.list_equipment_attributes()
         }
         equipment_items = static_dao.list_equipment_items()
+        equipment_by_id = {
+            str(row["item_id"]): row for row in equipment_items
+        }
+        graduation_extra_shape_count = graduation_extra_shape_drive_count(
+            shape_bonus, equipment_plan, equipment_by_id,
+        )
         item_names = {
             row["item_id"]: row.get("name_zh") or row["item_id"]
             for row in equipment_items
@@ -1367,6 +1545,7 @@ def load_official_role_detail(
         "equipment_plan": equipment_plan,
         "shape_bonus": shape_bonus,
         "graduation_template": graduation_template,
+        "graduation_extra_shape_count": graduation_extra_shape_count,
         "attributes": attributes,
         "item_names": item_names,
         "item_icon_paths": item_icon_paths,
@@ -1375,16 +1554,12 @@ def load_official_role_detail(
             str(key): float(value)
             for key, value in (weight_record.get("main_property_weights") or {}).items()
         },
-        "property_weight_source": str(weight_record.get("source_kind") or "default"),
-        "property_weights_from_account": bool(
-            account_weights is not None
-            and not is_unmodified_account_weight_cache(account_weights)
+        "property_weight_source": str(
+            (account_weight_record or {}).get("source_kind") or "default"
         ),
+        "property_weights_from_account": account_weight_record is not None,
         "theory_weights": theory_weights,
-        "theory_weights_persisted": bool(
-            account_weights is not None
-            and not is_unmodified_account_weight_cache(account_weights)
-        ),
+        "theory_weights_persisted": account_weight_record is not None,
         "replacement_items": replacement_items,
         "equipment_contexts": {
             "current": {

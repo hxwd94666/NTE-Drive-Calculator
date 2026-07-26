@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -37,6 +39,7 @@ from src.services.graduation_bonus_service import graduation_extra_shape_stats
 from src.features.allocation import results_view as legacy_results
 from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
 from src.services.official_role_page_service import (
+    calculate_official_role_final_weights,
     calculate_official_role_damage_breakdown,
     calculate_official_role_equipment_gain,
     calculate_official_role_item_gain,
@@ -47,7 +50,6 @@ from src.services.official_role_page_service import (
     save_official_role_replacement,
     save_official_role_tab_order,
 )
-from src.services.character_weight_service import save_account_character_weights
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import (
     AllocationInventoryProjectionError,
@@ -172,9 +174,15 @@ def _graduation_template_with_weight_substats(detail: dict) -> dict | None:
         }
 
     equipment = [dict(item) for item in template.get("equipment") or ()]
+    configured_extra_shape_count = detail.get("graduation_extra_shape_count")
+    extra_shape_count = (
+        int(configured_extra_shape_count)
+        if configured_extra_shape_count is not None
+        else int(template.get("extra_shape_count") or 0)
+    )
     extra_shape_stats = graduation_extra_shape_stats(
         detail.get("shape_bonus"),
-        int(template.get("extra_shape_count") or 0),
+        extra_shape_count,
         attributes,
     )
     for item in equipment:
@@ -302,11 +310,54 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
     return {
         **detail,
         "profile": profile,
-        "property_weights": dict(editor.get("property_weights") or {}),
+        "property_weights": dict(
+            editor.get("marginal_property_weights")
+            or detail.get("property_weights")
+            or {}
+        ),
+        "main_property_weights": dict(
+            editor.get("marginal_main_property_weights")
+            or detail.get("main_property_weights")
+            or {}
+        ),
         "calculation_context_key": str(
             editor.get("equipment_context_key") or "current"
         ),
     }
+
+
+def _normalized_marginal_weights(
+    base_weights: dict[str, float], margins: dict | None,
+) -> tuple[dict[str, float], frozenset[str]]:
+    """Return read-only role weights derived from the current direct-damage panel.
+
+    Formula-participating properties always use their measured marginal gain:
+    the largest positive one is 1.0 and an actual zero stays 0.  Only
+    properties absent from the direct-damage formula retain their public
+    official recommendation weight.
+    """
+
+    weights = {str(key): float(value) for key, value in (base_weights or {}).items()}
+    rows = list((margins or {}).get("rows") or ())
+    formula_ids = frozenset(str(row.get("property_id") or "") for row in rows) - {""}
+    positive_gains = [
+        float(row.get("gain_percent") or 0.0)
+        for row in rows
+        if math.isfinite(float(row.get("gain_percent") or 0.0))
+        and float(row.get("gain_percent") or 0.0) > 0.0
+    ]
+    maximum_gain = max(positive_gains, default=0.0)
+    for row in rows:
+        property_id = str(row.get("property_id") or "")
+        if not property_id:
+            continue
+        gain = float(row.get("gain_percent") or 0.0)
+        weights[property_id] = (
+            max(0.0, gain) / maximum_gain
+            if maximum_gain > 0.0 and math.isfinite(gain)
+            else 0.0
+        )
+    return weights, formula_ids
 
 
 def _register_calculation_refresh(editor: dict, callback) -> None:
@@ -350,47 +401,11 @@ def _build_margin_group(
     damage_label.setToolTip("使用当前官方角色指针和所选装备上下文计算。")
     header.addWidget(damage_label)
     header.addStretch()
-    auto = QPushButton("自动设为权重")
-    auto.setObjectName("btnPrimary")
-    auto.setCheckable(True)
-    auto.setChecked(True)
-    header.addWidget(auto)
-    apply = QPushButton("设为权重")
-    apply.setObjectName("btnAction")
-    header.addWidget(apply)
     layout.addLayout(header)
     table_host = QWidget()
     table_layout = QVBoxLayout(table_host)
     table_layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(table_host)
-
-    def apply_margin_weights(*, silent: bool) -> None:
-        margins = state["margins"]
-        if not margins:
-            return
-        weights = editor["property_weights"]
-        updated = 0
-        for row in margins["rows"]:
-            property_id = str(row["property_id"])
-            if property_id not in weights:
-                continue
-            weights[property_id] = round(float(row["gain_percent"]), 4)
-            updated += 1
-        if not updated:
-            if not silent:
-                QMessageBox.information(
-                    window, "提示", "当前权重中没有与边际收益匹配的词条。",
-                )
-            return
-        editor["weights_dirty"] = True
-        _mark_dirty(window, character_id)
-        refresh = editor.get("refresh_weights")
-        if refresh:
-            refresh()
-        if not silent:
-            QMessageBox.information(
-                window, "成功", f"已更新 {updated} 个词条，请点击右上角保存。",
-            )
 
     def refresh() -> None:
         calculation_detail = _calculation_detail(detail, editor)
@@ -399,6 +414,19 @@ def _build_margin_group(
             calculation_detail, margin_context,
         )
         state["margins"] = margins
+        final_weights = calculate_official_role_final_weights(
+            calculation_detail,
+            margin_context,
+            margins=margins,
+            base_property_weights=detail.get("property_weights") or {},
+            base_main_property_weights=detail.get("main_property_weights") or {},
+        )
+        editor["marginal_property_weights"] = final_weights["property_weights"]
+        editor["marginal_main_property_weights"] = final_weights["main_property_weights"]
+        editor["formula_property_ids"] = final_weights["formula_property_ids"]
+        refresh_weights = editor.get("refresh_weights")
+        if refresh_weights:
+            refresh_weights()
         _clear_layout(table_layout)
         damage = float((margins or {}).get("damage") or 0.0)
         benchmark = _graduation_benchmark_damage(calculation_detail)
@@ -408,8 +436,6 @@ def _build_margin_group(
             if damage > 0 and benchmark else "直伤毕业率 : --"
         )
         damage_label.setText(f"直伤评分 : {damage:.2f}" if margins else "直伤评分 : --")
-        auto.setEnabled(bool(margins))
-        apply.setEnabled(bool(margins))
         if not margins:
             note = QLabel("当前角色状态尚无可计算的官方直伤技能或装备上下文。")
             note.setWordWrap(True)
@@ -444,20 +470,7 @@ def _build_margin_group(
             + table.frameWidth() * 2
         )
         table_layout.addWidget(table)
-        if state["initialized"] and auto.isChecked():
-            apply_margin_weights(silent=True)
         state["initialized"] = True
-
-    def toggle_auto(checked: bool) -> None:
-        auto.setText("自动设为权重" if checked else "手动设为权重")
-        auto.setObjectName("btnPrimary" if checked else "btnAction")
-        auto.style().unpolish(auto)
-        auto.style().polish(auto)
-        if checked:
-            apply_margin_weights(silent=True)
-
-    auto.clicked.connect(toggle_auto)
-    apply.clicked.connect(lambda: apply_margin_weights(silent=False))
     _register_calculation_refresh(editor, refresh)
     refresh()
     layout.addStretch()
@@ -563,5 +576,3 @@ def _build_damage_formula_group(detail: dict, editor: dict) -> QGroupBox:
     _register_calculation_refresh(editor, refresh)
     refresh()
     return group
-
-

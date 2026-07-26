@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 
 from src.models.equipment import Drive, DriveShape
-from src.optimizer.drive_priority_strategy import DrivePriorityStrategy, GlobalOptimalStrategy
+from src.optimizer.global_optimal_strategy import GlobalOptimalStrategy
 from src.optimizer.role_priority_strategy import RolePriorityStrategy
 from src.solver.combinatorics import PuzzleCombinatorics
 
@@ -70,10 +70,9 @@ class TwoPieceShapePriorityTests(unittest.TestCase):
             ),
         ]
 
-    def test_all_strategies_use_extra_shape_bonus_for_two_piece_choice(self) -> None:
+    def test_supported_strategies_use_extra_shape_bonus_for_two_piece_choice(self) -> None:
         for strategy_class in (
             RolePriorityStrategy,
-            DrivePriorityStrategy,
             GlobalOptimalStrategy,
         ):
             with self.subTest(strategy=strategy_class.__name__):

@@ -38,12 +38,6 @@ class EquipmentReplacementCard:
     note: str = ""
 
 
-def _shown_number(value: float | None) -> str:
-    if value is None:
-        return "--"
-    return f"{float(value):.2f}".rstrip("0").rstrip(".")
-
-
 def _stat_key(stat: Mapping[str, Any]) -> str:
     return str(stat.get("property_id") or stat.get("label") or "")
 
@@ -256,11 +250,6 @@ def show_equipment_replacement_dialog(
         )
         compared_current.setObjectName("equipmentReplacementCurrentPreview")
         current_host_layout.addWidget(compared_current)
-        score_delta = (
-            None
-            if current.score is None or choice.score is None
-            else float(choice.score) - float(current.score)
-        )
         current_direct_text = (
             "--"
             if current.direct_damage_score is None
@@ -273,13 +262,7 @@ def show_equipment_replacement_dialog(
         )
         comparison_text.setText(
             f"已选择：{choice.item_view.get('display_name') or choice.key}\n"
-            f"评分：{_shown_number(current.score)} → {_shown_number(choice.score)}"
-            + (
-                f"（{score_delta:+.2f}）"
-                if score_delta is not None
-                else ""
-            )
-            + f"\n直伤边际收益：{current_direct_text} → {selected_direct_text}"
+            f"直伤边际收益：{current_direct_text} → {selected_direct_text}"
             + (f"\n{choice.note}" if choice.note else "")
         )
         confirm.setEnabled(True)

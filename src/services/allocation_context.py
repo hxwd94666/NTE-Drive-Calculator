@@ -15,6 +15,7 @@ from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.character_weight_service import is_unmodified_account_weight_cache
+from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 
 
 ALLOCATION_CONTEXT_SOLVER_VERSION = "allocation-context-v1"
@@ -380,7 +381,7 @@ def _allocation_role_values(
     else:
         weights = {}
         main_weights = {}
-    shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+    shape_bonus = get_effective_character_shape_bonus(static_dao, character_id) or {}
     extra_shape_label = str(shape_bonus.get("shape_label") or "")
     extra_shape_buffs = {
         str(row["property_id"]): float(row["display_value"])
@@ -574,6 +575,13 @@ def build_allocation_context(
         )
         for row in inventory_rows
     )
+    allocation_strategy = _required_text(
+        version.get("allocation_strategy"), "allocation_strategy"
+    )
+    # 2.0 起已移除“驱动优先”；保留旧档案的读取兼容，自动迁移到
+    # 语义最接近且能完成整队重算的全局最优模式。
+    if allocation_strategy == "drive_priority":
+        allocation_strategy = "global_optimal"
     return AllocationContext(
         account_id=_required_text(account.get("account_id"), "account_id"),
         static_dataset=StaticDatasetReference(
@@ -594,7 +602,7 @@ def build_allocation_context(
         ),
         profile_id=pinned_profile_id,
         profile_version=pinned_profile_version,
-        allocation_strategy=_required_text(version.get("allocation_strategy"), "allocation_strategy"),
+        allocation_strategy=allocation_strategy,
         solver_version=pinned_solver_version,
         roles=roles,
         candidates=candidates,

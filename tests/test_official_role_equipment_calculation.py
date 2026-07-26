@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from src.services.damage_calculation_service import DamageScalingStat, DirectDamageInput
 from src.services import official_role_page_service as role_service
+from src.features.official_role.role_calculation import _normalized_marginal_weights
 
 
 def _direct_input() -> DirectDamageInput:
@@ -190,6 +191,64 @@ class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
         )
         self.assertEqual("异能伤害%", row["label"])
         self.assertAlmostEqual(0.0125, row["unit"])
+
+    def test_formula_scaling_stat_controls_which_base_stats_have_margins(self) -> None:
+        detail = {"character": {"element_type": ""}, "property_weights": {}}
+        health_input = replace(_direct_input(), scaling_stat=DamageScalingStat.HEALTH)
+        with patch.object(
+            role_service,
+            "_role_panel_damage_inputs",
+            return_value=(health_input,),
+        ), patch.object(
+            role_service,
+            "_property_stats_by_source",
+            return_value=({}, {}, {}),
+        ):
+            margins = role_service.calculate_official_role_margins(detail, "current")
+
+        self.assertIsNotNone(margins)
+        property_ids = {row["property_id"] for row in margins["rows"]}
+        self.assertTrue({"HPMaxUp", "HPMaxAdd"} <= property_ids)
+        self.assertNotIn("AtkUp", property_ids)
+
+    def test_marginal_weight_keeps_formula_zero_at_zero_and_uses_base_elsewhere(self) -> None:
+        weights, formula_ids = _normalized_marginal_weights(
+            {"CritBase": 0.4, "DamageUpGeneralBase": 0.7, "MagBase": 0.6},
+            {
+                "rows": [
+                    {"property_id": "CritBase", "gain_percent": 4.0},
+                    {"property_id": "DamageUpGeneralBase", "gain_percent": 2.0},
+                    {"property_id": "AtkUp", "gain_percent": 0.0},
+                ]
+            },
+        )
+
+        self.assertEqual({"CritBase", "DamageUpGeneralBase", "AtkUp"}, formula_ids)
+        self.assertAlmostEqual(1.0, weights["CritBase"])
+        self.assertAlmostEqual(0.5, weights["DamageUpGeneralBase"])
+        self.assertEqual(0.0, weights["AtkUp"])
+        self.assertAlmostEqual(0.6, weights["MagBase"])
+
+    def test_hidden_replacement_score_keeps_non_direct_formula_properties(self) -> None:
+        detail = {
+            "attributes": {
+                "CritBase": {"display_name_zh": "暴击率%"},
+                "MagBase": {"display_name_zh": "环合强度"},
+            },
+        }
+        support_item = {
+            "kind": "module",
+            "quality": "gold",
+            "grid_count": 2,
+            "sub_stats": [{"property_id": "MagBase", "value": 60}],
+        }
+        score = role_service.calculate_official_role_hidden_equipment_score(
+            detail,
+            support_item,
+            property_weights={"CritBase": 1.0, "MagBase": 0.8},
+        )
+
+        self.assertGreater(score, 0.0)
 
 
 if __name__ == "__main__":

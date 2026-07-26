@@ -26,13 +26,17 @@ from src.services.equipment_plugin_deployment import (
     packaged_plugin_dll,
     restore_plugin,
 )
+from src.services.dwmapi_diagnostics import (
+    collect_dwmapi_diagnostics,
+    format_dwmapi_diagnostics,
+)
 from src.services.nte_core_diagnostics import (
     collect_nte_core_diagnostics,
     format_nte_core_diagnostics,
 )
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-_METHOD_NAMES = ["_refresh_equipment_plugin_status","_select_equipment_plugin_game_executable","_detect_equipment_plugin_game_executable","_open_npcap_download","_show_npcap_status","_diagnose_nte_core","_show_nte_core_diagnostic_report","_deploy_equipment_plugin","_restore_equipment_plugin","_focus_environment_configuration"]
+_METHOD_NAMES = ["_refresh_equipment_plugin_status","_select_equipment_plugin_game_executable","_detect_equipment_plugin_game_executable","_open_npcap_download","_show_npcap_status","_diagnose_nte_core","_show_nte_core_diagnostic_report","_diagnose_dwmapi","_show_dwmapi_diagnostic_report","_deploy_equipment_plugin","_restore_equipment_plugin","_focus_environment_configuration"]
 
 
 def install_methods(app_module, window_cls) -> None:
@@ -185,6 +189,67 @@ def _show_nte_core_diagnostic_report(self, report: str):
     dialog.resize(720, 510)
     layout = QVBoxLayout(dialog)
     hint = QLabel("以下信息可直接复制后发送用于排查；本操作不会启动抓包或保存原始数据。")
+    hint.setWordWrap(True)
+    layout.addWidget(hint)
+    content = QPlainTextEdit(dialog)
+    content.setReadOnly(True)
+    content.setPlainText(report)
+    layout.addWidget(content, 1)
+    actions = QDialogButtonBox(QDialogButtonBox.Close, parent=dialog)
+    copy_button = actions.addButton("复制诊断", QDialogButtonBox.ActionRole)
+    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(report))
+    actions.rejected.connect(dialog.reject)
+    layout.addWidget(actions)
+    dialog.exec()
+
+
+def _diagnose_dwmapi(self):
+    current_worker = getattr(self, "_dwmapi_diagnostic_worker", None)
+    if current_worker is not None and current_worker.isRunning():
+        QMessageBox.information(self, "dwmapi 诊断", "诊断正在进行，请稍候。")
+        return
+    executable_edit = getattr(self, "_equipment_plugin_game_executable_edit", None)
+    executable = executable_edit.text().strip() if executable_edit is not None else ""
+    button = getattr(self, "_dwmapi_diagnostic_button", None)
+    if button is not None:
+        button.setEnabled(False)
+        button.setText("诊断中…")
+    preferences = getattr(self, "_ui_preferences", {}) or {}
+    worker = WorkerThread(
+        target=lambda: collect_dwmapi_diagnostics(
+            game_executable_path=executable,
+            application_root=runtime.ROOT,
+            recorded_deployed_sha256=str(
+                preferences.get("equipment_plugin_deployed_sha256") or ""
+            ),
+        ),
+        parent=self,
+    )
+    self._dwmapi_diagnostic_worker = worker
+
+    def finish(result):
+        if button is not None:
+            button.setEnabled(True)
+            button.setText("诊断 dwmapi")
+        self._show_dwmapi_diagnostic_report(format_dwmapi_diagnostics(result))
+
+    def failed(error):
+        if button is not None:
+            button.setEnabled(True)
+            button.setText("诊断 dwmapi")
+        QMessageBox.warning(self, "dwmapi 诊断", f"诊断程序执行失败：{error}")
+
+    worker.result_ready.connect(finish)
+    worker.error.connect(failed)
+    worker.start()
+
+
+def _show_dwmapi_diagnostic_report(self, report: str):
+    dialog = QDialog(self)
+    dialog.setWindowTitle("dwmapi 装备插件诊断结果")
+    dialog.resize(760, 540)
+    layout = QVBoxLayout(dialog)
+    hint = QLabel("以下信息可直接复制后发送用于排查；本操作不会执行装备、复制或修改 DLL。")
     hint.setWordWrap(True)
     layout.addWidget(hint)
     content = QPlainTextEdit(dialog)

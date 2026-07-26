@@ -15,6 +15,7 @@ from typing import Any
 from src.models.equipment import DriveShape
 from src.optimizer.scoring import ScoringEngine
 from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -89,7 +90,9 @@ def build_legacy_allocation_static_catalog(
             suit_name = str(default_suit["suit_name_zh"])
             if suit_name not in sets_db:
                 raise ValueError(f"角色 [{role_name}] 的官方默认套装不存在：{suit_name}")
-            shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+            shape_bonus = get_effective_character_shape_bonus(
+                static_dao, character_id,
+            ) or {}
             extra_shape_label = str(shape_bonus.get("shape_label") or "")
             extra_shape_buffs = {
                 attributes[str(row["property_id"])]: float(row["display_value"])

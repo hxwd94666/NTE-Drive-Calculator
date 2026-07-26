@@ -46,7 +46,6 @@ from src.services.official_role_page_service import (
     save_official_role_replacement,
     save_official_role_tab_order,
 )
-from src.services.character_weight_service import save_account_character_weights
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import (
     AllocationInventoryProjectionError,
@@ -100,117 +99,83 @@ for _module in (_calculation,):
 def _build_weight_group(
     window, character_id: int, detail: dict, editor: dict,
 ) -> QGroupBox:
-    group = QGroupBox("词条权重")
+    group = QGroupBox("词条权重（只读）")
     group.setObjectName("officialRoleWeightGroup")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
-
-    editor_panel = QWidget()
-    editor_layout = QVBoxLayout(editor_panel)
-    editor_layout.setContentsMargins(0, 0, 0, 0)
-    editor_layout.setSpacing(8)
     top = QHBoxLayout()
-    top.addWidget(QLabel("词条权重:"))
-    source = str(detail.get("property_weight_source") or "default")
+    top.addWidget(QLabel("当前面板权重:"))
     source_label = QLabel(
-        "账号权重"
-        if detail.get("property_weights_from_account")
-        else f"推荐权重 · {source}"
+        "直伤公式词条按当前边际收益归一化；未参与直伤公式的词条保留基础权重"
     )
     source_label.setStyleSheet("color:#8b949e;font-size:11px;")
     top.addWidget(source_label)
     top.addStretch()
-    add = QPushButton("+ 添加词条")
-    add.setObjectName("btnAction")
-    top.addWidget(add)
-    editor_layout.addLayout(top)
+    layout.addLayout(top)
 
-    container = QWidget()
-    container_layout = QVBoxLayout(container)
-    container_layout.setContentsMargins(0, 0, 0, 0)
-    container_layout.setSpacing(4)
-    editor_layout.addWidget(container)
-    layout.addWidget(editor_panel, 1)
-    weights = editor["property_weights"]
+    table_host = QWidget()
+    table_layout = QVBoxLayout(table_host)
+    table_layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(table_host, 1)
 
-    def changed() -> None:
-        editor["weights_dirty"] = True
-        _mark_dirty(window, character_id)
-        _refresh_role_calculations(editor)
-
-    def update_weight(property_id: str, value: float) -> None:
-        weights[property_id] = float(value)
-        changed()
+    def _format_weight(value: float) -> str:
+        return f"{float(value):.4f}".rstrip("0").rstrip(".")
 
     def rebuild() -> None:
-        _clear_layout(container_layout)
+        _clear_layout(table_layout)
+        base_weights = {
+            str(property_id): float(value)
+            for property_id, value in (detail.get("property_weights") or {}).items()
+        }
+        final_weights = dict(
+            editor.get("marginal_property_weights")
+            or base_weights
+            or {}
+        )
+        formula_ids = set(editor.get("formula_property_ids") or ())
+        property_ids = set(base_weights) | set(final_weights) | formula_ids
         ordered_ids = sorted(
-            weights,
+            property_ids,
             key=lambda property_id: (
+                -float(final_weights.get(property_id, 0.0)),
                 _WEIGHT_LABEL_BY_PROPERTY.get(
                     property_id, _attribute_name(detail, property_id)
                 ),
                 property_id,
             ),
         )
-        for property_id in ordered_ids:
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            row.addWidget(QLabel(
-                _WEIGHT_LABEL_BY_PROPERTY.get(
-                    property_id, _attribute_name(detail, property_id)
-                )
-            ))
-            spin = NoWheelDoubleSpinBox()
-            spin.setRange(0, 10)
-            spin.setSingleStep(0.05)
-            spin.setDecimals(3)
-            spin.setKeyboardTracking(False)
-            spin.setValue(float(weights[property_id]))
-            spin.valueChanged.connect(
-                lambda value, pid=property_id: update_weight(pid, value)
+        table = QTableWidget(len(ordered_ids), 4)
+        table.setObjectName("officialRoleWeightTable")
+        table.setHorizontalHeaderLabels(["词条", "基础权重", "直伤权重", "最终权重"])
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.verticalHeader().setVisible(False)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        for row_index, property_id in enumerate(ordered_ids):
+            base_weight = float(base_weights.get(property_id, 0.0))
+            final_weight = float(final_weights.get(property_id, base_weight))
+            direct_weight = final_weight if property_id in formula_ids else 0.0
+            table.setItem(
+                row_index,
+                0,
+                QTableWidgetItem(
+                    _WEIGHT_LABEL_BY_PROPERTY.get(
+                        property_id, _attribute_name(detail, property_id)
+                    )
+                ),
             )
-            row.addWidget(spin)
-            remove = QPushButton("×")
-            remove.setObjectName("btnSm")
-            remove.setFixedSize(28, 28)
-
-            def remove_weight(_checked=False, pid=property_id) -> None:
-                weights.pop(pid, None)
-                rebuild()
-                changed()
-
-            remove.clicked.connect(remove_weight)
-            row.addWidget(remove)
-            container_layout.addLayout(row)
-        container_layout.addStretch()
-
-    def add_weight() -> None:
-        available = [
-            (label, property_id)
-            for label, property_id in _WEIGHT_PROPERTY_CHOICES
-            if property_id not in weights
-        ]
-        if not available:
-            QMessageBox.information(window, "提示", "所有词条已添加。")
-            return
-        labels = [label for label, _property_id in available]
-        selected, accepted = QInputDialog.getItem(
-            window, "添加词条", "选择词条:", labels, 0, False,
+            table.setItem(row_index, 1, QTableWidgetItem(_format_weight(base_weight)))
+            table.setItem(row_index, 2, QTableWidgetItem(_format_weight(direct_weight)))
+            table.setItem(row_index, 3, QTableWidgetItem(_format_weight(final_weight)))
+        for column in range(4):
+            table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
+        table.setFixedHeight(
+            table.horizontalHeader().height()
+            + table.verticalHeader().defaultSectionSize() * len(ordered_ids)
+            + table.frameWidth() * 2
         )
-        if not accepted:
-            return
-        property_id = dict(available).get(str(selected))
-        if property_id:
-            weights[property_id] = 0.5
-            rebuild()
-            changed()
-
-    add.clicked.connect(add_weight)
-    add.setToolTip(
-        "优先使用当前账号权重；账号未配置时会以只读静态库的工坊推荐初始化。"
-    )
+        table_layout.addWidget(table)
     editor["refresh_weights"] = rebuild
     rebuild()
     return group
-

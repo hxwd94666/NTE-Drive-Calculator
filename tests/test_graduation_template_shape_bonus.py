@@ -3,6 +3,7 @@ import unittest
 
 from tools.game_data.build_graduation_templates import _extra_shape_drive_count
 from tools.game_data.build_graduation_templates import _top_stat_names
+from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
 from src.services.graduation_bonus_service import graduation_extra_shape_stats
 
 
@@ -40,6 +41,21 @@ class GraduationTemplateShapeBonusTests(unittest.TestCase):
             0,
             _extra_shape_drive_count({}, {"module_item_ids": ("two",)}, {"two": {"grid_count": 2}}),
         )
+
+    def test_runtime_shared_shape_rule_recounts_modules(self) -> None:
+        """共享额外形状覆盖不能继续使用静态模板缓存的旧数量。"""
+        count = graduation_extra_shape_drive_count(
+            {"shape_label": "Type-2", "shape_grid_count": 2},
+            {"module_item_ids": ("two-a", "three", "two-b", "two-c")},
+            {
+                "two-a": {"grid_count": 2},
+                "three": {"grid_count": 3},
+                "two-b": {"grid_count": 2},
+                "two-c": {"grid_count": 2},
+            },
+        )
+
+        self.assertEqual(3, count)
 
     def test_extra_shape_percent_is_normalized_once_for_direct_damage(self) -> None:
         stats = graduation_extra_shape_stats(

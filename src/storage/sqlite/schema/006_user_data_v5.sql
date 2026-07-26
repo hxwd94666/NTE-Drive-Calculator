@@ -15,7 +15,7 @@ CREATE TABLE optimization_preference_version (
         REFERENCES optimization_preference_profile(profile_id) ON DELETE CASCADE,
     version_number INTEGER NOT NULL CHECK (version_number >= 1),
     allocation_strategy TEXT NOT NULL
-        CHECK (allocation_strategy IN ('role_priority', 'drive_priority', 'global_optimal')),
+        CHECK (allocation_strategy IN ('role_priority', 'global_optimal')),
     created_at_utc TEXT NOT NULL,
     UNIQUE (profile_id, version_number)
 );

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -46,7 +46,6 @@ from src.services.official_role_page_service import (
     save_official_role_replacement,
     save_official_role_tab_order,
 )
-from src.services.character_weight_service import save_account_character_weights
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import (
     AllocationInventoryProjectionError,
@@ -110,8 +109,8 @@ def _populate_role_tab(window, scroll: QScrollArea, character_id: int) -> None:
     detail = load_official_role_detail(runtime.USER_DATABASE_PATH, character_id)
     editor = {
         "detail": detail,
-        "property_weights": dict(detail.get("property_weights") or {}),
-        "weights_dirty": False,
+        "marginal_property_weights": dict(detail.get("property_weights") or {}),
+        "marginal_main_property_weights": dict(detail.get("main_property_weights") or {}),
         "equipment_context_key": (
             "saved" if detail["equipment_contexts"]["saved"]["available"] else "current"
         ),
@@ -139,7 +138,6 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
         if show_message:
             QMessageBox.information(window, "保存", "当前没有需要保存的角色修改。")
         return True
-    weight_updates: list[tuple[int, dict[str, float]]] = []
     try:
         with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
             for character_id in dirty_ids:
@@ -166,31 +164,32 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
                     skill_levels=dict(editor["skill_levels"]),
                     ordinal=int(detail["profile"].get("ordinal") or 0),
                 )
-                if editor.get("weights_dirty"):
-                    weight_updates.append((
-                        character_id, dict(editor.get("property_weights") or {}),
-                    ))
-        for character_id, property_weights in weight_updates:
-            save_account_character_weights(
-                runtime.USER_DATABASE_PATH, character_id, property_weights,
-            )
     except Exception as exc:
         QMessageBox.warning(window, "保存失败", str(exc))
         return False
     window._official_role_dirty_ids.clear()
     window._my_role_dirty = False
     if show_message:
-        QMessageBox.information(window, "保存", "角色养成指针和词条权重已保存到当前账号数据库。")
+        QMessageBox.information(window, "保存", "角色养成指针已保存到当前账号数据库。")
     _refresh_my_role(window)
     return True
 
 
-def _reset_current_role(window) -> None:
+def _reload_current_role_tab(window, character_id: int) -> None:
     tabs = getattr(window, "official_role_tabs", None)
-    if tabs is None or tabs.currentIndex() < 0:
+    if tabs is None:
         return
-    character_id = int(tabs.tabBar().tabData(tabs.currentIndex()))
-    scroll = tabs.currentWidget()
+    index = next(
+        (
+            tab_index
+            for tab_index in range(tabs.count())
+            if int(tabs.tabBar().tabData(tab_index)) == int(character_id)
+        ),
+        -1,
+    )
+    if index < 0:
+        return
+    scroll = tabs.widget(index)
     old = scroll.takeWidget()
     if old is not None:
         old.deleteLater()
@@ -199,6 +198,54 @@ def _reset_current_role(window) -> None:
     window._official_role_dirty_ids.discard(character_id)
     window._my_role_dirty = bool(window._official_role_dirty_ids)
     _populate_role_tab(window, scroll, character_id)
+
+
+def _reset_current_role(window) -> None:
+    tabs = getattr(window, "official_role_tabs", None)
+    if tabs is None or tabs.currentIndex() < 0:
+        return
+    character_id = int(tabs.tabBar().tabData(tabs.currentIndex()))
+    answer = QMessageBox.question(
+        window,
+        "重置当前角色",
+        "将当前角色的等级、觉醒、技能和弧盘恢复为公共模板。\n"
+        "额外形状与账号基础权重不会重置，是否继续？",
+        QMessageBox.Yes | QMessageBox.Cancel,
+        QMessageBox.Cancel,
+    )
+    if answer != QMessageBox.Yes:
+        return
+    try:
+        with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
+            dao.reset_character_profile(character_id)
+    except Exception as exc:
+        QMessageBox.warning(window, "重置失败", str(exc))
+        return
+    _reload_current_role_tab(window, character_id)
+    QMessageBox.information(window, "已重置", "当前角色与弧盘已恢复为公共模板。")
+
+
+def _reset_all_roles(window) -> None:
+    answer = QMessageBox.question(
+        window,
+        "重置全部角色",
+        "将当前账号所有角色的等级、觉醒、技能和弧盘恢复为公共模板。\n"
+        "额外形状与账号基础权重不会重置，是否继续？",
+        QMessageBox.Yes | QMessageBox.Cancel,
+        QMessageBox.Cancel,
+    )
+    if answer != QMessageBox.Yes:
+        return
+    try:
+        with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
+            count = dao.reset_all_character_profiles()
+    except Exception as exc:
+        QMessageBox.warning(window, "重置失败", str(exc))
+        return
+    window._official_role_dirty_ids.clear()
+    window._my_role_dirty = False
+    _refresh_my_role(window)
+    QMessageBox.information(window, "已重置", f"已将 {count} 个角色与弧盘恢复为公共模板。")
 
 
 def _page_my_role(window) -> QWidget:
@@ -221,14 +268,19 @@ def _page_my_role(window) -> QWidget:
     search.setPlaceholderText("搜索角色（支持拼音）...")
     search.setClearButtonEnabled(True)
     header.addWidget(search, 1)
-    reset = QPushButton("重置")
-    reset.setObjectName("btnDanger")
-    reset.setToolTip("放弃当前角色尚未保存的修改，重新读取账号数据库")
-    reset.clicked.connect(lambda: _reset_current_role(window))
+    reset_current = QPushButton("重置当前")
+    reset_current.setObjectName("btnDanger")
+    reset_current.setToolTip("将当前角色和弧盘恢复为公共模板；保留额外形状与基础权重")
+    reset_current.clicked.connect(lambda: _reset_current_role(window))
+    reset_all = QPushButton("重置所有")
+    reset_all.setObjectName("btnDanger")
+    reset_all.setToolTip("将本账号所有角色和弧盘恢复为公共模板；保留额外形状与基础权重")
+    reset_all.clicked.connect(lambda: _reset_all_roles(window))
     save = QPushButton("保存")
     save.setObjectName("btnPrimary")
     save.clicked.connect(lambda: _save_profiles(window))
-    header.addWidget(reset)
+    header.addWidget(reset_current)
+    header.addWidget(reset_all)
     header.addWidget(save)
     root.addLayout(header)
 
@@ -250,7 +302,7 @@ def _page_my_role(window) -> QWidget:
     return page
 
 
-def _refresh_my_role(window) -> None:
+def _refresh_my_role(window, *, restore_scroll_value: int | None = None) -> None:
     layout = getattr(window, "my_role_form_layout", None)
     if layout is None:
         return
@@ -319,6 +371,14 @@ def _refresh_my_role(window) -> None:
     load_visible(tabs.currentIndex())
     window.official_role_tabs = tabs
     layout.addWidget(tabs)
+    if restore_scroll_value is not None:
+        def restore_scroll() -> None:
+            current_scroll = tabs.currentWidget()
+            if isinstance(current_scroll, QScrollArea):
+                current_scroll.verticalScrollBar().setValue(int(restore_scroll_value))
+        # The tab content computes its height after it is attached to the
+        # page, so restore on the next event-loop turn instead of clamping to 0.
+        QTimer.singleShot(0, restore_scroll)
 
 
 def confirm_pending_my_role_changes(window) -> bool:

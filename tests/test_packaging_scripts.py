@@ -60,14 +60,15 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn("创建桌面快捷方式", text)
         self.assertNotIn("瀹夎", text)
 
-    def test_replace_core_config_task_updates_runtime_config_and_creates_backup(self):
+    def test_stats_catalog_is_always_replaced_without_an_installer_choice(self):
         build_installer._write_iss(APP_VERSION, build_installer.VIGEM_BUNDLE_EXE, True)
 
         text = build_installer.ISS_PATH.read_text(encoding="utf-8-sig")
 
         self.assertIn('DestDir: "{app}\\config"', text)
-        self.assertIn("Tasks: replacecoreconfig", text)
-        self.assertIn("BackupCoreConfigBeforeReplace", text)
+        self.assertIn('config\\stats.json"; DestDir: "{app}\\config"; Flags: ignoreversion', text)
+        self.assertNotIn("replacecoreconfig", text)
+        self.assertNotIn("BackupCoreConfigBeforeReplace", text)
 
     def test_installer_rejects_bundle_missing_runtime_data_files(self):
         with tempfile.TemporaryDirectory() as temporary:

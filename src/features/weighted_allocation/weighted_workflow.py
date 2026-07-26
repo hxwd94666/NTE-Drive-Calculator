@@ -40,6 +40,8 @@ from src.services.equipment_level_projection_service import (
     project_equipment_items_to_max_level,
 )
 from src.services.official_role_page_service import (
+    calculate_official_role_final_weights,
+    calculate_official_role_hidden_equipment_score,
     calculate_official_role_attribute_summaries,
     calculate_official_role_item_gain,
     calculate_official_role_margins,
@@ -382,16 +384,9 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         QMessageBox.warning(window, "无法替换", "当前装备不在计算临时候选池中。")
         return
 
-    def item_score(item: Mapping[str, Any]) -> float:
-        uid = (int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0))
-        candidate = candidate_map.get(uid)
-        if candidate is None:
-            if assignment.virtual and uid == assignment.uid:
-                return float(assignment.score)
-            raise RuntimeError(f"替换装备 UID {uid} 不在计算固定的背包快照中。")
-        return score_allocation_candidate(preview.context, role, candidate)
-
     context_key = "_weighted_replacement"
+    # Do not reuse the lazy result-card cache here.  Replacement ordering needs
+    # the selected role's profile, fork and public extra-shape context in full.
     detail = load_official_role_detail(
         preview.user_database_path,
         role_option.character_id,
@@ -409,6 +404,26 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
             context_key: context,
         },
     }
+    final_weights = calculate_official_role_final_weights(full_detail, context_key)
+
+    def item_score(item: Mapping[str, Any]) -> float:
+        """Keep all visible replacement and saved-plan scores on base weights."""
+        uid = (int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0))
+        candidate = candidate_map.get(uid)
+        if candidate is None:
+            if assignment.virtual and uid == assignment.uid:
+                return float(assignment.score)
+            raise RuntimeError(f"替换装备 UID {uid} 不在计算固定的背包快照中。")
+        return score_allocation_candidate(preview.context, role, candidate)
+
+    def hidden_sort_score(item: Mapping[str, Any]) -> float:
+        """Use final role weights only to order candidates, never to display/save."""
+        return calculate_official_role_hidden_equipment_score(
+            full_detail,
+            item,
+            property_weights=final_weights["property_weights"],
+            main_property_weights=final_weights["main_property_weights"],
+        )
     current_gain = calculate_official_role_item_gain(
         full_detail,
         context_key,
@@ -482,27 +497,32 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         )
 
     current_score = item_score(current_item)
+    current_hidden_score = hidden_sort_score(current_item)
     current_card = card(
         current_item,
-        score=current_score,
+        score=current_hidden_score,
         direct_damage_score=current_direct_damage_score,
         payload=None,
     )
     choices = []
     for candidate, item in zip(compatible, projected_candidates):
-        score = item_score(item)
+        base_score = item_score(item)
+        hidden_score = hidden_sort_score(item)
         choices.append(card(
             item,
-            score=score,
+            score=hidden_score,
             direct_damage_score=direct_damage_score(item),
             payload={
                 "_uid_slot": candidate.uid_slot,
                 "_uid_serial": candidate.uid_serial,
-                "score": score,
+                # Keep base score separately for diagnostics; preview saving
+                # recalculates it from the frozen allocation context.
+                "base_score": base_score,
+                "hidden_sort_score": hidden_score,
             },
         ))
     choices.sort(
-        key=lambda choice: float(choice.score or 0.0),
+        key=lambda choice: float(choice.payload.get("hidden_sort_score") or 0.0),
         reverse=True,
     )
 
@@ -511,7 +531,8 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         title=f"{role_name} · 替换优化",
         role_name=role_name,
         summary=(
-            "候选与持有者只来自当前词条配装临时结果，不读取活动配装库；"
+            "候选已先加载该角色完整面板，并按最终权重的隐藏装备评分降序排列；"
+            "直伤边际收益仅用于展示比较。候选与持有者只来自当前词条配装临时结果，不读取活动配装库；"
             "借用其他角色装备后会在其原槽位生成可继续替换的金色占位装备。"
         ),
         current=current_card,

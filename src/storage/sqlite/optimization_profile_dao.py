@@ -179,6 +179,10 @@ class OptimizationProfileDaoMixin:
     @staticmethod
     def _optimization_strategy(value: Any) -> str:
         strategy = str(value).strip()
+        # 2.0 移除了驱动优先。旧档案在下一次保存时平滑转为语义最接近的
+        # 全局最优，避免历史 SQLite 记录阻塞权重页面加载。
+        if strategy == "drive_priority":
+            strategy = "global_optimal"
         if strategy not in ALLOCATION_STRATEGIES:
             raise UserDataValidationError("allocation_strategy 无效")
         return strategy
@@ -601,6 +605,63 @@ class OptimizationProfileDaoMixin:
             raise
         return self.get_character_weight_preferences(raw_character_id)
 
+    def reset_character_weight_preferences_to_default(
+        self,
+        character_id: int,
+        *,
+        properties: Sequence[Mapping[str, Any]],
+        source_dataset_id: str,
+    ) -> dict[str, Any]:
+        """Replace one account override with the current refreshable default."""
+
+        raw_character_id = _integer(character_id, "character_id", minimum=1)
+        rows = self._validated_character_weight_rows(properties)
+        dataset_id = self._preference_text(
+            source_dataset_id, "source_dataset_id", required=True,
+        )
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            now = _utc_now()
+            connection.execute(
+                """INSERT INTO character_weight_preference_seed(
+                       character_id, source_dataset_id, source_kind,
+                       seeded_at_utc, updated_at_utc
+                   ) VALUES (?, ?, 'default', ?, ?)
+                   ON CONFLICT(character_id) DO UPDATE SET
+                       source_dataset_id = excluded.source_dataset_id,
+                       source_kind = 'default',
+                       seeded_at_utc = excluded.seeded_at_utc,
+                       updated_at_utc = excluded.updated_at_utc""",
+                (raw_character_id, dataset_id, now, now),
+            )
+            connection.execute(
+                "DELETE FROM character_weight_preference_property WHERE character_id = ?",
+                (raw_character_id,),
+            )
+            connection.executemany(
+                """INSERT INTO character_weight_preference_property(
+                       character_id, property_id, weight, main_weight, ordinal
+                   ) VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (
+                        raw_character_id, row["property_id"], row["weight"],
+                        row["main_weight"], row["ordinal"],
+                    )
+                    for row in rows
+                ],
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法重置角色词条权重") from exc
+        except BaseException:
+            connection.rollback()
+            raise
+        result = self.get_character_weight_preferences(raw_character_id)
+        assert result is not None
+        return result
+
     def get_character_shape_bonus_preferences(
         self, character_id: int,
     ) -> dict[str, Any] | None:
@@ -730,6 +791,38 @@ class OptimizationProfileDaoMixin:
             for row in rows
             if (profile := self.get_character_profile(row["character_id"])) is not None
         ]
+
+    def reset_character_profile(self, character_id: int) -> bool:
+        """删除单个账号养成指针，使角色页回落到公共模板。
+
+        仅操作 ``character_profile``；外键会清理对应的技能等级，额外形状
+        公共配置、账号基础权重、库存及配装方案均不在此重置范围内。
+        """
+
+        raw_character_id = _integer(character_id, "character_id", minimum=1)
+        connection = self._db()
+        try:
+            cursor = connection.execute(
+                "DELETE FROM character_profile WHERE character_id = ?",
+                (raw_character_id,),
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法重置角色养成指针") from exc
+        return bool(cursor.rowcount)
+
+    def reset_all_character_profiles(self) -> int:
+        """删除当前账号全部角色养成指针，保留额外形状与基础权重。"""
+
+        connection = self._db()
+        try:
+            cursor = connection.execute("DELETE FROM character_profile")
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法重置全部角色养成指针") from exc
+        return int(cursor.rowcount)
 
     def save_character_profile(
         self,

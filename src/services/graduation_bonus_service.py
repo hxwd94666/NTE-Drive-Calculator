@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 
@@ -47,3 +48,25 @@ def graduation_extra_shape_stats(
             "percent": percent,
         })
     return rows
+
+
+def graduation_extra_shape_drive_count(
+    shape_bonus: Mapping[str, Any] | None,
+    equipment_plan: Mapping[str, Any] | None,
+    equipment_by_id: Mapping[str, Mapping[str, Any]],
+) -> int:
+    """Count modules matching the effective shared shape rule in one blueprint."""
+
+    if not isinstance(shape_bonus, Mapping) or not isinstance(equipment_plan, Mapping):
+        return 0
+    target_grid_count = int(shape_bonus.get("shape_grid_count") or 0)
+    if target_grid_count <= 0:
+        numbers = re.findall(r"\d+", str(shape_bonus.get("shape_label") or ""))
+        target_grid_count = int(numbers[-1]) if numbers else 0
+    if target_grid_count <= 0:
+        return 0
+    return sum(
+        int((equipment_by_id.get(str(item_id)) or {}).get("grid_count") or 0)
+        == target_grid_count
+        for item_id in equipment_plan.get("module_item_ids") or ()
+    )

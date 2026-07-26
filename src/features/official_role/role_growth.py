@@ -46,7 +46,6 @@ from src.services.official_role_page_service import (
     save_official_role_replacement,
     save_official_role_tab_order,
 )
-from src.services.character_weight_service import save_account_character_weights
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import (
     AllocationInventoryProjectionError,
@@ -442,4 +441,3 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         signal = getattr(widget, "currentIndexChanged", None) or widget.valueChanged
         signal.connect(mark_and_refresh)
     return group
-

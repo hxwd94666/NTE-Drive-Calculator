@@ -1142,7 +1142,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         role_hdr.addWidget(diff_btn)
     _sm=rd.get("strategy_mode","")
     if _sm:
-        _ml={"role_priority":"角色优先","drive_priority":"驱动优先","global_optimal":"全局最优","update_mode":"增量更新"}.get(_sm,_sm)
+        _ml={"role_priority":"角色优先","global_optimal":"全局最优","update_mode":"增量更新"}.get(_sm,_sm)
         sml=QLabel(_ml); sml.setStyleSheet(themed_style("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px"))
         role_hdr.addWidget(sml)
     role_hdr.addStretch()

@@ -386,7 +386,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertEqual([{"X"}], strategy.available_shapes)
 
     def test_matrix_base_does_not_shadow_shared_matrix_helpers(self):
-        from src.optimizer.drive_priority_strategy import MatrixBaseStrategy
+        from src.optimizer.global_optimal_strategy import MatrixBaseStrategy
 
         duplicated_helpers = {
             "_blueprint_extra_key",

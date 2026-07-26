@@ -46,7 +46,6 @@ from src.services.official_role_page_service import (
     save_official_role_replacement,
     save_official_role_tab_order,
 )
-from src.services.character_weight_service import save_account_character_weights
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.sqlite_allocation_inventory import (
     AllocationInventoryProjectionError,
@@ -211,11 +210,18 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
         )
         return
     current_item = dict(candidates[0]["current_item"])
+    current_base_score = _equipment_weight_score(
+        window,
+        detail,
+        current_item,
+        core=str(current_item.get("kind") or "") == "core",
+    )
 
     def card_data(
         item: dict,
         *,
         direct_damage_score: float | None,
+        hidden_score: float,
         payload,
     ) -> EquipmentReplacementCard:
         core = str(item.get("kind") or "") == "core"
@@ -225,7 +231,8 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
         )
         if icon_path:
             view["item_icon_path"] = icon_path
-        score = _equipment_weight_score(window, detail, item, core=core)
+        # 替换窗口的评分/评级展示最终权重隐藏分；保存方案仍使用基础权重分。
+        score = float(hidden_score)
         area = 15 if core else int(item.get("grid_count") or 0)
         return EquipmentReplacementCard(
             key=f"{item.get('uid_slot')}:{item.get('uid_serial')}",
@@ -245,13 +252,23 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
     current = card_data(
         current_item,
         direct_damage_score=candidates[0].get("current_direct_damage_score"),
+        hidden_score=float(candidates[0].get("current_score") or 0.0),
         payload=None,
     )
     choices = [
         card_data(
             dict(row["item"]),
             direct_damage_score=row.get("direct_damage_score"),
-            payload=row,
+            hidden_score=float(row.get("score") or 0.0),
+            payload={
+                **row,
+                "base_score": _equipment_weight_score(
+                    window,
+                    detail,
+                    dict(row["item"]),
+                    core=str(row["item"].get("kind") or "") == "core",
+                ),
+            },
         )
         for row in candidates[:30]
     ]
@@ -263,24 +280,34 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
             detail,
             target,
             row["item"],
-            replacement_score=choice.score,
-            current_score=current.score,
+            replacement_score=float(row["base_score"]),
+            current_score=current_base_score,
         )
 
     accepted = show_equipment_replacement_dialog(
         window,
         title="替换优化",
         role_name=str((detail.get("character") or {}).get("name_zh") or ""),
-        summary="所有卡片均按官方满级主属性计算；点击候选卡片比较，确认后写入 SQLite 配装方案。",
+        summary=(
+            "候选已按该角色最终权重的隐藏装备评分降序排列；"
+            "直伤边际收益仅用于展示比较。所有卡片均按官方满级主属性计算。"
+        ),
         current=current,
         candidates=choices,
         on_confirm=save_choice,
     )
     if accepted:
+        tabs = getattr(window, "official_role_tabs", None)
+        current_scroll = tabs.currentWidget() if tabs is not None else None
+        restore_scroll_value = (
+            current_scroll.verticalScrollBar().value()
+            if isinstance(current_scroll, QScrollArea)
+            else None
+        )
         refresh_equip = getattr(window, "_refresh_equip", None)
         if callable(refresh_equip):
             refresh_equip()
-        window._refresh_my_role()
+        window._refresh_my_role(restore_scroll_value=restore_scroll_value)
         QMessageBox.information(window, "替换优化", "已保存为新的配装方案。")
 
 

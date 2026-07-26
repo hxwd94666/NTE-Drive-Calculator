@@ -257,6 +257,7 @@ class ScoringEngine:
         )
         logger.info(f"  评分引擎: 开始评估 {len(inventory)} 件装备 × {len(self.roles_db)} 角色...")
 
+        all_scored_drives: List[Drive] = []
         valid_drives: List[Drive] = []
         valid_tapes: List[Tape] = []
 
@@ -279,6 +280,9 @@ class ScoringEngine:
                     item.max_score = score
 
             if isinstance(item, Drive):
+                # 保留完整背包的已评分驱动，供“常规 Top-K 无完整解”时的
+                # 受控扩展使用。普通流程仍只会消费下方筛出的 valid_drives。
+                all_scored_drives.append(item)
                 if (
                     has_unlimited_stat_priority
                     or item.max_score > 0
@@ -368,7 +372,12 @@ class ScoringEngine:
             final_role_tapes.sort(key=lambda x: x.role_scores[role_name], reverse=True)
             optimal_tapes[role_name] = final_role_tapes
 
-        return {"drives": optimal_drives, "tapes": optimal_tapes}
+        return {
+            "drives": optimal_drives,
+            "tapes": optimal_tapes,
+            "all_drives": all_scored_drives,
+            "drive_screen_limit": int(top_k_per_shape_per_role),
+        }
 
     def get_grade_tag(self, score: float, area: int) -> str:
         max_possible_score = area * 10.0

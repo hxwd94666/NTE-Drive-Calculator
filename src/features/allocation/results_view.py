@@ -151,7 +151,7 @@ def _render_results(self,plan):
     while self.result_content_layout.count():
         it=self.result_content_layout.takeAt(0)
         if it.widget(): it.widget().deleteLater()
-    mode_labels={"role_priority":"角色优先","drive_priority":"驱动优先","global_optimal":"全局最优","update_mode":"增量更新"}
+    mode_labels={"role_priority":"角色优先","global_optimal":"全局最优","update_mode":"增量更新"}
     mode_name=mode_labels.get(getattr(self,'_pending_strat',''),'')
     plan_diffs=getattr(self,"allocation_plan_diff",{}) or {}
     for role,p in plan.items():

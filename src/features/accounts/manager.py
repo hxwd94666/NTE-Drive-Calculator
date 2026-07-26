@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.storage.config_migration import migrate_core_config_dir
+from src.storage.config_migration import replace_core_config_dir
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -101,7 +101,9 @@ class AccountManager:
     def seed_user_config(self) -> None:
         if not self.bundled_config_dir.exists():
             return
-        migrate_core_config_dir(self.config_dir, self.bundled_config_dir, self.core_config_files)
+        replace_core_config_dir(
+            self.config_dir, self.bundled_config_dir, self.core_config_files,
+        )
 
         src_templates = self.bundled_config_dir / "templates"
         if src_templates.exists() and src_templates.resolve() != self.template_dir.resolve():

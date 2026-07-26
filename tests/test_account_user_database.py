@@ -68,6 +68,27 @@ class AccountUserDatabaseTests(unittest.TestCase):
             self.assertEqual(first_settings.load("ui")["protagonist_game_name"], "无度")
             self.assertEqual(second_settings.load("ui")["protagonist_game_name"], "")
 
+    def test_versioned_stats_catalog_replaces_stale_local_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundled = root / "bundled_config"
+            bundled.mkdir()
+            (bundled / "stats.json").write_text('{"revision":2}', encoding="utf-8")
+            manager = AccountManager(
+                data_root=root / "data",
+                bundled_config_dir=bundled,
+                iter_image_files=lambda _path: [],
+                core_config_files=("stats.json",),
+                account_user_files=(),
+            )
+            local_stats = root / "data" / "config" / "stats.json"
+            local_stats.parent.mkdir(parents=True)
+            local_stats.write_text('{"revision":1}', encoding="utf-8")
+
+            manager.seed_user_config()
+
+            self.assertEqual('{"revision":2}', local_stats.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,8 @@ from src.features.configuration.page import (
     del_weight as config_del_weight,
     refresh_config_forms as config_refresh_config_forms,
     render_roles_form,
+    reset_all_config_weights as config_reset_all_config_weights,
+    reset_current_config_weights as config_reset_current_config_weights,
     reset_config_form as config_reset_config_form,
     save_config_data as config_save_config_data,
     save_config_form as config_save_config_form,
@@ -20,7 +22,7 @@ from src.features.configuration.page import (
 from src.features.official_role.page import confirm_pending_my_role_changes
 from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
-_METHOD_NAMES = ["_page_config","_refresh_config_forms","_confirm_leave_config_page","_confirm_leave_my_role_page","_switch_config_form","_build_roles_form","_add_weight","_save_role_weight_value","_del_weight","_save_config_form","_reset_config_form","_save_config_data"]
+_METHOD_NAMES = ["_page_config","_refresh_config_forms","_confirm_leave_config_page","_confirm_leave_my_role_page","_switch_config_form","_build_roles_form","_add_weight","_save_role_weight_value","_del_weight","_save_config_form","_reset_config_form","_reset_current_config_weights","_reset_all_config_weights","_save_config_data"]
 
 
 def install_methods(app_module, window_cls) -> None:
@@ -59,6 +61,12 @@ def _save_config_form(self):
 
 def _reset_config_form(self):
     return config_reset_config_form(self, runtime.CONFIG_DIR, runtime.BUNDLED_CONFIG_DIR)
+
+def _reset_current_config_weights(self):
+    return config_reset_current_config_weights(self, runtime.CONFIG_DIR)
+
+def _reset_all_config_weights(self):
+    return config_reset_all_config_weights(self, runtime.CONFIG_DIR)
 
 def _save_config_data(self,data):
     return config_save_config_data(self, data, runtime.CONFIG_DIR)

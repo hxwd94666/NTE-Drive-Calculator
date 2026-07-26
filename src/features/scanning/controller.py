@@ -116,7 +116,7 @@ def _do_exec(self):
         if pending_drone_mode=="auto" and not (runtime.SCREENSHOT_DIR/"raw_drive_0001.png").exists():
             QMessageBox.warning(self,"需要重新全量扫描","由于版本更新解析逻辑变动，需要重新进行全量扫描")
             return
-    strat=["role_priority","drive_priority","global_optimal","update_mode"][max(0,min(3,self.strategy_group.checkedId()))]
+    strat=["role_priority","global_optimal","update_mode"][max(0,min(2,self.strategy_group.checkedId()))]
     cs=self.role_selector.get_custom_sets()
     cw=self.role_selector.get_custom_weapons() if hasattr(self.role_selector,"get_custom_weapons") else {}
     tmf=self.role_selector.get_tape_main_filters()

@@ -71,8 +71,10 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
     def test_legacy_calculation_catalog_uses_public_shape_bonus(self):
         from src.services.character_shape_bonus_service import (
+            get_effective_character_shape_bonus,
             save_public_character_shape_bonus,
         )
+        from src.app import runtime
         from src.services.legacy_allocation_static_catalog import (
             build_legacy_allocation_static_catalog,
         )
@@ -84,7 +86,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
             shutil.copy2(PROJECT_DATABASE_PATH, static_database)
             with UserDataDao(database, account_id="shape-override"):
                 pass
-            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}):
+            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}), \
+                 patch.object(runtime, "DATA_ROOT", Path(directory), create=True):
                 save_public_character_shape_bonus(
                     1051,
                     shape_label="Type-4",
@@ -103,6 +106,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
     def test_weight_page_saves_shape_bonus_to_public_sqlite(self):
         from src.features.configuration import page as configuration_page
+        from src.app import runtime
+        from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
         from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -130,6 +135,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             )
             window._load_data = lambda: setattr(window, "reloaded", True)
             with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}), \
+                 patch.object(runtime, "DATA_ROOT", Path(directory), create=True), \
                  patch.object(configuration_page.runtime, "USER_DATABASE_PATH", database, create=True), \
                  patch.object(configuration_page.QMessageBox, "information"), \
                  patch.object(configuration_page.QMessageBox, "warning"):
@@ -137,7 +143,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             with UserDataDao(database) as user_dao:
                 weights = user_dao.get_character_weight_preferences(1051)
             with StaticGameDataDao(static_database) as static_dao:
-                shape_bonus = static_dao.get_character_shape_bonus(1051)
+                shape_bonus = get_effective_character_shape_bonus(static_dao, 1051)
 
         self.assertTrue(window.reloaded)
         self.assertEqual({"CritBase": 1.25}, weights["property_weights"])

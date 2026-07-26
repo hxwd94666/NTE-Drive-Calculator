@@ -25,9 +25,13 @@ from src.app.theme import themed_style
 from src.domain.stat_catalog import StatCatalog
 from src.services.character_weight_service import (
     ensure_account_character_weights,
+    reset_account_character_weights,
     save_account_character_weights,
 )
-from src.services.character_shape_bonus_service import save_public_character_shape_bonus
+from src.services.character_shape_bonus_service import (
+    get_effective_character_shape_bonus,
+    save_public_character_shape_bonus,
+)
 from src.services.official_role_page_service import load_official_role_index
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -92,10 +96,15 @@ def build_config_page(window):
 
     top_row.addStretch()
 
-    reset_btn = QPushButton("重置")
-    reset_btn.setObjectName("btnDanger")
-    reset_btn.clicked.connect(window._reset_config_form)
-    top_row.addWidget(reset_btn)
+    reset_current_btn = QPushButton("重置当前")
+    reset_current_btn.setObjectName("btnDanger")
+    reset_current_btn.clicked.connect(window._reset_current_config_weights)
+    top_row.addWidget(reset_current_btn)
+
+    reset_all_btn = QPushButton("重置所有")
+    reset_all_btn.setObjectName("btnDanger")
+    reset_all_btn.clicked.connect(window._reset_all_config_weights)
+    top_row.addWidget(reset_all_btn)
 
     save_btn = QPushButton("保存")
     save_btn.setObjectName("btnPrimary")
@@ -172,7 +181,9 @@ def _account_weight_config() -> dict[str, dict]:
         for character in characters:
             character_id = int(character["character_id"])
             record = account_weights.get(character_id) or {}
-            shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+            shape_bonus = get_effective_character_shape_bonus(
+                static_dao, character_id,
+            ) or {}
             shape_label = str(shape_bonus.get("shape_label") or "")
             shape_buffs = {
                 str(row["property_id"]): float(row["display_value"])
@@ -451,6 +462,7 @@ def render_roles_form(window, data, active_role=None):
         tab_scroll = roles_tabs.widget(index)
         role_name = tab_scroll.property("role_name") if tab_scroll else ""
         if role_name in data:
+            window._config_active_role = role_name
             _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_tabs)
 
     def rebuild_all_tabs(active_role=None):
@@ -608,15 +620,87 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     )
 
 
-def reset_config_form(window, config_dir, bundled_config_dir):
-    name = getattr(window, "_current_config_name", None)
-    if name != _ACCOUNT_WEIGHT_CONFIG:
-        return
+def _confirm_weight_reset(window, message: str) -> bool:
+    if getattr(window, "_current_config_name", None) != _ACCOUNT_WEIGHT_CONFIG:
+        return False
+    return QMessageBox.question(
+        window, "确认重置权重", message,
+        QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
+    ) == QMessageBox.Yes
+
+
+def _reload_after_weight_reset(window, config_dir, active_role: str | None) -> None:
+    # Reset applies only to persisted account weights.  A full form reload also
+    # deliberately discards any draft, making the confirmation above explicit.
     window._config_dirty = False
     window._config_form_data = None
     window._config_dirty_character_ids = set()
     window._config_dirty_shape_bonus_ids = set()
-    switch_config_form(window, _ACCOUNT_WEIGHT_CONFIG, config_dir)
+    switch_config_form(window, _ACCOUNT_WEIGHT_CONFIG, config_dir, active_role=active_role)
+    reload_data = getattr(window, "_load_data", None)
+    if callable(reload_data):
+        reload_data()
+
+
+def reset_current_config_weights(window, config_dir):
+    role_name = str(getattr(window, "_config_active_role", "") or "")
+    data = getattr(window, "_config_form_data", {}) or {}
+    role_data = data.get(role_name) or {}
+    if not role_name or not role_data:
+        QMessageBox.information(window, "重置当前", "请先选择一个角色。")
+        return
+    if not _confirm_weight_reset(
+        window,
+        f"将清除当前账号中 [{role_name}] 的自定义卡带主词条和驱动副词条权重，"
+        "并恢复为当前异环工坊默认值。\n\n"
+        "额外形状标签和额外形状加成不会改变；当前未保存编辑会丢弃。",
+    ):
+        return
+    try:
+        reset_account_character_weights(
+            runtime.USER_DATABASE_PATH, (int(role_data["character_id"]),),
+        )
+    except Exception as exc:
+        QMessageBox.warning(window, "重置失败", str(exc))
+        return
+    _reload_after_weight_reset(window, config_dir, role_name)
+    QMessageBox.information(
+        window, "重置当前", f"[{role_name}] 已恢复为默认权重，后续可随新版本更新。",
+    )
+
+
+def reset_all_config_weights(window, config_dir):
+    data = getattr(window, "_config_form_data", {}) or {}
+    character_ids = [
+        int(role_data["character_id"])
+        for role_data in data.values()
+        if isinstance(role_data, dict) and role_data.get("character_id") is not None
+    ]
+    if not character_ids:
+        return
+    if not _confirm_weight_reset(
+        window,
+        f"将清除当前账号全部 {len(character_ids)} 名角色的自定义卡带主词条和驱动副词条权重，"
+        "恢复为当前异环工坊默认值。\n\n"
+        "此操作无法撤销；额外形状标签和额外形状加成不会改变，当前未保存编辑会丢弃。",
+    ):
+        return
+    try:
+        restored = reset_account_character_weights(runtime.USER_DATABASE_PATH, character_ids)
+    except Exception as exc:
+        QMessageBox.warning(window, "重置失败", str(exc))
+        return
+    active_role = str(getattr(window, "_config_active_role", "") or "")
+    _reload_after_weight_reset(window, config_dir, active_role)
+    QMessageBox.information(
+        window, "重置所有", f"已恢复 {len(restored)} 名角色的默认权重，后续可随新版本更新。",
+    )
+
+
+def reset_config_form(window, config_dir, bundled_config_dir):
+    """Legacy slot: retain the former discard-draft behavior for callers."""
+    del bundled_config_dir
+    _reload_after_weight_reset(window, config_dir, None)
 
 
 def save_config_data(window, data, config_dir):

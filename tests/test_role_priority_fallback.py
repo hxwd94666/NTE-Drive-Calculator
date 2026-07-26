@@ -10,12 +10,12 @@ from src.optimizer.allocation_kernel import AllocationKernel, AllocationKernelRe
 from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
 
-def _drive(uid: str) -> Drive:
+def _drive(uid: str, shape_id: str = "H_2") -> Drive:
     return Drive(
         uid=uid,
         quality="Gold",
         area=2,
-        shape_id="H_2",
+        shape_id=shape_id,
         main_stats={"攻击力": 1.0, "防御力": 1.0},
     )
 
@@ -32,14 +32,14 @@ def _plan(drive: Drive) -> dict:
 
 
 class RolePriorityFallbackTests(unittest.TestCase):
-    def test_missing_core_is_allowed_only_when_all_drives_fill_the_blueprint(self) -> None:
+    def test_missing_core_never_invalidates_a_complete_drive_blueprint(self) -> None:
         drive = _drive("drive-1")
         request = AllocationKernelRequest(
             inventory=(drive,), roles_db={"A": {}}, sets_db={}, shapes_db={},
             blueprints_db={}, role_order=("A",), strategy="role_priority",
             module_set_targets={}, set_effect_modes={}, core_main_filters={},
             core_set_targets={}, stat_priority_configs={}, property_limits={},
-            allow_missing_core=True,
+            allow_missing_core=False,
         )
         kernel = AllocationKernel(None)  # _invalid_roles does not score without limits.
 
@@ -55,6 +55,48 @@ class RolePriorityFallbackTests(unittest.TestCase):
                     }
                 },
             ),
+        )
+
+    def test_global_optimal_retries_with_full_drive_candidates_after_top_k_failure(self) -> None:
+        drives = tuple(_drive(f"drive-{index}") for index in range(3))
+        request = AllocationKernelRequest(
+            inventory=drives, roles_db={"A": {}}, sets_db={}, shapes_db={},
+            blueprints_db={"A": [{"set_pieces": ["H_2"], "extra_pieces": []}]},
+            role_order=("A",), strategy="global_optimal", module_set_targets={},
+            set_effect_modes={}, core_main_filters={}, core_set_targets={},
+            stat_priority_configs={}, property_limits={}, allow_missing_core=True,
+            drive_screen_limit=1,
+        )
+        kernel = AllocationKernel(None)
+        calls: list[bool] = []
+
+        def fake_execute_once(_request, _excluded, *, use_full_drive_candidates=False):
+            calls.append(use_full_drive_candidates)
+            return {"A": _plan(drives[0])} if use_full_drive_candidates else {}
+
+        kernel._execute_once = fake_execute_once  # type: ignore[method-assign]
+        result = kernel.execute(request)
+
+        self.assertEqual([False, True], calls)
+        self.assertTrue(result["A"]["valid"])
+
+    def test_structural_diagnostic_names_a_missing_shape(self) -> None:
+        drive = _drive("only-one")
+        request = AllocationKernelRequest(
+            inventory=(drive,), roles_db={"A": {}}, sets_db={}, shapes_db={},
+            blueprints_db={"A": [{"set_pieces": ["H_2", "H_2"], "extra_pieces": []}]},
+            role_order=("A",), strategy="role_priority", module_set_targets={},
+            set_effect_modes={}, core_main_filters={}, core_set_targets={},
+            stat_priority_configs={}, property_limits={}, allow_missing_core=True,
+        )
+        kernel = AllocationKernel(None)
+        kernel._execute_once = lambda *_args, **_kwargs: {}  # type: ignore[method-assign]
+
+        result = kernel.execute(request)
+
+        self.assertEqual(
+            "缺少 H_2 驱动：图纸至少需要 2 个，当前可用 1 个（还缺 1 个）",
+            result["A"]["reason"],
         )
 
     def test_equal_priority_retry_defers_one_role_until_peers_use_their_drives(self) -> None:
@@ -88,6 +130,49 @@ class RolePriorityFallbackTests(unittest.TestCase):
         self.assertTrue(result["A"]["valid"])
         self.assertTrue(result["B"]["valid"])
         self.assertEqual({"drive-a", "drive-b"}, strategy._allocated_drive_uids(result))
+
+    def test_equal_priority_recovery_keeps_partial_set_and_extra_drives_frozen(self) -> None:
+        frozen_sets = [_drive(f"frozen-set-{index}") for index in range(1, 4)]
+        missing_set = _drive("missing-set")
+        frozen_extra = _drive("frozen-extra", "H_3")
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "S"}},
+            {"S": {"shapes": ["H_2"]}},
+            {"A": [{"set_pieces": ["H_2", "H_2", "H_2", "H_2"], "extra_pieces": ["H_3"]}]},
+        )
+        provisional = {
+            "A": {
+                "valid": False,
+                "blueprint": {
+                    "set_pieces": ["H_2", "H_2", "H_2", "H_2"],
+                    "extra_pieces": ["H_3"],
+                },
+                "assigned_tape": None,
+                "assigned_set_drives": frozen_sets,
+                "assigned_extra_drives": [frozen_extra],
+                "score": 2.0,
+                "rank_score": 2.0,
+            }
+        }
+
+        result = strategy._complete_partial_group_fit(
+            provisional,
+            [*frozen_sets, frozen_extra, missing_set],
+            {*(drive.uid for drive in frozen_sets), "frozen-extra", "missing-set"},
+            {},
+            None,
+            15,
+        )
+
+        self.assertTrue(result["A"]["valid"])
+        self.assertEqual(
+            ["frozen-set-1", "frozen-set-2", "frozen-set-3", "missing-set"],
+            [drive.uid for drive in result["A"]["assigned_set_drives"]],
+        )
+        self.assertEqual(
+            ["frozen-extra"],
+            [drive.uid for drive in result["A"]["assigned_extra_drives"]],
+        )
 
 
 if __name__ == "__main__":

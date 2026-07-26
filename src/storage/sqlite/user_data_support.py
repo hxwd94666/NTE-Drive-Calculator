@@ -33,7 +33,7 @@ USER_MIGRATIONS = {
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
 DEFAULT_SNAPSHOT_RETENTION_COUNT = 20
-ALLOCATION_STRATEGIES = frozenset({"role_priority", "drive_priority", "global_optimal"})
+ALLOCATION_STRATEGIES = frozenset({"role_priority", "global_optimal"})
 SUIT_REQUIREMENT_MODES = frozenset({"none", "two_piece", "four_piece"})
 
 
@@ -107,6 +107,5 @@ def _integer(value: Any, label: str, *, minimum: int | None = None) -> int:
     if minimum is not None and value < minimum:
         raise UserDataValidationError(f"{label} 不能小于 {minimum}")
     return value
-
 
 

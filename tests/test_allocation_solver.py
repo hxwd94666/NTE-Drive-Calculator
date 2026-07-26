@@ -107,10 +107,10 @@ class AllocationSolverTests(unittest.TestCase):
         self.assertEqual(10.0, items[0].sub_stats["暴击率%"])
         self.assertEqual("Type-3", _shapes(context)["ShapeA"].label)
 
-    def test_top_one_matches_existing_dispatcher_for_all_three_strategies(self) -> None:
+    def test_top_one_matches_existing_dispatcher_for_supported_strategies(self) -> None:
         role = fixture_role(1, weight_id="Score")
         frozen_candidates = complete_role_candidates(1, "Score", shape_a_score=3.0)
-        for strategy in ("role_priority", "drive_priority", "global_optimal"):
+        for strategy in ("role_priority", "global_optimal"):
             with self.subTest(strategy=strategy):
                 context = fixture_context((role,), frozen_candidates, strategy=strategy)
                 old_run = run_legacy_allocation(context)

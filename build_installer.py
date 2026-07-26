@@ -223,30 +223,9 @@ def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
         f'Source: "{_inno_path(vigem_installer)}"; DestDir: "{{app}}\\drivers"; '
         f'DestName: "{vigem_dest_name}"; Flags: ignoreversion'
     )
-    core_config_excludes = ",".join(f"config\\{name}" for name in CORE_CONFIG_FILES)
-    core_internal_config_replace_lines = "\n".join(
-        f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\_internal\\config"; '
-        'Flags: ignoreversion; Tasks: replacecoreconfig'
-        for name in CORE_CONFIG_FILES
-    )
-    core_runtime_config_replace_lines = "\n".join(
+    core_runtime_config_lines = "\n".join(
         f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\config"; '
-        'Flags: ignoreversion; Tasks: replacecoreconfig'
-        for name in CORE_CONFIG_FILES
-    )
-    core_internal_config_keep_lines = "\n".join(
-        f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\_internal\\config"; '
-        'Flags: ignoreversion onlyifdoesntexist; Check: ShouldKeepExistingCoreConfig'
-        for name in CORE_CONFIG_FILES
-    )
-    core_runtime_config_keep_lines = "\n".join(
-        f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\config"; '
-        'Flags: ignoreversion onlyifdoesntexist; Check: ShouldKeepExistingCoreConfig'
-        for name in CORE_CONFIG_FILES
-    )
-    core_config_backup_copy_lines = "\n".join(
-        f'  if FileExists(ExpandConstant(\'{{app}}\\config\\{name}\')) then\n'
-        f'    FileCopy(ExpandConstant(\'{{app}}\\config\\{name}\'), BackupDir + \'\\{name}\', False);'
+        'Flags: ignoreversion'
         for name in CORE_CONFIG_FILES
     )
     if vigem_is_exe:
@@ -385,15 +364,11 @@ Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："
 Name: "installvigem"; Description: "安装 ViGEmBus 虚拟手柄驱动"; GroupDescription: "运行依赖："; Flags: checkedonce
-Name: "replacecoreconfig"; Description: "替换基础词条数值 JSON（stats）"; GroupDescription: "配置更新："
 
 [Files]
 Source: "{_inno_path(APP_EXE)}"; DestDir: "{{app}}"; Flags: ignoreversion
-Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "{core_config_excludes}"
-{core_internal_config_replace_lines}
-{core_runtime_config_replace_lines}
-{core_internal_config_keep_lines}
-{core_runtime_config_keep_lines}
+Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+{core_runtime_config_lines}
 {vigem_file_line}
 
 [Dirs]
@@ -413,31 +388,9 @@ Filename: "{{cmd}}"; Parameters: "/C sc start ViGEmBus >NUL 2>NUL & exit /B 0"; 
 Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runascurrentuser
 
 [Code]
-procedure BackupCoreConfigBeforeReplace;
-var
-  BackupDir: string;
-begin
-  if not WizardIsTaskSelected('replacecoreconfig') then
-    Exit;
-  BackupDir := ExpandConstant('{{app}}\\config_backup\\' + GetDateTimeString('yyyymmddhhnnss', #0, #0));
-  ForceDirectories(BackupDir);
-{core_config_backup_copy_lines}
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssInstall then
-    BackupCoreConfigBeforeReplace;
-end;
-
 function ShouldInstallViGEmBus: Boolean;
 begin
   Result := IsWin64 and WizardIsTaskSelected('installvigem');
-end;
-
-function ShouldKeepExistingCoreConfig: Boolean;
-begin
-  Result := not WizardIsTaskSelected('replacecoreconfig');
 end;
 
 {chinese_custom_messages}

@@ -2,7 +2,7 @@
 """Dispatch facade that selects the requested allocation strategy."""
 
 from src.optimizer.role_priority_strategy import RolePriorityStrategy
-from src.optimizer.drive_priority_strategy import DrivePriorityStrategy, GlobalOptimalStrategy
+from src.optimizer.global_optimal_strategy import GlobalOptimalStrategy
 from src.optimizer.contracts import (
     AllocationResult,
     CandidatePool,
@@ -19,7 +19,6 @@ class DispatcherEngine:
                  *, core_set_targets: dict[str, str | None] | None = None):
         self.strategies = {
             "role_priority": RolePriorityStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets),
-            "drive_priority": DrivePriorityStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets),
             "global_optimal": GlobalOptimalStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets)
         }
 

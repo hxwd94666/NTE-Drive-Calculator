@@ -258,6 +258,26 @@ class UserDataDaoTest(unittest.TestCase):
         self.assertNotIn("character_name", columns)
         self.assertNotIn("stats_json", columns)
 
+    def test_reset_character_profiles_only_clears_role_pointers(self) -> None:
+        for character_id in (1051, 1055):
+            self.dao.save_character_profile(
+                character_id=character_id,
+                character_level=80,
+                breakthrough_stage=6,
+                awakening_level=3,
+                fork_id="fork_example",
+                fork_level=80,
+                fork_refinement_level=1,
+                selected_skill_id="Skill1",
+                skill_levels={"Skill1": 10},
+            )
+
+        self.assertTrue(self.dao.reset_character_profile(1051))
+        self.assertIsNone(self.dao.get_character_profile(1051))
+        self.assertIsNotNone(self.dao.get_character_profile(1055))
+        self.assertEqual(1, self.dao.reset_all_character_profiles())
+        self.assertEqual([], self.dao.list_character_profiles(include_inactive=True))
+
     def test_character_weights_seed_once_and_remain_account_editable(self) -> None:
         seeded = self.dao.seed_character_weight_preferences(
             1075,
@@ -547,9 +567,18 @@ class UserDataDaoTest(unittest.TestCase):
         second_database = Path(self.temp_dir.name) / "other_account.sqlite3"
         with UserDataDao(second_database, account_id="other") as other:
             self.dao.create_optimization_profile(
-                "Only default", allocation_strategy="drive_priority", characters=[]
+                "Only default", allocation_strategy="global_optimal", characters=[]
             )
             self.assertEqual([], other.list_optimization_profiles())
+
+    def test_legacy_drive_priority_profile_is_migrated_to_global_optimal(self) -> None:
+        profile = self.dao.create_optimization_profile(
+            "Legacy drive priority", allocation_strategy="drive_priority", characters=[]
+        )
+
+        self.assertEqual(
+            "global_optimal", profile["version"]["allocation_strategy"],
+        )
 
     def test_imports_complete_snapshot_and_keeps_raw_ids_and_stats(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
