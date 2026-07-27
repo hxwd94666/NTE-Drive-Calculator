@@ -85,6 +85,11 @@ DEFAULT_TAPE_MAIN_STAT_SCROLL = {
     "main_stat_scroll_end": (2067.0, 395.0),
 }
 TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS = 0.20
+FILTER_NAVIGATION_PAUSE_SECONDS = 0.60
+FILTER_OPTION_PAUSE_SECONDS = 0.30
+FILTER_DIALOG_CLOSE_SETTLE_SECONDS = 0.80
+TAPE_FILTER_RESULT_SETTLE_SECONDS = 0.60
+TAPE_MODAL_DISMISS_SETTLE_SECONDS = 0.80
 DEFAULT_TAPE_SUB_STAT_FILTER_ENTRY = {
     "sub_stat_scroll_start": (2067.0, 1190.0),
     "sub_stat_scroll_end": (2067.0, 395.0),
@@ -271,8 +276,16 @@ def map_page_controls(
 
     controls = _scale_controls(DEFAULT_PAGE_CONTROLS, screen_size, content_rect)
     controls["click_sequence"] = [
-        {"name": "tape_tab", "position": controls["tape_tab"]},
-        {"name": "filter_button", "position": controls["filter_button"]},
+        {
+            "name": "tape_tab",
+            "position": controls["tape_tab"],
+            "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
+        },
+        {
+            "name": "filter_button",
+            "position": controls["filter_button"],
+            "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
+        },
     ]
     return controls
 
@@ -285,8 +298,16 @@ def map_drive_page_controls(
 
     controls = _scale_controls(DEFAULT_DRIVE_PAGE_CONTROLS, screen_size, content_rect)
     controls["click_sequence"] = [
-        {"name": "drive_tab", "position": controls["drive_tab"]},
-        {"name": "filter_button", "position": controls["filter_button"]},
+        {
+            "name": "drive_tab",
+            "position": controls["drive_tab"],
+            "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
+        },
+        {
+            "name": "filter_button",
+            "position": controls["filter_button"],
+            "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
+        },
     ]
     return controls
 
@@ -309,6 +330,7 @@ def map_assembly_page_prepare_controls(
             "optional_confirm_position": controls["unload_prompt_confirm"],
             "modal_probe_position": controls["unload_prompt_probe"],
             "brightness_threshold": 150,
+            "post_action_pause_seconds": TAPE_MODAL_DISMISS_SETTLE_SECONDS,
         },
     ]
     return controls
@@ -352,7 +374,7 @@ def map_drive_shape_selection(
         {"name": "wait_after_drive_shape_dialog_open", "wait_seconds": 0.5},
         {"name": "shape_option", "drive_type": normalized, "position": result["shape_option"]},
         {"name": "confirm_shape_filter", "position": result["confirm_filter"]},
-        {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": 0.5},
+        {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": FILTER_DIALOG_CLOSE_SETTLE_SECONDS},
     ]
     return result
 
@@ -382,6 +404,7 @@ def map_drive_set_selection(
         {"name": "drive_set_select", "set_name": normalized_name, "position": result["set_select"]},
         {"name": "drive_set_option", "set_name": normalized_name, "position": result["set_option"]},
         {"name": "confirm_drive_set_filter", "position": result["confirm_filter"]},
+        {"name": "wait_after_drive_set_dialog_close", "wait_seconds": FILTER_DIALOG_CLOSE_SETTLE_SECONDS},
     ]
     return result
 
@@ -393,7 +416,13 @@ def map_filter_reset(
     """Return the filter reset button used before every new drive search."""
 
     controls = _scale_controls(DEFAULT_FILTER_ACTION_CONTROLS, screen_size, content_rect)
-    controls["reset_sequence"] = [{"name": "reset_filter", "position": controls["reset_filter"]}]
+    controls["reset_sequence"] = [
+        {
+            "name": "reset_filter",
+            "position": controls["reset_filter"],
+            "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
+        }
+    ]
     return controls
 
 
@@ -420,7 +449,7 @@ def map_tape_set_selection(
     result["selection_sequence"] = [
         {"name": "set_option", "set_name": normalized_name, "position": result["set_option"]},
         {"name": "confirm_filter", "position": result["confirm_filter"]},
-        {"name": "wait_after_tape_set_dialog_close", "wait_seconds": 0.5},
+        {"name": "wait_after_tape_set_dialog_close", "wait_seconds": FILTER_DIALOG_CLOSE_SETTLE_SECONDS},
     ]
     return result
 
@@ -444,15 +473,34 @@ def map_tape_filter_refinement(
     if include_status_filters:
         sequence.extend(
             [
-                {"name": "status_locked", "position": result["status_locked"]},
-                {"name": "status_discarded", "position": result["status_discarded"]},
-                {"name": "status_other", "position": result["status_other"]},
+                {
+                    "name": "status_locked",
+                    "position": result["status_locked"],
+                    "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+                },
+                {
+                    "name": "status_discarded",
+                    "position": result["status_discarded"],
+                    "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+                },
+                {
+                    "name": "status_other",
+                    "position": result["status_other"],
+                    "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+                },
             ]
         )
     for quality in qualities:
         control_name = _quality_control_name(quality)
         result[control_name] = quality_controls[control_name]
-        sequence.append({"name": control_name, "quality": quality, "position": result[control_name]})
+        sequence.append(
+            {
+                "name": control_name,
+                "quality": quality,
+                "position": result[control_name],
+                "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+            }
+        )
         sequence.append(
             {
                 "name": "verify_quality_selected",
@@ -499,15 +547,34 @@ def map_drive_filter_refinement(
     if include_status_filters:
         sequence.extend(
             [
-                {"name": "status_locked", "position": result["status_locked"]},
-                {"name": "status_discarded", "position": result["status_discarded"]},
-                {"name": "status_other", "position": result["status_other"]},
+                {
+                    "name": "status_locked",
+                    "position": result["status_locked"],
+                    "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+                },
+                {
+                    "name": "status_discarded",
+                    "position": result["status_discarded"],
+                    "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+                },
+                {
+                    "name": "status_other",
+                    "position": result["status_other"],
+                    "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+                },
             ]
         )
     for quality in qualities:
         control_name = _quality_control_name(quality)
         result[control_name] = quality_controls[control_name]
-        sequence.append({"name": control_name, "quality": quality, "position": result[control_name]})
+        sequence.append(
+            {
+                "name": control_name,
+                "quality": quality,
+                "position": result[control_name],
+                "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+            }
+        )
         sequence.append(
             {
                 "name": "verify_quality_selected",
@@ -542,9 +609,21 @@ def map_drive_filter_refinement(
         for _index in range(max(1, int(bottom_scroll_count)))
     )
     sequence.extend(
-        {"name": "sub_stat_option", "sub_stat": stat, "position": option_controls[stat]} for stat in normalized_stats
+        {
+            "name": "sub_stat_option",
+            "sub_stat": stat,
+            "position": option_controls[stat],
+            "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+        }
+        for stat in normalized_stats
     )
-    sequence.append({"name": "sub_stat_count_four", "position": result["sub_stat_count_four"]})
+    sequence.append(
+        {
+            "name": "sub_stat_count_four",
+            "position": result["sub_stat_count_four"],
+            "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+        }
+    )
     result["refinement_sequence"] = sequence
     return result
 
@@ -618,7 +697,12 @@ def map_tape_main_stat_selection(
         "main_stat_ocr_region": region,
     }
     result["selection_sequence"] = [
-        {"name": "main_stat_option", "main_stat": normalized, "position": result["main_stat_option"]}
+        {
+            "name": "main_stat_option",
+            "main_stat": normalized,
+            "position": result["main_stat_option"],
+            "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+        }
     ]
     result["ocr_selection_sequence"] = [
         {
@@ -627,6 +711,7 @@ def map_tape_main_stat_selection(
             "ocr_target_text": normalized,
             "ocr_search_region": region,
             "fallback_position": result["main_stat_option"],
+            "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
         }
     ]
     return result
@@ -689,9 +774,21 @@ def map_tape_sub_stat_selection(
         }
     ]
     sequence.extend(
-        {"name": "sub_stat_option", "sub_stat": stat, "position": option_controls[stat]} for stat in normalized_stats
+        {
+            "name": "sub_stat_option",
+            "sub_stat": stat,
+            "position": option_controls[stat],
+            "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+        }
+        for stat in normalized_stats
     )
-    sequence.append({"name": "sub_stat_count_four", "position": result["sub_stat_count_four"]})
+    sequence.append(
+        {
+            "name": "sub_stat_count_four",
+            "position": result["sub_stat_count_four"],
+            "post_action_pause_seconds": FILTER_OPTION_PAUSE_SECONDS,
+        }
+    )
     result["selection_sequence"] = sequence
     return result
 
@@ -713,7 +810,16 @@ def map_tape_equip_first_result(
         "reuse_prompt_probe": prompt["reuse_prompt_probe"],
     }
     result["equip_sequence"] = [
-        {"name": "confirm_filter", "position": result["confirm_filter"]},
+        {
+            "name": "confirm_filter",
+            "position": result["confirm_filter"],
+            "post_action_pause_seconds": 0.0,
+        },
+        {
+            "name": "wait_after_tape_filter_confirm",
+            "wait_seconds": TAPE_FILTER_RESULT_SETTLE_SECONDS,
+            "post_action_pause_seconds": 0.0,
+        },
         {
             "name": "drag_first_tape_to_socket",
             "from": result["first_tape"],
@@ -726,6 +832,7 @@ def map_tape_equip_first_result(
             "optional_confirm_position": result["reuse_prompt_confirm"],
             "modal_probe_position": result["reuse_prompt_probe"],
             "brightness_threshold": 150,
+            "post_action_pause_seconds": TAPE_MODAL_DISMISS_SETTLE_SECONDS,
         },
     ]
     return result
@@ -772,7 +879,13 @@ def map_drive_block_installation(
     }
     sequence: list[dict[str, Any]] = []
     if open_filter:
-        sequence.append({"name": "filter_button", "position": page_controls["filter_button"]})
+        sequence.append(
+            {
+                "name": "filter_button",
+                "position": page_controls["filter_button"],
+                "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
+            }
+        )
     sequence.extend(reset["reset_sequence"])
     sequence.extend(shape_selection["selection_sequence"])
     if is_duplicate:
@@ -859,7 +972,13 @@ def map_drive_blocks_installation(
         "page_controls": page_controls,
         "install_plans": install_plans,
     }
-    sequence: list[dict[str, Any]] = [{"name": "drive_tab", "position": page_controls["drive_tab"]}]
+    sequence: list[dict[str, Any]] = [
+        {
+            "name": "drive_tab",
+            "position": page_controls["drive_tab"],
+            "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
+        }
+    ]
     sequence.extend(
         {
             "name": "install_drive_block",

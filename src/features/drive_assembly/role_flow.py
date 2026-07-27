@@ -294,7 +294,7 @@ def map_role_list_reverse_left_move_sequence(
 
 def map_role_list_initial_left_reset_sequence(
     repeat_count: int = ROLE_LIST_INITIAL_LEFT_RESET_COUNT,
-    pause_seconds: float = 0.08,
+    pause_seconds: float = 0.15,
 ) -> list[dict[str, Any]]:
     """Return the quick defensive left pushes used after opening the list once."""
 

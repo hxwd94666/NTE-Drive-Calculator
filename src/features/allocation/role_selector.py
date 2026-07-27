@@ -683,9 +683,9 @@ class RoleSelector(QWidget):
             except (TypeError, ValueError):
                 pass
         limits_row.addWidget(crit_threshold_label)
-        limits_row.addWidget(crit_threshold_help)
         limits_row.addWidget(crit_threshold_edit)
         limits_row.addWidget(QLabel("%"))
+        limits_row.addWidget(crit_threshold_help)
         limits_row.addStretch(1)
         stat_layout.addLayout(limits_row)
 
@@ -994,10 +994,8 @@ STAT_PRIORITY_HELP = (
     "卡带/驱动副词条：让该角色优先使用带有所选副词条的驱动。\n"
     "关闭“优先级一致”时，按选择顺序逐层优先，例如 A > B > C 会优先使用同时含 A+B+C、再含 A+B、再含 A 的驱动。\n"
     "开启“优先级一致”时，优先使用命中副词条数量更多的驱动。\n\n"
-    "未勾选“不限制评分等级”时，可通过“最低生效等级”选择 D 至 ACE 的门槛；"
-    "默认 A 级。词条自选加成与暴击率最小值加成都受该门槛约束。\n"
-    "勾选“不限制评分等级”后，会按整张图纸的自选副词条覆盖程度优先；覆盖相同时再比较评分。\n\n"
-    "暴击率最小值留空时不启用，详见该项旁的 ? 说明。暴击率上限会硬性限制配装总暴击。"
+    "“最低生效等级”决定哪些驱动参与词条自选，默认只对 A 级及以上的驱动生效。\n"
+    "勾选“不限制评分等级”后，所有评分等级的驱动都会参与；优先选择命中更多所选副词条的驱动，命中数量相同时再比较评分。"
 )
 
 

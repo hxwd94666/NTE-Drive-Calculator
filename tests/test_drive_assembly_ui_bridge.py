@@ -192,6 +192,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
                     "optional_confirm_position": (1546, 953),
                     "modal_probe_position": (1280, 690),
                     "brightness_threshold": 150,
+                    "post_action_pause_seconds": 0.8,
                 },
             ],
             plan["actions"][0]["sequence"],

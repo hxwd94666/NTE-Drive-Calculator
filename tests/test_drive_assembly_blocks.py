@@ -439,6 +439,22 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((1205, 393), mapped[0]["pixel_position"])
         self.assertEqual((111, 1347), map_page_controls(screen_size=(2560, 1600))["filter_button"])
 
+    def test_page_mapping_scales_controls_to_4k_16_by_9(self):
+        from src.features.drive_assembly.page_mapping import map_page_controls
+
+        controls = map_page_controls(screen_size=(3840, 2160))
+
+        self.assertEqual((360, 464), controls["tape_tab"])
+        self.assertEqual((167, 2021), controls["filter_button"])
+
+    def test_page_mapping_scales_controls_to_1080p_16_by_9(self):
+        from src.features.drive_assembly.page_mapping import map_page_controls
+
+        controls = map_page_controls(screen_size=(1920, 1080))
+
+        self.assertEqual((180, 232), controls["tape_tab"])
+        self.assertEqual((83, 1010), controls["filter_button"])
+
     def test_page_mapping_uses_content_rect_offsets_for_windowed_clients(self):
         from src.features.drive_assembly.page_mapping import map_blocks_to_page
 
@@ -459,8 +475,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((111, 1347), controls["filter_button"])
         self.assertEqual(
             [
-                {"name": "tape_tab", "position": (240, 309)},
-                {"name": "filter_button", "position": (111, 1347)},
+                {"name": "tape_tab", "position": (240, 309), "post_action_pause_seconds": 0.6},
+                {"name": "filter_button", "position": (111, 1347), "post_action_pause_seconds": 0.6},
             ],
             controls["click_sequence"],
         )
@@ -505,7 +521,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
             [
                 {"name": "set_option", "set_name": "森林萤火之心", "position": (532, 727)},
                 {"name": "confirm_filter", "position": (1564, 1186)},
-                {"name": "wait_after_tape_set_dialog_close", "wait_seconds": 0.5},
+                {"name": "wait_after_tape_set_dialog_close", "wait_seconds": 0.8},
             ],
             selection["selection_sequence"],
         )
@@ -580,17 +596,17 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((2067, 1071), controls["main_stat_expand"])
         self.assertEqual(
             [
-                {"name": "status_locked", "position": (2273, 618)},
-                {"name": "status_discarded", "position": (1861, 704)},
-                {"name": "status_other", "position": (2273, 704)},
-                {"name": "quality_orange", "quality": "Gold", "position": (1861, 929)},
+                {"name": "status_locked", "position": (2273, 618), "post_action_pause_seconds": 0.3},
+                {"name": "status_discarded", "position": (1861, 704), "post_action_pause_seconds": 0.3},
+                {"name": "status_other", "position": (2273, 704), "post_action_pause_seconds": 0.3},
+                {"name": "quality_orange", "quality": "Gold", "position": (1861, 929), "post_action_pause_seconds": 0.3},
                 {
                     "name": "verify_quality_selected",
                     "quality": "Gold",
                     "selection_probe_position": (1721, 929),
                     "retry_position": (1861, 929),
                 },
-                {"name": "quality_purple", "quality": "Purple", "position": (2273, 843)},
+                {"name": "quality_purple", "quality": "Purple", "position": (2273, 843), "post_action_pause_seconds": 0.3},
                 {
                     "name": "verify_quality_selected",
                     "quality": "Purple",
@@ -686,7 +702,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((2273, 485), selection["main_stat_option"])
         self.assertEqual("攻击力百分比", selection["main_stat"])
         self.assertEqual(
-            [{"name": "main_stat_option", "main_stat": "攻击力百分比", "position": (2273, 485)}],
+            [{"name": "main_stat_option", "main_stat": "攻击力百分比", "position": (2273, 485), "post_action_pause_seconds": 0.3}],
             selection["selection_sequence"],
         )
 
@@ -792,10 +808,10 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                     "to": (2067, 395),
                     "duration_ms": 500,
                 },
-                {"name": "sub_stat_option", "sub_stat": "暴击率", "position": (1861, 721)},
-                {"name": "sub_stat_option", "sub_stat": "攻击力百分比", "position": (2273, 464)},
-                {"name": "sub_stat_option", "sub_stat": "通用伤害增强", "position": (1861, 893)},
-                {"name": "sub_stat_count_four", "position": (1861, 1202)},
+                {"name": "sub_stat_option", "sub_stat": "暴击率", "position": (1861, 721), "post_action_pause_seconds": 0.3},
+                {"name": "sub_stat_option", "sub_stat": "攻击力百分比", "position": (2273, 464), "post_action_pause_seconds": 0.3},
+                {"name": "sub_stat_option", "sub_stat": "通用伤害增强", "position": (1861, 893), "post_action_pause_seconds": 0.3},
+                {"name": "sub_stat_count_four", "position": (1861, 1202), "post_action_pause_seconds": 0.3},
             ],
             selection["selection_sequence"],
         )
@@ -826,7 +842,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((1280, 690), equip["reuse_prompt_probe"])
         self.assertEqual(
             [
-                {"name": "confirm_filter", "position": (2273, 1322)},
+                {"name": "confirm_filter", "position": (2273, 1322), "post_action_pause_seconds": 0.0},
+                {"name": "wait_after_tape_filter_confirm", "wait_seconds": 0.6, "post_action_pause_seconds": 0.0},
                 {
                     "name": "drag_first_tape_to_socket",
                     "from": (126, 430),
@@ -839,6 +856,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                     "optional_confirm_position": (1546, 953),
                     "modal_probe_position": (1280, 690),
                     "brightness_threshold": 150,
+                    "post_action_pause_seconds": 0.8,
                 },
             ],
             equip["equip_sequence"],
@@ -864,8 +882,8 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((111, 1347), controls["filter_button"])
         self.assertEqual(
             [
-                {"name": "drive_tab", "position": (554, 309)},
-                {"name": "filter_button", "position": (111, 1347)},
+                {"name": "drive_tab", "position": (554, 309), "post_action_pause_seconds": 0.6},
+                {"name": "filter_button", "position": (111, 1347), "post_action_pause_seconds": 0.6},
             ],
             controls["click_sequence"],
         )
@@ -887,6 +905,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                     "optional_confirm_position": (1546, 953),
                     "modal_probe_position": (1280, 690),
                     "brightness_threshold": 150,
+                    "post_action_pause_seconds": 0.8,
                 },
             ],
             controls["prepare_sequence"],
@@ -906,7 +925,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
                 {"name": "wait_after_drive_shape_dialog_open", "wait_seconds": 0.5},
                 {"name": "shape_option", "drive_type": "V_3", "position": (948, 745)},
                 {"name": "confirm_shape_filter", "position": (1564, 1186)},
-                {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": 0.5},
+                {"name": "wait_after_drive_shape_dialog_close", "wait_seconds": 0.8},
             ],
             selection["selection_sequence"],
         )
@@ -1004,7 +1023,10 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertNotIn("status_locked", [step["name"] for step in install["install_sequence"]])
         self.assertNotIn("status_discarded", [step["name"] for step in install["install_sequence"]])
         self.assertNotIn("status_other", [step["name"] for step in install["install_sequence"]])
-        self.assertEqual({"name": "reset_filter", "position": (1861, 1322)}, install["install_sequence"][0])
+        self.assertEqual(
+            {"name": "reset_filter", "position": (1861, 1322), "post_action_pause_seconds": 0.6},
+            install["install_sequence"][0],
+        )
         drag_index = next(
             index
             for index, step in enumerate(install["install_sequence"])
@@ -1143,7 +1165,7 @@ class DriveAssemblyBlockTests(unittest.TestCase):
         self.assertEqual((1205, 548), plan["install_plans"][1]["target_position"])
         self.assertEqual(
             [
-                {"name": "drive_tab", "position": (554, 309)},
+                {"name": "drive_tab", "position": (554, 309), "post_action_pause_seconds": 0.6},
                 {"name": "install_drive_block", "block_id": 1, "sequence_index": 0},
                 {"name": "install_drive_block", "block_id": 2, "sequence_index": 1},
             ],

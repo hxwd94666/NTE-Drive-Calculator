@@ -935,7 +935,8 @@ def _start_automatic_equipment_assembly(self, role_names: list[str]) -> None:
         self,
         "自动装配准备",
         "将模拟游戏内操作逐步装配。请在 3 秒内切换到游戏的角色详情页，"
-        "并保持游戏窗口可见；执行期间可按 F12 停止。",
+        "并保持游戏窗口可见；执行期间可按 F12 停止。\n\n"
+        "请保证游戏里的 C 键角色页面已打开，且游戏分辨率为 1080p 或 2K。",
     )
     show_minimized = getattr(self, "showMinimized", None)
     if callable(show_minimized):
