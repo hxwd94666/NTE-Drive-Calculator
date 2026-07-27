@@ -158,9 +158,9 @@ def _capture_equipment_restore_anchor(self, preferred_role_name=None):
     """Record a role-card anchor before asynchronously rebuilding the page.
 
     A scrollbar value is not stable here: cards begin as fixed-height
-    placeholders and grow after their lazy content (and graduation data) is
-    rendered.  Keeping the role and its viewport offset lets us restore the
-    user's actual context after that geometry settles.
+    placeholders and grow after their lazy content is rendered. Keeping the
+    role and its viewport offset lets us restore the user's actual context
+    after that geometry settles.
     """
     scroll = getattr(self, "equip_scroll", None)
     if scroll is None:
@@ -242,8 +242,8 @@ def _restore_equipment_anchor(self, token):
     else:
         scroll.verticalScrollBar().setValue(int(anchor.get("scroll_value") or 0))
     anchor["attempts"] = int(anchor.get("attempts") or 0) + 1
-    # Card height can still change once the queued render and graduation
-    # worker complete.  A few event-loop turns are enough to settle it while
+    # Card height can still change once queued rendering completes. A few
+    # event-loop turns are enough to settle it while
     # avoiding a persistent fight against a user's later manual scrolling.
     if anchor["attempts"] < 8:
         _schedule_equipment_restore_anchor(self, token)
@@ -364,7 +364,6 @@ def _queue_equipment_render(self, eq):
         })
     self.equip_content_layout.addStretch()
     _schedule_visible_equipment_render(self, token)
-    _start_equipment_graduation_load(self, token, [role_name for role_name, _rd in roles])
 
 
 def _schedule_visible_equipment_render(self, token=None):
@@ -425,32 +424,6 @@ def _render_visible_equipment_roles(self, token):
     _schedule_equipment_restore_anchor(self, token)
 
 
-def _start_equipment_graduation_load(self, token, role_names):
-    """Load optional role-detail metrics after the initial card viewport is ready."""
-    worker = WorkerThread(
-        target=lambda: {
-            role_name: _saved_plan_graduation_info(role_name)
-            for role_name in role_names
-        },
-        parent=self,
-    )
-    self._equip_graduation_worker = worker
-
-    def apply_results(results):
-        if token is not getattr(self, "_equip_render_token", None):
-            return
-        for entry in getattr(self, "_equip_lazy_entries", []):
-            info = results.get(entry["role_name"]) if isinstance(results, dict) else None
-            entry["state"]["_graduation_info"] = info
-            if entry["loaded"]:
-                _render_lazy_equipment_entry(self, entry)
-        _schedule_equipment_restore_anchor(self, token)
-
-    worker.result_ready.connect(apply_results)
-    worker.error.connect(lambda error: logger.debug("配装毕业率后台加载失败: {}", error))
-    worker.start()
-
-
 def _on_sqlite_equipment_display_loaded(self, token, eq):
     if token is not getattr(self, "_equip_load_token", None):
         return
@@ -482,7 +455,7 @@ def _refresh_equip(self, *, restore_role_name=None):
     self._equip_restore_anchor = _capture_equipment_restore_anchor(
         self, preferred_role_name=restore_role_name,
     )
-    # Invalidate old lazy/graduation callbacks while the SQLite read runs.
+    # Invalidate old lazy-render callbacks while the SQLite read runs.
     # Previously they could redraw deleted slots between the two clears below.
     self._equip_render_token = object()
     self._equip_lazy_entries = []
@@ -801,49 +774,6 @@ def _sqlite_replacement_candidates(database_path, role_name, item_kind, old_uid)
         return plan, current, candidates, plan_drives, plan_tape
 
 
-def _saved_plan_graduation_info(role_name: str) -> dict | None:
-    """Project the rebuilt role page's graduation result onto saved loadouts.
-
-    The source of truth remains the role page's public SQLite detail model:
-    saved plans supply only drive/core items, while profile settings retain the
-    player's own account-side choices.
-    """
-
-    database_path = getattr(runtime, "USER_DATABASE_PATH", None)
-    if database_path is None:
-        return None
-    try:
-        with UserDataDao(database_path) as user_dao:
-            plan = user_dao.get_active_loadout_plan_for_role(role_name)
-        if not isinstance(plan, dict):
-            return None
-        character_id = int(plan.get("character_id"))
-        from src.features.official_role.page import (
-            _graduation_benchmark_damage,
-            _graduation_tooltip,
-        )
-        from src.services.official_role_page_service import (
-            calculate_official_role_margins,
-            load_official_role_detail,
-        )
-        detail = load_official_role_detail(database_path, character_id)
-        context_key = "saved" if (
-            (detail.get("equipment_contexts") or {}).get("saved", {}).get("available")
-        ) else "current"
-        damage = float((calculate_official_role_margins(detail, context_key) or {}).get("damage") or 0.0)
-        benchmark = _graduation_benchmark_damage(detail)
-        if damage <= 0 or not benchmark:
-            return None
-        return {
-            "text": f"毕业率 {damage / benchmark * 100:.1f}%",
-            "tooltip": _graduation_tooltip(detail),
-            "color": "#ffaa00",
-        }
-    except Exception as exc:
-        logger.debug("配装毕业率加载失败 [{}]: {}", role_name, exc)
-        return None
-
-
 def _open_official_saved_plan_optimizer(
     window, role_name: str, item_kind: str, uid: str,
 ) -> bool:
@@ -1098,11 +1028,6 @@ def _render_equip_batch(self, token, batch_size=None):
 def _render_equip_role(self, role_name, rd, *, target_layout=None):
     role_cfg=self.roles_db.get(role_name,{})
     wts=role_cfg.get("weights",{})
-    graduation_info = rd.get("_graduation_info") if isinstance(rd, dict) else None
-    if graduation_info is None and "_sqlite_plan_id" not in rd:
-        # Retain the legacy/direct-call fallback; normal SQLite cards receive
-        # this value from the loading worker.
-        graduation_info = _saved_plan_graduation_info(role_name)
     main_wts=role_cfg.get("main_weights")
     is_sqlite_plan="_sqlite_plan_id" in rd
 
@@ -1146,28 +1071,6 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         sml=QLabel(_ml); sml.setStyleSheet(themed_style("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px"))
         role_hdr.addWidget(sml)
     role_hdr.addStretch()
-    # Graduation is a role-total metric, not an individual drive/core score.
-    # Keep it immediately to the left of the role's overall score.
-    if graduation_info:
-        # It is a whole-role metric, so it deliberately shares the total
-        # score/grade color and exact badge framing.
-        graduation_color = gc
-        graduation_bg = gbg
-        graduation_frame = QFrame()
-        graduation_frame.setStyleSheet(
-            f"QFrame{{background:{graduation_bg};border:1px solid {graduation_color};"
-            "border-radius:7px;padding:4px 12px}"
-        )
-        graduation_layout = QHBoxLayout(graduation_frame)
-        graduation_layout.setSpacing(6)
-        graduation_layout.setContentsMargins(4, 0, 4, 0)
-        graduation_label = QLabel(str(graduation_info["text"]))
-        graduation_label.setStyleSheet(
-            f"font-size:14px;font-weight:800;color:{graduation_color};border:none"
-        )
-        graduation_label.setToolTip(str(graduation_info.get("tooltip") or ""))
-        graduation_layout.addWidget(graduation_label)
-        role_hdr.addWidget(graduation_frame)
     # Score
     sf=QFrame()
     sf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
