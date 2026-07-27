@@ -236,7 +236,7 @@ class AllocationContextTests(unittest.TestCase):
         )
         self.assertTrue(context.roles[0].extra_shape_label)
 
-    def test_context_uses_public_shape_bonus_override(self) -> None:
+    def test_context_uses_public_shape_bonus_rule(self) -> None:
         from src.services.character_shape_bonus_service import (
             save_public_character_shape_bonus,
         )

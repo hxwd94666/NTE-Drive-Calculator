@@ -1,4 +1,4 @@
-# 验证跨账号共享额外形状覆盖库的读写与静态数据隔离。
+# 验证跨账号共享额外形状规则直接写入公共静态库。
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class CharacterShapeBonusServiceTests(unittest.TestCase):
         self.assertIsNotNone(template)
         self.assertEqual("default", after["source_kind"])
         self.assertEqual(before["updated_at_utc"], after["updated_at_utc"])
-        self.assertNotEqual("Type-4", bundled["shape_label"])
+        self.assertEqual("Type-4", bundled["shape_label"])
 
     def test_keeps_current_public_label_when_a_bonus_only_save_has_empty_label(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

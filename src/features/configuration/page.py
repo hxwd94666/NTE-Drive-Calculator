@@ -308,7 +308,7 @@ def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
     current_label = str(role_data.get("extra_shape_label") or "")
     value.setCurrentText(current_label)
     value.setPlaceholderText("选择额外形状标签")
-    value.setToolTip("选择额外形状标签；点击“保存”后写入本机公共 SQLite，所有账号共用。")
+    value.setToolTip("选择额外形状标签；点击“保存”后写入公共静态 SQLite，所有账号共用；版本更新会恢复默认数据。")
     value.currentTextChanged.connect(
         lambda text, rn=role_name: save_extra_shape_label(window, rn, text, data)
     )
@@ -335,7 +335,7 @@ def _add_extra_shape_buff_row(
         property_combo.addItem(str(label), str(property_id))
     selected_index = property_combo.findData(str(selected_property))
     property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
-    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后写入本机公共 SQLite，所有账号共用。")
+    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后写入公共静态 SQLite，所有账号共用；版本更新会恢复默认数据。")
     row.addWidget(property_combo, 1)
     value_spin = NoWheelDoubleSpinBox()
     value_spin.setRange(0, 1000000)
@@ -344,7 +344,7 @@ def _add_extra_shape_buff_row(
     value_spin.setValue(float(selected_value))
     value_spin.setKeyboardTracking(False)
     value_spin.setEnabled(bool(property_combo.currentData()))
-    value_spin.setToolTip("额外形状加成数值；点击“保存”后写入本机公共 SQLite，所有账号共用。")
+    value_spin.setToolTip("额外形状加成数值；点击“保存”后写入公共静态 SQLite，所有账号共用；版本更新会恢复默认数据。")
     row.addWidget(value_spin)
     form_layout.addLayout(row)
 
@@ -616,7 +616,7 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     QMessageBox.information(
         window,
         "保存",
-        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到本机公共 SQLite。",
+        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到公共静态 SQLite，版本更新会恢复默认数据。",
     )
 
 

@@ -69,7 +69,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertGreater(len(catalog.sets_db), 0)
         self.assertGreater(len(catalog.shapes_db), 0)
 
-    def test_legacy_calculation_catalog_uses_public_shape_bonus(self):
+    def test_legacy_calculation_catalog_uses_public_shape_bonus_rule(self):
         from src.services.character_shape_bonus_service import (
             get_effective_character_shape_bonus,
             save_public_character_shape_bonus,
@@ -86,8 +86,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             shutil.copy2(PROJECT_DATABASE_PATH, static_database)
             with UserDataDao(database, account_id="shape-override"):
                 pass
-            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}), \
-                 patch.object(runtime, "DATA_ROOT", Path(directory), create=True):
+            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}):
                 save_public_character_shape_bonus(
                     1051,
                     shape_label="Type-4",
@@ -104,7 +103,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             catalog.roles_db["「零」"]["extra_shape_buffs"],
         )
 
-    def test_weight_page_saves_shape_bonus_to_public_sqlite(self):
+    def test_weight_page_saves_shape_bonus_to_public_static_database(self):
         from src.features.configuration import page as configuration_page
         from src.app import runtime
         from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
@@ -135,7 +134,6 @@ class StaticGameDatabaseTests(unittest.TestCase):
             )
             window._load_data = lambda: setattr(window, "reloaded", True)
             with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}), \
-                 patch.object(runtime, "DATA_ROOT", Path(directory), create=True), \
                  patch.object(configuration_page.runtime, "USER_DATABASE_PATH", database, create=True), \
                  patch.object(configuration_page.QMessageBox, "information"), \
                  patch.object(configuration_page.QMessageBox, "warning"):

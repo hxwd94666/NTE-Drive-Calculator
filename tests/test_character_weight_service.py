@@ -79,7 +79,6 @@ class CharacterWeightServiceTests(unittest.TestCase):
                     shape_label="Type-3",
                     property_values={"CritBase": 8.0},
                     database_path=static_database,
-                    override_database_path=root / "public_overrides.sqlite3",
                 )
                 after = ensure_account_character_weights(user_database, (1051,))[1051]
 

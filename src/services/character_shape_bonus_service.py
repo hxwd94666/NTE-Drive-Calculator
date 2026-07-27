@@ -1,58 +1,15 @@
-# 管理跨账号共享、且不随安装包覆盖的额外形状配置。
-"""Resolve and persist public extra-shape overrides outside bundled static data."""
+# 管理跨账号共享、随静态库更新覆盖的额外形状配置。
+"""Read and update public extra-shape rules in the static game database."""
 
 from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
 
-from src.app import runtime
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao, StaticGameDataError
-
-
-_OVERRIDE_DATABASE_NAME = "public_overrides.sqlite3"
-
-
-def public_shape_bonus_override_path(
-    database_path: str | Path | None = None,
-) -> Path:
-    """Return the writable, installation-local shared override database path.
-
-    ``database_path`` is intentionally available to tests and maintenance tools.
-    Normal GUI use stores the file under ``DATA_ROOT`` so installer updates never
-    overwrite it with the bundled immutable ``game_static.sqlite3``.
-    """
-
-    if database_path is not None:
-        return Path(database_path).expanduser().resolve()
-    data_root = getattr(runtime, "DATA_ROOT", None)
-    if data_root is None:
-        raise StaticGameDataError("运行时数据目录尚未初始化，无法读取公共额外形状配置")
-    return Path(data_root).resolve() / _OVERRIDE_DATABASE_NAME
-
-
-def _resolve_override_path(
-    override_database_path: str | Path | None,
-    *,
-    static_database_path: str | Path | None = None,
-) -> Path | None:
-    if override_database_path is not None:
-        return public_shape_bonus_override_path(override_database_path)
-    if getattr(runtime, "DATA_ROOT", None) is not None:
-        return public_shape_bonus_override_path()
-    # Isolated maintenance/tests may provide a static fixture without booting
-    # the GUI runtime.  Keep their shared override beside that fixture.
-    if static_database_path is not None:
-        return Path(static_database_path).expanduser().resolve().parent / _OVERRIDE_DATABASE_NAME
-    return None
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _shape_grid_count(shape_label: str) -> int:
@@ -65,110 +22,13 @@ def _shape_grid_count(shape_label: str) -> int:
     return grid_count
 
 
-def _open_override_database(path: Path) -> sqlite3.Connection:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
-    connection.row_factory = sqlite3.Row
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS character_shape_bonus_override(
-               logical_character_key TEXT PRIMARY KEY,
-               representative_character_id INTEGER NOT NULL,
-               shape_label TEXT NOT NULL,
-               shape_grid_count INTEGER NOT NULL,
-               updated_at_utc TEXT NOT NULL
-           )"""
-    )
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS character_shape_bonus_override_property(
-               logical_character_key TEXT NOT NULL,
-               property_id TEXT NOT NULL,
-               display_value REAL NOT NULL,
-               ordinal INTEGER NOT NULL,
-               PRIMARY KEY(logical_character_key, property_id),
-               FOREIGN KEY(logical_character_key)
-                   REFERENCES character_shape_bonus_override(logical_character_key)
-                   ON DELETE CASCADE
-           )"""
-    )
-    return connection
-
-
-def _override_record(
-    logical_character_key: str,
-    *,
-    override_database_path: str | Path | None = None,
-    static_database_path: str | Path | None = None,
-) -> dict[str, Any] | None:
-    path = _resolve_override_path(
-        override_database_path, static_database_path=static_database_path,
-    )
-    if path is None:
-        return None
-    if not path.is_file():
-        return None
-    try:
-        connection = _open_override_database(path)
-    except sqlite3.Error as exc:
-        raise StaticGameDataError(f"无法打开公共额外形状配置：{path}") from exc
-    try:
-        row = connection.execute(
-            """SELECT representative_character_id, shape_label, shape_grid_count,
-                      updated_at_utc
-               FROM character_shape_bonus_override
-               WHERE logical_character_key = ?""",
-            (logical_character_key,),
-        ).fetchone()
-        if row is None:
-            return None
-        properties = [
-            dict(property_row)
-            for property_row in connection.execute(
-                """SELECT property_id, display_value, ordinal
-                   FROM character_shape_bonus_override_property
-                   WHERE logical_character_key = ? ORDER BY ordinal""",
-                (logical_character_key,),
-            )
-        ]
-        return {**dict(row), "properties": properties}
-    except sqlite3.Error as exc:
-        raise StaticGameDataError("无法读取公共额外形状配置") from exc
-    finally:
-        connection.close()
-
-
 def get_effective_character_shape_bonus(
     static_dao: StaticGameDataDao,
     character_id: int,
-    *,
-    override_database_path: str | Path | None = None,
 ) -> dict[str, Any] | None:
-    """Return the bundled rule overlaid by a durable public user override."""
+    """Return the single public rule shared by every account."""
 
-    raw_character_id = int(character_id)
-    character = static_dao.get_character(raw_character_id)
-    if character is None:
-        return None
-    logical_key = str(character.get("logical_character_key") or "")
-    bundled = static_dao.get_character_shape_bonus(raw_character_id)
-    if not logical_key:
-        return bundled
-    override = _override_record(
-        logical_key,
-        override_database_path=override_database_path,
-        static_database_path=static_dao.database_path,
-    )
-    if override is None:
-        return bundled
-    return {
-        "character_id": raw_character_id,
-        "logical_character_key": logical_key,
-        "representative_character_id": int(override["representative_character_id"]),
-        "shape_label": str(override["shape_label"]),
-        "shape_grid_count": int(override["shape_grid_count"]),
-        "source_kind": "public_override",
-        "updated_at_utc": str(override["updated_at_utc"]),
-        "properties": list(override["properties"]),
-    }
+    return static_dao.get_character_shape_bonus(int(character_id))
 
 
 def save_public_character_shape_bonus(
@@ -177,13 +37,11 @@ def save_public_character_shape_bonus(
     shape_label: str,
     property_values: Mapping[str, float],
     database_path: str | Path | None = None,
-    override_database_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Save one logical role's shared override without modifying static data.
+    """Save one logical role's public rule directly to the static database.
 
-    ``database_path`` still selects the bundled static database for validation,
-    preserving the previous maintenance-tool API.  Mutable data is written only
-    to ``public_overrides.sqlite3`` under the writable data root.
+    The rule is intentionally shared by every account. A later application
+    update replaces ``game_static.sqlite3`` with the bundled public defaults.
     """
 
     raw_character_id = int(character_id)
@@ -217,40 +75,31 @@ def save_public_character_shape_bonus(
         if unknown:
             raise ValueError(f"额外形状加成包含未知官方属性：{'、'.join(unknown)}")
 
-    existing = _override_record(
-        logical_key,
-        override_database_path=override_database_path,
-        static_database_path=static_database_path,
-    )
     effective_label = str(shape_label or "").strip() or str(
-        (existing or bundled).get("shape_label") or ""
+        bundled.get("shape_label") or ""
     ).strip()
     grid_count = _shape_grid_count(effective_label)
-    path = _resolve_override_path(
-        override_database_path, static_database_path=static_database_path,
-    )
-    assert path is not None
+    connection: sqlite3.Connection | None = None
     try:
-        connection = _open_override_database(path)
+        connection = sqlite3.connect(static_database_path)
         connection.execute("BEGIN IMMEDIATE")
         connection.execute(
-            """INSERT INTO character_shape_bonus_override(
+            """INSERT INTO logical_character_shape_bonus(
                    logical_character_key, representative_character_id,
-                   shape_label, shape_grid_count, updated_at_utc
+                   shape_label, shape_grid_count, source_kind
                ) VALUES (?, ?, ?, ?, ?)
                ON CONFLICT(logical_character_key) DO UPDATE SET
                    representative_character_id = excluded.representative_character_id,
                    shape_label = excluded.shape_label,
-                   shape_grid_count = excluded.shape_grid_count,
-                   updated_at_utc = excluded.updated_at_utc""",
-            (logical_key, raw_character_id, effective_label, grid_count, _utc_now()),
+                   shape_grid_count = excluded.shape_grid_count""",
+            (logical_key, raw_character_id, effective_label, grid_count, "official_role_profile"),
         )
         connection.execute(
-            "DELETE FROM character_shape_bonus_override_property WHERE logical_character_key = ?",
+            "DELETE FROM logical_character_shape_bonus_property WHERE logical_character_key = ?",
             (logical_key,),
         )
         connection.executemany(
-            """INSERT INTO character_shape_bonus_override_property(
+            """INSERT INTO logical_character_shape_bonus_property(
                    logical_character_key, property_id, display_value, ordinal
                ) VALUES (?, ?, ?, ?)""",
             [
@@ -260,15 +109,14 @@ def save_public_character_shape_bonus(
         )
         connection.commit()
     except sqlite3.Error as exc:
-        connection.rollback()
-        raise StaticGameDataError("无法保存公共额外形状配置") from exc
+        if connection is not None:
+            connection.rollback()
+        raise StaticGameDataError("无法保存公共额外形状配置到静态数据库") from exc
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
 
     with StaticGameDataDao(database_path) as static_dao:
-        result = get_effective_character_shape_bonus(
-            static_dao, raw_character_id,
-            override_database_path=override_database_path,
-        )
+        result = get_effective_character_shape_bonus(static_dao, raw_character_id)
     assert result is not None
     return result

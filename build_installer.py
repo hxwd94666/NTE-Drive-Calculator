@@ -373,6 +373,7 @@ Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: i
 
 [Dirs]
 Name: "{{app}}\\config"; Permissions: users-modify
+Name: "{{app}}\\_internal\\data"; Permissions: users-modify
 Name: "{{app}}\\logs"; Permissions: users-modify
 Name: "{{app}}\\scanned_images"; Permissions: users-modify
 
