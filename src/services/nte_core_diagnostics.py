@@ -99,6 +99,18 @@ def format_nte_core_diagnostics(result: Mapping[str, Any]) -> str:
                 f"Npcap 可用网卡：{len(devices) if isinstance(devices, list) else '未知'} 个",
             ]
         )
+        available_devices = capture_device_names(detected)
+        if available_devices:
+            lines.append("可手动填写的抓取网卡：")
+            lines.extend(
+                f"  {index}. {name}"
+                for index, name in enumerate(available_devices, 1)
+            )
+            if detected.get("recommended_device") is None:
+                lines.append(
+                    "未获得自动推荐；请选择其中一项填写到“背包同步 > 抓取网卡”，"
+                    "保存设置后重新启动同步。"
+                )
     else:
         lines.extend(
             [
@@ -120,3 +132,29 @@ def _format_compact_value(value: object) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def capture_device_names(detected: Mapping[str, Any]) -> list[str]:
+    """Return unique capture device names that nte-core can accept manually."""
+
+    devices = detected.get("devices")
+    if not isinstance(devices, list):
+        return []
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for device in devices:
+        name = (
+            device
+            if isinstance(device, str)
+            else device.get("name")
+            if isinstance(device, Mapping)
+            else None
+        )
+        if not isinstance(name, str):
+            continue
+        name = name.strip()
+        if name and name not in seen:
+            names.append(name)
+            seen.add(name)
+    return names

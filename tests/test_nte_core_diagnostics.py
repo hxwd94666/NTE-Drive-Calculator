@@ -5,6 +5,7 @@ from pathlib import Path
 
 from src.integrations.nte_core import NteCoreRpcError
 from src.services.nte_core_diagnostics import (
+    capture_device_names,
     collect_nte_core_diagnostics,
     format_nte_core_diagnostics,
 )
@@ -55,6 +56,29 @@ class NteCoreDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result["hello"]["core_version"], "0.3.5")
         self.assertFalse(result["capture_detect"]["game_process_detected"])
         self.assertTrue(client.closed)
+
+    def test_lists_available_devices_for_manual_capture_selection(self):
+        result = {
+            "executable": "fake.exe",
+            "capture_detect": {
+                "recommended_device": None,
+                "devices": [
+                    {"name": "\\\\Device\\\\NPF_{one}"},
+                    {"name": "\\\\Device\\\\NPF_{two}"},
+                    {"name": "\\\\Device\\\\NPF_{one}"},
+                    {"description": "missing name"},
+                ],
+            },
+        }
+
+        self.assertEqual(
+            capture_device_names(result["capture_detect"]),
+            ["\\\\Device\\\\NPF_{one}", "\\\\Device\\\\NPF_{two}"],
+        )
+        report = format_nte_core_diagnostics(result)
+        self.assertIn("可手动填写的抓取网卡", report)
+        self.assertIn("未获得自动推荐", report)
+        self.assertIn("\\\\Device\\\\NPF_{one}", report)
 
     def test_preserves_core_domain_error_in_copyable_report(self):
         client = _FakeClient(Path("fake.exe"), failed=True)

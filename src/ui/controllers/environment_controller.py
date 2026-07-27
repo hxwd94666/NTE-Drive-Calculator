@@ -31,6 +31,7 @@ from src.services.dwmapi_diagnostics import (
     format_dwmapi_diagnostics,
 )
 from src.services.nte_core_diagnostics import (
+    capture_device_names,
     collect_nte_core_diagnostics,
     format_nte_core_diagnostics,
 )
@@ -170,7 +171,11 @@ def _diagnose_nte_core(self):
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 nte-core")
-        self._show_nte_core_diagnostic_report(format_nte_core_diagnostics(result))
+        detected = result.get("capture_detect")
+        devices = capture_device_names(detected) if isinstance(detected, dict) else []
+        self._show_nte_core_diagnostic_report(
+            format_nte_core_diagnostics(result), devices
+        )
 
     def failed(error):
         if button is not None:
@@ -183,7 +188,9 @@ def _diagnose_nte_core(self):
     worker.start()
 
 
-def _show_nte_core_diagnostic_report(self, report: str):
+def _show_nte_core_diagnostic_report(
+    self, report: str, devices: list[str] | None = None
+):
     dialog = QDialog(self)
     dialog.setWindowTitle("nte-core 诊断结果")
     dialog.resize(720, 510)
@@ -196,6 +203,36 @@ def _show_nte_core_diagnostic_report(self, report: str):
     content.setPlainText(report)
     layout.addWidget(content, 1)
     actions = QDialogButtonBox(QDialogButtonBox.Close, parent=dialog)
+    if devices:
+        select_device_button = actions.addButton("选择可用网卡", QDialogButtonBox.ActionRole)
+
+        def select_capture_device() -> None:
+            selected, accepted = QInputDialog.getItem(
+                dialog,
+                "选择抓取网卡",
+                "请选择要手动启用的网卡：",
+                devices,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+            capture_device_edit = getattr(self, "_sync_capture_device_edit", None)
+            if capture_device_edit is None:
+                QMessageBox.warning(
+                    self,
+                    "抓取网卡",
+                    "未找到“抓取网卡”设置，请重新打开设置页面后重试。",
+                )
+                return
+            capture_device_edit.setText(selected)
+            QMessageBox.information(
+                self,
+                "抓取网卡",
+                "已将所选网卡填入“抓取网卡”。请点击“保存同步设置”后重新启动同步。",
+            )
+
+        select_device_button.clicked.connect(select_capture_device)
     copy_button = actions.addButton("复制诊断", QDialogButtonBox.ActionRole)
     copy_button.clicked.connect(lambda: QApplication.clipboard().setText(report))
     actions.rejected.connect(dialog.reject)
