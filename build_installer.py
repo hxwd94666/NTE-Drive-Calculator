@@ -32,6 +32,10 @@ DIST_APP = ROOT / "dist" / "NTE_Drive_Calc"
 APP_EXE = DIST_APP / "NTE_Drive_Calc.exe"
 APP_INTERNAL = DIST_APP / "_internal"
 APP_NTE_CORE = APP_INTERNAL / "nte-core.exe"
+APP_MODS_PLUGIN = APP_INTERNAL / "dwmapi.dll"
+APP_MOD_SET = APP_INTERNAL / "plugins" / "nte-mods.enabled"
+APP_EQUIPMENT_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "equipment.nte"
+APP_COMBAT_CLOCK_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "combat-clock.nte"
 APP_USER_SCHEMA = APP_INTERNAL / "src" / "storage" / "sqlite" / "schema" / "001_user_data.sql"
 APP_STATIC_DATABASE = APP_INTERNAL / "data" / "game_static.sqlite3"
 INSTALLER_DIR = ROOT / "installer"
@@ -177,6 +181,10 @@ def _validate_app_bundle() -> None:
         "主程序": APP_EXE,
         "PyInstaller 运行目录": APP_INTERNAL,
         "nte-core 本地组件": APP_NTE_CORE,
+        "nte-mods-plugin 本地组件": APP_MODS_PLUGIN,
+        "nte-mods 启用集合": APP_MOD_SET,
+        "nte-mods 装备脚本": APP_EQUIPMENT_MOD,
+        "nte-mods 战斗时钟脚本": APP_COMBAT_CLOCK_MOD,
         "用户数据库结构": APP_USER_SCHEMA,
         "发行版静态数据库": APP_STATIC_DATABASE,
     }

@@ -1,3 +1,4 @@
+# 采集最新版 nte-mods-plugin DLL、脚本工作区和命名管道诊断。
 """Read-only diagnostics for the in-game equipment proxy DLL."""
 
 from __future__ import annotations
@@ -14,13 +15,15 @@ from src.services.equipment_plugin_deployment import (
     GAME_EXECUTABLE_NAME,
     PLUGIN_FILENAME,
     game_executable,
+    packaged_mod_workspace,
     packaged_plugin_dll,
+    registered_mod_workspace,
 )
 
 
-# Kept in sync with upstream nte_equipment_ipc.h.  WaitNamedPipe only observes
+# Kept in sync with upstream nte_mods_ipc.h.  WaitNamedPipe only observes
 # availability and never sends an equipment request or mutates game state.
-EQUIPMENT_PIPE_NAME = r"\\.\pipe\nte-equipment-plugin-v3"
+EQUIPMENT_PIPE_NAME = r"\\.\pipe\nte-mods-plugin-v7"
 
 _PIPE_ERROR_NAMES = {
     2: "ERROR_FILE_NOT_FOUND（管道不存在）",
@@ -116,10 +119,12 @@ def collect_dwmapi_diagnostics(
     try:
         executable = game_executable(game_executable_path)
         bundled = packaged_plugin_dll(application_root)
+        bundled_workspace = packaged_mod_workspace(application_root)
     except EquipmentPluginDeploymentError as exc:
         result["error"] = str(exc)
         return result
 
+    registered_workspace = registered_mod_workspace()
     target = executable.parent / PLUGIN_FILENAME
     bundled_info = _file_details(bundled)
     target_info = _file_details(target)
@@ -128,6 +133,13 @@ def collect_dwmapi_diagnostics(
         "game_executable": str(executable),
         "target_plugin": target_info,
         "bundled_plugin": bundled_info,
+        "bundled_workspace": str(bundled_workspace),
+        "registered_workspace": str(registered_workspace or ""),
+        "registered_workspace_ready": bool(
+            registered_workspace
+            and (registered_workspace / "nte-mods.enabled").is_file()
+            and (registered_workspace / "nte-mods" / "equipment.nte").is_file()
+        ),
         "configured_deployed_sha256": str(recorded_deployed_sha256 or "").strip().lower(),
     })
     target_hash = str(target_info.get("sha256") or "")
@@ -155,6 +167,9 @@ def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
             f"游戏目录 SHA-256：{target.get('sha256', '无')}",
             f"打包 DLL SHA-256：{bundled.get('sha256', '无')}",
             f"游戏目录 DLL 与打包 DLL：{'一致' if result.get('target_matches_bundled') else '不一致或无法读取'}",
+            f"打包 Mod 工作区：{result.get('bundled_workspace', '无')}",
+            f"已注册 Mod 工作区：{result.get('registered_workspace') or '无'}",
+            f"已注册工作区装备脚本：{'就绪' if result.get('registered_workspace_ready') else '缺失或未注册'}",
         ])
         configured_hash = str(result.get("configured_deployed_sha256") or "")
         if configured_hash:

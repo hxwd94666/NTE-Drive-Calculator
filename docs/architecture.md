@@ -54,6 +54,12 @@
 
 派发 `equipment.equip_one_key` 后，服务会等待比装配前更新的稳定快照，再核对角色 UID、角色 ID、核心和每个驱动的锚点位置。这个同步方法应从界面工作线程调用，不能阻塞 Qt 主线程。
 
+nte-core 0.3.6 的装备 RPC 通过 `nte-mods-plugin` IPC v7 派发。应用部署
+`dwmapi.dll` 前会把同一上游发布中的 `nte-mods.enabled`、`equipment.nte` 和
+`combat-clock.nte` 准备到可写数据目录，并注册
+`HKCU\Software\NTE DPS Tool\Mods Plugin\Workspace`。更新内置脚本时只替换仍与
+上次托管版本一致的文件，保留用户编辑内容。
+
 批量装配在第一条 RPC 前固定一个 `snapshot_id`，从当前活动的 SQLite 方案取得角色 ID 和装备 UID，并缓存角色实例 UID。期间即使后台收到新背包快照，也只能使本次预检查失败后重新开始，不能把不同版本的装备混入同一批装配。
 
 同步快照中出现的 `character_id` 与原生实例 UID 会写入用户库的
@@ -77,6 +83,9 @@
 - `src/storage/sqlite/schema` 全目录；
 - `data/game_static.sqlite3`；
 - `assets`；
-- 构建机提供的 `nte-core.exe`。
+- 固定上游 Release 的 `nte-core.exe`；
+- 与该 Core 匹配的 `nte-mods-plugin` `dwmapi.dll` 和 `plugins/` 工作区模板。
 
-`build_installer.py` 在生成 Inno Setup 脚本前会校验主程序、核心组件、数据库结构和静态数据库。正式构建应使用合作项目的固定 Release 产物及配套许可证文件。
+`build_installer.py` 在生成 Inno Setup 脚本前会校验主程序、核心组件、Mod
+插件、装备脚本、数据库结构和静态数据库。正式构建应使用合作项目的固定 Release
+产物及配套许可证文件。

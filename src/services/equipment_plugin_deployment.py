@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -13,7 +14,21 @@ import shutil
 
 GAME_EXECUTABLE_NAME = "HTGame.exe"
 PLUGIN_FILENAME = "dwmapi.dll"
-PACKAGED_PLUGIN_RELATIVE_PATH = Path("third_party") / "equipment-plugin" / "bin" / PLUGIN_FILENAME
+PACKAGED_PLUGIN_RELATIVE_PATH = Path("third_party") / "mods-plugin" / "bin" / PLUGIN_FILENAME
+LEGACY_PACKAGED_PLUGIN_RELATIVE_PATH = (
+    Path("third_party") / "equipment-plugin" / "bin" / PLUGIN_FILENAME
+)
+PACKAGED_MOD_WORKSPACE_RELATIVE_PATH = Path("third_party") / "mods-plugin" / "workspace"
+MOD_WORKSPACE_REGISTRY_KEY = r"Software\NTE DPS Tool\Mods Plugin"
+MOD_WORKSPACE_REGISTRY_VALUE = "Workspace"
+MOD_WORKSPACE_FILES = (
+    Path("nte-mods.enabled"),
+    Path("mods-plugin.version"),
+    Path("README.md"),
+    Path("nte-mods") / "equipment.nte",
+    Path("nte-mods") / "combat-clock.nte",
+)
+_MANAGED_WORKSPACE_MANIFEST = ".nte-drive-calc-managed.json"
 STANDARD_GAME_EXECUTABLE_RELATIVE_PATH = (
     Path("Neverness To Everness")
     / "Client"
@@ -35,6 +50,7 @@ class PluginDeployment:
     target_path: Path
     backup_path: Path | None
     deployed_sha256: str
+    workspace_path: Path
 
 
 def _file_sha256(path: Path) -> str:
@@ -76,12 +92,144 @@ def packaged_plugin_dll(application_root: str | Path) -> Path:
     candidates = (
         root / PACKAGED_PLUGIN_RELATIVE_PATH,
         root / PLUGIN_FILENAME,
+        root / LEGACY_PACKAGED_PLUGIN_RELATIVE_PATH,
     )
     for candidate in candidates:
         if candidate.is_file():
             return plugin_dll(candidate)
     checked = "、".join(str(candidate) for candidate in candidates)
     raise EquipmentPluginDeploymentError(f"未找到打包的 {PLUGIN_FILENAME}；已检查：{checked}")
+
+
+def packaged_mod_workspace(application_root: str | Path) -> Path:
+    """Return the release-matched NTE Script workspace bundled with the plugin."""
+
+    root = Path(application_root)
+    candidates = (
+        root / PACKAGED_MOD_WORKSPACE_RELATIVE_PATH,
+        root / "plugins",
+    )
+    for candidate in candidates:
+        if all((candidate / relative).is_file() for relative in MOD_WORKSPACE_FILES):
+            return candidate.resolve()
+    checked = "、".join(str(candidate) for candidate in candidates)
+    raise EquipmentPluginDeploymentError(
+        f"未找到与 {PLUGIN_FILENAME} 配套的 nte-mods 工作区；已检查：{checked}"
+    )
+
+
+def _managed_workspace_hashes(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise EquipmentPluginDeploymentError(f"无法读取托管 Mod 工作区记录：{path}") from exc
+    files = payload.get("files") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("version") != 1
+        or not isinstance(files, dict)
+        or any(
+            not isinstance(name, str) or not isinstance(digest, str)
+            for name, digest in files.items()
+        )
+    ):
+        raise EquipmentPluginDeploymentError(f"托管 Mod 工作区记录格式错误：{path}")
+    return files
+
+
+def _register_mod_workspace(workspace: Path) -> None:
+    if os.name != "nt":
+        raise EquipmentPluginDeploymentError("nte-mods 工作区注册仅支持 Windows")
+    import winreg
+
+    try:
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER,
+            MOD_WORKSPACE_REGISTRY_KEY,
+            access=winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.SetValueEx(
+                key,
+                MOD_WORKSPACE_REGISTRY_VALUE,
+                0,
+                winreg.REG_SZ,
+                str(workspace),
+            )
+    except OSError as exc:
+        raise EquipmentPluginDeploymentError("无法注册 nte-mods 工作区") from exc
+
+
+def registered_mod_workspace() -> Path | None:
+    """Return the workspace currently visible to nte-mods-plugin."""
+
+    if os.name != "nt":
+        return None
+    import winreg
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            MOD_WORKSPACE_REGISTRY_KEY,
+            access=winreg.KEY_QUERY_VALUE,
+        ) as key:
+            value, value_type = winreg.QueryValueEx(key, MOD_WORKSPACE_REGISTRY_VALUE)
+    except OSError:
+        return None
+    if value_type != winreg.REG_SZ or not isinstance(value, str) or not value.strip():
+        return None
+    return Path(value).expanduser()
+
+
+def prepare_mod_workspace(
+    *,
+    application_root: str | Path,
+    writable_workspace_path: str | Path,
+) -> Path:
+    """Install release defaults without replacing user-modified NTE Scripts."""
+
+    source = packaged_mod_workspace(application_root)
+    destination = Path(writable_workspace_path).expanduser().resolve()
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+        manifest_path = destination / _MANAGED_WORKSPACE_MANIFEST
+        previous_hashes = _managed_workspace_hashes(manifest_path)
+        managed_hashes: dict[str, str] = {}
+
+        for relative in MOD_WORKSPACE_FILES:
+            source_file = source / relative
+            destination_file = destination / relative
+            source_hash = _file_sha256(source_file)
+            relative_name = relative.as_posix()
+            if destination_file.is_file():
+                current_hash = _file_sha256(destination_file)
+                previous_hash = previous_hashes.get(relative_name)
+                if current_hash != source_hash and current_hash != previous_hash:
+                    continue
+            destination_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, destination_file)
+            managed_hashes[relative_name] = source_hash
+
+        manifest_path.write_text(
+            json.dumps(
+                {"version": 1, "files": managed_hashes},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except EquipmentPluginDeploymentError:
+        raise
+    except OSError as exc:
+        raise EquipmentPluginDeploymentError(
+            f"无法准备 nte-mods 工作区：{destination}"
+        ) from exc
+
+    _register_mod_workspace(destination)
+    return destination
 
 
 def _disk_roots() -> list[Path]:
@@ -118,11 +266,17 @@ def deploy_plugin(
     *,
     game_executable_path: str | Path,
     plugin_dll_path: str | Path,
+    application_root: str | Path,
+    writable_workspace_path: str | Path,
     backup_directory: str | Path,
 ) -> PluginDeployment:
-    """Copy the packaged plugin beside HTGame.exe and preserve any DLL."""
+    """Prepare the script workspace, deploy the plugin, and preserve any DLL."""
     executable = game_executable(game_executable_path)
     source = plugin_dll(plugin_dll_path)
+    workspace = prepare_mod_workspace(
+        application_root=application_root,
+        writable_workspace_path=writable_workspace_path,
+    )
     target = executable.parent / PLUGIN_FILENAME
     if source == target:
         raise EquipmentPluginDeploymentError("所选插件已经位于目标游戏目录，无需重复部署")
@@ -141,7 +295,7 @@ def deploy_plugin(
         raise EquipmentPluginDeploymentError(
             f"无法写入游戏目录：{target}。请关闭游戏，并以有该目录写入权限的身份重试。"
         ) from exc
-    return PluginDeployment(executable, target, backup_path, source_hash)
+    return PluginDeployment(executable, target, backup_path, source_hash, workspace)
 
 
 def restore_plugin(

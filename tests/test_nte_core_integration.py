@@ -12,6 +12,8 @@ from src.integrations.nte_core import (
     NteCoreTimeoutError,
     group_inventory_items_by_character,
     inventory_item_placement,
+    is_mods_plugin_busy_error,
+    is_mods_plugin_unavailable_error,
 )
 
 
@@ -208,6 +210,27 @@ class NteCoreClientTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, -32000)
         self.assertEqual(raised.exception.domain_code, "NPCAP_NOT_FOUND")
+
+    def test_mods_plugin_domain_codes_accept_current_and_legacy_core_names(self):
+        current_unavailable = NteCoreRpcError({
+            "code": -32000,
+            "message": "Core error",
+            "data": {"domain_code": "MODS_PLUGIN_UNAVAILABLE"},
+        })
+        current_busy = NteCoreRpcError({
+            "code": -32000,
+            "message": "Core error",
+            "data": {"domain_code": "MODS_PLUGIN_BUSY"},
+        })
+
+        self.assertTrue(is_mods_plugin_unavailable_error(current_unavailable))
+        self.assertTrue(is_mods_plugin_busy_error(current_busy))
+        self.assertTrue(is_mods_plugin_unavailable_error(
+            "nte-core RPC error -32000 [EQUIPMENT_PLUGIN_UNAVAILABLE]: Core error"
+        ))
+        self.assertTrue(is_mods_plugin_busy_error(
+            "nte-core RPC error -32000 [EQUIPMENT_PLUGIN_BUSY]: Core error"
+        ))
 
     def test_request_timeout_keeps_client_usable(self):
         with fake_client() as client:

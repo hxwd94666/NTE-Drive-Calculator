@@ -10,6 +10,9 @@ from src.integrations.nte_core import (
     NteCoreTimeoutError,
     group_inventory_items_by_character,
     inventory_item_placement,
+    is_mods_plugin_busy_error,
+    is_mods_plugin_unavailable_error,
+    nte_core_error_has_domain_code,
     resolve_nte_core_executable,
 )
 
@@ -23,5 +26,8 @@ __all__ = [
     "NteCoreTimeoutError",
     "group_inventory_items_by_character",
     "inventory_item_placement",
+    "is_mods_plugin_busy_error",
+    "is_mods_plugin_unavailable_error",
+    "nte_core_error_has_domain_code",
     "resolve_nte_core_executable",
 ]
