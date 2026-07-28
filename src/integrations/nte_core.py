@@ -22,6 +22,10 @@ NTE_CORE_ENV = "NTE_CORE_EXE"
 _CALLBACK_STOP = object()
 _U32_MAX = (1 << 32) - 1
 _MAX_EQUIPMENT_PLACEMENTS = 64
+MODS_PLUGIN_UNAVAILABLE_CODES = frozenset(
+    {"MODS_PLUGIN_UNAVAILABLE", "EQUIPMENT_PLUGIN_UNAVAILABLE"}
+)
+MODS_PLUGIN_BUSY_CODES = frozenset({"MODS_PLUGIN_BUSY", "EQUIPMENT_PLUGIN_BUSY"})
 
 JsonObject = dict[str, Any]
 EventHandler = Callable[[JsonObject], None]
@@ -115,6 +119,24 @@ class NteCoreRpcError(NteCoreError):
         self.domain_code = str(domain_code) if domain_code is not None else None
         suffix = f" [{self.domain_code}]" if self.domain_code else ""
         super().__init__(f"nte-core RPC error {self.code}{suffix}: {self.message}")
+
+
+def nte_core_error_has_domain_code(error: object, codes: frozenset[str]) -> bool:
+    """Match current domain codes while retaining compatibility with older Core builds."""
+
+    domain_code = getattr(error, "domain_code", None)
+    if isinstance(domain_code, str):
+        return domain_code in codes
+    message = str(error)
+    return any(f"[{code}]" in message for code in codes)
+
+
+def is_mods_plugin_unavailable_error(error: object) -> bool:
+    return nte_core_error_has_domain_code(error, MODS_PLUGIN_UNAVAILABLE_CODES)
+
+
+def is_mods_plugin_busy_error(error: object) -> bool:
+    return nte_core_error_has_domain_code(error, MODS_PLUGIN_BUSY_CODES)
 
 
 def inventory_item_placement(item: Mapping[str, Any]) -> tuple[int, int] | None:

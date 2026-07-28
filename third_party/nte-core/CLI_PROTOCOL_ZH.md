@@ -94,8 +94,8 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 - `CAPTURE_ALREADY_RUNNING`
 - `CAPTURE_NOT_RUNNING`
 - `INVENTORY_NOT_READY`
-- `EQUIPMENT_PLUGIN_UNAVAILABLE`
-- `EQUIPMENT_PLUGIN_BUSY`
+- `MODS_PLUGIN_UNAVAILABLE`
+- `MODS_PLUGIN_BUSY`
 - `EQUIPMENT_REQUEST_REJECTED`
 
 底层操作系统、Npcap、端点、payload 和文件系统技术细节不会复制到 stdout。
@@ -229,8 +229,8 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 
 ## 装备方法
 
-装备方法通过本机命名管道 `\\.\pipe\nte-equipment-plugin-v3` 调用
-`nte-equipment-plugin` ABI v4 / IPC v3。Core 不负责注入或加载插件；与当前
+装备方法通过本机命名管道 `\\.\pipe\nte-mods-plugin-v7` 调用
+`nte-mods-plugin` ABI v4 / IPC v7。Core 不负责注入或加载插件；与当前
 客户端匹配的插件必须已经由 `HTGame.exe` 加载。GUI 用户可在关闭游戏后，从
 “控制台 → 空幕”经过定时风险确认来安装或移除内嵌插件；stdio Core 本身始终
 不会修改游戏目录。角色与装备 UID 都使用背包
@@ -274,8 +274,8 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 成功结果为 `{"status":"rpc_dispatched"}`；备用值
 `{"status":"dry_run_ok"}` 只用于试运行插件宿主。派发成功仅代表 RPC 已提交，
 调用方必须等待之后抓包产生的 `event.inventory.snapshot` 确认游戏/服务器状态。
-管道缺失或超时返回 `EQUIPMENT_PLUGIN_UNAVAILABLE`；超过一个执行中请求和一个排队请求时
-返回 `EQUIPMENT_PLUGIN_BUSY`；插件校验返回派发/试运行
+管道缺失或超时返回 `MODS_PLUGIN_UNAVAILABLE`；超过一个执行中请求和一个排队请求时
+返回 `MODS_PLUGIN_BUSY`；插件校验返回派发/试运行
 以外状态时返回 `EQUIPMENT_REQUEST_REJECTED`。
 
 ## 抓包与背包事件
@@ -301,6 +301,8 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 ```
 
 `subtract_time_stop` 必填，选择与 GUI 相同的计时口径。尚无战斗或深渊数据时 result 为 null；否则包含总时长、伤害、DPS、承伤、命中数、角色行、技能行、深渊上下半和脱敏解析质量计数。稳定的 `dps_time_mode` 值为 `subtract_time_stop` 与 `wall_clock`；quality source 值为 `live`、`pcapng_replay`、`json_replay` 和 `unknown`。技能行的 `name` 优先采用与界面语言无关的 Ability 或 GameplayEffect 分组键；存在对应身份时，附加的可选字段 `ability_name` 与 `gameplay_effect_name` 提供稳定 GA/GE 标识。
+
+`subtract_time_stop` 模式下，原生插件直接观测权威的 `AHTPlayerController::IsGamePausedByType` 状态。状态从零变为非零时开始时停，随后从非零回到零时结束时停；Core 配对这两个带时间戳的状态，并只扣除与伤害窗口重叠的区间。角色大招、角色专属时长表和深渊倒计时均不参与该计算；结算阶段事件也不会作为时长终点。
 
 外部战斗 DTO 由内部 `CombatSessionSummary` 显式逐字段映射，不直接暴露内部 Rust 序列化结构。所有数值都来自已验证的战斗状态，并保证是有限 JSON 数字。
 

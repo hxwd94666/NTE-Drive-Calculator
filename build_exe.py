@@ -31,8 +31,10 @@ SPEC = ROOT / "NTE_Drive_Calc.spec"
 THIRD_PARTY_DIR = ROOT / "third_party"
 SQLITE_SCHEMA_DIR = ROOT / "src" / "storage" / "sqlite" / "schema"
 NTE_CORE_ENV = "NTE_CORE_EXE"
-EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
+MODS_PLUGIN_ENV = "NTE_MODS_PLUGIN_DLL"
+LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
 STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
+MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"
 NTE_CORE_RELEASE_FILES = (
     "LICENSE",
     "SOURCE.md",
@@ -189,24 +191,34 @@ _append_add_data(static_database_path, "data")
 build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
 
 # 环境配置页会显式部署该 DLL 至用户选择的游戏目录；安装器本身不会修改游戏目录。
-equipment_plugin_path = _required_build_file(
-    "dwmapi.dll 装备插件",
-    os.environ.get(EQUIPMENT_PLUGIN_ENV),
-    THIRD_PARTY_DIR / "equipment-plugin" / "bin" / "dwmapi.dll",
+mods_plugin_path = _required_build_file(
+    "nte-mods-plugin dwmapi.dll",
+    os.environ.get(MODS_PLUGIN_ENV),
+    os.environ.get(LEGACY_EQUIPMENT_PLUGIN_ENV),
+    THIRD_PARTY_DIR / "mods-plugin" / "bin" / "dwmapi.dll",
     ROOT / "dwmapi.dll",
 )
-_append_add_data(equipment_plugin_path, ".")
+_append_add_data(mods_plugin_path, ".")
+if not MODS_PLUGIN_WORKSPACE_DIR.is_dir():
+    raise FileNotFoundError(f"打包缺少 nte-mods 工作区：{MODS_PLUGIN_WORKSPACE_DIR}")
+_append_add_data(MODS_PLUGIN_WORKSPACE_DIR, "plugins")
 
 # 随包携带第三方声明，二进制实际位置可变但许可信息必须可审计。
 for notice_path in (
     ROOT / "LICENSE",
     ROOT / "NOTICE",
-    THIRD_PARTY_DIR / "equipment-plugin" / "NOTICE.md",
     THIRD_PARTY_DIR / "vigembus" / "NOTICE.md",
     THIRD_PARTY_DIR / "vigembus" / "LICENSE-BSD-3-Clause.txt",
 ):
     if notice_path.is_file():
         _append_add_data(notice_path, "licenses")
+for notice_path in (
+    THIRD_PARTY_DIR / "mods-plugin" / "LICENSE",
+    THIRD_PARTY_DIR / "mods-plugin" / "SOURCE.md",
+    THIRD_PARTY_DIR / "mods-plugin" / "COMPONENT.md",
+):
+    if notice_path.is_file():
+        _append_add_data(notice_path, "licenses/mods-plugin")
 
 
 def _find_package_dir(package_name: str) -> Path | None:

@@ -1,10 +1,15 @@
+# 验证 nte-mods-plugin 文件、工作区和 IPC v7 诊断。
 from __future__ import annotations
 
 import tempfile
 import unittest
 from pathlib import Path
 
-from src.services.dwmapi_diagnostics import collect_dwmapi_diagnostics
+from src.services.dwmapi_diagnostics import (
+    EQUIPMENT_PIPE_NAME,
+    collect_dwmapi_diagnostics,
+)
+from src.services.equipment_plugin_deployment import MOD_WORKSPACE_FILES
 
 
 class DwmapiDiagnosticsTests(unittest.TestCase):
@@ -15,9 +20,14 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
         self.game_dir.mkdir()
         self.game = self.game_dir / "HTGame.exe"
         self.game.write_bytes(b"game")
-        self.plugin = self.root / "third_party" / "equipment-plugin" / "bin" / "dwmapi.dll"
+        self.plugin = self.root / "third_party" / "mods-plugin" / "bin" / "dwmapi.dll"
         self.plugin.parent.mkdir(parents=True)
         self.plugin.write_bytes(b"plugin")
+        workspace = self.root / "third_party" / "mods-plugin" / "workspace"
+        for relative in MOD_WORKSPACE_FILES:
+            target = workspace / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("test\n", encoding="utf-8")
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -33,6 +43,7 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertTrue(report["target_matches_bundled"])
         self.assertIn("state", report["pipe"])
+        self.assertEqual(EQUIPMENT_PIPE_NAME, r"\\.\pipe\nte-mods-plugin-v7")
 
     def test_reports_invalid_game_path_without_mutating_files(self) -> None:
         report = collect_dwmapi_diagnostics(

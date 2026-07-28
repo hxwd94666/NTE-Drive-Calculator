@@ -123,7 +123,13 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
 
     def test_identifies_plugin_unavailable_as_not_immediately_retryable(self) -> None:
         self.assertTrue(page_module._is_equipment_plugin_unavailable_error(
+            "nte-core RPC error -32000 [MODS_PLUGIN_UNAVAILABLE]: Core error"
+        ))
+        self.assertTrue(page_module._is_equipment_plugin_unavailable_error(
             "nte-core RPC error -32000 [EQUIPMENT_PLUGIN_UNAVAILABLE]: Core error"
+        ))
+        self.assertFalse(page_module._is_equipment_plugin_unavailable_error(
+            "nte-core RPC error -32000 [MODS_PLUGIN_BUSY]: Core error"
         ))
         self.assertFalse(page_module._is_equipment_plugin_unavailable_error(
             "nte-core RPC error -32000 [EQUIPMENT_PLUGIN_BUSY]: Core error"

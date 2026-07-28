@@ -51,6 +51,7 @@ config/update_config.json
 *.sqlite3-shm
 /nte-core.exe
 /nte-core-windows-x64*/
+/plugins/
 
 # Temporary OCR and scan artifacts
 *.log

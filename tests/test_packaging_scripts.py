@@ -76,11 +76,21 @@ class PackagingScriptTests(unittest.TestCase):
             app_exe = root / "NTE_Drive_Calc.exe"
             internal = root / "_internal"
             core = internal / "nte-core.exe"
+            mods_plugin = internal / "dwmapi.dll"
+            mod_set = internal / "plugins/nte-mods.enabled"
+            equipment_mod = internal / "plugins/nte-mods/equipment.nte"
+            combat_clock_mod = internal / "plugins/nte-mods/combat-clock.nte"
             schema = internal / "src/storage/sqlite/schema/001_user_data.sql"
             static_database = internal / "data/game_static.sqlite3"
             app_exe.touch()
             core.parent.mkdir(parents=True)
             core.touch()
+            mods_plugin.touch()
+            mod_set.parent.mkdir(parents=True)
+            mod_set.touch()
+            equipment_mod.parent.mkdir(parents=True)
+            equipment_mod.touch()
+            combat_clock_mod.touch()
             schema.parent.mkdir(parents=True)
             schema.touch()
             static_database.parent.mkdir(parents=True)
@@ -90,6 +100,10 @@ class PackagingScriptTests(unittest.TestCase):
                 patch.object(build_installer, "APP_EXE", app_exe),
                 patch.object(build_installer, "APP_INTERNAL", internal),
                 patch.object(build_installer, "APP_NTE_CORE", core),
+                patch.object(build_installer, "APP_MODS_PLUGIN", mods_plugin),
+                patch.object(build_installer, "APP_MOD_SET", mod_set),
+                patch.object(build_installer, "APP_EQUIPMENT_MOD", equipment_mod),
+                patch.object(build_installer, "APP_COMBAT_CLOCK_MOD", combat_clock_mod),
                 patch.object(build_installer, "APP_USER_SCHEMA", schema),
                 patch.object(build_installer, "APP_STATIC_DATABASE", static_database),
             ):
@@ -107,8 +121,11 @@ class PackagingScriptTests(unittest.TestCase):
 
         self.assertIn('NTE_CORE_ENV = "NTE_CORE_EXE"', source)
         self.assertIn('THIRD_PARTY_DIR / "nte-core" / "bin" / "nte-core.exe"', source)
-        self.assertIn('EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"', source)
-        self.assertIn('THIRD_PARTY_DIR / "equipment-plugin" / "bin" / "dwmapi.dll"', source)
+        self.assertIn('MODS_PLUGIN_ENV = "NTE_MODS_PLUGIN_DLL"', source)
+        self.assertIn('LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"', source)
+        self.assertIn('THIRD_PARTY_DIR / "mods-plugin" / "bin" / "dwmapi.dll"', source)
+        self.assertIn('MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"', source)
+        self.assertIn('_append_add_data(MODS_PLUGIN_WORKSPACE_DIR, "plugins")', source)
         self.assertIn('_append_add_data(SQLITE_SCHEMA_DIR, "src/storage/sqlite/schema")', source)
         self.assertIn('_append_add_binary(nte_core_path, ".")', source)
         self.assertIn('"SOURCE.md"', source)
@@ -139,6 +156,14 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertTrue((component_dir / "bin" / "nte-core.exe").is_file())
         self.assertTrue((component_dir / "LICENSE").is_file())
         self.assertTrue((component_dir / "SOURCE.md").is_file())
+
+        mods_component_dir = Path("third_party/mods-plugin")
+        self.assertTrue((mods_component_dir / "bin" / "dwmapi.dll").is_file())
+        self.assertTrue((mods_component_dir / "workspace" / "nte-mods.enabled").is_file())
+        self.assertTrue((mods_component_dir / "workspace" / "nte-mods" / "equipment.nte").is_file())
+        self.assertTrue((mods_component_dir / "workspace" / "nte-mods" / "combat-clock.nte").is_file())
+        self.assertTrue((mods_component_dir / "LICENSE").is_file())
+        self.assertTrue((mods_component_dir / "SOURCE.md").is_file())
 
     def test_release_workflow_supports_manual_release_publish(self):
         workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")

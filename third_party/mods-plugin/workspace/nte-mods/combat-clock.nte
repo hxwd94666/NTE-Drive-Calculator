@@ -1,0 +1,42 @@
+nte_mod(4)
+mod("combat-clock")
+requires("viewport.tick")
+requires("game.session")
+requires("combat-clock")
+requires("ipc")
+
+# External routing publishes the services owned by this Mod.
+route_ipc(11, "combat_clock.query_transitions")
+route_ipc(12, "ipc.query_mod_events")
+
+# The script owns sampling, transition detection, and forwarding.
+# Stable host properties hide the session offsets and packed sample format.
+state.initialized = 0
+state.last_controller = 0
+state.last_pause_mask = 0
+state.last_state_flags = 0
+
+def on_viewport_tick(event):
+    player_controller = game.player_controller
+    pause_mask = 0
+    state_flags = 0
+    if player_controller != None:
+        pause_mask = combat_clock.pause_mask(player_controller)
+        state_flags = combat_clock.state_flags(player_controller)
+        ipc.bind(None, player_controller)
+
+    # Forward only the first sample or a real state transition.
+    changed = state.initialized == False
+    if player_controller != state.last_controller:
+        changed = True
+    if pause_mask != state.last_pause_mask:
+        changed = True
+    if state_flags != state.last_state_flags:
+        changed = True
+
+    if changed == True:
+        combat_clock.forward(pause_mask, state_flags)
+        state.initialized = 1
+        state.last_controller = player_controller
+        state.last_pause_mask = pause_mask
+        state.last_state_flags = state_flags

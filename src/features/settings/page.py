@@ -256,7 +256,7 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     equipment_plugin_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     plugin_card.layout().addWidget(equipment_plugin_title)
     equipment_plugin_description = QLabel(
-        "极速装配通过随应用打包的 dwmapi.dll 向游戏下发装备指令。"
+        "极速装配通过随应用打包的 nte-mods-plugin dwmapi.dll 与装备 Mod 脚本向游戏下发装备指令。"
         "请选择或自动检测 HTGame.exe，确认后会将 DLL 复制到其同目录；已有同名文件会先备份。"
     )
     equipment_plugin_description.setWordWrap(True)

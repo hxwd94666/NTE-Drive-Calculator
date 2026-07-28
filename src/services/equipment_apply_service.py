@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import time
 from typing import Any, Protocol
 
+from src.integrations.nte_core import is_mods_plugin_busy_error
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -545,7 +546,7 @@ class EquipmentApplyService:
                         # 重试；其他错误仍立即交给上层显示。
                         if (
                             verify_after_dispatch
-                            or "EQUIPMENT_PLUGIN_BUSY" not in str(exc)
+                            or not is_mods_plugin_busy_error(exc)
                             or attempt == 5
                         ):
                             raise

@@ -13,6 +13,7 @@ from src.app import runtime
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import GRADE_COLORS, current_style_sheet, theme_color, theme_rgba, themed_style
 from src.app.workers import WorkerThread
+from src.integrations.nte_core import is_mods_plugin_unavailable_error
 from src.features.drive_assembly.ui_bridge import (
     execute_all_roles_from_current_game_page,
     execute_selected_role_from_current_game_page,
@@ -284,7 +285,7 @@ def _prompt_protagonist_alias_if_needed(self, role_names) -> dict[str, str]:
 def _is_equipment_plugin_unavailable_error(error: object) -> bool:
     """识别核心已启动但游戏内装备插件桥接不可用的不可重试错误。"""
 
-    return "EQUIPMENT_PLUGIN_UNAVAILABLE" in str(error)
+    return is_mods_plugin_unavailable_error(error)
 
 
 def _run_nte_core_equipment_apply(
@@ -734,7 +735,8 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
                     f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n"
                     "本地核心组件已连接，但未能连接游戏内装备插件（命名管道不可用或超时）。\n\n"
                     "请先确认：\n"
-                    "1. 当前运行的 HTGame.exe 已加载与本地核心组件版本匹配的装备插件；\n"
+                    "1. 已在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
+                    "nte-mods-plugin 和装备 Mod 脚本；\n"
                     "2. 游戏保持登录，随后从首页重新启动背包同步并等待“后台监听”；\n"
                     "3. 完成上述检查后，再点击右上角“极速装配”重新执行。\n\n"
                     f"此前已确认 {len(applied)} 个角色；任务日志已保存。此次不会立即重试。",

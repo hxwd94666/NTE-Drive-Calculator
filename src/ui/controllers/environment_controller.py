@@ -23,6 +23,7 @@ from src.services.equipment_plugin_deployment import (
     deploy_plugin,
     find_game_executables,
     npcap_installation_present,
+    packaged_mod_workspace,
     packaged_plugin_dll,
     restore_plugin,
 )
@@ -60,8 +61,9 @@ def _refresh_equipment_plugin_status(self):
         return
     try:
         bundled_plugin = packaged_plugin_dll(runtime.ROOT)
+        packaged_mod_workspace(runtime.ROOT)
         if bundle_label is not None:
-            bundle_label.setText(f"打包插件：{bundled_plugin}")
+            bundle_label.setText(f"打包插件与 Mod 脚本：{bundled_plugin}")
     except EquipmentPluginDeploymentError:
         bundled_plugin = None
         if bundle_label is not None:
@@ -308,15 +310,17 @@ def _deploy_equipment_plugin(self):
     executable = self._equipment_plugin_game_executable_edit.text().strip()
     try:
         source = packaged_plugin_dll(runtime.ROOT)
+        workspace_source = packaged_mod_workspace(runtime.ROOT)
     except EquipmentPluginDeploymentError as exc:
         QMessageBox.warning(self, "部署装备插件", str(exc))
         return
     if QMessageBox.question(
         self,
         "确认部署装备插件",
-        "将把应用打包的 dwmapi.dll 复制到所选 HTGame.exe 同目录。\n"
+        "将把应用打包的 nte-mods-plugin dwmapi.dll 复制到所选 HTGame.exe 同目录，"
+        "并准备与最新版 nte-core 配套的装备 Mod 脚本。\n"
         "若目录已有同名文件，会先备份到当前账号数据目录。请先关闭游戏。\n\n"
-        f"游戏：{executable}\n打包插件：{source}",
+        f"游戏：{executable}\n打包插件：{source}\n脚本模板：{workspace_source}",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     ) != QMessageBox.Yes:
@@ -325,6 +329,8 @@ def _deploy_equipment_plugin(self):
         deployed = deploy_plugin(
             game_executable_path=executable,
             plugin_dll_path=source,
+            application_root=runtime.ROOT,
+            writable_workspace_path=runtime.DATA_ROOT / "plugins",
             backup_directory=runtime.ACCOUNT_DATA_ROOT / "equipment_plugin_backups",
         )
         self._ui_preferences.update({
@@ -332,10 +338,15 @@ def _deploy_equipment_plugin(self):
             "equipment_plugin_dll_source": str(source),
             "equipment_plugin_backup_path": str(deployed.backup_path or ""),
             "equipment_plugin_deployed_sha256": deployed.deployed_sha256,
+            "equipment_plugin_workspace": str(deployed.workspace_path),
         })
         self._save_ui_preferences()
-        self._equipment_plugin_status_label.setText("装备插件已部署；退出游戏前可在此还原。")
-        QMessageBox.information(self, "部署装备插件", "已部署 dwmapi.dll，并已记录可恢复信息。")
+        self._equipment_plugin_status_label.setText("最新版 Mod 插件与装备脚本已部署；退出游戏前可在此还原。")
+        QMessageBox.information(
+            self,
+            "部署装备插件",
+            f"已部署 dwmapi.dll，并注册 Mod 工作区：\n{deployed.workspace_path}",
+        )
     except EquipmentPluginDeploymentError as exc:
         QMessageBox.warning(self, "部署装备插件", str(exc))
 

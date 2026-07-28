@@ -119,8 +119,8 @@ Core domain failures use code `-32000`, message `Core error`, and include stable
 - `CAPTURE_ALREADY_RUNNING`
 - `CAPTURE_NOT_RUNNING`
 - `INVENTORY_NOT_READY`
-- `EQUIPMENT_PLUGIN_UNAVAILABLE`
-- `EQUIPMENT_PLUGIN_BUSY`
+- `MODS_PLUGIN_UNAVAILABLE`
+- `MODS_PLUGIN_BUSY`
 - `EQUIPMENT_REQUEST_REJECTED`
 
 Underlying OS, Npcap, endpoint, payload, and filesystem details are not copied to
@@ -138,7 +138,7 @@ handshake. Repeating a valid handshake is idempotent.
 The result contains `core_version`, negotiated `protocol_version`,
 `data_version`, `capabilities`, and `raw_capture_default`. Only the methods
 documented below are callable. `capabilities` contains `equipment` when the
-local equipment-plugin bridge is available in this Core build.
+local `nte-mods-plugin` bridge is available in this Core build.
 
 ## Method reference
 
@@ -303,8 +303,8 @@ resolved yet.
 
 ## Equipment methods
 
-Equipment methods call ABI v4 / IPC v3 of `nte-equipment-plugin` through the
-local `\\.\pipe\nte-equipment-plugin-v3` named pipe. They do not inject or load
+Equipment methods call ABI v4 / IPC v7 of `nte-mods-plugin` through the
+local `\\.\pipe\nte-mods-plugin-v7` named pipe. They do not inject or load
 the plugin; the matching plugin build must already be loaded by `HTGame.exe`.
 GUI users can install or remove the embedded plugin from **Console → Console
 Loadout** after closing the game and accepting the timed risk confirmation. The
@@ -351,9 +351,9 @@ Successful results are `{"status":"rpc_dispatched"}`. The alternate
 `{"status":"dry_run_ok"}` value is reserved for a dry-run plugin host. A
 successful dispatch only confirms that the RPC was submitted; callers must wait
 for a later captured `event.inventory.snapshot` to confirm game/server state.
-Missing pipes and timeouts return `EQUIPMENT_PLUGIN_UNAVAILABLE`. Plugin
+Missing pipes and timeouts return `MODS_PLUGIN_UNAVAILABLE`. Plugin
 requests beyond the active call and one queued call return
-`EQUIPMENT_PLUGIN_BUSY`. Plugin validation statuses other than dispatched/dry-run return
+`MODS_PLUGIN_BUSY`. Plugin validation statuses other than dispatched/dry-run return
 `EQUIPMENT_REQUEST_REJECTED`.
 
 ## Capture and inventory events
@@ -388,6 +388,14 @@ values are `live`, `pcapng_replay`, `json_replay`, and `unknown`. Each skill row
 `name` prefers a stable ability or GameplayEffect grouping key over a localized
 UI snapshot; optional `ability_name` and `gameplay_effect_name` fields expose the
 stable GA/GE identifiers when available.
+
+In `subtract_time_stop` mode, the native plugin observes the authoritative
+`AHTPlayerController::IsGamePausedByType` state. A zero-to-nonzero transition
+starts a pause and the following nonzero-to-zero transition ends it. The core
+pairs those timestamped states and subtracts only the resulting interval clipped
+to the damage window. Character casts, character-specific duration tables, and
+the abyss countdown do not participate in this calculation; a settlement stage
+event is never used as a duration boundary.
 
 The external battle DTO is an explicit field-by-field mapping from the internal
 `CombatSessionSummary`; internal Rust serialization is not exposed as the API.
