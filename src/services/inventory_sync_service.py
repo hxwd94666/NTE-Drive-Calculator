@@ -91,6 +91,9 @@ class _CoreClient(Protocol):
     def stop_capture(self) -> Mapping[str, Any]: ...
     def equip_one_key(self, **kwargs: Any) -> Any: ...
     def equip_module(self, **kwargs: Any) -> Any: ...
+    def unequip_module(self, **kwargs: Any) -> Any: ...
+    def unequip_core(self, **kwargs: Any) -> Any: ...
+    def unequip_all(self, **kwargs: Any) -> Any: ...
     def move_module_to_character(self, **kwargs: Any) -> Any: ...
     def set_item_discarded(self, **kwargs: Any) -> Any: ...
     def set_item_locked(self, **kwargs: Any) -> Any: ...
@@ -203,6 +206,34 @@ class InventorySyncService:
         return client.equip_module(
             character=character, equipment=equipment, row=row, column=column,
         )
+
+    def unequip_module(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> Any:
+        """卸下指定驱动，用于释放被其他非目标角色占用的方案装备。"""
+
+        client = self._equipment_client()
+        return client.unequip_module(character=character, equipment=equipment)
+
+    def unequip_core(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> Any:
+        """卸下指定卡带，用于释放被其他非目标角色占用的方案装备。"""
+
+        client = self._equipment_client()
+        return client.unequip_core(character=character, equipment=equipment)
+
+    def unequip_all(self, *, character: Mapping[str, Any]) -> Any:
+        """卸下角色当前全部驱动和卡带。"""
+
+        client = self._equipment_client()
+        return client.unequip_all(character=character)
 
     def move_module_to_character(
         self,

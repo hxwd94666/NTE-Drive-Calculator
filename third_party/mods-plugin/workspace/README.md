@@ -30,6 +30,8 @@ saved script and enable-set changes while the game is running.
 Script v4 with variables, per-mod persistent state, arithmetic and bit
 operations, nested `if/elif/else`, bounded `for range`, typed read-only memory,
 whitelisted SDK reads, stable `game.*` session values, and custom IPC events.
+The bundled default enables only `equipment.nte`; `combat-clock.nte` remains
+available as an optional example and is not needed for fast equipment apply.
 The DLL compiles the source to a fixed-size VM program before installing its
 shared hook. Client offsets stay behind `requires("game.session")`; normal Mod
 source uses `game.player_state`, `game.player_controller`, or

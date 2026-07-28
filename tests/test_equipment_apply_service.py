@@ -5,6 +5,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.services.equipment_apply_service import EquipmentApplyError, EquipmentApplyService
 from src.services.inventory_sync_service import InventorySyncState
@@ -67,6 +68,8 @@ class FakeSyncService:
         )
         self.params = None
         self.module_calls = []
+        self.module_dispatches = []
+        self.unmount_calls = []
         self.verify_correctly = True
         self.emit_snapshot = True
         self.wait_calls = 0
@@ -93,10 +96,38 @@ class FakeSyncService:
         return {"status": "dispatched"}
 
     def equip_module(self, **kwargs):
+        self.module_dispatches.append("equip")
         return self._apply_module(**kwargs)
 
     def move_module_to_character(self, **kwargs):
+        self.module_dispatches.append("move")
         return self._apply_module(**kwargs)
+
+    def unequip_all(self, **kwargs):
+        self.unmount_calls.append(("all", kwargs))
+        self._emit_snapshot([item(11, "module"), item(22, "core")])
+        return {"status": "dispatched"}
+
+    def unequip_module(self, **kwargs):
+        self.unmount_calls.append(("module", kwargs))
+        self._emit_snapshot([item(11, "module"), item(22, "core")])
+        return {"status": "dispatched"}
+
+    def unequip_core(self, **kwargs):
+        self.unmount_calls.append(("core", kwargs))
+        self._emit_snapshot([item(11, "module"), item(22, "core")])
+        return {"status": "dispatched"}
+
+    def _emit_snapshot(self, rows):
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(self.state.last_snapshot_id + 1, rows)
+        )
+        self.state = InventorySyncState(
+            phase="listening",
+            running=True,
+            last_snapshot_id=snapshot_id,
+            last_item_count=len(rows),
+        )
 
     def _apply_module(self, **kwargs):
         self.module_calls.append(kwargs)
@@ -246,6 +277,51 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.assertEqual(result.rpc_result, {"status": "already_applied"})
         self.assertIsNone(self.sync.params)
 
+    def test_verify_plan_in_snapshot_is_read_only(self) -> None:
+        rows = [copy.deepcopy(item(11, "module")), copy.deepcopy(item(22, "core"))]
+        for row in rows:
+            row["equipped"] = True
+            row["equipped_character_uid"] = dict(CHARACTER_UID)
+            row["equipped_character_id"] = 1003
+            if row["kind"] == "module":
+                row["equipped_placement"] = {"row": 2, "column": 3}
+        current = self.dao.import_inventory_snapshot(snapshot(3, rows))
+
+        mismatch = EquipmentApplyService(
+            self.dao, self.sync
+        ).verify_plan_in_snapshot(
+            self.plan_id,
+            character_uid=CHARACTER_UID,
+            target_character_id=1003,
+            stable_snapshot_id=current,
+            exact_loadout=True,
+        )
+
+        self.assertIsNone(mismatch)
+        self.assertIsNone(self.sync.params)
+        self.assertEqual([], self.sync.module_calls)
+        self.assertEqual([], self.sync.unmount_calls)
+
+    def test_verify_plan_in_snapshot_reports_mismatch_without_repairing(self) -> None:
+        current = self.dao.import_inventory_snapshot(
+            snapshot(3, [item(11, "module"), item(22, "core")])
+        )
+
+        mismatch = EquipmentApplyService(
+            self.dao, self.sync
+        ).verify_plan_in_snapshot(
+            self.plan_id,
+            character_uid=CHARACTER_UID,
+            target_character_id=1003,
+            stable_snapshot_id=current,
+            exact_loadout=True,
+        )
+
+        self.assertIn("装配位置不一致", mismatch)
+        self.assertIsNone(self.sync.params)
+        self.assertEqual([], self.sync.module_calls)
+        self.assertEqual([], self.sync.unmount_calls)
+
     def test_driver_only_plan_keeps_existing_core_and_dispatches_module_move(self) -> None:
         plan_id = self.dao.save_loadout_plan(
             name="仅驱动装配测试",
@@ -281,15 +357,72 @@ class EquipmentApplyServiceTests(unittest.TestCase):
     def test_fast_dispatch_does_not_wait_for_a_new_inventory_snapshot(self) -> None:
         self.sync.emit_snapshot = False
 
-        result = EquipmentApplyService(self.dao, self.sync).apply_plan(
-            self.plan_id,
-            verify_after_dispatch=False,
-        )
+        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+                self.plan_id,
+                verify_after_dispatch=False,
+            )
 
         self.assertFalse(result.verified)
         self.assertEqual(result.before_snapshot_id, result.after_snapshot_id)
         self.assertEqual(self.sync.wait_calls, 0)
         self.assertEqual(self.sync.params["character"], CHARACTER_UID)
+        self.assertEqual([0.5], [row.args[0] for row in sleep.call_args_list])
+
+    def test_fast_reset_unmounts_mismatched_role_before_one_key_dispatch(self) -> None:
+        self.sync.emit_snapshot = False
+
+        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+                self.plan_id,
+                verify_after_dispatch=False,
+                exact_loadout=True,
+                force_dispatch=True,
+                reset_before_apply=True,
+            )
+
+        self.assertFalse(result.verified)
+        self.assertEqual(["all"], [name for name, _ in self.sync.unmount_calls])
+        self.assertEqual(CHARACTER_UID, self.sync.params["character"])
+        self.assertEqual([0.7, 0.5], [row.args[0] for row in sleep.call_args_list])
+
+    def test_fast_reset_rebuilds_a_mismatched_driver_only_plan(self) -> None:
+        plan_id = self.dao.save_loadout_plan(
+            name="仅驱动极速重装测试",
+            character_id=1003,
+            source_snapshot_id=1,
+            status="ready",
+            assignments=[{
+                "uid_serial": 11,
+                "uid_slot": 11,
+                "kind": "module",
+                "target_row": 2,
+                "target_column": 3,
+                "rotation": 0,
+            }],
+        )
+        self.sync.emit_snapshot = False
+
+        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+                plan_id,
+                verify_after_dispatch=False,
+                exact_loadout=True,
+                force_dispatch=True,
+                reset_before_apply=True,
+            )
+
+        self.assertFalse(result.verified)
+        self.assertEqual(["all"], [name for name, _ in self.sync.unmount_calls])
+        self.assertEqual(["equip"], self.sync.module_dispatches)
+        self.assertEqual([0.7, 0.5], [row.args[0] for row in sleep.call_args_list])
+        self.assertEqual(
+            {"row": 2, "column": 3},
+            {
+                "row": self.sync.module_calls[0]["row"],
+                "column": self.sync.module_calls[0]["column"],
+            },
+        )
 
     def test_pinned_snapshot_allows_later_fast_dispatch_after_listener_changes(self) -> None:
         before_snapshot_id = self.sync.state.last_snapshot_id
@@ -417,6 +550,39 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(EquipmentApplyError, "装配位置不一致"):
             EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
 
+    def test_bulk_validation_rejects_equipment_uid_conflict(self) -> None:
+        duplicate_plan_id = self.dao.save_loadout_plan(
+            name="冲突方案",
+            character_id=2000,
+            source_snapshot_id=1,
+            status="ready",
+            assignments=[{
+                "uid_serial": 11,
+                "uid_slot": 11,
+                "kind": "module",
+                "target_row": 1,
+                "target_column": 1,
+                "rotation": 0,
+            }],
+        )
+        service = EquipmentApplyService(self.dao, self.sync)
+
+        with self.assertRaisesRegex(EquipmentApplyError, "方案冲突"):
+            service.validate_bulk_plans_for_fast_apply(
+                [
+                    {
+                        "role_name": "甲",
+                        "plan_id": self.plan_id,
+                        "character_uid": CHARACTER_UID,
+                    },
+                    {
+                        "role_name": "乙",
+                        "plan_id": duplicate_plan_id,
+                        "character_uid": {"slot": 8, "serial": 800},
+                    },
+                ],
+                stable_snapshot_id=self.sync.state.last_snapshot_id,
+            )
 
 if __name__ == "__main__":
     unittest.main()

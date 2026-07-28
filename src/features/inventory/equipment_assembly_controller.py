@@ -98,6 +98,21 @@ __all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equi
            '_preview_assemble_role', '_preview_fast_assemble_all_roles', '_preview_automatic_assemble_all_roles']
 
 EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT = 520
+FAST_APPLY_SNAPSHOT_TIMEOUT_MARGIN_SECONDS = 5.0
+
+
+def _fast_apply_snapshot_timeout(user_dao: UserDataDao) -> float:
+    """Let fast-apply waits follow the account's snapshot settle window."""
+
+    try:
+        settle_seconds = float(
+            user_dao.get_sync_settings()["inventory_settle_seconds"]
+        )
+    except (KeyError, TypeError, ValueError):
+        settle_seconds = 5.0
+    return max(1.0, settle_seconds) + FAST_APPLY_SNAPSHOT_TIMEOUT_MARGIN_SECONDS
+
+
 EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
 # Legacy test hosts and non-Qt callers retain the old batch-only path.
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
@@ -345,6 +360,18 @@ def _run_nte_core_equipment_apply(
                     })
             if preflight_errors:
                 return {"job_id": job_id, "applied": [], "preflight_errors": preflight_errors}
+            try:
+                apply_service.validate_bulk_plans_for_fast_apply(
+                    prepared, stable_snapshot_id=pinned_snapshot_id,
+                )
+            except Exception as exc:
+                return {
+                    "job_id": job_id,
+                    "applied": [],
+                    "preflight_errors": [
+                        {"role_name": "全角色方案", "error": str(exc)}
+                    ],
+                }
         else:
             initial_snapshot_id = user_dao.current_inventory_snapshot_id()
             if initial_snapshot_id is None:
@@ -434,6 +461,18 @@ def _run_nte_core_equipment_apply(
                     "identity_requests": identity_requests,
                     "completed": True,
                 }
+            try:
+                apply_service.validate_bulk_plans_for_fast_apply(
+                    prepared, stable_snapshot_id=initial_snapshot_id,
+                )
+            except Exception as exc:
+                return {
+                    "applied": [],
+                    "identity_requests": identity_requests,
+                    "preflight_errors": [
+                        {"role_name": "全角色方案", "error": str(exc)}
+                    ],
+                }
             job_id = user_dao.create_equipment_apply_job(initial_snapshot_id, prepared)
             for entry, prepared_role in zip(user_dao.get_equipment_apply_job(job_id)["items"], prepared):
                 prepared_role["job_item_id"] = entry["job_item_id"]
@@ -447,7 +486,7 @@ def _run_nte_core_equipment_apply(
             progress_callback,
             current=0,
             total=len(prepared),
-            message="正在检查已保存方案…",
+            message="正在顺序下发全角色装配指令…",
         )
         for index, prepared_role in enumerate(prepared, start=1):
             role_name = prepared_role["role_name"]
@@ -478,6 +517,9 @@ def _run_nte_core_equipment_apply(
                             target_character_id=applied_character_id,
                             timeout=30.0,
                             verify_after_dispatch=False,
+                            exact_loadout=True,
+                            force_dispatch=True,
+                            reset_before_apply=True,
                             stable_snapshot_id=stable_snapshot_id,
                         )
                         if target_index:
@@ -510,6 +552,7 @@ def _run_nte_core_equipment_apply(
                         "snapshot_id": result.after_snapshot_id,
                         "verified": result.verified,
                         "already_applied": result.already_applied,
+                        "character_uid": result.character_uid,
                     }
                 )
                 _report_fast_apply_progress(
@@ -537,11 +580,138 @@ def _run_nte_core_equipment_apply(
                     "error": str(exc),
                     "completed": False,
                 }
+
+        postcheck_snapshot_id: int | None = None
+        postrepair_snapshot_id: int | None = None
+        postrepair_check_timed_out = False
+        repair_errors: list[dict] = []
+        if len(prepared) > 1 and len(applied) == len(prepared):
+            snapshot_timeout = _fast_apply_snapshot_timeout(user_dao)
+            _report_fast_apply_progress(
+                progress_callback,
+                current=len(prepared),
+                total=len(prepared),
+                message="正在等待装配后快照并检查遗漏…",
+            )
+            try:
+                after_state = sync_service.wait_for_snapshot(
+                    after_snapshot_id=stable_snapshot_id,
+                    timeout=snapshot_timeout,
+                )
+                postcheck_snapshot_id = after_state.last_snapshot_id
+            except TimeoutError:
+                logger.info("极速全角色装配后快照检查超时；保留已下发结果")
+            except Exception as exc:
+                logger.warning("极速全角色装配后快照检查失败：{}", exc)
+            if (
+                postcheck_snapshot_id is not None
+                and postcheck_snapshot_id > stable_snapshot_id
+            ):
+                for row in applied:
+                    try:
+                        repair = apply_service.apply_plan(
+                            row["plan_id"],
+                            character_uid=row["character_uid"],
+                            target_character_id=row["character_id"],
+                            timeout=30.0,
+                            verify_after_dispatch=False,
+                            exact_loadout=True,
+                            force_dispatch=False,
+                            reset_before_apply=True,
+                            stable_snapshot_id=postcheck_snapshot_id,
+                        )
+                        row["snapshot_id"] = postcheck_snapshot_id
+                        if repair.already_applied:
+                            row["verified"] = True
+                            continue
+                        row["repaired"] = True
+                        logger.warning(
+                            "装配后快照发现 [{}] 配装不完整，已卸空并补装",
+                            row["role_name"],
+                        )
+                    except Exception as exc:
+                        repair_errors.append(
+                            {"role_name": row["role_name"], "error": str(exc)}
+                        )
+                        logger.error(
+                            "装配后快照补装 [{}] 失败：{}",
+                            row["role_name"],
+                            exc,
+                        )
+                repaired_rows = [row for row in applied if row.get("repaired")]
+                if repaired_rows:
+                    _report_fast_apply_progress(
+                        progress_callback,
+                        current=len(prepared),
+                        total=len(prepared),
+                        message="补装已下发，正在等待第二份快照复查…",
+                    )
+                    try:
+                        repaired_state = sync_service.wait_for_snapshot(
+                            after_snapshot_id=postcheck_snapshot_id,
+                            timeout=snapshot_timeout,
+                        )
+                        postrepair_snapshot_id = repaired_state.last_snapshot_id
+                    except TimeoutError:
+                        postrepair_check_timed_out = True
+                        logger.info(
+                            "极速全角色补装后二次快照检查超时；"
+                            "补装指令已下发，但无法确认最终状态"
+                        )
+                    except Exception as exc:
+                        postrepair_check_timed_out = True
+                        logger.warning("极速全角色补装后二次快照检查失败：{}", exc)
+                    if (
+                        postrepair_snapshot_id is not None
+                        and postrepair_snapshot_id > postcheck_snapshot_id
+                    ):
+                        for row in repaired_rows:
+                            try:
+                                mismatch = apply_service.verify_plan_in_snapshot(
+                                    row["plan_id"],
+                                    character_uid=row["character_uid"],
+                                    target_character_id=row["character_id"],
+                                    exact_loadout=True,
+                                    stable_snapshot_id=postrepair_snapshot_id,
+                                )
+                                row["snapshot_id"] = postrepair_snapshot_id
+                                if mismatch is None:
+                                    row["verified"] = True
+                                    row["repair_verified"] = True
+                                    continue
+                                row["repair_verification_error"] = mismatch
+                                repair_errors.append(
+                                    {
+                                        "role_name": row["role_name"],
+                                        "error": f"补装后复查仍不完整：{mismatch}",
+                                    }
+                                )
+                                logger.error(
+                                    "补装后快照复查 [{}] 仍不完整：{}",
+                                    row["role_name"],
+                                    mismatch,
+                                )
+                            except Exception as exc:
+                                repair_errors.append(
+                                    {
+                                        "role_name": row["role_name"],
+                                        "error": f"补装后复查失败：{exc}",
+                                    }
+                                )
+                                logger.error(
+                                    "补装后快照复查 [{}] 失败：{}",
+                                    row["role_name"],
+                                    exc,
+                                )
         completed = user_dao.complete_equipment_apply_job_if_done(job_id)
     return {
         "job_id": job_id,
         "applied": applied,
         "identity_requests": identity_requests,
+        "postcheck_snapshot_id": postcheck_snapshot_id,
+        "postrepair_snapshot_id": postrepair_snapshot_id,
+        "postrepair_check_timed_out": postrepair_check_timed_out,
+        "repair_errors": repair_errors,
         "completed": completed,
     }
 
@@ -711,6 +881,11 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
                 if row.get("module_count") is not None else "：已下发"
             )
             + ("（原本已装好）" if row.get("already_applied") else "")
+            + (
+                "（遗漏已补装并复查通过）"
+                if row.get("repair_verified")
+                else ("（末次快照发现遗漏后已补装）" if row.get("repaired") else "")
+            )
             for row in applied
         )
         changed_count = sum(not row.get("already_applied") for row in applied)
@@ -724,6 +899,9 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
             if unverified_count
             else f"已确认 {len(applied)} 个角色的配装"
         )
+        repaired_count = sum(bool(row.get("repaired")) for row in applied)
+        if repaired_count:
+            summary += f"（末次快照补装 {repaired_count} 个）"
         if unchanged_count:
             summary += f"（实际装配 {changed_count} 个，原本已装好 {unchanged_count} 个）"
         if report.get("failed_role"):
@@ -733,10 +911,10 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
                     self,
                     "装备插件不可用",
                     f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n"
-                    "本地核心组件已连接，但未能连接游戏内装备插件（命名管道不可用或超时）。\n\n"
+                    "本地核心组件已连接，但未能连接游戏内装备 MOD（命名管道不可用或超时）。\n\n"
                     "请先确认：\n"
                     "1. 已在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
-                    "nte-mods-plugin 和装备 Mod 脚本；\n"
+                    "nte-mods-plugin 和 equipment.nte；\n"
                     "2. 游戏保持登录，随后从首页重新启动背包同步并等待“后台监听”；\n"
                     "3. 完成上述检查后，再点击右上角“极速装配”重新执行。\n\n"
                     f"此前已确认 {len(applied)} 个角色；任务日志已保存。此次不会立即重试。",
@@ -757,11 +935,37 @@ def _start_nte_core_equipment_apply(self, role_names: list[str], *, identity_ove
             if callable(refresh):
                 refresh()
             return
-        verification_note = (
-            "\n\n当前游戏内不会产生新的稳定背包快照；本次已完成装配前校验并下发指令。"
-            "请在下次登录后完成背包同步，以更新仓库显示。"
-            if unverified_count else ""
-        )
+        repair_errors = report.get("repair_errors") or []
+        if repair_errors:
+            error_details = "\n".join(
+                f"• [{row.get('role_name', '未知角色')}]：{row.get('error', '补装失败')}"
+                for row in repair_errors
+            )
+            QMessageBox.warning(
+                self,
+                "装配后补装未完成",
+                f"{summary}，但以下角色补装失败：\n\n{error_details}\n\n"
+                "请保持游戏在线后单独重试这些角色。",
+            )
+            return
+        if report.get("postrepair_snapshot_id"):
+            verification_note = (
+                "\n\n已使用装配后稳定背包快照检查全部角色；"
+                "发现的遗漏已自动补装，并通过第二份稳定快照复查。"
+            )
+        elif report.get("postrepair_check_timed_out"):
+            verification_note = (
+                "\n\n末次快照发现的遗漏已自动补装，但本次未等到第二份稳定快照，"
+                "因此无法确认补装后的最终状态。"
+            )
+        elif report.get("postcheck_snapshot_id"):
+            verification_note = "\n\n已使用装配后稳定背包快照检查全部角色，未发现遗漏。"
+        else:
+            verification_note = (
+                "\n\n本次未等到新的稳定背包快照，已完成装配前校验并下发指令。"
+                "请在下次登录后完成背包同步，以更新仓库显示。"
+                if unverified_count else ""
+            )
         QMessageBox.information(self, "装配完成", f"{summary}。\n任务 #{report.get('job_id')} 已保存日志。\n\n{details}{verification_note}")
         refresh = getattr(self, "_refresh_equip", None)
         if callable(refresh):

@@ -234,9 +234,11 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     npcap_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     plugin_card.layout().addWidget(npcap_title)
     npcap_description = QLabel(
-        "背包同步通过 Npcap 读取游戏网络数据。未安装时无法使用本地核心组件同步背包；"
-        "请下载并完成官方安装程序。"
+        "<b>简单原理：</b>Npcap 读取本机的游戏网络数据，用来识别背包内容，不会代替玩家操作游戏。"
+        "<br><span style='color:#d29922'><b>风险提示：</b>这属于网络抓包，有一定的使用风险；"
+        "诊断抓包文件可能包含网络或账号相关数据，请勿随意公开。</span>"
     )
+    npcap_description.setTextFormat(Qt.RichText)
     npcap_description.setWordWrap(True)
     npcap_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     plugin_card.layout().addWidget(npcap_description)
@@ -256,9 +258,12 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     equipment_plugin_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     plugin_card.layout().addWidget(equipment_plugin_title)
     equipment_plugin_description = QLabel(
-        "极速装配通过随应用打包的 nte-mods-plugin dwmapi.dll 与装备 Mod 脚本向游戏下发装备指令。"
-        "请选择或自动检测 HTGame.exe，确认后会将 DLL 复制到其同目录；已有同名文件会先备份。"
+        "<b>简单原理：</b>极速装配会把 dwmapi.dll 放入游戏目录，由游戏加载后通过装备 Mod 脚本"
+        "调用或 Hook 游戏内部功能，直接发送装备指令。"
+        "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
+        "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
     )
+    equipment_plugin_description.setTextFormat(Qt.RichText)
     equipment_plugin_description.setWordWrap(True)
     equipment_plugin_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     plugin_card.layout().addWidget(equipment_plugin_description)
@@ -284,7 +289,12 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     plugin_form.addRow("游戏主程序:", game_row)
     plugin_card.layout().addLayout(plugin_form)
     plugin_consent_row = QHBoxLayout()
-    window._equipment_plugin_consent = QCheckBox("我确认已获插件使用授权，并同意修改以上选择的游戏目录")
+    window._equipment_plugin_consent = QCheckBox(
+        "我已阅读并理解上述风险，仍自愿使用装备插件并承担相应风险"
+    )
+    window._equipment_plugin_consent.setStyleSheet(
+        themed_style("color:#d29922;font-weight:600")
+    )
     plugin_consent_row.addWidget(window._equipment_plugin_consent)
     window._dwmapi_diagnostic_button = QPushButton("诊断 dwmapi")
     window._dwmapi_diagnostic_button.clicked.connect(window._diagnose_dwmapi)

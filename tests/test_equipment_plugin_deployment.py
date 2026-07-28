@@ -9,10 +9,12 @@ from unittest.mock import patch
 
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
+    MOD_PLUGIN_SIGNATURE,
     MOD_WORKSPACE_FILES,
     deploy_plugin,
     find_game_executables,
     game_executable,
+    is_mods_plugin_dll,
     packaged_mod_workspace,
     packaged_plugin_dll,
     prepare_mod_workspace,
@@ -31,7 +33,8 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
         self.source_dir = self.root / "provided"
         self.source_dir.mkdir()
         self.source = self.source_dir / "dwmapi.dll"
-        self.source.write_bytes(b"plugin")
+        self.plugin_bytes = MOD_PLUGIN_SIGNATURE + b":plugin"
+        self.source.write_bytes(self.plugin_bytes)
         self.workspace_source = (
             self.root / "third_party" / "mods-plugin" / "workspace"
         )
@@ -44,6 +47,7 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
             "src.services.equipment_plugin_deployment._register_mod_workspace"
         )
         self.register_workspace = self.registry_patcher.start()
+        self.register_workspace.return_value = (False, None)
 
     def tearDown(self) -> None:
         self.registry_patcher.stop()
@@ -61,7 +65,7 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
             backup_directory=self.root / "backups",
         )
 
-        self.assertEqual(target.read_bytes(), b"plugin")
+        self.assertEqual(target.read_bytes(), self.plugin_bytes)
         self.assertEqual(
             (self.workspace / "nte-mods" / "equipment.nte").read_text(encoding="utf-8"),
             "default:nte-mods/equipment.nte\n",
@@ -126,7 +130,7 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
         organized = self.root / "third_party" / "mods-plugin" / "bin"
         organized.mkdir(parents=True)
         plugin = organized / "dwmapi.dll"
-        plugin.write_bytes(b"plugin")
+        plugin.write_bytes(self.plugin_bytes)
 
         self.assertEqual(packaged_plugin_dll(self.root), plugin.resolve())
         self.assertEqual(
@@ -153,4 +157,50 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
         self.assertEqual(
             (self.workspace / "nte-mods.enabled").read_text(encoding="utf-8"),
             "nte_mod_set 1\nload equipment\n",
+        )
+
+    def test_rejects_a_legacy_or_unrelated_dwmapi(self) -> None:
+        self.source.write_bytes(b"legacy proxy")
+
+        self.assertFalse(is_mods_plugin_dll(self.source))
+        with self.assertRaisesRegex(EquipmentPluginDeploymentError, "新版"):
+            deploy_plugin(
+                game_executable_path=self.executable,
+                plugin_dll_path=self.source,
+                application_root=self.root,
+                writable_workspace_path=self.workspace,
+                backup_directory=self.root / "backups",
+            )
+
+    def test_registration_failure_rolls_back_the_existing_dll(self) -> None:
+        target = self.game / "dwmapi.dll"
+        target.write_bytes(b"original")
+        self.register_workspace.side_effect = EquipmentPluginDeploymentError("registry")
+
+        with self.assertRaisesRegex(EquipmentPluginDeploymentError, "已回滚"):
+            deploy_plugin(
+                game_executable_path=self.executable,
+                plugin_dll_path=self.source,
+                application_root=self.root,
+                writable_workspace_path=self.workspace,
+                backup_directory=self.root / "backups",
+            )
+
+        self.assertEqual(target.read_bytes(), b"original")
+
+    def test_deployment_records_the_previous_workspace_value(self) -> None:
+        self.register_workspace.return_value = (True, r"C:\previous\mods")
+
+        deployed = deploy_plugin(
+            game_executable_path=self.executable,
+            plugin_dll_path=self.source,
+            application_root=self.root,
+            writable_workspace_path=self.workspace,
+            backup_directory=self.root / "backups",
+        )
+
+        self.assertTrue(deployed.workspace_registry_value_existed)
+        self.assertEqual(
+            deployed.workspace_registry_value_before,
+            r"C:\previous\mods",
         )

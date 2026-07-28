@@ -13,8 +13,10 @@ from typing import Any
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
     GAME_EXECUTABLE_NAME,
+    MOD_WORKSPACE_FILES,
     PLUGIN_FILENAME,
     game_executable,
+    is_mods_plugin_dll,
     packaged_mod_workspace,
     packaged_plugin_dll,
     registered_mod_workspace,
@@ -103,6 +105,7 @@ def collect_dwmapi_diagnostics(
     game_executable_path: str | Path,
     application_root: str | Path,
     recorded_deployed_sha256: str = "",
+    recorded_workspace_path: str | Path = "",
 ) -> dict[str, Any]:
     """Collect file/deployment/pipe facts required to debug fast apply.
 
@@ -128,17 +131,33 @@ def collect_dwmapi_diagnostics(
     target = executable.parent / PLUGIN_FILENAME
     bundled_info = _file_details(bundled)
     target_info = _file_details(target)
+    registered_workspace_ready = bool(
+        registered_workspace
+        and all(
+            (registered_workspace / relative).is_file()
+            for relative in MOD_WORKSPACE_FILES
+        )
+    )
+    recorded_workspace = (
+        Path(recorded_workspace_path).expanduser()
+        if str(recorded_workspace_path or "").strip()
+        else None
+    )
     result.update({
         "ok": True,
         "game_executable": str(executable),
         "target_plugin": target_info,
         "bundled_plugin": bundled_info,
+        "target_plugin_is_mods": bool(target.is_file() and is_mods_plugin_dll(target)),
+        "bundled_plugin_is_mods": is_mods_plugin_dll(bundled),
         "bundled_workspace": str(bundled_workspace),
         "registered_workspace": str(registered_workspace or ""),
-        "registered_workspace_ready": bool(
+        "recorded_workspace": str(recorded_workspace or ""),
+        "registered_workspace_ready": registered_workspace_ready,
+        "registered_workspace_matches_record": bool(
             registered_workspace
-            and (registered_workspace / "nte-mods.enabled").is_file()
-            and (registered_workspace / "nte-mods" / "equipment.nte").is_file()
+            and recorded_workspace
+            and registered_workspace.resolve() == recorded_workspace.resolve()
         ),
         "configured_deployed_sha256": str(recorded_deployed_sha256 or "").strip().lower(),
     })
@@ -167,10 +186,16 @@ def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
             f"游戏目录 SHA-256：{target.get('sha256', '无')}",
             f"打包 DLL SHA-256：{bundled.get('sha256', '无')}",
             f"游戏目录 DLL 与打包 DLL：{'一致' if result.get('target_matches_bundled') else '不一致或无法读取'}",
+            f"游戏目录 DLL 类型：{'新版 nte-mods-plugin' if result.get('target_plugin_is_mods') else '缺失、旧版或非本插件'}",
             f"打包 Mod 工作区：{result.get('bundled_workspace', '无')}",
             f"已注册 Mod 工作区：{result.get('registered_workspace') or '无'}",
-            f"已注册工作区装备脚本：{'就绪' if result.get('registered_workspace_ready') else '缺失或未注册'}",
+            f"已注册工作区完整性：{'就绪' if result.get('registered_workspace_ready') else '文件不完整或未注册'}",
         ])
+        if result.get("recorded_workspace"):
+            lines.append(
+                "已注册工作区与本程序部署记录："
+                + ("一致" if result.get("registered_workspace_matches_record") else "不一致")
+            )
         configured_hash = str(result.get("configured_deployed_sha256") or "")
         if configured_hash:
             lines.append(

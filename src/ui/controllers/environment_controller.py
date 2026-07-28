@@ -261,6 +261,9 @@ def _diagnose_dwmapi(self):
             recorded_deployed_sha256=str(
                 preferences.get("equipment_plugin_deployed_sha256") or ""
             ),
+            recorded_workspace_path=str(
+                preferences.get("equipment_plugin_workspace") or ""
+            ),
         ),
         parent=self,
     )
@@ -305,7 +308,11 @@ def _show_dwmapi_diagnostic_report(self, report: str):
 def _deploy_equipment_plugin(self):
     consent = getattr(self, "_equipment_plugin_consent", None)
     if consent is None or not consent.isChecked():
-        QMessageBox.warning(self, "部署装备插件", "请先确认已获授权并理解这会修改所选游戏目录。")
+        QMessageBox.warning(
+            self,
+            "部署装备插件",
+            "请先阅读风险提示，并勾选确认自愿使用装备插件、承担相应风险。",
+        )
         return
     executable = self._equipment_plugin_game_executable_edit.text().strip()
     try:
@@ -320,6 +327,8 @@ def _deploy_equipment_plugin(self):
         "将把应用打包的 nte-mods-plugin dwmapi.dll 复制到所选 HTGame.exe 同目录，"
         "并准备与最新版 nte-core 配套的装备 Mod 脚本。\n"
         "若目录已有同名文件，会先备份到当前账号数据目录。请先关闭游戏。\n\n"
+        "该功能会介入游戏进程，但不会直接篡改游戏数据；"
+        "仍可能触发游戏保护，产生兼容问题或账号风险。\n\n"
         f"游戏：{executable}\n打包插件：{source}\n脚本模板：{workspace_source}",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
@@ -333,12 +342,34 @@ def _deploy_equipment_plugin(self):
             writable_workspace_path=runtime.DATA_ROOT / "plugins",
             backup_directory=runtime.ACCOUNT_DATA_ROOT / "equipment_plugin_backups",
         )
+        prior_workspace = str(
+            self._ui_preferences.get("equipment_plugin_workspace") or ""
+        )
+        prior_hash = str(
+            self._ui_preferences.get("equipment_plugin_deployed_sha256") or ""
+        )
+        registry_value_before = deployed.workspace_registry_value_before
+        registry_value_existed = deployed.workspace_registry_value_existed
+        if prior_hash and prior_workspace == str(deployed.workspace_path):
+            registry_value_before = (
+                self._ui_preferences.get(
+                    "equipment_plugin_workspace_registry_value_before"
+                )
+                or None
+            )
+            registry_value_existed = bool(
+                self._ui_preferences.get(
+                    "equipment_plugin_workspace_registry_value_existed"
+                )
+            )
         self._ui_preferences.update({
             "equipment_plugin_game_executable": str(deployed.game_executable),
             "equipment_plugin_dll_source": str(source),
             "equipment_plugin_backup_path": str(deployed.backup_path or ""),
             "equipment_plugin_deployed_sha256": deployed.deployed_sha256,
             "equipment_plugin_workspace": str(deployed.workspace_path),
+            "equipment_plugin_workspace_registry_value_before": registry_value_before or "",
+            "equipment_plugin_workspace_registry_value_existed": registry_value_existed,
         })
         self._save_ui_preferences()
         self._equipment_plugin_status_label.setText("最新版 Mod 插件与装备脚本已部署；退出游戏前可在此还原。")
@@ -358,23 +389,44 @@ def _restore_equipment_plugin(self):
         QMessageBox.information(self, "还原装备插件", "当前账号没有可还原的部署记录。")
         return
     if QMessageBox.question(
-        self, "还原装备插件", "将还原部署前备份的 dwmapi.dll；若没有备份，则只删除本程序部署的文件。",
+        self, "还原装备插件",
+        "将还原部署前备份的 dwmapi.dll；若没有备份，则只删除本程序部署的文件。\n"
+        "若 Mod 工作区仍由本程序持有，也会恢复部署前的注册表值。",
         QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
     ) != QMessageBox.Yes:
         return
     try:
-        restore_plugin(
+        workspace_restored = restore_plugin(
             game_executable_path=executable,
             deployed_sha256=deployed_sha256,
             backup_path=preferences.get("equipment_plugin_backup_path"),
+            mod_workspace_path=preferences.get("equipment_plugin_workspace") or None,
+            workspace_registry_value_before=preferences.get(
+                "equipment_plugin_workspace_registry_value_before"
+            ) or None,
+            workspace_registry_value_existed=bool(
+                preferences.get("equipment_plugin_workspace_registry_value_existed")
+            ),
         )
         self._ui_preferences.update({
             "equipment_plugin_backup_path": "",
             "equipment_plugin_deployed_sha256": "",
+            "equipment_plugin_workspace": "",
+            "equipment_plugin_workspace_registry_value_before": "",
+            "equipment_plugin_workspace_registry_value_existed": False,
         })
         self._save_ui_preferences()
         self._equipment_plugin_status_label.setText("已还原游戏目录中的 dwmapi.dll。")
-        QMessageBox.information(self, "还原装备插件", "已完成还原。")
+        QMessageBox.information(
+            self,
+            "还原装备插件",
+            "已完成还原。"
+            + (
+                "并已恢复此前的 Mod 工作区。"
+                if workspace_restored
+                else "Mod 工作区已被其他程序接管或不存在，未修改其注册表值。"
+            ),
+        )
     except EquipmentPluginDeploymentError as exc:
         QMessageBox.warning(self, "还原装备插件", str(exc))
 

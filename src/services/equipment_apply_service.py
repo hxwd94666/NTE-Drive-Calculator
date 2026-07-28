@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import time
 from typing import Any, Protocol
@@ -17,6 +17,10 @@ from .inventory_sync_service import InventorySyncState
 
 MAX_UID_COMPONENT = 4_294_967_295
 _PROTAGONIST_CHARACTER_IDS = {1046: "male", 1051: "female"}
+# nte-mods-plugin 的成功响应表示请求已被 IPC 接收；游戏线程完成装备变更
+# 可能稍晚。极速模式没有可靠的逐条完成事件，因此在相邻装备命令之间保留
+# 一个短执行窗口，避免驱动-only 方案连续塞入 8 条请求时中间指令被吞。
+FAST_EQUIPMENT_COMMAND_SETTLE_SECONDS = 0.5
 
 
 class EquipmentApplyError(RuntimeError):
@@ -36,6 +40,12 @@ class _LiveInventorySync(Protocol):
     def equip_one_key(self, **kwargs: Any) -> Any: ...
 
     def equip_module(self, **kwargs: Any) -> Any: ...
+
+    def unequip_module(self, **kwargs: Any) -> Any: ...
+
+    def unequip_core(self, **kwargs: Any) -> Any: ...
+
+    def unequip_all(self, **kwargs: Any) -> Any: ...
 
     def move_module_to_character(self, **kwargs: Any) -> Any: ...
 
@@ -86,6 +96,85 @@ class EquipmentApplyService:
     ) -> None:
         self.user_dao = user_dao
         self.sync_service = sync_service
+
+    @staticmethod
+    def _uid_pair(value: Mapping[str, Any]) -> tuple[int, int]:
+        return int(value["uid_serial"]), int(value["uid_slot"])
+
+    @staticmethod
+    def _character_uid_key(value: Mapping[str, Any]) -> tuple[int, int]:
+        return int(value["serial"]), int(value["slot"])
+
+    def validate_bulk_plans_for_fast_apply(
+        self,
+        roles: list[Mapping[str, Any]],
+        *,
+        stable_snapshot_id: int,
+    ) -> None:
+        """验证一组方案可同时落地，且不会让两个角色争用同一具体装备。"""
+
+        occupied_by: dict[tuple[int, int], str] = {}
+        targets: dict[tuple[int, int], str] = {}
+        validated: list[tuple[str, dict[str, Any]]] = []
+        for role in roles:
+            role_name = str(role["role_name"])
+            plan = self.validate_plan_for_fast_apply(
+                int(role["plan_id"]), stable_snapshot_id=stable_snapshot_id,
+            )
+            validated.append((role_name, plan))
+            role_targets = [
+                {
+                    "character_uid": role["character_uid"],
+                    "character_id": role.get("character_id"),
+                },
+                *[
+                    row
+                    for row in role.get("fallback_targets") or ()
+                ],
+            ]
+            for target in role_targets:
+                character_key = self._character_uid_key(target["character_uid"])
+                previous_target = targets.setdefault(character_key, role_name)
+                if previous_target != role_name:
+                    raise EquipmentApplyError(
+                        "极速全角色方案冲突："
+                        f"[{previous_target}] 与 [{role_name}] 指向同一个角色实例"
+                    )
+        for role_name, plan in validated:
+            for assignment in plan["assignments"]:
+                uid_pair = self._uid_pair(assignment)
+                previous_role = occupied_by.setdefault(uid_pair, role_name)
+                if previous_role != role_name:
+                    raise EquipmentApplyError(
+                        "极速全角色方案冲突："
+                        f"装备 UID {uid_pair} 同时被 [{previous_role}]、[{role_name}] 使用。"
+                        "请先在方案中替换其中一个装备后再执行。"
+                    )
+
+    def _dispatch_with_busy_retry(
+        self,
+        dispatch: Callable[[], Any],
+        *,
+        operation: str,
+        retries: int = 6,
+        settle_seconds: float = 0.0,
+    ) -> Any:
+        """MOD 最多允许一条执行中和一条排队请求，忙时串行重试。"""
+
+        for attempt in range(retries):
+            try:
+                result = dispatch()
+                if settle_seconds > 0:
+                    # 游戏内没有操作后的背包快照可等；留出一个完整执行间隔，
+                    # 避免下一条 RPC 抢占 MOD 的执行位或排队位。
+                    time.sleep(settle_seconds)
+                return result
+            except Exception as exc:
+                if not is_mods_plugin_busy_error(exc) or attempt + 1 >= retries:
+                    raise
+                logger.warning("{} 遇到装备 MOD 队列繁忙，正在重试：{}", operation, exc)
+                time.sleep(0.6)
+        raise EquipmentApplyError(f"{operation} 未能提交到装备 MOD")
 
     def require_stable_snapshot(self) -> int:
         """Validate the live sync once and return the snapshot to pin for a job."""
@@ -303,7 +392,7 @@ class EquipmentApplyService:
         *,
         items: list[dict[str, Any]],
         modules: list[dict[str, Any]],
-        core_assignment: dict[str, Any],
+        core_assignment: dict[str, Any] | None,
         character_id: int,
         character_uid: dict[str, int],
     ) -> str | None:
@@ -314,11 +403,13 @@ class EquipmentApplyService:
             (assignment["uid_serial"], assignment["uid_slot"])
             for assignment in modules
         }
-        core_pair = (
-            core_assignment["uid_serial"],
-            core_assignment["uid_slot"],
-        )
-        expected_uids.add(core_pair)
+        core_pair: tuple[int, int] | None = None
+        if core_assignment is not None:
+            core_pair = (
+                core_assignment["uid_serial"],
+                core_assignment["uid_slot"],
+            )
+            expected_uids.add(core_pair)
 
         for assignment in modules:
             uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
@@ -336,14 +427,15 @@ class EquipmentApplyService:
             ):
                 return f"驱动 UID {uid_pair} 的装配位置不一致"
 
-        verified_core = by_uid.get(core_pair)
-        if (
-            verified_core is None
-            or not verified_core["equipped"]
-            or verified_core["equipped_character_uid"] != character_uid
-            or verified_core["equipped_character_id"] != character_id
-        ):
-            return f"核心 UID {core_pair} 的装备状态不一致"
+        if core_pair is not None:
+            verified_core = by_uid.get(core_pair)
+            if (
+                verified_core is None
+                or not verified_core["equipped"]
+                or verified_core["equipped_character_uid"] != character_uid
+                or verified_core["equipped_character_id"] != character_id
+            ):
+                return f"核心 UID {core_pair} 的装备状态不一致"
 
         actual_uids = {
             (item["uid_serial"], item["uid_slot"])
@@ -390,6 +482,48 @@ class EquipmentApplyService:
                 return f"驱动 UID {uid_pair} 的装配位置不一致"
         return None
 
+    def verify_plan_in_snapshot(
+        self,
+        plan_id: int,
+        *,
+        character_uid: Mapping[str, Any] | None = None,
+        target_character_id: int | None = None,
+        stable_snapshot_id: int,
+        exact_loadout: bool = False,
+    ) -> str | None:
+        """只检查稳定快照，不发送任何装备或卸装指令。"""
+
+        snapshot_id = int(stable_snapshot_id)
+        plan = self.validate_plan_for_fast_apply(
+            plan_id, stable_snapshot_id=snapshot_id,
+        )
+        effective_character_id = int(
+            plan["character_id"]
+            if target_character_id is None
+            else target_character_id
+        )
+        assignments = plan["assignments"]
+        modules = [item for item in assignments if item["kind"] == "module"]
+        cores = [item for item in assignments if item["kind"] == "core"]
+        resolved_character_uid = self.resolve_character_uid(
+            effective_character_id, snapshot_id, character_uid
+        )
+        items = self.user_dao.list_inventory_items(snapshot_id)
+        if cores or exact_loadout:
+            return self._plan_mismatch(
+                items=items,
+                modules=modules,
+                core_assignment=cores[0] if cores else None,
+                character_id=effective_character_id,
+                character_uid=resolved_character_uid,
+            )
+        return self._module_plan_mismatch(
+            items=items,
+            modules=modules,
+            character_id=effective_character_id,
+            character_uid=resolved_character_uid,
+        )
+
     def apply_plan(
         self,
         plan_id: int,
@@ -398,6 +532,9 @@ class EquipmentApplyService:
         target_character_id: int | None = None,
         timeout: float = 30.0,
         verify_after_dispatch: bool = True,
+        exact_loadout: bool = False,
+        force_dispatch: bool = False,
+        reset_before_apply: bool = False,
         stable_snapshot_id: int | None = None,
     ) -> EquipmentApplyResult:
         """执行方案。
@@ -482,7 +619,7 @@ class EquipmentApplyService:
                 character_id=effective_character_id,
                 character_uid=resolved_character_uid,
             )
-            if core_assignment is not None
+            if core_assignment is not None or exact_loadout
             else self._module_plan_mismatch(
                 items=current_items,
                 modules=modules,
@@ -490,7 +627,7 @@ class EquipmentApplyService:
                 character_uid=resolved_character_uid,
             )
         )
-        if current_mismatch is None:
+        if current_mismatch is None and not force_dispatch:
             return EquipmentApplyResult(
                 plan_id=plan["plan_id"],
                 before_snapshot_id=before_snapshot_id,
@@ -500,12 +637,35 @@ class EquipmentApplyService:
                 already_applied=True,
             )
 
+        reset_target = reset_before_apply and current_mismatch is not None
+        if reset_target:
+            logger.info(
+                "角色 {} 当前配装不匹配（{}），先卸下全部装备后重装",
+                effective_character_id,
+                current_mismatch,
+            )
+            self._dispatch_with_busy_retry(
+                lambda: self.sync_service.unequip_all(
+                    character=resolved_character_uid
+                ),
+                operation="卸下角色现有装备",
+                settle_seconds=0.7,
+            )
+
         if core_item is not None:
-            rpc_result = self.sync_service.equip_one_key(
-                character=resolved_character_uid,
-                placements=placements,
-                core=_item_uid(core_item),
-                timeout=timeout,
+            rpc_result = self._dispatch_with_busy_retry(
+                lambda: self.sync_service.equip_one_key(
+                    character=resolved_character_uid,
+                    placements=placements,
+                    core=_item_uid(core_item),
+                    timeout=timeout,
+                ),
+                operation="一键装配",
+                settle_seconds=(
+                    0.0
+                    if verify_after_dispatch
+                    else FAST_EQUIPMENT_COMMAND_SETTLE_SECONDS
+                ),
             )
             if not verify_after_dispatch:
                 return EquipmentApplyResult(
@@ -526,31 +686,51 @@ class EquipmentApplyService:
             after_snapshot_id = before_snapshot_id
             for placement, assignment in zip(placements, modules):
                 source_item = by_uid[(assignment["uid_serial"], assignment["uid_slot"])]
+                source_is_reset_target = (
+                    source_item["equipped"]
+                    and source_item.get("equipped_character_uid")
+                    == resolved_character_uid
+                )
+                move_existing = bool(
+                    source_item["equipped"]
+                    and not (reset_target and source_is_reset_target)
+                )
                 dispatcher = (
                     self.sync_service.move_module_to_character
-                    if source_item["equipped"]
+                    if move_existing
                     else self.sync_service.equip_module
                 )
-                for attempt in range(6):
-                    try:
-                        rpc_result.append(dispatcher(
+                dispatch_name = "移动已装备驱动" if move_existing else "装备驱动"
+                if verify_after_dispatch:
+                    rpc_item_result = dispatcher(
+                        character=resolved_character_uid,
+                        equipment=placement["equipment"],
+                        row=placement["row"],
+                        column=placement["column"],
+                    )
+                else:
+                    rpc_item_result = self._dispatch_with_busy_retry(
+                        lambda: dispatcher(
                             character=resolved_character_uid,
                             equipment=placement["equipment"],
                             row=placement["row"],
                             column=placement["column"],
-                        ))
-                        break
-                    except Exception as exc:
-                        # 驱动逐个下发时，游戏插件仅有一个执行位和一个排队位。
-                        # 极速模式没有背包回包可等，因此只对明确的队列繁忙做短暂
-                        # 重试；其他错误仍立即交给上层显示。
-                        if (
-                            verify_after_dispatch
-                            or not is_mods_plugin_busy_error(exc)
-                            or attempt == 5
-                        ):
-                            raise
-                        time.sleep(0.35)
+                        ),
+                        operation=dispatch_name,
+                        settle_seconds=FAST_EQUIPMENT_COMMAND_SETTLE_SECONDS,
+                    )
+                rpc_result.append(rpc_item_result)
+                logger.info(
+                    "角色 {} 驱动 {}/{} 已串行下发：UID ({}, {}) → ({}, {})，方式={}",
+                    effective_character_id,
+                    len(rpc_result),
+                    len(modules),
+                    assignment["uid_serial"],
+                    assignment["uid_slot"],
+                    placement["row"],
+                    placement["column"],
+                    dispatch_name,
+                )
                 if not verify_after_dispatch:
                     continue
                 # The plugin permits only one active and one queued request.
@@ -581,7 +761,7 @@ class EquipmentApplyService:
                 character_id=effective_character_id,
                 character_uid=resolved_character_uid,
             )
-            if core_assignment is not None
+            if core_assignment is not None or exact_loadout
             else self._module_plan_mismatch(
                 items=self.user_dao.list_inventory_items(after_snapshot_id),
                 modules=modules,
