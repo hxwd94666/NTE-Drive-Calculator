@@ -10,192 +10,58 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+from src.integrations.nte_core_events import (
+    CoalescingEventQueue as _CoalescingEventQueue,
+)
+from src.integrations.nte_core_protocol import (
+    JsonObject,
+    MODS_PLUGIN_BUSY_CODES,
+    MODS_PLUGIN_UNAVAILABLE_CODES,
+    NteCoreError,
+    NteCoreNotFoundError,
+    NteCoreProcessError,
+    NteCoreProtocolError,
+    NteCoreRpcError,
+    NteCoreTimeoutError,
+    group_inventory_items_by_character,
+    inventory_item_placement,
+    is_mods_plugin_busy_error,
+    is_mods_plugin_unavailable_error,
+    nte_core_error_has_domain_code,
+)
+
+__all__ = [
+    "MODS_PLUGIN_BUSY_CODES",
+    "MODS_PLUGIN_UNAVAILABLE_CODES",
+    "NteCoreClient",
+    "NteCoreError",
+    "NteCoreNotFoundError",
+    "NteCoreProcessError",
+    "NteCoreProtocolError",
+    "NteCoreRpcError",
+    "NteCoreTimeoutError",
+    "group_inventory_items_by_character",
+    "inventory_item_placement",
+    "is_mods_plugin_busy_error",
+    "is_mods_plugin_unavailable_error",
+    "nte_core_error_has_domain_code",
+]
 
 PROTOCOL_VERSION = 1
 NTE_CORE_ENV = "NTE_CORE_EXE"
 _CALLBACK_STOP = object()
 _U32_MAX = (1 << 32) - 1
 _MAX_EQUIPMENT_PLACEMENTS = 64
-MODS_PLUGIN_UNAVAILABLE_CODES = frozenset(
-    {"MODS_PLUGIN_UNAVAILABLE", "EQUIPMENT_PLUGIN_UNAVAILABLE"}
-)
-MODS_PLUGIN_BUSY_CODES = frozenset({"MODS_PLUGIN_BUSY", "EQUIPMENT_PLUGIN_BUSY"})
-
-JsonObject = dict[str, Any]
 EventHandler = Callable[[JsonObject], None]
 StderrHandler = Callable[[str], None]
 
 
-def _queued_event_method(item: object) -> str | None:
-    event = item[0] if isinstance(item, tuple) else item
-    if not isinstance(event, dict):
-        return None
-    method = event.get("method")
-    return method if isinstance(method, str) else None
-
-
-class _CoalescingEventQueue:
-    """保持可靠事件顺序，同时仅保留最新一条待处理战斗摘要。"""
-
-    def __init__(self) -> None:
-        self._items: deque[object] = deque()
-        self._condition = threading.Condition()
-
-    def put(self, item: object) -> None:
-        with self._condition:
-            if _queued_event_method(item) == "event.battle.summary":
-                for index in range(len(self._items) - 1, -1, -1):
-                    if _queued_event_method(self._items[index]) == "event.battle.summary":
-                        del self._items[index]
-                        break
-            self._items.append(item)
-            self._condition.notify()
-
-    def get(self, timeout: float | None = None) -> object:
-        if timeout is not None and timeout < 0:
-            raise ValueError("timeout must be a non-negative number")
-        with self._condition:
-            if timeout is None:
-                while not self._items:
-                    self._condition.wait()
-            else:
-                deadline = time.monotonic() + timeout
-                while not self._items:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise queue.Empty
-                    self._condition.wait(remaining)
-            return self._items.popleft()
-
-    def get_nowait(self) -> object:
-        return self.get(timeout=0.0)
-
-
-class NteCoreError(RuntimeError):
-    """nte-core 集成的基础错误."""
-
-
-class NteCoreNotFoundError(NteCoreError):
-    """当无法解析 nte-core.exe 时引发"""
-
-
-class NteCoreProcessError(NteCoreError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        return_code: int | None = None,
-        stderr_lines: Sequence[str] = (),
-    ) -> None:
-        super().__init__(message)
-        self.return_code = return_code
-        self.stderr_lines = tuple(stderr_lines)
-
-
-class NteCoreProtocolError(NteCoreError):
-    """当 stdout 违反了已记录的 JSON-RPC/NDJSON 约定或规范时抛出。"""
-
-
-class NteCoreTimeoutError(NteCoreError):
-    def __init__(self, method: str, timeout: float) -> None:
-        super().__init__(f"nte-core request timed out: {method} ({timeout:.1f}s)")
-        self.method = method
-        self.timeout = timeout
-
-
-class NteCoreRpcError(NteCoreError):
-    def __init__(self, error: Mapping[str, Any]) -> None:
-        self.code = int(error.get("code", -32603))
-        self.message = str(error.get("message", "Core error"))
-        data = error.get("data")
-        self.data = dict(data) if isinstance(data, Mapping) else {}
-        domain_code = self.data.get("domain_code")
-        self.domain_code = str(domain_code) if domain_code is not None else None
-        suffix = f" [{self.domain_code}]" if self.domain_code else ""
-        super().__init__(f"nte-core RPC error {self.code}{suffix}: {self.message}")
-
-
-def nte_core_error_has_domain_code(error: object, codes: frozenset[str]) -> bool:
-    """Match current domain codes while retaining compatibility with older Core builds."""
-
-    domain_code = getattr(error, "domain_code", None)
-    if isinstance(domain_code, str):
-        return domain_code in codes
-    message = str(error)
-    return any(f"[{code}]" in message for code in codes)
-
-
-def is_mods_plugin_unavailable_error(error: object) -> bool:
-    return nte_core_error_has_domain_code(error, MODS_PLUGIN_UNAVAILABLE_CODES)
-
-
-def is_mods_plugin_busy_error(error: object) -> bool:
-    return nte_core_error_has_domain_code(error, MODS_PLUGIN_BUSY_CODES)
-
-
-def inventory_item_placement(item: Mapping[str, Any]) -> tuple[int, int] | None:
-    """返回驱动块从 1 开始的装备锚点；兼容旧版 core 的缺失字段。"""
-
-    placement = item.get("equipped_placement")
-    if placement is None:
-        return None
-    if not isinstance(placement, Mapping):
-        raise NteCoreProtocolError(
-            "inventory equipped_placement must be an object or null"
-        )
-    row = placement.get("row")
-    column = placement.get("column")
-    if (
-        isinstance(row, bool)
-        or not isinstance(row, int)
-        or isinstance(column, bool)
-        or not isinstance(column, int)
-        or not 1 <= row <= 5
-        or not 1 <= column <= 5
-    ):
-        raise NteCoreProtocolError(
-            "inventory equipped_placement row and column must be integers in 1..5"
-        )
-    return row, column
-
-
-def group_inventory_items_by_character(
-    snapshot: Mapping[str, Any],
-) -> dict[int, list[JsonObject]]:
-    """按角色表稳定 ID 分组已解析出装备者的背包条目。
-
-    equipped_character_uid 是账号内实例 UID，不能跨账号或连接关联；这里仅使用
-    nte-core 新版提供的 equipped_character_id。旧版 core 缺少该字段时，对应条目
-    保持未归属，不做猜测。
-    """
-
-    items = snapshot.get("items")
-    if not isinstance(items, list):
-        raise NteCoreProtocolError("inventory snapshot items must be an array")
-
-    grouped: dict[int, list[JsonObject]] = {}
-    for item in items:
-        if not isinstance(item, Mapping):
-            raise NteCoreProtocolError("inventory snapshot item must be an object")
-        inventory_item_placement(item)
-        character_id = item.get("equipped_character_id")
-        if character_id is None:
-            continue
-        if isinstance(character_id, bool) or not isinstance(character_id, int) or character_id <= 0:
-            raise NteCoreProtocolError(
-                "inventory equipped_character_id must be a positive integer or null"
-            )
-        grouped.setdefault(character_id, []).append(dict(item))
-    return grouped
-
-
-def _equipment_uid(uid: Mapping[str, Any], field: str) -> JsonObject:
+def _equipment_uid(uid: object, field: str) -> JsonObject:
     if not isinstance(uid, Mapping):
         raise ValueError(f"{field} must be an item UID object")
     slot = uid.get("slot")
@@ -213,7 +79,10 @@ def _equipment_uid(uid: Mapping[str, Any], field: str) -> JsonObject:
     return {"slot": slot, "serial": serial}
 
 
-def _equipment_grid_position(row: int, column: int) -> tuple[int, int]:
+def _equipment_grid_position(
+    row: object,
+    column: object,
+) -> tuple[int, int]:
     if (
         isinstance(row, bool)
         or not isinstance(row, int)

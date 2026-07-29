@@ -1,3 +1,4 @@
+# 管理 nte-core 原始 pcapng 诊断抓包的保留策略。
 """Retention policy for nte-core raw ``.pcapng`` diagnostic captures."""
 
 from __future__ import annotations

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "description": "无用户隐私的 OCR 布局结构黄金样本；文本与坐标均为人工构造。",
+  "cases": [
+    {
+      "name": "1080p_100dpi",
+      "resolution": [1920, 1080],
+      "dpi_scale": 1.0,
+      "forced_type": "drive",
+      "lines": [
+        {"text": "攻击力 48", "box": [1320, 320, 1450, 350]},
+        {"text": "暴击率 2.4%", "box": [1320, 368, 1480, 398]},
+        {"text": "装备者造成伤害提高 10%", "box": [1320, 700, 1650, 730]}
+      ],
+      "expected_stat_texts": ["攻击力 48", "暴击率 2.4%"],
+      "expected_cluster_count": 1
+    },
+    {
+      "name": "2k_100dpi",
+      "resolution": [2560, 1440],
+      "dpi_scale": 1.0,
+      "forced_type": "drive",
+      "lines": [
+        {"text": "生命值 100", "box": [1760, 426, 1940, 466]},
+        {"text": "防御力 16", "box": [1760, 490, 1940, 530]},
+        {"text": "UID 123456", "box": [1760, 900, 1960, 940]}
+      ],
+      "expected_stat_texts": ["生命值 100", "防御力 16"],
+      "expected_cluster_count": 1
+    },
+    {
+      "name": "4k_150dpi",
+      "resolution": [3840, 2160],
+      "dpi_scale": 1.5,
+      "forced_type": "tape",
+      "lines": [
+        {"text": "暴击伤害 4.8%", "box": [2640, 640, 2940, 700]},
+        {"text": "攻击力 96", "box": [2640, 736, 2940, 796]},
+        {"text": "附近角色攻击力增加 10%", "box": [2640, 1500, 3300, 1560]}
+      ],
+      "expected_stat_texts": ["暴击伤害 4.8%", "攻击力 96"],
+      "expected_cluster_count": 1
+    },
+    {
+      "name": "16x10_125dpi",
+      "resolution": [2560, 1600],
+      "dpi_scale": 1.25,
+      "forced_type": "drive",
+      "lines": [
+        {"text": "环合强度 19", "box": [1760, 475, 1980, 520]},
+        {"text": "倾陷强度 19", "box": [1760, 550, 1980, 595]},
+        {"text": "推荐装配", "box": [1760, 1050, 1980, 1095]}
+      ],
+      "expected_stat_texts": ["环合强度 19", "倾陷强度 19"],
+      "expected_cluster_count": 1
+    },
+    {
+      "name": "1080p_125dpi",
+      "resolution": [1920, 1080],
+      "dpi_scale": 1.25,
+      "forced_type": "tape",
+      "lines": [
+        {"text": "生命值% 3.2%", "box": [1320, 320, 1510, 350]},
+        {"text": "防御力% 3.2%", "box": [1320, 368, 1510, 398]},
+        {"text": "每装配一个驱动时增加 5%", "box": [1320, 700, 1700, 730]}
+      ],
+      "expected_stat_texts": ["生命值% 3.2%", "防御力% 3.2%"],
+      "expected_cluster_count": 1
+    }
+  ]
+}

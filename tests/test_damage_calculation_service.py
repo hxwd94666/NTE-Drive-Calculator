@@ -16,7 +16,6 @@ from src.services.damage_calculation_service import (
     RingCharacter,
     calculate_ring_amplification,
     calculate_ring_strength_multiplier,
-    calculate_dissonance_topple_reduction,
     calculate_weave_followup_damage,
     effective_skill_level,
     reaction_multiplier_for_character_level,

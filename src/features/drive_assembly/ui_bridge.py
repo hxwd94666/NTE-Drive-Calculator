@@ -13,7 +13,6 @@ import cv2
 import mss
 import numpy as np
 
-from src.app import runtime
 from src.features.drive_assembly.executor import (
     MouseBackend,
     PyAutoGuiMouseBackend,
@@ -40,9 +39,7 @@ from src.features.drive_assembly.role_flow import (
     collect_role_roster_from_role_list,
     map_role_list_initial_left_reset_sequence,
     plan_role_assembly_from_role_list_roster,
-    plan_role_assembly_from_observations,
     recognize_current_role_from_image,
-    recognize_role_slots_from_image,
     required_roles_from_payloads,
 )
 from src.scanner.ocr_engine import OCREngine
@@ -69,11 +66,11 @@ _RECORDED_ASSEMBLY_ACTIONS = {
 }
 
 
-class _AssemblyRunRecorder:
+class AssemblyRunRecorder:
     """Persist screenshots for the navigation steps of one assembly run."""
 
-    def __init__(self, root: Path | None = None):
-        record_root = root or (runtime.SCREENSHOT_DIR / "record")
+    def __init__(self, root: str | Path):
+        record_root = Path(root)
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self.directory = record_root / f"assembly_{run_id}"
         try:
@@ -120,7 +117,7 @@ class _AssemblyRunRecorder:
         self.capture_foreground(f"{action_name}{role_suffix}")
 
 
-def _is_role_detail_startup_recognition(recognition: Any) -> bool:
+def is_role_detail_startup_recognition(recognition: Any) -> bool:
     """Accept only high-confidence role-detail OCR before sending navigation input."""
 
     return bool(
@@ -162,7 +159,7 @@ def build_single_role_assembly_plan(
             {
                 "name": "install_tape",
                 "role_name": role_name,
-                "sequence": _tape_install_sequence(tape_filter, screen_size, content_rect),
+        "sequence": tape_install_sequence(tape_filter, screen_size, content_rect),
             }
         )
     if drive_blocks:
@@ -195,10 +192,7 @@ def build_all_role_assembly_plan(
 
     payloads = build_role_assembly_payloads(equipped_state, screen_size, content_rect)
     roles = required_roles_from_payloads(payloads)
-    role_plans = [
-        build_single_role_assembly_plan(equipped_state, role, screen_size, content_rect)
-        for role in roles
-    ]
+    role_plans = [build_single_role_assembly_plan(equipped_state, role, screen_size, content_rect) for role in roles]
     ready = [plan for plan in role_plans if plan["available"]]
     return {
         "role_count": len(roles),
@@ -206,32 +200,6 @@ def build_all_role_assembly_plan(
         "roles": roles,
         "role_plans": role_plans,
         "missing_roles": [plan["role_name"] for plan in role_plans if not plan["available"]],
-    }
-
-
-def build_role_traversal_assembly_plan(
-    equipped_state: dict[str, Any] | None,
-    observed_pages: list[list[Any]],
-    screen_size: tuple[int, int] | None = None,
-    content_rect: tuple[int, int, int, int] | None = None,
-) -> dict[str, Any]:
-    """Build traversal and assembly plans from recognized role-list pages."""
-
-    assembly_plan = build_all_role_assembly_plan(equipped_state, screen_size, content_rect)
-    traversal_plan = plan_role_assembly_from_observations(
-        assembly_plan.get("roles", []),
-        observed_pages,
-        screen_size=screen_size,
-        content_rect=content_rect,
-    )
-    return {
-        "assembly_plan": assembly_plan,
-        "traversal_plan": traversal_plan,
-        "ready_count": assembly_plan.get("ready_count", 0),
-        "role_count": assembly_plan.get("role_count", 0),
-        "missing_roles": traversal_plan.get("missing_roles", []),
-        "duplicates": traversal_plan.get("duplicates", []),
-        "unrecognized": traversal_plan.get("unrecognized", []),
     }
 
 
@@ -244,6 +212,7 @@ def execute_all_roles_from_current_game_page(
     reset_scroll_count: int = 6,
     verification_enabled: bool = True,
     role_name_aliases: dict[str, str] | None = None,
+    record_root: str | Path | None = None,
 ):
     """Recognize the current game role list, traverse roles, and execute assembly."""
 
@@ -257,6 +226,7 @@ def execute_all_roles_from_current_game_page(
         reset_scroll_count=reset_scroll_count,
         verification_enabled=verification_enabled,
         role_name_aliases=role_name_aliases,
+        record_root=record_root,
     )
 
 
@@ -270,6 +240,7 @@ def execute_selected_role_from_current_game_page(
     reset_scroll_count: int = 6,
     verification_enabled: bool = True,
     role_name_aliases: dict[str, str] | None = None,
+    record_root: str | Path | None = None,
 ):
     """Find one selected role in the game sidebar and assemble only its blueprint."""
 
@@ -283,6 +254,7 @@ def execute_selected_role_from_current_game_page(
         reset_scroll_count=reset_scroll_count,
         verification_enabled=verification_enabled,
         role_name_aliases=role_name_aliases,
+        record_root=record_root,
     )
 
 
@@ -296,14 +268,17 @@ def _execute_roles_from_current_game_page(
     reset_scroll_count: int,
     verification_enabled: bool,
     role_name_aliases: dict[str, str] | None = None,
+    record_root: str | Path | None = None,
 ):
     """Shared game-page flow: find target roles first, then assemble their blueprints."""
 
-    template_root = template_dir or str(runtime.CONFIG_DIR / "templates" / "roles")
+    if template_dir is None or record_root is None:
+        raise ValueError("automatic assembly requires template_dir and record_root")
+    template_root = template_dir
     if startup_delay_seconds > 0:
         time.sleep(startup_delay_seconds)
     first_image, first_rect = _capture_foreground_client_image()
-    recorder = _AssemblyRunRecorder()
+    recorder = AssemblyRunRecorder(record_root)
     recorder.save_image(first_image, "startup")
     screen_size = (first_rect.width, first_rect.height)
     image_content_rect = _fit_content_rect(first_rect.width, first_rect.height)
@@ -320,7 +295,7 @@ def _execute_roles_from_current_game_page(
     if not required_roles:
         logger.warning("驱动装配未启动 | 原因=没有可装配的目标角色")
         return execute_role_traversal_assembly_plan({"plans": []}, assembly_plan, backend=backend)
-    recognition_roles = _role_recognition_candidates(required_roles, template_root, equipped_state, role_name_aliases)
+    recognition_roles = role_recognition_candidates(required_roles, template_root, equipped_state, role_name_aliases)
     ocr_engine = OCREngine()
     startup_recognition = recognize_current_role_from_image(
         first_image,
@@ -336,7 +311,7 @@ def _execute_roles_from_current_game_page(
         f"method={startup_recognition.method} | OCR={startup_recognition.raw_text!r} | "
         f"record_dir={recorder.directory}"
     )
-    if not _is_role_detail_startup_recognition(startup_recognition):
+    if not is_role_detail_startup_recognition(startup_recognition):
         logger.warning(
             "Current page was not recognized as role detail; continuing automatic assembly as requested | "
             f"OCR={startup_recognition.raw_text!r} | record_dir={recorder.directory}"
@@ -351,12 +326,13 @@ def _execute_roles_from_current_game_page(
         "逐格移动=左摇杆 | 确认=A | 达成全部目标后保留列表并规划返回首个目标"
     )
     action_backend = backend or PyAutoGuiMouseBackend()
-    randomization_enabled = _enable_assembly_randomization(action_backend)
+    randomization_enabled = enable_assembly_randomization(action_backend)
     logger.info(
         "驱动装配随机化 | "
         f"鼠标随机化={'已启用' if randomization_enabled else '后端不支持'} | "
         "点击偏移、拖拽路径与拖拽节奏随机；手柄路径保持固定"
     )
+
     def press_up():
         execute_action_sequence(
             [{"name": "role_list_reset_dpad_up", "gamepad_button": "dpad_up"}],
@@ -427,7 +403,7 @@ def _execute_roles_from_current_game_page(
             max_roles=max_pages or max(20, len(recognition_roles) + 6),
         )
     except BaseException:
-        _close_assembly_backend(action_backend)
+        close_assembly_backend(action_backend)
         raise
     logger.info(
         "驱动装配角色扫描完成："
@@ -468,7 +444,7 @@ def _execute_roles_from_current_game_page(
             on_action_executed=recorder.record_action,
         )
     finally:
-        _close_assembly_backend(action_backend)
+        close_assembly_backend(action_backend)
     logger.info(
         "驱动装配总结果 | "
         f"已执行={report.executed_actions} | 导航={report.navigation_actions} | "
@@ -478,7 +454,7 @@ def _execute_roles_from_current_game_page(
     return report
 
 
-def _enable_assembly_randomization(backend: MouseBackend) -> bool:
+def enable_assembly_randomization(backend: MouseBackend) -> bool:
     """Enable bounded mouse randomization when the selected backend supports it."""
 
     enable_randomization = getattr(backend, "enable_randomization", None)
@@ -488,7 +464,7 @@ def _enable_assembly_randomization(backend: MouseBackend) -> bool:
     return True
 
 
-def _close_assembly_backend(backend: MouseBackend) -> bool:
+def close_assembly_backend(backend: MouseBackend) -> bool:
     """Close the virtual controller when the backend owns one."""
 
     close = getattr(backend, "close", None)
@@ -571,8 +547,7 @@ def _filter_assembly_plan_for_roles(
     targets = [str(role) for role in target_roles if str(role).strip()]
     target_set = set(targets)
     role_plans = [
-        plan for plan in assembly_plan.get("role_plans", [])
-        if str(plan.get("role_name") or "") in target_set
+        plan for plan in assembly_plan.get("role_plans", []) if str(plan.get("role_name") or "") in target_set
     ]
     ready = [plan for plan in role_plans if plan.get("available")]
     filtered = dict(assembly_plan)
@@ -584,7 +559,7 @@ def _filter_assembly_plan_for_roles(
     return filtered
 
 
-def _role_recognition_candidates(
+def role_recognition_candidates(
     required_roles: list[str] | tuple[str, ...],
     template_root: str,
     equipped_state: dict[str, Any] | None,
@@ -662,11 +637,13 @@ def verify_blueprint_against_screenshot(
                 "position": tuple(position),
             }
             if _is_duplicate_drive_block(block):
-                missing_block.update({
-                    "is_duplicate_drive": True,
-                    "duplicate_count": block.get("duplicate_count") or drive.get("duplicate_count"),
-                    "shape_id": block.get("drive_type") or drive.get("shape_id"),
-                })
+                missing_block.update(
+                    {
+                        "is_duplicate_drive": True,
+                        "duplicate_count": block.get("duplicate_count") or drive.get("duplicate_count"),
+                        "shape_id": block.get("drive_type") or drive.get("shape_id"),
+                    }
+                )
             missing.append(missing_block)
     return {"ok": not missing, "missing_blocks": missing}
 
@@ -716,11 +693,13 @@ def _sample_position_looks_occupied(
     return float(np.mean(patch)) >= brightness_threshold
 
 
-def _fit_content_rect(width: int, height: int, reference_size: tuple[int, int] = (2560, 1440)) -> tuple[int, int, int, int]:
+def _fit_content_rect(
+    width: int, height: int, reference_size: tuple[int, int] = (2560, 1440)
+) -> tuple[int, int, int, int]:
     return game_content_rect(width, height, reference_size)
 
 
-def _tape_install_sequence(
+def tape_install_sequence(
     tape_filter: dict[str, Any],
     screen_size: tuple[int, int] | None,
     content_rect: tuple[int, int, int, int] | None,
@@ -745,7 +724,9 @@ def _tape_install_sequence(
     main_stat_selection = map_tape_main_stat_selection(tape_filter["main_stat"], screen_size, content_rect)
     sequence.extend(main_stat_selection.get("ocr_selection_sequence") or main_stat_selection["selection_sequence"])
     sequence.extend(map_tape_sub_stat_filter_entry(screen_size, content_rect)["entry_sequence"])
-    sequence.extend(map_tape_sub_stat_selection(tape_filter.get("sub_stats", []), screen_size, content_rect)["selection_sequence"])
+    sequence.extend(
+        map_tape_sub_stat_selection(tape_filter.get("sub_stats", []), screen_size, content_rect)["selection_sequence"]
+    )
     sequence.extend(map_tape_equip_first_result(screen_size, content_rect)["equip_sequence"])
     return sequence
 

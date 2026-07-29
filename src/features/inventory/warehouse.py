@@ -11,19 +11,21 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QFont, QMouseEvent, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QWidget
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
-from src.app import runtime
-from src.app.theme import GRADE_COLORS, theme_color
+from src.app.theme import theme_color
 from src.domain.stat_catalog import StatCatalog
+from src.integrations.bundled_resources import bundled_config_dir, bundled_game_ui_asset_root
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.sqlite_allocation_inventory import legacy_stat_name
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.warehouse_visual_catalog import (
+    representative_core_item_id,
+    representative_module_item_id,
+)
 
 
 _STAT_LABELS = {
@@ -49,10 +51,30 @@ _QUALITY_META = {
     "blue": ("蓝色", "#5d9be8"),
     "green": ("绿色", "#54b86b"),
 }
-_ROLE_AVATAR_ALIASES = {
+ROLE_AVATAR_ALIASES = {
     "零": "主角",
     "「零」": "主角",
 }
+_TEMPLATE_ROOTS = (bundled_config_dir() / "templates",)
+_ASSET_ROOT = bundled_game_ui_asset_root()
+
+
+def configure_warehouse_view_template_roots(
+    *template_roots: str | Path,
+    asset_root: str | Path | None = None,
+) -> None:
+    """Configure account-independent template roots at the composition root."""
+
+    global _ASSET_ROOT, _TEMPLATE_ROOTS
+    roots = tuple(
+        Path(root).resolve()
+        for root in template_roots
+        if root is not None
+    )
+    _TEMPLATE_ROOTS = roots or (bundled_config_dir() / "templates",)
+    if asset_root is not None:
+        _ASSET_ROOT = Path(asset_root).resolve() / "game_ui"
+    _legacy_character_avatar.cache_clear()
 
 
 @lru_cache(maxsize=96)
@@ -60,8 +82,8 @@ def _legacy_character_avatar(character_name: str) -> QPixmap:
     """Use the shipped config/templates/roles portrait, tolerating decorative aliases."""
     if not character_name:
         return QPixmap()
-    avatar_name = _ROLE_AVATAR_ALIASES.get(character_name, character_name)
-    normalized_name = _normalize_role_avatar_name(avatar_name)
+    avatar_name = ROLE_AVATAR_ALIASES.get(character_name, character_name)
+    normalized_name = normalize_role_avatar_name(avatar_name)
     for root in _template_root_candidates():
         role_root = root / "roles"
         direct_path = role_root / f"{avatar_name}.png"
@@ -69,15 +91,15 @@ def _legacy_character_avatar(character_name: str) -> QPixmap:
             return QPixmap(str(direct_path))
         candidates = [
             path for path in role_root.glob("*.png")
-            if _normalize_role_avatar_name(path.stem) == normalized_name
+        if normalize_role_avatar_name(path.stem) == normalized_name
         ]
         if len(candidates) == 1:
             return QPixmap(str(candidates[0]))
         fuzzy_candidates = [
             path for path in role_root.glob("*.png")
             if normalized_name and (
-                _normalize_role_avatar_name(path.stem).startswith(normalized_name)
-                or normalized_name.startswith(_normalize_role_avatar_name(path.stem))
+            normalize_role_avatar_name(path.stem).startswith(normalized_name)
+            or normalized_name.startswith(normalize_role_avatar_name(path.stem))
             )
         ]
         if len(fuzzy_candidates) == 1:
@@ -85,7 +107,7 @@ def _legacy_character_avatar(character_name: str) -> QPixmap:
     return QPixmap()
 
 
-def _normalize_role_avatar_name(value: Any) -> str:
+def normalize_role_avatar_name(value: Any) -> str:
     """Normalize display names such as 「零」 and template names such as 零（男主）."""
     text = str(value or "").strip()
     text = text.strip("「」【】[]")
@@ -139,11 +161,6 @@ def _drive_type_label(shape: str) -> str:
     return {"2": "II型驱动", "3": "III型驱动", "4": "IV型驱动"}.get(number, "驱动")
 
 
-def _format_stat(stat: Mapping[str, Any]) -> str:
-    view = _stat_view(stat)
-    return f"{view['label']}  {view['value']}"
-
-
 def _stat_view(stat: Mapping[str, Any], *, main: bool = False) -> dict[str, Any]:
     """Prepare one stat for aligned card rendering while keeping its original value."""
     property_id = str(stat.get("property_id") or "")
@@ -164,7 +181,7 @@ def _stat_view(stat: Mapping[str, Any], *, main: bool = False) -> dict[str, Any]
 @lru_cache(maxsize=1)
 def _visual_core_main_values() -> dict[str, float]:
     """Map official property IDs to max-level card-main values for old scans."""
-    catalog = StatCatalog.from_config_dir()
+    catalog = StatCatalog.from_config_dir(bundled_config_dir())
     values: dict[str, float] = {}
     for property_id in set(_STAT_LABELS) | {
         "DamageUpChaosBase", "DamageUpCosmosBase", "DamageUpIncantationBase",
@@ -201,15 +218,7 @@ def _warehouse_main_stats(row: Mapping[str, Any], source: str) -> list[Mapping[s
 
 
 def _template_root_candidates() -> tuple[Path, ...]:
-    candidates: list[Path] = []
-    for source in (
-        getattr(runtime, "TEMPLATE_DIR", None),
-        Path(getattr(runtime, "BUNDLED_CONFIG_DIR", Path("config"))) / "templates",
-        Path("config") / "templates",
-    ):
-        if isinstance(source, Path) and source not in candidates:
-            candidates.append(source)
-    return tuple(candidates)
+    return _TEMPLATE_ROOTS
 
 
 def warehouse_shape_pixmap(geometry_or_shape: Any, quality: str = "Gold") -> QPixmap:
@@ -220,7 +229,7 @@ def warehouse_shape_pixmap(geometry_or_shape: Any, quality: str = "Gold") -> QPi
     module icon, rather than the old ``config/templates`` shape artwork.
     """
     shape = _shape_label(geometry_or_shape)
-    item_id = _representative_module_item_id(shape, _quality_key(quality))
+    item_id = representative_module_item_id(shape, _quality_key(quality))
     path = _equipment_item_icon("module", item_id)
     return _equipment_item_pixmap(str(path or ""))
 
@@ -233,45 +242,12 @@ def warehouse_core_pixmap(suit_id: Any, quality: str = "Gold") -> QPixmap:
     and quality, so those are enough to choose the matching official card
     artwork for every visual scan/parse route.
     """
-    item_id = _representative_core_item_id(str(suit_id or ""), _quality_key(quality))
+    item_id = representative_core_item_id(
+        str(suit_id or ""),
+        _quality_key(quality),
+    )
     path = _equipment_item_icon("core", item_id)
     return _equipment_item_pixmap(str(path or ""))
-
-
-@lru_cache(maxsize=48)
-def _representative_module_item_id(shape: str, quality: str) -> str:
-    """Find one official module matching a geometry/quality pair for UI-only use."""
-    try:
-        with StaticGameDataDao() as static_dao:
-            rows = static_dao.list_equipment_items("module")
-    except Exception:
-        return ""
-    for row in rows:
-        if (
-            _shape_label(row.get("geometry_id")) == shape
-            and _quality_key(row.get("quality")) == quality
-        ):
-            return str(row.get("item_id") or "")
-    return ""
-
-
-@lru_cache(maxsize=64)
-def _representative_core_item_id(suit_id: str, quality: str) -> str:
-    """Find a non-guide official card matching a visual card's suit/quality."""
-    try:
-        with StaticGameDataDao() as static_dao:
-            rows = static_dao.list_equipment_items("core")
-    except Exception:
-        return ""
-    matches = [
-        row for row in rows
-        if str(row.get("suit_id") or "") == suit_id
-        and _quality_key(row.get("quality")) == quality
-    ]
-    for row in matches:
-        if not bool(row.get("is_guide_item")):
-            return str(row.get("item_id") or "")
-    return str(matches[0].get("item_id") or "") if matches else ""
 
 
 @lru_cache(maxsize=4)
@@ -288,13 +264,10 @@ def _equipment_item_icon(
     item_id = str(item_id or "")
     if not item_id:
         return None
-    runtime_root = getattr(runtime, "ASSET_DIR", None)
     root = (
         Path(asset_root)
         if asset_root is not None
-        else Path(runtime_root) / "game_ui"
-        if runtime_root is not None
-        else Path.cwd() / "assets" / "game_ui"
+        else _ASSET_ROOT
     )
     return _asset_catalog(str(root.expanduser().resolve())).inventory_item_icon(kind, item_id)
 
@@ -311,7 +284,7 @@ def _warehouse_item_icon(
         return icon
     # A core from an OCR/gamepad snapshot has no official item ID by design.
     # Do not let the caller's generic H_3 fallback render it as a drive.
-    fallback_item_id = _representative_core_item_id(
+    fallback_item_id = representative_core_item_id(
         str(row.get("suit_id") or ""),
         _quality_key(row.get("quality")),
     )
@@ -329,13 +302,10 @@ def _character_icon(
         normalized_id = int(character_id)
     except (TypeError, ValueError):
         return None
-    runtime_root = getattr(runtime, "ASSET_DIR", None)
     root = (
         Path(asset_root)
         if asset_root is not None
-        else Path(runtime_root) / "game_ui"
-        if runtime_root is not None
-        else Path.cwd() / "assets" / "game_ui"
+        else _ASSET_ROOT
     )
     return _asset_catalog(str(root.expanduser().resolve())).character_icon(normalized_id)
 
@@ -480,52 +450,6 @@ def warehouse_type_options(items: Iterable[Mapping[str, Any]], category: str = "
         label = str(item.get("title") if kind == "module" else item.get("suit_name") or "未知类型")
         options[key] = label
     return sorted(options.items(), key=lambda pair: (pair[1], pair[0]))
-
-
-def load_warehouse_snapshot(database_path: str | Path) -> dict[str, Any]:
-    """Read one immutable current snapshot in a worker thread."""
-    path = Path(database_path)
-    if not path.is_file():
-        return {"snapshot_id": None, "items": []}
-    with UserDataDao(path) as dao, StaticGameDataDao() as static_dao:
-        snapshot_id = dao.current_inventory_snapshot_id()
-        if snapshot_id is None:
-            return {"snapshot_id": None, "items": []}
-        summary = dao.inventory_snapshot_summary(snapshot_id) or {}
-        source = str(summary.get("source") or "")
-        rows = dao.list_inventory_items(snapshot_id)
-        character_names = {
-            int(character["character_id"]): str(character.get("name_zh") or "")
-            for character in static_dao.list_characters()
-            if character.get("character_id") is not None
-        }
-        character_ids_by_instance = {
-            (int(mapping["uid_slot"]), int(mapping["uid_serial"])): int(mapping["character_id"])
-            for mapping in dao.list_character_instance_mappings()
-        }
-    for row in rows:
-        character_id = row.get("equipped_character_id")
-        if character_id is None and isinstance(
-            row.get("equipped_character_uid"), Mapping
-        ):
-            character_uid = row["equipped_character_uid"]
-            try:
-                character_id = character_ids_by_instance.get((
-                    int(character_uid["slot"]), int(character_uid["serial"]),
-                ))
-            except (KeyError, TypeError, ValueError):
-                character_id = None
-            if character_id is not None:
-                # This is a display-only recovery from historical snapshot
-                # evidence.  It never alters the captured inventory row.
-                row["equipped_character_id"] = character_id
-        if isinstance(character_id, int):
-            row["equipped_character_name"] = character_names.get(character_id, "")
-    return {
-        "snapshot_id": snapshot_id,
-        "source": source,
-        "items": [warehouse_item_view(row, source=source) for row in rows],
-    }
 
 
 def filter_warehouse_items(
@@ -792,203 +716,3 @@ class WarehouseCardDelegate(QStyledItemDelegate):
                 row_rect = QRect(left, content_top + number * 23, width, 21)
                 self._stat_row(painter, row_rect, stat, main=bool(stat.get("main")))
         painter.restore()
-
-
-class WarehouseResultCard(QWidget):
-    """Paint one result with the same compact visual rules as the warehouse."""
-
-    CARD_SIZE = WarehouseCardDelegate.CARD_SIZE
-
-    def __init__(
-        self,
-        item_view: Mapping[str, Any],
-        *,
-        score: float | None,
-        grade: str | None,
-        direct_damage_score: float | None,
-        split_metrics: bool = False,
-        replacement_callback: Callable[[], None] | None = None,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.item_view = dict(item_view)
-        self.score = None if score is None else float(score)
-        self.grade = str(grade or "")
-        self.direct_damage_score = (
-            None if direct_damage_score is None else float(direct_damage_score)
-        )
-        self.split_metrics = bool(split_metrics)
-        self._replacement_callback = replacement_callback
-        self._selected = False
-        self.setFixedSize(self.CARD_SIZE)
-        owner_name = str(
-            self.item_view.get("equipped_character_name") or ""
-        ).strip()
-        if replacement_callback is not None:
-            self.setCursor(QCursor(Qt.PointingHandCursor))
-        tooltip = "点击卡片替换装备" if replacement_callback is not None else ""
-        if owner_name:
-            tooltip += (
-                ("\n" if tooltip else "")
-                + f"当前装配方案持有者：{owner_name}"
-            )
-        if tooltip:
-            self.setToolTip(tooltip)
-
-    def set_selected(self, selected: bool) -> None:
-        selected = bool(selected)
-        if self._selected == selected:
-            return
-        self._selected = selected
-        self.update()
-
-    @staticmethod
-    def _score_badge(
-        painter: QPainter,
-        rect: QRect,
-        text: str,
-        color: str,
-    ) -> None:
-        background = QColor(theme_color(color))
-        background.setAlpha(64)
-        painter.setBrush(background)
-        painter.setPen(QPen(QColor(theme_color(color)), 1))
-        painter.drawRoundedRect(rect, 4, 4)
-        font = QFont(painter.font())
-        font.setPointSize(8)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(QColor(theme_color("#f0f6fc")))
-        painter.drawText(
-            rect.adjusted(3, 0, -3, 0),
-            Qt.AlignCenter | Qt.TextSingleLine,
-            text,
-        )
-
-    def paintEvent(self, _event) -> None:
-        item = self.item_view
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect().adjusted(4, 4, -4, -4)
-        painter.setBrush(QColor(theme_color("#161b22")))
-        painter.setPen(QPen(
-            QColor(theme_color("#58a6ff" if self._selected else "#30363d")),
-            2 if self._selected else 1,
-        ))
-        painter.drawRoundedRect(rect, 9, 9)
-
-        left, top, width = rect.left() + 12, rect.top() + 10, rect.width() - 24
-        quality_color = str(item.get("quality_color") or "#8b949e")
-        icon_rect = QRect(left, top, 44, 44)
-        pixmap = _equipment_item_pixmap(str(item.get("item_icon_path") or ""))
-        if pixmap.isNull() and item.get("kind") == "core":
-            pixmap = warehouse_core_pixmap(
-                item.get("suit_id"), str(item.get("quality") or "gold"),
-            )
-        if pixmap.isNull() and item.get("kind") != "core":
-            pixmap = warehouse_shape_pixmap(
-                str(item.get("shape") or "H_3"),
-                str(item.get("quality") or "gold"),
-            )
-        if not pixmap.isNull():
-            painter.drawPixmap(icon_rect, pixmap)
-        else:
-            painter.setBrush(QColor(quality_color))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(icon_rect.adjusted(8, 8, -8, -8))
-
-        avatar_rect = QRect(rect.right() - 48, top + 1, 36, 36)
-        if item.get("equipped"):
-            avatar = _equipment_item_pixmap(
-                str(item.get("equipped_character_icon_path") or "")
-            )
-            if avatar.isNull():
-                avatar = _legacy_character_avatar(
-                    str(item.get("equipped_character_name") or "")
-                )
-            if not avatar.isNull():
-                painter.drawPixmap(avatar_rect, avatar)
-
-        name_size = 10 if item.get("kind") == "core" else 11
-        header_reserved = 42 if item.get("equipped") else 0
-        WarehouseCardDelegate._text(
-            painter,
-            QRect(left + 52, top + 2, width - 52 - header_reserved, 20),
-            str(item.get("display_name") or item.get("item_name") or ""),
-            theme_color("#f0f6fc"),
-            name_size,
-            bold=True,
-        )
-        if item.get("level_known", True):
-            level = f"Lv.{item.get('level', 0)}"
-            max_level = int(item.get("max_level", 0) or 0)
-            if max_level:
-                level += f" / {max_level}"
-        else:
-            level = "未知等级"
-        WarehouseCardDelegate._text(
-            painter,
-            QRect(left + 52, top + 23, width - 52 - header_reserved, 16),
-            level,
-            quality_color,
-            9,
-        )
-
-        stats = [
-            *(item.get("main_stats") or ()),
-            *(item.get("sub_stats") or ()),
-        ]
-        content_top = top + 62
-        if not stats:
-            WarehouseCardDelegate._text(
-                painter,
-                QRect(left, content_top + 7, width, 18),
-                "暂无词条数据",
-                theme_color("#6e7681"),
-                10,
-            )
-        else:
-            for number, stat in enumerate(stats[:6]):
-                row_rect = QRect(left, content_top + number * 20, width, 18)
-                WarehouseCardDelegate._stat_row(
-                    painter,
-                    row_rect,
-                    stat,
-                    main=bool(stat.get("main")),
-                )
-
-        footer_top = rect.bottom() - 29
-        if self.score is None:
-            score_text = "--"
-        else:
-            score_text = f"{self.score:.1f}".rstrip("0").rstrip(".")
-        grade_text = self.grade or "--"
-        direct_text = (
-            f"{self.direct_damage_score:.1f}%"
-            if self.direct_damage_score is not None
-            else "--"
-        )
-        grade_color = GRADE_COLORS.get(self.grade, "#58a6ff")
-        if self.split_metrics:
-            # Replacement candidates compare three independent values.  Give
-            # them equal visual weight and centered labels.
-            gap = 5
-            metric_width = max(1, (width - gap * 2) // 3)
-            self._score_badge(painter, QRect(left, footer_top, metric_width, 20), score_text, grade_color)
-            self._score_badge(painter, QRect(left + metric_width + gap, footer_top, metric_width, 20), grade_text, grade_color)
-            self._score_badge(painter, QRect(left + (metric_width + gap) * 2, footer_top, metric_width, 20), direct_text, "#ffaa00")
-        else:
-            # Normal role-detail cards retain the compact score·grade badge.
-            compact_score = f"{score_text}·{grade_text}" if self.grade else score_text
-            self._score_badge(painter, QRect(left, footer_top, 80, 20), compact_score, grade_color)
-            self._score_badge(painter, QRect(left + 85, footer_top, 62, 20), direct_text, "#ffaa00")
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if (
-            event.button() == Qt.LeftButton
-            and self._replacement_callback is not None
-        ):
-            self._replacement_callback()
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)

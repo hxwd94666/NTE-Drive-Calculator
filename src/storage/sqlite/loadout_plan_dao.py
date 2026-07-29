@@ -2,25 +2,17 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
-from pathlib import Path
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
-    ALLOCATION_STRATEGIES,
-    DEFAULT_SCHEMA_PATH,
-    DEFAULT_SNAPSHOT_RETENTION_COUNT,
-    SNAPSHOT_SOURCES,
-    SUIT_REQUIREMENT_MODES,
-    SYNC_METHODS,
-    USER_MIGRATIONS,
     SCHEMA_VERSION,
     UserDataError,
     UserDataValidationError,
     _decoded,
     _integer,
     _json,
-    _mark_duplicate_modules,
     _plain_object,
     _utc_now,
 )
@@ -31,7 +23,7 @@ from src.services.virtual_equipment_service import (
 )
 
 
-class LoadoutPlanDaoMixin:
+class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
     def save_loadout_plan(
         self,
         *,
@@ -86,11 +78,6 @@ class LoadoutPlanDaoMixin:
         now = _utc_now()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            if is_active:
-                connection.execute(
-                    "UPDATE loadout_plan SET is_active = 0, updated_at_utc = ? WHERE character_id = ?",
-                    (now, raw_character_id),
-                )
             cursor = connection.execute(
                 """
                 INSERT INTO loadout_plan(
@@ -104,6 +91,8 @@ class LoadoutPlanDaoMixin:
                     _json(dict(payload or {})), int(is_active), now, now,
                 ),
             )
+            if cursor.lastrowid is None:
+                raise UserDataError("创建配装方案后未返回 plan_id")
             plan_id = int(cursor.lastrowid)
             for ordinal, (serial, slot, kind, assignment) in enumerate(normalized):
                 connection.execute(
@@ -223,6 +212,8 @@ class LoadoutPlanDaoMixin:
                     now,
                 ),
             )
+            if cursor.lastrowid is None:
+                raise UserDataError("创建残留配装方案后未返回 plan_id")
             residual_plan_id = int(cursor.lastrowid)
             for ordinal, assignment in enumerate(residual_assignments):
                 connection.execute(
@@ -385,6 +376,8 @@ class LoadoutPlanDaoMixin:
                     _json(dict(plan.get("payload") or {})), int(is_active), now, now,
                 ),
             )
+            if cursor.lastrowid is None:
+                raise UserDataError("创建配装方案后未返回 plan_id")
             plan_id = int(cursor.lastrowid)
             for ordinal, assignment in enumerate(plan.get("assignments") or ()):
                 connection.execute(
@@ -748,18 +741,22 @@ class LoadoutPlanDaoMixin:
         return cursor.rowcount > 0
 
     def summary(self) -> dict[str, Any]:
+        snapshot_count = self._one(
+            "SELECT COUNT(*) AS count FROM inventory_snapshot"
+        )
+        loadout_plan_count = self._one(
+            "SELECT COUNT(*) AS count FROM loadout_plan"
+        )
         return {
             "schema_version": SCHEMA_VERSION,
             "database_path": str(self.database_path),
             "profile": self.profile(),
             "sync_settings": self.get_sync_settings(),
             "inventory": self.current_inventory_summary(),
-            "snapshot_count": self._one(
-                "SELECT COUNT(*) AS count FROM inventory_snapshot"
-            )["count"],
-            "loadout_plan_count": self._one(
-                "SELECT COUNT(*) AS count FROM loadout_plan"
-            )["count"],
+            "snapshot_count": int((snapshot_count or {}).get("count", 0)),
+            "loadout_plan_count": int(
+                (loadout_plan_count or {}).get("count", 0)
+            ),
         }
 
     def integrity_check(self) -> dict[str, Any]:

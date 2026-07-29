@@ -86,7 +86,10 @@ def estimate_candidate_pool_limits(
         default=1,
     )
     drive_limit = max(15, max(shape_demands.values(), default=0) + 5, group_size * 10)
-    tape_limit = max(6, group_size * 4)
+    # Strict-priority roles can receive separate per-role lists containing
+    # the same physical core UIDs. Retain at least one distinct candidate per
+    # selected role so cross-role uniqueness does not strand later roles.
+    tape_limit = max(6, len(role_order), group_size * 4)
     return drive_limit, tape_limit
 
 
@@ -191,6 +194,7 @@ class AllocationKernel:
         dispatcher = DispatcherEngine(
             dict(request.roles_db), dict(request.sets_db), dict(request.blueprints_db),
             core_set_targets=dict(request.core_set_targets),
+            stat_catalog=self.scoring_engine.stat_catalog,
         )
         return dispatcher.execute_dispatch(
             request.strategy,

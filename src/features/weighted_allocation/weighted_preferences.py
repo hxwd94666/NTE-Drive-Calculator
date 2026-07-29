@@ -5,64 +5,47 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFrame,
-    QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QFormLayout, QGridLayout, QScrollArea, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
-from src.app import runtime
-from src.app.theme import theme_color, theme_rgba, themed_style
 from src.app.workers import WorkerThread
+from src.domain.grade_limits import GRADE_LADDER
 from src.features.allocation.priority_groups import priority_groups_to_links
 from src.features.allocation.role_selector import RoleSelector, resolve_priority_choice
-from src.features.allocation import results_view as legacy_results
-from src.features.inventory import page as inventory_page
-from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
+from src.features.allocation.role_selector_help import (
+    CRIT_THRESHOLD_HELP,
+    SET_EFFECT_HELP,
+    STAT_PRIORITY_HELP,
+)
 from src.features.weighted_allocation.runner import (
-    WeightedAllocationPersistence, WeightedAllocationPreview, WeightedAllocationRequest,
-    read_weighted_allocation_persistence, restore_weighted_allocation_preview,
-    replace_weighted_allocation_assignment, run_weighted_allocation,
-    save_weighted_allocation_preview,
+    WeightedAllocationPersistence,
+    WeightedAllocationPreview,
+    read_weighted_allocation_persistence,
+    restore_weighted_allocation_preview,
 )
-from src.services.allocation_solver import AllocationSolveResult, RoleAllocationOption
-from src.services.allocation_context import AllocationContext
-from src.services.account_settings_service import AccountSettingsService
-from src.services.character_weight_service import (
-    ensure_account_character_weights, save_account_character_weights,
+from src.solver.set_effects import (
+    FOUR_PIECE,
+    NO_EFFECT,
+    TWO_PIECE,
+    normalize_set_effect_mode,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.equipment_level_projection_service import (
-    project_equipment_items_to_max_level,
-)
-from src.services.official_role_page_service import (
-    calculate_official_role_attribute_summaries,
-    calculate_official_role_item_gain,
-    calculate_official_role_margins,
-    load_official_role_detail,
-)
-from src.services.sqlite_allocation_inventory import (
-    AllocationInventoryProjectionError, legacy_shape_id,
-)
-from src.services.virtual_equipment_service import (
-    virtual_equipment_inventory_item,
-)
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.ui.attribute_summary_panel import (
-    AttributeSummaryLoadout,
-    AttributeSummaryPanel,
-    AttributeSummaryRow,
-)
-from src.ui.equipment_replacement_dialog import (
-    EquipmentReplacementCard,
-    show_equipment_replacement_dialog,
-)
-from src.ui.puzzle_board import PuzzleBoardWidget
-from src.ui.widgets import NoWheelDoubleSpinBox, SearchableComboBox
+from src.ui.widgets import SearchableComboBox
+from .dependencies import weighted_allocation_dependencies
 
 
 _INTERNAL_PROFILE_NAME = "__weighted_allocation_role_priority__"
@@ -70,10 +53,14 @@ _INTERNAL_PROFILE_NAME = "__weighted_allocation_role_priority__"
 _INTERNAL_TOP_K = 1
 
 _MAIN_PROPERTY_CHOICES = (
-    ("生命值百分比", "HPMaxUp"), ("攻击力百分比", "AtkUp"),
-    ("防御力百分比", "DefUp"), ("暴击率", "CritBase"),
-    ("暴击伤害", "CritDamageBase"), ("环合强度", "MagBase"),
-    ("倾陷强度", "UnbalIntensityBase"), ("治疗加成", "HealUp"),
+    ("生命值百分比", "HPMaxUp"),
+    ("攻击力百分比", "AtkUp"),
+    ("防御力百分比", "DefUp"),
+    ("暴击率", "CritBase"),
+    ("暴击伤害", "CritDamageBase"),
+    ("环合强度", "MagBase"),
+    ("倾陷强度", "UnbalIntensityBase"),
+    ("治疗加成", "HealUp"),
     ("光属性异能伤害增强", "DamageUpCosmosBase"),
     ("灵属性异能伤害增强", "DamageUpNatureBase"),
     ("咒属性异能伤害增强", "DamageUpIncantationBase"),
@@ -83,18 +70,28 @@ _MAIN_PROPERTY_CHOICES = (
     ("心灵伤害增强", "DamageUpPsychicallyBase"),
 )
 _SUBSTAT_PROPERTY_CHOICES = (
-    ("暴击率%", "CritBase"), ("暴击伤害%", "CritDamageBase"),
-    ("伤害增加%", "DamageUpGeneralBase"), ("攻击力%", "AtkUp"),
-    ("攻击力", "AtkAdd"), ("防御力", "DefAdd"), ("防御力%", "DefUp"),
-    ("生命值%", "HPMaxUp"), ("生命值", "HPMaxAdd"),
-    ("环合强度", "MagBase"), ("倾陷强度", "UnbalIntensityBase"),
+    ("暴击率%", "CritBase"),
+    ("暴击伤害%", "CritDamageBase"),
+    ("伤害增加%", "DamageUpGeneralBase"),
+    ("攻击力%", "AtkUp"),
+    ("攻击力", "AtkAdd"),
+    ("防御力", "DefAdd"),
+    ("防御力%", "DefUp"),
+    ("生命值%", "HPMaxUp"),
+    ("生命值", "HPMaxAdd"),
+    ("环合强度", "MagBase"),
+    ("倾陷强度", "UnbalIntensityBase"),
 )
 _RESULT_PROPERTY_LABELS = {property_id: label for label, property_id in _SUBSTAT_PROPERTY_CHOICES}
-_RESULT_PROPERTY_LABELS.update({
-    property_id: f"{label}%" if "伤害增强" in label or "治疗加成" in label else label
-    for label, property_id in _MAIN_PROPERTY_CHOICES
-    if property_id not in _RESULT_PROPERTY_LABELS
-})
+_RESULT_PROPERTY_LABELS.update(
+    {
+        property_id: f"{label}%" if "伤害增强" in label or "治疗加成" in label else label
+        for label, property_id in _MAIN_PROPERTY_CHOICES
+        if property_id not in _RESULT_PROPERTY_LABELS
+    }
+)
+
+
 def _clear_layout(layout) -> None:
     while layout.count():
         item = layout.takeAt(0)
@@ -105,16 +102,16 @@ def _clear_layout(layout) -> None:
             item.layout().deleteLater()
 
 
-
-
 def render_weighted_allocation_result(*args, **kwargs):
     from .weighted_result_view import render_weighted_allocation_result as render
+
     return render(*args, **kwargs)
 
 
 def _set_weighted_equipment_actions_enabled(window, enabled: bool) -> None:
     """延迟引用工作流，避免偏好模块与工作流模块形成导入环。"""
     from .weighted_workflow import _set_weighted_equipment_actions_enabled as setter
+
     setter(window, enabled)
 
 
@@ -123,6 +120,7 @@ def _load_weighted_persistence(window, database_path: Path) -> None:
 
     window._weighted_persistence_database_path = database_path
     window._weighted_restore_token = object()
+    window._weighted_calculation_token = object()
     window._weighted_allocation_preview = None
     window._weighted_allocation_saved_preview = None
     window.weighted_save_button.setEnabled(False)
@@ -135,50 +133,37 @@ def _load_weighted_persistence(window, database_path: Path) -> None:
         persistence = replace(persistence, restore_request=None)
     if persistence.restore_request is None:
         if weights_changed:
-            window.weighted_status_label.setText(
-                "账号词条权重已更新；已保留角色与空幕选择，请重新计算。"
-            )
+            window.weighted_status_label.setText("账号词条权重已更新；已保留角色与空幕选择，请重新计算。")
         elif persistence.profile_version is None:
             window.weighted_status_label.setText("请选择角色并设置优先级。")
         else:
             window.weighted_status_label.setText(
-                f"已自动读取空幕偏好（v{persistence.profile_version}）；"
-                "未找到与该版本完整对应的已保存方案。"
+                f"已自动读取空幕偏好（v{persistence.profile_version}）；未找到与该版本完整对应的已保存方案。"
             )
         return
     token = object()
     window._weighted_restore_token = token
-    window.weighted_status_label.setText(
-        f"已自动读取空幕偏好（v{persistence.profile_version}），正在恢复已保存方案…"
-    )
+    window.weighted_status_label.setText(f"已自动读取空幕偏好（v{persistence.profile_version}），正在恢复已保存方案…")
     worker = WorkerThread(
-        target=lambda: restore_weighted_allocation_preview(persistence), parent=window,
+        target=lambda: restore_weighted_allocation_preview(persistence),
+        parent=window,
     )
     window._weighted_allocation_restore_worker = worker
-    worker.result_ready.connect(
-        lambda preview: _on_weighted_restore_done(window, token, persistence, preview)
-    )
-    worker.error.connect(
-        lambda error: _on_weighted_restore_error(window, token, persistence, error)
-    )
+    worker.result_ready.connect(lambda preview: _on_weighted_restore_done(window, token, persistence, preview))
+    worker.error.connect(lambda error: _on_weighted_restore_error(window, token, persistence, error))
     worker.start()
 
 
 def _persistence_weights_match_account(
-    window, persistence: WeightedAllocationPersistence,
+    window,
+    persistence: WeightedAllocationPersistence,
 ) -> bool:
     defaults = getattr(window, "_weighted_default_property_weights", {})
     for row in persistence.characters:
         character_id = int(row["character_id"])
-        account = {
-            str(key): float(value)
-            for key, value in defaults.get(character_id, {}).items()
-            if float(value) > 0
-        }
+        account = {str(key): float(value) for key, value in defaults.get(character_id, {}).items() if float(value) > 0}
         saved = {
-            str(key): float(value)
-            for key, value in (row.get("property_weights") or {}).items()
-            if float(value) > 0
+            str(key): float(value) for key, value in (row.get("property_weights") or {}).items() if float(value) > 0
         }
         if account != saved:
             return False
@@ -186,13 +171,11 @@ def _persistence_weights_match_account(
 
 
 def _apply_weighted_persisted_preferences(
-    window, persistence: WeightedAllocationPersistence,
+    window,
+    persistence: WeightedAllocationPersistence,
 ) -> None:
     rows = sorted(persistence.characters, key=lambda row: int(row.get("ordinal", 0)))
-    selected_rows = [
-        row for row in rows
-        if int(row["character_id"]) in getattr(window, "_weighted_role_names", {})
-    ]
+    selected_rows = [row for row in rows if int(row["character_id"]) in getattr(window, "_weighted_role_names", {})]
     selected = [window._weighted_role_names[int(row["character_id"])] for row in selected_rows]
     groups_by_id: dict[int, list[str]] = {}
     for row, name in zip(selected_rows, selected):
@@ -207,11 +190,14 @@ def _apply_weighted_persisted_preferences(
             "suit_requirement_mode": row.get("suit_requirement_mode", "none"),
             "core_main_property_id": row.get("core_main_property_id"),
             "property_weights": dict(
-                getattr(window, "_weighted_default_property_weights", {}).get(
-                    int(row["character_id"]), {}
-                )
+                getattr(window, "_weighted_default_property_weights", {}).get(int(row["character_id"]), {})
             ),
             "substat_priorities": list(row.get("substat_priorities") or ()),
+            "substat_blacklist": list(row.get("substat_blacklist") or ()),
+            "equal_priority": bool(row.get("equal_priority", False)),
+            "ignore_grade_limit": bool(row.get("ignore_grade_limit", False)),
+            "min_grade_limit": str(row.get("min_grade_limit") or "A"),
+            "crit_threshold": row.get("crit_threshold"),
             "property_limits": dict(row.get("property_limits") or {}),
         }
         for row in selected_rows
@@ -219,12 +205,14 @@ def _apply_weighted_persisted_preferences(
 
 
 def _on_weighted_restore_done(
-    window, token: object, persistence: WeightedAllocationPersistence,
+    window,
+    token: object,
+    persistence: WeightedAllocationPersistence,
     preview: WeightedAllocationPreview | None,
 ) -> None:
     if (
         getattr(window, "_weighted_restore_token", None) is not token
-        or Path(runtime.USER_DATABASE_PATH) != persistence.user_database_path
+        or weighted_allocation_dependencies(window).user_database_path != persistence.user_database_path
     ):
         return
     window._weighted_allocation_restore_worker = None
@@ -235,26 +223,25 @@ def _on_weighted_restore_done(
     window.weighted_save_button.setEnabled(bool(preview.result.unified.selected))
     render_weighted_allocation_result(
         window,
-        preview.result,
-        preview.context,
-        role_details=preview.role_details,
+        preview,
     )
     _set_weighted_equipment_actions_enabled(window, bool(preview.result.unified.selected))
     window.weighted_status_label.setText(
-        f"已自动读取保存方案：{len(preview.result.unified.selected)} 个角色，"
-        f"空幕偏好 v{persistence.profile_version}。"
+        f"已自动读取保存方案：{len(preview.result.unified.selected)} 个角色，空幕偏好 v{persistence.profile_version}。"
     )
 
 
 def _on_weighted_restore_error(
-    window, token: object, persistence: WeightedAllocationPersistence, error: str,
+    window,
+    token: object,
+    persistence: WeightedAllocationPersistence,
+    error: str,
 ) -> None:
     if getattr(window, "_weighted_restore_token", None) is not token:
         return
     window._weighted_allocation_restore_worker = None
     window.weighted_status_label.setText(
-        f"已自动读取空幕偏好（v{persistence.profile_version}），"
-        f"但保存方案无法安全恢复：{error}"
+        f"已自动读取空幕偏好（v{persistence.profile_version}），但保存方案无法安全恢复：{error}"
     )
 
 
@@ -282,19 +269,29 @@ def _selection_rows(window) -> list[dict[str, Any]]:
         preference = overrides.get(character_id, {})
         target_suit_id = preference.get("target_suit_id", default_suits.get(character_id))
         priorities = list(preference.get("substat_priorities") or ())
-        weights = dict(
-            preference.get("property_weights", default_weights.get(character_id, {}))
-        )
+        blacklist = list(preference.get("substat_blacklist") or ())
+        weights = dict(preference.get("property_weights", default_weights.get(character_id, {})))
         return {
-            "character_id": character_id, "ordinal": ordinal,
+            "character_id": character_id,
+            "ordinal": ordinal,
             "priority_group": group_index[name],
             "suit_requirement_mode": preference.get(
-                "suit_requirement_mode", "four_piece" if target_suit_id else "none",
+                "suit_requirement_mode",
+                "four_piece" if target_suit_id else "none",
             ),
             "target_suit_id": target_suit_id,
             "core_main_property_id": preference.get("core_main_property_id"),
             "property_weights": weights,
             "substat_priorities": priorities,
+            "substat_blacklist": blacklist,
+            "equal_priority": bool(preference.get("equal_priority", False)),
+            "ignore_grade_limit": bool(
+                preference.get("ignore_grade_limit", False)
+            ),
+            "min_grade_limit": str(
+                preference.get("min_grade_limit") or "A"
+            ).upper(),
+            "crit_threshold": preference.get("crit_threshold"),
             "property_limits": dict(preference.get("property_limits") or {}),
         }
 
@@ -363,7 +360,9 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     suit_row.addWidget(QLabel("套装："))
     suit_combo = SearchableComboBox()
     selector._fill_search_combo(
-        suit_combo, list(suit_ids_by_name), suit_names.get(current_suit_id, ""),
+        suit_combo,
+        list(suit_ids_by_name),
+        suit_names.get(current_suit_id, ""),
     )
     suit_row.addWidget(suit_combo, 1)
     config_layout.addLayout(suit_row)
@@ -373,51 +372,138 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     substat_by_label = getattr(window, "_weighted_substat_property_by_label", {})
     main_label_by_id = {property_id: label for label, property_id in main_by_label.items()}
     substat_label_by_id = {property_id: label for label, property_id in substat_by_label.items()}
-    selected_main = [main_label_by_id[current["core_main_property_id"]]] if current.get("core_main_property_id") in main_label_by_id else []
+    selected_main = (
+        [main_label_by_id[current["core_main_property_id"]]]
+        if current.get("core_main_property_id") in main_label_by_id
+        else []
+    )
     selected_substats = [
         substat_label_by_id[property_id]
         for property_id in current.get("substat_priorities") or ()
         if property_id in substat_label_by_id
     ]
+    selected_blacklist = [
+        substat_label_by_id[property_id]
+        for property_id in current.get("substat_blacklist") or ()
+        if property_id in substat_label_by_id
+    ]
     stats_box = QGroupBox("词条自选")
     stats_layout = QVBoxLayout(stats_box)
-    stats_layout.addWidget(_build_single_select_row(
-        selector, "空幕主词条：", list(main_by_label), selected_main,
-    ))
-    stats_layout.addWidget(selector._build_multi_select_row(
-        "空幕/驱动副词条：", list(substat_by_label), selected_substats, " > ",
-    ))
-    layout.addWidget(stats_box)
-
-    current_weights = dict(
-        current.get(
-            "property_weights",
-            getattr(window, "_weighted_default_property_weights", {}).get(character_id, {}),
+    stats_layout.addWidget(
+        _build_single_select_row(
+            selector,
+            "空幕主词条：",
+            list(main_by_label),
+            selected_main,
         )
     )
-    weights_box = QGroupBox("词条权重")
-    weights_form = QFormLayout(weights_box)
-    weights_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-    weight_inputs: dict[str, NoWheelDoubleSpinBox] = {}
-    for label, property_id in substat_by_label.items():
-        spin = NoWheelDoubleSpinBox()
-        spin.setRange(0.0, 10.0)
-        spin.setDecimals(3)
-        spin.setSingleStep(0.05)
-        spin.setValue(float(current_weights.get(property_id, 0.0)))
-        spin.setToolTip("0 表示该词条不参与评分；修改后保存到当前账号。")
-        weights_form.addRow(f"{label}：", spin)
-        weight_inputs[property_id] = spin
-    # 默认仅露出五条权重，剩余词条在该区域内滚动查看，避免管理弹窗过长。
-    weights_scroll = QScrollArea()
-    weights_scroll.setObjectName("weightedRoleWeightScroll")
-    weights_scroll.setWidgetResizable(True)
-    weights_scroll.setFrameShape(QFrame.NoFrame)
-    weights_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    weights_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-    weights_scroll.setFixedHeight(210)
-    weights_scroll.setWidget(weights_box)
-    layout.addWidget(weights_scroll)
+    stats_layout.addWidget(
+        selector._build_multi_select_row(
+            "空幕/驱动副词条：",
+            list(substat_by_label),
+            selected_substats,
+            " > ",
+        )
+    )
+    stats_layout.addWidget(
+        selector._build_multi_select_row(
+            "副词条黑名单：",
+            list(substat_by_label),
+            selected_blacklist,
+            "、",
+        )
+    )
+    stat_options = QHBoxLayout()
+    stat_options.setContentsMargins(0, 4, 0, 0)
+    stat_options.setSpacing(12)
+    equal_priority = QCheckBox("副词条优先级一致")
+    equal_priority.setChecked(bool(current.get("equal_priority", False)))
+    ignore_grade_limit = QCheckBox("不限制评分等级")
+    ignore_grade_limit.setChecked(bool(current.get("ignore_grade_limit", False)))
+    min_grade_label = QLabel("最低生效等级：")
+    min_grade_combo = QComboBox()
+    min_grade_combo.setFixedWidth(84)
+    for grade in GRADE_LADDER:
+        min_grade_combo.addItem(grade, grade)
+    current_min_grade = str(current.get("min_grade_limit") or "A").upper()
+    min_grade_index = min_grade_combo.findData(current_min_grade)
+    min_grade_combo.setCurrentIndex(
+        min_grade_index
+        if min_grade_index >= 0
+        else min_grade_combo.findData("A")
+    )
+    min_grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+    stat_help = QPushButton("?")
+    stat_help.setObjectName("btnHelp")
+    stat_help.setFixedSize(24, 24)
+    stat_help.clicked.connect(
+        lambda: selector._show_help("副词条自选说明", STAT_PRIORITY_HELP)
+    )
+    stat_options.addWidget(equal_priority)
+    stat_options.addWidget(ignore_grade_limit)
+    stat_options.addWidget(min_grade_label)
+    stat_options.addWidget(min_grade_combo)
+    stat_options.addWidget(stat_help)
+    stat_options.addStretch(1)
+    ignore_grade_limit.toggled.connect(
+        lambda _checked: min_grade_combo.setEnabled(
+            not ignore_grade_limit.isChecked()
+        )
+    )
+    stats_layout.addLayout(stat_options)
+    priority_tip = QLabel(
+        "副词条黑名单最先从驱动候选池硬过滤，不淘汰空幕；"
+        "套装与空幕主词条随后硬过滤；"
+        "副词条自选按连续前缀选择最深非空候选池，"
+        "候选池内再比较基础权重评分。空幕无副词条命中时不参与，"
+        "驱动无命中时允许回退以填满图纸。"
+    )
+    priority_tip.setWordWrap(True)
+    stats_layout.addWidget(priority_tip)
+    layout.addWidget(stats_box)
+
+    other_box = QGroupBox("其他配置")
+    other_layout = QVBoxLayout(other_box)
+    effect_row = QHBoxLayout()
+    effect_row.addWidget(QLabel("套装效果："))
+    effect_combo = QComboBox()
+    effect_combo.addItem("四件套", FOUR_PIECE)
+    effect_combo.addItem("二件套", TWO_PIECE)
+    effect_combo.addItem("无效果", NO_EFFECT)
+    current_effect = normalize_set_effect_mode(
+        str(current.get("suit_requirement_mode") or FOUR_PIECE)
+    )
+    effect_index = effect_combo.findData(current_effect)
+    effect_combo.setCurrentIndex(effect_index if effect_index >= 0 else 0)
+    effect_row.addWidget(effect_combo, 1)
+    effect_help = QPushButton("?")
+    effect_help.setObjectName("btnHelp")
+    effect_help.setFixedSize(24, 24)
+    effect_help.clicked.connect(
+        lambda: selector._show_help("套装效果说明", SET_EFFECT_HELP)
+    )
+    effect_row.addWidget(effect_help)
+    other_layout.addLayout(effect_row)
+
+    crit_row = QHBoxLayout()
+    crit_row.addWidget(QLabel("暴击率最小值："))
+    crit_threshold = QLineEdit()
+    crit_threshold.setFixedWidth(84)
+    crit_threshold.setValidator(QIntValidator(0, 100, crit_threshold))
+    if current.get("crit_threshold") is not None:
+        crit_threshold.setText(f"{float(current['crit_threshold']):g}")
+    crit_row.addWidget(crit_threshold)
+    crit_row.addWidget(QLabel("%"))
+    crit_help = QPushButton("?")
+    crit_help.setObjectName("btnHelp")
+    crit_help.setFixedSize(24, 24)
+    crit_help.clicked.connect(
+        lambda: selector._show_help("暴击率最小值", CRIT_THRESHOLD_HELP)
+    )
+    crit_row.addWidget(crit_help)
+    crit_row.addStretch(1)
+    other_layout.addLayout(crit_row)
+    layout.addWidget(other_box)
 
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
     buttons.accepted.connect(dialog.accept)
@@ -426,31 +512,36 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     if dialog.exec() != QDialog.Accepted:
         return
     selected_suit_name = resolve_priority_choice(
-        list(suit_ids_by_name), suit_combo.currentText(), suit_combo.currentData(),
+        list(suit_ids_by_name),
+        suit_combo.currentText(),
+        suit_combo.currentData(),
     )
-    try:
-        saved_weights = save_account_character_weights(
-            runtime.USER_DATABASE_PATH,
-            character_id,
-            {
-                property_id: spin.value()
-                for property_id, spin in weight_inputs.items()
-            },
-        )
-    except Exception as exc:
-        QMessageBox.critical(dialog, "保存失败", f"无法保存账号词条权重：{exc}")
-        return
-    property_weights = dict(saved_weights.get("property_weights") or {})
-    window._weighted_default_property_weights[character_id] = property_weights
+    selected_suit_id = suit_ids_by_name.get(selected_suit_name, current_suit_id)
+    selected_effect = (
+        effect_combo.currentData() if selected_suit_id is not None else NO_EFFECT
+    )
+    crit_threshold_text = crit_threshold.text().strip()
+    property_weights = dict(
+        getattr(window, "_weighted_default_property_weights", {}).get(character_id, {})
+    )
     updated = dict(overrides)
     updated_preference = dict(current)
-    updated_preference.update({
-        "target_suit_id": suit_ids_by_name.get(selected_suit_name, current_suit_id),
-        "suit_requirement_mode": "four_piece" if suit_ids_by_name.get(selected_suit_name, current_suit_id) else "none",
-        "core_main_property_id": main_by_label.get(selected_main[0]) if selected_main else None,
-        "substat_priorities": [substat_by_label[label] for label in selected_substats],
-        "property_weights": property_weights,
-    })
+    updated_preference.update(
+        {
+            "target_suit_id": selected_suit_id,
+            "suit_requirement_mode": selected_effect,
+            "core_main_property_id": main_by_label.get(selected_main[0]) if selected_main else None,
+            "substat_priorities": [substat_by_label[label] for label in selected_substats],
+            "substat_blacklist": [substat_by_label[label] for label in selected_blacklist],
+            "equal_priority": equal_priority.isChecked(),
+            "ignore_grade_limit": ignore_grade_limit.isChecked(),
+            "min_grade_limit": str(min_grade_combo.currentData() or "A"),
+            "crit_threshold": (
+                float(crit_threshold_text) if crit_threshold_text else None
+            ),
+            "property_weights": property_weights,
+        }
+    )
     updated[character_id] = updated_preference
     window._weighted_preference_overrides = updated
     _mark_weighted_preferences_dirty(window)
@@ -460,7 +551,7 @@ def _current_snapshot_and_profile(window) -> tuple[int, int, int]:
     rows = _selection_rows(window)
     if not rows:
         raise ValueError("请先选择至少一个角色。")
-    with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
+    with UserDataDao(weighted_allocation_dependencies(window).user_database_path) as dao:
         snapshots = [row for row in dao.list_inventory_snapshots() if row.get("complete")]
         snapshot = next((row for row in snapshots if row.get("is_current")), None)
         if snapshot is None and snapshots:
@@ -470,12 +561,15 @@ def _current_snapshot_and_profile(window) -> tuple[int, int, int]:
         profiles = dao.list_optimization_profiles()
         profile = next((row for row in profiles if row["name"] == _INTERNAL_PROFILE_NAME), None)
         if profile is None:
-            profile = dao.create_optimization_profile(_INTERNAL_PROFILE_NAME, allocation_strategy="role_priority", characters=rows)
+            profile = dao.create_optimization_profile(
+                _INTERNAL_PROFILE_NAME, allocation_strategy="role_priority", characters=rows
+            )
         else:
             version = profile["version"]
             if version.get("allocation_strategy") != "role_priority" or version.get("characters") != rows:
-                dao.create_optimization_profile_version(int(profile["profile_id"]), allocation_strategy="role_priority", characters=rows)
+                dao.create_optimization_profile_version(
+                    int(profile["profile_id"]), allocation_strategy="role_priority", characters=rows
+                )
             profile = dao.get_optimization_profile(int(profile["profile_id"]))
         version = profile["version"]
         return int(snapshot["snapshot_id"]), int(profile["profile_id"]), int(version["version_number"])
-

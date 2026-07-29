@@ -1,3 +1,4 @@
+# 测试账号级 nte-core pcapng 抓包保留与清理策略。
 """Regression tests for per-account nte-core .pcapng retention."""
 
 from __future__ import annotations

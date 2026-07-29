@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.features.drive_assembly.blocks import matrix_groups_in_scan_order
+from src.domain.drive_layout import matrix_groups_in_scan_order
 from src.services.allocation_context import AllocationCandidate, AllocationContext, AllocationRolePreference
 
 

@@ -4,16 +4,10 @@
 """
 
 import re
-from typing import List, Tuple, Dict, Any, Optional
-from src.utils.logger import logger
+from typing import List, Tuple
 
 from .dao import load_stats
-from .damage_model import (
-    ABILITY_DAMAGE_STAT,
-    LEGACY_ABILITY_DAMAGE_STAT,
-    calc_direct_damage,
-    calc_direct_marginal_benefits,
-)
+from .damage_model import calc_direct_damage, calc_direct_marginal_benefits
 
 
 def is_empty_drive(drive: dict) -> bool:
@@ -52,59 +46,6 @@ def calc_marginal_benefits(total_stats: dict) -> tuple:
     return calc_direct_marginal_benefits(total_stats, benefit_one)
 
 
-def filter_margins_by_weights(margins: list, weights: dict) -> list:
-    """
-    根据权重词条过滤边际收益列表
-
-    Args:
-        margins: calc_marginal_benefits 返回的 items 列表
-        weights: 角色权重字典
-
-    Returns:
-        list: 过滤后的边际收益列表
-    """
-    if not margins or not weights:
-        return margins
-
-    stats_config = load_stats()
-    alias_map = stats_config.get("benefit_alias_mapping", {})
-
-    allowed_categories = set()
-    for weight_key in weights.keys():
-        canonical = alias_map.get(weight_key, weight_key)
-        allowed_categories.add(canonical)
-
-    return [m for m in margins if m[0] in allowed_categories]
-
-
-def apply_margins_to_weights(weights: dict, margins: list, alias_map: dict) -> int:
-    """
-    将边际收益的 gain 值覆盖到对应的权重词条
-
-    Args:
-        weights: 权重字典（会被原地修改）
-        margins: 边际收益列表
-        alias_map: 别名映射字典
-
-    Returns:
-        int: 更新的词条数量
-    """
-    # 建立反向映射：规范名 -> 所有权重键列表
-    reverse_map = {}
-    for wk in weights.keys():
-        canonical = alias_map.get(wk, wk)
-        reverse_map.setdefault(canonical, []).append(wk)
-
-    updated = 0
-    for name, cur_val, unit_val, gain in margins:
-        if name in reverse_map:
-            for wk in reverse_map[name]:
-                weights[wk] = round(gain, 4)
-                updated += 1
-
-    return updated
-
-
 # ---------------------  驱动  ---------------------
 def calc_drive_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
     """
@@ -140,14 +81,6 @@ def calc_tape_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
             continue
         for k, v in stats.items():
             result[k] = result.get(k, 0.0) + float(v)
-    return sorted(result.items(), key=lambda x: x[0])
-
-
-def calc_equipment_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
-    """计算驱动和卡带本体的汇总属性，不包含套装技能。"""
-    result = {}
-    for stat, value in calc_drive_bonus_stats(role_data) + calc_tape_bonus_stats(role_data):
-        result[stat] = result.get(stat, 0.0) + float(value)
     return sorted(result.items(), key=lambda x: x[0])
 
 

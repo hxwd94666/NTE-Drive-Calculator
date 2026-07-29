@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import src.storage.sqlite.user_data_dao as user_data_dao_module
 from src.storage.sqlite.user_data_dao import (
@@ -64,7 +63,7 @@ def snapshot(generation: int, rows: list[dict]) -> dict:
     }
 
 
-class UserDataDaoTest(unittest.TestCase):
+class UserDataDaoSettingsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.database = Path(self.temp_dir.name) / "user_data.sqlite3"
@@ -78,7 +77,7 @@ class UserDataDaoTest(unittest.TestCase):
 
     def test_initializes_profile_and_typed_sync_settings(self) -> None:
         summary = self.dao.summary()
-        self.assertEqual(summary["schema_version"], 10)
+        self.assertEqual(summary["schema_version"], 11)
         self.assertEqual(summary["profile"]["account_id"], "default")
         self.assertEqual(summary["sync_settings"]["inventory_sync_method"], "nte_core")
         self.assertEqual(summary["sync_settings"]["inventory_settle_seconds"], 5.0)
@@ -127,7 +126,7 @@ class UserDataDaoTest(unittest.TestCase):
 
         with UserDataDao(legacy_path) as migrated:
             settings = migrated.get_sync_settings()
-            self.assertEqual(10, migrated.summary()["schema_version"])
+            self.assertEqual(11, migrated.summary()["schema_version"])
             self.assertEqual("旧账号", migrated.profile()["account_name"])
             self.assertEqual(5.0, settings["inventory_settle_seconds"])
             self.assertFalse(settings["auto_start_inventory_sync"])
@@ -136,7 +135,7 @@ class UserDataDaoTest(unittest.TestCase):
     def test_migrates_v4_database_to_versioned_optimization_preferences(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v4.sqlite3"
         with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            self.assertEqual(10, initialized.summary()["schema_version"])
+            self.assertEqual(11, initialized.summary()["schema_version"])
 
         connection = sqlite3.connect(legacy_path)
         for table in (
@@ -149,6 +148,8 @@ class UserDataDaoTest(unittest.TestCase):
             "character_weight_preference_seed",
             "character_profile_skill",
             "character_profile",
+            "optimization_preference_substat_behavior",
+            "optimization_preference_substat_blacklist",
             "optimization_preference_property_limit",
             "optimization_preference_substat_priority",
             "optimization_preference_property_weight",
@@ -162,7 +163,7 @@ class UserDataDaoTest(unittest.TestCase):
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(10, migrated.summary()["schema_version"])
+            self.assertEqual(11, migrated.summary()["schema_version"])
             self.assertEqual([], migrated.list_optimization_profiles())
             profile = migrated.create_optimization_profile(
                 "Migrated preferences",
@@ -190,6 +191,8 @@ class UserDataDaoTest(unittest.TestCase):
         for table in (
             "character_profile_skill",
             "character_profile",
+            "optimization_preference_substat_behavior",
+            "optimization_preference_substat_blacklist",
             "optimization_preference_property_limit",
             "optimization_preference_substat_priority",
             "optimization_preference_property_weight",
@@ -232,7 +235,7 @@ class UserDataDaoTest(unittest.TestCase):
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(10, migrated.summary()["schema_version"])
+            self.assertEqual(11, migrated.summary()["schema_version"])
 
     def test_character_profiles_store_only_official_pointers_and_user_levels(self) -> None:
         saved = self.dao.save_character_profile(
@@ -407,14 +410,65 @@ class UserDataDaoTest(unittest.TestCase):
         connection.execute("DROP TABLE application_setting_copy")
         connection.execute("DROP TABLE character_profile_skill")
         connection.execute("DROP TABLE character_profile")
+        connection.execute("DROP TABLE optimization_preference_substat_behavior")
+        connection.execute("DROP TABLE optimization_preference_substat_blacklist")
         connection.execute("DELETE FROM schema_migration WHERE version >= 6")
         connection.commit()
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(10, migrated.summary()["schema_version"])
+            self.assertEqual(11, migrated.summary()["schema_version"])
             self.assertEqual("existing-v5", migrated.list_optimization_profiles()[0]["name"])
             self.assertEqual([], migrated.list_character_profiles())
+
+    def test_migrates_v10_database_to_substat_blacklist_preferences(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_v10.sqlite3"
+        with UserDataDao(legacy_path, account_id="legacy") as initialized:
+            initialized.create_optimization_profile(
+                "existing-v10",
+                allocation_strategy="role_priority",
+                characters=[
+                    {
+                        "character_id": 1003,
+                        "ordinal": 0,
+                        "priority_group": 0,
+                        "suit_requirement_mode": "none",
+                        "property_weights": {},
+                        "substat_priorities": ["CritDamageBase"],
+                        "property_limits": {},
+                    }
+                ],
+            )
+        connection = sqlite3.connect(legacy_path)
+        connection.execute("DROP TABLE optimization_preference_substat_behavior")
+        connection.execute("DROP TABLE optimization_preference_substat_blacklist")
+        connection.execute("DELETE FROM schema_migration WHERE version = 11")
+        connection.commit()
+        connection.close()
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(11, migrated.summary()["schema_version"])
+            self.assertEqual(
+                "existing-v10", migrated.list_optimization_profiles()[0]["name"]
+            )
+            migrated_profile = migrated.list_optimization_profiles()[0]
+            self.assertTrue(
+                migrated_profile["version"]["characters"][0][
+                    "ignore_grade_limit"
+                ]
+            )
+            table = migrated._one(
+                """SELECT name FROM sqlite_master
+                   WHERE type = 'table'
+                   AND name = 'optimization_preference_substat_blacklist'"""
+            )
+            self.assertIsNotNone(table)
+            behavior_table = migrated._one(
+                """SELECT name FROM sqlite_master
+                   WHERE type = 'table'
+                   AND name = 'optimization_preference_substat_behavior'"""
+            )
+            self.assertIsNotNone(behavior_table)
 
     def test_character_profile_rejects_selected_skill_without_level_pointer(self) -> None:
         with self.assertRaises(UserDataValidationError):
@@ -441,6 +495,11 @@ class UserDataDaoTest(unittest.TestCase):
                 "core_main_property_id": "DamageUp",
                 "property_weights": {"CritDamageBase": 1.5, "AtkAdd": 0.8},
                 "substat_priorities": ["CritDamageBase", "AtkAdd"],
+                "substat_blacklist": ["DefAdd", "HPMaxAdd"],
+                "equal_priority": True,
+                "ignore_grade_limit": True,
+                "min_grade_limit": "D",
+                "crit_threshold": 65,
                 "property_limits": {"CritBase": {"minimum": 0.5, "maximum": 0.8}},
             },
             {
@@ -469,6 +528,20 @@ class UserDataDaoTest(unittest.TestCase):
             ["CritDamageBase", "AtkAdd"],
             profile["version"]["characters"][0]["substat_priorities"],
         )
+        self.assertEqual(
+            ["DefAdd", "HPMaxAdd"],
+            profile["version"]["characters"][0]["substat_blacklist"],
+        )
+        self.assertTrue(profile["version"]["characters"][0]["equal_priority"])
+        self.assertTrue(
+            profile["version"]["characters"][0]["ignore_grade_limit"]
+        )
+        self.assertEqual(
+            "D", profile["version"]["characters"][0]["min_grade_limit"]
+        )
+        self.assertEqual(
+            65.0, profile["version"]["characters"][0]["crit_threshold"]
+        )
 
         second_version = self.dao.create_optimization_profile_version(
             profile["profile_id"],
@@ -478,6 +551,7 @@ class UserDataDaoTest(unittest.TestCase):
                     **initial_characters[0],
                     "property_weights": {"CritDamageBase": 2.0},
                     "substat_priorities": ["CritDamageBase"],
+                    "substat_blacklist": ["HPMaxAdd"],
                     "property_limits": {"CritBase": {"minimum": 0.6}},
                 }
             ],
@@ -488,6 +562,9 @@ class UserDataDaoTest(unittest.TestCase):
         self.assertEqual("global_optimal", latest["version"]["allocation_strategy"])
         self.assertEqual(
             {"CritDamageBase": 2.0}, latest["version"]["characters"][0]["property_weights"]
+        )
+        self.assertEqual(
+            ["HPMaxAdd"], latest["version"]["characters"][0]["substat_blacklist"]
         )
         self.assertEqual("role_priority", original["version"]["allocation_strategy"])
         self.assertEqual(
@@ -579,451 +656,6 @@ class UserDataDaoTest(unittest.TestCase):
         self.assertEqual(
             "global_optimal", profile["version"]["allocation_strategy"],
         )
-
-    def test_imports_complete_snapshot_and_keeps_raw_ids_and_stats(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(
-            snapshot(71, [item(100, 10), item(200, 20, "core")]),
-            protocol_version=1,
-        )
-        summary = self.dao.current_inventory_summary()
-        self.assertEqual(summary["snapshot_id"], snapshot_id)
-        self.assertEqual(summary["module_count"], 1)
-        self.assertEqual(summary["core_count"], 1)
-
-        modules = self.dao.list_current_inventory_items(kind="module")
-        self.assertEqual(modules[0]["item_id"], "cell3_style1_1_Orange")
-        self.assertEqual(modules[0]["geometry"], "ZhiJiao1")
-        self.assertFalse(modules[0]["discarded"])
-        self.assertIsNone(modules[0]["equipped_placement"])
-        self.assertEqual(modules[0]["main_stats"][0]["property_id"], "AtkUp")
-        self.assertEqual(
-            self.dao.raw_snapshot(snapshot_id)["method"], "event.inventory.snapshot"
-        )
-
-    def test_persists_character_instance_mapping_from_snapshot_and_manual_fallback(self) -> None:
-        equipped = item(101, 11)
-        equipped["equipped"] = True
-        equipped["equipped_character_id"] = 1003
-        equipped["equipped_character_uid"] = {"slot": 700, "serial": 701}
-        self.dao.import_inventory_snapshot(snapshot(1, [equipped]))
-        mappings = self.dao.list_character_instance_mappings(1003)
-        self.assertEqual(1, len(mappings))
-        self.assertEqual("snapshot", mappings[0]["source"])
-        self.assertEqual((700, 701), (mappings[0]["uid_slot"], mappings[0]["uid_serial"]))
-
-        self.dao.upsert_character_instance_mapping(1003, {"slot": 702, "serial": 703})
-        self.assertEqual(
-            {(700, 701), (702, 703)},
-            {(row["uid_slot"], row["uid_serial"]) for row in self.dao.list_character_instance_mappings(1003)},
-        )
-
-    def test_persists_equipment_apply_job_log_and_retry_state(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
-        plan_id = self.dao.save_loadout_plan(
-            name="测试方案", character_id=1003, source_snapshot_id=snapshot_id,
-            assignments=[{"uid_serial": 11, "uid_slot": 22, "kind": "module", "target_row": 1, "target_column": 1, "rotation": 0}],
-        )
-        job_id = self.dao.create_equipment_apply_job(snapshot_id, [{
-            "role_name": "测试角色", "character_id": 1003,
-            "character_uid": {"slot": 700, "serial": 701}, "plan_id": plan_id,
-        }])
-        job = self.dao.get_equipment_apply_job(job_id)
-        job_item_id = job["items"][0]["job_item_id"]
-        self.dao.mark_equipment_apply_job_item(job_item_id, status="running")
-        self.dao.mark_equipment_apply_job_item(job_item_id, status="failed", error="网络中断")
-        self.assertEqual("failed", self.dao.get_equipment_apply_job(job_id)["status"])
-        self.dao.reset_failed_equipment_apply_job_items(job_id)
-        self.assertEqual("pending", self.dao.get_equipment_apply_job(job_id)["items"][0]["status"])
-        self.dao.mark_equipment_apply_job_item(job_item_id, status="running")
-        self.dao.mark_equipment_apply_job_item(job_item_id, status="succeeded", before_snapshot_id=snapshot_id, after_snapshot_id=snapshot_id)
-        self.assertTrue(self.dao.complete_equipment_apply_job_if_done(job_id))
-        completed = self.dao.get_equipment_apply_job(job_id)
-        self.assertEqual("completed", completed["status"])
-        self.assertGreaterEqual(len(completed["logs"]), 5)
-
-    def test_new_snapshot_atomically_replaces_current_and_invalid_one_does_not(self) -> None:
-        first_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
-        second_id = self.dao.import_inventory_snapshot(snapshot(2, [item(2, 2)]))
-        snapshots = self.dao.list_inventory_snapshots()
-        self.assertEqual([row["snapshot_id"] for row in snapshots if row["is_current"]], [second_id])
-        self.assertNotEqual(first_id, second_id)
-
-        invalid = snapshot(3, [item(3, 3)])
-        invalid["params"]["item_count"] = 99
-        with self.assertRaises(UserDataValidationError):
-            self.dao.import_inventory_snapshot(invalid)
-        self.assertEqual(self.dao.current_inventory_summary()["snapshot_id"], second_id)
-
-    def test_calculation_can_pin_an_immutable_snapshot_while_current_changes(self) -> None:
-        first_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
-        pinned = self.dao.list_inventory_items(first_id)
-        second_id = self.dao.import_inventory_snapshot(
-            snapshot(2, [item(1, 1), item(2, 2)])
-        )
-
-        self.assertEqual(first_id, pinned[0]["snapshot_id"])
-        self.assertEqual(1, len(self.dao.list_inventory_items(first_id)))
-        self.assertEqual(2, len(self.dao.list_inventory_items(second_id)))
-        self.assertEqual(second_id, self.dao.current_inventory_snapshot_id())
-        self.assertEqual(first_id, self.dao.inventory_snapshot_summary(first_id)["snapshot_id"])
-        diff = self.dao.inventory_snapshot_diff(first_id, second_id)
-        self.assertEqual(1, diff["added_count"])
-        self.assertEqual(0, diff["removed_count"])
-
-    def test_inventory_uid_filter_keeps_only_requested_item_and_stats(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [
-            item(1, 1), item(2, 2), item(3, 3),
-        ]))
-
-        rows = self.dao.list_inventory_items(snapshot_id, uids=[(2, 2)])
-
-        self.assertEqual(1, len(rows))
-        self.assertEqual((2, 2), (rows[0]["uid_serial"], rows[0]["uid_slot"]))
-        self.assertEqual(["AtkUp"], [stat["property_id"] for stat in rows[0]["main_stats"]])
-        self.assertEqual(
-            ["CritBase", "AtkAdd"],
-            [stat["property_id"] for stat in rows[0]["sub_stats"]],
-        )
-
-    def test_reads_two_thousand_inventory_items_without_exceeding_sqlite_variable_limit(self) -> None:
-        """Warehouse reads every UID, so this must work on SQLite's 999-bind build."""
-        rows = [item(index, index) for index in range(1, 2001)]
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, rows))
-
-        loaded = self.dao.list_inventory_items(snapshot_id)
-
-        self.assertEqual(2000, len(loaded))
-        self.assertEqual(2000, sum(len(row["main_stats"]) for row in loaded))
-        self.assertEqual(4000, sum(len(row["sub_stats"]) for row in loaded))
-
-    def test_exports_snapshot_from_one_read_transaction_when_background_prunes(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
-        original_summary = self.dao.inventory_snapshot_summary
-        background = sqlite3.connect(self.database)
-        background.execute("PRAGMA foreign_keys = ON")
-
-        def summary_then_prune(requested_snapshot_id: int) -> dict | None:
-            summary = original_summary(requested_snapshot_id)
-            background.execute(
-                "DELETE FROM inventory_snapshot WHERE snapshot_id = ?", (snapshot_id,)
-            )
-            background.commit()
-            return summary
-
-        try:
-            with patch.object(
-                self.dao, "inventory_snapshot_summary", side_effect=summary_then_prune
-            ):
-                summary, exported = self.dao.export_inventory_snapshot(snapshot_id)
-        finally:
-            background.close()
-
-        self.assertEqual(snapshot_id, summary["snapshot_id"])
-        self.assertEqual(1, summary["stored_item_count"])
-        self.assertEqual(1, len(exported))
-        self.assertIsNone(self.dao.inventory_snapshot_summary(snapshot_id))
-
-    def test_rejects_snapshot_export_when_stored_item_count_is_inconsistent(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
-        connection = self.dao._db()
-        connection.execute("DELETE FROM inventory_item WHERE snapshot_id = ?", (snapshot_id,))
-        connection.commit()
-
-        with self.assertRaises(UserDataError):
-            self.dao.export_inventory_snapshot(snapshot_id)
-
-    def test_saves_loadout_using_native_uid_and_character_id(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
-        plan_id = self.dao.save_loadout_plan(
-            name="测试方案",
-            character_id=1003,
-            source_snapshot_id=snapshot_id,
-            score=84.0,
-            is_active=True,
-            assignments=[
-                {
-                    "uid_serial": 11,
-                    "uid_slot": 22,
-                    "kind": "module",
-                    "target_row": 2,
-                    "target_column": 3,
-                    "rotation": 0,
-                }
-            ],
-            payload={"optimizer": "future-v2"},
-        )
-        plans = self.dao.list_loadout_plans(1003)
-        self.assertEqual(plans[0]["plan_id"], plan_id)
-        self.assertEqual(plans[0]["character_id"], 1003)
-        self.assertEqual(plans[0]["assignments"][0]["uid_serial"], 11)
-        self.assertTrue(plans[0]["is_active"])
-        self.assertEqual(self.dao.get_loadout_plan(plan_id)["plan_id"], plan_id)
-        self.assertIsNone(self.dao.get_loadout_plan(plan_id + 1000))
-
-    def test_batch_replace_leaves_empty_changed_placeholder_for_other_active_role(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(
-            snapshot(1, [item(11, 22), item(12, 23), item(13, 24)])
-        )
-        old_plan_id = self.dao.save_loadout_plan(
-            name="旧角色方案",
-            character_id=1003,
-            source_snapshot_id=snapshot_id,
-            status="ready",
-            is_active=True,
-            score=60.0,
-            assignments=[
-                {
-                    "uid_serial": 11, "uid_slot": 22, "kind": "module",
-                    "target_row": 1, "target_column": 1, "rotation": 0,
-                },
-                {
-                    "uid_serial": 12, "uid_slot": 23, "kind": "module",
-                    "target_row": 2, "target_column": 2, "rotation": 0,
-                },
-            ],
-            payload={
-                "source_role_name": "旧角色",
-                "assignment_scores": {
-                    "nte-module-22-11": 25.0,
-                    "nte-module-23-12": 35.0,
-                },
-            },
-        )
-
-        saved_ids = self.dao.replace_active_loadout_plans([{
-            "name": "新角色方案",
-            "character_id": 1055,
-            "source_snapshot_id": snapshot_id,
-            "status": "ready",
-            "assignments": [
-                {
-                    "uid_serial": 11, "uid_slot": 22, "kind": "module",
-                    "target_row": 1, "target_column": 1, "rotation": 0,
-                },
-                {
-                    "uid_serial": 13, "uid_slot": 24, "kind": "module",
-                    "target_row": 2, "target_column": 2, "rotation": 0,
-                },
-            ],
-            "payload": {"source_role_name": "新角色"},
-        }])
-
-        self.assertEqual(1, len(saved_ids))
-        self.assertFalse(self.dao.get_loadout_plan(old_plan_id)["is_active"])
-        active = [plan for plan in self.dao.list_loadout_plans() if plan["is_active"]]
-        self.assertEqual({1003, 1055}, {plan["character_id"] for plan in active})
-        residual = next(plan for plan in active if plan["character_id"] == 1003)
-        self.assertEqual((23, 12), (
-            residual["assignments"][1]["uid_slot"],
-            residual["assignments"][1]["uid_serial"],
-        ))
-        placeholder = residual["assignments"][0]
-        self.assertEqual(0, placeholder["uid_slot"])
-        self.assertTrue(placeholder["raw_assignment"]["virtual"])
-        placeholder_uid = f"nte-module-0-{placeholder['uid_serial']}"
-        self.assertEqual([placeholder_uid], residual["payload"]["changed_uids"])
-        self.assertTrue(residual["payload"]["last_diff"]["changed"])
-        self.assertEqual(
-            placeholder_uid,
-            residual["payload"]["last_diff"]["added"][0]["uid"],
-        )
-        self.assertEqual(
-            old_plan_id,
-            residual["payload"]["active_plan_overlay"]["previous_plan_id"],
-        )
-        self.assertEqual("active_plan_overlay", residual["payload"]["source"])
-        self.assertEqual(35.0, residual["score"])
-        self.assertEqual(
-            0.0,
-            residual["payload"]["assignment_scores"][placeholder_uid],
-        )
-        active_uids = [
-            (row["uid_slot"], row["uid_serial"])
-            for plan in active
-            for row in plan["assignments"]
-        ]
-        real_uids = [uid for uid in active_uids if uid[0] > 0]
-        self.assertEqual(len(real_uids), len(set(real_uids)))
-
-    def test_batch_replace_rolls_back_every_role_when_one_uid_is_missing(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(
-            snapshot(1, [item(11, 22), item(12, 23)])
-        )
-        old_plan_id = self.dao.save_loadout_plan(
-            name="原方案",
-            character_id=1003,
-            source_snapshot_id=snapshot_id,
-            status="ready",
-            is_active=True,
-            assignments=[{
-                "uid_serial": 11, "uid_slot": 22, "kind": "module",
-                "target_row": 1, "target_column": 1, "rotation": 0,
-            }],
-        )
-        plan_count = len(self.dao.list_loadout_plans())
-
-        with self.assertRaisesRegex(UserDataValidationError, "不在方案固定"):
-            self.dao.replace_active_loadout_plans([
-                {
-                    "name": "第一角色",
-                    "character_id": 1003,
-                    "source_snapshot_id": snapshot_id,
-                    "assignments": [{
-                        "uid_serial": 12, "uid_slot": 23, "kind": "module",
-                        "target_row": 1, "target_column": 1, "rotation": 0,
-                    }],
-                },
-                {
-                    "name": "第二角色",
-                    "character_id": 1055,
-                    "source_snapshot_id": snapshot_id,
-                    "assignments": [{
-                        "uid_serial": 99, "uid_slot": 99, "kind": "module",
-                        "target_row": 1, "target_column": 1, "rotation": 0,
-                    }],
-                },
-            ])
-
-        self.assertEqual(plan_count, len(self.dao.list_loadout_plans()))
-        self.assertTrue(self.dao.get_loadout_plan(old_plan_id)["is_active"])
-
-    def test_batch_replace_rejects_uid_shared_by_incoming_roles(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
-        shared_assignment = {
-            "uid_serial": 11, "uid_slot": 22, "kind": "module",
-            "target_row": 1, "target_column": 1, "rotation": 0,
-        }
-
-        with self.assertRaisesRegex(UserDataValidationError, "多个角色"):
-            self.dao.replace_active_loadout_plans([
-                {
-                    "name": "第一角色", "character_id": 1003,
-                    "source_snapshot_id": snapshot_id,
-                    "assignments": [shared_assignment],
-                },
-                {
-                    "name": "第二角色", "character_id": 1055,
-                    "source_snapshot_id": snapshot_id,
-                    "assignments": [shared_assignment],
-                },
-            ])
-
-        self.assertEqual([], self.dao.list_loadout_plans())
-
-    def test_batch_replace_keeps_plan_bound_to_its_source_snapshot(self) -> None:
-        calculation_snapshot_id = self.dao.import_inventory_snapshot(
-            snapshot(1, [item(11, 22)])
-        )
-        self.dao.import_inventory_snapshot(snapshot(2, [item(12, 23)]))
-
-        saved_ids = self.dao.replace_active_loadout_plans([{
-            "name": "历史计算方案",
-            "character_id": 1003,
-            "source_snapshot_id": calculation_snapshot_id,
-            "assignments": [{
-                "uid_serial": 11, "uid_slot": 22, "kind": "module",
-                "target_row": 1, "target_column": 1, "rotation": 0,
-            }],
-        }])
-
-        self.assertEqual(1, len(saved_ids))
-        self.assertEqual(
-            calculation_snapshot_id,
-            self.dao.get_loadout_plan(saved_ids[0])["source_snapshot_id"],
-        )
-
-    def test_finds_active_plan_by_ui_role_name_without_json_state(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
-        plan_id = self.dao.save_loadout_plan(
-            name="早雾官方方案",
-            character_id=1003,
-            source_snapshot_id=snapshot_id,
-            is_active=True,
-            assignments=[{
-                "uid_serial": 11, "uid_slot": 22, "kind": "module",
-                "target_row": 2, "target_column": 3, "rotation": 0,
-            }],
-            payload={"source_role_name": "早雾", "schema": "allocation-official-snapshot-v1"},
-        )
-        plan = self.dao.get_active_loadout_plan_for_role("早雾")
-        self.assertEqual(plan_id, plan["plan_id"])
-        self.assertEqual({"早雾": plan_id}, {
-            name: row["plan_id"]
-            for name, row in self.dao.list_active_loadout_plans_by_role().items()
-        })
-
-    def test_deactivates_active_plan_without_deleting_plan_history(self) -> None:
-        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
-        plan_id = self.dao.save_loadout_plan(
-            name="早雾官方方案",
-            character_id=1003,
-            source_snapshot_id=snapshot_id,
-            is_active=True,
-            assignments=[{
-                "uid_serial": 11, "uid_slot": 22, "kind": "module",
-                "target_row": 2, "target_column": 3, "rotation": 0,
-            }],
-            payload={"source_role_name": "早雾", "schema": "allocation-official-snapshot-v1"},
-        )
-
-        self.assertTrue(self.dao.deactivate_loadout_plan(plan_id))
-        self.assertFalse(self.dao.deactivate_loadout_plan(plan_id))
-        self.assertIsNone(self.dao.get_active_loadout_plan_for_role("早雾"))
-        self.assertFalse(self.dao.get_loadout_plan(plan_id)["is_active"])
-
-    def test_prunes_only_snapshots_not_current_recent_or_referenced_by_plan(self) -> None:
-        first_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
-        second_id = self.dao.import_inventory_snapshot(snapshot(2, [item(2, 2)]))
-        third_id = self.dao.import_inventory_snapshot(snapshot(3, [item(3, 3)]))
-        self.dao.save_loadout_plan(
-            name="保留历史方案",
-            character_id=1003,
-            source_snapshot_id=first_id,
-            assignments=[
-                {
-                    "uid_serial": 1,
-                    "uid_slot": 1,
-                    "kind": "module",
-                    "target_row": 1,
-                    "target_column": 1,
-                    "rotation": 0,
-                }
-            ],
-        )
-
-        result = self.dao.prune_inventory_snapshots(retain_recent=1)
-
-        self.assertEqual([second_id], result["deleted_snapshot_ids"])
-        self.assertEqual(1, result["deleted_snapshot_count"])
-        self.assertEqual([third_id], result["current_snapshot_ids"])
-        self.assertEqual([first_id], result["referenced_snapshot_ids"])
-        self.assertEqual([third_id], result["recent_snapshot_ids"])
-        self.assertEqual(
-            {first_id, third_id},
-            {row["snapshot_id"] for row in self.dao.list_inventory_snapshots()},
-        )
-        self.assertEqual(
-            first_id,
-            self.dao.list_loadout_plans(1003)[0]["source_snapshot_id"],
-        )
-
-    def test_foreign_keys_are_enabled(self) -> None:
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.dao._db().execute(
-                """
-                INSERT INTO inventory_item(
-                    snapshot_id, uid_serial, uid_slot, kind, item_id, level,
-                    max_level, locked, equipped, names_json, suit_names_json,
-                    raw_item_json
-                ) VALUES (999, 1, 1, 'module', 'x', 0, 0, 0, 0, '{}', '{}', '{}')
-                """
-            )
-
-        self.assertEqual(
-            self.dao.integrity_check(),
-            {"ok": True, "quick_check": ["ok"], "foreign_key_errors": []},
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

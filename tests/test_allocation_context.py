@@ -16,6 +16,7 @@ from src.services.allocation_context import (
     AllocationContextError,
     build_allocation_context,
 )
+from src.services.character_shape_bonus_service import SHARED_DATABASE_ENV
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -70,9 +71,14 @@ class AllocationContextTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.static_database_path = Path(self.temp_dir.name) / "game_static.sqlite3"
+        self.shared_database_path = Path(self.temp_dir.name) / "app_shared.sqlite3"
         shutil.copy2(STATIC_DATABASE_PATH, self.static_database_path)
         self.static_database_env = patch.dict(
-            "os.environ", {STATIC_DATABASE_ENV: str(self.static_database_path)}
+            "os.environ",
+            {
+                STATIC_DATABASE_ENV: str(self.static_database_path),
+                SHARED_DATABASE_ENV: str(self.shared_database_path),
+            },
         )
         self.static_database_env.start()
         self.user_dao = UserDataDao(
@@ -100,6 +106,11 @@ class AllocationContextTests(unittest.TestCase):
                     "core_main_property_id": "DamageUpCosmosBase",
                     "property_weights": {"CritDamageBase": 1.5, "AtkAdd": 0.8},
                     "substat_priorities": ["CritDamageBase", "AtkAdd"],
+                    "substat_blacklist": ["AtkAdd"],
+                    "equal_priority": True,
+                    "ignore_grade_limit": True,
+                    "min_grade_limit": "D",
+                    "crit_threshold": 65,
                     "property_limits": {"CritBase": {"minimum": 0.4, "maximum": 0.8}},
                 },
                 {
@@ -144,6 +155,11 @@ class AllocationContextTests(unittest.TestCase):
             (("AtkAdd", 0.8), ("CritDamageBase", 1.5)),
             context.roles[0].property_weights,
         )
+        self.assertEqual(("AtkAdd",), context.roles[0].substat_blacklist)
+        self.assertTrue(context.roles[0].equal_substat_priority)
+        self.assertTrue(context.roles[0].ignore_grade_limit)
+        self.assertEqual("D", context.roles[0].min_grade_limit)
+        self.assertEqual(65.0, context.roles[0].crit_threshold)
         drive = next(candidate for candidate in context.candidates if candidate.kind == "module")
         self.assertEqual((11, 101), drive.uid)
         self.assertEqual("EquipmentGeometry_ZhiJiao1", drive.geometry)
@@ -251,6 +267,7 @@ class AllocationContextTests(unittest.TestCase):
             shape_label="Type-4",
             property_values={"CritBase": 8.0},
             database_path=self.static_database_path,
+            shared_database_path=self.shared_database_path,
         )
         self.static_dao = StaticGameDataDao()
 

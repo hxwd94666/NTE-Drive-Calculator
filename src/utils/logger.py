@@ -5,6 +5,7 @@ import sys
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Mapping
 from loguru import logger
 
 
@@ -31,7 +32,28 @@ def _install_missing_standard_streams() -> None:
         sys.stderr = _NullTextStream()
 
 
-if getattr(sys, 'frozen', False):
+def _is_test_process() -> bool:
+    """Detect supported test runners before they start executing test cases."""
+    if os.environ.get("NTE_TESTING") == "1":
+        return True
+    runner = Path(str(sys.argv[0] or "")).stem.lower()
+    return "pytest" in runner or "unittest" in runner or "pytest" in sys.modules or "unittest" in sys.modules
+
+
+def _configure_windows_text_streams() -> None:
+    """Keep Chinese log text UTF-8 when Windows launches Python in a legacy code page."""
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
+
+
+if getattr(sys, "frozen", False):
     ROOT_DIR = Path(sys._MEIPASS)
     # 日志写到 exe 同级目录，不写入 _MEIPASS 临时目录
     EXE_DIR = Path(sys.executable).parent
@@ -42,10 +64,17 @@ else:
 # windowed 模式下 stdout/stderr 为 None，安装空输出流防止 print() 崩溃。
 # 不使用 os.devnull：部分安装环境无法解析 Windows 的 ``nul`` 设备名。
 _install_missing_standard_streams()
+_configure_windows_text_streams()
+TEST_PROCESS = _is_test_process()
+CONSOLE_LOG_LEVEL = "WARNING" if TEST_PROCESS else "DEBUG"
+
 
 def _select_log_dir() -> Path:
+    if TEST_PROCESS:
+        # Parallel unittest shards must never rotate the same Windows file.
+        return EXE_DIR / "build" / "test-logs" / str(os.getpid())
     candidates = [EXE_DIR / "logs"]
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         local_appdata = os.environ.get("LOCALAPPDATA")
         if local_appdata:
             candidates.append(Path(local_appdata) / "NTE Drive Calc" / "logs")
@@ -69,8 +98,8 @@ logger.remove()
 logger.add(
     sys.stderr,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{message}</cyan>",
-    level="DEBUG",
-    colorize=True
+    level=CONSOLE_LOG_LEVEL,
+    colorize=not TEST_PROCESS,
 )
 
 _LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}"
@@ -102,7 +131,7 @@ def _add_session_sink(log_dir: Path) -> tuple[int, Path]:
     sink_id = logger.add(
         str(path),
         format=_LOG_FORMAT,
-        level="INFO",
+        level="DEBUG",
         encoding="utf-8",
     )
     return sink_id, path
@@ -113,17 +142,40 @@ _session_sink_id: int | None = None
 _session_log_path: Path | None = None
 
 
-def enable_session_log() -> Path:
+def _context_text(context: Mapping[str, object] | None) -> str:
+    if not context:
+        return ""
+    return " | " + " ".join(
+        f"{key}={value}" for key, value in sorted(context.items()) if value is not None
+    )
+
+
+def enable_session_log(
+    *,
+    context: Mapping[str, object] | None = None,
+) -> Path:
     global _session_sink_id, _session_log_path
     if _session_sink_id is not None and _session_log_path is not None:
         return _session_log_path
     _session_sink_id, _session_log_path = _add_session_sink(LOG_DIR)
+    logger.info(
+        "logging.session_started | 独立时间戳运行日志已开启"
+        f" | file={_session_log_path.name}{_context_text(context)}"
+    )
     return _session_log_path
 
 
-def disable_session_log() -> None:
+def disable_session_log(
+    *,
+    reason: str = "disabled",
+    context: Mapping[str, object] | None = None,
+) -> None:
     global _session_sink_id, _session_log_path
     if _session_sink_id is not None:
+        logger.info(
+            "logging.session_stopped | 独立时间戳运行日志已关闭"
+            f" | reason={reason}{_context_text(context)}"
+        )
         logger.remove(_session_sink_id)
     _session_sink_id = None
     _session_log_path = None
@@ -136,24 +188,37 @@ def is_session_log_enabled() -> bool:
 def session_log_path() -> Path | None:
     return _session_log_path
 
-def set_log_dir(path: str | Path) -> None:
+
+def set_log_dir(
+    path: str | Path,
+    *,
+    reopen_session: bool = True,
+    session_context: Mapping[str, object] | None = None,
+) -> None:
     global LOG_DIR, _file_sink_id, _session_sink_id, _session_log_path
     new_dir = Path(path)
     new_dir.mkdir(parents=True, exist_ok=True)
     session_was_enabled = is_session_log_enabled()
     if session_was_enabled:
-        disable_session_log()
+        disable_session_log(reason="log_directory_changed", context=session_context)
     try:
         logger.remove(_file_sink_id)
     except Exception as exc:
         sys.stderr.write(f"切换日志目录时移除旧日志 sink 失败，继续添加新 sink: {exc}\n")
     LOG_DIR = new_dir
     _file_sink_id = _add_runtime_sink(LOG_DIR)
-    if session_was_enabled:
+    if session_was_enabled and reopen_session:
         _session_sink_id, _session_log_path = _add_session_sink(LOG_DIR)
+        logger.info(
+            "logging.session_started | 日志目录切换后已创建新的独立时间戳运行日志"
+            f" | file={_session_log_path.name}{_context_text(session_context)}"
+        )
+
 
 __all__ = [
+    "CONSOLE_LOG_LEVEL",
     "LOG_DIR",
+    "TEST_PROCESS",
     "disable_session_log",
     "enable_session_log",
     "is_session_log_enabled",

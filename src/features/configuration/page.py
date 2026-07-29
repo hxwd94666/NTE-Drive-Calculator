@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -20,52 +18,24 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, match_pinyin
-from src.app import runtime
 from src.app.theme import themed_style
-from src.domain.stat_catalog import StatCatalog
-from src.services.character_weight_service import (
-    ensure_account_character_weights,
-    reset_account_character_weights,
-    save_account_character_weights,
-)
-from src.services.character_shape_bonus_service import (
-    get_effective_character_shape_bonus,
-    save_public_character_shape_bonus,
-)
-from src.services.official_role_page_service import load_official_role_index
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.features.configuration.controller import BasicWeightController
+from src.features.configuration.dependencies import BasicWeightDependencies
 
 
 _ACCOUNT_WEIGHT_CONFIG = "account_weights"
-_EXTRA_SHAPE_LABEL_CHOICES = ("Type-3", "Type-2", "Type-4")
-_ACCOUNT_MAIN_PROPERTY_CHOICES = (
-    ("生命值百分比", "HPMaxUp"), ("攻击力百分比", "AtkUp"),
-    ("防御力百分比", "DefUp"), ("暴击率", "CritBase"),
-    ("暴击伤害", "CritDamageBase"), ("环合强度", "MagBase"),
-    ("倾陷强度", "UnbalIntensityBase"), ("治疗加成", "HealUp"),
-    ("光属性异能伤害增强", "DamageUpCosmosBase"),
-    ("灵属性异能伤害增强", "DamageUpNatureBase"),
-    ("咒属性异能伤害增强", "DamageUpIncantationBase"),
-    ("暗属性异能伤害增强", "DamageUpChaosBase"),
-    ("魂属性异能伤害增强", "DamageUpPsycheBase"),
-    ("相属性异能伤害增强", "DamageUpLakshanaBase"),
-    ("心灵伤害增强", "DamageUpPsychicallyBase"),
-)
-_WEIGHT_POOL_PROPERTY_IDS = {
-    "生命值%": "HPMaxUp", "生命值": "HPMaxAdd",
-    "攻击力%": "AtkUp", "攻击力": "AtkAdd",
-    "防御力%": "DefUp", "防御力": "DefAdd",
-    "伤害增加%": "DamageUpGeneralBase", "暴击率%": "CritBase",
-    "暴击伤害%": "CritDamageBase", "环合强度": "MagBase",
-    "倾陷强度": "UnbalIntensityBase", "治疗加成%": "HealUp",
-    "光属性异能伤害增强%": "DamageUpCosmosBase",
-    "灵属性异能伤害增强%": "DamageUpNatureBase",
-    "咒属性异能伤害增强%": "DamageUpIncantationBase",
-    "暗属性异能伤害增强%": "DamageUpChaosBase",
-    "魂属性异能伤害增强%": "DamageUpPsycheBase",
-    "相属性异能伤害增强%": "DamageUpLakshanaBase",
-    "心灵伤害增强%": "DamageUpPsychicallyBase",
-}
+
+
+def _basic_weight_controller(window) -> BasicWeightController:
+    dependencies = BasicWeightDependencies.from_app_context(window.app_context)
+    controller = getattr(window, "_basic_weight_controller", None)
+    if (
+        not isinstance(controller, BasicWeightController)
+        or controller.dependencies != dependencies
+    ):
+        controller = BasicWeightController(dependencies)
+        window._basic_weight_controller = controller
+    return controller
 
 
 def build_config_page(window):
@@ -86,6 +56,11 @@ def build_config_page(window):
     )
 
     top_row = QHBoxLayout()
+    return_button = QPushButton("← 返回角色")
+    return_button.setObjectName("returnToRoleButton")
+    return_button.clicked.connect(lambda: window._go("my_role"))
+    top_row.addWidget(return_button)
+
     window.config_role_search = QLineEdit()
     window.config_role_search.setPlaceholderText("搜索角色（支持拼音）...")
     window.config_role_search.setClearButtonEnabled(True)
@@ -126,102 +101,6 @@ def refresh_config_forms(window, config_dir):
         switch_config_form(window, _ACCOUNT_WEIGHT_CONFIG, config_dir)
 
 
-def _account_weight_config() -> dict[str, dict]:
-    characters = load_official_role_index(runtime.USER_DATABASE_PATH)
-    character_ids = [int(row["character_id"]) for row in characters]
-    account_weights = ensure_account_character_weights(
-        runtime.USER_DATABASE_PATH,
-        character_ids,
-    )
-    with StaticGameDataDao() as static_dao:
-        attributes = {
-            str(row["attribute_id"]): row
-            for row in static_dao.list_equipment_attributes()
-        }
-        known_property_ids = set(attributes)
-        # ``stats.json`` 的 tape_stat_values（与 gold_base_values 同一集合）
-        # 是副词条池的唯一来源。过去这里维护了一份硬编码副本，导致权重页
-        # 与毕业基准在词条池更新后可能不一致。
-        stats_catalog = StatCatalog.from_config_dir(runtime.CONFIG_DIR)
-        sub_choices = [
-            (label, _WEIGHT_POOL_PROPERTY_IDS[label])
-            for label in stats_catalog.tape_sub_stat_pool()
-            if label in _WEIGHT_POOL_PROPERTY_IDS
-            and _WEIGHT_POOL_PROPERTY_IDS[label] in known_property_ids
-        ]
-        main_choices = [
-            (label, property_id)
-            for label, property_id in _ACCOUNT_MAIN_PROPERTY_CHOICES
-            if property_id in known_property_ids
-        ]
-        stats_weight_pool = stats_catalog.weight_choice_pool()
-        weight_property_by_label = {}
-        for attribute in attributes.values():
-            property_id = str(attribute["attribute_id"])
-            label = str(
-                attribute.get("filter_name_zh")
-                or attribute.get("display_name_zh")
-                or property_id
-            ).replace("百分比", "%")
-            if bool(attribute.get("show_percent")) and not label.endswith("%"):
-                label = f"{label}%"
-            canonical_label = stats_catalog.normalize_stat_name(label) or label
-            if canonical_label not in stats_weight_pool:
-                continue
-            existing = weight_property_by_label.get(canonical_label)
-            preferred_property_id = _WEIGHT_POOL_PROPERTY_IDS.get(canonical_label)
-            if existing is None or property_id == preferred_property_id:
-                weight_property_by_label[canonical_label] = property_id
-        shape_bonus_choices = [
-            (stat_name, weight_property_by_label[stat_name])
-            for stat_name in stats_weight_pool
-            if stat_name in weight_property_by_label
-        ]
-        result = {}
-        for character in characters:
-            character_id = int(character["character_id"])
-            record = account_weights.get(character_id) or {}
-            shape_bonus = get_effective_character_shape_bonus(
-                static_dao, character_id,
-            ) or {}
-            shape_label = str(shape_bonus.get("shape_label") or "")
-            shape_buffs = {
-                str(row["property_id"]): float(row["display_value"])
-                for row in shape_bonus.get("properties") or ()
-            }
-            result[str(character.get("name_zh") or character_id)] = {
-                "character_id": character_id,
-                "source_kind": str(record.get("source_kind") or "default"),
-                "extra_shape_label": shape_label,
-                "extra_shape_buffs": shape_buffs,
-                "weights": {
-                    str(property_id): float(weight)
-                    for property_id, weight in (
-                        record.get("property_weights") or {}
-                    ).items()
-                },
-                "main_weights": {
-                    str(property_id): float(weight)
-                    for property_id, weight in (
-                        record.get("main_property_weights") or {}
-                    ).items()
-                },
-            }
-    labels = {
-        property_id: label
-        for label, property_id in (*sub_choices, *main_choices)
-    }
-    labels.update({property_id: label for label, property_id in shape_bonus_choices})
-    return {
-        "roles": result,
-        "property_labels": labels,
-        "sub_choices": sub_choices,
-        "main_choices": main_choices,
-        "shape_bonus_choices": shape_bonus_choices,
-        "shape_label_choices": _EXTRA_SHAPE_LABEL_CHOICES,
-    }
-
-
 def confirm_pending_config_changes(window, config_dir):
     if not getattr(window, "_config_dirty", False):
         return True
@@ -236,10 +115,22 @@ def confirm_pending_config_changes(window, config_dir):
         QMessageBox.Save,
     )
     if ret == QMessageBox.Cancel:
+        _basic_weight_controller(window).log_dirty_exit(
+            "cancel",
+            len(getattr(window, "_config_dirty_character_ids", set())),
+        )
         return False
     if ret == QMessageBox.Save:
+        _basic_weight_controller(window).log_dirty_exit(
+            "save",
+            len(getattr(window, "_config_dirty_character_ids", set())),
+        )
         save_config_form(window, config_dir, None)
     else:
+        _basic_weight_controller(window).log_dirty_exit(
+            "discard",
+            len(getattr(window, "_config_dirty_character_ids", set())),
+        )
         window._config_dirty = False
         window._config_form_data = None
     return True
@@ -276,7 +167,7 @@ def switch_config_form(window, name=_ACCOUNT_WEIGHT_CONFIG, config_dir=None, use
     if use_draft and name == current_name and getattr(window, "_config_dirty", False) and hasattr(window, "_config_form_data"):
         data = window._config_form_data
     else:
-        loaded = _account_weight_config()
+        loaded = _basic_weight_controller(window).load_form_data()
         data = loaded["roles"]
         window._config_weight_property_labels = loaded["property_labels"]
         window._config_weight_sub_choices = loaded["sub_choices"]
@@ -308,7 +199,7 @@ def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
     current_label = str(role_data.get("extra_shape_label") or "")
     value.setCurrentText(current_label)
     value.setPlaceholderText("选择额外形状标签")
-    value.setToolTip("选择额外形状标签；点击“保存”后写入公共静态 SQLite，所有账号共用；版本更新会恢复默认数据。")
+    value.setToolTip("选择额外形状标签；点击“保存”后写入本机公共覆盖库，所有账号共用；可重置为发行默认值。")
     value.currentTextChanged.connect(
         lambda text, rn=role_name: save_extra_shape_label(window, rn, text, data)
     )
@@ -335,7 +226,7 @@ def _add_extra_shape_buff_row(
         property_combo.addItem(str(label), str(property_id))
     selected_index = property_combo.findData(str(selected_property))
     property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
-    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后写入公共静态 SQLite，所有账号共用；版本更新会恢复默认数据。")
+    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后写入本机公共覆盖库，所有账号共用；可重置为发行默认值。")
     row.addWidget(property_combo, 1)
     value_spin = NoWheelDoubleSpinBox()
     value_spin.setRange(0, 1000000)
@@ -344,8 +235,18 @@ def _add_extra_shape_buff_row(
     value_spin.setValue(float(selected_value))
     value_spin.setKeyboardTracking(False)
     value_spin.setEnabled(bool(property_combo.currentData()))
-    value_spin.setToolTip("额外形状加成数值；点击“保存”后写入公共静态 SQLite，所有账号共用；版本更新会恢复默认数据。")
+    value_spin.setToolTip("额外形状加成数值；点击“保存”后写入本机公共覆盖库，所有账号共用；可重置为发行默认值。")
     row.addWidget(value_spin)
+    reset_button = QPushButton("恢复发行默认")
+    reset_button.setObjectName("btnSm")
+    reset_button.setToolTip("删除该角色的本机公共覆盖，重新使用随版本发布的默认值。")
+    reset_button.clicked.connect(
+        lambda checked=False, item=role_data: reset_extra_shape_bonus(
+            window,
+            item,
+        )
+    )
+    row.addWidget(reset_button)
     form_layout.addLayout(row)
 
     def update_bonus(*_args) -> None:
@@ -426,7 +327,13 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
 
     source = QLabel(
         f"角色：{role_name}　当前账号 SQLite 权重设置"
-        f"（初始来源：{role_data.get('source_kind') or 'default'}）"
+        f"（初始来源：{role_data.get('source_kind') or 'default'}）\n"
+        "额外形状：全部账号共用 · "
+        + (
+            "本机覆盖"
+            if role_data.get("shape_bonus_source") == "shared_override"
+            else "发行默认"
+        )
     )
     source.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     form_layout.addWidget(source)
@@ -529,6 +436,30 @@ def _mark_shape_bonus_dirty(window, role_data):
     window._config_dirty_shape_bonus_ids.add(int(role_data["character_id"]))
 
 
+def reset_extra_shape_bonus(window, role_data):
+    """删除当前角色的公共覆盖并刷新为发行默认。"""
+
+    if QMessageBox.question(
+        window,
+        "恢复发行默认",
+        "额外形状配置由所有账号共用。确定删除本机覆盖并恢复发行默认值吗？",
+        QMessageBox.Yes | QMessageBox.Cancel,
+        QMessageBox.Cancel,
+    ) != QMessageBox.Yes:
+        return
+    try:
+        _basic_weight_controller(window).reset_shared_shape_bonus(
+            int(role_data["character_id"])
+        )
+    except Exception as exc:
+        QMessageBox.warning(window, "恢复失败", str(exc))
+        return
+    reload_data = getattr(window, "_load_data", None)
+    if callable(reload_data):
+        reload_data()
+    QMessageBox.information(window, "恢复发行默认", "已删除本机公共覆盖。")
+
+
 def save_extra_shape_label(window, rn, value, data):
     if rn not in data:
         return
@@ -585,25 +516,11 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
         getattr(window, "_config_dirty_shape_bonus_ids", set())
     )
     try:
-        for role_data in data.values():
-            character_id = int(role_data["character_id"])
-            if character_id not in dirty_ids:
-                continue
-            save_account_character_weights(
-                runtime.USER_DATABASE_PATH,
-                character_id,
-                role_data.get("weights") or {},
-                main_property_weights=role_data.get("main_weights") or {},
-            )
-        for role_data in data.values():
-            character_id = int(role_data["character_id"])
-            if character_id not in shape_bonus_dirty_ids:
-                continue
-            save_public_character_shape_bonus(
-                character_id,
-                shape_label=str(role_data.get("extra_shape_label") or ""),
-                property_values=role_data.get("extra_shape_buffs") or {},
-            )
+        _basic_weight_controller(window).save_changes(
+            data,
+            dirty_ids,
+            shape_bonus_dirty_ids,
+        )
     except Exception as exc:
         QMessageBox.warning(window, "保存失败", str(exc))
         return
@@ -616,7 +533,7 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     QMessageBox.information(
         window,
         "保存",
-        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到公共静态 SQLite，版本更新会恢复默认数据。",
+        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到本机公共覆盖库，所有账号共用。",
     )
 
 
@@ -657,8 +574,8 @@ def reset_current_config_weights(window, config_dir):
     ):
         return
     try:
-        reset_account_character_weights(
-            runtime.USER_DATABASE_PATH, (int(role_data["character_id"]),),
+        _basic_weight_controller(window).reset_weights(
+            (int(role_data["character_id"]),)
         )
     except Exception as exc:
         QMessageBox.warning(window, "重置失败", str(exc))
@@ -686,7 +603,7 @@ def reset_all_config_weights(window, config_dir):
     ):
         return
     try:
-        restored = reset_account_character_weights(runtime.USER_DATABASE_PATH, character_ids)
+        restored = _basic_weight_controller(window).reset_weights(character_ids)
     except Exception as exc:
         QMessageBox.warning(window, "重置失败", str(exc))
         return

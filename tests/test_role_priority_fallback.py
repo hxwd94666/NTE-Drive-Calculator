@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import unittest
 
-from src.models.equipment import Drive
-from src.optimizer.allocation_kernel import AllocationKernel, AllocationKernelRequest
+from src.models.equipment import Drive, Tape
+from src.optimizer.allocation_kernel import (
+    AllocationKernel,
+    AllocationKernelRequest,
+    estimate_candidate_pool_limits,
+)
 from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
 
@@ -173,6 +177,107 @@ class RolePriorityFallbackTests(unittest.TestCase):
             ["frozen-extra"],
             [drive.uid for drive in result["A"]["assigned_extra_drives"]],
         )
+
+    def test_failed_strict_role_releases_preallocated_tape_for_next_role(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "S"}, "B": {"default_set": "S"}},
+            {"S": {"shapes": []}},
+            {
+                "A": [{"set_pieces": [], "extra_pieces": ["Y"]}],
+                "B": [{"set_pieces": [], "extra_pieces": ["H_2"]}],
+            },
+        )
+        shared_tape = Tape(
+            uid="shared",
+            quality="Gold",
+            area=15,
+            set_name="S",
+            main_stats="暴击率%",
+            role_scores={"A": 10.0, "B": 10.0},
+        )
+        drive = _drive("drive-for-b")
+        drive.role_scores = {"A": 1.0, "B": 1.0}
+
+        result = strategy.execute(
+            {
+                "drives": [drive],
+                "tapes": {"A": [shared_tape], "B": [shared_tape]},
+            },
+            ["A", "B"],
+            {"A": "S", "B": "S"},
+            priority_groups=[["A"], ["B"]],
+        )
+
+        self.assertFalse(result["A"]["valid"])
+        self.assertTrue(result["B"]["valid"])
+        self.assertEqual("shared", result["B"]["assigned_tape"].uid)
+
+    def test_tape_candidate_limit_covers_all_strict_priority_roles(self) -> None:
+        role_order = tuple(f"R{index}" for index in range(7))
+
+        _drive_limit, tape_limit = estimate_candidate_pool_limits(
+            {},
+            role_order,
+            tuple((role,) for role in role_order),
+        )
+
+        self.assertGreaterEqual(tape_limit, len(role_order))
+
+    def test_later_strict_role_falls_back_to_next_nonempty_tape_layer(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "S"}, "B": {"default_set": "S"}},
+            {"S": {"shapes": []}},
+            {
+                "A": [{"set_pieces": [], "extra_pieces": ["H_2"]}],
+                "B": [{"set_pieces": [], "extra_pieces": ["H_2"]}],
+            },
+        )
+        deeper = Tape(
+            uid="abc",
+            quality="Gold",
+            area=15,
+            set_name="S",
+            main_stats="暴击率%",
+            sub_stats={"a": 1.0, "b": 1.0, "c": 1.0},
+            role_scores={"A": 1.0, "B": 1.0},
+        )
+        fallback = Tape(
+            uid="ab",
+            quality="Gold",
+            area=15,
+            set_name="S",
+            main_stats="暴击率%",
+            sub_stats={"a": 1.0, "b": 1.0},
+            role_scores={"A": 100.0, "B": 100.0},
+        )
+        first_drive = _drive("drive-a")
+        second_drive = _drive("drive-b")
+        for drive in (first_drive, second_drive):
+            drive.role_scores = {"A": 1.0, "B": 1.0}
+        priorities = {
+            role: {
+                "stats": ["a", "b", "c"],
+                "ignore_grade_limit": True,
+            }
+            for role in ("A", "B")
+        }
+
+        result = strategy.execute(
+            {
+                "drives": [first_drive, second_drive],
+                "tapes": {
+                    "A": [fallback, deeper],
+                    "B": [fallback, deeper],
+                },
+            },
+            ["A", "B"],
+            {"A": "S", "B": "S"},
+            priorities,
+            priority_groups=[["A"], ["B"]],
+        )
+
+        self.assertEqual("abc", result["A"]["assigned_tape"].uid)
+        self.assertEqual("ab", result["B"]["assigned_tape"].uid)
 
 
 if __name__ == "__main__":

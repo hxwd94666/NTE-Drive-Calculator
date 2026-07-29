@@ -18,7 +18,6 @@ from src.utils.logger import logger
 from src.utils.image_io import imread_unicode
 from src.features.scanning.naming import (
     FAILED_SCREENSHOT_DIRNAME,
-    FULL_SCAN_TEMP_DIRNAME,
     IMAGE_EXTS,
     PROBE_PREFIX,
     full_scan_filename,

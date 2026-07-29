@@ -35,6 +35,7 @@ LEGACY_SHIM_PATHS = [
     "src/scanner/screenshot_parser.py",
 ]
 FEATURE_STATIC_ALLOWLIST = {
+    "src/services/character_shape_bonus_service.py": {"__file__"},
     "src/features/configuration/page.py": {"NoWheelComboBox", "NoWheelDoubleSpinBox"},
     "src/integrations/nte_core.py": {"__file__"},
     "src/storage/sqlite/static_game_data_dao.py": {"__file__"},
@@ -46,7 +47,8 @@ def _repo_python_files() -> list[Path]:
     # 对方提供的本地核心与插件目录不是本项目源码，不适用项目的中文摘要规范。
     excluded_parts = {".venv", "__pycache__", "build", "dist", "nte-core", "nte-equipment-plugin"}
     return sorted(
-        path for path in ROOT.rglob("*.py")
+        path
+        for path in ROOT.rglob("*.py")
         if path.is_file()
         and not excluded_parts.intersection(path.relative_to(ROOT).parts)
         and not any(part.startswith("nte-core-windows-x64") for part in path.relative_to(ROOT).parts)
@@ -100,12 +102,12 @@ class EncodingGuardTests(unittest.TestCase):
             "src.features.identification.controller",
             "src.features.identification.dialogs",
             "src.features.identification.page",
-            "src.features.identification.parser",
+            "src.integrations.vision.identification_parser",
             "src.features.inventory.page",
-            "src.features.inventory_import.duplicate_filter",
-            "src.features.inventory_import.equipment_classifier",
-            "src.features.inventory_import.exporter",
-            "src.features.inventory_import.screenshot_parser",
+            "src.integrations.vision.duplicate_filter",
+            "src.integrations.vision.equipment_classifier",
+            "src.integrations.vision.screenshot_parser",
+            "src.integrations.vision.uid",
             "src.features.onboarding.guide",
             "src.features.scanning.controller",
             "src.features.scanning.file_lifecycle",
@@ -114,10 +116,8 @@ class EncodingGuardTests(unittest.TestCase):
             "src.app.constants",
             "src.app.dialogs",
             "src.app.facade",
-            "src.app.runtime",
             "src.app.theme",
             "src.app.workers",
-            "src.ui.main_window_method_install",
             "src.ui.plain_text_edit",
             "src.ui.puzzle_board",
         ]
@@ -170,14 +170,8 @@ class EncodingGuardTests(unittest.TestCase):
 
     def test_main_window_has_no_duplicate_method_names(self):
         tree = ast.parse(Path("src/ui/app.py").read_text(encoding="utf-8"))
-        main_window = next(
-            node for node in tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "MainWindow"
-        )
-        names = [
-            node.name for node in main_window.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        ]
+        main_window = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MainWindow")
+        names = [node.name for node in main_window.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         self.assertEqual([], duplicates)
 
@@ -226,11 +220,7 @@ class EncodingGuardTests(unittest.TestCase):
 def _missing_names_for_path(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     table = symtable.symtable(text, str(path), "exec")
-    module_names = {
-        symbol.get_name()
-        for symbol in table.get_symbols()
-        if symbol.is_assigned() or symbol.is_imported()
-    }
+    module_names = {symbol.get_name() for symbol in table.get_symbols() if symbol.is_assigned() or symbol.is_imported()}
     allowlist = FEATURE_STATIC_ALLOWLIST.get(path.as_posix(), set())
     return sorted(_missing_global_names(table, module_names, set(dir(builtins)) | allowlist))
 
@@ -281,12 +271,7 @@ def _missing_global_names(table, module_names: set[str], allowed: set[str]) -> s
     for child in table.get_children():
         for symbol in child.get_symbols():
             name = symbol.get_name()
-            if (
-                symbol.is_global()
-                and symbol.is_referenced()
-                and name not in module_names
-                and name not in allowed
-            ):
+            if symbol.is_global() and symbol.is_referenced() and name not in module_names and name not in allowed:
                 missing.add(name)
         missing.update(_missing_global_names(child, module_names, allowed))
     return missing

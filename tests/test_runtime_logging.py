@@ -15,6 +15,10 @@ from src.utils.logger import (
 
 
 class RuntimeLoggingTests(unittest.TestCase):
+    def test_unittest_process_uses_quiet_console_sink(self):
+        self.assertTrue(logger_module.TEST_PROCESS)
+        self.assertEqual("WARNING", logger_module.CONSOLE_LOG_LEVEL)
+
     def setUp(self):
         self.original_log_dir = logger_module.LOG_DIR
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -45,6 +49,25 @@ class RuntimeLoggingTests(unittest.TestCase):
             "session-log-probe",
             session_path.read_text(encoding="utf-8"),
         )
+        self.assertIn(
+            "logging.session_started",
+            session_path.read_text(encoding="utf-8"),
+        )
+
+    def test_session_log_receives_debug_without_polluting_runtime_log(self):
+        session_path = enable_session_log()
+
+        logger.debug("session-debug-probe")
+        logger.complete()
+
+        self.assertNotIn(
+            "session-debug-probe",
+            (self.log_dir / "nte_runtime.log").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "session-debug-probe",
+            session_path.read_text(encoding="utf-8"),
+        )
 
     def test_disabling_session_log_keeps_runtime_log_active(self):
         session_path = enable_session_log()
@@ -54,6 +77,10 @@ class RuntimeLoggingTests(unittest.TestCase):
         logger.complete()
 
         self.assertFalse(is_session_log_enabled())
+        self.assertIn(
+            "logging.session_stopped",
+            session_path.read_text(encoding="utf-8"),
+        )
         self.assertIn(
             "runtime-only-probe",
             (self.log_dir / "nte_runtime.log").read_text(encoding="utf-8"),
@@ -84,6 +111,29 @@ class RuntimeLoggingTests(unittest.TestCase):
             )
             disable_session_log()
             set_log_dir(self.log_dir)
+
+    def test_switching_log_directory_can_leave_session_closed_for_new_account_preference(self):
+        first_session = enable_session_log()
+
+        with tempfile.TemporaryDirectory() as second:
+            set_log_dir(second, reopen_session=False)
+
+            self.assertFalse(is_session_log_enabled())
+            self.assertEqual([], list(Path(second).glob("nte_runtime_*.log")))
+            self.assertIn(
+                "reason=log_directory_changed",
+                first_session.read_text(encoding="utf-8"),
+            )
+            set_log_dir(self.log_dir)
+
+    def test_reenable_creates_a_new_timestamp_file(self):
+        first_session = enable_session_log()
+        disable_session_log()
+        second_session = enable_session_log()
+
+        self.assertNotEqual(first_session, second_session)
+        self.assertTrue(first_session.is_file())
+        self.assertTrue(second_session.is_file())
 
     def test_windowed_runtime_installs_device_independent_null_streams(self):
         original_stdout = sys.stdout

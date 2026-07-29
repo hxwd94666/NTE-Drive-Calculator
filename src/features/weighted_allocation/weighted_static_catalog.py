@@ -76,10 +76,3 @@ def get_weighted_static_catalog(asset_root: str | Path) -> WeightedStaticCatalog
             )
         _CACHE[key] = value
         return value
-
-
-def clear_weighted_static_catalog_cache() -> None:
-    """Test and data-refresh hook for explicit cache invalidation."""
-
-    with _CACHE_LOCK:
-        _CACHE.clear()

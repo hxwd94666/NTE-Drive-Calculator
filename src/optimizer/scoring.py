@@ -4,9 +4,10 @@
 from pathlib import Path
 from typing import List, Dict, Any, Mapping
 
-from src.domain.crit_threshold import meets_preference_grade_limit
+from src.domain.crit_threshold import meets_preference_grade_limit, stat_priority_match_depth
 from src.domain.grade_limits import meets_min_grade
 from src.domain.stat_catalog import StatCatalog
+from src.integrations.bundled_resources import bundled_config_dir
 from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -32,12 +33,12 @@ class ScoringEngine:
 
     def __init__(
         self,
-        config_dir: str = "config",
+        config_dir: str | Path | None = None,
         *,
         user_database_path: str | Path | None = None,
         roles_db: Mapping[str, Mapping[str, Any]] | None = None,
     ):
-        self.config_dir = str(config_dir)
+        self.config_dir = str(Path(config_dir) if config_dir is not None else bundled_config_dir())
         self.user_database_path = (
             Path(user_database_path) if user_database_path is not None else None
         )
@@ -123,14 +124,14 @@ class ScoringEngine:
             if user_dao is not None:
                 user_dao.close()
 
-    def _get_max_theoretical_weight(self, weights: Dict[str, float]) -> float:
+    def max_theoretical_weight(self, weights: Mapping[str, float]) -> float:
         if not weights: return 1.0
         valid_sub_weights = [w for name, w in weights.items() if not any(kw in name for kw in self.main_only_keywords)]
         sorted_weights = sorted(valid_sub_weights, reverse=True)
         max_sub_weight = sum(sorted_weights[:4])
         return max_sub_weight if max_sub_weight > 0 else 1.0
 
-    def _get_flexible_weight(self, stat_name: str, weights: Dict[str, float]) -> float:
+    def flexible_weight(self, stat_name: str, weights: Mapping[str, float]) -> float:
         names = [str(stat_name or "").strip()]
         normalized = self.stat_catalog.normalize_stat_name(names[0], is_percent="%" in names[0])
         if normalized:
@@ -158,7 +159,7 @@ class ScoringEngine:
 
     def calculate_drive_score(self, drive: Drive, weights: Dict[str, float], max_weight: float) -> float:
         if max_weight <= 0: return 0.0
-        actual_weight = sum(self._get_flexible_weight(stat_name, weights) for stat_name in drive.sub_stats.keys())
+        actual_weight = sum(self.flexible_weight(stat_name, weights) for stat_name in drive.sub_stats.keys())
         if actual_weight <= 0: return 0.0
 
         quality_coef = self.quality_map.get(drive.quality, 1.0)
@@ -172,10 +173,10 @@ class ScoringEngine:
 
         main_stat_name = tape.main_stats
         main_weight_source = main_weights if isinstance(main_weights, dict) else weights
-        main_weight = self._get_flexible_weight(main_stat_name, main_weight_source)
+        main_weight = self.flexible_weight(main_stat_name, main_weight_source)
         main_score = main_weight * 50.0 * quality_coef
 
-        sub_weight = sum(self._get_flexible_weight(stat_name, weights) for stat_name in tape.sub_stats.keys())
+        sub_weight = sum(self.flexible_weight(stat_name, weights) for stat_name in tape.sub_stats.keys())
         sub_score = (10.0 / max_weight) * sub_weight * 10.0 * quality_coef
 
         return round(main_score + sub_score, 2)
@@ -208,16 +209,23 @@ class ScoringEngine:
         stats = [str(stat) for stat in config.get("stats", []) if stat]
         if not stats:
             return (0, 0)
-        if config.get("equal_priority"):
-            covered = sum(1 for stat in stats if self._item_has_stat(item, stat))
-            return (covered, 0)
-        for tier, stat in enumerate(stats):
-            if self._item_has_stat(item, stat):
-                return (len(stats) - tier, 0)
-        return (0, 0)
+        depth = stat_priority_match_depth(
+            (self._item_has_stat(item, stat) for stat in stats),
+            equal_priority=bool(config.get("equal_priority")),
+        )
+        return (depth, 0)
 
     def _has_stat_priority_for_any_role(self, item: BaseEquipment, configs: Dict[str, dict]) -> bool:
         return any(self._priority_rank_for_item(role_name, item, config) > (0, 0) for role_name, config in configs.items())
+
+    def _item_matches_stat_blacklist(self, item: BaseEquipment, config: dict | None) -> bool:
+        if not isinstance(config, dict):
+            return False
+        return any(
+            self._item_has_stat(item, stat)
+            for stat in config.get("blacklist", ())
+            if stat
+        )
 
     def _allowed_tape_main_names(self, allowed_mains: List[str] | None) -> set[str]:
         allowed = set()
@@ -267,7 +275,7 @@ class ScoringEngine:
 
             for role_name, role_data in self.roles_db.items():
                 weights = role_data.get("weights", {})
-                max_weight = self._get_max_theoretical_weight(weights)
+                max_weight = self.max_theoretical_weight(weights)
 
                 if isinstance(item, Drive):
                     score = self.calculate_drive_score(item, weights, max_weight)
@@ -289,9 +297,13 @@ class ScoringEngine:
                     or self._has_stat_priority_for_any_role(item, crit_priority_modes)
                 ):
                     valid_drives.append(item)
-            elif item.max_score > 0 or any(
-                self._tape_main_allowed(item, self._allowed_tape_main_names(values))
-                for values in tape_main_filters.values()
+            elif (
+                item.max_score > 0
+                or self._has_stat_priority_for_any_role(item, crit_priority_modes)
+                or any(
+                    self._tape_main_allowed(item, self._allowed_tape_main_names(values))
+                    for values in tape_main_filters.values()
+                )
             ):
                 valid_tapes.append(item)
 
@@ -305,14 +317,32 @@ class ScoringEngine:
             )
             buckets: Dict[str, List[Drive]] = {}
             for d in valid_drives:
+                if self._item_matches_stat_blacklist(d, role_priority_config):
+                    continue
                 priority_rank = self._priority_rank_for_item(role_name, d, role_priority_config)
                 if role_unlimited_stat_priority or d.role_scores[role_name] > 0 or priority_rank > (0, 0):
                     buckets.setdefault(d.shape_id, []).append(d)
 
             for shape, drives_in_bucket in buckets.items():
-                if role_unlimited_stat_priority:
-                    for d in drives_in_bucket:
-                        global_drive_uids.add(d.uid)
+                if (
+                    isinstance(role_priority_config, dict)
+                    and bool(role_priority_config.get("stats"))
+                ):
+                    depth_buckets: Dict[int, List[Drive]] = {}
+                    for drive in drives_in_bucket:
+                        depth = self._priority_rank_for_item(
+                            role_name,
+                            drive,
+                            role_priority_config,
+                        )[0]
+                        depth_buckets.setdefault(depth, []).append(drive)
+                    for depth_bucket in depth_buckets.values():
+                        depth_bucket.sort(
+                            key=lambda drive: drive.role_scores[role_name],
+                            reverse=True,
+                        )
+                        for drive in depth_bucket[:top_k_per_shape_per_role]:
+                            global_drive_uids.add(drive.uid)
                     continue
                 drives_in_bucket.sort(
                     key=lambda x: (
@@ -333,7 +363,15 @@ class ScoringEngine:
             role_tapes = [
                 t
                 for t in valid_tapes
-                if t.role_scores[role_name] > 0 or (allowed_mains and self._tape_main_allowed(t, allowed_mains))
+                if (
+                    t.role_scores[role_name] > 0
+                    or self._priority_rank_for_item(
+                        role_name,
+                        t,
+                        crit_priority_modes.get(role_name),
+                    ) > (0, 0)
+                    or (allowed_mains and self._tape_main_allowed(t, allowed_mains))
+                )
             ]
             role_tapes = [t for t in role_tapes if self._tape_main_allowed(t, allowed_mains)]
             set_buckets = {}
@@ -342,32 +380,49 @@ class ScoringEngine:
 
             final_role_tapes = []
             for s_name, bucket in set_buckets.items():
-                bucket.sort(
-                    key=lambda x: (
-                        self._priority_rank_for_item(role_name, x, crit_priority_modes.get(role_name)),
-                        x.role_scores[role_name],
-                    ),
-                    reverse=True,
-                )
-                # Keep the normal top-K fast path, but retain the best card
-                # of every main-stat type in the same suit as well.  A pure
-                # score cutoff otherwise drops all non-critical cards for a
-                # crit-weighted role, even when a critical-rate cap later
-                # makes one of those cards the only legal choice.
-                selected_uids: set[str] = set()
-                for tape in bucket[:tape_top_k_per_set_per_role]:
-                    final_role_tapes.append(tape)
-                    selected_uids.add(str(tape.uid))
-                seen_main_stats: set[str] = set()
-                for tape in bucket:
-                    main_stat = self.stat_catalog.normalize_tape_main_stat(tape.main_stats)
-                    main_key = main_stat if main_stat != "未知主词条" else str(tape.main_stats or "")
-                    if main_key in seen_main_stats:
-                        continue
-                    seen_main_stats.add(main_key)
-                    if str(tape.uid) not in selected_uids:
+                role_config = crit_priority_modes.get(role_name)
+                if isinstance(role_config, dict) and role_config.get("stats"):
+                    layered_buckets: List[List[Tape]] = []
+                    by_depth: Dict[int, List[Tape]] = {}
+                    for tape in bucket:
+                        depth = self._priority_rank_for_item(
+                            role_name,
+                            tape,
+                            role_config,
+                        )[0]
+                        if depth > 0:
+                            by_depth.setdefault(depth, []).append(tape)
+                    layered_buckets.extend(
+                        by_depth[depth]
+                        for depth in sorted(by_depth, reverse=True)
+                    )
+                else:
+                    layered_buckets = [bucket]
+
+                for candidate_bucket in layered_buckets:
+                    candidate_bucket.sort(
+                        key=lambda x: x.role_scores[role_name],
+                        reverse=True,
+                    )
+                    # Keep the normal top-K fast path, but retain the best card
+                    # of every main-stat type in the same suit as well. A pure
+                    # score cutoff otherwise drops all non-critical cards for
+                    # a crit-weighted role, even when a critical-rate cap later
+                    # makes one of those cards the only legal choice.
+                    selected_uids: set[str] = set()
+                    for tape in candidate_bucket[:tape_top_k_per_set_per_role]:
                         final_role_tapes.append(tape)
                         selected_uids.add(str(tape.uid))
+                    seen_main_stats: set[str] = set()
+                    for tape in candidate_bucket:
+                        main_stat = self.stat_catalog.normalize_tape_main_stat(tape.main_stats)
+                        main_key = main_stat if main_stat != "未知主词条" else str(tape.main_stats or "")
+                        if main_key in seen_main_stats:
+                            continue
+                        seen_main_stats.add(main_key)
+                        if str(tape.uid) not in selected_uids:
+                            final_role_tapes.append(tape)
+                            selected_uids.add(str(tape.uid))
 
             final_role_tapes.sort(key=lambda x: x.role_scores[role_name], reverse=True)
             optimal_tapes[role_name] = final_role_tapes

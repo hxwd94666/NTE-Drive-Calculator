@@ -1,24 +1,117 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "nte-drive-calculator"
-version = "0.1.0"
-description = "Add your description here"
+dynamic = ["version"]
+description = "《异环》驱动与卡带库存同步、鉴定、配装和自动化管理工具"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "keyboard>=0.13.5",
-    "loguru>=0.7.0",
-    "mss>=9.0.0",
-    "numpy>=1.24.0",
-    "onnxruntime-directml>=1.24.0 ; sys_platform == 'win32'",
-    "opencv-python>=4.8.0",
-    "pillow>=10.0.0",
-    "pyautogui>=0.9.54",
-    "pydantic>=2.0.0",
-    "pyinstaller>=6.0.0",
-    "pypinyin>=0.50.0",
-    "pyside6>=6.5.0",
-    "rapidocr-onnxruntime>=1.3.0",
-    "rapidocr-openvino>=1.4.0",
-    "scipy>=1.11.0",
-    "vgamepad>=0.1.0",
+license = { file = "LICENSE" }
+authors = [
+    { name = "NTE Drive Calc contributors" },
 ]
+maintainers = [
+    { name = "WuDu" },
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Games/Entertainment",
+]
+dependencies = [
+    "keyboard>=0.13.5 ; sys_platform == 'win32'",
+    "loguru>=0.7.0 ; sys_platform == 'win32'",
+    "mss>=9.0.0 ; sys_platform == 'win32'",
+    "numpy>=1.24.0 ; sys_platform == 'win32'",
+    "onnxruntime-directml>=1.24.0 ; sys_platform == 'win32'",
+    "opencv-python>=4.8.0 ; sys_platform == 'win32'",
+    "pillow>=10.0.0 ; sys_platform == 'win32'",
+    "pyautogui>=0.9.54 ; sys_platform == 'win32'",
+    "pydantic>=2.0.0 ; sys_platform == 'win32'",
+    "pypinyin>=0.50.0 ; sys_platform == 'win32'",
+    "pyside6>=6.5.0 ; sys_platform == 'win32'",
+    "rapidocr-onnxruntime>=1.3.0 ; sys_platform == 'win32'",
+    "rapidocr-openvino>=1.4.0 ; sys_platform == 'win32'",
+    "scipy>=1.11.0 ; sys_platform == 'win32'",
+    "vgamepad>=0.1.0 ; sys_platform == 'win32'",
+]
+
+[project.urls]
+Homepage = "https://github.com/hxwd94666/NTE-Drive-Calc"
+Issues = "https://github.com/hxwd94666/NTE-Drive-Calc/issues"
+Releases = "https://github.com/hxwd94666/NTE-Drive-Calc/releases"
+
+[dependency-groups]
+build = [
+    "pyinstaller>=6.0.0 ; sys_platform == 'win32'",
+]
+dev = [
+    "coverage[toml]>=7.6.0",
+    "mypy>=1.18.0",
+    "ruff>=0.12.0",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "src.app.version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "tools*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = [
+    ".venv",
+    "build",
+    "dist",
+    "installer",
+]
+
+[tool.ruff.lint]
+# M6 已完成首轮全仓未使用导入清理；语法、明显错误、未定义名称和 F401 均为硬门槛。
+select = ["E9", "F63", "F7", "F821", "F401"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+strict_equality = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+ignore_missing_imports = true
+explicit_package_bases = true
+follow_imports = "skip"
+show_error_codes = true
+pretty = true
+exclude = [
+    "^build/",
+    "^dist/",
+    "^installer/",
+]
+
+[tool.coverage.run]
+branch = true
+source = [
+    "src/domain",
+    "src/services",
+    "src/storage/sqlite",
+    "src/integrations",
+]
+omit = [
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+precision = 1

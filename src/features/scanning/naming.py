@@ -26,18 +26,6 @@ def full_scan_filename(index: int, suffix: str = ".png") -> str:
     return numbered_filename(FULL_SCAN_PREFIX, index, suffix)
 
 
-def probe_filename(index: int, suffix: str = ".png") -> str:
-    return numbered_filename(PROBE_PREFIX, index, suffix)
-
-
-def auto_new_filename(index: int, suffix: str = ".png") -> str:
-    return numbered_filename(AUTO_NEW_PREFIX, index, suffix)
-
-
-def semi_filename(index: int, suffix: str = ".png") -> str:
-    return numbered_filename(SEMI_PREFIX, index, suffix)
-
-
 def stem_and_suffix(filename: str | Path) -> tuple[str, str]:
     path = Path(filename)
     return path.stem, path.suffix.lower()
@@ -47,11 +35,6 @@ def raw_drive_index_from_name(filename: str | Path) -> int | None:
     stem, _suffix = stem_and_suffix(filename)
     match = re.fullmatch(r"raw_drive_(\d+)", stem)
     return int(match.group(1)) if match else None
-
-
-def is_image_filename(filename: str | Path) -> bool:
-    _stem, suffix = stem_and_suffix(filename)
-    return bool(suffix) and suffix in IMAGE_EXTS
 
 
 def is_full_scan_filename(filename: str | Path) -> bool:

@@ -7,34 +7,35 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QMessageBox
 
-from src.app import runtime
 from src.app.workers import WorkerThread
 from src.features.home.page import inventory_sync_error_guidance
+from src.observability import OperationContext
 from src.services.inventory_sync_service import InventorySyncService, InventorySyncState
 from src.integrations.nte_core import NteCoreClient
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 from src.utils.logger import logger
-
-_METHOD_NAMES = ["_start_inventory_sync","_get_sync_settings","_save_sync_settings","_open_raw_capture_directory","_prune_inventory_snapshots","_prune_inventory_snapshots_task","_on_inventory_snapshots_pruned","_on_inventory_snapshot_prune_error","_maybe_auto_start_inventory_sync","_stop_inventory_sync","_on_inventory_sync_state"]
-
-
-def install_methods(app_module, window_cls) -> None:
-    _install_main_window_methods(app_module, window_cls, _METHOD_NAMES, globals())
 
 
 def _start_inventory_sync(self):
     service=self._inventory_sync_service
     if service is not None and service.is_running:
         return
-    raw_capture_directory = runtime.LOG_DIR / "nte_core" / "raw_capture"
+    account = self.app_context.account
+    raw_capture_directory = account.log_dir / "nte_core" / "raw_capture"
     service=InventorySyncService(
-        runtime.USER_DATABASE_PATH,
+        account.user_database_path,
+        account_id=account.active_account_id,
+        account_name=account.active_account_name,
         client_factory=lambda: NteCoreClient(
             data_dir=raw_capture_directory,
-            cwd=runtime.APP_DIR,
+            cwd=self.app_context.paths.app_dir,
         ),
         raw_capture_directory=raw_capture_directory,
+        operation_context=OperationContext.create(
+            "inventory_sync",
+            account_id=account.active_account_id,
+            context_generation=self.app_context.generation,
+        ),
     )
     service.add_state_handler(self.inventory_sync_state_signal.emit)
     self._inventory_sync_service=service
@@ -45,7 +46,9 @@ def _get_sync_settings(self):
 
 
 def _open_raw_capture_directory(self):
-    directory = runtime.LOG_DIR / "nte_core" / "raw_capture"
+    directory = (
+        self.app_context.account.log_dir / "nte_core" / "raw_capture"
+    )
     try:
         directory.mkdir(parents=True, exist_ok=True)
         opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
@@ -100,7 +103,7 @@ def _prune_inventory_snapshots(self):
     ) != QMessageBox.Yes:
         return
 
-    database_path = runtime.USER_DATABASE_PATH
+    database_path = self.app_context.account.user_database_path
     if hasattr(self, "_prune_snapshots_button"):
         self._prune_snapshots_button.setEnabled(False)
     worker = WorkerThread(
@@ -114,7 +117,6 @@ def _prune_inventory_snapshots(self):
     worker.error.connect(self._on_inventory_snapshot_prune_error)
     worker.start()
 
-@staticmethod
 def _prune_inventory_snapshots_task(database_path, retain_recent):
     with UserDataDao(database_path) as dao:
         return dao.prune_inventory_snapshots(retain_recent=retain_recent)
@@ -210,3 +212,19 @@ def _on_inventory_sync_state(self,state):
 # ── Page: Blueprint
 
 # ── Page: Config
+
+
+class InventorySyncControllerMixin:
+    _start_inventory_sync = _start_inventory_sync
+    _get_sync_settings = _get_sync_settings
+    _save_sync_settings = _save_sync_settings
+    _open_raw_capture_directory = _open_raw_capture_directory
+    _prune_inventory_snapshots = _prune_inventory_snapshots
+    _prune_inventory_snapshots_task = staticmethod(
+        _prune_inventory_snapshots_task
+    )
+    _on_inventory_snapshots_pruned = _on_inventory_snapshots_pruned
+    _on_inventory_snapshot_prune_error = _on_inventory_snapshot_prune_error
+    _maybe_auto_start_inventory_sync = _maybe_auto_start_inventory_sync
+    _stop_inventory_sync = _stop_inventory_sync
+    _on_inventory_sync_state = _on_inventory_sync_state

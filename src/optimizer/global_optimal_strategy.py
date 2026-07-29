@@ -1,5 +1,4 @@
 # 基于矩阵的全局最优分配策略。
-import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import List
 
@@ -41,6 +40,7 @@ class GlobalOptimalStrategy(MatrixBaseStrategy):
         drives_pool = candidate_pool.get("drives", [])
         assigned_tapes = self._pre_allocate_tapes_optimal(
             priority_list, custom_sets, candidate_pool.get("tapes", {}),
+            crit_priority_modes,
         )
         role_bps_list, valid_roles = self._build_matrix_environment(priority_list)
         if not valid_roles:

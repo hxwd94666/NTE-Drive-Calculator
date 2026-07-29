@@ -2,30 +2,21 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
-from pathlib import Path
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .user_data_support import (
-    ALLOCATION_STRATEGIES,
-    DEFAULT_SCHEMA_PATH,
-    DEFAULT_SNAPSHOT_RETENTION_COUNT,
-    SNAPSHOT_SOURCES,
-    SUIT_REQUIREMENT_MODES,
     SYNC_METHODS,
-    USER_MIGRATIONS,
-    SCHEMA_VERSION,
     UserDataError,
     UserDataValidationError,
     _decoded,
     _integer,
     _json,
-    _mark_duplicate_modules,
-    _plain_object,
     _utc_now,
 )
+from .protocols import UserDataDaoMixinHost
 
-class AccountDataDaoMixin:
+class AccountDataDaoMixin(UserDataDaoMixinHost):
     def profile(self) -> dict[str, Any]:
         profile = self._one("SELECT * FROM database_profile WHERE singleton_id = 1")
         if profile is None:
@@ -222,4 +213,3 @@ class AccountDataDaoMixin:
         )
         self._db().commit()
         return self.get_sync_settings()
-

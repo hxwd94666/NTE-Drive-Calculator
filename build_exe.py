@@ -10,7 +10,6 @@ NTE Drive Calc - PyInstaller 打包脚本
 import importlib.util
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -34,6 +33,8 @@ NTE_CORE_ENV = "NTE_CORE_EXE"
 MODS_PLUGIN_ENV = "NTE_MODS_PLUGIN_DLL"
 LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
 STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
+STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"
+STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"
 MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"
 NTE_CORE_RELEASE_FILES = (
     "LICENSE",
@@ -188,6 +189,11 @@ if not any((directory / "LICENSE").is_file() for directory in nte_core_metadata_
 # 发行版静态数据库直接随源码仓库维护，确保本地构建和 GitHub Release 使用同一数据集。
 static_database_path = _required_build_file("发行版静态数据库", STATIC_DATABASE_PATH)
 _append_add_data(static_database_path, "data")
+static_manifest_path = _required_build_file("发行版静态数据库清单", STATIC_MANIFEST_PATH)
+_append_add_data(static_manifest_path, "data")
+if not STATIC_MIGRATION_DATA_DIR.is_dir():
+    raise FileNotFoundError(f"静态数据迁移基线目录不存在：{STATIC_MIGRATION_DATA_DIR}")
+_append_add_data(STATIC_MIGRATION_DATA_DIR, "data/migrations")
 build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
 
 # 环境配置页会显式部署该 DLL 至用户选择的游戏目录；安装器本身不会修改游戏目录。

@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.app import runtime
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 
@@ -30,8 +29,7 @@ _SYNC_ERROR_GUIDANCE = {
         "处理：点击“环境配置”，在 Npcap 区下载并安装 Npcap 1.88；安装完成后重新启动背包同步。"
     ),
     "GAME_PROCESS_NOT_FOUND": (
-        "原因：未检测到正在运行的游戏进程。\n"
-        "处理：先启动游戏并停留在登录页，再重新启动背包同步。"
+        "原因：未检测到正在运行的游戏进程。\n处理：先启动游戏并停留在登录页，再重新启动背包同步。"
     ),
     "CAPTURE_DEVICE_NOT_FOUND": (
         "原因：设置的抓包网卡不存在，或当前没有可用于游戏连接的网卡。\n"
@@ -42,32 +40,21 @@ _SYNC_ERROR_GUIDANCE = {
         "处理：关闭游戏和本程序后重新打开；仍失败时检查安全软件拦截，并尝试以管理员身份运行。"
     ),
     "CAPTURE_ALREADY_RUNNING": (
-        "原因：nte-core 中已经存在一个抓包任务。\n"
-        "处理：先点击“停止同步”；若状态没有恢复，重启本程序后再同步。"
+        "原因：nte-core 中已经存在一个抓包任务。\n处理：先点击“停止同步”；若状态没有恢复，重启本程序后再同步。"
     ),
-    "CAPTURE_NOT_RUNNING": (
-        "原因：nte-core 的抓包会话已经停止。\n"
-        "处理：点击“启动背包同步”重新建立会话。"
-    ),
+    "CAPTURE_NOT_RUNNING": ("原因：nte-core 的抓包会话已经停止。\n处理：点击“启动背包同步”重新建立会话。"),
     "PROTOCOL_VERSION_MISMATCH": (
-        "原因：本程序与 nte-core 的协议版本不一致。\n"
-        "处理：重新安装同一发布包中的完整程序，不要混用旧版 nte-core.exe。"
+        "原因：本程序与 nte-core 的协议版本不一致。\n处理：重新安装同一发布包中的完整程序，不要混用旧版 nte-core.exe。"
     ),
     "HANDSHAKE_REQUIRED": (
-        "原因：本程序与 nte-core 的初始化握手未完成。\n"
-        "处理：重启本程序；仍失败时重新安装完整发布包。"
+        "原因：本程序与 nte-core 的初始化握手未完成。\n处理：重启本程序；仍失败时重新安装完整发布包。"
     ),
     "INVENTORY_NOT_READY": (
-        "原因：尚未捕获到完整背包数据。\n"
-        "处理：请从游戏登录页启动同步后再进入游戏，并等待背包数量稳定。"
+        "原因：尚未捕获到完整背包数据。\n处理：请从游戏登录页启动同步后再进入游戏，并等待背包数量稳定。"
     ),
-    "NteCoreNotFoundError": (
-        "原因：程序目录中缺少 nte-core.exe。\n"
-        "处理：重新安装完整发布包，不要单独复制主程序运行。"
-    ),
+    "NteCoreNotFoundError": ("原因：程序目录中缺少 nte-core.exe。\n处理：重新安装完整发布包，不要单独复制主程序运行。"),
     "NteCoreTimeoutError": (
-        "原因：nte-core 在限定时间内没有响应。\n"
-        "处理：重启本程序；仍失败时检查安全软件是否拦截 nte-core.exe。"
+        "原因：nte-core 在限定时间内没有响应。\n处理：重启本程序；仍失败时检查安全软件是否拦截 nte-core.exe。"
     ),
     "NteCoreProcessError": (
         "原因：nte-core.exe 无法启动或启动后异常退出。\n"
@@ -87,10 +74,7 @@ def inventory_sync_error_guidance(error_code: str | None, error: str | None) -> 
         return _SYNC_ERROR_GUIDANCE[code]
     detail = str(error or "").lower()
     if "permission denied" in detail or "access is denied" in detail:
-        return (
-            "原因：程序没有权限启动组件或写入账号数据。\n"
-            "处理：检查程序和账号数据目录权限，并尝试以管理员身份运行。"
-        )
+        return "原因：程序没有权限启动组件或写入账号数据。\n处理：检查程序和账号数据目录权限，并尝试以管理员身份运行。"
     if "database is locked" in detail:
         return (
             "原因：当前账号数据库正被另一个程序或本程序的残留进程占用。\n"
@@ -134,12 +118,7 @@ def build_home_page(window) -> QScrollArea:
 
     hero = QFrame()
     hero.setObjectName("homeHero")
-    hero.setStyleSheet(
-        themed_style(
-            "QFrame#homeHero{background:#10243f;border:1px solid #1f6feb;"
-            "border-radius:12px}"
-        )
-    )
+    hero.setStyleSheet(themed_style("QFrame#homeHero{background:#10243f;border:1px solid #1f6feb;border-radius:12px}"))
     hero_layout = QHBoxLayout(hero)
     hero_layout.setContentsMargins(22, 18, 22, 18)
     title_column = QVBoxLayout()
@@ -152,7 +131,9 @@ def build_home_page(window) -> QScrollArea:
     hero_layout.addLayout(title_column)
     hero_layout.addStretch()
     # 工作台的后台监听提示使用伊洛伊头像，避免与角色功能中的默认示例混淆。
-    hero_icon_path = GameUiAssetCatalog(runtime.ASSET_DIR / "game_ui").character_icon(1075)
+    hero_icon_path = GameUiAssetCatalog(
+        window.app_context.paths.asset_dir / "game_ui"
+    ).character_icon(1075)
     if hero_icon_path is not None:
         hero_icon = QLabel()
         hero_icon.setFixedSize(72, 72)
@@ -218,9 +199,8 @@ def build_home_page(window) -> QScrollArea:
     for label, page_key in (
         ("计算配装", "execute"),
         ("查看方案", "equipment"),
-        ("角色边际", "my_role"),
+        ("角色管理", "my_role"),
         ("仓库管理", "warehouse"),
-        ("空幕鉴定", "identify"),
     ):
         button = QPushButton(label)
         button.clicked.connect(lambda _checked=False, key=page_key: window._go(key))
@@ -236,9 +216,7 @@ def build_home_page(window) -> QScrollArea:
 def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
     account = dashboard["account"]
     inventory = dashboard.get("inventory")
-    window.home_account_label.setText(
-        f"当前账号：{account['account_name']} · 数据库仅保存该账号的稳定背包与方案"
-    )
+    window.home_account_label.setText(f"当前账号：{account['account_name']} · 数据库仅保存该账号的稳定背包与方案")
 
     values = {
         "inventory": int(inventory["stored_item_count"]) if inventory else 0,
@@ -253,8 +231,6 @@ def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
 
     inventory_subtitle = window.home_metric_labels["inventory"][1]
     if inventory:
-        inventory_subtitle.setText(
-            f"快照 #{inventory['snapshot_id']} · {inventory['captured_at_utc']}"
-        )
+        inventory_subtitle.setText(f"快照 #{inventory['snapshot_id']} · {inventory['captured_at_utc']}")
     else:
         inventory_subtitle.setText("等待首次同步")

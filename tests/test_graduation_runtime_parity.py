@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.features.official_role.role_calculation import _graduation_benchmark_damage
+from src.features.official_role.role_calculation import graduation_benchmark_damage
 from src.services.official_role_page_service import load_official_role_detail
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -26,7 +26,7 @@ class GraduationRuntimeParityTests(unittest.TestCase):
                         include_inventory_contexts=False,
                     )
                     runtime_damage = float(
-                        _graduation_benchmark_damage(detail) or 0.0
+                        graduation_benchmark_damage(detail) or 0.0
                     )
                     self.assertAlmostEqual(
                         float(template["benchmark_damage"]),

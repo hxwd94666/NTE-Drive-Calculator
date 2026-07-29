@@ -79,7 +79,7 @@ def fork_templates_as_weapon_models(payload: dict[str, Any]) -> dict[str, dict[s
         if not name or not fork_id:
             continue
         levels = sorted({
-            int(row.get("level"))
+            int(str(row["level"]))
             for row in template.get("upgrade_levels", [])
             if isinstance(row, dict) and row.get("level") is not None
         })
@@ -98,4 +98,3 @@ def fork_templates_as_weapon_models(payload: dict[str, Any]) -> dict[str, dict[s
             "star_levels": list(template.get("star_levels") or []),
         }
     return models
-

@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
-from src.app import runtime
 from src.app.constants import APP_VERSION
 from src.integrations.nte_core import NteCoreClient
 from src.scanner.batch_processor import BatchProcessor
@@ -16,22 +15,40 @@ from src.utils.logger import logger
 
 
 class NTEAppFacade:
-    def __init__(self, config_dir=None, user_config_dir=None, user_database_path=None):
-        self.config_dir = config_dir or str(runtime.CONFIG_DIR)
-        self.user_config_dir = user_config_dir or str(runtime.USER_CONFIG_DIR)
-        self.user_database_path = user_database_path or runtime.USER_DATABASE_PATH
+    def __init__(
+        self,
+        *,
+        config_dir: str | Path,
+        user_config_dir: str | Path,
+        user_database_path: str | Path,
+        screenshot_dir: str | Path | None = None,
+        log_dir: str | Path | None = None,
+        app_dir: str | Path | None = None,
+    ):
+        self.config_dir = str(config_dir)
+        self.user_config_dir = str(user_config_dir)
+        self.user_database_path = Path(user_database_path)
+        self.screenshot_dir = (
+            Path(screenshot_dir) if screenshot_dir is not None else None
+        )
+        self.log_dir = Path(log_dir) if log_dir is not None else None
+        self.app_dir = Path(app_dir) if app_dir is not None else None
 
     def execute_vision_processing(self, input_dir=None):
-        input_dir = input_dir or str(runtime.SCREENSHOT_DIR)
+        resolved_input_dir = (
+            Path(input_dir) if input_dir is not None else self.screenshot_dir
+        )
+        if resolved_input_dir is None:
+            raise ValueError("视觉解析必须显式提供截图目录")
         logger.info("开始视觉解析...")
         processor = BatchProcessor(
-            input_dir=input_dir,
+            input_dir=str(resolved_input_dir),
             config_dir=self.config_dir,
         )
         processor.process_all()
         if processor.inventory:
             import_vision_inventory(
-                runtime.USER_DATABASE_PATH,
+                self.user_database_path,
                 [item.model_dump() for item in processor.inventory],
             )
         logger.success("视觉解析完成")
@@ -87,11 +104,13 @@ class NTEAppFacade:
 
     def create_nte_core_client(self, **options) -> NteCoreClient:
         """创建一个尚未启动的 nte-core"""
+        if self.log_dir is None or self.app_dir is None:
+            raise ValueError("创建 nte-core 客户端必须显式提供日志目录和应用目录")
         options.setdefault(
             "data_dir",
-            os.path.join(runtime.LOG_DIR, "nte_core"),
+            str(self.log_dir / "nte_core"),
         )
-        options.setdefault("cwd", runtime.APP_DIR)
+        options.setdefault("cwd", self.app_dir)
         options.setdefault("client_version", APP_VERSION)
         options.setdefault(
             "stderr_handler",

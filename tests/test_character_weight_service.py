@@ -68,17 +68,25 @@ class CharacterWeightServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             static_database = root / "game_static.sqlite3"
+            shared_database = root / "app_shared.sqlite3"
             user_database = root / "user.sqlite3"
             shutil.copy2(PROJECT_DATABASE, static_database)
             with UserDataDao(user_database, account_id="weights"):
                 pass
-            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}):
+            with patch.dict(
+                "os.environ",
+                {
+                    "NTE_GAME_STATIC_DB": str(static_database),
+                    "NTE_APP_SHARED_DB": str(shared_database),
+                },
+            ):
                 before = ensure_account_character_weights(user_database, (1051,))[1051]
                 save_public_character_shape_bonus(
                     1051,
                     shape_label="Type-3",
                     property_values={"CritBase": 8.0},
                     database_path=static_database,
+                    shared_database_path=shared_database,
                 )
                 after = ensure_account_character_weights(user_database, (1051,))[1051]
 

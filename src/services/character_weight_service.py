@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from src.observability import OperationContext, operation_scope
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -101,9 +102,42 @@ def save_account_character_weights(
     property_weights: Mapping[str, float],
     *,
     main_property_weights: Mapping[str, float] | None = None,
+    operation_context: OperationContext | None = None,
 ) -> dict[str, Any]:
     """Persist the account SQLite weights without changing static recommendations."""
 
+    operation = operation_context or OperationContext.create("basic_weight")
+    with operation_scope(
+        operation,
+        started_event="basic_weight.save_started",
+        succeeded_event="basic_weight.save_succeeded",
+        failed_event="basic_weight.save_failed",
+        message="保存当前账号角色基础权重",
+        character_id=int(character_id),
+        property_count=len(property_weights),
+        main_property_count=len(main_property_weights or {}),
+    ) as span:
+        result = _save_account_character_weights(
+            user_database_path,
+            character_id,
+            property_weights,
+            main_property_weights=main_property_weights,
+        )
+        span.annotate(
+            source_kind=str(result.get("source_kind") or ""),
+            property_ids=sorted(str(key) for key in property_weights),
+            main_property_ids=sorted(str(key) for key in (main_property_weights or {})),
+        )
+        return result
+
+
+def _save_account_character_weights(
+    user_database_path: str | Path,
+    character_id: int,
+    property_weights: Mapping[str, float],
+    *,
+    main_property_weights: Mapping[str, float] | None,
+) -> dict[str, Any]:
     current = ensure_account_character_weights(user_database_path, (character_id,)).get(
         int(character_id), {}
     )
@@ -182,12 +216,38 @@ def save_account_character_weights(
 def reset_account_character_weights(
     user_database_path: str | Path,
     character_ids: Iterable[int],
+    *,
+    operation_context: OperationContext | None = None,
 ) -> dict[int, dict[str, Any]]:
     """Restore selected roles to current public defaults in one account DB."""
 
     wanted_ids = tuple(dict.fromkeys(int(character_id) for character_id in character_ids))
     if not wanted_ids:
         return {}
+    operation = operation_context or OperationContext.create("basic_weight")
+    with operation_scope(
+        operation,
+        started_event="basic_weight.reset_started",
+        succeeded_event="basic_weight.reset_succeeded",
+        failed_event="basic_weight.reset_failed",
+        message="恢复当前账号角色基础权重默认值",
+        requested_character_count=len(wanted_ids),
+    ) as span:
+        restored = _reset_account_character_weights(
+            user_database_path,
+            wanted_ids,
+        )
+        span.annotate(
+            restored_character_count=len(restored),
+            character_ids=sorted(restored),
+        )
+        return restored
+
+
+def _reset_account_character_weights(
+    user_database_path: str | Path,
+    wanted_ids: tuple[int, ...],
+) -> dict[int, dict[str, Any]]:
     with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
         dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
         restored: dict[int, dict[str, Any]] = {}

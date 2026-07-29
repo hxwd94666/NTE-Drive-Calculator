@@ -4,13 +4,6 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import QMessageBox
-from src.ui.main_window_method_install import install_methods as _install_main_window_methods
-
-_METHOD_NAMES = ["_load_hotkey_config","_save_hotkey_config","_load_update_config","_save_update_config","_load_ui_preferences","_save_ui_preferences","_save_hotkeys"]
-
-
-def install_methods(app_module, window_cls) -> None:
-    _install_main_window_methods(app_module, window_cls, _METHOD_NAMES, globals())
 
 
 def _load_hotkey_config(self):
@@ -57,3 +50,12 @@ def _save_hotkeys(self, *, announce=False):
         QMessageBox.information(self,"保存","快捷键已保存！\n全局截图: "+self._hk_capture+"\n截图完成: "+self._hk_finish+"\n停止: "+self._hk_stop)
     return True
 
+
+class HotkeyControllerMixin:
+    _load_hotkey_config = _load_hotkey_config
+    _save_hotkey_config = _save_hotkey_config
+    _load_update_config = _load_update_config
+    _save_update_config = _save_update_config
+    _load_ui_preferences = _load_ui_preferences
+    _save_ui_preferences = _save_ui_preferences
+    _save_hotkeys = _save_hotkeys

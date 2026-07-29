@@ -8,6 +8,7 @@ from src.domain.crit_threshold import (
     character_crit_total,
     crit_floor_enabled,
     crit_rank_adjustment,
+    deepest_stat_priority_pool,
     drive_has_crit,
     loadout_crit_total,
     minimum_crit_total,
@@ -15,6 +16,7 @@ from src.domain.crit_threshold import (
     normalize_preference_config,
     persistable_stat_priority_config,
     preference_config_active,
+    stat_priority_match_depth,
 )
 from src.domain.grade_limits import meets_min_grade
 
@@ -22,6 +24,12 @@ ALLOWED = frozenset({"攻击力%", "暴击率%", "Crit"})
 
 
 class CritThresholdDomainTests(unittest.TestCase):
+    def test_unlimited_grade_accepts_zero_but_rejects_negative_score(self):
+        config = {"ignore_grade_limit": True}
+
+        self.assertTrue(meets_preference_grade_limit(0.0, 15, config))
+        self.assertFalse(meets_preference_grade_limit(-0.001, 15, config))
+
     def test_default_crit_threshold_is_five(self):
         self.assertEqual(5.0, DEFAULT_CRIT_THRESHOLD)
         normalized = normalize_preference_config({"stats": ["攻击力%"]})
@@ -55,6 +63,64 @@ class CritThresholdDomainTests(unittest.TestCase):
     def test_drive_has_crit(self):
         self.assertTrue(drive_has_crit({"sub_stats": {"暴击率%": 3.0}}))
         self.assertFalse(drive_has_crit({"sub_stats": {"攻击力%": 3.0}}))
+
+    def test_ordered_stat_priority_uses_continuous_prefix_depth(self):
+        self.assertEqual(3, stat_priority_match_depth([True, True, True, False]))
+        self.assertEqual(2, stat_priority_match_depth([True, True, False, True]))
+        self.assertEqual(0, stat_priority_match_depth([False, True, True, True]))
+
+    def test_equal_stat_priority_counts_all_matches(self):
+        self.assertEqual(
+            3,
+            stat_priority_match_depth(
+                [True, False, True, True],
+                equal_priority=True,
+            ),
+        )
+
+    def test_deepest_priority_pool_filters_before_score_ranking(self):
+        items = [
+            {"name": "ABC", "depth": 3, "score": 1},
+            {"name": "AB", "depth": 2, "score": 100},
+            {"name": "A", "depth": 1, "score": 1000},
+        ]
+
+        selected = deepest_stat_priority_pool(
+            items,
+            lambda item: item["depth"],
+            require_match=True,
+        )
+
+        self.assertEqual(["ABC"], [item["name"] for item in selected])
+
+    def test_hard_priority_pool_is_empty_without_first_level_match(self):
+        self.assertEqual(
+            [],
+            deepest_stat_priority_pool(
+                [{"depth": 0}],
+                lambda item: item["depth"],
+                require_match=True,
+            ),
+        )
+
+    def test_blacklist_only_config_persists_and_is_active(self):
+        config = persistable_stat_priority_config(
+            {"blacklist": ["攻击力%", "攻击力%", "未知%"]},
+            allowed_stats=ALLOWED,
+            dedupe_stats=True,
+        )
+
+        self.assertEqual(
+            {
+                "stats": [],
+                "blacklist": ["攻击力%"],
+                "equal_priority": False,
+                "ignore_grade_limit": False,
+                "min_grade_limit": "A",
+            },
+            config,
+        )
+        self.assertTrue(preference_config_active(config))
 
     def test_loadout_crit_total_sums_tape_drives_and_extra_buff(self):
         role_data = {

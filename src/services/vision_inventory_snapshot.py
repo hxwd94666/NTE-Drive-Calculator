@@ -10,6 +10,7 @@ from typing import Any
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.domain.stat_catalog import StatCatalog
+from src.integrations.bundled_resources import bundled_config_dir
 from src.services.sqlite_allocation_inventory import AllocationInventoryProjectionError, legacy_shape_id
 from src.utils.set_name import normalize_set_display_name
 
@@ -93,7 +94,7 @@ def _stats(
         # than being persisted as the old placeholder ``1`` / ``1%``.  The
         # latter made every visual card look like a level-0 card in warehouse
         # and detail views even though the solver treats card mains as maxed.
-        catalog = stat_catalog or StatCatalog.from_config_dir()
+        catalog = stat_catalog or StatCatalog.from_config_dir(bundled_config_dir())
         main_name = catalog.normalize_tape_main_stat(value)
         if main_name == "未知主词条" or main_name not in catalog.tape_main_values:
             raise VisionInventorySnapshotError(
@@ -112,7 +113,7 @@ def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: Static
     never eligible for nte-core's native-UID equipment RPC.
     """
     suits = {_compact_set_name(row.get("name_zh")): str(row["suit_id"]) for row in static_dao.list_suits()}
-    stat_catalog = StatCatalog.from_config_dir()
+    stat_catalog = StatCatalog.from_config_dir(bundled_config_dir())
     normalized: list[dict[str, Any]] = []
     for ordinal, source in enumerate(items, start=1):
         item = dict(source)

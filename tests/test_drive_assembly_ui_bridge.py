@@ -11,18 +11,18 @@ import numpy as np
 
 class DriveAssemblyUiBridgeTests(unittest.TestCase):
     def test_startup_guard_rejects_fuzzy_role_matches(self):
-        from src.features.drive_assembly.ui_bridge import _is_role_detail_startup_recognition
+        from src.features.drive_assembly.ui_bridge import is_role_detail_startup_recognition
 
-        self.assertTrue(_is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr")))
-        self.assertTrue(_is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr_fallback")))
-        self.assertFalse(_is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr_fuzzy")))
-        self.assertFalse(_is_role_detail_startup_recognition(SimpleNamespace(role_name=None, method="ocr")))
+        self.assertTrue(is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr")))
+        self.assertTrue(is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr_fallback")))
+        self.assertFalse(is_role_detail_startup_recognition(SimpleNamespace(role_name="A", method="ocr_fuzzy")))
+        self.assertFalse(is_role_detail_startup_recognition(SimpleNamespace(role_name=None, method="ocr")))
 
     def test_assembly_recorder_writes_pngs_under_record_directory(self):
-        from src.features.drive_assembly.ui_bridge import _AssemblyRunRecorder
+        from src.features.drive_assembly.ui_bridge import AssemblyRunRecorder
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            recorder = _AssemblyRunRecorder(Path(temp_dir) / "record")
+            recorder = AssemblyRunRecorder(Path(temp_dir) / "record")
             path = recorder.save_image(np.zeros((8, 12, 3), dtype=np.uint8), "startup")
 
             self.assertIsNotNone(path)
@@ -31,10 +31,10 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             self.assertEqual("001_startup.png", path.name)
 
     def test_assembly_recorder_captures_completed_duplicate_status_filters(self):
-        from src.features.drive_assembly.ui_bridge import _AssemblyRunRecorder
+        from src.features.drive_assembly.ui_bridge import AssemblyRunRecorder
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            recorder = _AssemblyRunRecorder(Path(temp_dir) / "record")
+            recorder = AssemblyRunRecorder(Path(temp_dir) / "record")
             captured_labels = []
             recorder.capture_foreground = captured_labels.append
 
@@ -118,7 +118,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertIn("手动补装", message)
 
     def test_enables_randomization_when_the_assembly_backend_supports_it(self):
-        from src.features.drive_assembly.ui_bridge import _enable_assembly_randomization
+        from src.features.drive_assembly.ui_bridge import enable_assembly_randomization
 
         class RandomizableBackend:
             def __init__(self):
@@ -129,12 +129,12 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
         backend = RandomizableBackend()
 
-        self.assertTrue(_enable_assembly_randomization(backend))
+        self.assertTrue(enable_assembly_randomization(backend))
         self.assertTrue(backend.enabled)
-        self.assertFalse(_enable_assembly_randomization(object()))
+        self.assertFalse(enable_assembly_randomization(object()))
 
     def test_closes_assembly_backend_when_it_supports_close(self):
-        from src.features.drive_assembly.ui_bridge import _close_assembly_backend
+        from src.features.drive_assembly.ui_bridge import close_assembly_backend
 
         class ClosableBackend:
             def __init__(self):
@@ -145,9 +145,9 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
         backend = ClosableBackend()
 
-        self.assertTrue(_close_assembly_backend(backend))
+        self.assertTrue(close_assembly_backend(backend))
         self.assertTrue(backend.closed)
-        self.assertFalse(_close_assembly_backend(object()))
+        self.assertFalse(close_assembly_backend(object()))
 
     def _state(self):
         return {
@@ -224,8 +224,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
         self.assertEqual(sorted(indexes), indexes)
         main_stat_open_steps = [
-            step for step in tape_action["sequence"]
-            if step["name"].startswith("main_stat_gamepad")
+            step for step in tape_action["sequence"] if step["name"].startswith("main_stat_gamepad")
         ]
         self.assertEqual(
             ["left_down"] * 7 + ["a"] + ["left_down"] * 3,
@@ -238,7 +237,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertIn("fallback_position", main_stat_step)
 
     def test_tape_status_filters_are_used_only_for_duplicate_tape_and_missing_quality_is_ignored(self):
-        from src.features.drive_assembly.ui_bridge import _tape_install_sequence
+        from src.features.drive_assembly.ui_bridge import tape_install_sequence
 
         base_filter = {
             "set_name": "失落光芒",
@@ -246,10 +245,9 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             "sub_stats": [],
             "quality": "",
         }
-        normal_names = [step["name"] for step in _tape_install_sequence(base_filter, None, None)]
+        normal_names = [step["name"] for step in tape_install_sequence(base_filter, None, None)]
         duplicate_names = [
-            step["name"]
-            for step in _tape_install_sequence({**base_filter, "is_duplicate_tape": True}, None, None)
+            step["name"] for step in tape_install_sequence({**base_filter, "is_duplicate_tape": True}, None, None)
         ]
 
         self.assertFalse(any(name.startswith("status_") for name in normal_names))
@@ -261,9 +259,9 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertFalse(any(name.startswith("quality_") for name in duplicate_names))
 
     def test_duplicate_tape_filter_order_resets_then_filters_before_equipping(self):
-        from src.features.drive_assembly.ui_bridge import _tape_install_sequence
+        from src.features.drive_assembly.ui_bridge import tape_install_sequence
 
-        sequence = _tape_install_sequence(
+        sequence = tape_install_sequence(
             {
                 "set_name": "失落光芒",
                 "main_stat": "生命值百分比",
@@ -382,27 +380,29 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         buttons["自动装配"].click()
 
         self.assertEqual(["fast", "automatic"], clicked)
-        self.assertFalse(any(button.text() in {"一键装配", "继续未完成装配"} for button in page.findChildren(QPushButton)))
+        self.assertFalse(
+            any(button.text() in {"一键装配", "继续未完成装配"} for button in page.findChildren(QPushButton))
+        )
         self.assertEqual("btnPrimary", buttons["极速装配"].objectName())
         self.assertEqual("btnPrimary", buttons["自动装配"].objectName())
         app.processEvents()
 
-    def test_inventory_mixin_exposes_assembly_methods(self):
-        from src.ui.main_window_mixins import InventoryPageMixin
+    def test_explicit_feature_mixin_exposes_assembly_methods(self):
+        from src.ui.main_window_mixins import FeatureMainWindowMixin
 
-        self.assertTrue(hasattr(InventoryPageMixin, "_preview_assemble_role"))
-        self.assertTrue(hasattr(InventoryPageMixin, "_preview_fast_assemble_all_roles"))
-        self.assertTrue(hasattr(InventoryPageMixin, "_preview_automatic_assemble_all_roles"))
+        self.assertTrue(hasattr(FeatureMainWindowMixin, "_preview_assemble_role"))
+        self.assertTrue(hasattr(FeatureMainWindowMixin, "_preview_fast_assemble_all_roles"))
+        self.assertTrue(hasattr(FeatureMainWindowMixin, "_preview_automatic_assemble_all_roles"))
 
     def test_role_recognition_candidates_include_templates_and_payload_roles(self):
         import tempfile
         from pathlib import Path
 
-        from src.features.drive_assembly.ui_bridge import _role_recognition_candidates
+        from src.features.drive_assembly.ui_bridge import role_recognition_candidates
 
         with tempfile.TemporaryDirectory() as temp_dir:
             Path(temp_dir, "非目标角色.png").write_bytes(b"fake")
-            roles = _role_recognition_candidates(["目标角色"], temp_dir, {"已保存角色": {}})
+            roles = role_recognition_candidates(["目标角色"], temp_dir, {"已保存角色": {}})
 
         self.assertEqual(["目标角色", "已保存角色"], roles[:2])
         self.assertIn("非目标角色", roles)
@@ -412,17 +412,25 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
     def test_role_recognition_candidates_include_role_aliases(self):
         import tempfile
 
-        from src.features.drive_assembly.ui_bridge import _role_recognition_candidates
+        from src.features.drive_assembly.ui_bridge import role_recognition_candidates
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            roles = _role_recognition_candidates(["主角"], temp_dir, {}, {"主角": "空月"})
+            roles = role_recognition_candidates(["主角"], temp_dir, {}, {"主角": "空月"})
 
         self.assertEqual(["主角", "空月"], roles[:2])
 
     def test_equipment_role_card_exposes_renamed_single_action_button(self):
-        from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
+        from PySide6.QtWidgets import (
+            QApplication,
+            QLabel,
+            QPushButton,
+            QVBoxLayout,
+            QWidget,
+        )
 
         from src.features.inventory.page import _render_equip_role
+        from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
+        from src.domain.allocation_rating import allocation_grade
 
         app = QApplication.instance() or QApplication([])
         clicked = []
@@ -433,6 +441,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             def __init__(self):
                 self.equip_content = QWidget()
                 self.equip_content_layout = QVBoxLayout(self.equip_content)
+                self.equipment_presentation = object()
 
             def _show_saved_plan_diff_dialog(self, _role_name, _diff):
                 pass
@@ -443,19 +452,31 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             def _preview_assemble_role(self, role_name):
                 clicked.append(role_name)
 
-            def _calc_grade(self, _score, _area):
-                return "A"
-
         window = FakeWindow()
-        _render_equip_role(window, "真红", {"total_score": 1.0, "total_grade": "A"})
+        _render_equip_role(
+            window,
+            "真红",
+            {
+                "_sqlite_plan_id": 1,
+                "total_score": 80.0,
+            },
+        )
 
         button = next(button for button in window.equip_content.findChildren(QPushButton) if button.text() == "装配")
         button.click()
 
         self.assertEqual(["真红"], clicked)
-        self.assertFalse(any(button.text() == "装配该角色" for button in window.equip_content.findChildren(QPushButton)))
+        self.assertTrue(
+            any(
+                label.text()
+                == allocation_grade(80.0, ALLOCATION_TOTAL_SCORE_AREA)
+                for label in window.equip_content.findChildren(QLabel)
+            )
+        )
+        self.assertFalse(
+            any(button.text() == "装配该角色" for button in window.equip_content.findChildren(QPushButton))
+        )
         app.processEvents()
-
 
     def test_single_role_button_executes_confirmed_plan(self):
         import src.features.inventory.equipment_assembly_controller as page_module
@@ -465,7 +486,9 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         old_fast = page_module._preview_nte_core_assemble_role
         try:
             page_module._select_single_role_assembly_mode = lambda *_args: "fast"
-            page_module._preview_nte_core_assemble_role = lambda _window, role_name, **kwargs: calls.append((role_name, kwargs))
+            page_module._preview_nte_core_assemble_role = lambda _window, role_name, **kwargs: calls.append(
+                (role_name, kwargs)
+            )
             page_module._preview_assemble_role(object(), "真红")
         finally:
             page_module._select_single_role_assembly_mode = old_select
@@ -475,112 +498,115 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
     def test_all_role_button_does_not_execute_when_cancelled(self):
         import src.features.inventory.equipment_assembly_controller as page_module
-        from src.app import runtime
 
         calls = []
+
         class EmptyPlansDao:
-            def __enter__(self): return self
-            def __exit__(self, *_args): return None
-            def list_active_loadout_plans_by_role(self): return {}
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def list_active_loadout_plans_by_role(self):
+                return {}
 
         old_start = page_module._start_nte_core_equipment_apply
         old_dao = page_module.UserDataDao
         old_info = page_module.QMessageBox.information
-        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
         try:
             page_module._start_nte_core_equipment_apply = lambda *_args, **_kwargs: calls.append(True)
             page_module.UserDataDao = lambda *_args, **_kwargs: EmptyPlansDao()
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-            runtime.USER_DATABASE_PATH = "unused.sqlite3"
-            page_module._preview_nte_core_assemble_all_roles(object(), confirmed=True)
+            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
         finally:
             page_module._start_nte_core_equipment_apply = old_start
             page_module.UserDataDao = old_dao
             page_module.QMessageBox.information = old_info
-            if old_path is None:
-                delattr(runtime, "USER_DATABASE_PATH")
-            else:
-                runtime.USER_DATABASE_PATH = old_path
 
         self.assertEqual([], calls)
 
     def test_all_role_button_executes_current_game_role_flow_when_confirmed(self):
         import src.features.inventory.equipment_assembly_controller as page_module
-        from src.app import runtime
 
         class PlansDao:
-            def __enter__(self): return self
-            def __exit__(self, *_args): return None
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
             def list_active_loadout_plans_by_role(self):
                 return {
                     "抓包角色": {"source_snapshot_id": 1},
                     "视觉角色": {"source_snapshot_id": 2},
                 }
+
             def inventory_snapshot_summary(self, snapshot_id):
                 return {"source": "nte_core" if snapshot_id == 1 else "gamepad"}
 
         calls = []
         old_dao = page_module.UserDataDao
         old_start = page_module._start_nte_core_equipment_apply
-        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
-            runtime.USER_DATABASE_PATH = "unused.sqlite3"
-            page_module._preview_nte_core_assemble_all_roles(object(), confirmed=True)
+            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
         finally:
             page_module.UserDataDao = old_dao
             page_module._start_nte_core_equipment_apply = old_start
-            if old_path is None:
-                delattr(runtime, "USER_DATABASE_PATH")
-            else:
-                runtime.USER_DATABASE_PATH = old_path
 
         self.assertEqual([["抓包角色"]], calls)
 
     def test_weighted_result_can_limit_fast_equipment_to_its_selected_roles(self):
         import src.features.inventory.equipment_assembly_controller as page_module
-        from src.app import runtime
 
         class PlansDao:
-            def __enter__(self): return self
-            def __exit__(self, *_args): return None
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
             def list_active_loadout_plans_by_role(self):
                 return {
                     "当前角色": {"source_snapshot_id": 1},
                     "旧方案角色": {"source_snapshot_id": 1},
                 }
+
             def inventory_snapshot_summary(self, _snapshot_id):
                 return {"source": "nte_core"}
 
         calls = []
         old_dao = page_module.UserDataDao
         old_start = page_module._start_nte_core_equipment_apply
-        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
-            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            window = SimpleNamespace(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_all_roles(
-                object(), confirmed=True, role_names=["当前角色"],
+                window,
+                confirmed=True,
+                role_names=["当前角色"],
             )
         finally:
             page_module.UserDataDao = old_dao
             page_module._start_nte_core_equipment_apply = old_start
-            if old_path is None:
-                delattr(runtime, "USER_DATABASE_PATH")
-            else:
-                runtime.USER_DATABASE_PATH = old_path
 
         self.assertEqual([["当前角色"]], calls)
 
     def test_weighted_result_can_limit_automatic_equipment_to_its_selected_roles(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
-        from src.app import runtime
+        import src.features.inventory.equipment_automatic_assembly_controller as page_module
 
         class PlansDao:
-            def __enter__(self): return self
-            def __exit__(self, *_args): return None
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
             def list_active_loadout_plans_by_role(self):
                 return {"当前角色": {}, "旧方案角色": {}}
 
@@ -589,34 +615,33 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         old_question = page_module.QMessageBox.question
         old_warning = page_module._confirm_automatic_assembly_duplicate_warning
         old_start = page_module._start_automatic_equipment_assembly
-        old_path = getattr(runtime, "USER_DATABASE_PATH", None)
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Yes
             page_module._confirm_automatic_assembly_duplicate_warning = lambda _window: True
             page_module._start_automatic_equipment_assembly = lambda _window, roles: calls.append(roles)
-            runtime.USER_DATABASE_PATH = "unused.sqlite3"
+            window = SimpleNamespace(user_database_path="unused.sqlite3")
             page_module._preview_automatic_assemble_all_roles(
-                object(), role_names=["当前角色"],
+                window,
+                role_names=["当前角色"],
             )
         finally:
             page_module.UserDataDao = old_dao
             page_module.QMessageBox.question = old_question
             page_module._confirm_automatic_assembly_duplicate_warning = old_warning
             page_module._start_automatic_equipment_assembly = old_start
-            if old_path is None:
-                delattr(runtime, "USER_DATABASE_PATH")
-            else:
-                runtime.USER_DATABASE_PATH = old_path
 
         self.assertEqual([["当前角色"]], calls)
 
     def test_confirmed_assembly_minimizes_calculator_before_execution(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
+        import src.features.inventory.equipment_automatic_assembly_controller as page_module
 
         class Signal:
-            def __init__(self): self.callback = None
-            def connect(self, callback): self.callback = callback
+            def __init__(self):
+                self.callback = None
+
+            def connect(self, callback):
+                self.callback = callback
 
         class FakeWorker:
             def __init__(self, *, target, parent):
@@ -625,16 +650,31 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
                 self.result_ready = Signal()
                 self.error = Signal()
                 self.started = False
-            def start(self): self.started = True
+
+            def start(self):
+                self.started = True
 
         class Window:
-            def __init__(self): self.calls = []
-            def showMinimized(self): self.calls.append("minimized")
-            def showNormal(self): self.calls.append("show_normal")
-            def _go(self, page): self.calls.append(page)
-            def raise_(self): self.calls.append("raise")
-            def activateWindow(self): self.calls.append("activate")
-            def _refresh_equip(self): self.calls.append("refresh")
+            def __init__(self):
+                self.calls = []
+
+            def showMinimized(self):
+                self.calls.append("minimized")
+
+            def showNormal(self):
+                self.calls.append("show_normal")
+
+            def _go(self, page):
+                self.calls.append(page)
+
+            def raise_(self):
+                self.calls.append("raise")
+
+            def activateWindow(self):
+                self.calls.append("activate")
+
+            def _refresh_equip(self):
+                self.calls.append("refresh")
 
         old_worker = page_module.WorkerThread
         old_state = page_module._sqlite_automatic_assembly_state
@@ -645,7 +685,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         old_critical = page_module.QMessageBox.critical
         try:
             page_module.WorkerThread = FakeWorker
-            page_module._sqlite_automatic_assembly_state = lambda _roles: {"角色": {}}
+            page_module._sqlite_automatic_assembly_state = lambda _path, _roles: {"角色": {}}
             page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
             page_module._assembly_report_dialog = lambda *_args: ("完成", "ok", True)
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
@@ -653,6 +693,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             page_module.QMessageBox.critical = lambda *_args, **_kwargs: None
 
             window = Window()
+            window.user_database_path = "unused.sqlite3"
             page_module._start_automatic_equipment_assembly(window, ["角色"])
             worker = window._automatic_equipment_apply_worker
             self.assertTrue(worker.started)
@@ -680,11 +721,19 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         from src.features.inventory.page import _return_to_equipment_after_assembly
 
         calls = []
+
         class Window:
-            def showNormal(self): calls.append("show_normal")
-            def _go(self, page): calls.append(page)
-            def raise_(self): calls.append("raise")
-            def activateWindow(self): calls.append("activate")
+            def showNormal(self):
+                calls.append("show_normal")
+
+            def _go(self, page):
+                calls.append(page)
+
+            def raise_(self):
+                calls.append("raise")
+
+            def activateWindow(self):
+                calls.append("activate")
 
         _return_to_equipment_after_assembly(Window())
         self.assertEqual(["show_normal", "equipment", "raise", "activate"], calls)
@@ -692,7 +741,15 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
     def test_all_roles_f12_stop_restores_equipment_page_before_dialog(self):
         from src.features.inventory.page import _assembly_report_dialog
 
-        report = SimpleNamespace(role_reports=[], executed_actions=0, missing_roles=[], skipped_roles=[], duplicate_roles=[], unrecognized_roles=[], verification_failures=[])
+        report = SimpleNamespace(
+            role_reports=[],
+            executed_actions=0,
+            missing_roles=[],
+            skipped_roles=[],
+            duplicate_roles=[],
+            unrecognized_roles=[],
+            verification_failures=[],
+        )
         _title, _message, completed = _assembly_report_dialog("自动装配", report, 1)
         self.assertFalse(completed)
 

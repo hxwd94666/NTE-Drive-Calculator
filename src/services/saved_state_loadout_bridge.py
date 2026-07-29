@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from src.features.drive_assembly.blocks import extract_drive_blocks_from_state
+from src.domain.drive_layout import extract_drive_blocks_from_state
 from src.services.virtual_equipment_service import (
     is_virtual_equipment_assignment,
     virtual_equipment_inventory_item,

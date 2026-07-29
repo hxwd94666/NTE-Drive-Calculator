@@ -1,9 +1,9 @@
 # 验证替换比较会同时显示属性收益与损失。
-from src.ui.equipment_replacement_dialog import _comparison_item_views
+from src.ui.equipment_replacement_dialog import comparison_item_views
 
 
 def test_comparison_marks_old_and_new_stat_values_by_direction() -> None:
-    current, selected = _comparison_item_views(
+    current, selected = comparison_item_views(
         {
             "main_stats": (),
             "sub_stats": (

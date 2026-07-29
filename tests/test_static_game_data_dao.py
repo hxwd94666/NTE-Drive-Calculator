@@ -9,6 +9,8 @@ from unittest.mock import patch
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 
 
+# 扩展静态查询会重复构建完整测试库，保留在 full；core 已覆盖静态库构建、只读和清单不变量。
+NTE_TEST_TIER = "full"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",

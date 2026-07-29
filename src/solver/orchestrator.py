@@ -4,9 +4,11 @@
 import copy
 import json
 import time
+from pathlib import Path
 from typing import List, Dict
 
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
+from src.integrations.bundled_resources import bundled_config_dir
 from src.optimizer.contracts import PLAN_CUSTOM_WEAPON
 from src.domain.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
@@ -27,8 +29,8 @@ class NTEPipelineOrchestrator:
     _blueprint_cache: dict[str, List[Dict]] = {}
     _blueprint_cache_limit = 256
 
-    def __init__(self, config_dir: str = "config", *, user_database_path=None):
-        self.config_dir = config_dir
+    def __init__(self, config_dir: str | Path | None = None, *, user_database_path=None):
+        self.config_dir = str(Path(config_dir) if config_dir is not None else bundled_config_dir())
         self.user_database_path = user_database_path
         self.roles_db = {}
         self.sets_db = {}
@@ -38,7 +40,12 @@ class NTEPipelineOrchestrator:
 
     @classmethod
     def from_frozen_inputs(
-        cls, *, roles_db: dict, sets_db: dict, shapes_db: dict[str, DriveShape], config_dir: str = "config",
+        cls,
+        *,
+        roles_db: dict,
+        sets_db: dict,
+        shapes_db: dict[str, DriveShape],
+        config_dir: str | Path | None = None,
     ) -> "NTEPipelineOrchestrator":
         """Create a puzzle-only orchestrator without rereading mutable config.
 
@@ -48,7 +55,9 @@ class NTEPipelineOrchestrator:
         """
 
         instance = cls.__new__(cls)
-        instance.config_dir = config_dir
+        instance.config_dir = str(
+            Path(config_dir) if config_dir is not None else bundled_config_dir()
+        )
         instance.user_database_path = None
         instance.roles_db = roles_db
         instance.sets_db = sets_db

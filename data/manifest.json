@@ -1,0 +1,15 @@
+{
+  "format_version": 1,
+  "database": {
+    "filename": "game_static.sqlite3",
+    "dataset_id": "unversioned_20260723_update",
+    "schema_version": 16,
+    "sha256": "77D489AC65C703B244DA8369C97D5971BAA93CD8086D01855831C20ADE86EED8",
+    "generated_at_utc": "2026-07-23T10:20:22+00:00",
+    "source_payloads_omitted": true
+  },
+  "build_tool": {
+    "path": "tools/game_data/build_static_database.py",
+    "importer_version": 16
+  }
+}

@@ -13,7 +13,6 @@ from src.optimizer.contracts import (
     EQUIP_AREA,
     EQUIP_DISPLAY_NAME,
     EQUIP_GRADE,
-    EQUIP_ITEM_TYPE,
     EQUIP_MAIN_STATS,
     EQUIP_QUALITY,
     EQUIP_SCORE,

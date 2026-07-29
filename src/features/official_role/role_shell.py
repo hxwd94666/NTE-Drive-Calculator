@@ -3,64 +3,27 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QDoubleSpinBox,
-    QFormLayout,
-    QFrame,
-    QGridLayout,
-    QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
-    QSpinBox,
     QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtWidgets import QHeaderView
 
-from src.app import runtime
 from src.app.theme import themed_style
-from src.domain.stat_catalog import StatCatalog
-from src.features.allocation import results_view as legacy_results
-from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
-from src.services.official_role_page_service import (
-    calculate_official_role_damage_breakdown,
-    calculate_official_role_equipment_gain,
-    calculate_official_role_item_gain,
-    calculate_official_role_margins,
-    load_official_role_detail,
-    load_official_role_index,
-    replacement_candidates_for_official_role,
-    save_official_role_replacement,
-    save_official_role_tab_order,
-)
-from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
-from src.services.sqlite_allocation_inventory import (
-    AllocationInventoryProjectionError,
-    legacy_shape_id,
-)
-from src.storage.sqlite.user_data_dao import UserDataDao
-from src.ui.equipment_replacement_dialog import (
-    EquipmentReplacementCard,
-    show_equipment_replacement_dialog,
+from src.features.official_role.controller import OfficialRoleController
+from src.features.official_role.dependencies import OfficialRoleDependencies
+from src.services.official_role_profile_service import (
+    OfficialRoleProfileUpdate,
 )
 from src.ui.persistent_tab_order import bind_persistent_tab_order
 from src.ui.widgets import (
-    NoWheelComboBox,
-    NoWheelDoubleSpinBox,
-    NoWheelSpinBox,
     match_pinyin,
 )
 from .role_calculation import (
@@ -89,31 +52,30 @@ _WEIGHT_PROPERTY_CHOICES = (
     ("环合强度", "MagBase"),
     ("倾陷强度", "UnbalIntensityBase"),
 )
-_WEIGHT_LABEL_BY_PROPERTY = {
-    property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
-}
+_WEIGHT_LABEL_BY_PROPERTY = {property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES}
 
 
-from . import role_calculation as _calculation
-from . import role_growth as _growth
-from . import role_equipment as _equipment
-from . import role_weights as _weights
-for _module in (_calculation, _growth, _equipment, _weights):
-    for _name, _value in vars(_module).items():
-        if callable(_value) and not _name.startswith("__"):
-            globals().setdefault(_name, _value)
+def _role_controller(window) -> OfficialRoleController:
+    dependencies = OfficialRoleDependencies.from_app_context(window.app_context)
+    controller = getattr(window, "_official_role_controller", None)
+    if (
+        not isinstance(controller, OfficialRoleController)
+        or controller.dependencies != dependencies
+    ):
+        controller = OfficialRoleController(dependencies)
+        window._official_role_controller = controller
+    return controller
+
 
 def _populate_role_tab(window, scroll: QScrollArea, character_id: int) -> None:
     if scroll.property("loaded"):
         return
-    detail = load_official_role_detail(runtime.USER_DATABASE_PATH, character_id)
+    detail = _role_controller(window).load_detail(character_id)
     editor = {
         "detail": detail,
         "marginal_property_weights": dict(detail.get("property_weights") or {}),
         "marginal_main_property_weights": dict(detail.get("main_property_weights") or {}),
-        "equipment_context_key": (
-            "saved" if detail["equipment_contexts"]["saved"]["available"] else "current"
-        ),
+        "equipment_context_key": ("saved" if detail["equipment_contexts"]["saved"]["available"] else "current"),
     }
     window._official_role_editors[character_id] = editor
     content = QWidget()
@@ -139,31 +101,31 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
             QMessageBox.information(window, "保存", "当前没有需要保存的角色修改。")
         return True
     try:
-        with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
-            for character_id in dirty_ids:
-                editor = window._official_role_editors.get(character_id)
-                if not editor:
-                    continue
-                detail = editor["detail"]
-                growth = _selected_growth(editor)
-                if growth is None:
-                    raise ValueError("角色等级不在官方成长数据范围内")
-                fork_id = _selected_combo_data(editor["fork"])
-                dao.save_character_profile(
+        updates = []
+        for character_id in dirty_ids:
+            editor = window._official_role_editors.get(character_id)
+            if not editor:
+                continue
+            detail = editor["detail"]
+            growth = _selected_growth(editor)
+            if growth is None:
+                raise ValueError("角色等级不在官方成长数据范围内")
+            fork_id = _selected_combo_data(editor["fork"])
+            updates.append(
+                OfficialRoleProfileUpdate(
                     character_id=character_id,
                     character_level=int(growth[0]),
                     breakthrough_stage=int(growth[1]),
                     awakening_level=editor["awakening"].value(),
                     fork_id=fork_id,
                     fork_level=editor["fork_level"].value() if fork_id else None,
-                    fork_refinement_level=(
-                        int(editor["refinement"].currentData() or 1)
-                        if fork_id else None
-                    ),
+                    fork_refinement_level=(int(editor["refinement"].currentData() or 1) if fork_id else None),
                     selected_skill_id=_selected_combo_data(editor["selected_skill"]),
                     skill_levels=dict(editor["skill_levels"]),
                     ordinal=int(detail["profile"].get("ordinal") or 0),
                 )
+            )
+        _role_controller(window).save_profiles(updates)
     except Exception as exc:
         QMessageBox.warning(window, "保存失败", str(exc))
         return False
@@ -180,11 +142,7 @@ def _reload_current_role_tab(window, character_id: int) -> None:
     if tabs is None:
         return
     index = next(
-        (
-            tab_index
-            for tab_index in range(tabs.count())
-            if int(tabs.tabBar().tabData(tab_index)) == int(character_id)
-        ),
+        (tab_index for tab_index in range(tabs.count()) if int(tabs.tabBar().tabData(tab_index)) == int(character_id)),
         -1,
     )
     if index < 0:
@@ -208,16 +166,14 @@ def _reset_current_role(window) -> None:
     answer = QMessageBox.question(
         window,
         "重置当前角色",
-        "将当前角色的等级、觉醒、技能和弧盘恢复为公共模板。\n"
-        "额外形状与账号基础权重不会重置，是否继续？",
+        "将当前角色的等级、觉醒、技能和弧盘恢复为公共模板。\n额外形状与账号基础权重不会重置，是否继续？",
         QMessageBox.Yes | QMessageBox.Cancel,
         QMessageBox.Cancel,
     )
     if answer != QMessageBox.Yes:
         return
     try:
-        with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
-            dao.reset_character_profile(character_id)
+        _role_controller(window).reset_profile(character_id)
     except Exception as exc:
         QMessageBox.warning(window, "重置失败", str(exc))
         return
@@ -229,16 +185,14 @@ def _reset_all_roles(window) -> None:
     answer = QMessageBox.question(
         window,
         "重置全部角色",
-        "将当前账号所有角色的等级、觉醒、技能和弧盘恢复为公共模板。\n"
-        "额外形状与账号基础权重不会重置，是否继续？",
+        "将当前账号所有角色的等级、觉醒、技能和弧盘恢复为公共模板。\n额外形状与账号基础权重不会重置，是否继续？",
         QMessageBox.Yes | QMessageBox.Cancel,
         QMessageBox.Cancel,
     )
     if answer != QMessageBox.Yes:
         return
     try:
-        with UserDataDao(runtime.USER_DATABASE_PATH) as dao:
-            count = dao.reset_all_character_profiles()
+        count = _role_controller(window).reset_all_profiles()
     except Exception as exc:
         QMessageBox.warning(window, "重置失败", str(exc))
         return
@@ -253,15 +207,17 @@ def _page_my_role(window) -> QWidget:
     root = QVBoxLayout(page)
     root.setContentsMargins(20, 16, 20, 16)
     root.setSpacing(10)
-    page.setStyleSheet(themed_style(
-        """
+    page.setStyleSheet(
+        themed_style(
+            """
         QLabel{font-size:14px}
         QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox{font-size:14px;padding:8px 11px;border-radius:7px}
         QPushButton{font-size:13px;padding:8px 15px;border-radius:7px}
         QTabBar::tab{font-size:13px;padding:10px 20px}
         QGroupBox{font-size:15px;border:1px solid #30363d;border-radius:10px;padding:24px;padding-top:36px}
         """
-    ))
+        )
+    )
     header = QHBoxLayout()
     search = QLineEdit()
     search.setObjectName("officialRoleSearch")
@@ -279,6 +235,14 @@ def _page_my_role(window) -> QWidget:
     save = QPushButton("保存")
     save.setObjectName("btnPrimary")
     save.clicked.connect(lambda: _save_profiles(window))
+    blueprint = QPushButton("角色图纸")
+    blueprint.setToolTip("查看角色套装形状与可用图纸方案")
+    blueprint.clicked.connect(lambda: window._go("blueprint"))
+    base_weights = QPushButton("基础权重")
+    base_weights.setToolTip("编辑当前账号角色基础权重，以及全部账号共享的额外形状覆盖")
+    base_weights.clicked.connect(lambda: window._go("config"))
+    header.addWidget(blueprint)
+    header.addWidget(base_weights)
     header.addWidget(reset_current)
     header.addWidget(reset_all)
     header.addWidget(save)
@@ -309,7 +273,7 @@ def _refresh_my_role(window, *, restore_scroll_value: int | None = None) -> None
     current_id = getattr(window, "_current_official_role_id", None)
     _clear_layout(layout)
     window._official_role_editors = {}
-    roles = load_official_role_index(runtime.USER_DATABASE_PATH)
+    roles = _role_controller(window).load_index()
     if not roles:
         layout.addWidget(QLabel("暂无官方角色数据。"))
         return
@@ -332,9 +296,8 @@ def _refresh_my_role(window, *, restore_scroll_value: int | None = None) -> None
     window._official_role_tab_order_binding = bind_persistent_tab_order(
         tabs,
         item_id_at=lambda index: int(tabs.tabBar().tabData(index)),
-        save_order=lambda character_ids: save_official_role_tab_order(
-            runtime.USER_DATABASE_PATH,
-            tuple(int(character_id) for character_id in character_ids),
+        save_order=lambda character_ids: _role_controller(window).save_tab_order(
+            tuple(int(character_id) for character_id in character_ids)
         ),
         on_error=lambda exc: QMessageBox.warning(
             window,
@@ -372,10 +335,12 @@ def _refresh_my_role(window, *, restore_scroll_value: int | None = None) -> None
     window.official_role_tabs = tabs
     layout.addWidget(tabs)
     if restore_scroll_value is not None:
+
         def restore_scroll() -> None:
             current_scroll = tabs.currentWidget()
             if isinstance(current_scroll, QScrollArea):
                 current_scroll.verticalScrollBar().setValue(int(restore_scroll_value))
+
         # The tab content computes its height after it is attached to the
         # page, so restore on the next event-loop turn instead of clamping to 0.
         QTimer.singleShot(0, restore_scroll)
@@ -392,9 +357,18 @@ def confirm_pending_my_role_changes(window) -> bool:
         QMessageBox.Save,
     )
     if answer == QMessageBox.Cancel:
+        _role_controller(window).log_dirty_exit(
+            "cancel", len(getattr(window, "_official_role_dirty_ids", set()))
+        )
         return False
     if answer == QMessageBox.Save:
+        _role_controller(window).log_dirty_exit(
+            "save", len(getattr(window, "_official_role_dirty_ids", set()))
+        )
         return _save_profiles(window, show_message=False)
+    _role_controller(window).log_dirty_exit(
+        "discard", len(getattr(window, "_official_role_dirty_ids", set()))
+    )
     window._official_role_dirty_ids.clear()
     window._my_role_dirty = False
     return True

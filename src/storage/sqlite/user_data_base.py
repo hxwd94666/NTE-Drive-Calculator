@@ -2,27 +2,17 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
 from .user_data_support import (
-    ALLOCATION_STRATEGIES,
     BASE_SCHEMA_VERSION,
     DEFAULT_SCHEMA_PATH,
-    DEFAULT_SNAPSHOT_RETENTION_COUNT,
-    SNAPSHOT_SOURCES,
-    SUIT_REQUIREMENT_MODES,
-    SYNC_METHODS,
     USER_MIGRATIONS,
     SCHEMA_VERSION,
     UserDataError,
-    UserDataValidationError,
-    _decoded,
-    _integer,
-    _json,
-    _mark_duplicate_modules,
-    _plain_object,
     _utc_now,
 )
 
@@ -69,10 +59,15 @@ class UserDataDaoCore:
                 self.database_path.unlink(missing_ok=True)
             raise
 
-    def __enter__(self) -> "UserDataDao":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
         self.close()
 
     def close(self) -> None:

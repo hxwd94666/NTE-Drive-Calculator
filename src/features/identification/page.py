@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 
 from functools import lru_cache
 
-from src.app import runtime
 from src.models.equipment import Tape
 from src.app.theme import GRADE_COLORS, theme_rgba, themed_style
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
@@ -37,7 +36,10 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.widgets import SearchableComboBox
 
 @lru_cache(maxsize=96)
-def _official_role_portrait(role_name: str) -> QPixmap:
+def _official_role_portrait(
+    role_name: str,
+    game_ui_asset_root: Path,
+) -> QPixmap:
     """Resolve identification avatars from the same official asset manifest.
 
     Identification still receives legacy display names from the compatibility
@@ -57,8 +59,7 @@ def _official_role_portrait(role_name: str) -> QPixmap:
                 )
         except (StopIteration, ValueError):
             return QPixmap()
-    asset_root = Path(getattr(runtime, "ASSET_DIR", Path("assets"))) / "game_ui"
-    icon_path = GameUiAssetCatalog(asset_root).character_icon(character_id)
+    icon_path = GameUiAssetCatalog(game_ui_asset_root).character_icon(character_id)
     return QPixmap(str(icon_path)) if icon_path is not None else QPixmap()
 
 
@@ -297,11 +298,22 @@ def render_identify_result_page(window, pages: list[dict]):
         return
 
     for rank, row in enumerate(rows, 1):
-        window.ident_result_layout.addWidget(build_identify_result_row(rank, row))
+        window.ident_result_layout.addWidget(
+            build_identify_result_row(
+                rank,
+                row,
+                game_ui_asset_root=window.app_context.paths.asset_dir / "game_ui",
+            )
+        )
     window.ident_result_layout.addStretch()
 
 
-def build_identify_result_row(rank: int, row: dict):
+def build_identify_result_row(
+    rank: int,
+    row: dict,
+    *,
+    game_ui_asset_root: Path,
+):
     grade = row["grade"]
     grade_color = GRADE_COLORS.get(grade, "#58a6ff")
     grade_bg = theme_rgba(grade_color, 0.10)
@@ -325,7 +337,10 @@ def build_identify_result_row(rank: int, row: dict):
     avatar.setFixedSize(48, 48)
     avatar.setAlignment(Qt.AlignCenter)
     avatar.setStyleSheet(themed_style("background:transparent;border:none;color:#8b949e;font-size:14px;font-weight:700"))
-    portrait = _official_role_portrait(str(row["role"]))
+    portrait = _official_role_portrait(
+        str(row["role"]),
+        game_ui_asset_root,
+    )
     if portrait.isNull():
         avatar.setText(str(row["role"])[:1])
     else:

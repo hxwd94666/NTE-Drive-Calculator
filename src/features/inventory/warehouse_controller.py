@@ -3,97 +3,84 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QInputDialog, QLineEdit, QListView, QMessageBox, QProgressDialog, QPushButton, QScrollArea, \
-    QVBoxLayout, QWidget
+from PySide6.QtCore import QModelIndex, Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from src.app import runtime
-from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
-from src.app.theme import GRADE_COLORS, current_style_sheet, theme_color, theme_rgba, themed_style
+from src.app.theme import themed_style
 from src.app.workers import WorkerThread
-from src.features.drive_assembly.ui_bridge import (
-    execute_all_roles_from_current_game_page,
-    execute_selected_role_from_current_game_page,
-)
-from src.features.role.replacement_service import (
-    build_equipment_role_context,
-    rank_replacement_candidates_by_damage,
-)
-from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.features.inventory.warehouse import (
     WarehouseCardDelegate,
     WarehouseGridView,
     WarehouseInventoryModel,
     filter_warehouse_items,
-    load_warehouse_snapshot,
-    warehouse_item_compare_category,
     warehouse_item_with_state,
-    warehouse_item_view,
     warehouse_type_options,
 )
-from src.features.identification.page import build_identify_result_row
+from src.features.inventory.warehouse_presenter import load_warehouse_snapshot
+from src.features.inventory.warehouse_progress import (
+    close_warehouse_state_progress,
+    on_warehouse_state_error as _on_warehouse_state_error,
+    set_warehouse_management_busy as _set_warehouse_management_busy,
+    show_warehouse_state_progress,
+    update_warehouse_save_state as _update_warehouse_save_state,
+)
+from src.features.inventory.warehouse_identification_controller import (
+    select_warehouse_compare_item as _select_warehouse_compare_item,
+    show_warehouse_item_identification as _show_warehouse_item_identification,
+)
 from src.features.scanning.post_action_dialog import (
     load_scan_post_action_config,
     show_scan_post_action_dialog,
 )
-from src.features.scanning.post_actions import validate_post_action_config
-from src.services.equipment_apply_service import EquipmentApplyService
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.warehouse_identification_service import WarehouseIdentificationService
+from src.domain.post_actions import validate_post_action_config
+from src.observability import OperationContext
 from src.services.warehouse_state_management import WarehouseStateManagementService
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.virtual_equipment_service import (
-    is_virtual_equipment_assignment,
-    virtual_equipment_inventory_item,
-)
-from src.optimizer.contracts import (
-    DIFF_ADDED,
-    DIFF_ADDED_UIDS,
-    DIFF_CHANGED,
-    DIFF_REMOVED,
-    EQUIP_DISPLAY_NAME,
-    EQUIP_GRADE,
-    EQUIP_IS_CHANGED,
-    EQUIP_IS_NEW,
-    EQUIP_MAIN_STATS,
-    EQUIP_QUALITY,
-    EQUIP_SCORE,
-    EQUIP_SET_NAME,
-    EQUIP_SHAPE_ID,
-    EQUIP_SUB_STATS,
-    EQUIP_UID,
-    ROLE_BLUEPRINT_LAYOUT,
-    ROLE_EQUIPPED_DRIVES,
-    ROLE_EQUIPPED_TAPE,
-    ROLE_LAST_DIFF,
-    ROLE_TOTAL_GRADE,
-    ROLE_TOTAL_SCORE,
-)
-from src.ui.puzzle_board import PuzzleBoardWidget
-from src.ui.widgets import match_pinyin as _match_pinyin
 from src.utils.logger import logger
-from src.ui.main_window_method_install import install_methods as _install_main_window_methods
 
 
-def set_bonus_from_tape_source(source) -> dict:
-    """Build a safe placeholder while tape-set bonus details move to SQLite."""
-    if isinstance(source, dict):
-        set_name = str(source.get("set_name", "") or "")
-    else:
-        set_name = str(getattr(source, "set_name", "") or "")
-    return {"display_name": set_name, "skill": {}, "skill_2": {}, "skill_cover": 0.8}
-
-__all__ = ['_equipment_compare_signature', '_same_equipment_by_ocr', '_page_equipment', '_refresh_equip',
-           '_page_warehouse', '_refresh_warehouse', '_apply_warehouse_filters', '_on_warehouse_sync_state',
-           '_on_warehouse_selection_changed', '_set_warehouse_selected_state', '_toggle_warehouse_item_state', '_save_warehouse_state_changes',
-           '_show_warehouse_item_identification', '_update_warehouse_save_state', '_on_warehouse_manual_plan_ready', '_open_warehouse_state_manager',
-           '_on_warehouse_state_plan_ready', '_on_warehouse_state_applied', '_on_warehouse_state_error',
-           '_set_warehouse_management_busy',
-           '_saved_plan_diff_text', '_show_saved_plan_diff_dialog', '_clear_all_equipment', '_delete_role_equipment', '_optimize_saved_equipment',
-           '_preview_assemble_role', '_preview_fast_assemble_all_roles', '_preview_automatic_assemble_all_roles']
+__all__ = [
+    "_equipment_compare_signature",
+    "_same_equipment_by_ocr",
+    "_page_equipment",
+    "_refresh_equip",
+    "_page_warehouse",
+    "_refresh_warehouse",
+    "_apply_warehouse_filters",
+    "_on_warehouse_sync_state",
+    "_on_warehouse_selection_changed",
+    "_set_warehouse_selected_state",
+    "_toggle_warehouse_item_state",
+    "_save_warehouse_state_changes",
+    "_show_warehouse_item_identification",
+    "_update_warehouse_save_state",
+    "_on_warehouse_manual_plan_ready",
+    "_open_warehouse_state_manager",
+    "_on_warehouse_state_plan_ready",
+    "_on_warehouse_state_applied",
+    "_on_warehouse_state_error",
+    "_set_warehouse_management_busy",
+    "_saved_plan_diff_text",
+    "_show_saved_plan_diff_dialog",
+    "_clear_all_equipment",
+    "_delete_role_equipment",
+    "_optimize_saved_equipment",
+    "_preview_assemble_role",
+    "_preview_fast_assemble_all_roles",
+    "_preview_automatic_assemble_all_roles",
+]
 
 EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT = 520
 EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
@@ -102,26 +89,40 @@ EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
 
 _OFFICIAL_STAT_LABELS = {
-    "AtkAdd": "攻击力", "AtkUp": "攻击力%", "CritBase": "暴击率%",
-    "CritDamageBase": "暴击伤害%", "DamageUpChaosBase": "暗属性异能伤害增强%",
-    "DamageUpCosmosBase": "光属性异能伤害增强%", "DamageUpGeneralBase": "伤害增加%",
-    "DamageUpIncantationBase": "咒属性异能伤害增强%", "DamageUpLakshanaBase": "相属性异能伤害增强%",
-    "DamageUpNatureBase": "灵属性异能伤害增强%", "DamageUpPsycheBase": "魂属性异能伤害增强%",
-    "DamageUpPsychicallyBase": "心灵伤害增强%", "DefAdd": "防御力", "DefUp": "防御力%",
-    "HealUp": "治疗加成", "HPMaxAdd": "生命值", "HPMaxUp": "生命值%",
-    "MagBase": "环合强度", "UnbalIntensityBase": "倾陷强度",
+    "AtkAdd": "攻击力",
+    "AtkUp": "攻击力%",
+    "CritBase": "暴击率%",
+    "CritDamageBase": "暴击伤害%",
+    "DamageUpChaosBase": "暗属性异能伤害增强%",
+    "DamageUpCosmosBase": "光属性异能伤害增强%",
+    "DamageUpGeneralBase": "伤害增加%",
+    "DamageUpIncantationBase": "咒属性异能伤害增强%",
+    "DamageUpLakshanaBase": "相属性异能伤害增强%",
+    "DamageUpNatureBase": "灵属性异能伤害增强%",
+    "DamageUpPsycheBase": "魂属性异能伤害增强%",
+    "DamageUpPsychicallyBase": "心灵伤害增强%",
+    "DefAdd": "防御力",
+    "DefUp": "防御力%",
+    "HealUp": "治疗加成",
+    "HPMaxAdd": "生命值",
+    "HPMaxUp": "生命值%",
+    "MagBase": "环合强度",
+    "UnbalIntensityBase": "倾陷强度",
 }
 _OFFICIAL_SHAPE_LABELS = {
-    "hen2": "H_2", "hen3": "H_3", "hen4": "H_4", "shu2": "V_2",
-    "shu3": "V_3", "shu4": "V_4", "z3": "Trap_4_H", "z4": "Trap_4_V",
-    "zhijiao1": "L_3_BL", "zhijiao2": "L_3_TL", "zhijiao3": "L_3_TR",
+    "hen2": "H_2",
+    "hen3": "H_3",
+    "hen4": "H_4",
+    "shu2": "V_2",
+    "shu3": "V_3",
+    "shu4": "V_4",
+    "z3": "Trap_4_H",
+    "z4": "Trap_4_V",
+    "zhijiao1": "L_3_BL",
+    "zhijiao2": "L_3_TL",
+    "zhijiao3": "L_3_TR",
     "zhijiao4": "L_3_BR",
 }
-
-
-def install_methods(app_module, window_cls):
-    """Install this feature's extracted MainWindow methods."""
-    _install_main_window_methods(app_module, window_cls, __all__, globals())
 
 
 def _page_warehouse(self):
@@ -141,11 +142,13 @@ def _page_warehouse(self):
     title_row.addStretch()
     self.warehouse_save_btn = QPushButton("保存")
     self.warehouse_save_btn.setObjectName("btnPrimary")
-    self.warehouse_save_btn.setStyleSheet(themed_style(
-        "QPushButton{background:#1f6feb;border-color:#388bfd;color:white;}"
-        "QPushButton:hover{background:#388bfd;}"
-        "QPushButton:disabled{background:#30363d;color:#8b949e;}"
-    ))
+    self.warehouse_save_btn.setStyleSheet(
+        themed_style(
+            "QPushButton{background:#1f6feb;border-color:#388bfd;color:white;}"
+            "QPushButton:hover{background:#388bfd;}"
+            "QPushButton:disabled{background:#30363d;color:#8b949e;}"
+        )
+    )
     self.warehouse_save_btn.setToolTip("将手动修改的弃置/锁定状态写入游戏")
     self.warehouse_save_btn.setEnabled(True)
     self.warehouse_save_btn.clicked.connect(self._save_warehouse_state_changes)
@@ -235,10 +238,12 @@ def _page_warehouse(self):
     self.warehouse_delegate.identify_requested.connect(self._show_warehouse_item_identification)
     self.warehouse_delegate.compare_requested.connect(lambda index: _select_warehouse_compare_item(self, index))
     self.warehouse_view.setItemDelegate(self.warehouse_delegate)
-    self.warehouse_view.setStyleSheet(themed_style("#warehouseView{background:#0d1117;border:1px solid #21262d;border-radius:10px;padding:8px}"))
+    self.warehouse_view.setStyleSheet(
+        themed_style("#warehouseView{background:#0d1117;border:1px solid #21262d;border-radius:10px;padding:8px}")
+    )
     layout.addWidget(self.warehouse_view, 1)
     self.warehouse_hint = QLabel("仓库将在打开此页面时读取最新稳定背包快照。")
-    self.warehouse_hint.setAlignment(Qt.AlignCenter)
+    self.warehouse_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     self.warehouse_hint.setStyleSheet(themed_style("color:#8b949e;padding:8px"))
     layout.addWidget(self.warehouse_hint)
     self._warehouse_all_items = []
@@ -247,6 +252,7 @@ def _page_warehouse(self):
     self._warehouse_pending_state_changes = {}
     self._warehouse_base_states = {}
     self._warehouse_compare_first = None
+    self._warehouse_deferred_snapshot_id = None
     return page
 
 
@@ -262,7 +268,17 @@ def _refresh_warehouse(self):
     self.warehouse_hint.setText("正在读取背包稳定快照…")
     self.warehouse_hint.show()
     self.warehouse_summary.setText("读取中…")
-    worker = WorkerThread(target=lambda: load_warehouse_snapshot(runtime.USER_DATABASE_PATH), parent=self)
+    database_path = self.app_context.account.user_database_path
+    operation = OperationContext.create(
+        "warehouse",
+        account_id=self.app_context.account.active_account_id,
+        context_generation=self.app_context.generation,
+    )
+    self._warehouse_load_operation = operation
+    worker = WorkerThread(
+        target=lambda: load_warehouse_snapshot(database_path, operation),
+        parent=self,
+    )
     self._warehouse_load_worker = worker
     worker.result_ready.connect(lambda result, current=token: _on_warehouse_loaded(self, current, result))
     worker.error.connect(lambda error, current=token: _on_warehouse_load_error(self, current, error))
@@ -273,12 +289,24 @@ def _on_warehouse_loaded(self, token, result):
     if token is not getattr(self, "_warehouse_load_token", None):
         return
     self._warehouse_snapshot_id = result.get("snapshot_id")
+    deferred_snapshot_id = getattr(
+        self,
+        "_warehouse_deferred_snapshot_id",
+        None,
+    )
+    if (
+        isinstance(deferred_snapshot_id, int)
+        and isinstance(self._warehouse_snapshot_id, int)
+        and self._warehouse_snapshot_id >= deferred_snapshot_id
+    ):
+        self._warehouse_deferred_snapshot_id = None
     self._warehouse_source = str(result.get("source") or "")
     self._warehouse_all_items = list(result.get("items") or [])
     self._warehouse_pending_state_changes = {}
     self._warehouse_base_states = {
         str(item.get("uid")): "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal"
-        for item in self._warehouse_all_items if item.get("state_known", True)
+        for item in self._warehouse_all_items
+        if item.get("state_known", True)
     }
     self._warehouse_compare_first = None
     _refresh_warehouse_type_filter(self)
@@ -322,12 +350,12 @@ def _apply_warehouse_filters(self):
         self.warehouse_hint.show()
 
 
-def _on_warehouse_category_changed(self) -> None:
+def _on_warehouse_category_changed(self: Any) -> None:
     _refresh_warehouse_type_filter(self)
     self._apply_warehouse_filters()
 
 
-def _refresh_warehouse_type_filter(self) -> None:
+def _refresh_warehouse_type_filter(self: Any) -> None:
     """Link visible types to the selected category using the already loaded snapshot."""
     combo = getattr(self, "warehouse_type_filter", None)
     if combo is None:
@@ -349,10 +377,35 @@ def _on_warehouse_sync_state(self, state):
     if not hasattr(self, "warehouse_model") or getattr(state, "phase", None) != "listening":
         return
     snapshot_id = getattr(state, "last_snapshot_id", None)
-    if not isinstance(snapshot_id, int) or snapshot_id == getattr(self, "_warehouse_snapshot_id", None):
+    current_snapshot_id = getattr(self, "_warehouse_snapshot_id", None)
+    if not isinstance(snapshot_id, int) or (
+        isinstance(current_snapshot_id, int)
+        and snapshot_id <= current_snapshot_id
+    ):
         return
-    if getattr(self, "_warehouse_pending_state_changes", {}):
-        self.warehouse_hint.setText("游戏背包已有新快照；请先保存当前手动修改，仓库随后会自动刷新。")
+    deferred_snapshot_id = getattr(
+        self,
+        "_warehouse_deferred_snapshot_id",
+        None,
+    )
+    self._warehouse_deferred_snapshot_id = max(
+        snapshot_id,
+        deferred_snapshot_id
+        if isinstance(deferred_snapshot_id, int)
+        else snapshot_id,
+    )
+    active_worker = getattr(self, "_warehouse_state_worker", None)
+    state_change_running = (
+        active_worker is not None
+        and active_worker.isRunning()
+    )
+    if (
+        getattr(self, "_warehouse_pending_state_changes", {})
+        or state_change_running
+    ):
+        self.warehouse_hint.setText(
+            "游戏背包已有新快照；当前修改完成后仓库将自动刷新。"
+        )
         self.warehouse_hint.show()
         return
     self._refresh_warehouse()
@@ -364,7 +417,8 @@ def _on_warehouse_selection_changed(self, *_args):
     indexes = self.warehouse_view.selectionModel().selectedIndexes()
     count = len(indexes)
     state_available = bool(indexes) and all(
-        isinstance(index.data(Qt.UserRole), dict) and index.data(Qt.UserRole).get("state_known", True)
+        isinstance(index.data(Qt.ItemDataRole.UserRole), dict)
+        and index.data(Qt.ItemDataRole.UserRole).get("state_known", True)
         for index in indexes
     )
     if hasattr(self, "warehouse_selection_label"):
@@ -375,7 +429,10 @@ def _on_warehouse_selection_changed(self, *_args):
             button.setEnabled(state_available)
 
 
-def _set_warehouse_selected_state(self, target_state: str):
+def _set_warehouse_selected_state(
+    self: Any,
+    target_state: str,
+) -> None:
     """Stage the requested state for all selected virtual cards locally."""
     if target_state not in {"normal", "locked", "discarded"}:
         return
@@ -386,7 +443,7 @@ def _set_warehouse_selected_state(self, target_state: str):
     pending = dict(getattr(self, "_warehouse_pending_state_changes", {}))
     base_states = dict(getattr(self, "_warehouse_base_states", {}))
     for index in indexes:
-        item = index.data(Qt.UserRole)
+        item = index.data(Qt.ItemDataRole.UserRole)
         if not isinstance(item, dict) or not item.get("state_known", True):
             continue
         uid = str(item.get("uid") or "")
@@ -402,8 +459,15 @@ def _set_warehouse_selected_state(self, target_state: str):
         return
     self._warehouse_pending_state_changes = pending
     self._warehouse_all_items = [
-        warehouse_item_with_state(item, pending.get(str(item.get("uid")), "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal"))
-        if str(item.get("uid")) in changed_uids else item
+        warehouse_item_with_state(
+            item,
+            pending.get(
+                str(item.get("uid")),
+                "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal",
+            ),
+        )
+        if str(item.get("uid")) in changed_uids
+        else item
         for item in self._warehouse_all_items
     ]
     self._apply_warehouse_filters()
@@ -411,10 +475,22 @@ def _set_warehouse_selected_state(self, target_state: str):
     self._update_warehouse_save_state()
 
 
-def _toggle_warehouse_item_state(self, index, target_state: str):
+def _toggle_warehouse_item_state(
+    self: Any,
+    index: QModelIndex | None,
+    target_state: str,
+) -> None:
     """Stage a single card's lock/discard icon action without changing game state yet."""
-    item = index.data(Qt.UserRole) if index is not None else None
-    if not isinstance(item, dict) or not item.get("state_known", True) or target_state not in {"normal", "locked", "discarded"}:
+    item = (
+        index.data(Qt.ItemDataRole.UserRole)
+        if index is not None
+        else None
+    )
+    if (
+        not isinstance(item, dict)
+        or not item.get("state_known", True)
+        or target_state not in {"normal", "locked", "discarded"}
+    ):
         return
     uid = str(item.get("uid") or "")
     original_state = getattr(self, "_warehouse_base_states", {}).get(uid)
@@ -434,149 +510,6 @@ def _toggle_warehouse_item_state(self, index, target_state: str):
     self._update_warehouse_save_state()
 
 
-def _show_warehouse_item_identification(self, index):
-    """Evaluate one warehouse card against matching role rules in a worker."""
-    item = index.data(Qt.UserRole) if index is not None else None
-    snapshot_id = getattr(self, "_warehouse_snapshot_id", None)
-    if not isinstance(item, dict) or not isinstance(snapshot_id, int):
-        return
-    active_worker = getattr(self, "_warehouse_identification_worker", None)
-    if active_worker is not None and active_worker.isRunning():
-        return
-    service = WarehouseIdentificationService(runtime.USER_DATABASE_PATH)
-    worker = WorkerThread(
-        target=lambda: self._run_identify_item(service.load_item(snapshot_id, str(item.get("uid") or ""))),
-        parent=self,
-    )
-    self._warehouse_identification_worker = worker
-    worker.result_ready.connect(lambda result, current=dict(item): _show_warehouse_identification_dialog(self, current, result))
-    worker.error.connect(lambda error: QMessageBox.warning(self, "装备鉴定失败", f"未能完成角色匹配评分：\n{error}"))
-    worker.start()
-
-
-def _select_warehouse_compare_item(self, index) -> None:
-    """Remember the left card, then compare another item in the same category."""
-    item = index.data(Qt.UserRole) if index is not None else None
-    snapshot_id = getattr(self, "_warehouse_snapshot_id", None)
-    if not isinstance(item, dict) or not isinstance(snapshot_id, int):
-        return
-    category = warehouse_item_compare_category(item)
-    first = getattr(self, "_warehouse_compare_first", None)
-    if first is None:
-        self._warehouse_compare_first = {"item": dict(item), "category": category}
-        self.warehouse_hint.setText(f"已选择左栏 [{item.get('display_name') or item.get('title')}]；请选择同类别装备作为右栏。")
-        self.warehouse_hint.show()
-        return
-    first_item = first["item"]
-    if str(first_item.get("uid")) == str(item.get("uid")):
-        QMessageBox.information(self, "装备对比", "请再选择另一件同类别装备进行对比。")
-        return
-    if first["category"] != category:
-        QMessageBox.warning(self, "装备对比", "驱动和卡带不能互相对比；请选择同类别装备。")
-        return
-    active_worker = getattr(self, "_warehouse_identification_worker", None)
-    if active_worker is not None and active_worker.isRunning():
-        return
-    self._warehouse_compare_first = None
-    service = WarehouseIdentificationService(runtime.USER_DATABASE_PATH)
-    worker = WorkerThread(
-        target=lambda: (
-            self._run_identify_item(service.load_item(snapshot_id, str(first_item.get("uid") or ""))),
-            self._run_identify_item(service.load_item(snapshot_id, str(item.get("uid") or ""))),
-        ),
-        parent=self,
-    )
-    self._warehouse_identification_worker = worker
-    worker.result_ready.connect(
-        lambda result, left=dict(first_item), right=dict(item): _show_warehouse_identification_comparison(self, left, right, result)
-    )
-    worker.error.connect(lambda error: QMessageBox.warning(self, "装备对比失败", f"未能完成同类别装备鉴定对比：\n{error}"))
-    worker.start()
-
-
-def _show_warehouse_identification_dialog(self, item: dict, result: dict) -> None:
-    """Show only the reusable role-score results in a fixed, scrollable dialog."""
-    dialog = QDialog(self)
-    dialog.setWindowTitle("装备鉴定结果")
-    dialog.setFixedSize(560, 520)
-    layout = QVBoxLayout(dialog)
-    layout.setContentsMargins(16, 16, 16, 12)
-    layout.setSpacing(10)
-
-    scroll = QScrollArea(dialog)
-    scroll.setWidgetResizable(True)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    content = QWidget()
-    content_layout = QVBoxLayout(content)
-    content_layout.setContentsMargins(2, 2, 2, 2)
-    content_layout.setSpacing(8)
-    match_group = QGroupBox("匹配角色评分")
-    match_layout = QVBoxLayout(match_group)
-    match_layout.setSpacing(8)
-    rows = list(result.get("rows") or []) if isinstance(result, dict) else []
-    if rows:
-        for rank, row in enumerate(rows, start=1):
-            match_layout.addWidget(build_identify_result_row(rank, row))
-    else:
-        empty = QLabel("没有找到图纸可使用该装备的角色。")
-        empty.setStyleSheet(themed_style("color:#8b949e"))
-        match_layout.addWidget(empty)
-    content_layout.addWidget(match_group)
-    content_layout.addStretch()
-    scroll.setWidget(content)
-    layout.addWidget(scroll, 1)
-    buttons = QDialogButtonBox(QDialogButtonBox.Close)
-    buttons.rejected.connect(dialog.reject)
-    buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
-    dialog.exec()
-
-
-def _show_warehouse_identification_comparison(self, left: dict, right: dict, results: tuple[dict, dict]) -> None:
-    """Show the first selected item at left and the compatible second item at right."""
-    dialog = QDialog(self)
-    dialog.setWindowTitle("装备鉴定对比")
-    dialog.setFixedSize(1120, 620)
-    layout = QVBoxLayout(dialog)
-    layout.setContentsMargins(16, 16, 16, 12)
-    columns = QHBoxLayout()
-    columns.setSpacing(12)
-    for title, item, result in (("左栏", left, results[0]), ("右栏", right, results[1])):
-        group = QGroupBox(f"{title} · {item.get('display_name') or item.get('title')}")
-        group_layout = QVBoxLayout(group)
-        scroll = QScrollArea(group)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(2, 2, 2, 2)
-        rows = list(result.get("rows") or []) if isinstance(result, dict) else []
-        if rows:
-            for rank, row in enumerate(rows, start=1):
-                content_layout.addWidget(build_identify_result_row(rank, row))
-        else:
-            empty = QLabel("没有找到图纸可使用该装备的角色。")
-            empty.setStyleSheet(themed_style("color:#8b949e"))
-            content_layout.addWidget(empty)
-        content_layout.addStretch()
-        scroll.setWidget(content)
-        group_layout.addWidget(scroll)
-        columns.addWidget(group, 1)
-    layout.addLayout(columns, 1)
-    buttons = QDialogButtonBox(QDialogButtonBox.Close)
-    buttons.rejected.connect(dialog.reject)
-    buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
-    dialog.exec()
-
-
-def _update_warehouse_save_state(self):
-    pending_count = len(getattr(self, "_warehouse_pending_state_changes", {}))
-    if hasattr(self, "warehouse_save_btn"):
-        self.warehouse_save_btn.setEnabled(True)
-        self.warehouse_save_btn.setText(f"保存 ({pending_count})" if pending_count else "保存")
-
-
 def _save_warehouse_state_changes(self):
     """Validate manual card edits against the fixed snapshot, then write via nte-core."""
     pending = dict(getattr(self, "_warehouse_pending_state_changes", {}))
@@ -587,7 +520,9 @@ def _save_warehouse_state_changes(self):
     if not isinstance(snapshot_id, int):
         return
     if getattr(self, "_warehouse_source", "") != "nte_core":
-        QMessageBox.information(self, "仓库状态不可用", "全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。")
+        QMessageBox.information(
+            self, "仓库状态不可用", "全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。"
+        )
         return
     active_worker = getattr(self, "_warehouse_state_worker", None)
     if active_worker is not None and active_worker.isRunning():
@@ -596,7 +531,16 @@ def _save_warehouse_state_changes(self):
     if sync_service is None or not sync_service.is_running:
         QMessageBox.warning(self, "无法保存仓库状态", "请先在工作台启动背包同步，并等待状态显示为稳定监听。")
         return
-    service = WarehouseStateManagementService(runtime.USER_DATABASE_PATH, sync_service)
+    service = WarehouseStateManagementService(
+        self.app_context.account.user_database_path,
+        sync_service,
+        operation_context=OperationContext.create(
+            "warehouse",
+            account_id=self.app_context.account.active_account_id,
+            context_generation=self.app_context.generation,
+            snapshot_id=snapshot_id,
+        ),
+    )
     self._warehouse_state_service = service
     self._set_warehouse_management_busy(True, "正在检查手动修改…")
     worker = WorkerThread(
@@ -624,11 +568,26 @@ def _on_warehouse_manual_plan_ready(self, plan):
         f"锁定 {counts['锁定']} 件，恢复正常 {counts['正常']} 件。\n\n"
         "确认后会通过本地核心组件直接写入游戏。"
     )
-    if QMessageBox.question(self, "确认保存仓库状态", message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Yes:
+    if (
+        QMessageBox.question(
+            self, "确认保存仓库状态", message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel
+        )
+        != QMessageBox.Yes
+    ):
         return
     service = self._warehouse_state_service
     self._set_warehouse_management_busy(True, "正在保存弃置/锁定状态到游戏…")
-    worker = WorkerThread(target=lambda: service.apply(plan), parent=self)
+    progress_callback = show_warehouse_state_progress(
+        self,
+        change_count=len(plan.changes),
+    )
+    worker = WorkerThread(
+        target=lambda: service.apply(
+            plan,
+            progress_callback=progress_callback,
+        ),
+        parent=self,
+    )
     self._warehouse_state_worker = worker
     worker.result_ready.connect(self._on_warehouse_state_applied)
     worker.error.connect(self._on_warehouse_state_error)
@@ -641,12 +600,21 @@ def _open_warehouse_state_manager(self):
     if active_worker is not None and active_worker.isRunning():
         return
     if getattr(self, "_warehouse_source", "") != "nte_core":
-        QMessageBox.information(self, "仓库管理不可用", "全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。")
+        QMessageBox.information(
+            self, "仓库管理不可用", "全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。"
+        )
         return
-    selected_roles = self.role_selector.get_selected() if hasattr(self, "role_selector") else []
-    if not show_scan_post_action_dialog(self, runtime.USER_CONFIG_DIR, selected_roles):
+    # 仓库状态管理不读取计算页控件；目标角色由本对话框独立选择。
+    selected_roles: list[str] = []
+    account = self.app_context.account
+    if not show_scan_post_action_dialog(
+        self,
+        account.user_config_dir,
+        self.app_context.paths.config_dir,
+        selected_roles,
+    ):
         return
-    config = load_scan_post_action_config(runtime.USER_CONFIG_DIR)
+    config = load_scan_post_action_config(account.user_config_dir)
     error = validate_post_action_config(config, selected_roles)
     if error:
         QMessageBox.warning(self, "管理配置无效", error)
@@ -656,9 +624,15 @@ def _open_warehouse_state_manager(self):
         QMessageBox.warning(self, "无法管理仓库", "请先在工作台启动背包同步，并等待状态显示为稳定监听。")
         return
     service = WarehouseStateManagementService(
-        runtime.USER_DATABASE_PATH,
+        account.user_database_path,
         sync_service,
-        config_dir=runtime.CONFIG_DIR,
+        config_dir=self.app_context.paths.config_dir,
+        operation_context=OperationContext.create(
+            "warehouse",
+            account_id=account.active_account_id,
+            context_generation=self.app_context.generation,
+            snapshot_id=getattr(self, "_warehouse_snapshot_id", None),
+        ),
     )
     self._warehouse_state_service = service
     self._set_warehouse_management_busy(True, "正在计算弃置/锁定目标…")
@@ -689,11 +663,24 @@ def _on_warehouse_state_plan_ready(self, plan):
         f"取消状态 {counts['取消弃置/锁定']} 件。\n\n"
         "确认后会通过本地核心组件直接写入游戏。"
     )
-    if QMessageBox.question(self, "确认一键管理", message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Yes:
+    if (
+        QMessageBox.question(self, "确认一键管理", message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        != QMessageBox.Yes
+    ):
         return
     service = self._warehouse_state_service
     self._set_warehouse_management_busy(True, "正在通过本地核心组件同步弃置/锁定状态…")
-    worker = WorkerThread(target=lambda: service.apply(plan), parent=self)
+    progress_callback = show_warehouse_state_progress(
+        self,
+        change_count=len(plan.changes),
+    )
+    worker = WorkerThread(
+        target=lambda: service.apply(
+            plan,
+            progress_callback=progress_callback,
+        ),
+        parent=self,
+    )
     self._warehouse_state_worker = worker
     worker.result_ready.connect(self._on_warehouse_state_applied)
     worker.error.connect(self._on_warehouse_state_error)
@@ -701,57 +688,107 @@ def _on_warehouse_state_plan_ready(self, plan):
 
 
 def _on_warehouse_state_applied(self, result):
+    close_warehouse_state_progress(self)
     self._set_warehouse_management_busy(False)
     summary = result.summary
+    after_snapshot_id = getattr(result, "after_snapshot_id", None)
+    has_new_snapshot = (
+        isinstance(after_snapshot_id, int)
+        and after_snapshot_id > result.before_snapshot_id
+    )
     applied_states = {
         str(change.get("uid") or ""): str(change.get("target_state") or "")
         for change in getattr(result, "changes", ())
         if str(change.get("uid") or "") and str(change.get("target_state") or "") in {"normal", "locked", "discarded"}
     }
-    # A stable SQLite snapshot is only captured on the login screen, whereas
-    # nte-core has already acknowledged these state RPCs.  Reflect that
-    # acknowledgement in the displayed fixed snapshot immediately; a later
-    # capture remains the authoritative reconciliation point.
-    if applied_states:
+    # Without a new stable snapshot, retain the accepted RPC projection as a
+    # clearly-labelled fallback.  A later sync event remains authoritative.
+    if applied_states and not has_new_snapshot:
         self._warehouse_all_items = [
-            warehouse_item_with_state(item, applied_states.get(str(item.get("uid") or ""), "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal"))
-            if str(item.get("uid") or "") in applied_states else item
+            warehouse_item_with_state(
+                item,
+                applied_states.get(
+                    str(item.get("uid") or ""),
+                    "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal",
+                ),
+            )
+            if str(item.get("uid") or "") in applied_states
+            else item
             for item in getattr(self, "_warehouse_all_items", [])
         ]
-    QMessageBox.information(
-        self,
-        "仓库管理完成",
+    result_message = (
         f"已完成弃置/锁定操作：弃置 {summary['discard_set_count']} 件，"
         f"锁定 {summary['lock_set_count']} 件，"
         f"取消弃置 {summary['discard_clear_count']} 件，"
-        f"取消锁定 {summary['lock_clear_count']} 件。",
+        f"取消锁定 {summary['lock_clear_count']} 件。"
     )
+    if getattr(result, "verified", False):
+        result_message += (
+            f"\n\n已通过游戏返回的新稳定快照 "
+            f"#{after_snapshot_id} 确认，仓库将自动刷新。"
+        )
+        QMessageBox.information(
+            self,
+            "仓库状态已确认",
+            result_message,
+        )
+    else:
+        result_message += (
+            "\n\n修改指令已经提交，但尚未从游戏快照完整确认。"
+            f"\n{getattr(result, 'verification_error', None) or '等待后续背包快照确认。'}"
+        )
+        QMessageBox.warning(
+            self,
+            "仓库状态待确认",
+            result_message,
+        )
     self._warehouse_pending_state_changes = {}
+    self._on_warehouse_selection_changed()
+    self._update_warehouse_save_state()
+    deferred_snapshot_id = getattr(
+        self,
+        "_warehouse_deferred_snapshot_id",
+        None,
+    )
+    should_refresh = has_new_snapshot or (
+        isinstance(deferred_snapshot_id, int)
+        and deferred_snapshot_id > result.before_snapshot_id
+    )
+    if should_refresh:
+        self._refresh_warehouse()
+        return
     self._warehouse_base_states = {
-        str(item.get("uid")): "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal"
+        str(item.get("uid")): (
+            "discarded"
+            if item.get("discarded")
+            else "locked"
+            if item.get("locked")
+            else "normal"
+        )
         for item in getattr(self, "_warehouse_all_items", [])
     }
     self._apply_warehouse_filters()
-    self._on_warehouse_selection_changed()
-    self._update_warehouse_save_state()
+    self.warehouse_hint.setText(
+        "修改已提交，当前页面暂按核心组件接受结果显示；"
+        "收到后续稳定快照时将自动刷新。"
+    )
+    self.warehouse_hint.show()
 
 
-def _on_warehouse_state_error(self, error):
-    self._set_warehouse_management_busy(False)
-    logger.error(f"仓库状态管理失败: {error}")
-    QMessageBox.critical(self, "仓库管理失败", f"未能完成一键弃置/锁定：\n{error}")
-
-
-def _set_warehouse_management_busy(self, busy: bool, hint: str = ""):
-    if hasattr(self, "warehouse_manage_btn"):
-        self.warehouse_manage_btn.setEnabled(not busy)
-    if hasattr(self, "warehouse_save_btn"):
-        self.warehouse_save_btn.setEnabled(not busy)
-    for name in ("warehouse_normal_btn", "warehouse_lock_btn", "warehouse_discard_btn"):
-        button = getattr(self, name, None)
-        if button is not None:
-            button.setEnabled(not busy and bool(self.warehouse_view.selectionModel().selectedIndexes()))
-    if busy and hasattr(self, "warehouse_hint"):
-        self.warehouse_hint.setText(hint)
-        self.warehouse_hint.show()
-
+class WarehouseControllerMixin:
+    _page_warehouse = _page_warehouse
+    _refresh_warehouse = _refresh_warehouse
+    _apply_warehouse_filters = _apply_warehouse_filters
+    _on_warehouse_sync_state = _on_warehouse_sync_state
+    _on_warehouse_selection_changed = _on_warehouse_selection_changed
+    _set_warehouse_selected_state = _set_warehouse_selected_state
+    _toggle_warehouse_item_state = _toggle_warehouse_item_state
+    _save_warehouse_state_changes = _save_warehouse_state_changes
+    _show_warehouse_item_identification = _show_warehouse_item_identification
+    _update_warehouse_save_state = _update_warehouse_save_state
+    _on_warehouse_manual_plan_ready = _on_warehouse_manual_plan_ready
+    _open_warehouse_state_manager = _open_warehouse_state_manager
+    _on_warehouse_state_plan_ready = _on_warehouse_state_plan_ready
+    _on_warehouse_state_applied = _on_warehouse_state_applied
+    _on_warehouse_state_error = _on_warehouse_state_error
+    _set_warehouse_management_busy = _set_warehouse_management_busy

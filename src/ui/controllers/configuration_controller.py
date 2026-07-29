@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from src.app import runtime
 from src.features.configuration.page import (
     add_weight as config_add_weight,
     build_config_page,
@@ -20,53 +19,111 @@ from src.features.configuration.page import (
     switch_config_form as config_switch_config_form,
 )
 from src.features.official_role.page import confirm_pending_my_role_changes
-from src.ui.main_window_method_install import install_methods as _install_main_window_methods
-
-_METHOD_NAMES = ["_page_config","_refresh_config_forms","_confirm_leave_config_page","_confirm_leave_my_role_page","_switch_config_form","_build_roles_form","_add_weight","_save_role_weight_value","_del_weight","_save_config_form","_reset_config_form","_reset_current_config_weights","_reset_all_config_weights","_save_config_data"]
-
-
-def install_methods(app_module, window_cls) -> None:
-    _install_main_window_methods(app_module, window_cls, _METHOD_NAMES, globals())
 
 
 def _page_config(self):
     return build_config_page(self)
 
 def _refresh_config_forms(self):
-    return config_refresh_config_forms(self, runtime.CONFIG_DIR)
+    return config_refresh_config_forms(self, self.app_context.paths.config_dir)
 
 def _confirm_leave_config_page(self):
-    return config_confirm_pending_config_changes(self, runtime.CONFIG_DIR)
+    return config_confirm_pending_config_changes(
+        self,
+        self.app_context.paths.config_dir,
+    )
 
 def _confirm_leave_my_role_page(self):
     return confirm_pending_my_role_changes(self)
 
 def _switch_config_form(self,name):
-    return config_switch_config_form(self, name, runtime.CONFIG_DIR)
+    return config_switch_config_form(
+        self,
+        name,
+        self.app_context.paths.config_dir,
+    )
 
 def _build_roles_form(self,data):
     return render_roles_form(self,data)
 
 def _add_weight(self,rn,data,cb,weight_field="weights"):
-    return config_add_weight(self, rn, data, cb, runtime.CONFIG_DIR, weight_field)
+    return config_add_weight(
+        self,
+        rn,
+        data,
+        cb,
+        self.app_context.paths.config_dir,
+        weight_field,
+    )
 
 def _save_role_weight_value(self,rn,key,value,data,weight_field="weights"):
-    return config_save_role_weight_value(self, rn, key, value, data, runtime.CONFIG_DIR, weight_field)
+    return config_save_role_weight_value(
+        self,
+        rn,
+        key,
+        value,
+        data,
+        self.app_context.paths.config_dir,
+        weight_field,
+    )
 
 def _del_weight(self,rn,key,data,cb,weight_field="weights"):
-    return config_del_weight(self, rn, key, data, cb, runtime.CONFIG_DIR, weight_field)
+    return config_del_weight(
+        self,
+        rn,
+        key,
+        data,
+        cb,
+        self.app_context.paths.config_dir,
+        weight_field,
+    )
 
 def _save_config_form(self):
-    return config_save_config_form(self, runtime.CONFIG_DIR, None)
+    return config_save_config_form(
+        self,
+        self.app_context.paths.config_dir,
+        None,
+    )
 
 def _reset_config_form(self):
-    return config_reset_config_form(self, runtime.CONFIG_DIR, runtime.BUNDLED_CONFIG_DIR)
+    return config_reset_config_form(
+        self,
+        self.app_context.paths.config_dir,
+        self.app_context.paths.bundled_config_dir,
+    )
 
 def _reset_current_config_weights(self):
-    return config_reset_current_config_weights(self, runtime.CONFIG_DIR)
+    return config_reset_current_config_weights(
+        self,
+        self.app_context.paths.config_dir,
+    )
 
 def _reset_all_config_weights(self):
-    return config_reset_all_config_weights(self, runtime.CONFIG_DIR)
+    return config_reset_all_config_weights(
+        self,
+        self.app_context.paths.config_dir,
+    )
 
 def _save_config_data(self,data):
-    return config_save_config_data(self, data, runtime.CONFIG_DIR)
+    return config_save_config_data(
+        self,
+        data,
+        self.app_context.paths.config_dir,
+    )
+
+
+class ConfigurationControllerMixin:
+    _page_config = _page_config
+    _refresh_config_forms = _refresh_config_forms
+    _confirm_leave_config_page = _confirm_leave_config_page
+    _confirm_leave_my_role_page = _confirm_leave_my_role_page
+    _switch_config_form = _switch_config_form
+    _build_roles_form = _build_roles_form
+    _add_weight = _add_weight
+    _save_role_weight_value = _save_role_weight_value
+    _del_weight = _del_weight
+    _save_config_form = _save_config_form
+    _reset_config_form = _reset_config_form
+    _reset_current_config_weights = _reset_current_config_weights
+    _reset_all_config_weights = _reset_all_config_weights
+    _save_config_data = _save_config_data

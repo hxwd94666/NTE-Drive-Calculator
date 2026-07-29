@@ -6,6 +6,7 @@ from typing import List, Dict
 
 from src.domain.crit_threshold import (
     DEFAULT_CRIT_THRESHOLD,
+    deepest_stat_priority_pool,
     minimum_crit_total,
     crit_floor_enabled,
     crit_rank_adjustment,
@@ -13,23 +14,31 @@ from src.domain.crit_threshold import (
     is_crit_stat,
     meets_preference_grade_limit,
     normalize_preference_config,
+    preference_config_active,
+    stat_priority_match_depth,
 )
 from src.domain.grade_limits import meets_min_grade
 from src.domain.stat_catalog import StatCatalog
 from src.models.equipment import Drive, Tape
-from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
 from src.utils.name_resolver import resolve_name
 from src.utils.set_name import normalize_set_display_name
 
 class BaseDispatchStrategy:
     MAX_COMBO_LIMIT = 500
 
-    def __init__(self, roles_db: Dict, sets_db: Dict, blueprints_db: Dict[str, List[Dict]],
-                 *, core_set_targets: Dict[str, str | None] | None = None):
+    def __init__(
+        self,
+        roles_db: Dict,
+        sets_db: Dict,
+        blueprints_db: Dict[str, List[Dict]],
+        *,
+        core_set_targets: Dict[str, str | None] | None = None,
+        stat_catalog: StatCatalog | None = None,
+    ):
         self.roles_db = roles_db
         self.sets_db = sets_db
         self.blueprints_db = blueprints_db
-        self.stat_catalog = StatCatalog.from_config_dir()
+        self.stat_catalog = stat_catalog or StatCatalog()
         self._role_stat_weight_cache = {}
         self._max_single_weight_cache = {}
         self._extra_shape_factor_cache = {}
@@ -58,7 +67,7 @@ class BaseDispatchStrategy:
 
     def _stat_priority_config(self, config) -> dict:
         normalized = normalize_preference_config(config)
-        if not normalized.get("stats"):
+        if not preference_config_active(config):
             return {}
         return normalized
 
@@ -117,6 +126,13 @@ class BaseDispatchStrategy:
             if normalized == target:
                 return True
         return False
+
+    def _item_matches_stat_blacklist(self, item, config) -> bool:
+        blacklist = self._stat_priority_config(config).get("blacklist", ())
+        return any(self._item_has_stat(item, stat_key) for stat_key in blacklist)
+
+    def _item_allowed_for_role(self, item, config) -> bool:
+        return not self._item_matches_stat_blacklist(item, config)
 
     def _covered_stat_count(self, item, stats: list[str]) -> int:
         return sum(1 for stat_key in stats if self._item_has_stat(item, stat_key))
@@ -259,14 +275,10 @@ class BaseDispatchStrategy:
         stats = cfg.get("stats", [])
         if not stats or not self._stat_priority_applies_to_item(role, item, cfg):
             return 0
-        if cfg.get("equal_priority"):
-            return self._covered_stat_count(item, stats)
-        depth = 0
-        for stat_key in stats:
-            if not self._item_has_stat(item, stat_key):
-                break
-            depth += 1
-        return depth
+        return stat_priority_match_depth(
+            (self._item_has_stat(item, stat_key) for stat_key in stats),
+            equal_priority=bool(cfg.get("equal_priority")),
+        )
 
     def _stat_priority_key_for_items(self, role: str, items, config) -> tuple:
         cfg = self._stat_priority_config(config)
@@ -282,6 +294,24 @@ class BaseDispatchStrategy:
 
     def _stat_priority_total_hits(self, role: str, items, config) -> int:
         return sum(self._stat_priority_depth(role, item, config) for item in items or [])
+
+    def _deepest_stat_priority_pool(
+        self,
+        role: str,
+        items,
+        config,
+        *,
+        require_match: bool,
+    ) -> list:
+        cfg = self._stat_priority_config(config)
+        values = list(items or ())
+        if not cfg.get("stats"):
+            return values
+        return deepest_stat_priority_pool(
+            values,
+            lambda item: self._stat_priority_depth(role, item, cfg),
+            require_match=require_match,
+        )
 
     def _drive_pick_key(
         self,
@@ -308,14 +338,17 @@ class BaseDispatchStrategy:
         stats = cfg.get("stats", [])
         if not stats or not cfg.get("ignore_grade_limit"):
             return True
-        return self._covered_stat_count(item, stats) > 0
+        return stat_priority_match_depth(
+            (self._item_has_stat(item, stat_key) for stat_key in stats),
+            equal_priority=bool(cfg.get("equal_priority")),
+        ) > 0
 
     def _stat_priority_hit_count(self, role: str, item, config) -> int:
         cfg = self._stat_priority_config(config)
         stats = cfg.get("stats", [])
         if not stats or not self._stat_priority_applies_to_item(role, item, cfg):
             return 0
-        return self._covered_stat_count(item, stats)
+        return self._stat_priority_depth(role, item, cfg)
 
     def _is_a_grade_item(self, role: str, item) -> bool:
         score = getattr(item, "role_scores", {}).get(role, 0.0)
@@ -334,17 +367,9 @@ class BaseDispatchStrategy:
             return base_score
         score = float(base_score)
         cfg = self._stat_priority_config(config)
-        stats = cfg.get("stats", [])
-        if stats and self._meets_grade_limit(role, item, config):
-            if cfg.get("equal_priority"):
-                covered = self._covered_stat_count(item, stats)
-                if covered:
-                    score = base_score + covered * 100000.0
-            else:
-                for tier, stat_key in enumerate(stats):
-                    if self._item_has_stat(item, stat_key):
-                        score = base_score + (len(stats) - tier) * 100000.0
-                        break
+        priority_depth = self._stat_priority_depth(role, item, cfg)
+        if priority_depth:
+            score = base_score + priority_depth * 100000.0
         score += self._crit_rank_bonus(role, item, config, current_crit)
         return score
 
@@ -463,6 +488,24 @@ class BaseDispatchStrategy:
     ) -> tuple[int, Drive, float, float] | None:
         if not candidates:
             return None
+        cfg = self._stat_priority_config(config)
+        candidates = [
+            candidate
+            for candidate in candidates
+            if self._item_allowed_for_role(candidate[1], cfg)
+        ]
+        if not candidates:
+            return None
+        if cfg.get("stats"):
+            candidates = deepest_stat_priority_pool(
+                candidates,
+                lambda candidate: self._stat_priority_depth(
+                    role,
+                    candidate[1],
+                    cfg,
+                ),
+                require_match=False,
+            )
         ranked = [
             (
                 self._drive_pick_key(
@@ -496,7 +539,20 @@ class BaseDispatchStrategy:
         stat_priority_configs = stat_priority_configs or {}
 
         for role in priority_list:
-            role_tapes = tapes_pool.get(role, [])
+            role_tapes = [
+                tape
+                for tape in tapes_pool.get(role, [])
+                if (
+                    tape.uid not in used_tape_uids
+                    and self._tape_matches_core_target(role, tape, custom_sets)
+                )
+            ]
+            role_tapes = self._deepest_stat_priority_pool(
+                role,
+                role_tapes,
+                stat_priority_configs.get(role),
+                require_match=True,
+            )
 
             best_tape = None
             best_score = -1.0
@@ -505,11 +561,10 @@ class BaseDispatchStrategy:
                 tape_set = self._resolve_set_name(tape.set_name)
                 if tape_set != tape.set_name and tape_set in self.sets_db:
                     tape.set_name = tape_set
-                if tape.uid not in used_tape_uids and self._tape_matches_core_target(role, tape, custom_sets):
-                    score = tape.role_scores.get(role, 0.0)
-                    rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
-                    if rank_score > best_score:
-                        best_score, best_tape = rank_score, tape
+                score = tape.role_scores.get(role, 0.0)
+                rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
+                if rank_score > best_score:
+                    best_score, best_tape = rank_score, tape
 
             if best_tape:
                 assigned_tapes[role] = best_tape
@@ -544,7 +599,9 @@ class BaseDispatchStrategy:
 
         for r_idx, role in enumerate(priority_list):
             for t_idx, tape in enumerate(real_tapes):
-                if self._tape_matches_core_target(role, tape, custom_sets):
+                if (
+                    self._tape_matches_core_target(role, tape, custom_sets)
+                ):
                     score = max(0.0, tape.role_scores.get(role, 0.0))
                     rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
                     # A Context core-main filter can intentionally retain a

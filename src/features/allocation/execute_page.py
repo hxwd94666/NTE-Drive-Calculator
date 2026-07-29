@@ -12,7 +12,6 @@ from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -31,7 +30,7 @@ def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, s
     _add_scan_mode_options(window, scan_card, scan_help, show_help)
     _build_offline_frame(window, scan_card, offline_help, show_help)
     _build_total_count_frame(window, scan_card)
-    _build_scan_processing_options(window, scan_card, show_help)
+    build_scan_processing_options(window, scan_card, show_help)
     _build_drone_frame(window, scan_card, drone_help, show_help)
     window.scan_group.idToggled.connect(window._on_scan_change)
     layout.addWidget(scan_card)
@@ -106,7 +105,7 @@ def _build_total_count_frame(window, scan_card):
     scan_card.layout().addWidget(window.total_count_frame)
 
 
-def _build_scan_processing_options(window, scan_card, show_help):
+def build_scan_processing_options(window, scan_card, show_help):
     window.scan_dual_thread_frame = QWidget()
     window.scan_dual_thread_frame.setVisible(False)
     dual_thread_layout = QHBoxLayout(window.scan_dual_thread_frame)

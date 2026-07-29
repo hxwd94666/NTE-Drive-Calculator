@@ -2,7 +2,6 @@
 import numpy as np
 from typing import List, Dict
 
-from src.models.equipment import Drive
 from src.optimizer.blueprint_candidate_builder import BlueprintCandidateBuilder
 from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
 
@@ -37,7 +36,12 @@ class AllocationMatrixBuilder(BlueprintCandidateBuilder):
         ranking_matrix = np.zeros((len(slots), len(drives_pool)))
         for i, slot in enumerate(slots):
             for j, drive in enumerate(drives_pool):
-                if drive.shape_id != slot["shape"]:
+                if (
+                    drive.shape_id != slot["shape"]
+                    or not self._item_allowed_for_role(
+                        drive, crit_priority_modes.get(slot["role"])
+                    )
+                ):
                     profit_matrix[i, j] = -10000.0
                     ranking_matrix[i, j] = -10000.0
                 else:
@@ -73,4 +77,3 @@ class AllocationMatrixBuilder(BlueprintCandidateBuilder):
                 priority_groups: list[list[str]] | None = None,
                 crit_rate_caps: Dict[str, float] | None = None) -> AllocationResult:
         raise NotImplementedError
-

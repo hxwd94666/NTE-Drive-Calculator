@@ -155,10 +155,14 @@
 `2.0.0` 已使用 SQLite 作为运行数据边界，并以游戏官方 ID 驱动角色、库存和配装服务。详细设计见 [架构说明](docs/architecture.md) 与 [扩展指南](docs/extension-guide.md)。
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
+uv sync --group build --group dev
+uv run python main.py
+```
+
+未安装 `uv` 时，可直接让 pip 从 `pyproject.toml` 安装运行依赖：
+
+```powershell
+python -m pip install .
 ```
 
 打包桌面程序：

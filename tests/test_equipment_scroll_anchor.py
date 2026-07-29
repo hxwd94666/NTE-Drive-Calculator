@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QScrollArea, QVBoxLayout, QWidget
 
-from src.features.inventory.equipment_display_controller import (
+from src.features.inventory.equipment_display_view import (
     _capture_equipment_restore_anchor,
     _restore_equipment_anchor,
 )

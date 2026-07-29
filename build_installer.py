@@ -38,6 +38,10 @@ APP_EQUIPMENT_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "equipment.nte"
 APP_COMBAT_CLOCK_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "combat-clock.nte"
 APP_USER_SCHEMA = APP_INTERNAL / "src" / "storage" / "sqlite" / "schema" / "001_user_data.sql"
 APP_STATIC_DATABASE = APP_INTERNAL / "data" / "game_static.sqlite3"
+APP_STATIC_MANIFEST = APP_INTERNAL / "data" / "manifest.json"
+APP_SHAPE_BONUS_BASELINE = (
+    APP_INTERNAL / "data" / "migrations" / "shape_bonus_defaults_2.0.2.json"
+)
 INSTALLER_DIR = ROOT / "installer"
 OUTPUT_DIR = INSTALLER_DIR / "output"
 ISS_PATH = INSTALLER_DIR / "NTE_Drive_Calc.iss"
@@ -119,10 +123,10 @@ def _find_iscc(explicit_path: Path | None = None) -> Path | None:
 
 def _read_app_version() -> str:
     try:
-        from src.app.constants import APP_VERSION
+        from src.app.version import __version__
     except Exception as exc:
-        raise RuntimeError("APP_VERSION not found in src.app.constants ") from exc
-    return APP_VERSION
+        raise RuntimeError("__version__ not found in src.app.version") from exc
+    return __version__
 
 
 def _find_package_dir(package_name: str) -> Path | None:
@@ -187,6 +191,8 @@ def _validate_app_bundle() -> None:
         "nte-mods 战斗时钟脚本": APP_COMBAT_CLOCK_MOD,
         "用户数据库结构": APP_USER_SCHEMA,
         "发行版静态数据库": APP_STATIC_DATABASE,
+        "发行版静态数据库清单": APP_STATIC_MANIFEST,
+        "旧版额外形状迁移基线": APP_SHAPE_BONUS_BASELINE,
     }
     missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]
     if missing:
@@ -382,6 +388,7 @@ Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: i
 [Dirs]
 Name: "{{app}}\\config"; Permissions: users-modify
 Name: "{{app}}\\_internal\\data"; Permissions: users-modify
+Name: "{{app}}\\migration"; Permissions: users-modify
 Name: "{{app}}\\logs"; Permissions: users-modify
 Name: "{{app}}\\scanned_images"; Permissions: users-modify
 
@@ -400,6 +407,25 @@ Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#Stri
 function ShouldInstallViGEmBus: Boolean;
 begin
   Result := IsWin64 and WizardIsTaskSelected('installvigem');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  OldStaticDatabase: String;
+  MigrationBackup: String;
+begin
+  if CurStep <> ssInstall then
+    Exit;
+  OldStaticDatabase :=
+    ExpandConstant('{{app}}\\_internal\\data\\game_static.sqlite3');
+  MigrationBackup :=
+    ExpandConstant('{{app}}\\migration\\game_static.previous.sqlite3');
+  if FileExists(OldStaticDatabase) then
+  begin
+    ForceDirectories(ExtractFileDir(MigrationBackup));
+    if not FileCopy(OldStaticDatabase, MigrationBackup, False) then
+      RaiseException('无法备份旧版静态数据库，安装已停止。');
+  end;
 end;
 
 {chinese_custom_messages}

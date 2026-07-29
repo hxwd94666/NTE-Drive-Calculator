@@ -3,7 +3,6 @@
 
 import unittest
 
-import numpy as np
 
 from src.features.drive_assembly.randomization import (
     RandomizationContext,

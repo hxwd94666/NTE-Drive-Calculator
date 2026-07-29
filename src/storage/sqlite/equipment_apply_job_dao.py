@@ -2,30 +2,21 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
-from pathlib import Path
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .user_data_support import (
-    ALLOCATION_STRATEGIES,
-    DEFAULT_SCHEMA_PATH,
-    DEFAULT_SNAPSHOT_RETENTION_COUNT,
-    SNAPSHOT_SOURCES,
-    SUIT_REQUIREMENT_MODES,
-    SYNC_METHODS,
-    USER_MIGRATIONS,
-    SCHEMA_VERSION,
     UserDataError,
     UserDataValidationError,
     _decoded,
     _integer,
     _json,
-    _mark_duplicate_modules,
     _plain_object,
     _utc_now,
 )
+from .protocols import UserDataDaoMixinHost
 
-class EquipmentApplyJobDaoMixin:
+class EquipmentApplyJobDaoMixin(UserDataDaoMixinHost):
     @staticmethod
     def _character_uid(value: Mapping[str, Any], label: str = "character_uid") -> dict[str, int]:
         return {
@@ -113,6 +104,8 @@ class EquipmentApplyJobDaoMixin:
                 "INSERT INTO equipment_apply_job(source_snapshot_id, status, created_at_utc) VALUES (?, 'prepared', ?)",
                 (raw_snapshot_id, now),
             )
+            if cursor.lastrowid is None:
+                raise UserDataError("创建装配任务后未返回 job_id")
             job_id = int(cursor.lastrowid)
             for ordinal, raw_role in enumerate(prepared_roles):
                 role = _plain_object(raw_role, f"prepared_roles[{ordinal}]")
@@ -194,11 +187,10 @@ class EquipmentApplyJobDaoMixin:
     def complete_equipment_apply_job_if_done(self, job_id: int) -> bool:
         raw_job_id = _integer(job_id, "job_id", minimum=1)
         remaining = self._one("SELECT COUNT(*) AS count FROM equipment_apply_job_item WHERE job_id = ? AND status != 'succeeded'", (raw_job_id,))
-        if int(remaining["count"]) != 0:
+        if int((remaining or {}).get("count", 0)) != 0:
             return False
         now = _utc_now()
         self._db().execute("UPDATE equipment_apply_job SET status = 'completed', completed_at_utc = ?, last_error = NULL WHERE job_id = ?", (now, raw_job_id))
         self._db().execute("INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)", (raw_job_id, now, "全部角色装配任务已完成"))
         self._db().commit()
         return True
-

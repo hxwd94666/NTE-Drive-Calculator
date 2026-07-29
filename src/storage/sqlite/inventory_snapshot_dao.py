@@ -2,20 +2,12 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from .user_data_support import (
-    ALLOCATION_STRATEGIES,
-    DEFAULT_SCHEMA_PATH,
-    DEFAULT_SNAPSHOT_RETENTION_COUNT,
     SNAPSHOT_SOURCES,
-    SUIT_REQUIREMENT_MODES,
-    SYNC_METHODS,
-    USER_MIGRATIONS,
-    SCHEMA_VERSION,
     UserDataError,
     UserDataValidationError,
     _decoded,
@@ -25,6 +17,7 @@ from .user_data_support import (
     _plain_object,
     _utc_now,
 )
+from .protocols import UserDataDaoMixinHost
 
 # SQLite is frequently built with the default 999 host-parameter limit.  Each
 # equipment UID consumes two parameters, while the snapshot id consumes one.
@@ -33,7 +26,7 @@ _SQLITE_QUERY_PARAMETER_BUDGET = 900
 _UID_PAIR_QUERY_BATCH_SIZE = (_SQLITE_QUERY_PARAMETER_BUDGET - 1) // 2
 
 
-class InventorySnapshotDaoMixin:
+class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
     @staticmethod
     def _snapshot_payload(snapshot: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         original = dict(snapshot)
@@ -148,9 +141,20 @@ class InventorySnapshotDaoMixin:
         for index, raw_character in enumerate(raw_characters):
             character = _plain_object(raw_character, f"characters[{index}]")
             character_id = _integer(character.get("character_id"), f"characters[{index}].character_id", minimum=1)
-            uid = _plain_object(character.get("uid"), f"characters[{index}].uid")
-            character_slot = _integer(uid.get("slot"), f"characters[{index}].uid.slot", minimum=1)
-            character_serial = _integer(uid.get("serial"), f"characters[{index}].uid.serial", minimum=1)
+            character_uid_row = _plain_object(
+                character.get("uid"),
+                f"characters[{index}].uid",
+            )
+            character_slot = _integer(
+                character_uid_row.get("slot"),
+                f"characters[{index}].uid.slot",
+                minimum=1,
+            )
+            character_serial = _integer(
+                character_uid_row.get("serial"),
+                f"characters[{index}].uid.serial",
+                minimum=1,
+            )
             if character_id in seen_character_ids or (character_slot, character_serial) in seen_character_uids:
                 raise UserDataValidationError("快照包含重复角色实例")
             seen_character_ids.add(character_id)
@@ -176,6 +180,8 @@ class InventorySnapshotDaoMixin:
                     _json(original), now,
                 ),
             )
+            if cursor.lastrowid is None:
+                raise UserDataError("创建背包快照后未返回 snapshot_id")
             snapshot_id = int(cursor.lastrowid)
             for item, serial, slot, stats in normalized_items:
                 connection.execute(
@@ -213,9 +219,12 @@ class InventorySnapshotDaoMixin:
                             _json(stat),
                         ),
                     )
-                character_id = item.get("equipped_character_id")
+                equipped_character_id = item.get("equipped_character_id")
                 character_uid = item.get("equipped_character_uid")
-                if character_id is not None and isinstance(character_uid, Mapping):
+                if (
+                    equipped_character_id is not None
+                    and isinstance(character_uid, Mapping)
+                ):
                     try:
                         character_slot = _integer(character_uid.get("slot"), "equipped_character_uid.slot", minimum=1)
                         character_serial = _integer(character_uid.get("serial"), "equipped_character_uid.serial", minimum=1)
@@ -234,7 +243,9 @@ class InventorySnapshotDaoMixin:
                             updated_at_utc = excluded.updated_at_utc
                         """,
                         (
-                            character_id, character_slot, character_serial,
+                            equipped_character_id,
+                            character_slot,
+                            character_serial,
                             snapshot_id, snapshot_id, now, now,
                         ),
                     )

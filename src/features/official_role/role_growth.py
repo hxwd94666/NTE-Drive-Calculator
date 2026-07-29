@@ -6,7 +6,6 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
@@ -14,54 +13,22 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
-    QLineEdit,
-    QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtWidgets import QHeaderView
 
-from src.app import runtime
 from src.app.theme import themed_style
-from src.domain.stat_catalog import StatCatalog
-from src.features.allocation import results_view as legacy_results
-from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
 from src.services.official_role_page_service import (
-    calculate_official_role_damage_breakdown,
-    calculate_official_role_equipment_gain,
-    calculate_official_role_item_gain,
     calculate_official_role_margins,
-    load_official_role_detail,
-    load_official_role_index,
-    replacement_candidates_for_official_role,
-    save_official_role_replacement,
-    save_official_role_tab_order,
 )
-from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
-from src.services.sqlite_allocation_inventory import (
-    AllocationInventoryProjectionError,
-    legacy_shape_id,
-)
-from src.storage.sqlite.user_data_dao import UserDataDao
-from src.ui.equipment_replacement_dialog import (
-    EquipmentReplacementCard,
-    show_equipment_replacement_dialog,
-)
-from src.ui.persistent_tab_order import bind_persistent_tab_order
 from src.ui.widgets import (
     NoWheelComboBox,
     NoWheelDoubleSpinBox,
     NoWheelSpinBox,
-    match_pinyin,
 )
 from .role_calculation import (
     _attribute_name,
@@ -90,12 +57,6 @@ _WEIGHT_LABEL_BY_PROPERTY = {
     property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
 }
 
-
-from . import role_calculation as _calculation
-for _module in (_calculation,):
-    for _name, _value in vars(_module).items():
-        if callable(_value) and not _name.startswith("__"):
-            globals().setdefault(_name, _value)
 
 def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> QGroupBox:
     character = detail["character"]

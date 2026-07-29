@@ -60,7 +60,7 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         self.assertEqual("EquipmentGeometry_Hen2", next(row for row in imported if row["kind"] == "module")["geometry"])
         self.assertTrue(all(row["level"] == 0 and row["max_level"] == 0 for row in imported))
         self.assertTrue(all(not row["locked"] and not row["discarded"] and not row["equipped"] for row in imported))
-        from src.features.inventory.warehouse import load_warehouse_snapshot
+        from src.features.inventory.warehouse_presenter import load_warehouse_snapshot
 
         warehouse = load_warehouse_snapshot(self.database_path)
         self.assertEqual(snapshot_id, warehouse["snapshot_id"])

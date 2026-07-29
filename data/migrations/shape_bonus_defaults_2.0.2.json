@@ -1,0 +1,273 @@
+{
+  "format_version": 1,
+  "baselines": [
+    {
+      "release_version": "2.0.2",
+      "database_sha256": "77D489AC65C703B244DA8369C97D5971BAA93CD8086D01855831C20ADE86EED8",
+      "dataset_id": "unversioned_20260723_update",
+      "schema_version": 16,
+      "records": [
+        {
+          "logical_character_key": "character:1003",
+          "representative_character_id": 1003,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "DamageUpIncantationBase",
+              "display_value": 9.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1004",
+          "representative_character_id": 1004,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "DamageUpChaosBase",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1008",
+          "representative_character_id": 1008,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "AtkUp",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1010",
+          "representative_character_id": 1010,
+          "shape_label": "Type-2",
+          "shape_grid_count": 2,
+          "properties": [
+            {
+              "property_id": "CritBase",
+              "display_value": 6.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1019",
+          "representative_character_id": 1019,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "CritBase",
+              "display_value": 7.5,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1020",
+          "representative_character_id": 1020,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "AtkUp",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1021",
+          "representative_character_id": 1021,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "HPMaxUp",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1023",
+          "representative_character_id": 1023,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "CritBase",
+              "display_value": 7.5,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1025",
+          "representative_character_id": 1025,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "AtkUp",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1033",
+          "representative_character_id": 1033,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "DefUp",
+              "display_value": 12.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1039",
+          "representative_character_id": 1039,
+          "shape_label": "Type-2",
+          "shape_grid_count": 2,
+          "properties": [
+            {
+              "property_id": "HPMaxUp",
+              "display_value": 6.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1052",
+          "representative_character_id": 1052,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "DamageUpCosmosBase",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1054",
+          "representative_character_id": 1054,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "DamageUpChaosBase",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1055",
+          "representative_character_id": 1055,
+          "shape_label": "Type-2",
+          "shape_grid_count": 2,
+          "properties": [
+            {
+              "property_id": "CritBase",
+              "display_value": 6.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1070",
+          "representative_character_id": 1070,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "AtkUp",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1071",
+          "representative_character_id": 1071,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "CritDamageBase",
+              "display_value": 16.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1073",
+          "representative_character_id": 1073,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "DamageUpCosmosBase",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1075",
+          "representative_character_id": 1075,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "AtkUp",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "character:1076",
+          "representative_character_id": 1076,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "CritDamageBase",
+              "display_value": 16.0,
+              "ordinal": 0
+            }
+          ]
+        },
+        {
+          "logical_character_key": "protagonist",
+          "representative_character_id": 1046,
+          "shape_label": "Type-3",
+          "shape_grid_count": 3,
+          "properties": [
+            {
+              "property_id": "AtkUp",
+              "display_value": 10.0,
+              "ordinal": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -218,13 +218,6 @@ def current_theme_name(app: QApplication | None = None) -> str:
     return theme_name(str(app.property("nte_effective_theme") or "dark"))
 
 
-def current_theme_preference(app: QApplication | None = None) -> str:
-    app = app or QApplication.instance()
-    if app is None:
-        return "dark"
-    return theme_preference(str(app.property("nte_theme_preference") or "dark"))
-
-
 def current_style_sheet(app: QApplication | None = None) -> str:
     return theme_style(current_theme_name(app))
 
@@ -375,10 +368,6 @@ def apply_title_bar_theme(widget, theme: str | None = None) -> None:
                 break
     except Exception:
         return
-
-
-def apply_dark_title_bar(widget) -> None:
-    apply_title_bar_theme(widget, "dark")
 
 
 def localize_standard_buttons(widget) -> None:

@@ -11,15 +11,35 @@ from src.optimizer.contracts import (
     STRATEGY_MODES,
     StrategyMode,
 )
+from src.domain.stat_catalog import StatCatalog
 
 
 class DispatcherEngine:
 
-    def __init__(self, roles_db: dict, sets_db: dict, blueprints_db: dict[str, list[dict]],
-                 *, core_set_targets: dict[str, str | None] | None = None):
+    def __init__(
+        self,
+        roles_db: dict,
+        sets_db: dict,
+        blueprints_db: dict[str, list[dict]],
+        *,
+        core_set_targets: dict[str, str | None] | None = None,
+        stat_catalog: StatCatalog | None = None,
+    ):
         self.strategies = {
-            "role_priority": RolePriorityStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets),
-            "global_optimal": GlobalOptimalStrategy(roles_db, sets_db, blueprints_db, core_set_targets=core_set_targets)
+            "role_priority": RolePriorityStrategy(
+                roles_db,
+                sets_db,
+                blueprints_db,
+                core_set_targets=core_set_targets,
+                stat_catalog=stat_catalog,
+            ),
+            "global_optimal": GlobalOptimalStrategy(
+                roles_db,
+                sets_db,
+                blueprints_db,
+                core_set_targets=core_set_targets,
+                stat_catalog=stat_catalog,
+            ),
         }
 
     def execute_dispatch(

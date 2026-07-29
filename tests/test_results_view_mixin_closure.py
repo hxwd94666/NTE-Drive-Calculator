@@ -60,11 +60,29 @@ class ResultsViewMixinClosureTests(unittest.TestCase):
         leaked = sorted(name for name in closure if name not in all_names and name in funcs)
         self.assertEqual(leaked, [], f"closure needs __all__ entries: {leaked}")
 
-    def test_mixin_matches_results_view_all(self):
+    def test_results_view_object_owns_exported_private_behavior(self):
         all_names, _ = _results_view_all_and_funcs()
-        mixin_text = MAIN_WINDOW_MIXINS.read_text(encoding="utf-8")
-        mixin_names = set(re.findall(r"^\s+(_\w+)\s*=\s*allocation_results_view\.", mixin_text, re.M))
-        self.assertEqual(mixin_names, all_names)
+        source = RESULTS_VIEW.read_text(encoding="utf-8")
+        owned_names = set(
+            re.findall(r"^\s+(_\w+)\s*=\s*_\w+\s*$", source, re.M)
+        )
+        self.assertEqual(
+            owned_names,
+            {name for name in all_names if name.startswith("_")},
+        )
+
+    def test_main_window_does_not_reinstall_private_module_functions(self):
+        tree = ast.parse(MAIN_WINDOW_MIXINS.read_text(encoding="utf-8"))
+        private_aliases = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            if (
+                isinstance(node.value, ast.Attribute)
+                and node.value.attr.startswith("_")
+            ):
+                private_aliases.append(node.value.attr)
+        self.assertEqual([], private_aliases)
 
 
 if __name__ == "__main__":

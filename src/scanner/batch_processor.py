@@ -4,11 +4,13 @@
 import os
 import time
 import shutil
+from pathlib import Path
 
+from src.integrations.bundled_resources import bundled_config_dir
 from src.scanner.shape_recognizer import ShapeRecognizer
 from src.scanner.ocr_engine import OCREngine
 from src.scanner.parser import DriveDataParser
-from src.features.inventory_import.duplicate_filter import (
+from src.integrations.vision.duplicate_filter import (
     are_named_neighbors,
     filename_sequence_key,
     image_fingerprint,
@@ -17,13 +19,13 @@ from src.features.inventory_import.duplicate_filter import (
     is_same_capture,
     process_image_file as process_image_file_helper,
 )
-from src.features.inventory_import.equipment_classifier import (
+from src.integrations.vision.equipment_classifier import (
     classify_item as classify_item_helper,
     locate_shape_in_image,
     looks_like_drive_identity,
     looks_like_tape_identity,
 )
-from src.features.identification.parser import (
+from src.integrations.vision.identification_parser import (
     box_intersects,
     cluster_identify_lines,
     dedupe_identify_items,
@@ -38,8 +40,8 @@ from src.features.identification.parser import (
     process_identify_standard_forced,
     synthesize_identify_cluster,
 )
-from src.features.inventory_import.exporter import make_unique_uid
-from src.features.inventory_import.screenshot_parser import process_single_image
+from src.integrations.vision.screenshot_parser import process_single_image
+from src.integrations.vision.uid import make_unique_uid
 
 # 引入基座定义的全局日志与异常类
 from src.utils.logger import logger
@@ -54,13 +56,16 @@ class BatchProcessor:
         self,
         input_dir: str = "scanned_images",
         output_file: str | None = None,
-        config_dir: str = "config",
+        config_dir: str | Path | None = None,
         replace_output: bool = False,
         ocr_backend_preference: str | None = None,
     ):
         self.input_dir = input_dir
         self.output_file = output_file
         self.replace_output = replace_output
+        resolved_config_dir = (
+            Path(config_dir) if config_dir is not None else bundled_config_dir()
+        )
 
         # 归档文件夹（已解析的图片移至此处）
         self.archive_dir = os.path.join(self.input_dir, "archive")
@@ -70,12 +75,14 @@ class BatchProcessor:
         logger.info("离线批处理管线启动")
         logger.info("=" * 60)
 
-        self.shape_recognizer = ShapeRecognizer(template_dir=os.path.join(config_dir, "templates"))
+        self.shape_recognizer = ShapeRecognizer(
+            template_dir=os.path.join(resolved_config_dir, "templates")
+        )
         # 全量/增量、离线/手柄扫描最终均通过本处理器解析截图；在这里统一
         # 校验模板，避免模板目录意外丢失时让大量驱动逐张识别失败。
         self.shape_recognizer.require_complete_templates()
         self.ocr_engine = OCREngine(backend_preference=ocr_backend_preference)
-        self.parser = DriveDataParser(config_dir=config_dir)
+        self.parser = DriveDataParser(config_dir=resolved_config_dir)
         self.inventory = []
         self.successful_image_paths = []
         self._last_parsed_filename = None

@@ -1,3 +1,4 @@
+# 测试 nte-core 环境诊断报告的采集与错误呈现。
 from __future__ import annotations
 
 import unittest

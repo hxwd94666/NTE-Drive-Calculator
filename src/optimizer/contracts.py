@@ -81,42 +81,6 @@ class AllocationPlan(TypedDict):
     custom_weapon: NotRequired[str]
 
 
-class EquipmentSnapshot(TypedDict, total=False):
-    uid: str
-    type: str
-    item_type: str
-    display_name: str
-    shape_id: str
-    set_name: str
-    main_stats: str | dict[str, Any]
-    sub_stats: dict[str, Any]
-    quality: str
-    score: float
-    grade: str
-    score_area: int
-    area: int
-    is_new: bool
-    is_changed: bool
-
-
-class PlanDiff(TypedDict):
-    changed: bool
-    added_uids: list[str] | set[str]
-    added: list[EquipmentSnapshot]
-    removed: list[EquipmentSnapshot]
-
-
-class RoleEquipmentState(TypedDict, total=False):
-    blueprint_layout: list[list[str]]
-    equipped_tape: EquipmentSnapshot | None
-    equipped_drives: list[EquipmentSnapshot]
-    strategy_mode: str
-    total_score: float
-    total_grade: str
-    score_area: int
-    last_diff: PlanDiff
-
-
 AllocationResult = dict[str, AllocationPlan]
 CustomSetMap = dict[str, str]
 StatPriorityConfig = dict[str, Any]

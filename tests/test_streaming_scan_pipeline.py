@@ -1,5 +1,4 @@
 # 测试全量扫描与截图解析的流水线执行逻辑。
-import json
 import tempfile
 import time
 import unittest
@@ -13,7 +12,12 @@ class StreamingScanPipelineTests(unittest.TestCase):
     def test_gamepad_worker_waits_for_post_action_focus_ack(self):
         from src.app import workers
 
-        worker = workers.GamepadScanParseWorkerThread(total_drives=1)
+        worker = workers.GamepadScanParseWorkerThread(
+            total_drives=1,
+            screenshot_dir="screenshots",
+            config_dir="config",
+            user_database_path="account.sqlite3",
+        )
         events = []
         sleeps = []
         original_sleep = workers.time.sleep
@@ -33,14 +37,14 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual([2.0], sleeps)
 
     def _state_button_image(self, active=None, width=2560, height=1440):
-        from src.features.scanning import streaming_pipeline
+        from src.services import streaming_scan_service
         from src.scanner.window_capture import game_content_rect
 
         img = np.full((height, width, 3), 24, dtype=np.uint8)
         left, top, content_width, content_height = game_content_rect(width, height)
         centers = {
-            "discarded": streaming_pipeline.TRASH_BUTTON_CENTER,
-            "locked": streaming_pipeline.LOCK_BUTTON_CENTER,
+            "discarded": streaming_scan_service.TRASH_BUTTON_CENTER,
+            "locked": streaming_scan_service.LOCK_BUTTON_CENTER,
         }
         for state, center in centers.items():
             cx = int(round(left + content_width * center[0]))
@@ -50,23 +54,22 @@ class StreamingScanPipelineTests(unittest.TestCase):
         return img
 
     def test_equipment_state_uses_right_panel_action_buttons(self):
-        from src.features.scanning.streaming_pipeline import _right_panel_button_state_from_image
+        from src.services.streaming_scan_service import right_panel_button_state_from_image
 
-        self.assertEqual("normal", _right_panel_button_state_from_image(self._state_button_image()))
-        self.assertEqual("locked", _right_panel_button_state_from_image(self._state_button_image("locked")))
-        self.assertEqual("discarded", _right_panel_button_state_from_image(self._state_button_image("discarded")))
+        self.assertEqual("normal", right_panel_button_state_from_image(self._state_button_image()))
+        self.assertEqual("locked", right_panel_button_state_from_image(self._state_button_image("locked")))
+        self.assertEqual("discarded", right_panel_button_state_from_image(self._state_button_image("discarded")))
 
     def test_equipment_state_uses_top_aligned_canvas_on_16_10(self):
-        from src.features.scanning.streaming_pipeline import _right_panel_button_state_from_image
+        from src.services.streaming_scan_service import right_panel_button_state_from_image
 
         image = self._state_button_image("locked", width=2560, height=1600)
 
-        self.assertEqual("locked", _right_panel_button_state_from_image(image))
+        self.assertEqual("locked", right_panel_button_state_from_image(image))
 
     def test_post_action_thresholds_include_equal_grade(self):
-        from src.features.scanning.post_actions import (
+        from src.domain.post_actions import (
             default_post_action_config,
-            summarize_post_action_filtering,
             target_state_for_item,
         )
 
@@ -89,7 +92,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("locked", target_state_for_item(item, "normal", config, FakeScoring()))
 
     def test_post_action_preserve_rules_keep_or_lock_matching_tape(self):
-        from src.features.scanning.post_actions import default_post_action_config, target_state_for_item
+        from src.domain.post_actions import default_post_action_config, target_state_for_item
         from src.models.equipment import Tape
 
         class FakeScoring:
@@ -130,7 +133,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("locked", target_state_for_item(tape, "normal", config, FakeScoring()))
 
     def test_preserve_rule_sub_stat_match_counts(self):
-        from src.features.scanning.post_actions import _preserve_rule_matches_item
+        from src.domain.post_actions import preserve_rule_matches_item
         from src.models.equipment import Drive
 
         drive = Drive(
@@ -151,16 +154,16 @@ class StreamingScanPipelineTests(unittest.TestCase):
         }
 
         rule["sub_match"] = 1
-        self.assertTrue(_preserve_rule_matches_item(drive, rule))
+        self.assertTrue(preserve_rule_matches_item(drive, rule))
         rule["sub_match"] = 2
-        self.assertTrue(_preserve_rule_matches_item(drive, rule))
+        self.assertTrue(preserve_rule_matches_item(drive, rule))
         rule["sub_match"] = 3
-        self.assertFalse(_preserve_rule_matches_item(drive, rule))
+        self.assertFalse(preserve_rule_matches_item(drive, rule))
         rule["sub_match"] = "all"
-        self.assertFalse(_preserve_rule_matches_item(drive, rule))
+        self.assertFalse(preserve_rule_matches_item(drive, rule))
 
     def test_post_action_type_range_filters_default_drive_shapes_and_tape_sets(self):
-        from src.features.scanning.post_actions import (
+        from src.domain.post_actions import (
             default_post_action_config,
             summarize_post_action_filtering,
             target_state_for_item,
@@ -239,7 +242,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         )
 
     def test_post_action_scores_only_usable_roles_when_context_is_strict(self):
-        from src.features.scanning.post_actions import (
+        from src.domain.post_actions import (
             PostActionScoreContext,
             default_post_action_config,
             target_state_for_item,
@@ -269,7 +272,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("normal", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
 
     def test_custom_keep_rules_override_score_based_discard_and_can_lock(self):
-        from src.features.scanning.post_actions import default_post_action_config, target_state_for_item
+        from src.domain.post_actions import default_post_action_config, target_state_for_item
         from src.models.equipment import Drive, Tape
 
         class FakeScoring:
@@ -298,19 +301,27 @@ class StreamingScanPipelineTests(unittest.TestCase):
             ],
         }
         tape = Tape(
-            uid="future-tape", quality="Purple", area=15, set_name="Set", main_stats="攻击力%",
+            uid="future-tape",
+            quality="Purple",
+            area=15,
+            set_name="Set",
+            main_stats="攻击力%",
             sub_stats={"暴击率%": 1.0, "暴击伤害%": 2.0},
         )
         drive = Drive(
-            uid="future-drive", quality="Purple", area=3, shape_id="H_3",
-            main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={"攻击力%": 1.0, "暴击率%": 1.0},
+            uid="future-drive",
+            quality="Purple",
+            area=3,
+            shape_id="H_3",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"攻击力%": 1.0, "暴击率%": 1.0},
         )
 
         self.assertEqual("normal", target_state_for_item(tape, "discarded", config, FakeScoring()))
         self.assertEqual("locked", target_state_for_item(drive, "normal", config, FakeScoring()))
 
     def test_parser_consumes_first_capture_before_scan_finishes(self):
-        from src.features.scanning.streaming_pipeline import run_streaming_scan_parse
+        from src.services.streaming_scan_service import run_streaming_scan_parse
 
         events = []
 
@@ -374,7 +385,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("full", stats["parse_scope"])
 
     def test_default_low_load_parse_waits_until_scan_finishes(self):
-        from src.features.scanning.streaming_pipeline import run_streaming_scan_parse
+        from src.services.streaming_scan_service import run_streaming_scan_parse
 
         events = []
 
@@ -416,11 +427,11 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual(0, stats["failed_count"])
 
     def test_amd_low_load_forces_post_scan_parse_and_throttles(self):
-        from src.features.scanning import streaming_pipeline
+        from src.services import streaming_scan_service
 
         events = []
         sleeps = []
-        original_sleep = streaming_pipeline.time.sleep
+        original_sleep = streaming_scan_service.time.sleep
 
         class FakeScanner:
             def __init__(self, root):
@@ -452,10 +463,10 @@ class StreamingScanPipelineTests(unittest.TestCase):
             def _export_to_json(self):
                 events.append("export")
 
-        streaming_pipeline.time.sleep = lambda seconds: sleeps.append(seconds)
+        streaming_scan_service.time.sleep = lambda seconds: sleeps.append(seconds)
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                stats = streaming_pipeline.run_streaming_scan_parse(
+                stats = streaming_scan_service.run_streaming_scan_parse(
                     FakeScanner(Path(tmp)),
                     FakeProcessor(),
                     total_drives=2,
@@ -463,7 +474,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
                     low_load_mode=True,
                 )
         finally:
-            streaming_pipeline.time.sleep = original_sleep
+            streaming_scan_service.time.sleep = original_sleep
 
         self.assertLess(events.index("scan_done"), events.index("parse:raw_drive_0001.png"))
         self.assertEqual([0.12, 0.12], sleeps)

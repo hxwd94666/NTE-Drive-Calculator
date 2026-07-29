@@ -62,7 +62,7 @@ def _stats(candidate: AllocationCandidate, names: Mapping[str, str], *, main: bo
     return result
 
 
-def _legacy_items(context: AllocationContext) -> tuple[list[Drive | Tape], dict[str, AllocationCandidate]]:
+def legacy_items(context: AllocationContext) -> tuple[list[Drive | Tape], dict[str, AllocationCandidate]]:
     names = _attribute_names(context)
     shapes_by_geometry = {shape.shape_id: shape for shape in context.shapes}
     result: list[Drive | Tape] = []
@@ -123,7 +123,7 @@ def score_allocation_candidate(
     inventory.
     """
 
-    inventory, candidates_by_legacy_uid = _legacy_items(context)
+    inventory, candidates_by_legacy_uid = legacy_items(context)
     legacy_uid = _uid(candidate)
     if candidates_by_legacy_uid.get(legacy_uid) is None:
         raise ValueError(f"候选装备 {candidate.uid} 不在固定背包上下文中")
@@ -133,7 +133,7 @@ def score_allocation_candidate(
     names = _attribute_names(context)
     weights = _weights(role, names, main=False)
     scoring = ScoringEngine()
-    max_weight = scoring._get_max_theoretical_weight(weights)
+    max_weight = scoring.max_theoretical_weight(weights)
     if isinstance(item, Drive):
         return float(scoring.calculate_drive_score(item, weights, max_weight))
     return float(scoring.calculate_cartridge_score(
@@ -181,8 +181,23 @@ def _role_config(
         set_modes[key] = role.suit_requirement_mode
         priority_groups.setdefault(role.priority_group, []).append(key)
         priority_names = [names.get(property_id, property_id) for property_id in role.substat_priorities]
-        if priority_names:
-            crit_priority_modes[key] = {"stats": priority_names, "ignore_grade_limit": True}
+        blacklist_names = [names.get(property_id, property_id) for property_id in role.substat_blacklist]
+        if (
+            priority_names
+            or blacklist_names
+            or role.equal_substat_priority
+            or role.ignore_grade_limit
+            or role.min_grade_limit != "A"
+            or role.crit_threshold is not None
+        ):
+            crit_priority_modes[key] = {
+                "stats": priority_names,
+                "blacklist": blacklist_names,
+                "equal_priority": role.equal_substat_priority,
+                "ignore_grade_limit": role.ignore_grade_limit,
+                "min_grade_limit": role.min_grade_limit,
+                "crit_threshold": role.crit_threshold,
+            }
         for limit in role.property_limits:
             label = names.get(limit.property_id, limit.property_id)
             if limit.maximum is not None and "暴击率" in label:
@@ -198,7 +213,7 @@ def _board(role: AllocationRolePreference) -> list[list[int]]:
     return board
 
 
-def _shapes(context: AllocationContext) -> dict[str, DriveShape]:
+def legacy_shapes(context: AllocationContext) -> dict[str, DriveShape]:
     result: dict[str, DriveShape] = {}
     for shape in context.shapes:
         xs = [cell.x for cell in shape.cells]
@@ -230,7 +245,7 @@ def run_legacy_allocation(
 
     selected_roles = tuple(roles if roles is not None else context.roles)
     excluded = frozenset(excluded_uids)
-    inventory, candidate_by_legacy_uid = _legacy_items(context)
+    inventory, candidate_by_legacy_uid = legacy_items(context)
     inventory = [item for item in inventory if candidate_by_legacy_uid[item.uid].uid not in excluded]
     (roles_db, suits_db, custom_sets, priority_list, set_modes,
      priority_modes, crit_caps, priority_groups) = _role_config(context, selected_roles)
@@ -238,7 +253,7 @@ def run_legacy_allocation(
         missing = [key for key, role_data in roles_db.items() if not role_data["weights"]]
         raise ValueError(f"缺少异环工坊或用户覆盖词条权重：{', '.join(missing)}")
     orchestrator = NTEPipelineOrchestrator.from_frozen_inputs(
-        roles_db=roles_db, sets_db=suits_db, shapes_db=_shapes(context),
+        roles_db=roles_db, sets_db=suits_db, shapes_db=legacy_shapes(context),
     )
     blueprints = orchestrator.solve_blueprints(
         priority_list, custom_sets=custom_sets, set_effect_modes=set_modes,
@@ -274,7 +289,7 @@ def run_legacy_allocation(
         blueprints, priority_list, priority_groups,
     )
     request = AllocationKernelRequest(
-        inventory=tuple(inventory), roles_db=roles_db, sets_db=suits_db, shapes_db=_shapes(context),
+        inventory=tuple(inventory), roles_db=roles_db, sets_db=suits_db, shapes_db=legacy_shapes(context),
         blueprints_db=blueprints, role_order=tuple(priority_list), strategy=context.allocation_strategy,
         module_set_targets=custom_sets, set_effect_modes=set_modes, core_main_filters=tape_filters,
         core_set_targets=core_set_targets, stat_priority_configs=priority_modes,

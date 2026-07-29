@@ -9,7 +9,6 @@ import time
 
 from PySide6.QtCore import QThread, Signal
 
-from src.app import runtime
 from src.scanner.drone_scanner import DroneScanner
 from src.scanner.batch_processor import BatchProcessor
 from src.utils.logger import logger
@@ -50,16 +49,18 @@ class ScanWorkerThread(QThread):
     error = Signal(str)
     scanner_ready = Signal()
 
-    def __init__(self, mode="semi", parent=None):
+    def __init__(self, *, output_dir, template_path, mode="semi", parent=None):
         super().__init__(parent)
+        self.output_dir = str(output_dir)
+        self.template_path = str(template_path)
         self.mode = mode
         self.scanner = None
 
     def run(self):
         try:
             self.scanner = DroneScanner(
-                output_dir=str(runtime.SCREENSHOT_DIR),
-                template_path=str(runtime.TEMPLATE_DIR / "new_tag.png"),
+                output_dir=self.output_dir,
+                template_path=self.template_path,
             )
             self.scanner_ready.emit()
             if self.mode == "auto":
@@ -70,38 +71,6 @@ class ScanWorkerThread(QThread):
         except Exception as exc:
             logger.error(f"ScanWorker 异常: {exc}")
             self.error.emit(str(exc))
-
-
-class GamepadScanWorkerThread(QThread):
-    scan_done = Signal(int)
-    error = Signal(str)
-    scanner_ready = Signal()
-
-    def __init__(self, total_drives, parent=None):
-        super().__init__(parent)
-        self.total_drives = total_drives
-        self.scanner = None
-
-    def run(self):
-        try:
-            from src.scanner.gamepad_controller import GamepadScanner
-
-            self.scanner = GamepadScanner(output_dir=str(runtime.SCREENSHOT_DIR))
-            self.scanner_ready.emit()
-            count = self.scanner.start_scan(self.total_drives)
-            self.scan_done.emit(count)
-        except (FileNotFoundError, OSError) as exc:
-            logger.error(f"GamepadScanWorker DLL错误: {exc}")
-            self.error.emit(
-                "ViGEmClient.dll 加载失败，请确认:\n"
-                "1. 已安装 ViGEmBus 驱动 (https://github.com/nefarius/ViGEmBus/releases)\n"
-                f"2. 重启电脑后再试\n\n原始错误: {exc}"
-            )
-        except Exception as exc:
-            logger.error(f"GamepadScanWorker 异常: {exc}")
-            self.error.emit(str(exc))
-        finally:
-            _close_scanner(self.scanner)
 
 
 class GamepadScanParseWorkerThread(QThread):
@@ -116,6 +85,10 @@ class GamepadScanParseWorkerThread(QThread):
     def __init__(
         self,
         total_drives,
+        *,
+        screenshot_dir,
+        config_dir,
+        user_database_path,
         parent=None,
         post_actions_config=None,
         selected_roles=None,
@@ -124,6 +97,9 @@ class GamepadScanParseWorkerThread(QThread):
     ):
         super().__init__(parent)
         self.total_drives = total_drives
+        self.screenshot_dir = str(screenshot_dir)
+        self.config_dir = str(config_dir)
+        self.user_database_path = user_database_path
         self.post_actions_config = post_actions_config
         self.selected_roles = list(selected_roles or [])
         self.amd_compatibility = bool(amd_compatibility)
@@ -144,15 +120,15 @@ class GamepadScanParseWorkerThread(QThread):
     def run(self):
         worker_start = time.perf_counter()
         try:
-            from src.features.scanning.streaming_pipeline import run_streaming_scan_parse
+            from src.services.streaming_scan_service import run_streaming_scan_parse
             from src.scanner.gamepad_controller import GamepadScanner
 
-            self.scanner = GamepadScanner(output_dir=str(runtime.SCREENSHOT_DIR))
+            self.scanner = GamepadScanner(output_dir=self.screenshot_dir)
             self.scanner_ready.emit()
             init_start = time.perf_counter()
             processor = BatchProcessor(
-                input_dir=str(runtime.SCREENSHOT_DIR),
-                config_dir=str(runtime.CONFIG_DIR),
+                input_dir=self.screenshot_dir,
+                config_dir=self.config_dir,
                 replace_output=True,
                 ocr_backend_preference="amd_compat" if self.amd_compatibility else "openvino",
             )
@@ -177,16 +153,17 @@ class GamepadScanParseWorkerThread(QThread):
                 post_action_ready_callback=self._notify_post_actions_ready,
                 post_actions_config=self.post_actions_config,
                 selected_roles=self.selected_roles,
-                config_dir=str(runtime.CONFIG_DIR),
-                user_database_path=runtime.USER_DATABASE_PATH,
+                config_dir=self.config_dir,
+                user_database_path=self.user_database_path,
                 parse_during_scan=self.parse_during_scan,
                 low_load_mode=self.amd_compatibility,
             )
             if int(stats.get("total_count", 0) or 0) != int(self.total_drives):
                 raise RuntimeError("全量扫描未完整结束，流水线解析结果未写入库存。")
             from src.services.vision_inventory_snapshot import import_vision_inventory
+
             stats["vision_snapshot_id"] = import_vision_inventory(
-                runtime.USER_DATABASE_PATH,
+                self.user_database_path,
                 [item.model_dump() for item in processor.inventory],
             )
             del processor

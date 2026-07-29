@@ -7,7 +7,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.features.allocation.plan_diff_pairing import drive_item_area
 from src.features.role.stat_engine import (
     CharacterStatContext,
     add_stat_total as _engine_add_stat_total,
@@ -24,7 +23,6 @@ from src.optimizer.contracts import (
     DIFF_ADDED_UIDS,
     DIFF_CHANGED,
     EQUIP_MAIN_STATS,
-    EQUIP_QUALITY,
     EQUIP_SHAPE_ID,
     EQUIP_TYPE,
     EQUIP_UID,
@@ -250,10 +248,6 @@ def stats_match(stat, stat_key) -> bool:
         (left_alias and (left_alias.replace("%", "").strip() == right or left_alias == str(stat_key or "").strip()))
         or (right_alias and (right_alias.replace("%", "").strip() == left or right_alias == str(stat or "").strip()))
     )
-
-
-def is_highlighted_bonus_stat(stat, priority_stats=None) -> bool:
-    return is_crit_rate_stat(stat) or any(stats_match(stat, key) for key in (priority_stats or []))
 
 
 def has_bonus_delta(item: AlignedBonusRow) -> bool:

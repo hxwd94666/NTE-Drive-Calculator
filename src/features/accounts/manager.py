@@ -8,7 +8,6 @@ import re
 import shutil
 import time
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.app.context import AccountContext
 from src.storage.config_migration import replace_core_config_dir
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
@@ -34,15 +34,7 @@ TRANSFER_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp"}
 USER_DATABASE_FILENAME = "user_data.sqlite3"
 
 
-@dataclass(frozen=True)
-class AccountState:
-    active_account_id: str
-    active_account_name: str
-    account_data_root: Path
-    user_database_path: Path
-    user_config_dir: Path
-    screenshot_dir: Path
-    log_dir: Path
+AccountState = AccountContext
 
 
 class AccountManager:

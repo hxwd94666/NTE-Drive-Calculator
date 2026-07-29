@@ -27,12 +27,6 @@ _LEGACY_SHAPE_LABELS = {
 }
 
 
-def _legacy_shape_labels() -> Mapping[str, str]:
-    """Return compatibility labels derived from official geometry mappings."""
-
-    return dict(_LEGACY_SHAPE_LABELS)
-
-
 class AllocationContextError(RuntimeError):
     """A requested immutable allocation input cannot be constructed."""
 
@@ -168,6 +162,11 @@ class AllocationRolePreference:
     substat_priorities: tuple[str, ...]
     property_limits: tuple[PropertyLimit, ...]
     equipment: RoleEquipmentConstraints
+    substat_blacklist: tuple[str, ...] = ()
+    equal_substat_priority: bool = False
+    ignore_grade_limit: bool = False
+    min_grade_limit: str = "A"
+    crit_threshold: float | None = None
     # These values come from the user's SQLite profile or static SQLite defaults.
     # The solver has no JSON configuration fallback at this boundary.
     effective_property_weights: tuple[tuple[str, float], ...] = ()
@@ -438,6 +437,18 @@ def _role_preference(
         substat_priorities=tuple(
             _official_attribute_id(property_id, known_attribute_ids, "副词条优先级 property_id")
             for property_id in row.get("substat_priorities") or ()
+        ),
+        substat_blacklist=tuple(
+            _official_attribute_id(property_id, known_attribute_ids, "副词条黑名单 property_id")
+            for property_id in row.get("substat_blacklist") or ()
+        ),
+        equal_substat_priority=bool(row.get("equal_priority", False)),
+        ignore_grade_limit=bool(row.get("ignore_grade_limit", False)),
+        min_grade_limit=str(row.get("min_grade_limit") or "A").upper(),
+        crit_threshold=(
+            float(row["crit_threshold"])
+            if row.get("crit_threshold") is not None
+            else None
         ),
         property_limits=tuple(
             PropertyLimit(

@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, Callable, TypeVar
 
 from src.domain.grade_limits import GRADE_LADDER, meets_min_grade
 
@@ -12,15 +13,16 @@ CRIT_STAT = "暴击率%"
 CRIT_RANK_BONUS = 100_000.0
 DEFAULT_CRIT_THRESHOLD = 5.0
 BASE_CRIT_RATE = 5.0
+_PriorityItem = TypeVar("_PriorityItem")
 
 
-def _item_value(item: Any, key: str, default=None):
+def _item_value(item: Any, key: str, default: Any = None) -> Any:
     if isinstance(item, dict):
         return item.get(key, default)
     return getattr(item, key, default)
 
 
-def _stat_number_value(value) -> float:
+def _stat_number_value(value: Any) -> float:
     try:
         return float(str(value).replace("%", "").strip())
     except Exception:
@@ -41,7 +43,12 @@ def is_crit_stat(stat: str, alias_mapping: dict | None = None) -> bool:
     return normalized == "暴击率" or canonical == CRIT_STAT
 
 
-def _add_crit_total(totals: dict[str, float], stat: str, value, alias_mapping: dict | None = None) -> None:
+def _add_crit_total(
+    totals: dict[str, float],
+    stat: str,
+    value: Any,
+    alias_mapping: dict | None = None,
+) -> None:
     canonical = _canonical_stat_name(stat, alias_mapping)
     numeric = _stat_number_value(value)
     if not canonical or numeric == 0:
@@ -91,6 +98,7 @@ def normalize_preference_config(config: dict | None) -> dict:
     if not isinstance(config, dict):
         return {}
     stats = [str(s) for s in config.get("stats", []) if s]
+    blacklist = [str(s) for s in config.get("blacklist", []) if s]
     min_grade = str(config.get("min_grade_limit") or "A").upper()
     if min_grade not in GRADE_LADDER:
         min_grade = "A"
@@ -102,11 +110,52 @@ def normalize_preference_config(config: dict | None) -> dict:
     crit_threshold = max(0.0, min(100.0, crit_threshold))
     return {
         "stats": stats,
+        "blacklist": blacklist,
         "equal_priority": bool(config.get("equal_priority", False)),
         "ignore_grade_limit": bool(config.get("ignore_grade_limit", False)),
         "min_grade_limit": min_grade,
         "crit_threshold": crit_threshold,
     }
+
+
+def stat_priority_match_depth(
+    matches: Iterable[bool],
+    *,
+    equal_priority: bool = False,
+) -> int:
+    """Return the pool depth represented by an item's ordered stat matches.
+
+    Sequential mode models nested pools: A+B+C outranks A+B, which outranks
+    A.  A lower-priority stat after the first gap does not advance the item
+    into a deeper pool.  Equal-priority mode intentionally counts every hit.
+    """
+
+    flags = tuple(bool(match) for match in matches)
+    if equal_priority:
+        return sum(flags)
+    depth = 0
+    for matched in flags:
+        if not matched:
+            break
+        depth += 1
+    return depth
+
+
+def deepest_stat_priority_pool(
+    items: Iterable[_PriorityItem],
+    depth_for_item: Callable[[_PriorityItem], int],
+    *,
+    require_match: bool,
+) -> list[_PriorityItem]:
+    """Select the deepest non-empty preference pool before score ranking."""
+
+    ranked = [(max(0, int(depth_for_item(item))), item) for item in items]
+    if not ranked:
+        return []
+    deepest = max(depth for depth, _item in ranked)
+    if deepest <= 0:
+        return [] if require_match else [item for _depth, item in ranked]
+    return [item for depth, item in ranked if depth == deepest]
 
 
 def preference_config_active(config: dict | None) -> bool:
@@ -115,6 +164,7 @@ def preference_config_active(config: dict | None) -> bool:
     normalized = normalize_preference_config(config)
     return bool(
         normalized.get("stats")
+        or normalized.get("blacklist")
         or normalized.get("equal_priority")
         or normalized.get("ignore_grade_limit")
         or str(normalized.get("min_grade_limit", "A")).upper() != "A"
@@ -143,11 +193,11 @@ def meets_preference_grade_limit(
         return meets_min_grade(score, area, "A")
     normalized = normalize_preference_config(config)
     if normalized.get("ignore_grade_limit"):
-        return True
+        return float(score) >= 0.0
     return meets_min_grade(score, area, normalized.get("min_grade_limit", "A"))
 
 
-def _dedupe_stats(stats) -> list[str]:
+def _dedupe_stats(stats: Iterable[Any] | None) -> list[str]:
     clean: list[str] = []
     seen: set[str] = set()
     for stat in stats or []:
@@ -165,6 +215,7 @@ def _stat_priority_should_persist(normalized: dict, *, crit_floor_configured: bo
     )
     return bool(
         normalized.get("stats")
+        or normalized.get("blacklist")
         or has_custom_grade
         or crit_floor_configured
         or normalized.get("equal_priority")
@@ -173,7 +224,7 @@ def _stat_priority_should_persist(normalized: dict, *, crit_floor_configured: bo
 
 
 def persistable_stat_priority_config(
-    cfg: dict,
+    cfg: object,
     *,
     allowed_stats: set[str] | frozenset[str] | None = None,
     dedupe_stats: bool = False,
@@ -182,12 +233,16 @@ def persistable_stat_priority_config(
         return None
     if dedupe_stats:
         stats = _dedupe_stats(cfg.get("stats", []))
+        blacklist = _dedupe_stats(cfg.get("blacklist", []))
     else:
         stats = [stat for stat in cfg.get("stats", []) if stat]
+        blacklist = [stat for stat in cfg.get("blacklist", []) if stat]
     if allowed_stats is not None:
         stats = [stat for stat in stats if stat in allowed_stats]
+        blacklist = [stat for stat in blacklist if stat in allowed_stats]
     payload = {
         "stats": stats,
+        "blacklist": blacklist,
         "equal_priority": bool(cfg.get("equal_priority", False)),
         "ignore_grade_limit": bool(cfg.get("ignore_grade_limit", False)),
         "min_grade_limit": cfg.get("min_grade_limit", "A"),
@@ -206,6 +261,8 @@ def persistable_stat_priority_config(
         "ignore_grade_limit": normalized["ignore_grade_limit"],
         "min_grade_limit": normalized["min_grade_limit"],
     }
+    if normalized["blacklist"]:
+        result["blacklist"] = normalized["blacklist"]
     if crit_floor_configured:
         result["crit_threshold"] = int(normalized["crit_threshold"])
     return result

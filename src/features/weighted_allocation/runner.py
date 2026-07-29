@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
+from src.observability import OperationContext, operation_scope
 from src.optimizer.contracts import (
     EQUIP_SHAPE_ID,
     EQUIP_UID,
@@ -49,6 +50,7 @@ class WeightedAllocationRequest:
     profile_version: int
     top_k: int
     include_role_top_k: bool = True
+    operation_context: OperationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,7 @@ class WeightedAllocationPreview:
     # intentionally exclude current/saved inventory contexts: result cards
     # provide the immutable AllocationContext candidates themselves.
     role_details: Mapping[int, Mapping[str, Any]] = field(default_factory=dict)
+    operation_context: OperationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +393,36 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
     if not 1 <= int(request.top_k) <= 20:
         raise ValueError("Top-K 必须在 1 到 20 之间。")
 
+    operation = request.operation_context or OperationContext.create(
+        "allocation",
+        snapshot_id=request.snapshot_id,
+    )
+    with operation_scope(
+        operation,
+        started_event="allocation.solve_started",
+        succeeded_event="allocation.solve_succeeded",
+        failed_event="allocation.solve_failed",
+        message="执行词条配装计算",
+        snapshot_id=request.snapshot_id,
+        profile_id=request.profile_id,
+        profile_version=request.profile_version,
+        top_k=request.top_k,
+    ) as span:
+        preview = _run_weighted_allocation(request, operation)
+        span.annotate(
+            role_count=len(preview.context.roles),
+            candidate_count=len(preview.context.candidates),
+            selected_role_count=len(preview.result.unified.selected),
+            unassigned_role_count=len(preview.result.unified.unassigned_role_ids),
+            allocation_strategy=preview.result.unified.strategy,
+        )
+        return preview
+
+
+def _run_weighted_allocation(
+    request: WeightedAllocationRequest,
+    operation: OperationContext,
+) -> WeightedAllocationPreview:
     with UserDataDao(request.user_database_path) as user_dao, StaticGameDataDao() as static_dao:
         context = build_allocation_context(
             user_dao,
@@ -422,10 +455,14 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
         user_database_path=request.user_database_path,
         context=context,
         role_details=role_details,
+        operation_context=operation,
     )
 
 
-def save_weighted_allocation_preview(preview: WeightedAllocationPreview) -> tuple[int, ...]:
+def save_weighted_allocation_preview(
+    preview: WeightedAllocationPreview,
+    operation_context: OperationContext | None = None,
+) -> tuple[int, ...]:
     """Persist the unified result as SQLite plans, without performing equip RPCs.
 
     The selected Context identifiers are stored in each plan payload so a later
@@ -438,6 +475,29 @@ def save_weighted_allocation_preview(preview: WeightedAllocationPreview) -> tupl
     result = preview.result
     if not result.unified.selected:
         raise RuntimeError("没有可保存的统一分配方案。")
+    operation = operation_context or OperationContext.create(
+        "allocation",
+        account_id=preview.account_id,
+        snapshot_id=result.snapshot_id,
+    )
+    with operation_scope(
+        operation,
+        started_event="allocation.save_started",
+        succeeded_event="allocation.save_succeeded",
+        failed_event="allocation.save_failed",
+        message="保存词条配装方案",
+        role_count=len(result.unified.selected),
+        snapshot_id=result.snapshot_id,
+    ) as span:
+        plan_ids = _save_weighted_allocation_preview(preview)
+        span.annotate(saved_plan_count=len(plan_ids))
+        return plan_ids
+
+
+def _save_weighted_allocation_preview(
+    preview: WeightedAllocationPreview,
+) -> tuple[int, ...]:
+    result = preview.result
     with UserDataDao(preview.user_database_path) as user_dao, StaticGameDataDao() as static_dao:
         role_names = {
             int(character["character_id"]): str(character.get("name_zh") or character["character_id"])

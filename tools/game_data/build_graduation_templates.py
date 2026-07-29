@@ -81,7 +81,7 @@ def populate_logical_character_shape_bonuses(
     connection.execute("DELETE FROM character_shape_bonus")
     return 0
 
-def _top_stat_names(
+def top_stat_names(
     values: Mapping[str, Any],
     weights: Mapping[str, float],
 ) -> tuple[str, ...]:
@@ -151,7 +151,7 @@ def _template_profile(detail: Mapping[str, Any]) -> dict[str, Any]:
     return profile
 
 
-def _extra_shape_drive_count(
+def extra_shape_drive_count(
     shape_bonus: Mapping[str, Any],
     equipment_plan: Mapping[str, Any] | None,
     equipment_by_id: Mapping[str, Mapping[str, Any]],
@@ -255,17 +255,17 @@ def populate_graduation_templates(
                 main_weights = dict(
                     recommendation.get("main_property_weights") or weights
                 )
-                extra_shape_count = _extra_shape_drive_count(
+                extra_shape_count = extra_shape_drive_count(
                     detail.get("shape_bonus") or {},
                     equipment_plans.get(character_id),
                     equipment_by_id,
                 )
-                drive_names = _top_stat_names(gold_values, weights)
-                core_sub_names = _top_stat_names(core_sub_values, weights)
+                drive_names = top_stat_names(gold_values, weights)
+                core_sub_names = top_stat_names(core_sub_values, weights)
                 if len(drive_names) < 4 or len(core_sub_names) < 4:
                     fallback = dict(recommendation.get("property_weights") or {})
-                    drive_names = _top_stat_names(gold_values, fallback)
-                    core_sub_names = _top_stat_names(core_sub_values, fallback)
+                    drive_names = top_stat_names(gold_values, fallback)
+                    core_sub_names = top_stat_names(core_sub_values, fallback)
                 if len(drive_names) < 4 or len(core_sub_names) < 4:
                     raise ValueError(f"角色 {character_id} 缺少四条毕业副词条")
 

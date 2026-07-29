@@ -5,7 +5,9 @@ from unittest.mock import patch
 
 from src.services.damage_calculation_service import DamageScalingStat, DirectDamageInput
 from src.services import official_role_page_service as role_service
-from src.features.official_role.role_calculation import _normalized_marginal_weights
+from src.services import official_role_replacement_service as replacement_service
+from src.services import official_role_scoring_service as scoring_service
+from src.features.official_role.role_calculation import normalized_marginal_weights
 
 
 def _direct_input() -> DirectDamageInput:
@@ -141,7 +143,11 @@ class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
             )
             return (replace(_direct_input(), attack_add=total),)
 
-        with patch.object(role_service, "_role_panel_damage_inputs", side_effect=inputs):
+        with patch.object(
+            replacement_service,
+            "_role_panel_damage_inputs",
+            side_effect=inputs,
+        ):
             gain = role_service.calculate_official_role_item_gain(
                 detail, "replacement", replacement_projection,
             )
@@ -174,11 +180,11 @@ class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
         }
         combined = {"DamageUpChaosBase": 0.20}
         with patch.object(
-            role_service,
+            scoring_service,
             "_role_panel_damage_inputs",
             return_value=(_direct_input(),),
         ), patch.object(
-            role_service,
+            scoring_service,
             "_property_stats_by_source",
             return_value=({}, {}, combined),
         ):
@@ -196,11 +202,11 @@ class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
         detail = {"character": {"element_type": ""}, "property_weights": {}}
         health_input = replace(_direct_input(), scaling_stat=DamageScalingStat.HEALTH)
         with patch.object(
-            role_service,
+            scoring_service,
             "_role_panel_damage_inputs",
             return_value=(health_input,),
         ), patch.object(
-            role_service,
+            scoring_service,
             "_property_stats_by_source",
             return_value=({}, {}, {}),
         ):
@@ -212,7 +218,7 @@ class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
         self.assertNotIn("AtkUp", property_ids)
 
     def test_marginal_weight_keeps_formula_zero_at_zero_and_uses_base_elsewhere(self) -> None:
-        weights, formula_ids = _normalized_marginal_weights(
+        weights, formula_ids = normalized_marginal_weights(
             {"CritBase": 0.4, "DamageUpGeneralBase": 0.7, "MagBase": 0.6},
             {
                 "rows": [

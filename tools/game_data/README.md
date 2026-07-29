@@ -49,6 +49,7 @@ python tools/game_data/build_static_database.py `
   --report-dir "$gameDataWorkspace\reports\distribution_database" `
   --dataset-id $gameDataSetId `
   --as-of $gameDataAsOf `
+  --manifest "data\manifest.json" `
   --omit-source-payloads
 ```
 

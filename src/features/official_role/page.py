@@ -3,15 +3,23 @@
 
 from __future__ import annotations
 
-from . import role_calculation as _calculation
-from . import role_equipment as _equipment
-from . import role_growth as _growth
-from . import role_shell as _shell
-from . import role_weights as _weights
+from .role_shell import (
+    _page_my_role,
+    _refresh_my_role,
+    confirm_pending_my_role_changes,
+)
 
-for _module in (_calculation, _growth, _equipment, _weights, _shell):
-    for _name, _value in vars(_module).items():
-        if callable(_value) and not _name.startswith("__"):
-            globals().setdefault(_name, _value)
 
-__all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
+def build_official_role_page(window):
+    return _page_my_role(window)
+
+
+def refresh_official_role_page(window):
+    return _refresh_my_role(window)
+
+
+__all__ = [
+    "build_official_role_page",
+    "refresh_official_role_page",
+    "confirm_pending_my_role_changes",
+]

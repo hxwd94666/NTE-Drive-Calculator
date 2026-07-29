@@ -1,3 +1,4 @@
+# 收集并格式化可独立查看的 nte-core 抓包诊断报告。
 """Collect and format a self-contained nte-core capture diagnostic report."""
 
 from __future__ import annotations

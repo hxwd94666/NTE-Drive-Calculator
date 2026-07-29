@@ -3,9 +3,8 @@
 `game_static.sqlite3` 是应用随安装包分发的只读基础数据库。它由开发者从
 本机准备好的游戏官方文件生成，普通用户不需要另外下载。
 
-当前数据集：`unversioned_20260723_update`
-当前结构版本：`12`
-当前 SHA-256：`DB27E25AD1D6FACD308980DCD154847C076896A62416BCFD8B89F8CB70C3CE47`
+当前数据集、结构版本、生成时间、SHA-256 和原始 payload 省略状态统一读取
+`manifest.json`，本说明不再手工复制这些容易过期的值。
 
 2026-07-23 官方文件更新涉及角色、伊洛伊觉醒、弧盘、怪物、深渊和技能伤害数据。
 发行库继续保留 19 条工坊缓存权重和 2 条默认权重；伊洛伊 `1075` 当前仍使用默认权重，
@@ -30,12 +29,25 @@ python tools/game_data/build_static_database.py `
   --report-dir "$gameDataWorkspace\reports\distribution_database" `
   --dataset-id $gameDataSetId `
   --as-of $gameDataAsOf `
+  --manifest "data\manifest.json" `
   --omit-source-payloads
 ```
 
 构建器会自动导入 `DataTable/Character/Awaken/*AwakenEffect*.json` 中的
 角色六觉、三/六觉共鸣和其中明确给出的技能等级加成。生成后必须运行静态数据库测试，
-并同步更新本文件中的数据集和 SHA-256。
+并重新生成 `manifest.json`。发布前检查会核对清单与实际数据库，不一致时拒绝继续。
+
+如果下一版本需要继续从某个已发布版本迁移历史可编辑的额外形状值，还要从该版本
+确认未修改的发行库生成基线：
+
+```powershell
+python tools/game_data/export_shape_bonus_baseline.py `
+  --database "data\game_static.sqlite3" `
+  --output "data\migrations\shape_bonus_defaults_<version>.json" `
+  --release-version "<version>"
+```
+
+基线只包含过去允许编辑的两个逻辑形状表，不包含完整官方数据库内容。
 
 同时会依据 `DT_Character.ElementData.PropModifyID` 关联
 `DT_PlayerPackData.json` 与 `DT_PlayerModifyPackData.json`，生成角色 1–80 级、

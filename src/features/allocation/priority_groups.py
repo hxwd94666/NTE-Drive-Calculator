@@ -40,14 +40,26 @@ def priority_groups_to_links(selected: list[str], groups: Iterable[Iterable[str]
     """Convert persisted role batches into UI links."""
 
     role_to_group: dict[str, int] = {}
+    group_sizes: dict[int, int] = {}
     for group_index, group in enumerate(groups or []):
-        for role in group or []:
-            role_to_group[str(role)] = group_index
+        clean_group = [str(role) for role in group or []]
+        group_sizes[group_index] = len(clean_group)
+        for role in clean_group:
+            role_to_group[role] = group_index
 
     links: list[str] = []
     for left, right in zip(selected, selected[1:]):
-        if role_to_group.get(left) == role_to_group.get(right) and left in role_to_group:
+        left_group = role_to_group.get(left)
+        right_group = role_to_group.get(right)
+        if left_group == right_group and left in role_to_group:
             links.append(EQUAL_LINK)
+        elif (
+            left_group is not None
+            and right_group is not None
+            and group_sizes.get(left_group, 0) == 1
+            and group_sizes.get(right_group, 0) == 1
+        ):
+            links.append(STRICT_LINK)
         else:
             links.append(GROUP_BOUNDARY_LINK)
     return normalize_priority_links(selected, links)

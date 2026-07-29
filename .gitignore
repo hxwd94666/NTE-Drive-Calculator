@@ -23,7 +23,10 @@ Thumbs.db
 # Build outputs
 build/
 dist/
+.coverage
+htmlcov/
 *.spec
+*.egg-info/
 
 # Installer generated files with local absolute paths
 installer/*.iss
@@ -52,6 +55,7 @@ config/update_config.json
 /nte-core.exe
 /nte-core-windows-x64*/
 /plugins/
+/app_shared.sqlite3
 
 # Temporary OCR and scan artifacts
 *.log

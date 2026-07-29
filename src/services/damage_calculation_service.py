@@ -458,11 +458,6 @@ def calculate_weave_followup_damage(actual_damage: float, ring_strength: float) 
     return actual_damage * 0.20 * calculate_ring_amplification(ring_strength)
 
 
-def calculate_infusion_damage_increase(ring_strength: float) -> float:
-    """Return Infusion's additive Soul/Lakshana damage-increase contribution."""
-    return 0.20 * calculate_ring_amplification(ring_strength)
-
-
 def calculate_topple_strength_multiplier(
     team_topple_strength: float, topple_damage_increases: tuple[float, ...]
 ) -> float:

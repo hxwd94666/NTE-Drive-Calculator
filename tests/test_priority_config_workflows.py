@@ -1,12 +1,9 @@
 # 覆盖用户工作流相关的回归测试。
-import json
 import os
 import tempfile
 import unittest
 import urllib.error
-import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -66,6 +63,17 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertEqual(["A", "B", "C"], selected)
         self.assertEqual(["=", ">>"], links)
 
+    def test_singleton_groups_restore_as_strict_links(self):
+        from src.features.allocation.priority_groups import priority_groups_to_links
+
+        self.assertEqual(
+            [">", ">"],
+            priority_groups_to_links(
+                ["A", "B", "C"],
+                [["A"], ["B"], ["C"]],
+            ),
+        )
+
     def test_role_selector_reorder_selected_moves_role_without_changing_links(self):
         from PySide6.QtWidgets import QApplication
 
@@ -115,6 +123,34 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         selector._set_custom_set("娜娜莉", "影之信条")
 
         self.assertEqual({"娜娜莉": "影之信条"}, selector.get_custom_sets())
+
+    def test_role_selector_persists_substat_blacklist_without_priority(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles(
+            {"A": {}},
+            [],
+            drive_sub_stats=["wanted", "blocked"],
+        )
+        selector.selected = ["A"]
+
+        selector._set_stat_priority_config(
+            "A",
+            ["wanted"],
+            ["blocked"],
+            False,
+            True,
+            "A",
+        )
+
+        self.assertEqual(
+            ["blocked"],
+            selector.get_crit_priority_modes()["A"]["blacklist"],
+        )
 
     def test_role_selector_legacy_full_custom_sets_do_not_lock_old_defaults(self):
         from PySide6.QtWidgets import QApplication

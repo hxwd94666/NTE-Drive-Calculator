@@ -1,3 +1,4 @@
+# 测试卡带候选保留、暴击上限与兜底覆盖。
 """Regression coverage for card-tape candidate retention and cap handling."""
 
 from __future__ import annotations
@@ -5,6 +6,7 @@ from __future__ import annotations
 import unittest
 
 from src.models.equipment import Drive, Tape
+from src.optimizer.allocation_kernel import estimate_candidate_pool_limits
 from src.optimizer.role_priority_strategy import RolePriorityStrategy
 from src.optimizer.scoring import ScoringEngine
 
@@ -20,14 +22,20 @@ def _drive(uid: str, crit: float) -> Drive:
     )
 
 
-def _tape(uid: str, main: str, score: float = 0.0) -> Tape:
+def _tape(
+    uid: str,
+    main: str,
+    score: float = 0.0,
+    *,
+    sub_stats: dict[str, float] | None = None,
+) -> Tape:
     return Tape(
         uid=uid,
         quality="Gold",
         area=15,
         set_name="Set",
         main_stats=main,
-        sub_stats={"暴击率%": 1.0},
+        sub_stats=sub_stats or {"暴击率%": 1.0},
         role_scores={"A": score},
     )
 
@@ -86,6 +94,276 @@ class TapeCandidateCoverageTests(unittest.TestCase):
 
         self.assertFalse(result["A"]["valid"])
         self.assertIn("暴击率上限 20%", result["A"]["reason"])
+
+    def test_ordered_substats_keep_deeper_tape_pool_ahead_of_raw_score(self) -> None:
+        scoring = ScoringEngine(
+            roles_db={
+                "安魂曲": {
+                    "weights": {
+                        "暴击率%": 1.0,
+                        "暴击伤害%": 1.0,
+                        "伤害增加%": 0.75,
+                        "攻击力%": 0.65,
+                        "环合强度": 0.2,
+                    },
+                    "main_weights": {"暴击率%": 1.0},
+                }
+            }
+        )
+        damage_tape = _tape(
+            "double-crit-damage",
+            "暴击率%",
+            sub_stats={"暴击率%": 1.0, "暴击伤害%": 1.0, "伤害增加%": 1.0},
+        )
+        attack_mag_tape = _tape(
+            "double-crit-attack-mag",
+            "暴击率%",
+            sub_stats={
+                "暴击率%": 1.0,
+                "暴击伤害%": 1.0,
+                "攻击力%": 1.0,
+                "环合强度": 1.0,
+            },
+        )
+        preference = {
+            "stats": ["暴击率%", "暴击伤害%", "伤害增加%", "攻击力%"],
+            "ignore_grade_limit": True,
+        }
+
+        pools = scoring.evaluate_global_inventory(
+            [damage_tape, attack_mag_tape],
+            tape_top_k_per_set_per_role=1,
+            crit_priority_modes={"安魂曲": preference},
+        )
+
+        self.assertGreater(
+            attack_mag_tape.role_scores["安魂曲"],
+            damage_tape.role_scores["安魂曲"],
+        )
+        self.assertEqual(
+            {"double-crit-damage", "double-crit-attack-mag"},
+            {tape.uid for tape in pools["tapes"]["安魂曲"]},
+        )
+
+        strategy = RolePriorityStrategy(
+            {"安魂曲": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {},
+        )
+        assigned = strategy._pre_allocate_tapes(
+            ["安魂曲"],
+            {"安魂曲": "Set"},
+            {"安魂曲": [damage_tape, attack_mag_tape]},
+            {"安魂曲": preference},
+        )
+        self.assertEqual("double-crit-damage", assigned["安魂曲"].uid)
+
+    def test_zero_score_priority_keeps_matching_tape_and_hard_filters_nonmatch(self) -> None:
+        scoring = ScoringEngine(
+            roles_db={"A": {"weights": {"暴击率%": 0.0}, "main_weights": {}}}
+        )
+        matching = _tape(
+            "matching",
+            "防御力%",
+            sub_stats={"暴击率%": 1.0},
+        )
+        nonmatching = _tape(
+            "nonmatching",
+            "防御力%",
+            sub_stats={"攻击力%": 1.0},
+        )
+
+        pools = scoring.evaluate_global_inventory(
+            [matching, nonmatching],
+            crit_priority_modes={
+                "A": {
+                    "stats": ["暴击率%"],
+                    "ignore_grade_limit": True,
+                }
+            },
+        )
+
+        self.assertEqual(0.0, matching.role_scores["A"])
+        self.assertEqual(["matching"], [tape.uid for tape in pools["tapes"]["A"]])
+
+    def test_core_main_filter_runs_before_substat_hard_pool(self) -> None:
+        scoring = ScoringEngine(
+            roles_db={
+                "A": {
+                    "weights": {"暴击率%": 1.0, "暴击伤害%": 1.0},
+                    "main_weights": {"暴击率%": 1.0, "攻击力%": 1.0},
+                }
+            }
+        )
+        allowed_main = _tape(
+            "allowed-main",
+            "暴击率%",
+            sub_stats={"暴击率%": 1.0},
+        )
+        deeper_wrong_main = _tape(
+            "wrong-main",
+            "攻击力%",
+            sub_stats={"暴击率%": 1.0, "暴击伤害%": 1.0},
+        )
+
+        pools = scoring.evaluate_global_inventory(
+            [allowed_main, deeper_wrong_main],
+            tape_main_filters={"A": ["暴击率%"]},
+            crit_priority_modes={
+                "A": {
+                    "stats": ["暴击率%", "暴击伤害%"],
+                    "ignore_grade_limit": True,
+                }
+            },
+        )
+
+        self.assertEqual(["allowed-main"], [tape.uid for tape in pools["tapes"]["A"]])
+
+    def test_drive_pick_filters_to_deepest_available_pool_before_score(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {},
+        )
+        deeper = Drive(
+            uid="abc",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"a": 1.0, "b": 1.0, "c": 1.0},
+            role_scores={"A": 1.0},
+        )
+        shallower = Drive(
+            uid="ab",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"a": 1.0, "b": 1.0},
+            role_scores={"A": 1000.0},
+        )
+
+        picked = strategy._pick_best_drive(
+            "A",
+            [(0, shallower), (1, deeper)],
+            {"stats": ["a", "b", "c"], "ignore_grade_limit": True},
+        )
+
+        self.assertIsNotNone(picked)
+        self.assertEqual("abc", picked[1].uid)
+
+    def test_substat_blacklist_hard_filters_drives_but_not_tapes(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {},
+        )
+        config = {
+            "stats": ["wanted"],
+            "blacklist": ["blocked"],
+            "ignore_grade_limit": True,
+        }
+        blocked_drive = Drive(
+            uid="blocked-drive",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"wanted": 1.0, "blocked": 1.0},
+            role_scores={"A": 1000.0},
+        )
+        allowed_drive = Drive(
+            uid="allowed-drive",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"wanted": 1.0},
+            role_scores={"A": 1.0},
+        )
+        blocked_tape = _tape(
+            "blocked-tape",
+            "暴击率%",
+            sub_stats={"wanted": 1.0, "blocked": 1.0},
+        )
+        allowed_tape = _tape(
+            "allowed-tape",
+            "暴击率%",
+            sub_stats={"wanted": 1.0},
+        )
+        blocked_tape.role_scores = {"A": 1000.0}
+        allowed_tape.role_scores = {"A": 1.0}
+
+        picked = strategy._pick_best_drive(
+            "A",
+            [(0, blocked_drive), (1, allowed_drive)],
+            config,
+        )
+        assigned = strategy._pre_allocate_tapes(
+            ["A"],
+            {"A": "Set"},
+            {"A": [blocked_tape, allowed_tape]},
+            {"A": config},
+        )
+        _slots, profit_matrix, ranking_matrix = strategy._build_profit_matrix(
+            [{"set_pieces": [], "extra_pieces": ["H_2"]}],
+            ["A"],
+            [blocked_drive, allowed_drive],
+            {"A": "Set"},
+            {"A": config},
+        )
+
+        self.assertIsNotNone(picked)
+        self.assertEqual("allowed-drive", picked[1].uid)
+        self.assertEqual("blocked-tape", assigned["A"].uid)
+        self.assertEqual(-10000.0, profit_matrix[0, 0])
+        self.assertEqual(-10000.0, ranking_matrix[0, 0])
+        self.assertEqual(1.0, profit_matrix[0, 1])
+
+    def test_seven_strict_roles_keep_seven_distinct_shared_tape_candidates(self) -> None:
+        role_names = [f"R{index}" for index in range(7)]
+        roles = {
+            role: {
+                "default_set": "Set",
+                "weights": {"暴击率%": 1.0},
+                "main_weights": {"暴击率%": 1.0},
+            }
+            for role in role_names
+        }
+        tapes = [
+            Tape(
+                uid=f"tape-{index}",
+                quality="Gold",
+                area=15,
+                set_name="Set",
+                main_stats="暴击率%",
+                sub_stats={"暴击率%": 1.0},
+            )
+            for index in range(7)
+        ]
+        _drive_limit, tape_limit = estimate_candidate_pool_limits(
+            {},
+            role_names,
+            [[role] for role in role_names],
+        )
+        pools = ScoringEngine(roles_db=roles).evaluate_global_inventory(
+            tapes,
+            tape_top_k_per_set_per_role=tape_limit,
+        )
+        strategy = RolePriorityStrategy(
+            roles,
+            {"Set": {"shapes": []}},
+            {},
+        )
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [[role] for role in role_names],
+            {role: "Set" for role in role_names},
+            pools["tapes"],
+        )
+
+        self.assertEqual(7, len({tape.uid for tape in assigned.values() if tape}))
 
 
 if __name__ == "__main__":

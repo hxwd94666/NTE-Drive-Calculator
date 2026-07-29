@@ -13,7 +13,9 @@ STATIC_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "game_stat
 
 class BlueprintSqliteSolverTests(unittest.TestCase):
     def test_official_shape_coordinates_are_normalized_to_solver_matrix(self):
-        from src.features.blueprints.page import _official_shape_matrix
+        from src.services.blueprint_service import (
+            official_shape_matrix as _official_shape_matrix,
+        )
 
         matrix = _official_shape_matrix({
             "shape_id": "shape-test",
@@ -23,7 +25,9 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
         self.assertEqual([[1, 1, 1]], matrix)
 
     def test_official_plan_board_marks_only_plan_cells_as_playable(self):
-        from src.features.blueprints.page import _official_board
+        from src.services.blueprint_service import (
+            official_board as _official_board,
+        )
 
         cells = [
             {"row": row, "column": column}
@@ -36,7 +40,7 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
         self.assertEqual(-1, board[4][4])
 
     def test_static_solver_returns_locally_solved_blueprint(self):
-        from src.features.blueprints.page import solve_blueprints_from_static
+        from src.services.blueprint_service import solve_blueprints_from_static
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
         with patch.dict("os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}):

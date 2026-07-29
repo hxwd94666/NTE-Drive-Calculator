@@ -3,84 +3,35 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from copy import deepcopy
-from typing import Callable
 
 from .core import calc_base_damage, get_character_total_stats, get_valid_drives, is_empty_drive
 
 
-ScoreDriveFunc = Callable[[dict, str, dict, str], float]
+def equipment_user_map(
+    role_states: dict,
+    current_role_name: str,
+    item_kind: str,
+) -> dict[str, list[str]]:
+    """Map equipment UIDs to other roles without duplicate legacy entries."""
 
-
-@dataclass(frozen=True)
-class DriveReplacementCandidate:
-    drive: dict
-    score: float
-    margin: float
-    used_by: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class DriveReplacementOptions:
-    current_shape: str
-    current_uid: str
-    current_score: float
-    current_margin: float
-    equipped_drives: list[dict]
-    user_map: dict[str, list[str]]
-    candidates: list[DriveReplacementCandidate]
-
-
-@dataclass(frozen=True)
-class DriveReplacementPlan:
-    role_name: str
-    current_uid: str
-    new_drive: dict
-    new_entry: dict
-    displaced_roles: tuple[str, ...]
-
-
-def equipment_user_map(my_roles_data: dict, role_name: str, item_kind: str) -> dict[str, list[str]]:
-    user_map: dict[str, list[str]] = {}
-    for rn, rdata in (my_roles_data or {}).items():
-        if rn == role_name or not isinstance(rdata, dict):
+    users_by_uid: dict[str, list[str]] = {}
+    for role_name, role_data in (role_states or {}).items():
+        if role_name == current_role_name or not isinstance(role_data, dict):
             continue
         if item_kind == "tape":
-            tape = rdata.get("tape", {})
-            uid = tape.get("uid") if isinstance(tape, dict) else ""
-            if uid:
-                users = user_map.setdefault(uid, [])
-                if rn not in users:
-                    users.append(rn)
-            continue
-        for drive in rdata.get("drive", {}).get("drives", []) or []:
-            uid = drive.get("uid")
-            if uid:
-                users = user_map.setdefault(uid, [])
-                if rn not in users:
-                    users.append(rn)
-    return user_map
-
-
-def keep_top_candidates_with_unassigned(
-    candidates,
-    user_map: dict,
-    uid_getter,
-    top_limit: int = 20,
-    min_unassigned: int = 3,
-):
-    final = list(candidates[:top_limit])
-    unassigned_count = sum(1 for entry in final if uid_getter(entry) not in user_map)
-    if unassigned_count >= min_unassigned:
-        return final
-    for entry in candidates[top_limit:]:
-        if uid_getter(entry) not in user_map:
-            final.append(entry)
-            unassigned_count += 1
-            if unassigned_count >= min_unassigned:
-                break
-    return final
+            tape = role_data.get("tape", {})
+            items = [tape] if isinstance(tape, dict) else []
+        else:
+            items = role_data.get("drive", {}).get("drives", []) or []
+        for item in items:
+            uid = item.get("uid") if isinstance(item, dict) else None
+            if not uid:
+                continue
+            users = users_by_uid.setdefault(str(uid), [])
+            if role_name not in users:
+                users.append(role_name)
+    return users_by_uid
 
 
 def calc_single_drive_margin(role_data: dict, drive_to_exclude: dict) -> float:
@@ -225,137 +176,3 @@ def rank_replacement_candidates_by_damage(
     else:
         raise ValueError(f"不支持的装备类别：{item_kind}")
     return current_margin, sorted(ranked, key=lambda entry: entry[0], reverse=True)
-
-
-def build_drive_replacement_options(
-    *,
-    role_name: str,
-    role_data: dict,
-    current_drive: dict,
-    inventory: list[dict] | None,
-    my_roles_data: dict,
-    weights: dict,
-    score_drive: ScoreDriveFunc | None,
-) -> DriveReplacementOptions | None:
-    if not inventory:
-        return None
-
-    current_shape = current_drive.get("shape_id", "")
-    current_uid = current_drive.get("uid", "")
-    equipped_drives = role_data.get("drive", {}).get("drives", [])
-    equipped_uids = {drive.get("uid", "") for drive in equipped_drives}
-    user_map = equipment_user_map(my_roles_data, role_name, "drive")
-
-    if score_drive:
-        current_score = score_drive(
-            current_drive.get("sub_stats", {}),
-            current_shape,
-            weights,
-            current_drive.get("quality", "Gold"),
-        )
-    else:
-        current_score = 0.0
-
-    raw_candidates = [
-        drive for drive in inventory
-        if drive.get("shape_id") == current_shape
-        and drive.get("uid") not in equipped_uids
-        and drive.get("uid") != current_uid
-    ]
-    # This dialog is still the legacy weight-based replacement flow.  Keep its
-    # candidate order aligned with the displayed stat score until the future
-    # optimizer explicitly provides a damage scorer and a fixed context.
-    ranked_by_damage = [
-        (
-            calc_drive_replacement_margin(role_data, equipped_drives, current_uid, drive),
-            drive,
-        )
-        for drive in raw_candidates
-    ]
-    ranked_by_damage.sort(
-        key=lambda entry: (
-            -(
-                score_drive(
-                    entry[1].get("sub_stats", {}),
-                    entry[1].get("shape_id", ""),
-                    weights,
-                    entry[1].get("quality", "Gold"),
-                ) if score_drive else 0.0
-            ),
-            str(entry[1].get("uid", "")),
-        )
-    )
-    selected = keep_top_candidates_with_unassigned(
-        ranked_by_damage, user_map, lambda entry: entry[1].get("uid", "")
-    )
-
-    candidates = [
-        DriveReplacementCandidate(
-            drive=drive,
-            score=(
-                score_drive(
-                    drive.get("sub_stats", {}), drive.get("shape_id", ""), weights,
-                    drive.get("quality", "Gold"),
-                ) if score_drive else 0.0
-            ),
-            margin=margin,
-            used_by=tuple(user_map.get(drive.get("uid", ""), [])),
-        )
-        for margin, drive in selected
-    ]
-    return DriveReplacementOptions(
-        current_shape=current_shape,
-        current_uid=current_uid,
-        current_score=current_score,
-        current_margin=calc_single_drive_margin(role_data, current_drive),
-        equipped_drives=equipped_drives,
-        user_map=user_map,
-        candidates=candidates,
-    )
-
-
-def build_drive_replacement_plan(role_name: str, current_uid: str, new_drive: dict, user_map: dict[str, list[str]]) -> DriveReplacementPlan:
-    new_entry = {
-        "uid": new_drive["uid"],
-        "shape_id": new_drive["shape_id"],
-        "sub_stats": new_drive["sub_stats"],
-        "quality": new_drive.get("quality", "Gold"),
-        "is_changed": True,
-        "display_name": f"{new_drive['shape_id']}-" + "|".join(
-            f"{key}_{value}" for key, value in new_drive["sub_stats"].items()
-        ),
-    }
-    return DriveReplacementPlan(
-        role_name=role_name,
-        current_uid=current_uid,
-        new_drive=new_drive,
-        new_entry=new_entry,
-        displaced_roles=tuple(user_map.get(new_drive.get("uid", ""), [])),
-    )
-
-
-def apply_drive_replacement_plan(form_data: dict, role_data: dict, plan: DriveReplacementPlan) -> tuple[bool, set[str]]:
-    drives_list = role_data["drive"]["drives"]
-    idx = next((i for i, drive in enumerate(drives_list) if drive.get("uid") == plan.current_uid), None)
-    if idx is None:
-        return False, set()
-
-    dirty_equipment_roles = {plan.role_name}
-    drives_list[idx] = dict(plan.new_entry)
-
-    new_uid = plan.new_drive["uid"]
-    for other_role in plan.displaced_roles:
-        other_drives = form_data.get(other_role, {}).get("drive", {}).get("drives", [])
-        for index, old_drive in enumerate(other_drives):
-            if old_drive.get("uid") == new_uid:
-                other_drives[index] = {
-                    "uid": f"empty_{new_uid}",
-                    "shape_id": old_drive.get("shape_id", ""),
-                    "sub_stats": {},
-                    "quality": "Gold",
-                    "is_changed": True,
-                    "display_name": f"{old_drive.get('shape_id', '')}-(空)",
-                }
-                dirty_equipment_roles.add(other_role)
-                break
-    return True, dirty_equipment_roles

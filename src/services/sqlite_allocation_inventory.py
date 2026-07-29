@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -255,29 +256,13 @@ class SqliteAllocationInventory:
 
 
 def load_inventory_projection(
-    database_path: str | None,
+    database_path: str | Path,
     snapshot_id: int,
 ) -> list[dict[str, Any]]:
     """投影指定快照，供结果差异等历史方案展示使用。"""
 
-    if database_path is None:
-        from src.app import runtime
-        database_path = str(runtime.USER_DATABASE_PATH)
     with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
         return [
             dict(item)
             for item in SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id).items
         ]
-
-
-def load_current_inventory_projection(database_path: str | None = None) -> list[dict[str, Any]]:
-    """兼容入口：明确读取调用时的当前快照，不用于已保存方案。"""
-
-    if database_path is None:
-        from src.app import runtime
-        database_path = str(runtime.USER_DATABASE_PATH)
-    with UserDataDao(database_path) as user_dao:
-        snapshot_id = user_dao.current_inventory_snapshot_id()
-    if snapshot_id is None:
-        raise AllocationInventoryProjectionError("尚无稳定背包快照")
-    return load_inventory_projection(database_path, snapshot_id)

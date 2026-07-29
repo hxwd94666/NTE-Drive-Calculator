@@ -1,0 +1,58 @@
+{
+  "generated_on": "2026-07-29",
+  "command": "python -m coverage run --branch -m unittest discover -s tests",
+  "scope": [
+    "src/domain",
+    "src/services",
+    "src/storage/sqlite",
+    "src/integrations"
+  ],
+  "totals": {
+    "files": 80,
+    "statements": 9270,
+    "covered_lines": 7357,
+    "line_percent": 79.36,
+    "branches": 3150,
+    "covered_branches": 2015,
+    "branch_percent": 63.97,
+    "combined_percent": 75.46
+  },
+  "packages": {
+    "src/domain": {
+      "files": 10,
+      "statements": 1110,
+      "covered_lines": 941,
+      "line_percent": 84.77,
+      "branches": 534,
+      "covered_branches": 391,
+      "branch_percent": 73.22
+    },
+    "src/services": {
+      "files": 47,
+      "statements": 4897,
+      "covered_lines": 3916,
+      "line_percent": 79.97,
+      "branches": 1476,
+      "covered_branches": 918,
+      "branch_percent": 62.2
+    },
+    "src/storage/sqlite": {
+      "files": 13,
+      "statements": 2017,
+      "covered_lines": 1634,
+      "line_percent": 81.01,
+      "branches": 654,
+      "covered_branches": 449,
+      "branch_percent": 68.65
+    },
+    "src/integrations": {
+      "files": 10,
+      "statements": 1246,
+      "covered_lines": 866,
+      "line_percent": 69.5,
+      "branches": 486,
+      "covered_branches": 257,
+      "branch_percent": 52.88
+    }
+  }
+}

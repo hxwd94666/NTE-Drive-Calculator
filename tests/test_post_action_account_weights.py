@@ -1,3 +1,4 @@
+# 测试鉴定与状态规则共享账号级角色权重。
 """Account-scoped weights must be shared by identification and state rules."""
 
 import unittest
@@ -6,8 +7,8 @@ from unittest.mock import patch
 
 class PostActionAccountWeightTests(unittest.TestCase):
     def test_evaluator_passes_account_database_to_scoring_engine(self):
-        from src.features.scanning.post_action_evaluator import PostActionEvaluator
-        from src.features.scanning.post_actions import default_post_action_config
+        from src.domain.post_actions import default_post_action_config
+        from src.services.post_action_evaluator import PostActionEvaluator
 
         captured = {}
 
@@ -20,7 +21,7 @@ class PostActionAccountWeightTests(unittest.TestCase):
 
         config = default_post_action_config()
         config["discard"]["enabled"] = True
-        with patch("src.features.scanning.post_action_evaluator.ScoringEngine", FakeScoring):
+        with patch("src.services.post_action_evaluator.ScoringEngine", FakeScoring):
             PostActionEvaluator(
                 post_actions_config=config,
                 config_dir="test-config",
@@ -31,7 +32,7 @@ class PostActionAccountWeightTests(unittest.TestCase):
         self.assertEqual("account.sqlite3", str(captured["user_database_path"]))
 
     def test_score_context_passes_account_database_to_blueprint_source(self):
-        from src.features.scanning.post_actions import PostActionScoreContext
+        from src.domain.post_actions import PostActionScoreContext
 
         captured = {}
 
@@ -44,7 +45,7 @@ class PostActionAccountWeightTests(unittest.TestCase):
             def solve_blueprints(self, _role_names):
                 return {}
 
-        with patch("src.features.scanning.post_actions.NTEPipelineOrchestrator", FakeOrchestrator):
+        with patch("src.domain.post_actions.NTEPipelineOrchestrator", FakeOrchestrator):
             context = PostActionScoreContext.from_config_dir(
                 "test-config", user_database_path="account.sqlite3"
             )
@@ -54,7 +55,7 @@ class PostActionAccountWeightTests(unittest.TestCase):
         self.assertEqual("account.sqlite3", captured["user_database_path"])
 
     def test_tape_set_display_wrapper_matches_scoring_context_and_type_filter(self):
-        from src.features.scanning.post_actions import (
+        from src.domain.post_actions import (
             PostActionScoreContext,
             _type_range_matches,
             _usable_role_names,

@@ -16,9 +16,7 @@ from src.services.allocation_context import (
     SuitConstraint, build_allocation_context,
 )
 from src.services.allocation_solver import solve_allocation_context
-from src.services.allocation_legacy_adapter import _legacy_items, _shapes, run_legacy_allocation
-from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
-from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.services.allocation_legacy_adapter import legacy_items, legacy_shapes, run_legacy_allocation
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -103,9 +101,9 @@ class AllocationSolverTests(unittest.TestCase):
             for shape in SHAPES
         )
         context = replace(fixture_context((role,), (percent_drive,)), shapes=shapes)
-        items, _ = _legacy_items(context)
+        items, _ = legacy_items(context)
         self.assertEqual(10.0, items[0].sub_stats["暴击率%"])
-        self.assertEqual("Type-3", _shapes(context)["ShapeA"].label)
+        self.assertEqual("Type-3", legacy_shapes(context)["ShapeA"].label)
 
     def test_top_one_matches_existing_dispatcher_for_supported_strategies(self) -> None:
         role = fixture_role(1, weight_id="Score")

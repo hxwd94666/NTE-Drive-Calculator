@@ -6,25 +6,11 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
-    QDoubleSpinBox,
-    QFormLayout,
-    QFrame,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QSpinBox,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -32,40 +18,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QHeaderView
 
-from src.app import runtime
-from src.app.theme import themed_style
 from src.domain.stat_catalog import StatCatalog
+from src.integrations.bundled_resources import bundled_config_dir
 from src.services.graduation_bonus_service import graduation_extra_shape_stats
-from src.features.allocation import results_view as legacy_results
-from src.features.inventory.warehouse import WarehouseResultCard, warehouse_item_view
 from src.services.official_role_page_service import (
     calculate_official_role_final_weights,
     calculate_official_role_damage_breakdown,
-    calculate_official_role_equipment_gain,
-    calculate_official_role_item_gain,
     calculate_official_role_margins,
-    load_official_role_detail,
-    load_official_role_index,
-    replacement_candidates_for_official_role,
-    save_official_role_replacement,
-    save_official_role_tab_order,
-)
-from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
-from src.services.sqlite_allocation_inventory import (
-    AllocationInventoryProjectionError,
-    legacy_shape_id,
-)
-from src.storage.sqlite.user_data_dao import UserDataDao
-from src.ui.equipment_replacement_dialog import (
-    EquipmentReplacementCard,
-    show_equipment_replacement_dialog,
-)
-from src.ui.persistent_tab_order import bind_persistent_tab_order
-from src.ui.widgets import (
-    NoWheelComboBox,
-    NoWheelDoubleSpinBox,
-    NoWheelSpinBox,
-    match_pinyin,
 )
 
 __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
@@ -83,38 +42,15 @@ _WEIGHT_PROPERTY_CHOICES = (
     ("环合强度", "MagBase"),
     ("倾陷强度", "UnbalIntensityBase"),
 )
-_WEIGHT_LABEL_BY_PROPERTY = {
-    property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
-}
+_WEIGHT_LABEL_BY_PROPERTY = {property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES}
+
 
 def _attribute_name(detail: dict, property_id: str) -> str:
     attribute = detail.get("attributes", {}).get(property_id, {})
-    return str(
-        attribute.get("display_name_zh")
-        or attribute.get("filter_name_zh")
-        or property_id
-    )
+    return str(attribute.get("display_name_zh") or attribute.get("filter_name_zh") or property_id)
 
 
-def _item_name(detail: dict, item: dict) -> str:
-    return str(
-        detail.get("item_names", {}).get(str(item.get("item_id") or ""))
-        or (item.get("names") or {}).get("zh_cn")
-        or item.get("item_id")
-        or "未知装备"
-    )
-
-
-def _stat_text(detail: dict, stat: dict) -> str:
-    value = float(stat.get("value") or 0.0)
-    if stat.get("percent"):
-        value *= 100.0
-    shown = f"{value:.2f}".rstrip("0").rstrip(".")
-    suffix = "%" if stat.get("percent") else ""
-    return f"{_attribute_name(detail, str(stat.get('property_id') or ''))} {shown}{suffix}"
-
-
-def _graduation_benchmark_damage(detail: dict) -> float | None:
+def graduation_benchmark_damage(detail: dict) -> float | None:
     """Calculate the strict-substat graduation reference through the official path."""
 
     template = _graduation_template_with_weight_substats(detail)
@@ -122,19 +58,19 @@ def _graduation_benchmark_damage(detail: dict) -> float | None:
         return None
     equipment = template.get("equipment") or ()
     context = {
-        "title": "毕业基准", "available": True, "items": equipment,
+        "title": "毕业基准",
+        "available": True,
+        "items": equipment,
     }
     calculation_detail = {
         **detail,
         "profile": dict(template.get("profile") or detail.get("profile") or {}),
         "equipment_contexts": {
-            **(detail.get("equipment_contexts") or {}), "graduation": context,
+            **(detail.get("equipment_contexts") or {}),
+            "graduation": context,
         },
     }
-    damage = float(
-        (calculate_official_role_margins(calculation_detail, "graduation") or {}).get("damage")
-        or 0.0
-    )
+    damage = float((calculate_official_role_margins(calculation_detail, "graduation") or {}).get("damage") or 0.0)
     return damage if damage > 0 else None
 
 
@@ -150,11 +86,13 @@ def _graduation_template_with_weight_substats(detail: dict) -> dict | None:
         return None
     if not isinstance(detail.get("property_weights"), dict):
         return dict(template)
-    catalog = StatCatalog.from_config_dir(getattr(runtime, "CONFIG_DIR", "config"))
+    config_dir = detail.get("config_dir")
+    if config_dir is None:
+        config_dir = bundled_config_dir()
+    catalog = StatCatalog.from_config_dir(config_dir)
     labels_by_property = {property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES}
     value_by_property = {
-        property_id: label for property_id, label in labels_by_property.items()
-        if label in catalog.tape_sub_stat_pool()
+        property_id: label for property_id, label in labels_by_property.items() if label in catalog.tape_sub_stat_pool()
     }
     weights = {
         property_id: float((detail.get("property_weights") or {}).get(property_id, 0.0))
@@ -192,50 +130,8 @@ def _graduation_template_with_weight_substats(detail: dict) -> dict | None:
                 for property_id in selected
             ] + [dict(row) for row in extra_shape_stats]
         elif str(item.get("kind") or "") == "core":
-            item["sub_stats"] = [
-                stat(property_id, catalog.tape_stat_values, 1.0)
-                for property_id in selected
-            ]
+            item["sub_stats"] = [stat(property_id, catalog.tape_stat_values, 1.0) for property_id in selected]
     return {**template, "equipment": equipment}
-
-
-def _graduation_tooltip(detail: dict) -> str:
-    """Describe the stored benchmark equipment behind the graduation percentage."""
-    template = _graduation_template_with_weight_substats(detail) or {}
-    equipment = template.get("equipment") or ()
-    if not isinstance(equipment, (list, tuple)):
-        return "毕业基准尚未生成。"
-    core = next(
-        (item for item in equipment if str(item.get("kind") or "") == "core"),
-        {},
-    )
-    main = next(iter(core.get("main_stats") or ()), {})
-    main_text = _stat_text(detail, main) if main else "未记录"
-    aggregated_substats: dict[tuple[str, bool], dict] = {}
-    for item in equipment:
-        for stat in item.get("sub_stats") or ():
-            key = (str(stat.get("property_id") or ""), bool(stat.get("percent")))
-            if key not in aggregated_substats:
-                aggregated_substats[key] = dict(stat)
-                continue
-            aggregated_substats[key]["value"] = (
-                float(aggregated_substats[key].get("value") or 0.0)
-                + float(stat.get("value") or 0.0)
-            )
-    substat_text = [
-        _stat_text(detail, stat) for stat in aggregated_substats.values()
-    ]
-    substat_lines = [
-        "、".join(substat_text[index:index + 3])
-        for index in range(0, len(substat_text), 3)
-    ]
-    lines = [
-        "毕业基准（满级角色、满级精1专属弧盘）：",
-        f"卡带主词条：{main_text}",
-        "毕业副词条：" + (substat_lines[0] if substat_lines else "未记录"),
-    ]
-    lines.extend(f"　　　　　{line}" for line in substat_lines[1:])
-    return "\n".join(lines)
 
 
 def _clear_layout(layout) -> None:
@@ -272,10 +168,7 @@ def _selected_growth(editor: dict) -> tuple[int, int] | None:
     if not hasattr(growth, "value"):
         return None
     level = int(growth.value())
-    candidates = [
-        row for row in (editor.get("growth_rows") or ())
-        if int(row.get("level") or 0) == level
-    ]
+    candidates = [row for row in (editor.get("growth_rows") or ()) if int(row.get("level") or 0) == level]
     if not candidates:
         return None
     selected = max(candidates, key=lambda row: int(row.get("breakthrough_stage") or 0))
@@ -304,30 +197,21 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
         fork_id = fork.currentData()
         profile["fork_id"] = fork_id
         profile["fork_level"] = editor["fork_level"].value() if fork_id else None
-        profile["fork_refinement_level"] = (
-            int(editor["refinement"].currentData()) if fork_id else None
-        )
+        profile["fork_refinement_level"] = int(editor["refinement"].currentData()) if fork_id else None
     return {
         **detail,
         "profile": profile,
-        "property_weights": dict(
-            editor.get("marginal_property_weights")
-            or detail.get("property_weights")
-            or {}
-        ),
+        "property_weights": dict(editor.get("marginal_property_weights") or detail.get("property_weights") or {}),
         "main_property_weights": dict(
-            editor.get("marginal_main_property_weights")
-            or detail.get("main_property_weights")
-            or {}
+            editor.get("marginal_main_property_weights") or detail.get("main_property_weights") or {}
         ),
-        "calculation_context_key": str(
-            editor.get("equipment_context_key") or "current"
-        ),
+        "calculation_context_key": str(editor.get("equipment_context_key") or "current"),
     }
 
 
-def _normalized_marginal_weights(
-    base_weights: dict[str, float], margins: dict | None,
+def normalized_marginal_weights(
+    base_weights: dict[str, float],
+    margins: dict | None,
 ) -> tuple[dict[str, float], frozenset[str]]:
     """Return read-only role weights derived from the current direct-damage panel.
 
@@ -343,8 +227,7 @@ def _normalized_marginal_weights(
     positive_gains = [
         float(row.get("gain_percent") or 0.0)
         for row in rows
-        if math.isfinite(float(row.get("gain_percent") or 0.0))
-        and float(row.get("gain_percent") or 0.0) > 0.0
+        if math.isfinite(float(row.get("gain_percent") or 0.0)) and float(row.get("gain_percent") or 0.0) > 0.0
     ]
     maximum_gain = max(positive_gains, default=0.0)
     for row in rows:
@@ -352,11 +235,7 @@ def _normalized_marginal_weights(
         if not property_id:
             continue
         gain = float(row.get("gain_percent") or 0.0)
-        weights[property_id] = (
-            max(0.0, gain) / maximum_gain
-            if maximum_gain > 0.0 and math.isfinite(gain)
-            else 0.0
-        )
+        weights[property_id] = max(0.0, gain) / maximum_gain if maximum_gain > 0.0 and math.isfinite(gain) else 0.0
     return weights, formula_ids
 
 
@@ -383,18 +262,16 @@ def _equipment_items(detail: dict, context_key: str, *, core: bool) -> list[dict
 
 
 def _build_margin_group(
-    window, character_id: int, detail: dict, editor: dict,
+    window,
+    character_id: int,
+    detail: dict,
+    editor: dict,
 ) -> QGroupBox:
     group = QGroupBox("边际收益（按每单位收益排序）")
     group.setObjectName("officialRoleMarginalGroup")
     layout = QVBoxLayout(group)
     state = {"margins": None, "initialized": False}
     header = QHBoxLayout()
-    graduation_label = QLabel("直伤毕业率 : --")
-    graduation_label.setObjectName("officialRoleGraduationRate")
-    graduation_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
-    graduation_label.setToolTip(_graduation_tooltip(detail))
-    header.addWidget(graduation_label)
     damage_label = QLabel("直伤评分 : --")
     damage_label.setObjectName("officialRoleDamageScore")
     damage_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
@@ -411,7 +288,8 @@ def _build_margin_group(
         calculation_detail = _calculation_detail(detail, editor)
         margin_context = str(editor.get("equipment_context_key") or "current")
         margins = calculate_official_role_margins(
-            calculation_detail, margin_context,
+            calculation_detail,
+            margin_context,
         )
         state["margins"] = margins
         final_weights = calculate_official_role_final_weights(
@@ -429,12 +307,6 @@ def _build_margin_group(
             refresh_weights()
         _clear_layout(table_layout)
         damage = float((margins or {}).get("damage") or 0.0)
-        benchmark = _graduation_benchmark_damage(calculation_detail)
-        graduation_label.setToolTip(_graduation_tooltip(calculation_detail))
-        graduation_label.setText(
-            f"直伤毕业率 : {damage / benchmark * 100:.1f}%"
-            if damage > 0 and benchmark else "直伤毕业率 : --"
-        )
         damage_label.setText(f"直伤评分 : {damage:.2f}" if margins else "直伤评分 : --")
         if not margins:
             note = QLabel("当前角色状态尚无可计算的官方直伤技能或装备上下文。")
@@ -454,9 +326,7 @@ def _build_margin_group(
             is_percent = bool(row.get("is_percent"))
             current_value = float(row.get("current_value") or 0.0)
             unit_value = float(row.get("unit") or 0.0)
-            current_text = (
-                f"{current_value * 100:.2f}%" if is_percent else f"{current_value:.2f}"
-            )
+            current_text = f"{current_value * 100:.2f}%" if is_percent else f"{current_value:.2f}"
             unit_text = f"{unit_value * 100:g}%" if is_percent else f"{unit_value:g}"
             table.setItem(row_index, 0, QTableWidgetItem(row["label"]))
             table.setItem(row_index, 1, QTableWidgetItem(current_text))
@@ -471,6 +341,7 @@ def _build_margin_group(
         )
         table_layout.addWidget(table)
         state["initialized"] = True
+
     _register_calculation_refresh(editor, refresh)
     refresh()
     layout.addStretch()
@@ -487,9 +358,7 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
         layout.addWidget(note)
         return
 
-    context_label = QLabel(
-        f"计算上下文：{context_title} ｜ 技能倍率统一按 100% ｜ 百分比内部按小数参与计算"
-    )
+    context_label = QLabel(f"计算上下文：{context_title} ｜ 技能倍率统一按 100% ｜ 百分比内部按小数参与计算")
     context_label.setStyleSheet("color:#8b949e;")
     context_label.setWordWrap(True)
     layout.addWidget(context_label)
@@ -535,9 +404,7 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     factor_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     for row_index, factor in enumerate(factors):
         value = float(factor["value"])
-        shown = "100%" if row_index == 0 else (
-            f"{value:.2f}" if row_index == 1 else f"× {value:.6f}"
-        )
+        shown = "100%" if row_index == 0 else (f"{value:.2f}" if row_index == 1 else f"× {value:.6f}")
         factor_table.setItem(row_index, 0, QTableWidgetItem(str(factor["name"])))
         factor_table.setItem(row_index, 1, QTableWidgetItem(shown))
         factor_table.setItem(row_index, 2, QTableWidgetItem(str(factor["detail"])))
@@ -552,9 +419,7 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     layout.addWidget(factor_table)
 
     values = [float(value) for value in breakdown["formula_values"]]
-    expression = " × ".join(
-        ["100%", f"{values[1]:.2f}", *(f"{value:.6f}" for value in values[2:])]
-    )
+    expression = " × ".join(["100%", f"{values[1]:.2f}", *(f"{value:.6f}" for value in values[2:])])
     final_label = QLabel(f"最终直伤 = {expression} = {float(breakdown['damage']):.2f}")
     final_label.setObjectName("officialRoleDamageFormulaResult")
     final_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")

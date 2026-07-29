@@ -9,6 +9,7 @@ import unicodedata
 from typing import Dict, List
 import hashlib
 from src.domain.stat_catalog import StatCatalog
+from src.integrations.bundled_resources import bundled_config_dir
 from src.utils.logger import logger
 from src.utils.exceptions import ConfigMissingError
 from src.utils.name_resolver import resolve_name
@@ -28,8 +29,8 @@ class DriveDataParser:
         "心灵": "心灵伤害增强",
     }
 
-    def __init__(self, config_dir: str = "config"):
-        self.config_dir = config_dir
+    def __init__(self, config_dir: str | os.PathLike[str] | None = None):
+        self.config_dir = str(config_dir if config_dir is not None else bundled_config_dir())
         self.stat_pattern = re.compile(r"([\u4e00-\u9fa5A-Za-z%]+?)(?:增加|提升)?\s*[+：:= ]*\s*([-+]?\d+(?:\.\d+)?)\s*(%?)")
         self.REAL_SETS_WHITE_LIST = self._load_sets_from_json()
         self.stat_catalog = self._load_stat_catalog()

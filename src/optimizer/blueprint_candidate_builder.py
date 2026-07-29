@@ -17,6 +17,8 @@ class BlueprintCandidateBuilder(BaseDispatchStrategy):
     def _shape_score_buckets(self, role, drives_pool, crit_config=None, include_extra_shape_bonus: bool = True):
         buckets = {}
         for drive in drives_pool or []:
+            if not self._item_allowed_for_role(drive, crit_config):
+                continue
             base_score = drive.role_scores.get(role, 0.0)
             rank_score = self._rank_score_for_drive(
                 role,
@@ -165,4 +167,3 @@ class BlueprintCandidateBuilder(BaseDispatchStrategy):
                 include_extra_shape_bonus=include_extra_shape_bonus,
             )
             yield from self._iter_ranked_bp_combos(ranked_role_bps)
-

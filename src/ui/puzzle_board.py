@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QRect
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from src.app import runtime
 from src.app.theme import current_theme_name
 
 
@@ -86,20 +85,3 @@ class PuzzleBoardWidget(QWidget):
                         painter.drawText(rect.adjusted(1, 1, 1, 1), Qt.AlignCenter, label)
                     painter.setPen(text_color)
                     painter.drawText(rect, Qt.AlignCenter, label)
-
-
-_shape_pixmaps: dict[tuple[str, str], QPixmap] = {}
-
-
-def get_shape_pixmap(shape_id: str, size=60, quality: str | None = None) -> QPixmap:
-    key = (shape_id, quality or "")
-    if key in _shape_pixmaps:
-        return _shape_pixmaps[key].scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    path = runtime.TEMPLATE_DIR / f"{shape_id}_{quality}.png" if quality else runtime.TEMPLATE_DIR / f"{shape_id}.png"
-    if quality and not path.exists():
-        path = runtime.TEMPLATE_DIR / f"{shape_id}.png"
-    if path.exists():
-        pixmap = QPixmap(str(path))
-        _shape_pixmaps[key] = pixmap
-        return pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    return QPixmap()

@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
+from src.integrations.bundled_resources import bundled_config_dir
 from src.scanner.batch_processor import BatchProcessor
-from src.features.inventory_import.duplicate_filter import RecoverableParseError
+from src.integrations.vision.duplicate_filter import RecoverableParseError
 from src.features.scanning.file_lifecycle import is_allowed_filename
 from src.utils.logger import logger
 from src.utils.perf import log_perf
@@ -36,14 +38,14 @@ class VisionWorkerThread(QThread):
         replace_output=False,
         parse_scope="all",
         skip_names=None,
-        config_dir="config",
+        config_dir: str | Path | None = None,
     ):
         super().__init__(parent)
         self.input_dir = input_dir
         self.replace_output = replace_output
         self.parse_scope = parse_scope
         self.skip_names = set(skip_names or [])
-        self.config_dir = config_dir
+        self.config_dir = Path(config_dir) if config_dir is not None else bundled_config_dir()
         self._cancel_requested = False
 
     def request_cancel(self):

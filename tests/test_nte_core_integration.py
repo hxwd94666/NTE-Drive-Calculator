@@ -1,11 +1,14 @@
 # 验证 nte-core 客户端的协议、事件分发和进程生命周期。
 import queue
 import sys
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 
 from src.integrations.nte_core import (
     NteCoreClient,
+    NteCoreNotFoundError,
     NteCoreProcessError,
     NteCoreProtocolError,
     NteCoreRpcError,
@@ -14,7 +17,9 @@ from src.integrations.nte_core import (
     inventory_item_placement,
     is_mods_plugin_busy_error,
     is_mods_plugin_unavailable_error,
+    resolve_nte_core_executable,
 )
+from src.integrations.nte_core_events import CoalescingEventQueue
 
 
 FAKE_CORE = r'''
@@ -144,7 +149,7 @@ for line in sys.stdin:
 '''
 
 
-def fake_client(script: str = FAKE_CORE, *, timeout: float = 1.0) -> NteCoreClient:
+def fake_client(script: str = FAKE_CORE, *, timeout: float = 2.0) -> NteCoreClient:
     return NteCoreClient(
         command=[sys.executable, "-u", "-c", script],
         client_version="test",
@@ -272,6 +277,12 @@ class NteCoreClientTests(unittest.TestCase):
                 {"items": [{"equipped_character_id": "1020"}]}
             )
 
+    def test_inventory_grouping_rejects_invalid_snapshot_shapes(self):
+        with self.assertRaisesRegex(NteCoreProtocolError, "items must be an array"):
+            group_inventory_items_by_character({"items": {}})
+        with self.assertRaisesRegex(NteCoreProtocolError, "item must be an object"):
+            group_inventory_items_by_character({"items": [None]})
+
     def test_inventory_placement_rejects_invalid_protocol_values(self):
         invalid = [
             {"equipped_placement": []},
@@ -358,6 +369,21 @@ class NteCoreClientTests(unittest.TestCase):
             client.equip_one_key(character=character, placements=[], core=equipment)
         with self.assertRaises(ValueError):
             client.set_item_locked(equipment=equipment, locked=1)
+        with self.assertRaisesRegex(ValueError, "item UID object"):
+            client.equip_module(
+                character=[],
+                equipment=equipment,
+                row=1,
+                column=1,
+            )
+
+    def test_explicit_core_executable_must_exist(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "nte-core.exe"
+            executable.write_bytes(b"test")
+            self.assertEqual(resolve_nte_core_executable(executable), executable.resolve())
+            with self.assertRaises(NteCoreNotFoundError):
+                resolve_nte_core_executable(Path(temporary) / "missing.exe")
 
     def test_polling_coalesces_battle_summaries_and_preserves_reliable_order(self):
         with fake_client() as client:
@@ -415,6 +441,27 @@ class NteCoreClientTests(unittest.TestCase):
         with fake_client() as client:
             with self.assertRaises(queue.Empty):
                 client.get_event(timeout=0.01)
+
+    def test_event_queue_blocking_get_wakes_when_an_event_arrives(self):
+        events = CoalescingEventQueue()
+        expected = {"method": "event.test"}
+
+        class WakingCondition:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def wait(self):
+                events._items.append(expected)
+
+        events._condition = WakingCondition()
+        self.assertEqual(events.get(), {"method": "event.test"})
+
+    def test_event_queue_rejects_negative_timeout(self):
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            CoalescingEventQueue().get(timeout=-0.1)
 
 
 if __name__ == "__main__":

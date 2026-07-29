@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractButton,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -16,8 +19,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.app import runtime
 from src.app.workers import WorkerThread
+from src.observability.context import OperationContext
+from src.observability.operation import log_event
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
     deploy_plugin,
@@ -36,13 +40,24 @@ from src.services.nte_core_diagnostics import (
     collect_nte_core_diagnostics,
     format_nte_core_diagnostics,
 )
-from src.ui.main_window_method_install import install_methods as _install_main_window_methods
-
-_METHOD_NAMES = ["_refresh_equipment_plugin_status","_select_equipment_plugin_game_executable","_detect_equipment_plugin_game_executable","_open_npcap_download","_show_npcap_status","_diagnose_nte_core","_show_nte_core_diagnostic_report","_diagnose_dwmapi","_show_dwmapi_diagnostic_report","_deploy_equipment_plugin","_restore_equipment_plugin","_focus_environment_configuration"]
 
 
-def install_methods(app_module, window_cls) -> None:
-    _install_main_window_methods(app_module, window_cls, _METHOD_NAMES, globals())
+def _new_environment_operation(
+    self: Any,
+    feature: str,
+) -> OperationContext:
+    app_context = getattr(self, "app_context", None)
+    return OperationContext.create(
+        feature,
+        account_id=(
+            app_context.account.active_account_id
+            if app_context is not None
+            else None
+        ),
+        context_generation=(
+            app_context.generation if app_context is not None else None
+        ),
+    )
 
 
 def _refresh_equipment_plugin_status(self):
@@ -60,8 +75,8 @@ def _refresh_equipment_plugin_status(self):
     if executable is None:
         return
     try:
-        bundled_plugin = packaged_plugin_dll(runtime.ROOT)
-        packaged_mod_workspace(runtime.ROOT)
+        bundled_plugin = packaged_plugin_dll(self.app_context.paths.root)
+        packaged_mod_workspace(self.app_context.paths.root)
         if bundle_label is not None:
             bundle_label.setText(f"打包插件与 Mod 脚本：{bundled_plugin}")
     except EquipmentPluginDeploymentError:
@@ -93,12 +108,26 @@ def _detect_equipment_plugin_game_executable(self):
         button.setText("正在检测…")
     worker = WorkerThread(target=find_game_executables, parent=self)
     self._equipment_plugin_detection_worker = worker
+    operation = _new_environment_operation(self, "game_detection")
+    log_event(
+        "INFO",
+        "environment.game_detection_started",
+        "开始自动检测游戏位置",
+        operation,
+    )
 
     def finish(candidates):
         if button is not None:
             button.setEnabled(True)
             button.setText("自动检测")
         choices = [str(path) for path in candidates]
+        log_event(
+            "INFO",
+            "environment.game_detection_succeeded",
+            "自动检测游戏位置完成",
+            operation,
+            candidate_count=len(choices),
+        )
         if not choices:
             QMessageBox.information(
                 self,
@@ -124,6 +153,13 @@ def _detect_equipment_plugin_game_executable(self):
         if button is not None:
             button.setEnabled(True)
             button.setText("自动检测")
+        log_event(
+            "ERROR",
+            "environment.game_detection_failed",
+            "自动检测游戏位置失败",
+            operation,
+            error=error,
+        )
         QMessageBox.warning(
             self,
             "检测游戏位置",
@@ -165,9 +201,19 @@ def _diagnose_nte_core(self):
         button.setEnabled(False)
         button.setText("诊断中…")
     worker = WorkerThread(
-        target=lambda: collect_nte_core_diagnostics(cwd=runtime.APP_DIR), parent=self
+        target=lambda: collect_nte_core_diagnostics(
+            cwd=self.app_context.paths.app_dir
+        ),
+        parent=self,
     )
     self._nte_core_diagnostic_worker = worker
+    operation = _new_environment_operation(self, "nte_core_diagnostics")
+    log_event(
+        "INFO",
+        "environment.nte_core_diagnostics_started",
+        "开始诊断 nte-core",
+        operation,
+    )
 
     def finish(result):
         if button is not None:
@@ -175,6 +221,14 @@ def _diagnose_nte_core(self):
             button.setText("诊断 nte-core")
         detected = result.get("capture_detect")
         devices = capture_device_names(detected) if isinstance(detected, dict) else []
+        log_event(
+            "INFO",
+            "environment.nte_core_diagnostics_succeeded",
+            "nte-core 诊断完成",
+            operation,
+            capture_device_count=len(devices),
+            diagnostic_section_count=len(result),
+        )
         self._show_nte_core_diagnostic_report(
             format_nte_core_diagnostics(result), devices
         )
@@ -183,6 +237,13 @@ def _diagnose_nte_core(self):
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 nte-core")
+        log_event(
+            "ERROR",
+            "environment.nte_core_diagnostics_failed",
+            "nte-core 诊断失败",
+            operation,
+            error=error,
+        )
         QMessageBox.warning(self, "nte-core 诊断", f"诊断程序执行失败：{error}")
 
     worker.result_ready.connect(finish)
@@ -191,8 +252,10 @@ def _diagnose_nte_core(self):
 
 
 def _show_nte_core_diagnostic_report(
-    self, report: str, devices: list[str] | None = None
-):
+    self: Any,
+    report: str,
+    devices: list[str] | None = None,
+) -> None:
     dialog = QDialog(self)
     dialog.setWindowTitle("nte-core 诊断结果")
     dialog.resize(720, 510)
@@ -206,7 +269,10 @@ def _show_nte_core_diagnostic_report(
     layout.addWidget(content, 1)
     actions = QDialogButtonBox(QDialogButtonBox.Close, parent=dialog)
     if devices:
-        select_device_button = actions.addButton("选择可用网卡", QDialogButtonBox.ActionRole)
+        select_device_button = cast(
+            QAbstractButton,
+            actions.addButton("选择可用网卡", QDialogButtonBox.ActionRole),
+        )
 
         def select_capture_device() -> None:
             selected, accepted = QInputDialog.getItem(
@@ -235,7 +301,10 @@ def _show_nte_core_diagnostic_report(
             )
 
         select_device_button.clicked.connect(select_capture_device)
-    copy_button = actions.addButton("复制诊断", QDialogButtonBox.ActionRole)
+    copy_button = cast(
+        QAbstractButton,
+        actions.addButton("复制诊断", QDialogButtonBox.ActionRole),
+    )
     copy_button.clicked.connect(lambda: QApplication.clipboard().setText(report))
     actions.rejected.connect(dialog.reject)
     layout.addWidget(actions)
@@ -257,7 +326,7 @@ def _diagnose_dwmapi(self):
     worker = WorkerThread(
         target=lambda: collect_dwmapi_diagnostics(
             game_executable_path=executable,
-            application_root=runtime.ROOT,
+            application_root=self.app_context.paths.root,
             recorded_deployed_sha256=str(
                 preferences.get("equipment_plugin_deployed_sha256") or ""
             ),
@@ -268,17 +337,39 @@ def _diagnose_dwmapi(self):
         parent=self,
     )
     self._dwmapi_diagnostic_worker = worker
+    operation = _new_environment_operation(self, "dwmapi_diagnostics")
+    log_event(
+        "INFO",
+        "environment.dwmapi_diagnostics_started",
+        "开始诊断装备插件",
+        operation,
+        game_executable_configured=bool(executable),
+    )
 
     def finish(result):
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 dwmapi")
+        log_event(
+            "INFO",
+            "environment.dwmapi_diagnostics_succeeded",
+            "装备插件诊断完成",
+            operation,
+            diagnostic_section_count=len(result),
+        )
         self._show_dwmapi_diagnostic_report(format_dwmapi_diagnostics(result))
 
     def failed(error):
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 dwmapi")
+        log_event(
+            "ERROR",
+            "environment.dwmapi_diagnostics_failed",
+            "装备插件诊断失败",
+            operation,
+            error=error,
+        )
         QMessageBox.warning(self, "dwmapi 诊断", f"诊断程序执行失败：{error}")
 
     worker.result_ready.connect(finish)
@@ -286,7 +377,7 @@ def _diagnose_dwmapi(self):
     worker.start()
 
 
-def _show_dwmapi_diagnostic_report(self, report: str):
+def _show_dwmapi_diagnostic_report(self: Any, report: str) -> None:
     dialog = QDialog(self)
     dialog.setWindowTitle("dwmapi 装备插件诊断结果")
     dialog.resize(760, 540)
@@ -299,7 +390,10 @@ def _show_dwmapi_diagnostic_report(self, report: str):
     content.setPlainText(report)
     layout.addWidget(content, 1)
     actions = QDialogButtonBox(QDialogButtonBox.Close, parent=dialog)
-    copy_button = actions.addButton("复制诊断", QDialogButtonBox.ActionRole)
+    copy_button = cast(
+        QAbstractButton,
+        actions.addButton("复制诊断", QDialogButtonBox.ActionRole),
+    )
     copy_button.clicked.connect(lambda: QApplication.clipboard().setText(report))
     actions.rejected.connect(dialog.reject)
     layout.addWidget(actions)
@@ -316,8 +410,8 @@ def _deploy_equipment_plugin(self):
         return
     executable = self._equipment_plugin_game_executable_edit.text().strip()
     try:
-        source = packaged_plugin_dll(runtime.ROOT)
-        workspace_source = packaged_mod_workspace(runtime.ROOT)
+        source = packaged_plugin_dll(self.app_context.paths.root)
+        workspace_source = packaged_mod_workspace(self.app_context.paths.root)
     except EquipmentPluginDeploymentError as exc:
         QMessageBox.warning(self, "部署装备插件", str(exc))
         return
@@ -334,13 +428,24 @@ def _deploy_equipment_plugin(self):
         QMessageBox.No,
     ) != QMessageBox.Yes:
         return
+    operation = _new_environment_operation(self, "equipment_plugin")
+    log_event(
+        "INFO",
+        "environment.plugin_deploy_started",
+        "开始部署装备插件",
+        operation,
+        game_executable_configured=bool(executable),
+    )
     try:
         deployed = deploy_plugin(
             game_executable_path=executable,
             plugin_dll_path=source,
-            application_root=runtime.ROOT,
-            writable_workspace_path=runtime.DATA_ROOT / "plugins",
-            backup_directory=runtime.ACCOUNT_DATA_ROOT / "equipment_plugin_backups",
+            application_root=self.app_context.paths.root,
+            writable_workspace_path=self.app_context.paths.data_root / "plugins",
+            backup_directory=(
+                self.app_context.account.account_data_root
+                / "equipment_plugin_backups"
+            ),
         )
         prior_workspace = str(
             self._ui_preferences.get("equipment_plugin_workspace") or ""
@@ -372,6 +477,14 @@ def _deploy_equipment_plugin(self):
             "equipment_plugin_workspace_registry_value_existed": registry_value_existed,
         })
         self._save_ui_preferences()
+        log_event(
+            "INFO",
+            "environment.plugin_deploy_succeeded",
+            "装备插件部署完成",
+            operation,
+            backup_created=bool(deployed.backup_path),
+            registry_value_existed=bool(registry_value_existed),
+        )
         self._equipment_plugin_status_label.setText("最新版 Mod 插件与装备脚本已部署；退出游戏前可在此还原。")
         QMessageBox.information(
             self,
@@ -379,6 +492,13 @@ def _deploy_equipment_plugin(self):
             f"已部署 dwmapi.dll，并注册 Mod 工作区：\n{deployed.workspace_path}",
         )
     except EquipmentPluginDeploymentError as exc:
+        log_event(
+            "ERROR",
+            "environment.plugin_deploy_failed",
+            "装备插件部署失败",
+            operation,
+            error=exc,
+        )
         QMessageBox.warning(self, "部署装备插件", str(exc))
 
 def _restore_equipment_plugin(self):
@@ -395,6 +515,14 @@ def _restore_equipment_plugin(self):
         QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
     ) != QMessageBox.Yes:
         return
+    operation = _new_environment_operation(self, "equipment_plugin")
+    log_event(
+        "INFO",
+        "environment.plugin_restore_started",
+        "开始还原装备插件",
+        operation,
+        backup_configured=bool(preferences.get("equipment_plugin_backup_path")),
+    )
     try:
         workspace_restored = restore_plugin(
             game_executable_path=executable,
@@ -416,6 +544,13 @@ def _restore_equipment_plugin(self):
             "equipment_plugin_workspace_registry_value_existed": False,
         })
         self._save_ui_preferences()
+        log_event(
+            "INFO",
+            "environment.plugin_restore_succeeded",
+            "装备插件还原完成",
+            operation,
+            workspace_restored=bool(workspace_restored),
+        )
         self._equipment_plugin_status_label.setText("已还原游戏目录中的 dwmapi.dll。")
         QMessageBox.information(
             self,
@@ -428,6 +563,13 @@ def _restore_equipment_plugin(self):
             ),
         )
     except EquipmentPluginDeploymentError as exc:
+        log_event(
+            "ERROR",
+            "environment.plugin_restore_failed",
+            "装备插件还原失败",
+            operation,
+            error=exc,
+        )
         QMessageBox.warning(self, "还原装备插件", str(exc))
 
 def _focus_environment_configuration(self):
@@ -436,3 +578,18 @@ def _focus_environment_configuration(self):
     card = getattr(self, "_environment_configuration_card", None)
     if scroll is not None and card is not None:
         QTimer.singleShot(0, lambda: scroll.verticalScrollBar().setValue(card.y()))
+
+
+class EnvironmentControllerMixin:
+    _refresh_equipment_plugin_status = _refresh_equipment_plugin_status
+    _select_equipment_plugin_game_executable = _select_equipment_plugin_game_executable
+    _detect_equipment_plugin_game_executable = _detect_equipment_plugin_game_executable
+    _open_npcap_download = _open_npcap_download
+    _show_npcap_status = _show_npcap_status
+    _diagnose_nte_core = _diagnose_nte_core
+    _show_nte_core_diagnostic_report = _show_nte_core_diagnostic_report
+    _diagnose_dwmapi = _diagnose_dwmapi
+    _show_dwmapi_diagnostic_report = _show_dwmapi_diagnostic_report
+    _deploy_equipment_plugin = _deploy_equipment_plugin
+    _restore_equipment_plugin = _restore_equipment_plugin
+    _focus_environment_configuration = _focus_environment_configuration

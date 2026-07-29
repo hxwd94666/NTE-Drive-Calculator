@@ -5,7 +5,24 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+
+def configure_utf8_console() -> None:
+    """Use UTF-8 for Chinese build output on Windows legacy code pages."""
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
+
+
+configure_utf8_console()
 
 
 def running_in_automation() -> bool:

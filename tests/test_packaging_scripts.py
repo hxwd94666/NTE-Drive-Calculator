@@ -69,6 +69,8 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn('config\\stats.json"; DestDir: "{app}\\config"; Flags: ignoreversion', text)
         self.assertNotIn("replacecoreconfig", text)
         self.assertNotIn("BackupCoreConfigBeforeReplace", text)
+        self.assertIn("game_static.previous.sqlite3", text)
+        self.assertIn("FileCopy(OldStaticDatabase, MigrationBackup, False)", text)
 
     def test_installer_rejects_bundle_missing_runtime_data_files(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -82,6 +84,10 @@ class PackagingScriptTests(unittest.TestCase):
             combat_clock_mod = internal / "plugins/nte-mods/combat-clock.nte"
             schema = internal / "src/storage/sqlite/schema/001_user_data.sql"
             static_database = internal / "data/game_static.sqlite3"
+            static_manifest = internal / "data/manifest.json"
+            shape_bonus_baseline = (
+                internal / "data/migrations/shape_bonus_defaults_2.0.2.json"
+            )
             app_exe.touch()
             core.parent.mkdir(parents=True)
             core.touch()
@@ -95,6 +101,9 @@ class PackagingScriptTests(unittest.TestCase):
             schema.touch()
             static_database.parent.mkdir(parents=True)
             static_database.touch()
+            static_manifest.touch()
+            shape_bonus_baseline.parent.mkdir(parents=True)
+            shape_bonus_baseline.touch()
 
             with (
                 patch.object(build_installer, "APP_EXE", app_exe),
@@ -106,6 +115,12 @@ class PackagingScriptTests(unittest.TestCase):
                 patch.object(build_installer, "APP_COMBAT_CLOCK_MOD", combat_clock_mod),
                 patch.object(build_installer, "APP_USER_SCHEMA", schema),
                 patch.object(build_installer, "APP_STATIC_DATABASE", static_database),
+                patch.object(build_installer, "APP_STATIC_MANIFEST", static_manifest),
+                patch.object(
+                    build_installer,
+                    "APP_SHAPE_BONUS_BASELINE",
+                    shape_bonus_baseline,
+                ),
             ):
                 build_installer._validate_app_bundle()
                 static_database.unlink()
@@ -131,24 +146,29 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn('"SOURCE.md"', source)
         self.assertIn('ROOT / "NOTICE"', source)
         self.assertIn('STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"', source)
+        self.assertIn('STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"', source)
+        self.assertIn('STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"', source)
         self.assertIn('_required_build_file("发行版静态数据库", STATIC_DATABASE_PATH)', source)
+        self.assertIn('_required_build_file("发行版静态数据库清单", STATIC_MANIFEST_PATH)', source)
         self.assertIn('_append_add_data(static_database_path, "data")', source)
+        self.assertIn('_append_add_data(STATIC_MIGRATION_DATA_DIR, "data/migrations")', source)
 
-        workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-        self.assertNotIn("NTE_GAME_STATIC_DB_URL", workflow)
+    def test_windows_validator_is_not_part_of_runtime_packaging(self):
+        packaging_sources = (
+            Path("build_exe.py").read_text(encoding="utf-8"),
+            Path("NTE_Drive_Calc.spec").read_text(encoding="utf-8"),
+            Path("installer/NTE_Drive_Calc.iss").read_text(encoding="utf-8-sig"),
+        )
+
+        for source in packaging_sources:
+            with self.subTest(source=source[:40]):
+                self.assertNotIn("windows_validation", source)
 
     def test_installer_prefers_the_organized_vigembus_location(self):
         source = Path("build_installer.py").read_text(encoding="utf-8")
 
         self.assertIn('THIRD_PARTY_DIR / "vigembus" / "bin"', source)
         self.assertIn("LEGACY_VIGEM_BUNDLE_EXE", source)
-
-    def test_release_workflow_uses_the_committed_nte_core_component(self):
-        workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-
-        self.assertNotIn("NTE_CORE_RELEASE_TAG", workflow)
-        self.assertNotIn("nte-core-windows-x64.zip", workflow)
-        self.assertIn("actions/checkout@v7", workflow)
 
     def test_committed_nte_core_binary_has_redistribution_records(self):
         component_dir = Path("third_party/nte-core")
@@ -164,16 +184,6 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertTrue((mods_component_dir / "workspace" / "nte-mods" / "combat-clock.nte").is_file())
         self.assertTrue((mods_component_dir / "LICENSE").is_file())
         self.assertTrue((mods_component_dir / "SOURCE.md").is_file())
-
-    def test_release_workflow_supports_manual_release_publish(self):
-        workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-
-        self.assertIn("publish_release:", workflow)
-        self.assertIn("release_tag:", workflow)
-        self.assertIn("github.event.inputs.publish_release", workflow)
-        self.assertIn("gh release create $tag", workflow)
-        self.assertIn("--target $env:GITHUB_SHA", workflow)
-
 
 if __name__ == "__main__":
     unittest.main()

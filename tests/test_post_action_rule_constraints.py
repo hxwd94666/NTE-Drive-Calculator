@@ -2,8 +2,8 @@
 import unittest
 
 from src.domain.stat_catalog import StatCatalog
-from src.features.scanning.post_actions import (
-    _preserve_rule_matches_item,
+from src.domain.post_actions import (
+    preserve_rule_matches_item,
     default_post_action_config,
     validate_post_action_config,
 )
@@ -85,9 +85,9 @@ class PostActionRuleConstraintTests(unittest.TestCase):
             "required_sub_stats": ["攻击力"],
             "sub_match": 2,
         }
-        self.assertTrue(_preserve_rule_matches_item(drive, rule))
+        self.assertTrue(preserve_rule_matches_item(drive, rule))
         rule["required_sub_stats"] = ["暴击伤害%"]
-        self.assertFalse(_preserve_rule_matches_item(drive, rule))
+        self.assertFalse(preserve_rule_matches_item(drive, rule))
 
     def test_required_stat_outside_match_pool_never_matches(self):
         drive = Drive(
@@ -107,7 +107,7 @@ class PostActionRuleConstraintTests(unittest.TestCase):
             "required_sub_stats": ["C"],
             "sub_match": 2,
         }
-        self.assertFalse(_preserve_rule_matches_item(drive, rule))
+        self.assertFalse(preserve_rule_matches_item(drive, rule))
 
 
 if __name__ == "__main__":

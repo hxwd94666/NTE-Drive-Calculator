@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.features.inventory.warehouse import WarehouseResultCard
+from src.features.inventory.warehouse_result_card import WarehouseResultCard
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +52,7 @@ def _stat_numeric_value(stat: Mapping[str, Any] | None) -> float:
         return 0.0
 
 
-def _comparison_item_views(
+def comparison_item_views(
     current: Mapping[str, Any],
     selected: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -218,7 +218,7 @@ def show_equipment_replacement_dialog(
         selected[0] = choice
         for key, card in candidate_widgets.items():
             card.set_selected(key == choice.key)
-        current_view, selected_view = _comparison_item_views(
+        current_view, selected_view = comparison_item_views(
             current.item_view,
             choice.item_view,
         )

@@ -1,6 +1,7 @@
 # 校验仓库视图的官方快照投影与轻量筛选。
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -8,6 +9,86 @@ ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
 
 
 class WarehouseInventoryTests(unittest.TestCase):
+    def test_warehouse_state_progress_dialog_reports_worker_phase(self):
+        from PySide6.QtWidgets import QApplication, QWidget
+
+        from src.features.inventory.warehouse_progress import (
+            close_warehouse_state_progress,
+            show_warehouse_state_progress,
+        )
+
+        app = QApplication.instance() or QApplication([])
+        window = QWidget()
+        report = show_warehouse_state_progress(window, change_count=2)
+
+        report("修改指令已全部提交，正在等待游戏产生新的完整背包快照…")
+        window._warehouse_state_progress_timer.timeout.emit()
+
+        dialog = window._warehouse_state_progress_dialog
+        self.assertEqual("仓库状态修改进度", dialog.windowTitle())
+        self.assertIn("正在等待游戏", dialog.labelText())
+        self.assertEqual(0, dialog.minimum())
+        self.assertEqual(0, dialog.maximum())
+
+        close_warehouse_state_progress(window)
+        self.assertIsNone(window._warehouse_state_progress_dialog)
+        app.processEvents()
+
+    def test_new_snapshot_is_deferred_while_state_change_worker_is_running(self):
+        from src.features.inventory.warehouse_controller import (
+            _on_warehouse_sync_state,
+        )
+
+        class Hint:
+            def __init__(self):
+                self.text = ""
+                self.visible = False
+
+            def setText(self, text):
+                self.text = text
+
+            def show(self):
+                self.visible = True
+
+        class Worker:
+            def __init__(self, running):
+                self.running = running
+
+            def isRunning(self):
+                return self.running
+
+        class Window:
+            warehouse_model = object()
+            _warehouse_snapshot_id = 7
+            _warehouse_pending_state_changes = {}
+
+            def __init__(self):
+                self._warehouse_state_worker = Worker(True)
+                self.warehouse_hint = Hint()
+                self.refresh_count = 0
+
+            def _refresh_warehouse(self):
+                self.refresh_count += 1
+
+        window = Window()
+        _on_warehouse_sync_state(
+            window,
+            SimpleNamespace(phase="listening", last_snapshot_id=8),
+        )
+
+        self.assertEqual(8, window._warehouse_deferred_snapshot_id)
+        self.assertEqual(0, window.refresh_count)
+        self.assertTrue(window.warehouse_hint.visible)
+
+        window._warehouse_state_worker = Worker(False)
+        _on_warehouse_sync_state(
+            window,
+            SimpleNamespace(phase="listening", last_snapshot_id=9),
+        )
+
+        self.assertEqual(9, window._warehouse_deferred_snapshot_id)
+        self.assertEqual(1, window.refresh_count)
+
     def test_core_and_module_use_distinct_packaged_item_images(self):
         from src.features.inventory.warehouse import warehouse_item_view
 
@@ -66,7 +147,7 @@ class WarehouseInventoryTests(unittest.TestCase):
 
     def test_scan_dual_thread_and_amd_controls_remain_mutually_exclusive(self):
         from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
-        from src.features.allocation.execute_page import _build_scan_processing_options
+        from src.features.allocation.execute_page import build_scan_processing_options
 
         app = QApplication.instance() or QApplication([])
 
@@ -83,7 +164,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         window = Window()
         card = QWidget()
         QVBoxLayout(card)
-        _build_scan_processing_options(window, card, lambda *_args: None)
+        build_scan_processing_options(window, card, lambda *_args: None)
         window.scan_amd_compat_check.setChecked(True)
         self.assertFalse(window.scan_dual_thread_check.isChecked())
         window.scan_dual_thread_check.setChecked(True)
@@ -177,10 +258,10 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual([equipped["uid"]], [item["uid"] for item in filter_warehouse_items([equipped, other], character_id=1051)])
 
     def test_role_avatar_name_normalizes_display_and_template_suffixes(self):
-        from src.features.inventory.warehouse import _ROLE_AVATAR_ALIASES, _normalize_role_avatar_name
+        from src.features.inventory.warehouse import ROLE_AVATAR_ALIASES, normalize_role_avatar_name
 
-        self.assertEqual(_normalize_role_avatar_name("「零」"), _normalize_role_avatar_name("零（男主）"))
-        self.assertEqual("主角", _ROLE_AVATAR_ALIASES["零"])
+        self.assertEqual(normalize_role_avatar_name("「零」"), normalize_role_avatar_name("零（男主）"))
+        self.assertEqual("主角", ROLE_AVATAR_ALIASES["零"])
 
     def test_linked_type_options_follow_selected_category(self):
         from src.features.inventory.warehouse import (

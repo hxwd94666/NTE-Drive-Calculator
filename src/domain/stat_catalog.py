@@ -47,7 +47,7 @@ class StatCatalog:
     weight_pool: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_config_dir(cls, config_dir: str | Path = "config") -> "StatCatalog":
+    def from_config_dir(cls, config_dir: str | Path) -> "StatCatalog":
         data = read_json(Path(config_dir) / "stats.json", default={}) or {}
         return cls(
             gold_base_values=data.get("gold_base_values", {}) or {},

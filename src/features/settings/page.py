@@ -8,6 +8,8 @@ folders. MainWindow still owns all callbacks.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.constants import BILIBILI_HOME_URL, NETDISK_DOWNLOAD_LINKS
+from src.app.context import AppContext
 from src.app.theme import THEME_LABELS, themed_style
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
 
@@ -48,7 +51,244 @@ def refresh_account_scoped_settings(window) -> None:
         edit.blockSignals(False)
 
 
-def build_settings_page(window, app_version, get_paths, iter_image_files, netdisk_links=None):
+@dataclass(frozen=True)
+class SettingsPaths:
+    config_dir: Path
+    accounts_dir: Path
+    log_dir: Path
+    screenshot_dir: Path
+
+
+def _settings_paths(context: AppContext) -> SettingsPaths:
+    return SettingsPaths(
+        config_dir=context.paths.config_dir,
+        accounts_dir=context.paths.accounts_dir,
+        log_dir=context.account.log_dir,
+        screenshot_dir=context.account.screenshot_dir,
+    )
+
+
+def _build_sync_card(window):
+    card = window._card("背包同步")
+    description = QLabel(
+        "流式同步会在背包内容连续数秒没有变化后写入 SQLite，并继续后台监听。"
+        "原始诊断文件默认关闭。"
+    )
+    description.setWordWrap(True)
+    description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+    card.layout().addWidget(description)
+    form = QFormLayout()
+    form.setSpacing(10)
+
+    settings_reader = getattr(window, "_get_sync_settings", None)
+    settings = settings_reader() if callable(settings_reader) else {}
+    if not settings:
+        raise RuntimeError("无法读取静态数据库中的设置默认值。")
+    window._sync_inventory_method_combo = NoWheelComboBox()
+    window._sync_inventory_method_combo.addItem("本地核心组件流式同步", "nte_core")
+    window._sync_inventory_method_combo.addItem("手柄扫描", "gamepad")
+    inventory_index = window._sync_inventory_method_combo.findData(
+        settings["inventory_sync_method"]
+    )
+    window._sync_inventory_method_combo.setCurrentIndex(max(0, inventory_index))
+    form.addRow("背包获取方式:", window._sync_inventory_method_combo)
+
+    window._sync_settle_spin = NoWheelDoubleSpinBox()
+    window._sync_settle_spin.setRange(1.0, 30.0)
+    window._sync_settle_spin.setDecimals(1)
+    window._sync_settle_spin.setSingleStep(0.5)
+    window._sync_settle_spin.setSuffix(" 秒")
+    window._sync_settle_spin.setValue(float(settings["inventory_settle_seconds"]))
+    form.addRow("内容稳定等待:", window._sync_settle_spin)
+
+    window._snapshot_retention_spin = NoWheelSpinBox()
+    window._snapshot_retention_spin.setRange(1, 365)
+    window._snapshot_retention_spin.setValue(
+        int(settings["inventory_snapshot_retention_count"])
+    )
+    window._snapshot_retention_spin.setSuffix(" 份")
+    window._snapshot_retention_spin.setToolTip(
+        "始终保留当前快照和已保存装配方案引用的快照。"
+    )
+    form.addRow("历史快照保留:", window._snapshot_retention_spin)
+
+    window._sync_capture_device_edit = QLineEdit()
+    window._sync_capture_device_edit.setPlaceholderText("留空表示自动选择网卡")
+    window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
+    form.addRow("抓取网卡:", window._sync_capture_device_edit)
+
+    window._sync_auto_start_toggle = QCheckBox("软件启动后自动在后台等待背包")
+    window._sync_auto_start_toggle.setChecked(
+        bool(settings["auto_start_inventory_sync"])
+    )
+    form.addRow("自动启动:", window._sync_auto_start_toggle)
+
+    window._sync_raw_capture_toggle = QCheckBox(
+        "保存原始抓包（.pcapng，排错时才开启）"
+    )
+    window._sync_raw_capture_toggle.setChecked(
+        bool(settings["raw_capture_enabled"])
+    )
+    window._sync_raw_capture_toggle.setToolTip(
+        "文件仅保存到当前账号的 logs/nte_core/raw_capture。"
+        "停止同步后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
+        "正在写入和最新的一份不会被删除。"
+    )
+    raw_capture_row = QHBoxLayout()
+    raw_capture_row.addWidget(window._sync_raw_capture_toggle)
+    raw_capture_open_button = QPushButton("打开抓包目录")
+    raw_capture_open_handler = getattr(window, "_open_raw_capture_directory", None)
+    if callable(raw_capture_open_handler):
+        raw_capture_open_button.clicked.connect(raw_capture_open_handler)
+    else:
+        raw_capture_open_button.setEnabled(False)
+    raw_capture_row.addWidget(raw_capture_open_button)
+    raw_capture_row.addStretch()
+    form.addRow("诊断抓包:", raw_capture_row)
+    card.layout().addLayout(form)
+
+    save_button = QPushButton("保存同步设置")
+    save_button.setObjectName("btnPrimary")
+    save_handler = getattr(window, "_save_sync_settings", None)
+    if callable(save_handler):
+        save_button.clicked.connect(save_handler)
+    else:
+        save_button.setEnabled(False)
+        save_button.setToolTip("当前页面宿主未启用 SQLite 同步设置")
+    prune_button = QPushButton("清理历史快照")
+    prune_button.setObjectName("btnDanger")
+    prune_handler = getattr(window, "_prune_inventory_snapshots", None)
+    if callable(prune_handler):
+        prune_button.clicked.connect(prune_handler)
+    else:
+        prune_button.setEnabled(False)
+        prune_button.setToolTip("当前页面宿主未启用 SQLite 快照维护")
+    window._prune_snapshots_button = prune_button
+    actions = QHBoxLayout()
+    actions.addWidget(save_button)
+    actions.addWidget(prune_button)
+    actions.addStretch()
+    card.layout().addLayout(actions)
+    return card
+
+
+def _build_environment_card(window):
+    card = window._card("环境配置")
+    window._environment_configuration_card = card
+    npcap_title = QLabel("Npcap · 背包同步必需")
+    npcap_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
+    card.layout().addWidget(npcap_title)
+    npcap_description = QLabel(
+        "<b>简单原理：</b>Npcap 读取本机的游戏网络数据，用来识别背包内容，不会代替玩家操作游戏。"
+        "<br><span style='color:#d29922'><b>风险提示：</b>这属于网络抓包，有一定的使用风险；"
+        "诊断抓包文件可能包含网络或账号相关数据，请勿随意公开。</span>"
+    )
+    npcap_description.setTextFormat(Qt.RichText)
+    npcap_description.setWordWrap(True)
+    npcap_description.setStyleSheet(
+        themed_style("color:#8b949e;font-size:12px")
+    )
+    card.layout().addWidget(npcap_description)
+    npcap_row = QHBoxLayout()
+    npcap_install_button = QPushButton("下载 Npcap 1.88")
+    npcap_install_button.clicked.connect(window._open_npcap_download)
+    npcap_row.addWidget(npcap_install_button)
+    npcap_status_button = QPushButton("检测 Npcap 状态")
+    npcap_status_button.clicked.connect(window._show_npcap_status)
+    npcap_row.addWidget(npcap_status_button)
+    window._nte_core_diagnostic_button = QPushButton("诊断 nte-core")
+    window._nte_core_diagnostic_button.clicked.connect(window._diagnose_nte_core)
+    npcap_row.addWidget(window._nte_core_diagnostic_button)
+    npcap_row.addStretch()
+    card.layout().addLayout(npcap_row)
+
+    equipment_title = QLabel("装备插件 · 极速装配必需")
+    equipment_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
+    card.layout().addWidget(equipment_title)
+    equipment_description = QLabel(
+        "<b>简单原理：</b>极速装配会把 dwmapi.dll 放入游戏目录，由游戏加载后通过装备 Mod 脚本"
+        "调用或 Hook 游戏内部功能，直接发送装备指令。"
+        "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
+        "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
+    )
+    equipment_description.setTextFormat(Qt.RichText)
+    equipment_description.setWordWrap(True)
+    equipment_description.setStyleSheet(
+        themed_style("color:#8b949e;font-size:12px")
+    )
+    card.layout().addWidget(equipment_description)
+    form = QFormLayout()
+    window._equipment_plugin_game_executable_edit = QLineEdit()
+    window._equipment_plugin_game_executable_edit.setPlaceholderText(
+        "可手动粘贴 HTGame.exe 的完整文件地址"
+    )
+    window._equipment_plugin_game_executable_edit.setText(
+        str(
+            (getattr(window, "_ui_preferences", {}) or {}).get(
+                "equipment_plugin_game_executable"
+            )
+            or ""
+        )
+    )
+    window._equipment_plugin_game_executable_edit.textChanged.connect(
+        lambda _text: window._refresh_equipment_plugin_status()
+    )
+    game_picker = QPushButton("选择 HTGame.exe")
+    game_picker.clicked.connect(window._select_equipment_plugin_game_executable)
+    game_row = QHBoxLayout()
+    game_row.addWidget(window._equipment_plugin_game_executable_edit, 1)
+    game_row.addWidget(game_picker)
+    window._equipment_plugin_detect_button = QPushButton("自动检测")
+    window._equipment_plugin_detect_button.clicked.connect(
+        window._detect_equipment_plugin_game_executable
+    )
+    game_row.addWidget(window._equipment_plugin_detect_button)
+    form.addRow("游戏主程序:", game_row)
+    card.layout().addLayout(form)
+
+    consent_row = QHBoxLayout()
+    window._equipment_plugin_consent = QCheckBox(
+        "我已阅读并理解上述风险，仍自愿使用装备插件并承担相应风险"
+    )
+    window._equipment_plugin_consent.setStyleSheet(
+        themed_style("color:#d29922;font-weight:600")
+    )
+    consent_row.addWidget(window._equipment_plugin_consent)
+    window._dwmapi_diagnostic_button = QPushButton("诊断 dwmapi")
+    window._dwmapi_diagnostic_button.clicked.connect(window._diagnose_dwmapi)
+    consent_row.addWidget(window._dwmapi_diagnostic_button)
+    consent_row.addStretch()
+    card.layout().addLayout(consent_row)
+    window._equipment_plugin_status_label = QLabel()
+    window._equipment_plugin_status_label.setWordWrap(True)
+    window._equipment_plugin_status_label.setStyleSheet(
+        themed_style("color:#8b949e;font-size:12px")
+    )
+    card.layout().addWidget(window._equipment_plugin_status_label)
+    actions = QHBoxLayout()
+    deploy_button = QPushButton("部署装备插件")
+    deploy_button.setObjectName("btnPrimary")
+    deploy_button.clicked.connect(window._deploy_equipment_plugin)
+    actions.addWidget(deploy_button)
+    restore_button = QPushButton("还原游戏目录")
+    restore_button.setObjectName("btnDanger")
+    restore_button.clicked.connect(window._restore_equipment_plugin)
+    actions.addWidget(restore_button)
+    actions.addStretch()
+    card.layout().addLayout(actions)
+    refresher = getattr(window, "_refresh_equipment_plugin_status", None)
+    if callable(refresher):
+        refresher()
+    return card
+
+
+def build_settings_page(
+    window,
+    app_version,
+    app_context: AppContext,
+    iter_image_files,
+    netdisk_links=None,
+):
     page = QWidget()
     page.setObjectName("settingsPage")
     scroll = QScrollArea()
@@ -74,8 +314,14 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     log_toggle.toggled.connect(window._toggle_log)
     window._log_toggle = log_toggle
     log_row.addWidget(log_toggle)
+    window._log_session_status_label = QLabel()
+    window._log_session_status_label.setStyleSheet(
+        themed_style("color:#8b949e;font-size:12px")
+    )
+    log_row.addWidget(window._log_session_status_label)
     log_row.addStretch()
     log_card.layout().addLayout(log_row)
+    window._refresh_log_session_status()
 
     protagonist_row = QHBoxLayout()
     protagonist_row.addWidget(QLabel("主角游戏名:"))
@@ -130,195 +376,8 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     log_card.layout().addLayout(theme_row)
     layout.addWidget(log_card)
 
-    sync_card = window._card("背包同步")
-    sync_description = QLabel(
-        "流式同步会在背包内容连续数秒没有变化后写入 SQLite，并继续后台监听。"
-        "原始诊断文件默认关闭。"
-    )
-    sync_description.setWordWrap(True)
-    sync_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-    sync_card.layout().addWidget(sync_description)
-    sync_form = QFormLayout()
-    sync_form.setSpacing(10)
-
-    settings_reader = getattr(window, "_get_sync_settings", None)
-    loaded_settings = settings_reader() if callable(settings_reader) else {}
-    if not loaded_settings:
-        raise RuntimeError("无法读取静态数据库中的设置默认值。")
-    settings = loaded_settings
-    window._sync_inventory_method_combo = NoWheelComboBox()
-    window._sync_inventory_method_combo.addItem("本地核心组件流式同步", "nte_core")
-    window._sync_inventory_method_combo.addItem("手柄扫描", "gamepad")
-    inventory_index = window._sync_inventory_method_combo.findData(
-        settings["inventory_sync_method"]
-    )
-    window._sync_inventory_method_combo.setCurrentIndex(max(0, inventory_index))
-    sync_form.addRow("背包获取方式:", window._sync_inventory_method_combo)
-
-    window._sync_settle_spin = NoWheelDoubleSpinBox()
-    window._sync_settle_spin.setRange(1.0, 30.0)
-    window._sync_settle_spin.setDecimals(1)
-    window._sync_settle_spin.setSingleStep(0.5)
-    window._sync_settle_spin.setSuffix(" 秒")
-    window._sync_settle_spin.setValue(float(settings["inventory_settle_seconds"]))
-    sync_form.addRow("内容稳定等待:", window._sync_settle_spin)
-
-    window._snapshot_retention_spin = NoWheelSpinBox()
-    window._snapshot_retention_spin.setRange(1, 365)
-    window._snapshot_retention_spin.setValue(
-        int(settings["inventory_snapshot_retention_count"])
-    )
-    window._snapshot_retention_spin.setSuffix(" 份")
-    window._snapshot_retention_spin.setToolTip(
-        "始终保留当前快照和已保存装配方案引用的快照。"
-    )
-    sync_form.addRow("历史快照保留:", window._snapshot_retention_spin)
-
-    window._sync_capture_device_edit = QLineEdit()
-    window._sync_capture_device_edit.setPlaceholderText("留空表示自动选择网卡")
-    window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
-    sync_form.addRow("抓取网卡:", window._sync_capture_device_edit)
-
-    window._sync_auto_start_toggle = QCheckBox("软件启动后自动在后台等待背包")
-    window._sync_auto_start_toggle.setChecked(
-        bool(settings["auto_start_inventory_sync"])
-    )
-    sync_form.addRow("自动启动:", window._sync_auto_start_toggle)
-
-    window._sync_raw_capture_toggle = QCheckBox("保存原始抓包（.pcapng，排错时才开启）")
-    window._sync_raw_capture_toggle.setChecked(bool(settings["raw_capture_enabled"]))
-    window._sync_raw_capture_toggle.setToolTip(
-        "文件仅保存到当前账号的 logs/nte_core/raw_capture。"
-        "停止同步后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
-        "正在写入和最新的一份不会被删除。"
-    )
-    raw_capture_row = QHBoxLayout()
-    raw_capture_row.addWidget(window._sync_raw_capture_toggle)
-    raw_capture_open_button = QPushButton("打开抓包目录")
-    raw_capture_open_handler = getattr(window, "_open_raw_capture_directory", None)
-    if callable(raw_capture_open_handler):
-        raw_capture_open_button.clicked.connect(raw_capture_open_handler)
-    else:
-        raw_capture_open_button.setEnabled(False)
-    raw_capture_row.addWidget(raw_capture_open_button)
-    raw_capture_row.addStretch()
-    sync_form.addRow("诊断抓包:", raw_capture_row)
-    sync_card.layout().addLayout(sync_form)
-
-    save_sync_button = QPushButton("保存同步设置")
-    save_sync_button.setObjectName("btnPrimary")
-    save_sync_handler = getattr(window, "_save_sync_settings", None)
-    if callable(save_sync_handler):
-        save_sync_button.clicked.connect(save_sync_handler)
-    else:
-        save_sync_button.setEnabled(False)
-        save_sync_button.setToolTip("当前页面宿主未启用 SQLite 同步设置")
-    prune_snapshots_button = QPushButton("清理历史快照")
-    prune_snapshots_button.setObjectName("btnDanger")
-    prune_snapshots_handler = getattr(window, "_prune_inventory_snapshots", None)
-    if callable(prune_snapshots_handler):
-        prune_snapshots_button.clicked.connect(prune_snapshots_handler)
-    else:
-        prune_snapshots_button.setEnabled(False)
-        prune_snapshots_button.setToolTip("当前页面宿主未启用 SQLite 快照维护")
-    window._prune_snapshots_button = prune_snapshots_button
-    sync_actions = QHBoxLayout()
-    sync_actions.addWidget(save_sync_button)
-    sync_actions.addWidget(prune_snapshots_button)
-    sync_actions.addStretch()
-    sync_card.layout().addLayout(sync_actions)
-
-    plugin_card = window._card("环境配置")
-    window._environment_configuration_card = plugin_card
-    npcap_title = QLabel("Npcap · 背包同步必需")
-    npcap_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
-    plugin_card.layout().addWidget(npcap_title)
-    npcap_description = QLabel(
-        "<b>简单原理：</b>Npcap 读取本机的游戏网络数据，用来识别背包内容，不会代替玩家操作游戏。"
-        "<br><span style='color:#d29922'><b>风险提示：</b>这属于网络抓包，有一定的使用风险；"
-        "诊断抓包文件可能包含网络或账号相关数据，请勿随意公开。</span>"
-    )
-    npcap_description.setTextFormat(Qt.RichText)
-    npcap_description.setWordWrap(True)
-    npcap_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-    plugin_card.layout().addWidget(npcap_description)
-    npcap_row = QHBoxLayout()
-    npcap_install_button = QPushButton("下载 Npcap 1.88")
-    npcap_install_button.clicked.connect(window._open_npcap_download)
-    npcap_row.addWidget(npcap_install_button)
-    npcap_status_button = QPushButton("检测 Npcap 状态")
-    npcap_status_button.clicked.connect(window._show_npcap_status)
-    npcap_row.addWidget(npcap_status_button)
-    window._nte_core_diagnostic_button = QPushButton("诊断 nte-core")
-    window._nte_core_diagnostic_button.clicked.connect(window._diagnose_nte_core)
-    npcap_row.addWidget(window._nte_core_diagnostic_button)
-    npcap_row.addStretch()
-    plugin_card.layout().addLayout(npcap_row)
-    equipment_plugin_title = QLabel("装备插件 · 极速装配必需")
-    equipment_plugin_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
-    plugin_card.layout().addWidget(equipment_plugin_title)
-    equipment_plugin_description = QLabel(
-        "<b>简单原理：</b>极速装配会把 dwmapi.dll 放入游戏目录，由游戏加载后通过装备 Mod 脚本"
-        "调用或 Hook 游戏内部功能，直接发送装备指令。"
-        "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
-        "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
-    )
-    equipment_plugin_description.setTextFormat(Qt.RichText)
-    equipment_plugin_description.setWordWrap(True)
-    equipment_plugin_description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-    plugin_card.layout().addWidget(equipment_plugin_description)
-    plugin_form = QFormLayout()
-    window._equipment_plugin_game_executable_edit = QLineEdit()
-    window._equipment_plugin_game_executable_edit.setPlaceholderText(
-        "可手动粘贴 HTGame.exe 的完整文件地址"
-    )
-    window._equipment_plugin_game_executable_edit.setText(
-        str((getattr(window, "_ui_preferences", {}) or {}).get("equipment_plugin_game_executable") or "")
-    )
-    window._equipment_plugin_game_executable_edit.textChanged.connect(
-        lambda _text: window._refresh_equipment_plugin_status()
-    )
-    game_picker = QPushButton("选择 HTGame.exe")
-    game_picker.clicked.connect(window._select_equipment_plugin_game_executable)
-    game_row = QHBoxLayout()
-    game_row.addWidget(window._equipment_plugin_game_executable_edit, 1)
-    game_row.addWidget(game_picker)
-    window._equipment_plugin_detect_button = QPushButton("自动检测")
-    window._equipment_plugin_detect_button.clicked.connect(window._detect_equipment_plugin_game_executable)
-    game_row.addWidget(window._equipment_plugin_detect_button)
-    plugin_form.addRow("游戏主程序:", game_row)
-    plugin_card.layout().addLayout(plugin_form)
-    plugin_consent_row = QHBoxLayout()
-    window._equipment_plugin_consent = QCheckBox(
-        "我已阅读并理解上述风险，仍自愿使用装备插件并承担相应风险"
-    )
-    window._equipment_plugin_consent.setStyleSheet(
-        themed_style("color:#d29922;font-weight:600")
-    )
-    plugin_consent_row.addWidget(window._equipment_plugin_consent)
-    window._dwmapi_diagnostic_button = QPushButton("诊断 dwmapi")
-    window._dwmapi_diagnostic_button.clicked.connect(window._diagnose_dwmapi)
-    plugin_consent_row.addWidget(window._dwmapi_diagnostic_button)
-    plugin_consent_row.addStretch()
-    plugin_card.layout().addLayout(plugin_consent_row)
-    window._equipment_plugin_status_label = QLabel()
-    window._equipment_plugin_status_label.setWordWrap(True)
-    window._equipment_plugin_status_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-    plugin_card.layout().addWidget(window._equipment_plugin_status_label)
-    plugin_actions = QHBoxLayout()
-    deploy_plugin_button = QPushButton("部署装备插件")
-    deploy_plugin_button.setObjectName("btnPrimary")
-    deploy_plugin_button.clicked.connect(window._deploy_equipment_plugin)
-    plugin_actions.addWidget(deploy_plugin_button)
-    restore_plugin_button = QPushButton("还原游戏目录")
-    restore_plugin_button.setObjectName("btnDanger")
-    restore_plugin_button.clicked.connect(window._restore_equipment_plugin)
-    plugin_actions.addWidget(restore_plugin_button)
-    plugin_actions.addStretch()
-    plugin_card.layout().addLayout(plugin_actions)
-    refresher = getattr(window, "_refresh_equipment_plugin_status", None)
-    if callable(refresher):
-        refresher()
+    sync_card = _build_sync_card(window)
+    plugin_card = _build_environment_card(window)
     hotkey_card = window._card("快捷键绑定")
 
     form = QFormLayout()
@@ -424,8 +483,8 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     layout.addWidget(plugin_card)
     layout.addWidget(sync_card)
 
-    paths = get_paths()
-    screenshot_dir = paths["screenshot_dir"]
+    paths = _settings_paths(app_context)
+    screenshot_dir = paths.screenshot_dir
     screenshot_files = iter_image_files(screenshot_dir)
     count = len(screenshot_files)
     size_mb = sum(f.stat().st_size for f in screenshot_files) / (1024 * 1024) if screenshot_files else 0
@@ -437,7 +496,12 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     screenshot_row.setSpacing(10)
     actions = [
         ("清理所有截图", window._clear_ss),
-        ("打开文件夹", lambda: os.startfile(str(get_paths()["screenshot_dir"])) if get_paths()["screenshot_dir"].exists() else None),
+        (
+            "打开文件夹",
+            lambda: os.startfile(str(_settings_paths(app_context).screenshot_dir))
+            if _settings_paths(app_context).screenshot_dir.exists()
+            else None,
+        ),
     ]
     for text, slot in actions:
         button = QPushButton(text)
@@ -453,9 +517,9 @@ def build_settings_page(window, app_version, get_paths, iter_image_files, netdis
     quick_row = QHBoxLayout()
     quick_row.setSpacing(10)
     quick_paths = [
-        ("config", lambda: get_paths()["config_dir"]),
-        ("accounts", lambda: get_paths()["accounts_dir"]),
-        ("logs", lambda: get_paths()["log_dir"]),
+        ("config", lambda: _settings_paths(app_context).config_dir),
+        ("accounts", lambda: _settings_paths(app_context).accounts_dir),
+        ("logs", lambda: _settings_paths(app_context).log_dir),
     ]
     for label, path_factory in quick_paths:
         button = QPushButton(label)

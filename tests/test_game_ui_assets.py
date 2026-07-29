@@ -8,8 +8,6 @@ from pathlib import Path
 
 from PIL import Image
 
-from src.app import runtime
-from src.features.allocation.results_view import _equipment_item_icon_path
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from tools.game_assets.build_ui_assets import build_assets
@@ -37,21 +35,13 @@ class GameUiAssetTests(unittest.TestCase):
     def test_all_static_core_items_have_an_official_item_id_mapping(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
         with StaticGameDataDao(PROJECT_ROOT / "data" / "game_static.sqlite3") as dao:
-            core_ids = {
-                str(row["item_id"])
-                for row in dao.list_equipment_items()
-                if row["kind"] == "core"
-            }
+            core_ids = {str(row["item_id"]) for row in dao.list_equipment_items() if row["kind"] == "core"}
         self.assertEqual(core_ids, set(manifest["equipment_items"]))
 
     def test_all_static_modules_and_forks_have_official_id_mappings(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
         with StaticGameDataDao(PROJECT_ROOT / "data" / "game_static.sqlite3") as dao:
-            module_ids = {
-                str(row["item_id"])
-                for row in dao.list_equipment_items()
-                if row["kind"] == "module"
-            }
+            module_ids = {str(row["item_id"]) for row in dao.list_equipment_items() if row["kind"] == "module"}
             fork_ids = {str(row["fork_id"]) for row in dao.list_forks()}
         self.assertEqual(module_ids, set(manifest["equipment_modules"]))
         self.assertEqual(fork_ids, set(manifest["fork_items"]))
@@ -75,21 +65,6 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertTrue(catalog.fork_icon("fork_yuren").is_file())
         self.assertIsNone(catalog.monster_icon("monster_static_big_world", "unknown"))
         self.assertIsNone(catalog.character_icon(999999))
-
-    def test_legacy_allocation_result_resolves_projected_core_image(self) -> None:
-        old_asset_dir = getattr(runtime, "ASSET_DIR", None)
-        try:
-            runtime.ASSET_DIR = PROJECT_ROOT / "assets"
-            icon_path = _equipment_item_icon_path(
-                {"item_id": "Lakshana_orange"}, "core",
-            )
-        finally:
-            if old_asset_dir is None:
-                delattr(runtime, "ASSET_DIR")
-            else:
-                runtime.ASSET_DIR = old_asset_dir
-        self.assertIsNotNone(icon_path)
-        self.assertTrue(Path(icon_path).is_file())
 
     def test_builder_resizes_and_deduplicates_shared_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

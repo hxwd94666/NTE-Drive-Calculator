@@ -71,10 +71,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
     def test_legacy_calculation_catalog_uses_public_shape_bonus_rule(self):
         from src.services.character_shape_bonus_service import (
-            get_effective_character_shape_bonus,
             save_public_character_shape_bonus,
         )
-        from src.app import runtime
         from src.services.legacy_allocation_static_catalog import (
             build_legacy_allocation_static_catalog,
         )
@@ -83,10 +81,17 @@ class StaticGameDatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "user.sqlite3"
             static_database = Path(directory) / "game_static.sqlite3"
+            shared_database = Path(directory) / "app_shared.sqlite3"
             shutil.copy2(PROJECT_DATABASE_PATH, static_database)
             with UserDataDao(database, account_id="shape-override"):
                 pass
-            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}):
+            with patch.dict(
+                "os.environ",
+                {
+                    "NTE_GAME_STATIC_DB": str(static_database),
+                    "NTE_APP_SHARED_DB": str(shared_database),
+                },
+            ):
                 save_public_character_shape_bonus(
                     1051,
                     shape_label="Type-4",
@@ -105,7 +110,6 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
     def test_weight_page_saves_shape_bonus_to_public_static_database(self):
         from src.features.configuration import page as configuration_page
-        from src.app import runtime
         from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
         from src.storage.sqlite.user_data_dao import UserDataDao
@@ -113,10 +117,23 @@ class StaticGameDatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "user.sqlite3"
             static_database = Path(directory) / "game_static.sqlite3"
+            shared_database = Path(directory) / "app_shared.sqlite3"
             shutil.copy2(PROJECT_DATABASE_PATH, static_database)
             with UserDataDao(database, account_id="weight-page"):
                 pass
             window = SimpleNamespace(
+                app_context=SimpleNamespace(
+                    account=SimpleNamespace(
+                        active_account_id="weight-page",
+                        user_database_path=database,
+                    ),
+                    generation=0,
+                    paths=SimpleNamespace(
+                        config_dir=PROJECT_ROOT / "config",
+                        static_database_path=static_database,
+                        shared_database_path=shared_database,
+                    ),
+                ),
                 _current_config_name="account_weights",
                 _config_form_data={
                     "「零」": {
@@ -133,15 +150,17 @@ class StaticGameDatabaseTests(unittest.TestCase):
                 reloaded=False,
             )
             window._load_data = lambda: setattr(window, "reloaded", True)
-            with patch.dict("os.environ", {"NTE_GAME_STATIC_DB": str(static_database)}), \
-                 patch.object(configuration_page.runtime, "USER_DATABASE_PATH", database, create=True), \
-                 patch.object(configuration_page.QMessageBox, "information"), \
+            with patch.object(configuration_page.QMessageBox, "information"), \
                  patch.object(configuration_page.QMessageBox, "warning"):
                 configuration_page.save_config_form(window, PROJECT_ROOT / "config", None)
             with UserDataDao(database) as user_dao:
                 weights = user_dao.get_character_weight_preferences(1051)
             with StaticGameDataDao(static_database) as static_dao:
-                shape_bonus = get_effective_character_shape_bonus(static_dao, 1051)
+                shape_bonus = get_effective_character_shape_bonus(
+                    static_dao,
+                    1051,
+                    shared_database_path=shared_database,
+                )
 
         self.assertTrue(window.reloaded)
         self.assertEqual({"CritBase": 1.25}, weights["property_weights"])

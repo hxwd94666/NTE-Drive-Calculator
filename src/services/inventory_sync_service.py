@@ -5,16 +5,16 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from src.integrations.nte_core import NteCoreClient
+from src.observability import OperationContext, log_event
 from src.services.account_settings_service import AccountSettingsService
 from src.services.raw_capture_retention import prune_raw_capture_files
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -34,31 +34,6 @@ SyncPhase = Literal[
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-
-def _format_character_instances_for_log(characters: object) -> str:
-    """Render stable, human-readable character identities for sync logs."""
-
-    if not isinstance(characters, list):
-        return "无独立角色实例"
-    ids = [
-        int(row["character_id"])
-        for row in characters
-        if isinstance(row, Mapping) and isinstance(row.get("character_id"), int)
-    ]
-    names: dict[int, str] = {}
-    try:
-        with StaticGameDataDao() as static_dao:
-            names = {
-                int(row["character_id"]): str(row.get("name_zh") or "未知角色")
-                for row in static_dao.list_characters()
-            }
-    except Exception as exc:
-        logger.warning(f"读取角色名称用于背包同步日志失败：{exc}")
-    return "、".join(
-        f"{names.get(character_id, '未知角色')}({character_id})"
-        for character_id in ids
-    ) or "无独立角色实例"
 
 
 @dataclass(frozen=True)
@@ -87,17 +62,74 @@ class _CoreClient(Protocol):
     def start(self) -> Any: ...
     def add_event_handler(self, method: str | None, handler: Callable[[dict[str, Any]], None]) -> None: ...
     def remove_event_handler(self, method: str | None, handler: Callable[[dict[str, Any]], None]) -> None: ...
-    def start_capture(self, **kwargs: Any) -> Mapping[str, Any]: ...
+    def start_capture(
+        self,
+        *,
+        profile: Literal["inventory", "combat"],
+        device_name: str | None = None,
+        include_incoming: bool = True,
+        server_damage_calibration: bool = True,
+        raw_capture: Literal["enabled", "disabled"] = "disabled",
+    ) -> Mapping[str, Any]: ...
     def stop_capture(self) -> Mapping[str, Any]: ...
-    def equip_one_key(self, **kwargs: Any) -> Any: ...
-    def equip_module(self, **kwargs: Any) -> Any: ...
-    def unequip_module(self, **kwargs: Any) -> Any: ...
-    def unequip_core(self, **kwargs: Any) -> Any: ...
-    def unequip_all(self, **kwargs: Any) -> Any: ...
-    def move_module_to_character(self, **kwargs: Any) -> Any: ...
-    def set_item_discarded(self, **kwargs: Any) -> Any: ...
-    def set_item_locked(self, **kwargs: Any) -> Any: ...
+    def equip_one_key(
+        self,
+        *,
+        character: Mapping[str, Any],
+        placements: Sequence[Mapping[str, Any]],
+        core: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> Mapping[str, Any]: ...
+    def equip_module(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+        row: int,
+        column: int,
+    ) -> Mapping[str, Any]: ...
+    def unequip_module(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> Mapping[str, Any]: ...
+    def unequip_core(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+    ) -> Mapping[str, Any]: ...
+    def unequip_all(
+        self,
+        *,
+        character: Mapping[str, Any],
+    ) -> Mapping[str, Any]: ...
+    def move_module_to_character(
+        self,
+        *,
+        character: Mapping[str, Any],
+        equipment: Mapping[str, Any],
+        row: int,
+        column: int,
+    ) -> Mapping[str, Any]: ...
+    def set_item_discarded(
+        self,
+        *,
+        equipment: Mapping[str, Any],
+        discarded: bool,
+    ) -> Mapping[str, Any]: ...
+    def set_item_locked(
+        self,
+        *,
+        equipment: Mapping[str, Any],
+        locked: bool,
+    ) -> Mapping[str, Any]: ...
     def close(self) -> None: ...
+
+
+def _default_core_client() -> _CoreClient:
+    return NteCoreClient()
 
 
 class InventorySyncService:
@@ -113,7 +145,7 @@ class InventorySyncService:
         *,
         account_id: str | None = None,
         account_name: str | None = None,
-        client_factory: Callable[[], _CoreClient] = NteCoreClient,
+        client_factory: Callable[[], _CoreClient] = _default_core_client,
         dao_factory: Callable[..., UserDataDao] = UserDataDao,
         settle_seconds: float | None = None,
         capture_device_id: str | None = None,
@@ -121,6 +153,7 @@ class InventorySyncService:
         raw_capture_directory: str | Path | None = None,
         poll_seconds: float = 0.05,
         template_refresh: Callable[[], Any] | None = None,
+        operation_context: OperationContext | None = None,
     ) -> None:
         if settle_seconds is not None and settle_seconds <= 0:
             raise ValueError("settle_seconds 必须大于 0")
@@ -141,6 +174,10 @@ class InventorySyncService:
         )
         self._poll_seconds = poll_seconds
         self._template_refresh = template_refresh
+        self._operation_context = operation_context or OperationContext.create(
+            "inventory_sync",
+            account_id=account_id,
+        )
 
         self._state = InventorySyncState(updated_at_utc=_utc_now())
         self._state_condition = threading.Condition()
@@ -303,6 +340,12 @@ class InventorySyncService:
     def start(self) -> None:
         if self.is_running:
             return
+        log_event(
+            "INFO",
+            "inventory_sync.started",
+            "启动背包同步服务",
+            self._operation_context,
+        )
         self._stop_requested.clear()
         self._event_ready.clear()
         with self._event_lock:
@@ -387,7 +430,14 @@ class InventorySyncService:
                 self._client = client
                 client.start()
                 client.add_event_handler("event.inventory.snapshot", self._on_inventory_event)
-                logger.info("背包同步已连接 nte-core，正在启动 inventory 抓包")
+                log_event(
+                    "INFO",
+                    "inventory_sync.core_connected",
+                    "背包同步已连接 nte-core",
+                    self._operation_context,
+                    protocol_version=self._protocol_version(client),
+                    capabilities=list((client.hello_result or {}).get("capabilities") or ()),
+                )
                 capture_device = self._capture_device_id
                 if capture_device is None:
                     capture_device = settings.get("capture_device_id")
@@ -397,16 +447,26 @@ class InventorySyncService:
                 if raw_enabled and self._raw_capture_directory is not None:
                     self._raw_capture_directory.mkdir(parents=True, exist_ok=True)
                     self._prune_raw_captures()
-                    logger.info(
-                        "已启用 nte-core 原始抓包诊断，.pcapng 将保存至：{}",
-                        self._raw_capture_directory,
+                    log_event(
+                        "DEBUG",
+                        "inventory_sync.raw_capture_enabled",
+                        "已启用 nte-core 原始抓包诊断",
+                        self._operation_context,
+                        directory=self._raw_capture_directory,
                     )
                 client.start_capture(
                     profile="inventory",
                     device_name=capture_device,
                     raw_capture="enabled" if raw_enabled else "disabled",
                 )
-                logger.info("背包同步抓包已启动，等待完整背包快照")
+                log_event(
+                    "INFO",
+                    "inventory_sync.capture_started",
+                    "背包同步抓包已启动，等待完整背包快照",
+                    self._operation_context,
+                    raw_capture=bool(raw_enabled),
+                    capture_device_configured=bool(capture_device),
+                )
                 current_summary = dao.current_inventory_summary()
                 self._publish(
                     "waiting" if current_summary is None else "listening",
@@ -447,13 +507,24 @@ class InventorySyncService:
                             and not self._event_has_independent_character_instances(event)
                             and stabilizer.pending_has_independent_character_instances
                         ):
-                            logger.debug("忽略紧随角色实例快照后的旧格式背包事件")
+                            log_event(
+                                "DEBUG",
+                                "inventory_sync.legacy_event_ignored",
+                                "忽略紧随角色实例快照后的旧格式背包事件",
+                                self._operation_context,
+                            )
                             continue
                         result = stabilizer.offer(event)
                         if result.status in {"collecting", "changed"}:
-                            logger.info(
-                                "已接收背包快照候选：{} 件装备，等待内容稳定",
-                                result.item_count,
+                            log_event(
+                                "DEBUG",
+                                "inventory_sync.candidate_received",
+                                "已接收背包快照候选，等待内容稳定",
+                                self._operation_context,
+                                item_count=result.item_count,
+                                added_count=result.added_count,
+                                removed_count=result.removed_count,
+                                candidate_status=result.status,
                             )
                             self._publish(
                                 "collecting",
@@ -466,7 +537,12 @@ class InventorySyncService:
                                 error=None,
                             )
                         elif result.status == "reverted":
-                            logger.info("收到未变更的背包快照，继续监听")
+                            log_event(
+                                "DEBUG",
+                                "inventory_sync.candidate_reverted",
+                                "收到未变更的背包快照，继续监听",
+                                self._operation_context,
+                            )
                             self._publish(
                                 "listening",
                                 (
@@ -501,7 +577,14 @@ class InventorySyncService:
                             protocol_version=self._protocol_version(client),
                         )
                     except Exception as exc:
-                        logger.error(f"保存稳定背包失败，将自动重试：{type(exc).__name__}: {exc}")
+                        log_event(
+                            "WARNING",
+                            "inventory_sync.snapshot_commit_retry",
+                            "保存稳定背包失败，将自动重试",
+                            self._operation_context,
+                            error=exc,
+                            retry_delay_seconds=2,
+                        )
                         retry_save_at = time.monotonic() + 2.0
                         self._publish(
                             "error",
@@ -520,40 +603,59 @@ class InventorySyncService:
                         if isinstance(character_payload, list)
                         else 0
                     )
-                    logger.info(
-                        "已保存稳定背包快照 #{}：{} 件装备，{} 个独立角色实例",
-                        snapshot_id,
-                        stable.item_count,
-                        character_count,
+                    committed_context = self._operation_context.with_values(
+                        snapshot_id=snapshot_id,
                     )
-                    logger.info(
-                        "快照 #{} 角色实例：{}",
-                        snapshot_id,
-                        _format_character_instances_for_log(character_payload),
+                    log_event(
+                        "INFO",
+                        "inventory_sync.snapshot_committed",
+                        "已保存稳定背包快照",
+                        committed_context,
+                        item_count=stable.item_count,
+                        character_instance_count=character_count,
+                        protocol_version=self._protocol_version(client),
                     )
                     if self._template_refresh is not None:
                         try:
                             refreshed = self._template_refresh()
                             if isinstance(refreshed, Mapping) and refreshed.get("changed"):
-                                logger.info(
-                                    "已刷新公共角色/弧盘模板："
-                                    f"{refreshed.get('role_count', 0)} 名角色，"
-                                    f"{refreshed.get('fork_count', 0)} 个弧盘"
+                                log_event(
+                                    "INFO",
+                                    "inventory_sync.templates_refreshed",
+                                    "已刷新公共角色与弧盘模板",
+                                    committed_context,
+                                    role_count=int(refreshed.get("role_count", 0)),
+                                    fork_count=int(refreshed.get("fork_count", 0)),
                                 )
                         except Exception as exc:
                             # 背包快照已经成功提交，模板缓存刷新不能阻断同步监听。
-                            logger.warning(f"公共角色/弧盘模板刷新失败，将在下次背包同步时重试：{exc}")
+                            log_event(
+                                "WARNING",
+                                "inventory_sync.template_refresh_failed",
+                                "公共角色与弧盘模板刷新失败，将在下次同步重试",
+                                committed_context,
+                                error=exc,
+                            )
                     try:
                         retention = dao.prune_inventory_snapshots()
                         if retention["deleted_snapshot_count"]:
-                            logger.info(
-                                "已按保留策略清理 "
-                                f"{retention['deleted_snapshot_count']} 份历史背包快照；"
-                                f"当前共 {retention['total_after']} 份"
+                            log_event(
+                                "INFO",
+                                "inventory_sync.retention_applied",
+                                "已按保留策略清理历史背包快照",
+                                committed_context,
+                                deleted_snapshot_count=retention["deleted_snapshot_count"],
+                                retained_snapshot_count=retention["total_after"],
                             )
                     except Exception as exc:
                         # 新快照已经安全提交，清理失败不能让同步服务重新导入同一份数据。
-                        logger.warning(f"历史背包快照清理失败，将在下次同步或手动维护时重试：{exc}")
+                        log_event(
+                            "WARNING",
+                            "inventory_sync.retention_failed",
+                            "历史背包快照清理失败，将在下次同步或手动维护时重试",
+                            committed_context,
+                            error=exc,
+                        )
                     retry_save_at = 0.0
                     self._publish(
                         "listening",
@@ -571,7 +673,18 @@ class InventorySyncService:
                     )
         except Exception as exc:
             fatal_error = exc
-            logger.error(f"背包同步服务异常停止：{type(exc).__name__}: {exc}")
+            log_event(
+                "ERROR",
+                "inventory_sync.failed",
+                "背包同步服务异常停止",
+                self._operation_context,
+                error=exc,
+                error_code=(
+                    str(getattr(exc, "domain_code"))
+                    if getattr(exc, "domain_code", None)
+                    else type(exc).__name__
+                ),
+            )
             self._publish(
                 "error",
                 "背包同步服务已停止",
@@ -601,7 +714,12 @@ class InventorySyncService:
                     pass
             self._client = None
             if fatal_error is None:
-                logger.info("背包同步已停止")
+                log_event(
+                    "INFO",
+                    "inventory_sync.stopped",
+                    "背包同步已停止",
+                    self._operation_context,
+                )
                 self._publish(
                     "stopped",
                     "背包同步已停止",

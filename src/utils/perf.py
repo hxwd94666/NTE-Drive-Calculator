@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import math
 import re
-import time
-from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 _SPACE_RE = re.compile(r"\s+")
 
@@ -32,9 +30,3 @@ def format_perf_line(event: str, *, elapsed_ms: float, **fields: Any) -> str:
 
 def log_perf(logger, event: str, *, elapsed_ms: float, **fields: Any) -> None:
     logger.info(format_perf_line(event, elapsed_ms=elapsed_ms, **fields))
-
-
-@contextmanager
-def perf_timer() -> Iterator[callable]:
-    start = time.perf_counter()
-    yield lambda: (time.perf_counter() - start) * 1000.0
