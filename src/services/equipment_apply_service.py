@@ -336,6 +336,10 @@ class EquipmentApplyService:
     def _validate_native_plan_assignments(plan: Mapping[str, Any]) -> tuple[list[dict], list[dict]]:
         """Reject display-only/partial plans before any equipment RPC is sent."""
 
+        # ``status`` records how a plan was saved and displayed; it is not an
+        # execution capability flag.  Older driver-only plans were persisted
+        # as ``incomplete`` even though nte-core can apply their real modules
+        # without changing the character's current core.
         assignments = list(plan.get("assignments") or ())
         modules = [item for item in assignments if item.get("kind") == "module"]
         cores = [item for item in assignments if item.get("kind") == "core"]
@@ -347,10 +351,6 @@ class EquipmentApplyService:
                     "方案包含虚拟补位驱动（slot=0），它不属于真实背包，不能极速装配；"
                     "请重新计算并保存完整方案"
                 )
-        if str(plan.get("status") or "") != "ready":
-            raise EquipmentApplyError(
-                "该方案仍是不完整方案，不能极速装配；请用当前稳定背包重新计算并保存"
-            )
         if not 1 <= len(modules) <= 64 or len(cores) > 1:
             raise EquipmentApplyError("装配方案必须包含 1..64 个驱动，且至多包含 1 个核心")
         return modules, cores

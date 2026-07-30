@@ -197,7 +197,7 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
         plan = self.user_dao.get_loadout_plan(saved.plan_id)
         self.assertEqual(1, saved.module_count)
         self.assertEqual(["module"], [row["kind"] for row in plan["assignments"]])
-        self.assertEqual("incomplete", plan["status"])
+        self.assertEqual("ready", plan["status"])
 
     def test_rejects_implicit_current_snapshot(self) -> None:
         with self.assertRaisesRegex(SavedStateLoadoutError, "必须显式指定"):

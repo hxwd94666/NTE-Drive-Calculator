@@ -354,6 +354,39 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             }],
         )
 
+    def test_legacy_incomplete_driver_only_plan_is_fast_apply_eligible(self) -> None:
+        plan_id = self.dao.save_loadout_plan(
+            name="旧版无卡带方案",
+            character_id=1003,
+            source_snapshot_id=1,
+            status="incomplete",
+            assignments=[
+                {
+                    "uid_serial": 11,
+                    "uid_slot": 11,
+                    "kind": "module",
+                    "target_row": 2,
+                    "target_column": 3,
+                    "rotation": 0,
+                },
+            ],
+        )
+
+        service = EquipmentApplyService(self.dao, self.sync)
+        service.validate_bulk_plans_for_fast_apply(
+            [{
+                "role_name": "旧版无卡带方案",
+                "plan_id": plan_id,
+                "character_uid": CHARACTER_UID,
+            }],
+            stable_snapshot_id=self.sync.state.last_snapshot_id,
+        )
+        result = service.apply_plan(plan_id)
+
+        self.assertTrue(result.verified)
+        self.assertIsNone(self.sync.params)
+        self.assertEqual(["move"], self.sync.module_dispatches)
+
     def test_fast_dispatch_does_not_wait_for_a_new_inventory_snapshot(self) -> None:
         self.sync.emit_snapshot = False
 

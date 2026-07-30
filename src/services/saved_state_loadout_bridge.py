@@ -532,7 +532,6 @@ class SavedStateLoadoutBridge:
             assignments.append(assignment)
 
         module_count = sum(item["kind"] == "module" for item in assignments)
-        core_count = sum(item["kind"] == "core" for item in assignments)
         if module_count <= 0:
             raise SavedStateLoadoutError(f"角色 [{role_name}] 没有可装配的驱动")
         return PreparedLoadoutPlan(
@@ -542,7 +541,7 @@ class SavedStateLoadoutBridge:
             snapshot_id=selected_snapshot_id,
             status=(
                 "incomplete"
-                if core_count == 0 or any(
+                if any(
                     is_virtual_equipment_assignment(item)
                     for item in assignments
                 )
