@@ -201,6 +201,7 @@ def build_home_page(window) -> QScrollArea:
         ("查看方案", "equipment"),
         ("角色管理", "my_role"),
         ("仓库管理", "warehouse"),
+        ("空幕鉴定", "identify"),
     ):
         button = QPushButton(label)
         button.clicked.connect(lambda _checked=False, key=page_key: window._go(key))

@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from src.integrations.nte_core import NteCoreClient
 from src.observability import OperationContext, log_event
@@ -18,6 +18,11 @@ from src.services.raw_capture_retention import prune_raw_capture_files
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
+from .inventory_sync_contracts import InventoryCoreClient
+from .inventory_sync_logging import (
+    inventory_payload_log_fields,
+    stored_snapshot_log_fields,
+)
 from .inventory_snapshot_stabilizer import InventorySnapshotStabilizer
 
 
@@ -56,79 +61,7 @@ class InventorySyncState:
 StateHandler = Callable[[InventorySyncState], None]
 
 
-class _CoreClient(Protocol):
-    hello_result: dict[str, Any] | None
-
-    def start(self) -> Any: ...
-    def add_event_handler(self, method: str | None, handler: Callable[[dict[str, Any]], None]) -> None: ...
-    def remove_event_handler(self, method: str | None, handler: Callable[[dict[str, Any]], None]) -> None: ...
-    def start_capture(
-        self,
-        *,
-        profile: Literal["inventory", "combat"],
-        device_name: str | None = None,
-        include_incoming: bool = True,
-        server_damage_calibration: bool = True,
-        raw_capture: Literal["enabled", "disabled"] = "disabled",
-    ) -> Mapping[str, Any]: ...
-    def stop_capture(self) -> Mapping[str, Any]: ...
-    def equip_one_key(
-        self,
-        *,
-        character: Mapping[str, Any],
-        placements: Sequence[Mapping[str, Any]],
-        core: Mapping[str, Any],
-        timeout: float | None = None,
-    ) -> Mapping[str, Any]: ...
-    def equip_module(
-        self,
-        *,
-        character: Mapping[str, Any],
-        equipment: Mapping[str, Any],
-        row: int,
-        column: int,
-    ) -> Mapping[str, Any]: ...
-    def unequip_module(
-        self,
-        *,
-        character: Mapping[str, Any],
-        equipment: Mapping[str, Any],
-    ) -> Mapping[str, Any]: ...
-    def unequip_core(
-        self,
-        *,
-        character: Mapping[str, Any],
-        equipment: Mapping[str, Any],
-    ) -> Mapping[str, Any]: ...
-    def unequip_all(
-        self,
-        *,
-        character: Mapping[str, Any],
-    ) -> Mapping[str, Any]: ...
-    def move_module_to_character(
-        self,
-        *,
-        character: Mapping[str, Any],
-        equipment: Mapping[str, Any],
-        row: int,
-        column: int,
-    ) -> Mapping[str, Any]: ...
-    def set_item_discarded(
-        self,
-        *,
-        equipment: Mapping[str, Any],
-        discarded: bool,
-    ) -> Mapping[str, Any]: ...
-    def set_item_locked(
-        self,
-        *,
-        equipment: Mapping[str, Any],
-        locked: bool,
-    ) -> Mapping[str, Any]: ...
-    def close(self) -> None: ...
-
-
-def _default_core_client() -> _CoreClient:
+def _default_core_client() -> InventoryCoreClient:
     return NteCoreClient()
 
 
@@ -145,7 +78,7 @@ class InventorySyncService:
         *,
         account_id: str | None = None,
         account_name: str | None = None,
-        client_factory: Callable[[], _CoreClient] = _default_core_client,
+        client_factory: Callable[[], InventoryCoreClient] = _default_core_client,
         dao_factory: Callable[..., UserDataDao] = UserDataDao,
         settle_seconds: float | None = None,
         capture_device_id: str | None = None,
@@ -188,7 +121,7 @@ class InventorySyncService:
         self._event_ready = threading.Event()
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
-        self._client: _CoreClient | None = None
+        self._client: InventoryCoreClient | None = None
 
     @property
     def state(self) -> InventorySyncState:
@@ -297,7 +230,7 @@ class InventorySyncService:
         client = self._equipment_client()
         return client.set_item_locked(equipment=equipment, locked=locked)
 
-    def _equipment_client(self) -> _CoreClient:
+    def _equipment_client(self) -> InventoryCoreClient:
         client = self._client
         if client is None or not self.is_running:
             raise RuntimeError("背包同步服务未运行，不能修改装备状态")
@@ -393,7 +326,7 @@ class InventorySyncService:
         return self._dao_factory(self.database_path, **kwargs)
 
     @staticmethod
-    def _protocol_version(client: _CoreClient) -> int | None:
+    def _protocol_version(client: InventoryCoreClient) -> int | None:
         hello = client.hello_result
         if not isinstance(hello, Mapping):
             return None
@@ -401,7 +334,7 @@ class InventorySyncService:
         return value if isinstance(value, int) and not isinstance(value, bool) else None
 
     def _run(self) -> None:
-        client: _CoreClient | None = None
+        client: InventoryCoreClient | None = None
         fatal_error: Exception | None = None
         try:
             with self._open_dao() as dao:
@@ -468,6 +401,17 @@ class InventorySyncService:
                     capture_device_configured=bool(capture_device),
                 )
                 current_summary = dao.current_inventory_summary()
+                if current_summary is not None and current_id is not None:
+                    log_event(
+                        "INFO",
+                        "inventory_sync.current_snapshot_loaded",
+                        "已加载当前稳定背包摘要",
+                        self._operation_context.with_values(snapshot_id=current_id),
+                        **stored_snapshot_log_fields(
+                            current_summary,
+                            character_instances_independent=current_has_character_instances,
+                        ),
+                    )
                 self._publish(
                     "waiting" if current_summary is None else "listening",
                     "等待进入游戏并接收完整背包"
@@ -516,15 +460,16 @@ class InventorySyncService:
                             continue
                         result = stabilizer.offer(event)
                         if result.status in {"collecting", "changed"}:
+                            candidate_fields = inventory_payload_log_fields(event)
                             log_event(
                                 "DEBUG",
                                 "inventory_sync.candidate_received",
                                 "已接收背包快照候选，等待内容稳定",
                                 self._operation_context,
-                                item_count=result.item_count,
                                 added_count=result.added_count,
                                 removed_count=result.removed_count,
                                 candidate_status=result.status,
+                                **candidate_fields,
                             )
                             self._publish(
                                 "collecting",
@@ -597,12 +542,7 @@ class InventorySyncService:
                         continue
                     stabilizer.mark_committed(stable.fingerprint)
                     current_has_character_instances = dao.snapshot_has_independent_character_instances(snapshot_id)
-                    character_payload = stable.payload.get("characters")
-                    character_count = (
-                        len(character_payload)
-                        if isinstance(character_payload, list)
-                        else 0
-                    )
+                    committed_summary = dao.inventory_snapshot_summary(snapshot_id) or {}
                     committed_context = self._operation_context.with_values(
                         snapshot_id=snapshot_id,
                     )
@@ -611,9 +551,11 @@ class InventorySyncService:
                         "inventory_sync.snapshot_committed",
                         "已保存稳定背包快照",
                         committed_context,
-                        item_count=stable.item_count,
-                        character_instance_count=character_count,
                         protocol_version=self._protocol_version(client),
+                        **stored_snapshot_log_fields(
+                            committed_summary,
+                            character_instances_independent=current_has_character_instances,
+                        ),
                     )
                     if self._template_refresh is not None:
                         try:

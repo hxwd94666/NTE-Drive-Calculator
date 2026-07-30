@@ -153,7 +153,7 @@ class MainWindowDataMixin:
             )
             if reload_priority:
                 self.scanning_controller.role_selector.load_startup_priority_config()
-            self.scanning_controller.update_catalog(
+            self.equipment_presentation.update_catalog(
                 roles_db=self.roles_db,
                 scoring_engine=self.scoring_engine,
                 shape_areas=self._shape_areas,

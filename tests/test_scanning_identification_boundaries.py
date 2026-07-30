@@ -67,6 +67,63 @@ class ScanningIdentificationBoundaryTests(unittest.TestCase):
                 self.assertNotIn("src.app.runtime", modules)
                 self.assertNotIn("src.ui.main_window_method_install", modules)
 
+    def test_shared_ui_capabilities_are_owned_outside_feature_controllers(self):
+        scanning_modules = imported_modules(
+            "src/features/scanning/controller.py"
+        )
+        identification_modules = imported_modules(
+            "src/features/identification/controller.py"
+        )
+        hotkey_modules = imported_modules(
+            "src/integrations/global_hotkeys.py"
+        )
+        scanning_source = (
+            ROOT / "src/features/scanning/controller.py"
+        ).read_text(encoding="utf-8")
+        identification_source = (
+            ROOT / "src/features/identification/controller.py"
+        ).read_text(encoding="utf-8")
+        app_source = (ROOT / "src/ui/app.py").read_text(encoding="utf-8")
+
+        self.assertNotIn(
+            "src.features.identification.controller",
+            scanning_modules,
+        )
+        self.assertNotIn(
+            "src.features.scanning.controller",
+            identification_modules,
+        )
+        self.assertFalse(
+            any(
+                module == "src.features"
+                or module.startswith("src.features.")
+                or module == "src.ui"
+                or module.startswith("src.ui.")
+                for module in hotkey_modules
+            )
+        )
+        self.assertNotIn("set_identification_controller", scanning_source)
+        self.assertNotIn("equipment_card_factory", identification_source)
+        self.assertNotIn("register_hotkeys:", identification_source)
+        self.assertIn(
+            "self.equipment_presentation = EquipmentPresentation(",
+            app_source,
+        )
+        self.assertIn(
+            "self.global_hotkey_manager = GlobalHotkeyManager(",
+            app_source,
+        )
+        self.assertGreaterEqual(
+            app_source.count(
+                "equipment_presentation=self.equipment_presentation"
+            ),
+            2,
+        )
+        self.assertGreaterEqual(
+            app_source.count("hotkey_manager=self.global_hotkey_manager"),
+            2,
+        )
+
     def test_dependencies_pin_account_paths(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             context = build_context(Path(temp_dir))

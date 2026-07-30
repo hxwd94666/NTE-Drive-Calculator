@@ -436,7 +436,7 @@ class AllocationController(QObject):
         *,
         app_context: Any,
         dialog_parent: QObject,
-        results_view: Any,
+        equipment_presentation: Any,
         preferences_provider: Callable[[], dict[str, Any]],
         save_preferences: Callable[[], None],
         refresh_roles: Callable[[], None],
@@ -445,7 +445,7 @@ class AllocationController(QObject):
         super().__init__(dialog_parent)
         self.app_context = app_context
         self.dialog_parent = dialog_parent
-        self._results_view = results_view
+        self._equipment_presentation = equipment_presentation
         self._preferences_provider = preferences_provider
         self._save_preferences_callback = save_preferences
         self._refresh_roles_callback = refresh_roles
@@ -513,7 +513,7 @@ class AllocationController(QObject):
         self.allocation_plan_diff = {}
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id = None
-        self._results_view.clear()
+        self._equipment_presentation.clear()
 
     def _run_allocation(self, *args: Any, **kwargs: Any) -> Any:
         return _run_allocation(self, *args, **kwargs)
@@ -525,18 +525,18 @@ class AllocationController(QObject):
         _on_exec_error(self, error)
 
     def _render_results(self, plan: dict) -> None:
-        self._results_view.set_plan_context(
+        self._equipment_presentation.set_plan_context(
             final_plan=plan,
             plan_diff=self.allocation_plan_diff,
             snapshot_id=self._pending_allocation_snapshot_id,
             strategy=self._pending_strat,
             custom_weapons=self._pending_custom_weapons,
         )
-        self._results_view.render(plan)
+        self._equipment_presentation.render(plan)
 
     def _save_alloc(self, show_message: bool = True) -> bool:
         self.allocation_plan_diff = dict(
-            self._results_view.allocation_plan_diff or {}
+            self._equipment_presentation.allocation_plan_diff or {}
         )
         return bool(_save_alloc(self, show_message=show_message))
 

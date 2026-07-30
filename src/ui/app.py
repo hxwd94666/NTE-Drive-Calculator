@@ -121,8 +121,10 @@ def _migrate_legacy_shared_shape_bonus() -> None:
 
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.page import refresh_account_scoped_settings
+from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.main_window_mixins import FeatureMainWindowMixin
+from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
 from src.features.identification.controller import IdentificationController
 from src.features.onboarding.guide import OnboardingGuide
@@ -257,6 +259,15 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         self._account_settings = self.app_context.account_settings
         self._account_settings.migrate_legacy_settings()
         self._load_hotkey_config()
+        self.global_hotkey_manager = GlobalHotkeyManager(
+            capture_hotkey=self._hk_capture,
+            finish_hotkey=self._hk_finish,
+            stop_hotkey=self._hk_stop,
+        )
+        self.equipment_presentation = EquipmentPresentation(
+            app_context=self.app_context,
+            dialog_parent=self,
+        )
         self.scanning_controller = ScanningController(
             app_context=self.app_context,
             dialog_parent=self,
@@ -270,28 +281,18 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
             refresh_roles=lambda: refresh_official_role_page(self),
             refresh_equipment=self._refresh_equip,
             card_factory=self._card,
-            capture_hotkey=self._hk_capture,
-            finish_hotkey=self._hk_finish,
-            stop_hotkey=self._hk_stop,
-        )
-        self.equipment_presentation = (
-            self.scanning_controller.equipment_presentation
+            equipment_presentation=self.equipment_presentation,
+            hotkey_manager=self.global_hotkey_manager,
         )
         self.identification_controller = IdentificationController(
             app_context=self.app_context,
             dialog_parent=self,
             card_factory=self._card,
-            equipment_card_factory=self.scanning_controller.equipment_card,
-            register_hotkeys=self.scanning_controller.register_hotkeys,
-            unregister_hotkeys=self.scanning_controller.unregister_hotkeys,
+            equipment_presentation=self.equipment_presentation,
+            hotkey_manager=self.global_hotkey_manager,
             minimize_window=self.showMinimized,
             restore_window=self.showNormal,
             activate_window=self.activateWindow,
-            capture_hotkey=self._hk_capture,
-            finish_hotkey=self._hk_finish,
-        )
-        self.scanning_controller.set_identification_controller(
-            self.identification_controller
         )
         self.blueprint_page = BlueprintPage(
             app_context=self.app_context,
@@ -484,6 +485,7 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
             self._stop_inventory_sync()
         except Exception as exc:
             logger.warning(f"停止背包同步失败: {exc}")
+        self.global_hotkey_manager.close()
         self._unregister_inventory_sync_lifecycle()
         self._account_context_unsubscribe()
         log_event(
@@ -656,11 +658,7 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         self._account_settings = self.app_context.account_settings
         self._account_settings.migrate_legacy_settings()
         self._load_hotkey_config()
-        self.identification_controller.update_hotkeys(
-            capture_hotkey=self._hk_capture,
-            finish_hotkey=self._hk_finish,
-        )
-        self.scanning_controller.update_hotkeys(
+        self.global_hotkey_manager.update_configuration(
             capture_hotkey=self._hk_capture,
             finish_hotkey=self._hk_finish,
             stop_hotkey=self._hk_stop,

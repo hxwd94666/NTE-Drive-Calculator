@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +17,8 @@ class WarehouseInventoryService:
         self,
         database_path: str | Path,
         *,
-        dao_factory=UserDataDao,
-        static_dao_factory=StaticGameDataDao,
+        dao_factory: Callable[..., Any] = UserDataDao,
+        static_dao_factory: Callable[..., Any] = StaticGameDataDao,
         operation_context: OperationContext | None = None,
     ) -> None:
         self.database_path = Path(database_path)
@@ -37,10 +37,27 @@ class WarehouseInventoryService:
             message="读取仓库稳定快照",
         ) as span:
             result = self._load_current_snapshot()
+            summary = result.get("summary")
+            summary_fields = (
+                {
+                    "module_count": int(summary.get("module_count") or 0),
+                    "core_count": int(summary.get("core_count") or 0),
+                    "equipped_count": int(summary.get("equipped_count") or 0),
+                    "locked_count": int(summary.get("locked_count") or 0),
+                    "character_instance_count": int(
+                        summary.get("character_instance_count") or 0
+                    ),
+                    "generation": summary.get("generation"),
+                    "sequence": summary.get("sequence"),
+                }
+                if isinstance(summary, Mapping)
+                else {}
+            )
             span.annotate(
                 snapshot_id=result.get("snapshot_id"),
                 source=result.get("source"),
                 item_count=len(result.get("rows") or ()),
+                **summary_fields,
             )
             return result
 
@@ -78,6 +95,7 @@ class WarehouseInventoryService:
             "snapshot_id": snapshot_id,
             "source": source,
             "rows": rows,
+            "summary": summary,
         }
 
     @staticmethod

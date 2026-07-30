@@ -1,5 +1,5 @@
-# 渲染配装结果、评分和属性汇总。
-"""MainWindow methods for allocation."""
+# 统一渲染计算结果、保存配装、鉴定卡片、评分和属性汇总。
+"""Public equipment presentation component shared by allocation-facing UIs."""
 
 from __future__ import annotations
 
@@ -30,17 +30,19 @@ from src.optimizer.contracts import (
     PLAN_VALID,
     plan_drives,
 )
-from src.features.inventory.warehouse import warehouse_shape_pixmap
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.equipment_scoring_service import (
     score_drive_stats,
     score_tape_stats,
 )
+from src.services.warehouse_visual_catalog import (
+    representative_module_item_id,
+)
 from src.ui.puzzle_board import PuzzleBoardWidget
 
 
 __all__ = [
-    "AllocationResultsView",
+    "EquipmentPresentation",
     "_section_label",
     "_render_results",
     "_calc_grade",
@@ -127,6 +129,34 @@ def _equipment_item_icon_path(
         if isinstance(official, dict):
             item_id = str(official.get("item_id") or "")
     return _game_ui_equipment_icon(str(asset_root), kind, item_id)
+
+
+def _representative_drive_pixmap(
+    asset_root: str | Path,
+    shape_id: str,
+    quality: str,
+) -> QPixmap:
+    quality_text = str(quality or "").casefold()
+    if any(
+        token in quality_text
+        for token in ("gold", "golden", "orange", "金", "橙")
+    ):
+        quality_key = "gold"
+    elif "purple" in quality_text or "紫" in quality_text:
+        quality_key = "purple"
+    elif "blue" in quality_text or "蓝" in quality_text:
+        quality_key = "blue"
+    elif "green" in quality_text or "绿" in quality_text:
+        quality_key = "green"
+    else:
+        quality_key = quality_text or "gold"
+    item_id = representative_module_item_id(str(shape_id or ""), quality_key)
+    icon_path = _game_ui_equipment_icon(
+        str(asset_root),
+        "module",
+        item_id,
+    )
+    return QPixmap(icon_path) if icon_path else QPixmap()
 
 
 def _render_results(self, plan):
@@ -438,7 +468,11 @@ def _equip_card(
                 Qt.SmoothTransformation,
             )
             if item_icon_path
-            else warehouse_shape_pixmap(shape_id, quality or "Gold")
+            else _representative_drive_pixmap(
+                Path(self.app_context.paths.asset_dir) / "game_ui",
+                shape_id,
+                quality or "Gold",
+            )
         )
         if not pm.isNull():
             img_lbl = QLabel()
@@ -579,8 +613,8 @@ def _equip_card(
     return w
 
 
-class AllocationResultsView:
-    """Own calculation result widgets and the context used by result actions."""
+class EquipmentPresentation:
+    """Own shared equipment rendering and calculation-result presentation state."""
 
     _section_label = _section_label
     _render_results = _render_results

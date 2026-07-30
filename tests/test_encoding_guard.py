@@ -95,7 +95,7 @@ class EncodingGuardTests(unittest.TestCase):
             "src.features.accounts.manager",
             "src.features.allocation.execute_page",
             "src.features.allocation.runner",
-            "src.features.allocation.results_view",
+            "src.ui.equipment_presentation",
             "src.features.allocation.role_selector",
             "src.features.blueprints.page",
             "src.features.configuration.page",

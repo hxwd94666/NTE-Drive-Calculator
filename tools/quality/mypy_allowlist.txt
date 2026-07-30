@@ -70,6 +70,7 @@ src/integrations/nte_core_events.py
 src/integrations/nte_core.py
 src/integrations/nte_core_protocol.py
 src/integrations/bundled_resources.py
+src/integrations/global_hotkeys.py
 src/integrations/warehouse_state_writer.py
 src/storage/sqlite/account_data_dao.py
 src/storage/sqlite/character_profile_dao.py

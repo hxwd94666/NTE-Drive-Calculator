@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QPushButton
 
 from src.features.blueprints.page import BlueprintPage
 from src.features.configuration.page import build_config_page
+from src.features.home.page import build_home_page
 from src.ui.navigation import NAV_ITEMS, sidebar_nav_items
 
 
@@ -60,6 +62,25 @@ class ProductNavigationTests(unittest.TestCase):
         config_return.click()
 
         self.assertEqual(["my_role", "my_role"], destinations)
+
+    def test_workbench_quick_actions_place_identification_after_warehouse(self):
+        destinations: list[str] = []
+        window = SimpleNamespace(
+            app_context=SimpleNamespace(
+                paths=SimpleNamespace(asset_dir=Path("assets"))
+            ),
+            _start_inventory_sync=lambda: None,
+            _stop_inventory_sync=lambda: None,
+            _focus_environment_configuration=lambda: None,
+            _go=destinations.append,
+        )
+        page = build_home_page(window)
+        buttons = page.findChildren(QPushButton)
+        labels = [button.text() for button in buttons]
+        warehouse_index = labels.index("仓库管理")
+        self.assertEqual("空幕鉴定", labels[warehouse_index + 1])
+        buttons[warehouse_index + 1].click()
+        self.assertEqual(["identify"], destinations)
 
 
 if __name__ == "__main__":

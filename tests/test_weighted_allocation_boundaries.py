@@ -70,7 +70,7 @@ class WeightedAllocationBoundaryTests(unittest.TestCase):
             with self.subTest(path=relative_path):
                 self.assertNotIn("src.app.runtime", modules)
                 self.assertNotIn(
-                    "src.features.allocation.results_view",
+                    "src.ui.equipment_presentation",
                     modules,
                 )
                 self.assertNotIn(

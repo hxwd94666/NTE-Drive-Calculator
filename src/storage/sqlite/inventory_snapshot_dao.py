@@ -437,7 +437,12 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                    SUM(CASE WHEN i.kind = 'module' THEN 1 ELSE 0 END) AS module_count,
                    SUM(CASE WHEN i.kind = 'core' THEN 1 ELSE 0 END) AS core_count,
                    SUM(CASE WHEN i.equipped = 1 THEN 1 ELSE 0 END) AS equipped_count,
-                   SUM(CASE WHEN i.locked = 1 THEN 1 ELSE 0 END) AS locked_count
+                   SUM(CASE WHEN i.locked = 1 THEN 1 ELSE 0 END) AS locked_count,
+                   (
+                       SELECT COUNT(*)
+                       FROM character_instance_mapping AS cim
+                       WHERE cim.last_seen_snapshot_id = s.snapshot_id
+                   ) AS character_instance_count
             FROM inventory_snapshot AS s
             LEFT JOIN inventory_item AS i USING (snapshot_id)
             WHERE s.snapshot_id = ?
@@ -446,7 +451,13 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             (raw_snapshot_id,),
         )
         if row is not None:
-            for field in ("module_count", "core_count", "equipped_count", "locked_count"):
+            for field in (
+                "module_count",
+                "core_count",
+                "equipped_count",
+                "locked_count",
+                "character_instance_count",
+            ):
                 row[field] = int(row[field] or 0)
         return row
 

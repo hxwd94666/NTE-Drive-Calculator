@@ -1,7 +1,9 @@
 # 校验仓库视图的官方快照投影与轻量筛选。
 import unittest
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -9,6 +11,76 @@ ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
 
 
 class WarehouseInventoryTests(unittest.TestCase):
+    def test_load_log_contains_fixed_snapshot_diagnostic_counts(self):
+        from src.services.warehouse_inventory_service import WarehouseInventoryService
+
+        class Dao:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def current_inventory_snapshot_id(self):
+                return 12
+
+            def inventory_snapshot_summary(self, _snapshot_id):
+                return {
+                    "source": "nte_core",
+                    "module_count": 2,
+                    "core_count": 1,
+                    "equipped_count": 1,
+                    "locked_count": 2,
+                    "character_instance_count": 3,
+                    "generation": 4,
+                    "sequence": 5,
+                }
+
+            def list_inventory_items(self, _snapshot_id):
+                return [
+                    {"kind": "module"},
+                    {"kind": "module"},
+                    {"kind": "core"},
+                ]
+
+            def list_character_instance_mappings(self):
+                return []
+
+        class StaticDao:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def list_characters(self):
+                return []
+
+        with tempfile.NamedTemporaryFile(suffix=".sqlite3") as database:
+            events: list[tuple[str, dict[str, object]]] = []
+            service = WarehouseInventoryService(
+                database.name,
+                dao_factory=lambda _path: Dao(),
+                static_dao_factory=StaticDao,
+            )
+            with patch(
+                "src.observability.operation.log_event",
+                side_effect=lambda _level, event, _message, _context, **fields: events.append(
+                    (event, fields)
+                ),
+            ):
+                service.load_current_snapshot()
+
+        succeeded = next(
+            fields for event, fields in events if event == "warehouse.load_succeeded"
+        )
+        self.assertEqual(3, succeeded["item_count"])
+        self.assertEqual(2, succeeded["module_count"])
+        self.assertEqual(1, succeeded["core_count"])
+        self.assertEqual(3, succeeded["character_instance_count"])
+        self.assertEqual(4, succeeded["generation"])
+        self.assertEqual(5, succeeded["sequence"])
+
     def test_warehouse_state_progress_dialog_reports_worker_phase(self):
         from PySide6.QtWidgets import QApplication, QWidget
 

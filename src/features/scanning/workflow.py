@@ -520,7 +520,7 @@ def _start_scan(self, drone_mode):
     )
     self._scan_worker.scan_done.connect(self._on_scan_done)
     self._scan_worker.error.connect(self._on_scan_error)
-    self._register_scan_hotkeys(drone_mode)
+    self._start_scan_hotkeys(drone_mode)
     self.btn_run.setText("⏳  扫描中... (F12 停止)")
     self._scan_worker.start()
 
@@ -588,7 +588,7 @@ def _start_gamepad_scan(
     self._gamepad_worker.post_actions_ready.connect(self._on_gamepad_post_actions_ready)
     self._gamepad_worker.processing_done.connect(self._on_gamepad_pipeline_done)
     self._gamepad_worker.error.connect(self._on_gamepad_error)
-    self._register_scan_hotkeys("gamepad")
+    self._start_scan_hotkeys("gamepad")
     self.btn_run.setText("⏳  手柄扫描/解析中... (F12 停止)")
     self._gamepad_worker.start()
 
@@ -663,7 +663,7 @@ def _on_gamepad_error(self, err):
         stage="gamepad_pipeline",
         error=err,
     )
-    self._unregister_scan_hotkeys()
+    self._stop_scan_hotkeys()
     self._gamepad_pipeline_finished = True
     self._gamepad_suppress_parse_ui = False
     self._gamepad_post_actions_enabled = False
@@ -683,7 +683,7 @@ def _on_gamepad_error(self, err):
 
 
 def _on_gamepad_pipeline_done(self, stats):
-    self._unregister_scan_hotkeys()
+    self._stop_scan_hotkeys()
     self._gamepad_pipeline_finished = True
     self._gamepad_suppress_parse_ui = False
     self._gamepad_post_actions_enabled = False
@@ -695,7 +695,7 @@ def _on_gamepad_pipeline_done(self, stats):
 
 
 def _on_scan_done(self, count):
-    self._unregister_scan_hotkeys()
+    self._stop_scan_hotkeys()
     self.showNormal()
     self.activateWindow()
     if count > 0:
@@ -739,7 +739,7 @@ def _on_scan_error(self, err):
         stage="capture",
         error=err,
     )
-    self._unregister_scan_hotkeys()
+    self._stop_scan_hotkeys()
     self.showNormal()
     self.activateWindow()
     self.btn_run.setEnabled(True)

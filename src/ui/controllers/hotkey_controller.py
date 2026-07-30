@@ -46,6 +46,13 @@ def _save_hotkeys(self, *, announce=False):
     self._hk_finish=finish
     self._hk_stop=stop
     self._save_hotkey_config()
+    manager = getattr(self, "global_hotkey_manager", None)
+    if manager is not None:
+        manager.update_configuration(
+            capture_hotkey=capture,
+            finish_hotkey=finish,
+            stop_hotkey=stop,
+        )
     if announce:
         QMessageBox.information(self,"保存","快捷键已保存！\n全局截图: "+self._hk_capture+"\n截图完成: "+self._hk_finish+"\n停止: "+self._hk_stop)
     return True

@@ -6,23 +6,31 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.services.inventory_sync_service import InventorySyncService
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
-def item(serial: int, *, level: int = 1, equipped: bool = False) -> dict:
+def item(
+    serial: int,
+    *,
+    kind: str = "module",
+    level: int = 1,
+    equipped: bool = False,
+    locked: bool = False,
+) -> dict:
     return {
         "uid": {"slot": 8, "serial": serial},
-        "kind": "module",
-        "item_id": f"module-{serial}",
+        "kind": kind,
+        "item_id": f"{kind}-{serial}",
         "suit_id": "suit-1",
         "geometry": "geometry-1",
         "grid": 3,
         "quality": 5,
         "level": level,
         "max_level": 20,
-        "locked": False,
+        "locked": locked,
         "equipped": equipped,
         "equipped_character_uid": None,
         "equipped_character_id": None,
@@ -192,6 +200,75 @@ class InventorySyncServiceTests(unittest.TestCase):
             self.assertEqual(1, dao.current_inventory_summary()["stored_item_count"])
             self.assertEqual(1, dao.summary()["snapshot_count"])
         self.assertEqual([True], self.template_refreshes)
+
+    def test_snapshot_logs_include_authoritative_equipment_and_character_counts(self) -> None:
+        events: list[tuple[str, dict[str, object]]] = []
+        characters = [{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}]
+        with patch(
+            "src.services.inventory_sync_service.log_event",
+            side_effect=lambda _level, event, _message, _context, **fields: events.append(
+                (event, fields)
+            ),
+        ):
+            self._start()
+            self.core.emit(
+                snapshot(
+                    item(1, equipped=True),
+                    item(2, kind="core", locked=True),
+                    generation=7,
+                    sequence=9,
+                    characters=characters,
+                )
+            )
+            self.service.wait_for_snapshot(timeout=2.0)
+
+        committed = next(
+            fields for event, fields in events if event == "inventory_sync.snapshot_committed"
+        )
+        candidate = next(
+            fields for event, fields in events if event == "inventory_sync.candidate_received"
+        )
+        self.assertEqual(1, candidate["module_count"])
+        self.assertEqual(1, candidate["core_count"])
+        self.assertEqual(1, candidate["character_instance_count"])
+        self.assertEqual(2, committed["item_count"])
+        self.assertEqual(1, committed["module_count"])
+        self.assertEqual(1, committed["core_count"])
+        self.assertEqual(1, committed["equipped_count"])
+        self.assertEqual(1, committed["locked_count"])
+        self.assertEqual(1, committed["character_instance_count"])
+        self.assertTrue(committed["character_instances_independent"])
+        self.assertEqual(7, committed["generation"])
+        self.assertEqual(9, committed["sequence"])
+
+    def test_restart_logs_current_snapshot_summary_without_waiting_for_a_change(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), generation=3, sequence=4, characters=[]))
+        self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+
+        events: list[tuple[str, dict[str, object]]] = []
+        with patch(
+            "src.services.inventory_sync_service.log_event",
+            side_effect=lambda _level, event, _message, _context, **fields: events.append(
+                (event, fields)
+            ),
+        ):
+            self.service.start()
+            self.service.wait_for_phase("listening", timeout=2.0)
+
+        loaded = next(
+            fields
+            for event, fields in events
+            if event == "inventory_sync.current_snapshot_loaded"
+        )
+        self.assertEqual(1, loaded["item_count"])
+        self.assertEqual(1, loaded["module_count"])
+        self.assertEqual(0, loaded["core_count"])
+        self.assertEqual(0, loaded["character_instance_count"])
+        self.assertTrue(loaded["character_instances_independent"])
+        self.assertEqual(3, loaded["generation"])
+        self.assertEqual(4, loaded["sequence"])
 
     def test_legacy_snapshot_is_not_presented_as_fast_assembly_ready(self) -> None:
         """A pre-v0.3.5 snapshot has items but no independent character UIDs."""

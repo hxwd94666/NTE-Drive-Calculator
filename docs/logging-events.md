@@ -26,13 +26,13 @@
 | 应用 | `application.started`、`application.stopping` | 版本、启动和退出 |
 | 账号 | `account.switch_*` | 阻止、取消、切换阶段、失败和完成 |
 | 数据迁移 | `database.shape_bonus_migration_*` | 旧版额外形状迁移、事务失败 |
-| nte-core 同步 | `inventory_sync.*` | 连接、候选快照、稳定等待、提交、保留策略和停止原因 |
+| nte-core 同步 | `inventory_sync.*` | 连接、候选快照、稳定等待、提交、保留策略和停止原因；已有/候选/提交快照记录驱动、空幕、已装备、锁定、角色实例数量与 generation/sequence |
 | 配装计算 | `allocation.*` | 请求、求解、保存、失败和旧 generation 结果丢弃 |
 | 角色 | `role.*` | 索引/详情、配置保存/重置、替换和 dirty 离开决策 |
 | 基础权重 | `basic_weight.*` | 加载、保存、重置和 dirty 离开决策 |
 | 公共额外形状 | `shape_bonus.*` | 公共覆盖保存和恢复发行默认 |
 | 角色图纸 | `blueprint.*` | 生成、失败和旧账号结果丢弃 |
-| 仓库 | `warehouse.*` | 固定快照加载、规则评估、手工状态计划和 nte-core 写回 |
+| 仓库 | `warehouse.*` | 固定快照加载（含驱动、空幕、已装备、锁定和角色实例数量）、规则评估、手工状态计划和 nte-core 写回 |
 | 极速装配 | `equipment_apply.bulk_*` | 任务预检、执行、验证和最终摘要 |
 | 视觉扫描 | `scanning.*` | 冻结依赖、扫描来源和生命周期 |
 | 单件鉴定 | `identification.*` | 输入来源、连续截图和结果生命周期 |

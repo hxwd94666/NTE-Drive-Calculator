@@ -54,12 +54,14 @@ from src.features.identification.operation_logging import (
 )
 from src.features.identification.temp_files import is_identify_clipboard_file
 from src.models.equipment import Drive, Tape
+from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
 from src.optimizer.scoring import ScoringEngine
 from src.scanner.batch_processor import BatchProcessor
 from src.solver.orchestrator import NTEPipelineOrchestrator
 from src.ui.plain_text_edit import PlainTextOnlyTextEdit
+from src.ui.equipment_presentation import EquipmentPresentation
 from src.ui.widgets import SearchableComboBox
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
@@ -77,27 +79,21 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         app_context: AppContext,
         dialog_parent: QWidget,
         card_factory: Callable[..., Any],
-        equipment_card_factory: Callable[..., Any],
-        register_hotkeys: Callable[[str], None],
-        unregister_hotkeys: Callable[[], None],
+        equipment_presentation: EquipmentPresentation,
+        hotkey_manager: GlobalHotkeyManager,
         minimize_window: Callable[[], None],
         restore_window: Callable[[], None],
         activate_window: Callable[[], None],
-        capture_hotkey: str,
-        finish_hotkey: str,
     ) -> None:
         super().__init__(dialog_parent)
         self.app_context = app_context
         self._dialog_parent = dialog_parent
         self._card_factory = card_factory
-        self._equipment_card_factory = equipment_card_factory
-        self._register_hotkeys_callback = register_hotkeys
-        self._unregister_hotkeys_callback = unregister_hotkeys
+        self._equipment_presentation = equipment_presentation
+        self._hotkey_manager = hotkey_manager
         self._minimize_window = minimize_window
         self._restore_window = restore_window
         self._activate_window = activate_window
-        self._hk_capture = capture_hotkey
-        self._hk_finish = finish_hotkey
         self._shape_areas: dict[str, int] = {}
         self.all_set_names: list[str] = []
         self.scoring_engine: ScoringEngine | None = None
@@ -128,17 +124,16 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._identify_blueprint_cache = None
         self.refresh_options()
 
-    def update_hotkeys(self, *, capture_hotkey: str, finish_hotkey: str) -> None:
-        self._hk_capture = capture_hotkey
-        self._hk_finish = finish_hotkey
-
     def reset_account_state(self) -> None:
         self._identify_blueprint_cache = None
         if hasattr(self, "_identify_capture_dir"):
             self._identify_capture_dir = self.app_context.account.account_data_root / "identify_captures"
 
     def is_running(self) -> bool:
-        return _identification_is_running(self)
+        return (
+            _identification_is_running(self)
+            or self._hotkey_manager.active_owner == "identification"
+        )
 
     def capture_foreground(self) -> None:
         self._capture_identify_foreground()
@@ -150,13 +145,26 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         return self._card_factory(*args, **kwargs)
 
     def _equip_card(self, *args: Any, **kwargs: Any) -> Any:
-        return self._equipment_card_factory(*args, **kwargs)
+        return self._equipment_presentation.equipment_card(*args, **kwargs)
 
-    def _register_scan_hotkeys(self, mode: str) -> None:
-        self._register_hotkeys_callback(mode)
+    def _start_capture_hotkeys(self) -> None:
+        self._hotkey_manager.start(
+            owner="identification",
+            on_stop=self._on_capture_stop_hotkey,
+            on_capture=self.capture_foreground,
+            on_finish=self.finish_capture,
+        )
 
-    def _unregister_scan_hotkeys(self) -> None:
-        self._unregister_hotkeys_callback()
+    def _stop_capture_hotkeys(self) -> None:
+        self._hotkey_manager.stop(owner="identification")
+
+    def _on_capture_stop_hotkey(self) -> None:
+        configuration = self._hotkey_manager.configuration
+        logger.warning(
+            "收到停止热键 {}；连续截图鉴定请使用完成热键 {} 返回。",
+            configuration.stop,
+            configuration.finish,
+        )
 
     def showMinimized(self) -> None:
         self._minimize_window()
@@ -341,6 +349,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
 
     def _start_identify_capture_mode(self):
         dependencies = _current_identification_dependencies(self)
+        hotkeys = self._hotkey_manager.configuration
         self._identify_dependencies = dependencies
         self._identify_capture_operation_context = OperationContext.create(
             "identification_capture",
@@ -356,14 +365,16 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         QMessageBox.information(
             self._dialog_parent,
             "截图鉴定",
-            f"点击 OK 后请切回游戏。\n\n按 {self._hk_capture} 连续截图，按 {self._hk_finish} 完成并返回鉴定页。",
+            f"点击 OK 后请切回游戏。\n\n按 {hotkeys.capture} 连续截图，按 {hotkeys.finish} 完成并返回鉴定页。",
         )
         self._identify_capture_dir = dependencies.account_data_root / "identify_captures"
         self._identify_capture_dir.mkdir(parents=True, exist_ok=True)
         self._identify_capture_count = 0
         self.showMinimized()
-        self._register_scan_hotkeys("identify")
-        self.ident_summary.setText(f"截图鉴定已启动：{self._hk_capture} 截图，{self._hk_finish} 完成")
+        self._start_capture_hotkeys()
+        self.ident_summary.setText(
+            f"截图鉴定已启动：{hotkeys.capture} 截图，{hotkeys.finish} 完成"
+        )
 
     def _capture_identify_foreground(self):
         dependencies = _task_identification_dependencies(self)
@@ -408,7 +419,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self.ident_path_edit.setText(";".join(paths))
 
     def _finish_identify_capture_mode(self):
-        self._unregister_scan_hotkeys()
+        self._stop_capture_hotkeys()
         self.showNormal()
         self.activateWindow()
         count = getattr(self, "_identify_capture_count", 0)

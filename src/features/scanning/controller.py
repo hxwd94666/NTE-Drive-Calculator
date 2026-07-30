@@ -11,10 +11,9 @@ from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from src.app.context import AppContext
-from src.features.allocation.results_view import AllocationResultsView
 from src.features.allocation.runner import AllocationController
-from src.features.identification.controller import IdentificationController
-from src.optimizer.scoring import ScoringEngine
+from src.integrations.global_hotkeys import GlobalHotkeyManager
+from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.scanning.file_workflow import (
     delete_paths as _delete_paths,
     matching_scope_files as _matching_scope_files,
@@ -28,15 +27,10 @@ from src.features.scanning.file_workflow import (
     scope_image as _is_scope_image,
     unique_path as _unique_path,
 )
-from src.features.scanning.hotkeys import (
-    hotkey_poll_loop as _hotkey_poll_loop,
-    hotkey_to_vk as _hotkey_to_vk,
+from src.features.scanning.hotkey_actions import (
     on_hotkey_capture as _on_hk_capture,
     on_hotkey_finish as _on_hk_finish,
     on_hotkey_stop as _on_hk_stop,
-    register_scan_hotkeys as _register_scan_hotkeys,
-    unregister_scan_hotkeys as _unregister_scan_hotkeys,
-    win_hotkey_loop as _win_hotkey_loop,
 )
 from src.features.scanning.workflow import (
     _scanning_is_running,
@@ -104,11 +98,6 @@ class ScanningController(QObject):
     _on_gamepad_pipeline_done = _on_gamepad_pipeline_done
     _on_scan_done = _on_scan_done
     _on_scan_error = _on_scan_error
-    _register_scan_hotkeys = _register_scan_hotkeys
-    _hotkey_to_vk = _hotkey_to_vk
-    _win_hotkey_loop = _win_hotkey_loop
-    _hotkey_poll_loop = _hotkey_poll_loop
-    _unregister_scan_hotkeys = _unregister_scan_hotkeys
     _on_hk_stop = _on_hk_stop
     _on_hk_capture = _on_hk_capture
     _on_hk_finish = _on_hk_finish
@@ -128,9 +117,8 @@ class ScanningController(QObject):
         refresh_roles: Callable[[], None],
         refresh_equipment: Callable[[], None],
         card_factory: Callable[..., Any],
-        capture_hotkey: str,
-        finish_hotkey: str,
-        stop_hotkey: str,
+        equipment_presentation: EquipmentPresentation,
+        hotkey_manager: GlobalHotkeyManager,
     ) -> None:
         super().__init__(dialog_parent)
         self.app_context = app_context
@@ -143,14 +131,9 @@ class ScanningController(QObject):
         self._card_factory = card_factory
         self._preferences_provider = preferences_provider
         self._save_preferences_callback = save_preferences
+        self._equipment_presentation = equipment_presentation
+        self._hotkey_manager = hotkey_manager
         self._page: QWidget | None = None
-        self.identification_controller: IdentificationController | None = None
-        self._hk_capture = capture_hotkey
-        self._hk_finish = finish_hotkey
-        self._hk_stop = stop_hotkey
-        self._hk_active = False
-        self._hk_mode: str | None = None
-        self._hk_thread_id: int | None = None
         self._scan_worker: Any = None
         self._gamepad_worker: Any = None
         self._vision_worker: Any = None
@@ -178,14 +161,10 @@ class ScanningController(QObject):
         self._pending_set_effect_modes: dict[str, Any] = {}
         self._pending_priority_groups: Any = None
         self._ui_preferences: dict[str, Any] = {}
-        self.results_view = AllocationResultsView(
-            app_context=app_context,
-            dialog_parent=dialog_parent,
-        )
         self._allocation_controller = AllocationController(
             app_context=app_context,
             dialog_parent=dialog_parent,
-            results_view=self.results_view,
+            equipment_presentation=equipment_presentation,
             preferences_provider=preferences_provider,
             save_preferences=save_preferences,
             refresh_roles=refresh_roles,
@@ -197,43 +176,13 @@ class ScanningController(QObject):
             return self._page
         self._ui_preferences = self._preferences_provider()
         self._page = _page_execute(self)
-        self.results_view.bind_widgets(
+        self._equipment_presentation.bind_widgets(
             result_card=self.result_card,
             result_content_layout=self.result_content_layout,
             role_selector=self.role_selector,
         )
         self._allocation_controller.bind_run_button(self.btn_run)
         return self._page
-
-    def set_identification_controller(
-        self,
-        controller: IdentificationController,
-    ) -> None:
-        self.identification_controller = controller
-
-    def update_hotkeys(
-        self,
-        *,
-        capture_hotkey: str,
-        finish_hotkey: str,
-        stop_hotkey: str,
-    ) -> None:
-        self._hk_capture = capture_hotkey
-        self._hk_finish = finish_hotkey
-        self._hk_stop = stop_hotkey
-
-    def update_catalog(
-        self,
-        *,
-        roles_db: dict[str, Any],
-        scoring_engine: ScoringEngine,
-        shape_areas: dict[str, int],
-    ) -> None:
-        self.results_view.update_catalog(
-            roles_db=roles_db,
-            scoring_engine=scoring_engine,
-            shape_areas=shape_areas,
-        )
 
     def is_running(self) -> bool:
         return _scanning_is_running(self) or self._allocation_controller.is_running()
@@ -246,20 +195,19 @@ class ScanningController(QObject):
         self._scan_dependencies = None
         self._allocation_controller.reset_account_state()
 
-    def register_hotkeys(self, mode: str) -> None:
-        self._register_scan_hotkeys(mode)
+    def _start_scan_hotkeys(self, mode: str) -> None:
+        """Bind this scan session without exposing hotkeys to other features."""
 
-    def unregister_hotkeys(self) -> None:
-        self._unregister_scan_hotkeys()
+        manual_capture = mode == "semi"
+        self._hotkey_manager.start(
+            owner="scanning",
+            on_stop=self._on_hk_stop,
+            on_capture=self._on_hk_capture if manual_capture else None,
+            on_finish=self._on_hk_finish if manual_capture else None,
+        )
 
-    def equipment_card(self, *args: Any, **kwargs: Any) -> Any:
-        return self.results_view.equipment_card(*args, **kwargs)
-
-    @property
-    def equipment_presentation(self) -> AllocationResultsView:
-        """Expose the shared, public equipment presentation boundary."""
-
-        return self.results_view
+    def _stop_scan_hotkeys(self) -> None:
+        self._hotkey_manager.stop(owner="scanning")
 
     def _card(self, *args: Any, **kwargs: Any) -> Any:
         return self._card_factory(*args, **kwargs)
