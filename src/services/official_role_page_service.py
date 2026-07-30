@@ -364,8 +364,13 @@ def load_official_role_detail(
                     (int(row["uid_slot"]), int(row["uid_serial"])),
                     int(row["character_id"]),
                 )
+            locked_uids = {
+                (int(row["uid_slot"]), int(row["uid_serial"]))
+                for row in user_dao.list_allocation_locked_equipment_owners()
+            }
             for item in replacement_items:
                 uid = (int(item["uid_slot"]), int(item["uid_serial"]))
+                item["allocation_reserved"] = uid in locked_uids
                 owner_id = owner_by_uid.get(uid)
                 item["equipped"] = False
                 item["equipped_character_id"] = None

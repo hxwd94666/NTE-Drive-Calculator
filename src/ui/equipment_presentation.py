@@ -160,7 +160,8 @@ def _representative_drive_pixmap(
 
 
 def _render_results(self, plan):
-    if not plan:
+    locked_roles = tuple(sorted(getattr(self, "_locked_role_names", ()) or ()))
+    if not plan and not locked_roles:
         return
     self.result_card.setVisible(True)
     while self.result_content_layout.count():
@@ -170,6 +171,22 @@ def _render_results(self, plan):
     mode_labels = {"role_priority": "角色优先", "global_optimal": "全局最优", "update_mode": "增量更新"}
     mode_name = mode_labels.get(getattr(self, "_pending_strat", ""), "")
     plan_diffs = getattr(self, "allocation_plan_diff", {}) or {}
+    if locked_roles:
+        locked_label = QLabel(
+            "已保留锁定方案："
+            + "、".join(locked_roles)
+            + "。其真实装备已在评分、词条筛选和求解前排除，本次不会覆盖这些角色。"
+        )
+        locked_label.setWordWrap(True)
+        locked_label.setStyleSheet(
+            themed_style(
+                "color:#ffcc66;border:1px solid #8b6b25;border-radius:7px;"
+                "background:rgba(255,204,102,0.08);padding:8px 10px"
+            )
+        )
+        self.result_content_layout.addWidget(locked_label)
+    if not plan:
+        return
     for role, p in plan.items():
         if not p or not p.get(PLAN_VALID):
             reason = str((p or {}).get("reason") or "无法凑齐图纸所需的卡带或驱动")
@@ -681,6 +698,7 @@ class EquipmentPresentation:
         self._pending_allocation_snapshot_id: int | None = None
         self._pending_strat = ""
         self._allocation_custom_weapons: dict = {}
+        self._locked_role_names: frozenset[str] = frozenset()
 
     def bind_widgets(
         self,
@@ -712,12 +730,16 @@ class EquipmentPresentation:
         snapshot_id: int | None,
         strategy: str,
         custom_weapons: dict,
+        locked_role_names: object = (),
     ) -> None:
         self.final_plan = final_plan
         self.allocation_plan_diff = plan_diff
         self._pending_allocation_snapshot_id = snapshot_id
         self._pending_strat = strategy
         self._allocation_custom_weapons = custom_weapons
+        self._locked_role_names = frozenset(
+            str(role) for role in locked_role_names if str(role).strip()
+        )
 
     def render(self, plan: dict) -> None:
         if self.result_card is None or self.result_content_layout is None:
@@ -748,5 +770,6 @@ class EquipmentPresentation:
     def clear(self) -> None:
         self.final_plan = {}
         self.allocation_plan_diff = {}
+        self._locked_role_names = frozenset()
         if self.result_card is not None:
             self.result_card.setVisible(False)

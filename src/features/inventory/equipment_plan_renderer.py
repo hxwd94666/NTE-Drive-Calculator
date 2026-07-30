@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
@@ -59,6 +60,57 @@ EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
 # Legacy test hosts and non-Qt callers retain the old batch-only path.
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
+
+
+def _allocation_lock_icon(locked: bool) -> QIcon:
+    """Draw a compact Material-style lock without depending on an icon font."""
+
+    color = QColor(theme_color("#58a6ff" if locked else "#8b949e"))
+    canvas = QPixmap(24, 24)
+    canvas.fill(Qt.transparent)
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.Antialiasing)
+    body = QRectF(5.0, 10.0, 14.0, 10.5)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(color)
+    painter.drawRoundedRect(body, 2.3, 2.3)
+
+    shackle = QPainterPath()
+    shackle.moveTo(7.5, 10.0)
+    shackle.lineTo(7.5, 8.0)
+    shackle.cubicTo(7.5, 3.1, 16.5, 3.1, 16.5, 8.0)
+    shackle.lineTo(16.5, 10.0 if locked else 8.8)
+    painter.setBrush(Qt.NoBrush)
+    painter.setPen(QPen(color, 2.25, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    painter.drawPath(shackle)
+
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(theme_color("#161b22")))
+    painter.drawEllipse(QRectF(10.25, 13.1, 3.5, 3.5))
+    painter.drawRoundedRect(QRectF(11.25, 15.4, 1.5, 2.9), 0.75, 0.75)
+    painter.end()
+    return QIcon(canvas)
+
+
+def _set_allocation_lock_button_state(button: QPushButton, locked: bool) -> None:
+    """Reflect the persisted lock state without rebuilding the whole card."""
+
+    button.setText("")
+    button.setIcon(_allocation_lock_icon(locked))
+    button.setIconSize(QSize(18, 18))
+    button.setAccessibleName("解除配装锁定" if locked else "锁定配装")
+    button.setToolTip(
+        "当前方案已锁定：其装备不会进入其他角色的计算或替换候选"
+        if locked
+        else "当前方案未锁定：点击后保留本方案及其装备"
+    )
+    button.setStyleSheet(
+        themed_style(
+            "QPushButton{background:#21262d;border:1px solid #30363d;border-radius:5px;"
+            "padding:0;min-width:32px;min-height:32px}"
+            "QPushButton:hover{background:#30363d;border-color:#58a6ff}"
+        )
+    )
 
 _OFFICIAL_STAT_LABELS = {
     "AtkAdd": "攻击力",
@@ -216,6 +268,20 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     import_btn.setObjectName("btnPrimary")
     import_btn.clicked.connect(lambda _, rn=role_name: self._preview_assemble_role(rn))
     role_hdr.addWidget(import_btn)
+    locked = bool(rd.get("_allocation_locked"))
+    lock_btn = QPushButton()
+    lock_btn.setFixedSize(32, 32)
+    _set_allocation_lock_button_state(lock_btn, locked)
+
+    def toggle_lock(_checked=False):
+        updated = self._toggle_role_allocation_lock(role_name)
+        if isinstance(updated, bool):
+            _set_allocation_lock_button_state(lock_btn, updated)
+
+    lock_btn.clicked.connect(
+        toggle_lock
+    )
+    role_hdr.addWidget(lock_btn)
     gl.addLayout(role_hdr)
     gl.addSpacing(6)
 

@@ -107,6 +107,8 @@ def replacement_candidates_for_official_role(
     context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
     if context_key != "saved" or not context.get("plan"):
         return []
+    if bool((context.get("plan") or {}).get("allocation_locked")):
+        return []
     raw_items = tuple(context.get("items") or ())
     if not raw_items:
         return []
@@ -116,6 +118,8 @@ def replacement_candidates_for_official_role(
     target_suit = target.get("suit_id")
     eligible = []
     for candidate in detail.get("replacement_items") or ():
+        if candidate.get("allocation_reserved"):
+            continue
         if _same_inventory_item(candidate, target):
             continue
         if str(candidate.get("kind") or "") != target_kind:

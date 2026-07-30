@@ -13,8 +13,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
 from src.app.theme import theme_color
@@ -596,20 +596,52 @@ class WarehouseCardDelegate(QStyledItemDelegate):
         painter.setBrush(QColor(theme_color(background)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect, 4, 4)
-        painter.setPen(QPen(QColor(theme_color(foreground)), 1.5))
+        icon_color = QColor(theme_color(foreground))
+        painter.setPen(QPen(icon_color, 1.5))
         if action == "discard":
-            can = rect.adjusted(6, 8, -6, -4)
-            painter.drawRect(can)
-            painter.drawLine(can.left() - 2, can.top() - 3, can.right() + 2, can.top() - 3)
-            painter.drawLine(rect.center().x() - 3, can.top() - 5, rect.center().x() + 3, can.top() - 5)
-            painter.drawLine(can.left() + 3, can.top() + 2, can.left() + 3, can.bottom() - 2)
-            painter.drawLine(can.right() - 3, can.top() + 2, can.right() - 3, can.bottom() - 2)
+            body = QRectF(rect.left() + 6.0, rect.top() + 9.0, 8.0, 7.2)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(icon_color)
+            painter.drawRoundedRect(body, 1.4, 1.4)
+            painter.drawRoundedRect(
+                QRectF(rect.left() + 5.0, rect.top() + 6.9, 10.0, 1.7),
+                0.8,
+                0.8,
+            )
+            painter.drawRoundedRect(
+                QRectF(rect.left() + 8.5, rect.top() + 5.1, 3.0, 1.7),
+                0.7,
+                0.7,
+            )
+            painter.setPen(QPen(QColor(theme_color(background)), 1.0, Qt.SolidLine, Qt.RoundCap))
+            for offset in (8.6, 11.4):
+                painter.drawLine(
+                    int(rect.left() + offset),
+                    int(rect.top() + 10.8),
+                    int(rect.left() + offset),
+                    int(rect.top() + 14.6),
+                )
         elif action == "lock":
-            body = rect.adjusted(5, 10, -5, -4)
-            painter.drawRoundedRect(body, 2, 2)
-            shackle = QRect(body.left() + 2, body.top() - 7, body.width() - 4, 11)
-            painter.drawArc(shackle, 0, 180 * 16)
-            painter.drawPoint(body.center().x(), body.center().y() + 1)
+            body = QRectF(rect.left() + 5.0, rect.top() + 10.0, 10.0, 7.0)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(icon_color)
+            painter.drawRoundedRect(body, 1.8, 1.8)
+            shackle = QPainterPath()
+            shackle.moveTo(rect.left() + 6.9, rect.top() + 10.0)
+            shackle.lineTo(rect.left() + 6.9, rect.top() + 8.0)
+            shackle.cubicTo(
+                rect.left() + 6.9, rect.top() + 4.6,
+                rect.left() + 13.1, rect.top() + 4.6,
+                rect.left() + 13.1, rect.top() + 8.0,
+            )
+            shackle.lineTo(rect.left() + 13.1, rect.top() + 10.0)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(icon_color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawPath(shackle)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(theme_color(background)))
+            painter.drawEllipse(QRectF(rect.left() + 8.5, rect.top() + 12.0, 3.0, 3.0))
+            painter.drawRoundedRect(QRectF(rect.left() + 9.35, rect.top() + 14.0, 1.3, 1.8), 0.6, 0.6)
         elif action == "inspect":
             lens = rect.adjusted(5, 5, -8, -8)
             painter.drawEllipse(lens)

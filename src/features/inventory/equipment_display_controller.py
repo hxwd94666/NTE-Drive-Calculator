@@ -29,6 +29,7 @@ __all__ = [
     "_clear_all_equipment",
     "_delete_role_equipment",
     "_optimize_saved_equipment",
+    "_toggle_role_allocation_lock",
 ]
 
 EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT = 520
@@ -128,11 +129,21 @@ def _clear_all_equipment(self):
     )
     if ret != QMessageBox.Yes:
         return
+    skipped_locked = []
     with UserDataDao(database_path) as dao:
-        for plan in plans.values():
+        for role_name, plan in plans.items():
+            if plan.get("allocation_locked"):
+                skipped_locked.append(role_name)
+                continue
             dao.deactivate_loadout_plan(plan["plan_id"])
     self._refresh_equip()
-    logger.success("已清空所有角色配装")
+    if skipped_locked:
+        QMessageBox.information(
+            self,
+            "清空配装",
+            "已清空未锁定方案。以下方案因计算锁定而保留：" + "、".join(skipped_locked),
+        )
+    logger.success("已清空所有未锁定角色配装")
 
 
 def _delete_role_equipment(self: Any, role_name: str) -> None:
@@ -151,10 +162,35 @@ def _delete_role_equipment(self: Any, role_name: str) -> None:
     )
     if ret != QMessageBox.Yes:
         return
-    with UserDataDao(database_path) as dao:
-        dao.deactivate_loadout_plan(plan["plan_id"])
+    try:
+        with UserDataDao(database_path) as dao:
+            dao.deactivate_loadout_plan(plan["plan_id"])
+    except Exception as exc:
+        QMessageBox.warning(self, "删除角色配装", str(exc))
+        return
     self._refresh_equip()
     logger.success(f"已删除角色配装: {role_name}")
+
+
+def _toggle_role_allocation_lock(self: Any, role_name: str) -> bool | None:
+    """Persist one lock change and return its new state without rebuilding UI."""
+
+    database_path = _equipment_paths(self)[0]
+    try:
+        with UserDataDao(database_path) as dao:
+            plan = dao.get_active_loadout_plan_for_role(role_name)
+            if plan is None:
+                raise RuntimeError("未找到该角色的活动配装方案")
+            locked = not bool(plan.get("allocation_locked"))
+            dao.set_allocation_lock(int(plan["plan_id"]), locked)
+    except Exception as exc:
+        logger.warning(f"切换配装锁定失败 role={role_name}: {exc}")
+        QMessageBox.warning(self, "配装锁定", str(exc))
+        return None
+    logger.info(
+        f"配装锁定已{'开启' if locked else '解除'}: role={role_name}, plan_id={plan['plan_id']}"
+    )
+    return locked
 
 
 class EquipmentDisplayControllerMixin:
@@ -168,4 +204,5 @@ class EquipmentDisplayControllerMixin:
     _show_saved_plan_diff_dialog = _show_saved_plan_diff_dialog
     _clear_all_equipment = _clear_all_equipment
     _delete_role_equipment = _delete_role_equipment
+    _toggle_role_allocation_lock = _toggle_role_allocation_lock
     _optimize_saved_equipment = _optimize_saved_equipment

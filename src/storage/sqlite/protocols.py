@@ -46,6 +46,17 @@ if TYPE_CHECKING:
         def current_inventory_summary(self) -> dict[str, Any] | None:
             raise NotImplementedError
 
+        def assert_allocation_lock_invariants(self) -> None:
+            raise NotImplementedError
+
+        def assert_active_allocation_locks_preserved(
+            self,
+            *,
+            target_characters: set[int],
+            claimed_uids: set[tuple[int, int]],
+        ) -> None:
+            raise NotImplementedError
+
         def inventory_snapshot_summary(
             self,
             snapshot_id: int,

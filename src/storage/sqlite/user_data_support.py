@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -24,6 +24,7 @@ USER_MIGRATIONS = {
     9: Path(__file__).with_name("schema") / "010_user_data_v9.sql",
     10: Path(__file__).with_name("schema") / "011_user_data_v10.sql",
     11: Path(__file__).with_name("schema") / "012_user_data_v11.sql",
+    12: Path(__file__).with_name("schema") / "013_user_data_v12.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
@@ -102,4 +103,3 @@ def _integer(value: Any, label: str, *, minimum: int | None = None) -> int:
     if minimum is not None and value < minimum:
         raise UserDataValidationError(f"{label} 不能小于 {minimum}")
     return value
-

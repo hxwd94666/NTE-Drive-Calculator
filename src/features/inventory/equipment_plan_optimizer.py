@@ -252,6 +252,7 @@ def _sqlite_plan_display_state(
         "strategy_mode": payload.get("strategy", ""),
         "_sqlite_plan_id": plan["plan_id"],
         "_sqlite_source_snapshot_id": snapshot_id,
+        "_allocation_locked": bool(plan.get("allocation_locked")),
         ROLE_LAST_DIFF: last_diff,
     }
 
@@ -348,6 +349,8 @@ def _sqlite_replacement_candidates(database_path, role_name, item_kind, old_uid)
         plan = user_dao.get_active_loadout_plan_for_role(role_name)
         if plan is None:
             raise ValueError("未找到该角色的已保存方案")
+        if plan.get("allocation_locked"):
+            raise ValueError("锁定方案不能进行替换优化；请先解除锁定")
         snapshot_id = int(plan["source_snapshot_id"])
         rows = user_dao.list_inventory_items(snapshot_id)
         suit_names = {
@@ -365,6 +368,10 @@ def _sqlite_replacement_candidates(database_path, role_name, item_kind, old_uid)
             if str(assignment.get("kind")) == expected_kind
         }
         equipped_by_roles = _active_sqlite_equipment_users(user_dao, role_name)
+        locked_uids = {
+            (str(owner["kind"]), int(owner["uid_serial"]), int(owner["uid_slot"]))
+            for owner in user_dao.list_allocation_locked_equipment_owners()
+        }
         old_key = (int(current["_uid_serial"]), int(current["_uid_slot"]))
         assigned_items = [
             items_by_key[(int(assignment["uid_serial"]), int(assignment["uid_slot"]))]
@@ -379,6 +386,8 @@ def _sqlite_replacement_candidates(database_path, role_name, item_kind, old_uid)
                 continue
             item_key = (int(item["_uid_serial"]), int(item["_uid_slot"]))
             if item_key == old_key or item_key in assigned:
+                continue
+            if (expected_kind, item_key[0], item_key[1]) in locked_uids:
                 continue
             if item_kind == "drive" and item.get(EQUIP_SHAPE_ID) != current.get(EQUIP_SHAPE_ID):
                 continue
@@ -410,6 +419,9 @@ def _open_official_saved_plan_optimizer(
         plan = dao.get_active_loadout_plan_for_role(role_name)
     if not isinstance(plan, dict):
         return False
+    if plan.get("allocation_locked"):
+        QMessageBox.information(window, "替换优化", "当前方案已锁定，请先在配装页解除锁定。")
+        return True
     character_id = plan.get("character_id")
     if character_id is None:
         return False

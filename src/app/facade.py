@@ -65,6 +65,7 @@ class NTEAppFacade:
         priority_groups=None,
         crit_rate_caps=None,
         custom_weapons=None,
+        locked_uids=None,
     ):
         """使用已经固定的数据集合计算，不要求生成中间库存文件。"""
 
@@ -72,16 +73,16 @@ class NTEAppFacade:
             config_dir=self.config_dir,
             user_database_path=self.user_database_path,
         )
-        locked_uids = set()
+        locked_uids = set(locked_uids or ())
         base_mode = mode
         preferences_allowed = mode in ("role_priority", "update_mode")
         if mode == "update_mode":
             with UserDataDao(self.user_database_path) as user_dao:
-                locked_uids = {
+                locked_uids.update({
                     f"nte-{'module' if row['kind'] == 'module' else 'core'}-"
                     f"{row['uid_slot']}-{row['uid_serial']}"
                     for row in user_dao.list_active_loadout_equipment_owners()
-                }
+                })
             base_mode = "role_priority"
         if not preferences_allowed:
             tape_main_filters = {}

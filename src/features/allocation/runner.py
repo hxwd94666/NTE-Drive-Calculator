@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,12 @@ from src.optimizer.contracts import (
 )
 from src.optimizer.plan_diff import build_plan_diff
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
+from src.services.allocation_lock_service import (
+    AllocationLockSnapshot,
+    build_allocation_lock_snapshot,
+    filter_allocation_request_for_locks,
+    verify_allocation_lock_snapshot,
+)
 from src.services.saved_state_loadout_bridge import (
     SavedStateLoadoutBridge,
     resolve_character_id_for_static_role,
@@ -48,7 +55,17 @@ __all__ = [
     "_on_exec_error",
     "_save_alloc",
     "_archive_pending_screenshots",
+    "AllocationRunResult",
 ]
+
+
+@dataclass(frozen=True)
+class AllocationRunResult:
+    """Worker result bound to the stable snapshot and lock state it consumed."""
+
+    plans: dict[str, Any]
+    snapshot_id: int
+    lock_snapshot: AllocationLockSnapshot
 
 
 def _allocation_paths(window: Any) -> tuple[Path, Path, Path, Path, Path]:
@@ -113,11 +130,20 @@ def _run_allocation(
             if snapshot_id is None:
                 raise RuntimeError("尚无稳定背包快照，请先在首页启动背包同步并进入游戏。")
             projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
+            lock_snapshot = build_allocation_lock_snapshot(
+                user_dao,
+                inventory_snapshot_id=projection.snapshot_id,
+            )
+        unlocked_sel, unlocked_priority_groups = filter_allocation_request_for_locks(
+            sel,
+            priority_groups,
+            lock_snapshot,
+        )
         allocation_options = {
             "tape_main_filters": tape_main_filters or {},
             "crit_priority_modes": crit_priority_modes or {},
             "set_effect_modes": set_effect_modes or {},
-            "priority_groups": priority_groups,
+            "priority_groups": unlocked_priority_groups,
             "crit_rate_caps": crit_rate_caps or {},
             "custom_weapons": custom_weapons or {},
         }
@@ -125,6 +151,12 @@ def _run_allocation(
             f"使用官方背包稳定快照 {projection.snapshot_id} 计算："
             f"候选 {len(projection.items)} 件（其中弃置标记 {projection.discarded_count} 件，仍参与计算）"
         )
+        if lock_snapshot.locked_role_names:
+            logger.info(
+                f"配装锁定已保留 {len(lock_snapshot.locked_role_names)} 个角色、"
+                f"排除 {len(lock_snapshot.reserved_uids)} 件装备："
+                f"{'、'.join(sorted(lock_snapshot.locked_role_names))}"
+            )
         # 求解器只接收本次固定 SQLite 快照的内存投影，不再回退到旧背包 JSON。
         from src.app.facade import NTEAppFacade
 
@@ -133,10 +165,23 @@ def _run_allocation(
             user_config_dir=str(user_config_dir),
             user_database_path=database_path,
         )
-        fp, _ = a.execute_allocation_inventory(list(projection.items), sel, cs, strat, **allocation_options)
-        self._pending_allocation_snapshot_id = projection.snapshot_id
+        if unlocked_sel:
+            fp, _ = a.execute_allocation_inventory(
+                list(projection.items),
+                unlocked_sel,
+                cs,
+                strat,
+                locked_uids=set(lock_snapshot.reserved_uids),
+                **allocation_options,
+            )
+        else:
+            fp = {}
         logger.info(f"分配计算完成: result_type={type(fp).__name__}")
-        return fp
+        return AllocationRunResult(
+            plans=fp,
+            snapshot_id=projection.snapshot_id,
+            lock_snapshot=lock_snapshot,
+        )
     except Exception as e:
         import traceback as tb
 
@@ -296,22 +341,19 @@ def _on_done(self: Any, r: Any) -> None:
         logger.info(
             f"_on_done 收到结果: type={type(r).__name__}, keys={list(r.keys()) if isinstance(r, dict) else 'N/A'}"
         )
-        self.final_plan = r
+        if not isinstance(r, AllocationRunResult):
+            raise RuntimeError("分配线程返回了未绑定快照的结果")
+        self.final_plan = r.plans
+        self._pending_allocation_snapshot_id = r.snapshot_id
+        self._allocation_lock_snapshot = r.lock_snapshot
         self.btn_run.setEnabled(True)
         self.btn_run.setText("⚡  开始计算")
         self._allocation_custom_weapons = dict(getattr(self, "_pending_custom_weapons", {}) or {})
-        if r is None:
-            QMessageBox.warning(
-                self.dialog_parent,
-                "提示",
-                "计算失败，请确认已同步到稳定的官方背包快照。",
-            )
-            return
         # The old JSON-state path was removed.  Comparing with the active
         # SQLite plans restores NEW/CHANGE labels and the per-role diff button.
-        self.allocation_plan_diff = _calculation_plan_diff(self, r)
-        self._allocation_dirty = True
-        self._render_results(r)
+        self.allocation_plan_diff = _calculation_plan_diff(self, self.final_plan)
+        self._allocation_dirty = bool(self.final_plan)
+        self._render_results(self.final_plan)
         logger.info("_render_results 完成")
     except Exception as e:
         import traceback as tb
@@ -340,6 +382,12 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
             raise RuntimeError("本次计算未绑定官方背包快照，请重新执行计算。")
         saved_roles = []
         with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
+            lock_snapshot = getattr(self, "_allocation_lock_snapshot", None)
+            if not isinstance(lock_snapshot, AllocationLockSnapshot):
+                raise RuntimeError("本次计算缺少配装锁定快照，请重新执行计算。")
+            if lock_snapshot.inventory_snapshot_id != snapshot_id:
+                raise RuntimeError("计算快照与配装锁定快照不一致，请重新执行计算。")
+            verify_allocation_lock_snapshot(user_dao, lock_snapshot)
             bridge = SavedStateLoadoutBridge(user_dao, static_dao)
             for role_name, plan in self.final_plan.items():
                 if not isinstance(plan, dict) or not plan.get(PLAN_VALID):
@@ -456,6 +504,7 @@ class AllocationController(QObject):
         self.allocation_plan_diff: dict = {}
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id: int | None = None
+        self._allocation_lock_snapshot: AllocationLockSnapshot | None = None
         self._pending_archive_paths: list[Path] = []
         self._pending_strat = ""
         self._pending_sel: list[str] = []
@@ -513,6 +562,7 @@ class AllocationController(QObject):
         self.allocation_plan_diff = {}
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id = None
+        self._allocation_lock_snapshot = None
         self._equipment_presentation.clear()
 
     def _run_allocation(self, *args: Any, **kwargs: Any) -> Any:
@@ -531,6 +581,11 @@ class AllocationController(QObject):
             snapshot_id=self._pending_allocation_snapshot_id,
             strategy=self._pending_strat,
             custom_weapons=self._pending_custom_weapons,
+            locked_role_names=(
+                self._allocation_lock_snapshot.locked_role_names
+                if self._allocation_lock_snapshot is not None
+                else ()
+            ),
         )
         self._equipment_presentation.render(plan)
 

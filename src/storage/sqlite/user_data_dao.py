@@ -6,6 +6,7 @@ from __future__ import annotations
 from .account_data_dao import AccountDataDaoMixin
 from .equipment_apply_job_dao import EquipmentApplyJobDaoMixin
 from .inventory_snapshot_dao import InventorySnapshotDaoMixin
+from .loadout_plan_lock_dao import LoadoutPlanLockDaoMixin
 from .loadout_plan_dao import LoadoutPlanDaoMixin
 from .optimization_profile_dao import OptimizationProfileDaoMixin
 from .user_data_base import UserDataDaoCore
@@ -29,6 +30,7 @@ class UserDataDao(
     OptimizationProfileDaoMixin,
     InventorySnapshotDaoMixin,
     EquipmentApplyJobDaoMixin,
+    LoadoutPlanLockDaoMixin,
     LoadoutPlanDaoMixin,
     UserDataDaoCore,
 ):

@@ -127,8 +127,10 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
         active_plans = [
             plan for plan in self.list_loadout_plans() if plan["is_active"]
         ]
+        self.assert_allocation_lock_invariants()
         active_plans.sort(
             key=lambda plan: (
+                bool(plan.get("allocation_locked")),
                 int(plan["plan_id"]) in preferred,
                 str(plan.get("updated_at_utc") or ""),
                 int(plan["plan_id"]),
@@ -399,6 +401,10 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
 
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.assert_active_allocation_locks_preserved(
+                target_characters=target_characters,
+                claimed_uids=set(claimed_uids),
+            )
             def inventory_assignment_item(row: sqlite3.Row) -> dict[str, Any]:
                 item = dict(row)
                 if "names_json" in item:
@@ -643,7 +649,8 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
         rows = self._rows(
             f"""
             SELECT plan_id, name, character_id, source_snapshot_id, status,
-                   score, payload_json, is_active, created_at_utc, updated_at_utc
+                   score, payload_json, is_active, allocation_locked,
+                   created_at_utc, updated_at_utc
             FROM loadout_plan {where}
             ORDER BY updated_at_utc DESC, plan_id DESC
             """,
@@ -651,6 +658,7 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
         )
         for row in rows:
             row["is_active"] = bool(row["is_active"])
+            row["allocation_locked"] = bool(row["allocation_locked"])
             row["payload"] = _decoded(row.pop("payload_json"), {})
             row["assignments"] = self._rows(
                 """
@@ -733,6 +741,9 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
         """从当前 UI 和新装配入口移除方案，但保留历史记录和任务审计。"""
 
         raw_plan_id = _integer(plan_id, "plan_id", minimum=1)
+        plan = self.get_loadout_plan(raw_plan_id)
+        if plan is not None and plan.get("is_active") and plan.get("allocation_locked"):
+            raise UserDataValidationError("锁定方案不能删除；请先解除锁定")
         cursor = self._db().execute(
             "UPDATE loadout_plan SET is_active = 0, updated_at_utc = ? WHERE plan_id = ? AND is_active = 1",
             (_utc_now(), raw_plan_id),
