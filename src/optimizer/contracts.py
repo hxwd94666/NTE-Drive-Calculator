@@ -23,6 +23,7 @@ PLAN_ASSIGNED_EXTRA_DRIVES = "assigned_extra_drives"
 PLAN_SCORE = "score"
 PLAN_CHANGED_UIDS = "changed_uids"
 PLAN_CUSTOM_WEAPON = "custom_weapon"
+PLAN_MISSING_CORE_REASON = "missing_core_reason"
 
 EQUIP_UID = "uid"
 EQUIP_TYPE = "type"
@@ -79,6 +80,7 @@ class AllocationPlan(TypedDict):
     score: NotRequired[float]
     changed_uids: NotRequired[set[str]]
     custom_weapon: NotRequired[str]
+    missing_core_reason: NotRequired[str]
 
 
 AllocationResult = dict[str, AllocationPlan]

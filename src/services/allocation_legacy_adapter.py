@@ -90,6 +90,7 @@ def legacy_items(context: AllocationContext) -> tuple[list[Drive | Tape], dict[s
             main_stats = _stats(candidate, names, main=True)
             result.append(Tape.model_construct(
                 uid=legacy_uid, item_type="tape", quality=_quality(candidate.quality), area=15,
+                suit_id=candidate.suit_id,
                 set_name=str(candidate.suit_id or _NO_SET_PREFIX),
                 main_stats=next(iter(main_stats), ""), sub_stats=_stats(candidate, names, main=False),
                 discarded=candidate.discarded, is_duplicate_drive=candidate.is_duplicate_drive,

@@ -232,9 +232,6 @@ class RolePriorityStrategy(RolePriorityGroupStrategyMixin, AllocationMatrixBuild
                     require_match=True,
                 )
                 for tape in legal_tapes:
-                    tape_set = self._resolve_set_name(tape.set_name)
-                    if tape_set != tape.set_name and tape_set in self.sets_db:
-                        tape.set_name = tape_set
                     score = tape.role_scores.get(role, 0.0)
                     rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
                     if rank_score > best_score:
@@ -251,9 +248,6 @@ class RolePriorityStrategy(RolePriorityGroupStrategyMixin, AllocationMatrixBuild
                 for tape in tapes_pool.get(role, []):
                     if tape.uid in used_tape_uids:
                         continue
-                    resolved_set = self._resolve_set_name(tape.set_name)
-                    if resolved_set != tape.set_name and resolved_set in self.sets_db:
-                        tape.set_name = resolved_set
                     tapes_by_uid.setdefault(tape.uid, tape)
             real_tapes = list(tapes_by_uid.values())
             for role in group:

@@ -240,6 +240,7 @@ class SqliteAllocationInventory:
                     {
                         "area": 15,
                         "shape_id": "TAPE_15",
+                        "suit_id": suit_id,
                         "set_name": set_name,
                         "main_stats": next(iter(main_stats)),
                     }

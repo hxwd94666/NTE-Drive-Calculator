@@ -124,6 +124,7 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
         self.assertEqual(core["uid"], "nte-core-22-202")
         self.assertEqual(core["item_id"], "GetEfficiency_orange")
         self.assertEqual(core["shape_id"], "TAPE_15")
+        self.assertEqual(core["suit_id"], "Suit6")
         self.assertEqual(core["set_name"], "失落光芒")
         self.assertEqual(core["main_stats"], "光属性异能伤害增强%")
 

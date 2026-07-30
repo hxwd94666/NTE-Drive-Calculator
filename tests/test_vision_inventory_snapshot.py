@@ -55,7 +55,9 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot_id, projection.snapshot_id)
         self.assertEqual({"drive", "tape"}, {row["item_type"] for row in projection.items})
         drive = next(row for row in projection.items if row["item_type"] == "drive")
+        tape = next(row for row in projection.items if row["item_type"] == "tape")
         self.assertEqual(3.5, drive["sub_stats"]["防御力%"])
+        self.assertEqual("Suit6", tape["suit_id"])
         imported = self.user_dao.list_inventory_items(snapshot_id)
         self.assertEqual("EquipmentGeometry_Hen2", next(row for row in imported if row["kind"] == "module")["geometry"])
         self.assertTrue(all(row["level"] == 0 and row["max_level"] == 0 for row in imported))
@@ -139,6 +141,7 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         tape = next(row for row in projection.items if row["item_type"] == "tape")
         self.assertEqual("H_3", drive["shape_id"])
         self.assertEqual({"攻击力": 24.0, "防御力": 16.0, "生命值": 280.0}, drive["sub_stats"])
+        self.assertEqual("Suit11", tape["suit_id"])
         self.assertEqual("攻击力%", tape["main_stats"])
 
     def test_visual_tape_persists_the_catalogued_max_level_main_value(self) -> None:

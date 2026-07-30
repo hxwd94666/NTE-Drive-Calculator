@@ -365,6 +365,110 @@ class TapeCandidateCoverageTests(unittest.TestCase):
 
         self.assertEqual(7, len({tape.uid for tape in assigned.values() if tape}))
 
+    def test_single_role_matches_projected_tape_by_official_suit_id(self) -> None:
+        role = "A"
+        tape = Tape(
+            uid="sound",
+            quality="Purple",
+            area=15,
+            suit_id="Suit11",
+            set_name="音速蓝刺猬",
+            main_stats="攻击力%",
+            sub_stats={"攻击力%": 1.0},
+            role_scores={role: 10.0},
+        )
+        strategy = RolePriorityStrategy(
+            {role: {"default_set": "「音速蓝刺猬」"}},
+            {"「音速蓝刺猬」": {"suit_id": "Suit11", "shapes": []}},
+            {},
+        )
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [[role]],
+            {},
+            {role: [tape]},
+        )
+
+        self.assertIs(tape, assigned[role])
+        self.assertEqual("音速蓝刺猬", tape.set_name)
+
+    def test_official_suit_id_wins_over_an_equal_display_name(self) -> None:
+        role = "A"
+        wrong_suit = Tape(
+            uid="wrong",
+            quality="Purple",
+            area=15,
+            suit_id="Suit99",
+            set_name="音速蓝刺猬",
+            main_stats="攻击力%",
+            sub_stats={"攻击力%": 1.0},
+            role_scores={role: 10.0},
+        )
+        strategy = RolePriorityStrategy(
+            {role: {"default_set": "「音速蓝刺猬」"}},
+            {"「音速蓝刺猬」": {"suit_id": "Suit11", "shapes": []}},
+            {},
+        )
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [[role]],
+            {},
+            {role: [wrong_suit]},
+        )
+
+        self.assertIsNone(assigned[role])
+
+    def test_legacy_tape_without_suit_id_uses_normalized_name_fallback(self) -> None:
+        role = "A"
+        legacy_tape = Tape(
+            uid="legacy",
+            quality="Purple",
+            area=15,
+            set_name="音速蓝刺猬",
+            main_stats="攻击力%",
+            sub_stats={"攻击力%": 1.0},
+            role_scores={role: 10.0},
+        )
+        strategy = RolePriorityStrategy(
+            {role: {"default_set": "「音速蓝刺猬」"}},
+            {"「音速蓝刺猬」": {"suit_id": "Suit11", "shapes": []}},
+            {},
+        )
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [[role]],
+            {},
+            {role: [legacy_tape]},
+        )
+
+        self.assertIs(legacy_tape, assigned[role])
+
+    def test_legacy_tape_name_can_match_an_official_id_target(self) -> None:
+        role = "A"
+        legacy_tape = Tape(
+            uid="legacy-id-target",
+            quality="Purple",
+            area=15,
+            set_name="音速蓝刺猬",
+            main_stats="攻击力%",
+            sub_stats={"攻击力%": 1.0},
+            role_scores={role: 10.0},
+        )
+        strategy = RolePriorityStrategy(
+            {role: {"default_set": "「音速蓝刺猬」"}},
+            {"「音速蓝刺猬」": {"suit_id": "Suit11", "shapes": []}},
+            {},
+            core_set_targets={role: "Suit11"},
+        )
+
+        assigned = strategy._pre_allocate_tapes_for_groups(
+            [[role]],
+            {},
+            {role: [legacy_tape]},
+        )
+
+        self.assertIs(legacy_tape, assigned[role])
+
 
 if __name__ == "__main__":
     unittest.main()

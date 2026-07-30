@@ -50,6 +50,15 @@ def _attribute_name(detail: dict, property_id: str) -> str:
     return str(attribute.get("display_name_zh") or attribute.get("filter_name_zh") or property_id)
 
 
+def _stat_text(detail: dict, stat: dict) -> str:
+    value = float(stat.get("value") or 0.0)
+    if stat.get("percent"):
+        value *= 100.0
+    shown = f"{value:.2f}".rstrip("0").rstrip(".")
+    suffix = "%" if stat.get("percent") else ""
+    return f"{_attribute_name(detail, str(stat.get('property_id') or ''))} {shown}{suffix}"
+
+
 def graduation_benchmark_damage(detail: dict) -> float | None:
     """Calculate the strict-substat graduation reference through the official path."""
 
@@ -132,6 +141,46 @@ def _graduation_template_with_weight_substats(detail: dict) -> dict | None:
         elif str(item.get("kind") or "") == "core":
             item["sub_stats"] = [stat(property_id, catalog.tape_stat_values, 1.0) for property_id in selected]
     return {**template, "equipment": equipment}
+
+
+def _graduation_tooltip(detail: dict) -> str:
+    """Describe the stored benchmark equipment behind the graduation percentage."""
+
+    template = _graduation_template_with_weight_substats(detail) or {}
+    equipment = template.get("equipment") or ()
+    if not isinstance(equipment, (list, tuple)):
+        return "毕业基准尚未生成。"
+    core = next(
+        (item for item in equipment if str(item.get("kind") or "") == "core"),
+        {},
+    )
+    main = next(iter(core.get("main_stats") or ()), {})
+    main_text = _stat_text(detail, main) if main else "未记录"
+    aggregated_substats: dict[tuple[str, bool], dict] = {}
+    for item in equipment:
+        for stat in item.get("sub_stats") or ():
+            key = (str(stat.get("property_id") or ""), bool(stat.get("percent")))
+            if key not in aggregated_substats:
+                aggregated_substats[key] = dict(stat)
+                continue
+            aggregated_substats[key]["value"] = (
+                float(aggregated_substats[key].get("value") or 0.0)
+                + float(stat.get("value") or 0.0)
+            )
+    substat_text = [
+        _stat_text(detail, stat) for stat in aggregated_substats.values()
+    ]
+    substat_lines = [
+        "、".join(substat_text[index:index + 3])
+        for index in range(0, len(substat_text), 3)
+    ]
+    lines = [
+        "毕业基准（满级角色、满级精1专属弧盘）：",
+        f"卡带主词条：{main_text}",
+        "毕业副词条：" + (substat_lines[0] if substat_lines else "未记录"),
+    ]
+    lines.extend(f"　　　　　{line}" for line in substat_lines[1:])
+    return "\n".join(lines)
 
 
 def _clear_layout(layout) -> None:
@@ -272,6 +321,11 @@ def _build_margin_group(
     layout = QVBoxLayout(group)
     state = {"margins": None, "initialized": False}
     header = QHBoxLayout()
+    graduation_label = QLabel("直伤毕业率 : --")
+    graduation_label.setObjectName("officialRoleGraduationRate")
+    graduation_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
+    graduation_label.setToolTip(_graduation_tooltip(detail))
+    header.addWidget(graduation_label)
     damage_label = QLabel("直伤评分 : --")
     damage_label.setObjectName("officialRoleDamageScore")
     damage_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
@@ -283,6 +337,7 @@ def _build_margin_group(
     table_layout = QVBoxLayout(table_host)
     table_layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(table_host)
+    graduation_benchmark = graduation_benchmark_damage(detail)
 
     def refresh() -> None:
         calculation_detail = _calculation_detail(detail, editor)
@@ -307,6 +362,10 @@ def _build_margin_group(
             refresh_weights()
         _clear_layout(table_layout)
         damage = float((margins or {}).get("damage") or 0.0)
+        graduation_label.setText(
+            f"直伤毕业率 : {damage / graduation_benchmark * 100:.1f}%"
+            if damage > 0 and graduation_benchmark else "直伤毕业率 : --"
+        )
         damage_label.setText(f"直伤评分 : {damage:.2f}" if margins else "直伤评分 : --")
         if not margins:
             note = QLabel("当前角色状态尚无可计算的官方直伤技能或装备上下文。")

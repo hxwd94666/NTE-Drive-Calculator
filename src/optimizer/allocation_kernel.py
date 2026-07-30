@@ -15,6 +15,7 @@ import re
 from typing import Mapping, Sequence
 
 from src.models.equipment import Drive, Tape
+from src.domain.suit_identity import tape_matches_suit_target
 from src.optimizer.dispatcher import DispatcherEngine
 from src.optimizer.scoring import ScoringEngine
 from src.utils.logger import logger
@@ -196,7 +197,7 @@ class AllocationKernel:
             core_set_targets=dict(request.core_set_targets),
             stat_catalog=self.scoring_engine.stat_catalog,
         )
-        return dispatcher.execute_dispatch(
+        result = dispatcher.execute_dispatch(
             request.strategy,
             pools,
             list(request.role_order),
@@ -205,6 +206,94 @@ class AllocationKernel:
             priority_groups=[list(group) for group in request.priority_groups] or None,
             crit_rate_caps=dict(request.crit_rate_caps or {}),
         )
+        self._annotate_missing_core_reasons(request, pools, result)
+        return result
+
+    def _annotate_missing_core_reasons(
+        self,
+        request: AllocationKernelRequest,
+        pools: Mapping,
+        result: dict,
+    ) -> None:
+        """Explain why a valid drive plan has no core without changing it."""
+
+        assigned_core_uids = {
+            tape.uid
+            for plan in result.values()
+            if isinstance(plan, Mapping)
+            and isinstance((tape := plan.get("assigned_tape")), Tape)
+        }
+        all_cores = [
+            item for item in request.inventory if isinstance(item, Tape)
+        ]
+        for role in request.role_order:
+            plan = result.get(role)
+            if (
+                not isinstance(plan, dict)
+                or not plan.get("valid")
+                or isinstance(plan.get("assigned_tape"), Tape)
+            ):
+                continue
+            target_set = (
+                request.core_set_targets.get(role)
+                if role in request.core_set_targets
+                else request.module_set_targets.get(
+                    role,
+                    str((request.roles_db.get(role) or {}).get("default_set") or ""),
+                )
+            )
+            set_cores = [
+                tape
+                for tape in all_cores
+                if tape_matches_suit_target(tape, target_set, request.sets_db)
+            ]
+            if not set_cores:
+                plan["missing_core_reason"] = (
+                    f"固定快照中没有套装为 {target_set or '任意套装'} 的卡带"
+                )
+                continue
+            allowed_mains = tuple(request.core_main_filters.get(role) or ())
+            main_cores = [
+                tape
+                for tape in set_cores
+                if not allowed_mains
+                or str(tape.main_stats or "").strip() in allowed_mains
+                or self.scoring_engine.stat_catalog.normalize_tape_main_stat(
+                    str(tape.main_stats or "").strip()
+                )
+                in allowed_mains
+            ]
+            if not main_cores:
+                plan["missing_core_reason"] = (
+                    f"固定快照中没有同时满足 {target_set or '任意套装'}"
+                    f"与 {'/'.join(allowed_mains)} 主词条的卡带"
+                )
+                continue
+            screened = [
+                tape
+                for tape in (pools.get("tapes", {}).get(role, ()) or ())
+                if tape_matches_suit_target(tape, target_set, request.sets_db)
+            ]
+            if not screened:
+                plan["missing_core_reason"] = (
+                    "满足套装和主词条的卡带均被副词条或评分等级硬过滤"
+                )
+                continue
+            available = [
+                tape for tape in screened if tape.uid not in assigned_core_uids
+            ]
+            if not available:
+                plan["missing_core_reason"] = (
+                    f"满足条件的 {len(screened)} 张唯一卡带已分配给其他角色"
+                )
+            elif request.crit_rate_caps.get(role) is not None or request.property_limits.get(role):
+                plan["missing_core_reason"] = (
+                    "候选卡带未通过暴击或属性上下限约束"
+                )
+            else:
+                plan["missing_core_reason"] = (
+                    "候选卡带未通过当前角色的硬过滤或唯一分配约束"
+                )
 
     @staticmethod
     def _required_shape_counts(blueprint: Mapping) -> Counter[str]:

@@ -359,7 +359,10 @@ def _role_option_card(
     role_header.addWidget(_result_badge("评级", grade, grade_color))
     equip_button = QPushButton("装配")
     equip_button.setObjectName("btnPrimary")
-    equip_button.setEnabled(bool(getattr(window, "_weighted_equipment_actions_available", False)))
+    equip_button.setEnabled(
+        core is not None
+        and bool(getattr(window, "_weighted_equipment_actions_available", False))
+    )
     equip_button.clicked.connect(
         lambda _checked=False, current_name=name: _request_weighted_equipment(
             window,
@@ -405,7 +408,11 @@ def _role_option_card(
     weights = dict(getattr(role, "effective_property_weights", ()) if role else ())
     main_weights = dict(getattr(role, "effective_main_property_weights", ()) if role else ())
     if core is None:
-        layout.addWidget(QLabel(_missing_core_text(window, role)))
+        missing_core = QLabel(
+            _missing_core_text(window, role, option.missing_core_reason)
+        )
+        missing_core.setWordWrap(True)
+        layout.addWidget(missing_core)
     equipment_assignments = ([core] if core is not None else []) + modules
     if equipment_assignments:
         direct_damage_scores = _allocation_direct_damage_scores(

@@ -1,4 +1,4 @@
-# 生成加权配装结果中未分配角色和缺失空幕的说明文本。
+# 生成加权配装结果中未分配角色和缺失卡带的说明文本。
 """Human-readable result explanations independent from Qt layout code."""
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def unassigned_reason(
             )
             reasons.append(
                 f"{names.get(role.character_id, role.character_id)}："
-                f"缺少 {suit}＋{attribute} 主词条空幕"
+                f"缺少 {suit}＋{attribute} 主词条卡带"
             )
         else:
             reasons.append(
@@ -54,9 +54,11 @@ def unassigned_reason(
     return "；".join(reasons)
 
 
-def missing_core_text(owner, role) -> str:
+def missing_core_text(owner, role, reason: str | None = None) -> str:
+    if reason:
+        return f"卡带缺失：{reason}（驱动图纸已匹配，方案将按不完整状态保存）"
     if role is None:
-        return "空幕未分配"
+        return "卡带未分配"
     suits = getattr(owner, "_weighted_suit_names", {})
     attributes = getattr(owner, "_weighted_property_names", {})
     suit = suits.get(role.target_suit_id, role.target_suit_id or "任意套装")
@@ -65,6 +67,6 @@ def missing_core_text(owner, role) -> str:
         role.core_main_property_id or "任意主词条",
     )
     return (
-        f"空幕缺失：缺少 {suit}＋{attribute} 主词条空幕"
+        f"卡带缺失：缺少 {suit}＋{attribute} 主词条卡带"
         "（驱动图纸已匹配）"
     )

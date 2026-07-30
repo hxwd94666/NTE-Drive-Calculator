@@ -253,10 +253,44 @@ def _candidate(
     row: Mapping[str, Any], *, known_attribute_ids: set[str],
     equipment_by_id: Mapping[str, Mapping[str, Any]], known_suit_ids: set[str],
     known_geometry_keys: set[str], known_character_ids: set[int],
+    snapshot_source: str,
 ) -> AllocationCandidate:
     kind = _required_text(row.get("kind"), "背包物品 kind")
     item_id = _required_text(row.get("item_id"), "背包物品 item_id")
     template = equipment_by_id.get(item_id)
+    if (
+        template is None
+        and snapshot_source == "gamepad"
+        and item_id.startswith(f"vision_{kind}_")
+    ):
+        quality = str(row.get("quality") or "").strip().casefold()
+        suit_id = _optional_text(row.get("suit_id"))
+        geometry = _optional_text(row.get("geometry"))
+        matches = [
+            value
+            for value in equipment_by_id.values()
+            if str(value.get("kind") or "") == kind
+            and str(value.get("quality") or "").strip().casefold() == quality
+            and (
+                kind != "core"
+                or _optional_text(value.get("suit_id")) == suit_id
+            )
+            and (
+                kind != "module"
+                or _geometry_key(value.get("geometry_id"), "官方模块 geometry_id")
+                == _geometry_key(geometry, "背包模块 geometry")
+            )
+        ]
+        if kind == "core":
+            matches.sort(
+                key=lambda value: (
+                    bool(value.get("is_guide_item")),
+                    str(value.get("item_id") or ""),
+                )
+            )
+        else:
+            matches.sort(key=lambda value: str(value.get("item_id") or ""))
+        template = matches[0] if matches else None
     if template is None:
         raise AllocationContextError(f"静态数据库没有官方装备模板：{item_id}")
     if kind != _required_text(template.get("kind"), "官方装备模板 kind"):
@@ -583,6 +617,7 @@ def build_allocation_context(
             equipment_by_id=equipment_by_id, known_suit_ids=set(suits_by_id),
             known_geometry_keys=known_geometry_keys,
             known_character_ids=known_character_ids,
+            snapshot_source=_required_text(snapshot.get("source"), "背包快照 source"),
         )
         for row in inventory_rows
     )

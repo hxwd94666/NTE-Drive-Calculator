@@ -48,6 +48,7 @@ class RoleAllocationOption:
     assignments: tuple[AllocationAssignment, ...]
     generated_board: tuple[tuple[str | int, ...], ...]
     satisfied_constraints: tuple[str, ...]
+    missing_core_reason: str | None = None
 
     @property
     def used_uids(self) -> frozenset[tuple[int, int]]:
@@ -133,8 +134,22 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
         raise AllocationSolverError(f"角色 {role.character_id} 的图纸存在未绑定驱动格块")
     if not assignments:
         return None
-    return RoleAllocationOption(role.character_id, rank, float(plan.get("score", 0.0)), (), tuple(assignments), board,
-        ("官方 20 格底盘", "官方形状坐标", "PuzzleCombinatorics + DFSPuzzleSolver", "ScoringEngine", "官方配装预设未参与选优"))
+    return RoleAllocationOption(
+        role.character_id,
+        rank,
+        float(plan.get("score", 0.0)),
+        (),
+        tuple(assignments),
+        board,
+        (
+            "官方 20 格底盘",
+            "官方形状坐标",
+            "PuzzleCombinatorics + DFSPuzzleSolver",
+            "ScoringEngine",
+            "官方配装预设未参与选优",
+        ),
+        str(plan.get("missing_core_reason") or "") or None,
+    )
 
 
 def _top_k(
@@ -173,7 +188,8 @@ def _top_k(
             continue
         fingerprints.add(option.used_uids)
         options.append(RoleAllocationOption(option.character_id, len(options) + 1, option.score,
-            option.priority_values, option.assignments, option.generated_board, option.satisfied_constraints))
+            option.priority_values, option.assignments, option.generated_board,
+            option.satisfied_constraints, option.missing_core_reason))
         for uid in option.used_uids:
             enqueue(excluded | {uid})
     return RoleTopK(role.character_id, tuple(options), None if options else "既有求解器未能生成满足约束的完整候选")

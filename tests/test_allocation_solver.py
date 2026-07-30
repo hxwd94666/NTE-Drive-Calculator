@@ -260,7 +260,7 @@ class AllocationSolverTests(unittest.TestCase):
 
         self.assertNotIn((9, 9), result.unified.selected[0].used_uids)
 
-    def test_consumes_frozen_real_context_after_both_daos_are_closed(self) -> None:
+    def test_gamepad_visual_ids_solve_with_core_after_both_daos_are_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict("os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}):
                 user_dao = UserDataDao(Path(temp_dir) / "user.sqlite3", account_id="solver-real")
@@ -269,7 +269,7 @@ class AllocationSolverTests(unittest.TestCase):
                     plan = static_dao.get_equipment_plan(1003)
                     assert plan is not None
                     rows = [{
-                        "uid": {"serial": 1, "slot": 1}, "kind": "core", "item_id": plan["core_item_id"],
+                        "uid": {"serial": 1, "slot": 1}, "kind": "core", "item_id": "vision_core_1",
                         "suit_id": "Suit11", "geometry": "Core", "grid": None, "quality": "orange", "level": 20,
                         "max_level": 20, "locked": False, "discarded": False, "equipped": False,
                         "equipped_character_uid": None, "equipped_character_id": None, "equipped_placement": None,
@@ -280,17 +280,22 @@ class AllocationSolverTests(unittest.TestCase):
                         template = static_dao.get_equipment_item(item_id)
                         assert template is not None
                         rows.append({
-                            "uid": {"serial": index, "slot": index}, "kind": "module", "item_id": item_id,
+                            "uid": {"serial": index, "slot": index}, "kind": "module",
+                            "item_id": f"vision_module_{index}",
                             "suit_id": "Suit11", "geometry": template["geometry_id"].removeprefix("EquipmentGeometry_"),
                             "grid": template["grid_count"], "quality": "orange", "level": 20, "max_level": 20, "locked": False,
                             "discarded": False, "equipped": False, "equipped_character_uid": None,
                             "equipped_character_id": None, "equipped_placement": None, "names": {}, "suit_names": {},
                             "main_stats": [], "sub_stats": [{"property_id": "AtkAdd", "value": float(index), "percent": False, "names": {}}],
                         })
-                    snapshot_id = user_dao.import_inventory_snapshot({"method": "event.inventory.snapshot", "params": {
-                        "complete": True, "generation": 1, "sequence": 1, "observed_at_unix_ms": 1,
-                        "item_count": len(rows), "items": rows,
-                    }})
+                    snapshot_id = user_dao.import_inventory_snapshot(
+                        {"method": "event.inventory.snapshot", "params": {
+                            "complete": True, "generation": 1, "sequence": 1,
+                            "observed_at_unix_ms": 1,
+                            "item_count": len(rows), "items": rows,
+                        }},
+                        source="gamepad",
+                    )
                     profile = user_dao.create_optimization_profile(
                         "solver frozen context", allocation_strategy="global_optimal", characters=[{
                             "character_id": 1003, "target_suit_id": "Suit11", "suit_requirement_mode": "four_piece",
@@ -306,6 +311,13 @@ class AllocationSolverTests(unittest.TestCase):
         self.assertEqual(snapshot_id, result.snapshot_id)
         self.assertTrue(result.role_top_k[0].options)
         self.assertTrue(result.unified.selected)
+        self.assertEqual(
+            1,
+            sum(
+                assignment.kind == "core"
+                for assignment in result.unified.selected[0].assignments
+            ),
+        )
 
     def test_context_uses_shared_multi_role_candidate_pool_limits(self) -> None:
         """Two Type-2 roles need more than the old fixed 15 drive candidates."""

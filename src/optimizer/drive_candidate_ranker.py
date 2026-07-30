@@ -19,6 +19,7 @@ from src.domain.crit_threshold import (
 )
 from src.domain.grade_limits import meets_min_grade
 from src.domain.stat_catalog import StatCatalog
+from src.domain.suit_identity import tape_matches_suit_target
 from src.models.equipment import Drive, Tape
 from src.utils.name_resolver import resolve_name
 from src.utils.set_name import normalize_set_display_name
@@ -63,7 +64,7 @@ class BaseDispatchStrategy:
 
     def _tape_matches_core_target(self, role: str, tape: Tape, custom_sets: Dict[str, str]) -> bool:
         target_set = self._core_target_set(role, custom_sets)
-        return target_set is None or tape.set_name == target_set
+        return tape_matches_suit_target(tape, target_set, self.sets_db)
 
     def _stat_priority_config(self, config) -> dict:
         normalized = normalize_preference_config(config)
@@ -558,9 +559,6 @@ class BaseDispatchStrategy:
             best_score = -1.0
 
             for tape in role_tapes:
-                tape_set = self._resolve_set_name(tape.set_name)
-                if tape_set != tape.set_name and tape_set in self.sets_db:
-                    tape.set_name = tape_set
                 score = tape.role_scores.get(role, 0.0)
                 rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
                 if rank_score > best_score:
@@ -585,9 +583,6 @@ class BaseDispatchStrategy:
         tapes_by_uid = {}
         for role_tapes in tapes_pool.values():
             for tape in role_tapes:
-                resolved_set = self._resolve_set_name(tape.set_name)
-                if resolved_set != tape.set_name and resolved_set in self.sets_db:
-                    tape.set_name = resolved_set
                 tapes_by_uid.setdefault(tape.uid, tape)
 
         real_tapes = list(tapes_by_uid.values())

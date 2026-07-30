@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Mapping
 
 from src.domain.crit_threshold import meets_preference_grade_limit, stat_priority_match_depth
 from src.domain.grade_limits import meets_min_grade
+from src.domain.suit_identity import tape_suit_key
 from src.domain.stat_catalog import StatCatalog
 from src.integrations.bundled_resources import bundled_config_dir
 from src.utils.logger import logger
@@ -376,7 +377,7 @@ class ScoringEngine:
             role_tapes = [t for t in role_tapes if self._tape_main_allowed(t, allowed_mains)]
             set_buckets = {}
             for t in role_tapes:
-                set_buckets.setdefault(t.set_name, []).append(t)
+                set_buckets.setdefault(tape_suit_key(t), []).append(t)
 
             final_role_tapes = []
             for s_name, bucket in set_buckets.items():

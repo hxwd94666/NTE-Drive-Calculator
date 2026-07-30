@@ -66,6 +66,9 @@ class Drive(BaseEquipment):
 class Tape(BaseEquipment):
     item_type: Literal["tape"] = "tape"
     shape_id: str = "TAPE_15"
+    # Official suit identity used by allocation.  Legacy OCR/test objects may
+    # omit it and use the normalized display-name compatibility path.
+    suit_id: str | None = None
     set_name: str
     main_stats: str
 

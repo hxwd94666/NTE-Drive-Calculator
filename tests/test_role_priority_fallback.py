@@ -35,6 +35,17 @@ def _plan(drive: Drive) -> dict:
     }
 
 
+def _tape(uid: str, *, set_name: str = "S", main_stat: str = "攻击力%") -> Tape:
+    return Tape(
+        uid=uid,
+        quality="Gold",
+        area=15,
+        set_name=set_name,
+        main_stats=main_stat,
+        sub_stats={"暴击率%": 1.0},
+    )
+
+
 class RolePriorityFallbackTests(unittest.TestCase):
     def test_missing_core_never_invalidates_a_complete_drive_blueprint(self) -> None:
         drive = _drive("drive-1")
@@ -59,6 +70,73 @@ class RolePriorityFallbackTests(unittest.TestCase):
                     }
                 },
             ),
+        )
+
+    def test_missing_core_diagnostic_distinguishes_supply_shortage(self) -> None:
+        drive_a = _drive("drive-a")
+        drive_b = _drive("drive-b")
+        only_core = _tape("core-1")
+        request = AllocationKernelRequest(
+            inventory=(drive_a, drive_b, only_core),
+            roles_db={
+                "A": {"default_set": "S"},
+                "B": {"default_set": "S"},
+            },
+            sets_db={"S": {}},
+            shapes_db={},
+            blueprints_db={},
+            role_order=("A", "B"),
+            strategy="role_priority",
+            module_set_targets={"A": "S", "B": "S"},
+            set_effect_modes={},
+            core_main_filters={},
+            core_set_targets={},
+            stat_priority_configs={},
+            property_limits={},
+        )
+        result = {
+            "A": {**_plan(drive_a), "assigned_tape": only_core},
+            "B": _plan(drive_b),
+        }
+        pools = {"tapes": {"A": [only_core], "B": [only_core]}}
+        kernel = AllocationKernel(type("Scoring", (), {})())
+
+        kernel._annotate_missing_core_reasons(request, pools, result)
+
+        self.assertNotIn("missing_core_reason", result["A"])
+        self.assertEqual(
+            "满足条件的 1 张唯一卡带已分配给其他角色",
+            result["B"]["missing_core_reason"],
+        )
+
+    def test_missing_core_diagnostic_names_absent_target_set(self) -> None:
+        drive = _drive("drive-a")
+        request = AllocationKernelRequest(
+            inventory=(drive,),
+            roles_db={"A": {"default_set": "Missing"}},
+            sets_db={},
+            shapes_db={},
+            blueprints_db={},
+            role_order=("A",),
+            strategy="role_priority",
+            module_set_targets={"A": "Missing"},
+            set_effect_modes={},
+            core_main_filters={},
+            core_set_targets={},
+            stat_priority_configs={},
+            property_limits={},
+        )
+        result = {"A": _plan(drive)}
+
+        AllocationKernel(type("Scoring", (), {})())._annotate_missing_core_reasons(
+            request,
+            {"tapes": {"A": []}},
+            result,
+        )
+
+        self.assertEqual(
+            "固定快照中没有套装为 Missing 的卡带",
+            result["A"]["missing_core_reason"],
         )
 
     def test_global_optimal_retries_with_full_drive_candidates_after_top_k_failure(self) -> None:

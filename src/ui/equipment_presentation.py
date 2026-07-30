@@ -316,6 +316,23 @@ def _render_results(self, plan):
                     ),
                 )
             )
+        else:
+            missing_core = QLabel(
+                "卡带缺失："
+                + str(
+                    p.get("missing_core_reason")
+                    or "当前固定快照没有满足角色约束且可唯一分配的卡带"
+                )
+                + "（驱动方案仍可保存）"
+            )
+            missing_core.setWordWrap(True)
+            missing_core.setStyleSheet(
+                themed_style(
+                    "color:#ffcc66;border:1px solid #8b6b25;border-radius:7px;"
+                    "background:rgba(255,204,102,0.08);padding:8px 10px"
+                )
+            )
+            gl.addWidget(missing_core)
 
         if drives:
             gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))

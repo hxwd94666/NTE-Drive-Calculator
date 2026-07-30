@@ -169,6 +169,41 @@ class AllocationContextTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             context.candidates[0].level = 1
 
+    def test_gamepad_snapshot_adapts_visual_ids_without_replacing_them(self) -> None:
+        visual_module = item(101, 11, kind="module")
+        visual_module["item_id"] = "vision_module_1"
+        visual_core = item(202, 22, kind="core")
+        visual_core["item_id"] = "vision_core_2"
+        snapshot_id = self.user_dao.import_inventory_snapshot(
+            snapshot(1, [visual_module, visual_core]),
+            source="gamepad",
+        )
+        profile = self._profile()
+
+        context = build_allocation_context(
+            self.user_dao,
+            self.static_dao,
+            snapshot_id=snapshot_id,
+            profile_id=profile["profile_id"],
+            profile_version=1,
+        )
+
+        self.assertEqual("gamepad", context.snapshot.source)
+        self.assertEqual(
+            {"vision_module_1", "vision_core_2"},
+            {candidate.item_id for candidate in context.candidates},
+        )
+        module = next(
+            candidate for candidate in context.candidates
+            if candidate.kind == "module"
+        )
+        core = next(
+            candidate for candidate in context.candidates
+            if candidate.kind == "core"
+        )
+        self.assertEqual("EquipmentGeometry_ZhiJiao1", module.geometry)
+        self.assertEqual("Suit6", core.suit_id)
+
     def test_new_snapshot_or_preference_version_cannot_change_existing_context(self) -> None:
         first_snapshot_id = self.user_dao.import_inventory_snapshot(
             snapshot(1, [item(101, 11, kind="module")])
