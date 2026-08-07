@@ -152,7 +152,9 @@
 
 ## 🧑‍💻本地开发
 
-`2.0.0` 已使用 SQLite 作为运行数据边界，并以游戏官方 ID 驱动角色、库存和配装服务。详细设计见 [架构说明](docs/architecture.md) 与 [扩展指南](docs/extension-guide.md)。
+`2.0.0` 已使用 SQLite 作为运行数据边界，并以游戏官方 ID 驱动角色、库存和配装服务。详细设计见
+[架构说明](docs/architecture/overview.md) 与 [扩展指南](docs/integrations/extension-guide.md)；开发者和
+合作 AI 从 [技术文档索引](docs/INDEX.md) 进入。
 
 ```powershell
 uv sync --group build --group dev

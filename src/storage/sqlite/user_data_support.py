@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -25,12 +25,15 @@ USER_MIGRATIONS = {
     10: Path(__file__).with_name("schema") / "011_user_data_v10.sql",
     11: Path(__file__).with_name("schema") / "012_user_data_v11.sql",
     12: Path(__file__).with_name("schema") / "013_user_data_v12.sql",
+    13: Path(__file__).with_name("schema") / "014_user_data_v13.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
 DEFAULT_SNAPSHOT_RETENTION_COUNT = 20
 ALLOCATION_STRATEGIES = frozenset({"role_priority", "global_optimal"})
 SUIT_REQUIREMENT_MODES = frozenset({"none", "two_piece", "four_piece"})
+BATTLE_REPORT_MAX_RECORDS = 100
+BATTLE_REPORT_MAX_MANUAL_RECORDS = 50
 
 
 class UserDataError(RuntimeError):

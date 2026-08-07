@@ -6,7 +6,9 @@
 2. 功能消费的是哪个固定快照、配置版本和账号 generation；
 3. 改动是否破坏了下文定义的功能契约或依赖方向。
 
-阶段计划、迁移进度和临时验收记录写入 `docs/`，不要追加到本文。
+技术文档入口是 `docs/INDEX.md`。阅读顺序为“本文 → 文档索引 → 对应模块当前能力 → 对应版本
+开发计划”。阶段计划、迁移进度和临时验收记录写入 `docs/development/<version>/`，不要追加到
+本文；模块现有能力和数据边界写入 `docs/modules/`，不能把未实现计划描述成当前能力。
 
 ## 1. 产品与运行边界
 
@@ -93,6 +95,12 @@ nte-core 事件 ─┐
 
 静态库运行时只读。每次重新生成都必须同步更新 `data/manifest.json`；应用或测试运行前后
 不应改变静态库 SHA-256。
+
+从 `origin`、`upstream` 或其他合作分支拉取、合并或复制 `data/game_static.sqlite3`，也视为一次
+静态库更新，不能因为文件来自上游提交就跳过 manifest 校验。同步后必须核对数据库完整性、
+内嵌 dataset/schema/importer 元数据和实际 SHA-256；数据库确认来自目标上游最新提交且检查正常
+时，以该数据库为权威，在同一变更中同步 `data/manifest.json`，不得为迁就过期 manifest 回退
+较新的数据库。至少运行 `tests.test_static_data_manifest`；合并或发布前再运行 `full`。
 
 共享库只保存相对发行默认的差异。删除覆盖表示恢复默认，不复制整张官方表。
 
@@ -393,7 +401,7 @@ profile，以保证结果可复现。
 再在新账号目录创建 sink。
 
 核心事件必须具有 `operation_id`、功能名、阶段、耗时和安全上下文。字段规范维护在
-`docs/logging-events.md`。禁止记录完整 RPC、完整背包、账号显示名、用户绝对路径、
+`docs/reference/logging-events.md`。禁止记录完整 RPC、完整背包、账号显示名、用户绝对路径、
 OCR 全文、截图和任何鉴权材料。
 
 ## 6. 跨功能共享契约
@@ -478,6 +486,9 @@ DAO 拥有业务与持久化。页面销毁、账号切换和应用退出都必�
 - Mirror 上传和 GitHub 发布不能成为构建脚本的隐式副作用；
 - 测试、验证器、账号库、日志、截图和本机路径不得进入安装包；
 - 静态库、manifest、nte-core、插件和 schema 必须有打包断言与来源说明。
+- 根目录本机 `nte-core.exe`、`dwmapi.dll` 和本机插件副本必须保持 Git ignore；只有明确晋升为
+  发行组件、记录上游 commit/版本/许可并完成协议与打包验证后，才能更新 `third_party` 中被追踪
+  的正式二进制。不得把本机编译结果直接覆盖并提交为发行组件。
 
 ### 9.3 测试入口
 
@@ -509,7 +520,7 @@ git diff --check
 
 `core` 按功能类型自动选择并并行分片；共享状态问题可用 `--jobs 1`。`full` 是合并与发布前的
 权威单进程回归。涉及真实游戏输入、驱动、插件或更新时，再执行
-`tools/windows_validation` 和 `docs/windows-manual-validation.md`。
+`tools/windows_validation` 和 `docs/validation/windows-manual-validation.md`。
 
 ## 10. 开发变更清单
 

@@ -36,10 +36,15 @@
 | 极速装配 | `equipment_apply.bulk_*` | 任务预检、执行、验证和最终摘要 |
 | 视觉扫描 | `scanning.*` | 冻结依赖、扫描来源和生命周期 |
 | 单件鉴定 | `identification.*` | 输入来源、连续截图和结果生命周期 |
+| 战报 | `battle_report.*` | 采集生命周期、最终摘要持久化、历史恢复和页面状态保存；只记录记录 ID、状态、数量和安全错误，不记录原始摘要或伤害明细 |
 | 环境 | `environment.*` | 游戏检测、nte-core/dwmapi 诊断、插件部署与恢复 |
 | 更新 | `update.*` | 检查、下载请求、取消、失败、完成和安装器启动 |
 
 支持 `started`、`succeeded`、`failed` 的阶段由 `operation_scope()` 自动附加 `phase` 和 `duration_ms`。取消、丢弃和降级事件使用独立名称，不伪装成成功。
+
+战报事件允许的附加字段包括 `battle_record_id`、`persistence_status`、`retention_kind`、
+`inserted`、`changed`、`pruned_record_count`、`character_count`、`skill_count` 和 `total_hits`。不得写入
+`raw_summary_json`、角色 ID 列表、技能列表、完整伤害表或账号数据库路径。
 
 ## 会话文件
 

@@ -110,6 +110,8 @@ class MainWindowNavigationMixin:
         for item in NAV_ITEMS:
             if item.key == "identify":
                 page = self.identification_controller.build_page()
+            elif item.key == "battle_report":
+                page = self.battle_report_controller.build_page()
             elif item.key == "execute":
                 page = self.scanning_controller.build_page()
             elif item.key == "blueprint":

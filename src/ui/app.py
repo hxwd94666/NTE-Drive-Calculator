@@ -126,6 +126,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
+from src.features.battle_report.dependencies import build_battle_report_controller
 from src.features.identification.controller import IdentificationController
 from src.features.onboarding.guide import OnboardingGuide
 from src.features.official_role.page import refresh_official_role_page
@@ -293,6 +294,16 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
             minimize_window=self.showMinimized,
             restore_window=self.showNormal,
             activate_window=self.activateWindow,
+        )
+        self.battle_report_controller = build_battle_report_controller(
+            app_context=self.app_context,
+            dialog_parent=self,
+            inventory_sync_is_running=lambda: bool(
+                self._inventory_sync_service
+                and self._inventory_sync_service.is_running
+            ),
+            stop_inventory_sync=self._stop_inventory_sync,
+            start_inventory_sync=self._start_inventory_sync,
         )
         self.blueprint_page = BlueprintPage(
             app_context=self.app_context,
@@ -482,6 +493,10 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
             except Exception as exc:
                 logger.warning(f"保存临时优先级失败: {exc}")
         try:
+            self.battle_report_controller.close()
+        except Exception as exc:
+            logger.warning(f"停止战报采集失败: {exc}")
+        try:
             self._stop_inventory_sync()
         except Exception as exc:
             logger.warning(f"停止背包同步失败: {exc}")
@@ -616,6 +631,20 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
                 reason="vision_worker_running",
             )
             return False
+        if self.battle_report_controller.is_running():
+            QMessageBox.information(
+                self,
+                "战报采集中",
+                "当前战报仍在使用本账号和 nte-core 会话。请先结束战报采集，再切换账号。",
+            )
+            log_event(
+                "WARNING",
+                "account.switch_blocked",
+                "战报采集期间阻止账号切换",
+                operation,
+                reason="battle_report_running",
+            )
+            return False
         data = ACCOUNT_MANAGER.read_index()
         if not any(a.get("id") == account_id for a in data.get("accounts", [])):
             log_event(
@@ -677,6 +706,7 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         )
         refresh_account_scoped_settings(self)
         self.identification_controller.reset_account_state()
+        self.battle_report_controller.reset_account_state()
         self.blueprint_page.reset_account_state()
         self.scanning_controller.reset_account_state()
         self._load_data()

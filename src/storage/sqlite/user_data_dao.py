@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from .account_data_dao import AccountDataDaoMixin
+from .battle_report_dao import BattleReportDaoMixin
 from .equipment_apply_job_dao import EquipmentApplyJobDaoMixin
 from .inventory_snapshot_dao import InventorySnapshotDaoMixin
 from .loadout_plan_lock_dao import LoadoutPlanLockDaoMixin
@@ -13,6 +14,8 @@ from .user_data_base import UserDataDaoCore
 from .user_data_support import (
     ALLOCATION_STRATEGIES,
     BASE_SCHEMA_VERSION,
+    BATTLE_REPORT_MAX_MANUAL_RECORDS,
+    BATTLE_REPORT_MAX_RECORDS,
     DEFAULT_SCHEMA_PATH,
     DEFAULT_SNAPSHOT_RETENTION_COUNT,
     SCHEMA_VERSION,
@@ -27,6 +30,7 @@ from .user_data_support import (
 
 class UserDataDao(
     AccountDataDaoMixin,
+    BattleReportDaoMixin,
     OptimizationProfileDaoMixin,
     InventorySnapshotDaoMixin,
     EquipmentApplyJobDaoMixin,
@@ -38,7 +42,9 @@ class UserDataDao(
 
 
 __all__ = [
-    "ALLOCATION_STRATEGIES", "BASE_SCHEMA_VERSION", "DEFAULT_SCHEMA_PATH",
+    "ALLOCATION_STRATEGIES", "BASE_SCHEMA_VERSION",
+    "BATTLE_REPORT_MAX_MANUAL_RECORDS", "BATTLE_REPORT_MAX_RECORDS",
+    "DEFAULT_SCHEMA_PATH",
     "DEFAULT_SNAPSHOT_RETENTION_COUNT", "SCHEMA_VERSION", "SNAPSHOT_SOURCES",
     "SUIT_REQUIREMENT_MODES", "SYNC_METHODS", "USER_MIGRATIONS", "UserDataDao",
     "UserDataError", "UserDataValidationError",

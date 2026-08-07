@@ -31,6 +31,12 @@ NAV_ITEMS = (
         "_refresh_identify_options",
     ),
     NavItem(
+        "battle_report",
+        "📊  战报",
+        "btn_battle_report",
+        "_page_battle_report",
+    ),
+    NavItem(
         "blueprint",
         "角色图纸",
         "btn_blueprint",

@@ -1,3 +1,4 @@
+# 定义评分和分配共享的官方套装标识工具。
 """Official suit identity helpers shared by scoring and allocation."""
 
 from __future__ import annotations

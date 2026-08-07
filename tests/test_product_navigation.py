@@ -23,7 +23,16 @@ class ProductNavigationTests(unittest.TestCase):
 
     def test_sidebar_contains_only_primary_player_workflows(self):
         self.assertEqual(
-            ("home", "execute", "equipment", "my_role", "warehouse", "identify", "settings"),
+            (
+                "home",
+                "execute",
+                "equipment",
+                "my_role",
+                "warehouse",
+                "identify",
+                "battle_report",
+                "settings",
+            ),
             tuple(item.key for item in sidebar_nav_items()),
         )
 

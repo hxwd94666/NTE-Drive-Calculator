@@ -4,7 +4,7 @@
     "filename": "game_static.sqlite3",
     "dataset_id": "unversioned_20260723_update",
     "schema_version": 16,
-    "sha256": "E98406D04005BBBF4FC68923C856C8117E6D861C9FD59C9D13D9A15B929B67A8",
+    "sha256": "04DCCAC56FD25F5A77B923410425698462E9551FE91174D099C47878AABDE3B9",
     "generated_at_utc": "2026-07-23T10:20:22+00:00",
     "source_payloads_omitted": true
   },

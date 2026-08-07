@@ -63,6 +63,12 @@ def snapshot(generation: int, rows: list[dict]) -> dict:
     }
 
 
+def drop_battle_report_v13(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP TABLE battle_report_page_state")
+    connection.execute("DROP TABLE battle_record_retention")
+    connection.execute("DROP TABLE battle_record")
+
+
 class UserDataDaoSettingsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -77,7 +83,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_initializes_profile_and_typed_sync_settings(self) -> None:
         summary = self.dao.summary()
-        self.assertEqual(summary["schema_version"], 12)
+        self.assertEqual(summary["schema_version"], 13)
         self.assertEqual(summary["profile"]["account_id"], "default")
         self.assertEqual(summary["sync_settings"]["inventory_sync_method"], "nte_core")
         self.assertEqual(summary["sync_settings"]["inventory_settle_seconds"], 5.0)
@@ -126,7 +132,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
         with UserDataDao(legacy_path) as migrated:
             settings = migrated.get_sync_settings()
-            self.assertEqual(12, migrated.summary()["schema_version"])
+            self.assertEqual(13, migrated.summary()["schema_version"])
             self.assertEqual("旧账号", migrated.profile()["account_name"])
             self.assertEqual(5.0, settings["inventory_settle_seconds"])
             self.assertFalse(settings["auto_start_inventory_sync"])
@@ -135,9 +141,10 @@ class UserDataDaoSettingsTests(unittest.TestCase):
     def test_migrates_v4_database_to_versioned_optimization_preferences(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v4.sqlite3"
         with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            self.assertEqual(12, initialized.summary()["schema_version"])
+            self.assertEqual(13, initialized.summary()["schema_version"])
 
         connection = sqlite3.connect(legacy_path)
+        drop_battle_report_v13(connection)
         for table in (
             "character_shape_bonus_preference_property",
             "character_shape_bonus_preference",
@@ -165,7 +172,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(12, migrated.summary()["schema_version"])
+            self.assertEqual(13, migrated.summary()["schema_version"])
             self.assertEqual([], migrated.list_optimization_profiles())
             profile = migrated.create_optimization_profile(
                 "Migrated preferences",
@@ -180,6 +187,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
             pass
 
         connection = sqlite3.connect(legacy_path)
+        drop_battle_report_v13(connection)
         for table in (
             "character_shape_bonus_preference_property",
             "character_shape_bonus_preference",
@@ -239,7 +247,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(12, migrated.summary()["schema_version"])
+            self.assertEqual(13, migrated.summary()["schema_version"])
 
     def test_character_profiles_store_only_official_pointers_and_user_levels(self) -> None:
         saved = self.dao.save_character_profile(
@@ -405,6 +413,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 characters=[],
             )
         connection = sqlite3.connect(legacy_path)
+        drop_battle_report_v13(connection)
         connection.execute("DROP TABLE character_weight_preference_property")
         connection.execute("DROP TABLE character_weight_preference_seed")
         connection.execute("DROP TABLE character_shape_bonus_preference_property")
@@ -423,7 +432,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(12, migrated.summary()["schema_version"])
+            self.assertEqual(13, migrated.summary()["schema_version"])
             self.assertEqual("existing-v5", migrated.list_optimization_profiles()[0]["name"])
             self.assertEqual([], migrated.list_character_profiles())
 
@@ -446,6 +455,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 ],
             )
         connection = sqlite3.connect(legacy_path)
+        drop_battle_report_v13(connection)
         connection.execute("DROP TABLE optimization_preference_substat_behavior")
         connection.execute("DROP TABLE optimization_preference_substat_blacklist")
         connection.execute("DELETE FROM schema_migration WHERE version >= 11")
@@ -455,7 +465,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(12, migrated.summary()["schema_version"])
+            self.assertEqual(13, migrated.summary()["schema_version"])
             self.assertEqual(
                 "existing-v10", migrated.list_optimization_profiles()[0]["name"]
             )
@@ -481,16 +491,17 @@ class UserDataDaoSettingsTests(unittest.TestCase):
     def test_migrates_v11_database_to_allocation_plan_lock(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v11.sqlite3"
         with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            self.assertEqual(12, initialized.summary()["schema_version"])
+            self.assertEqual(13, initialized.summary()["schema_version"])
         connection = sqlite3.connect(legacy_path)
+        drop_battle_report_v13(connection)
         connection.execute("DROP INDEX idx_loadout_plan_active_allocation_locked")
         connection.execute("ALTER TABLE loadout_plan DROP COLUMN allocation_locked")
-        connection.execute("DELETE FROM schema_migration WHERE version = 12")
+        connection.execute("DELETE FROM schema_migration WHERE version >= 12")
         connection.commit()
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(12, migrated.summary()["schema_version"])
+            self.assertEqual(13, migrated.summary()["schema_version"])
             columns = {
                 row["name"]
                 for row in migrated._db().execute("PRAGMA table_info(loadout_plan)")
