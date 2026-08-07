@@ -38,8 +38,10 @@
 
 ## 验证状态
 
-DAO、持久化、历史、账号、core 和 full 自动化已通过；真实游戏历史管理和非深渊场景由维护者
-继续人工验收。开发进度见 [2.1.0 战报计划](../development/2.1.0/battle-report.md)。
+DAO、持久化、历史、账号、core 和 full 自动化已通过；维护者已使用 `main.py` 完成深渊第 8～12
+层的运行和历史保存，非深渊场景继续人工验收。当前交付见
+[2.0.3 摘要型战报说明](../development/2.0.3/battle-report.md)，收益画像和综合边际见
+[2.1.0 后续方案](../development/2.1.0/battle-report.md)。
 
 ## 主要实现
 

@@ -48,10 +48,12 @@
 
 ## 当前开发版本
 
+- [2.0.3 开发索引](development/2.0.3/INDEX.md)
+- [2.0.3 摘要型战报交付说明](development/2.0.3/battle-report.md)
 - [2.1.0 开发索引](development/2.1.0/INDEX.md)
-- [战报统计与收益画像](development/2.1.0/battle-report.md)
-- [nte-core 合作需求与进度](development/2.1.0/nte-core-collaboration.md)
-- [队伍收益与配装优化长期计划](development/2.1.0/team-benefit-allocation.md)
+- [2.1.0 战报收益画像后续方案](development/2.1.0/battle-report.md)
+- [2.1.0 nte-core 合作需求与进度](development/2.1.0/nte-core-collaboration.md)
+- [2.1.0 队伍收益与配装优化长期计划](development/2.1.0/team-benefit-allocation.md)
 
 ## 数据与隐私
 
