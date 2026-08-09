@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from src.domain.loadout_plan_scores import exact_assignment_score_total
 from src.services.equipment_level_projection_service import (
     project_equipment_items_to_max_level,
 )
@@ -217,6 +218,7 @@ def replacement_candidates_for_official_role(
         ranked.append({
             "item": dict(candidate),
             "current_item": dict(projected_target),
+            "current_items": tuple(dict(item) for item in items),
             "baseline_damage": baseline_damage,
             "damage": damage,
             "current_direct_damage_score": current_direct_damage_score,
@@ -251,6 +253,7 @@ def save_official_role_replacement(
     *,
     replacement_score: float | None = None,
     current_score: float | None = None,
+    current_assignment_scores: Mapping[str, float] | None = None,
 ) -> int:
     """Persist one accepted saved-plan replacement as the next active plan."""
 
@@ -292,19 +295,34 @@ def save_official_role_replacement(
         f"nte-{replacement_kind}-{replacement.get('uid_slot')}-{replacement.get('uid_serial')}"
     )
     payload = dict(plan.get("payload") or {})
-    assignment_scores = dict(payload.get("assignment_scores") or {})
+    assignment_scores = (
+        {
+            str(uid): float(score)
+            for uid, score in current_assignment_scores.items()
+        }
+        if current_assignment_scores is not None
+        else dict(payload.get("assignment_scores") or {})
+    )
     previous_assignment_score = assignment_scores.pop(target_display_uid, None)
     if replacement_score is not None:
         assignment_scores[replacement_display_uid] = float(replacement_score)
     if previous_assignment_score is None:
         previous_assignment_score = current_score
     plan_score = plan.get("score")
+    exact_score = exact_assignment_score_total(assignments, assignment_scores)
     if (
+        current_assignment_scores is not None
+        or is_virtual_equipment_assignment(target)
+    ) and exact_score is not None:
+        # Active-plan overlays may carry a stale historical total.  The
+        # per-slot scores are authoritative and virtual placeholders are 0.
+        saved_score: float | None = exact_score
+    elif (
         plan_score is not None
         and replacement_score is not None
         and previous_assignment_score is not None
     ):
-        saved_score: float | None = (
+        saved_score = (
             float(plan_score)
             - float(previous_assignment_score)
             + float(replacement_score)

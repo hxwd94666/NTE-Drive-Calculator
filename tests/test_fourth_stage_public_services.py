@@ -487,6 +487,7 @@ class OfficialRoleReplacementTests(unittest.TestCase):
             )
         self.assertEqual(1, len(rows))
         self.assertEqual(2, rows[0]["item"]["uid_serial"])
+        self.assertEqual(2, len(rows[0]["current_items"]))
         self.assertEqual(20.0, rows[0]["score"])
         self.assertAlmostEqual(10.0, rows[0]["gain_percent"])
 

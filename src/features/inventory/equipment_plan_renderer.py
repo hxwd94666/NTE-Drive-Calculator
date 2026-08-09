@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -60,6 +62,27 @@ EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
 # Legacy test hosts and non-Qt callers retain the old batch-only path.
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
+
+
+def _saved_plan_contains_virtual_equipment(
+    role_data: Mapping[str, Any],
+) -> bool:
+    tape = role_data.get(ROLE_EQUIPPED_TAPE)
+    if isinstance(tape, dict) and bool(tape.get("virtual")):
+        return True
+    return any(
+        isinstance(drive, dict) and bool(drive.get("virtual"))
+        for drive in role_data.get(ROLE_EQUIPPED_DRIVES, ()) or ()
+    )
+
+
+def _saved_plan_requires_score_recalculation(
+    role_data: Mapping[str, Any],
+) -> bool:
+    return (
+        not bool(role_data.get("_sqlite_assignment_scores_complete"))
+        or _saved_plan_contains_virtual_equipment(role_data)
+    )
 
 
 def _allocation_lock_icon(locked: bool) -> QIcon:
@@ -176,10 +199,10 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
 
     total_score = 0.0
     tape_data = rd.get(ROLE_EQUIPPED_TAPE)
-    if is_sqlite_plan:
+    if is_sqlite_plan and not _saved_plan_requires_score_recalculation(rd):
         total_score = float(rd.get(ROLE_TOTAL_SCORE, 0.0) or 0.0)
         total_grade = allocation_grade(total_score, ALLOCATION_TOTAL_SCORE_AREA)
-    elif ROLE_TOTAL_SCORE in rd and rd.get(ROLE_TOTAL_GRADE):
+    elif not is_sqlite_plan and ROLE_TOTAL_SCORE in rd and rd.get(ROLE_TOTAL_GRADE):
         total_score = float(rd.get(ROLE_TOTAL_SCORE, 0.0) or 0.0)
         total_grade = str(rd.get(ROLE_TOTAL_GRADE) or "D")
     else:

@@ -242,32 +242,54 @@ class RolePriorityGroupStrategyMixin:
         crit_rate_caps: Dict[str, float] | None,
         candidate_limit: int,
     ) -> AllocationResult:
-        """Fill only missing slots; all first-pass set and extra drives stay frozen."""
+        """Freeze first-pass required-set drives and rebuild every extra slot."""
 
         result = self._copy_allocation(allocation)
-        # ``_allocated_drive_uids`` intentionally ignores invalid plans for
-        # normal completed-plan accounting.  This recovery path is different:
-        # its provisional 1~3 set pieces and every extra drive are explicit
-        # locks, even before the role becomes a valid complete plan.
+        # Only blueprint-required set pieces survive the first freeze.  Extra
+        # pieces must return to the full fixed snapshot so critical-rate repair
+        # can choose a different extra-shape implementation without disturbing
+        # the required four-piece core.
+        for role, plan in result.items():
+            released_extra = list(plan.get("assigned_extra_drives", []) or ())
+            plan["assigned_extra_drives"] = []
+            plan["score"] = float(plan.get("score", 0.0)) - sum(
+                float(drive.role_scores.get(role, 0.0)) for drive in released_extra
+            )
+            tape = plan.get("assigned_tape")
+            tape_score = float(tape.role_scores.get(role, 0.0)) if isinstance(tape, Tape) else 0.0
+            plan["rank_score"] = tape_score + sum(
+                self._rank_score_for_drive(
+                    role,
+                    drive,
+                    float(drive.role_scores.get(role, 0.0)),
+                    crit_priority_modes.get(role),
+                    include_extra_shape_bonus=self._slot_uses_extra_shape_bonus(
+                        "set", plan.get("blueprint"),
+                    ),
+                )
+                for drive in plan.get("assigned_set_drives", ()) or ()
+            )
         frozen_uids = {
             drive.uid
             for plan in result.values()
-            for drive in (
-                *(plan.get("assigned_set_drives", []) or ()),
-                *(plan.get("assigned_extra_drives", []) or ()),
-            )
+            for drive in plan.get("assigned_set_drives", ()) or ()
         }
         missing_slots = self._missing_slots_for_partial_group(result)
         candidates = self._expanded_top_k_for_missing_slots(
             missing_slots, full_drives, available_uids, frozen_uids,
             crit_priority_modes, candidate_limit,
         )
-        if len(candidates) < len(missing_slots):
-            return self._mark_partial_group_failures(result, missing_slots, candidates)
         if missing_slots:
             invalid = -1_000_000_000.0
-            profit_matrix = np.full((len(missing_slots), len(candidates)), invalid)
-            rank_matrix = np.full((len(missing_slots), len(candidates)), invalid)
+            # Dummy columns preserve a maximal partial assignment when the
+            # released extra slots outnumber available candidates.  Without
+            # them, one impossible peer would invalidate every otherwise
+            # complete same-priority role.
+            column_count = len(candidates) + len(missing_slots)
+            profit_matrix = np.zeros((len(missing_slots), column_count))
+            rank_matrix = np.zeros((len(missing_slots), column_count))
+            profit_matrix[:, :len(candidates)] = invalid
+            rank_matrix[:, :len(candidates)] = invalid
             for row_index, slot in enumerate(missing_slots):
                 role = slot["role"]
                 include_bonus = self._slot_uses_extra_shape_bonus(
@@ -283,17 +305,21 @@ class RolePriorityGroupStrategyMixin:
                         continue
                     score = float(drive.role_scores.get(role, 0.0))
                     profit_matrix[row_index, column_index] = score
-                    rank_matrix[row_index, column_index] = self._rank_score_for_drive(
-                        role, drive, score, crit_priority_modes.get(role),
+                    slot_bias = 2_000_000.0 if slot["type"] == "set" else 1_000_000.0
+                    rank_matrix[row_index, column_index] = slot_bias + self._rank_score_for_drive(
+                        role,
+                        drive,
+                        score,
+                        crit_priority_modes.get(role),
                         include_extra_shape_bonus=include_bonus,
                     )
             row_indices, column_indices = linear_sum_assignment(-rank_matrix)
-            if len(row_indices) != len(missing_slots) or any(
-                rank_matrix[row, column] <= invalid / 2
-                for row, column in zip(row_indices.tolist(), column_indices.tolist())
-            ):
-                return self._mark_partial_group_failures(result, missing_slots, candidates)
             for row_index, column_index in zip(row_indices.tolist(), column_indices.tolist()):
+                if (
+                    column_index >= len(candidates)
+                    or rank_matrix[row_index, column_index] <= 0
+                ):
+                    continue
                 slot = missing_slots[row_index]
                 drive = candidates[column_index]
                 plan = result[slot["role"]]
@@ -302,12 +328,19 @@ class RolePriorityGroupStrategyMixin:
                 else:
                     plan["assigned_extra_drives"].append(drive)
                 plan["score"] += float(profit_matrix[row_index, column_index])
+                slot_bias = 2_000_000.0 if slot["type"] == "set" else 1_000_000.0
                 plan["rank_score"] = float(plan.get("rank_score", plan["score"])) + float(
-                    rank_matrix[row_index, column_index]
+                    rank_matrix[row_index, column_index] - slot_bias
                 )
 
         remaining = self._missing_slots_for_partial_group(result)
-        return self._mark_partial_group_failures(result, remaining, candidates, crit_rate_caps)
+        return self._mark_partial_group_failures(
+            result,
+            remaining,
+            candidates,
+            crit_rate_caps,
+            crit_priority_modes,
+        )
 
     def _mark_partial_group_failures(
         self,
@@ -315,7 +348,9 @@ class RolePriorityGroupStrategyMixin:
         missing_slots: list[dict],
         candidates: list[Drive],
         crit_rate_caps: Dict[str, float] | None = None,
+        crit_priority_modes: Dict[str, dict] | None = None,
     ) -> AllocationResult:
+        crit_priority_modes = crit_priority_modes or {}
         missing_by_role: dict[str, list[dict]] = {}
         for slot in missing_slots:
             missing_by_role.setdefault(slot["role"], []).append(slot)
@@ -345,10 +380,137 @@ class RolePriorityGroupStrategyMixin:
                 cap = self._crit_rate_cap(role, crit_rate_caps)
                 plan["valid"] = False
                 plan["reason"] = f"暴击率上限 {cap:g}% 使冻结后的同级组方案无法成立"
+            elif floor_failure := self._crit_floor_failure_reason(
+                role,
+                plan.get("assigned_tape"),
+                [
+                    *(plan.get("assigned_set_drives", []) or []),
+                    *(plan.get("assigned_extra_drives", []) or []),
+                ],
+                crit_priority_modes.get(role),
+            ):
+                plan["valid"] = False
+                plan["reason"] = floor_failure
             else:
                 plan["valid"] = True
                 plan.pop("reason", None)
                 plan.pop("rank_score", None)
+        return result
+
+    def _retry_complete_group_tapes(
+        self,
+        allocation: AllocationResult,
+        custom_sets: Dict[str, str],
+        tapes_pool: dict[str, list[Tape]],
+        used_tape_uids: set[str],
+        crit_priority_modes: Dict[str, dict],
+        crit_rate_caps: Dict[str, float] | None,
+    ) -> AllocationResult:
+        """Try card-only constraint repair before releasing any drive."""
+
+        result = self._copy_allocation(allocation)
+        incomplete_roles = {
+            slot["role"] for slot in self._missing_slots_for_partial_group(result)
+        }
+        states = [{"tapes": {}, "uids": set(used_tape_uids), "valid": 0, "score": 0.0}]
+        for role, plan in result.items():
+            if role in incomplete_roles:
+                continue
+            config = crit_priority_modes.get(role)
+            constrained = (
+                self._crit_floor_threshold(config) is not None
+                or self._crit_rate_cap(role, crit_rate_caps) is not None
+            )
+            primary = plan.get("assigned_tape")
+            legal: list[Tape | None] = []
+            if constrained:
+                candidates = [
+                    tape
+                    for tape in tapes_pool.get(role, ())
+                    if tape.uid not in used_tape_uids
+                    and self._tape_matches_core_target(role, tape, custom_sets)
+                    and self._repair_quality_allowed(role, tape, config)
+                ]
+                if (
+                    isinstance(primary, Tape)
+                    and primary.uid not in used_tape_uids
+                    and self._repair_quality_allowed(role, primary, config)
+                    and all(tape.uid != primary.uid for tape in candidates)
+                ):
+                    candidates.append(primary)
+                candidates.sort(
+                    key=lambda tape: float(tape.role_scores.get(role, 0.0)),
+                    reverse=True,
+                )
+                selected: dict[str, Tape] = {}
+                if isinstance(primary, Tape):
+                    selected[primary.uid] = primary
+                for candidate in (
+                    next((t for t in candidates if self._is_crit_rate_key(t.main_stats)), None),
+                    next((t for t in candidates if not self._is_crit_rate_key(t.main_stats)), None),
+                ):
+                    if isinstance(candidate, Tape):
+                        selected.setdefault(candidate.uid, candidate)
+                for candidate in candidates:
+                    selected.setdefault(candidate.uid, candidate)
+                    if len(selected) >= 6:
+                        break
+                legal = list(selected.values())
+            else:
+                legal = [primary] if isinstance(primary, Tape) else [None]
+            if not legal and primary is None:
+                legal = [None]
+
+            drives = [
+                *(plan.get("assigned_set_drives", ()) or ()),
+                *(plan.get("assigned_extra_drives", ()) or ()),
+            ]
+            valid_options: list[Tape | None] = []
+            for tape in legal:
+                items = [tape, *drives]
+                if not self._within_crit_rate_cap(role, items, crit_rate_caps):
+                    continue
+                if self._crit_floor_failure_reason(role, tape, drives, config):
+                    continue
+                valid_options.append(tape)
+
+            next_states: list[dict] = []
+            for state in states:
+                for tape in valid_options:
+                    tape_uid = tape.uid if isinstance(tape, Tape) else None
+                    if tape_uid is not None and tape_uid in state["uids"]:
+                        continue
+                    tape_score = float(tape.role_scores.get(role, 0.0)) if isinstance(tape, Tape) else 0.0
+                    next_states.append(
+                        {
+                            "tapes": {**state["tapes"], role: tape},
+                            "uids": state["uids"] | ({tape_uid} if tape_uid else set()),
+                            "valid": state["valid"] + 1,
+                            "score": state["score"] + tape_score,
+                        }
+                    )
+                next_states.append(
+                    {
+                        **state,
+                        "tapes": {**state["tapes"], role: False},
+                    }
+                )
+            next_states.sort(key=lambda state: (state["valid"], state["score"]), reverse=True)
+            states = next_states[:64]
+
+        chosen = states[0]["tapes"] if states else {}
+        for role, tape in chosen.items():
+            plan = result[role]
+            if tape is False:
+                plan["valid"] = False
+                continue
+            previous = plan.get("assigned_tape")
+            previous_score = float(previous.role_scores.get(role, 0.0)) if isinstance(previous, Tape) else 0.0
+            tape_score = float(tape.role_scores.get(role, 0.0)) if isinstance(tape, Tape) else 0.0
+            plan["assigned_tape"] = tape
+            plan["score"] = float(plan.get("score", 0.0)) - previous_score + tape_score
+            plan["valid"] = True
+            plan.pop("reason", None)
         return result
 
     def _recover_equal_priority_group(
@@ -361,12 +523,15 @@ class RolePriorityGroupStrategyMixin:
         crit_rate_caps: Dict[str, float] | None,
         full_drives: list[Drive] | None = None,
         occupied_uids: set[str] | None = None,
+        tapes_pool: dict[str, list[Tape]] | None = None,
+        used_tape_uids: set[str] | None = None,
         candidate_limit: int = 15,
     ) -> AllocationResult:
-        """Freeze first-pass assignments, then fill only missing slots from full inventory.
+        """Repair a failed same-priority group in two bounded stages.
 
-        A same-priority role must never lose its already assigned set or extra
-        drive merely because another peer happened to be completed first.
+        The first retry freezes only blueprint-required set drives and rebuilds
+        every extra slot.  Constraint failures then release only the failed
+        roles and traverse all semantic blueprints; successful peers stay fixed.
         """
 
         provisional = self._find_best_partial_group_fit(
@@ -374,17 +539,76 @@ class RolePriorityGroupStrategyMixin:
         )
         full_pool = list(full_drives or drives_pool)
         occupied_uids = set(occupied_uids or ())
-        recovered = self._complete_partial_group_fit(
+        tape_stage = self._retry_complete_group_tapes(
             provisional,
-            full_pool,
-            {drive.uid for drive in full_pool if drive.uid not in occupied_uids},
+            custom_sets,
+            tapes_pool or {},
+            set(used_tape_uids or ()),
             crit_priority_modes,
             crit_rate_caps,
-            max(1, int(candidate_limit)),
         )
+        tape_stage_valid = {
+            role: plan for role, plan in tape_stage.items() if plan.get("valid")
+        }
+        remaining = {
+            role: plan for role, plan in tape_stage.items() if not plan.get("valid")
+        }
+        if remaining:
+            protected_uids = self._allocated_drive_uids(tape_stage_valid)
+            completed = self._complete_partial_group_fit(
+                remaining,
+                full_pool,
+                {
+                    drive.uid
+                    for drive in full_pool
+                    if drive.uid not in occupied_uids and drive.uid not in protected_uids
+                },
+                crit_priority_modes,
+                crit_rate_caps,
+                max(1, int(candidate_limit)),
+            )
+            recovered = {**tape_stage_valid, **completed}
+        else:
+            recovered = tape_stage
+        constrained_failures = [
+            role
+            for role in group
+            if not recovered.get(role, {}).get("valid")
+            and (
+                self._crit_floor_threshold(crit_priority_modes.get(role)) is not None
+                or self._crit_rate_cap(role, crit_rate_caps) is not None
+            )
+        ]
+        if constrained_failures:
+            valid_peer_drive_uids = self._allocated_drive_uids(recovered)
+            valid_peer_tape_uids = {
+                tape.uid
+                for role, plan in recovered.items()
+                if role not in constrained_failures and plan.get("valid")
+                for tape in [plan.get("assigned_tape")]
+                if isinstance(tape, Tape)
+            }
+            repaired = self._repair_failed_equal_priority_roles(
+                constrained_failures,
+                full_pool,
+                {
+                    drive.uid
+                    for drive in full_pool
+                    if drive.uid not in occupied_uids
+                    and drive.uid not in valid_peer_drive_uids
+                },
+                tapes_pool or {},
+                assigned_tapes,
+                set(used_tape_uids or ()) | valid_peer_tape_uids,
+                custom_sets,
+                crit_priority_modes,
+                crit_rate_caps,
+                max(1, int(candidate_limit)),
+            )
+            recovered.update(repaired)
         logger.info(
-            "同级组联合匹配未完整：已冻结首轮套装/额外驱动，"
-            "并从完整背包候选补齐未分配槽位。"
+            "同级组联合匹配未完整：首轮仅冻结图纸必需套装驱动并重选额外驱动；"
+            "仍受暴击约束阻断的角色已从零遍历全部语义图纸。"
         )
         return recovered
 
@@ -435,9 +659,9 @@ class RolePriorityGroupStrategyMixin:
                     crit_priority_modes,
                     crit_rate_caps,
                 )
-                # 同级组首轮始终联合分配。若有角色未完整，恢复流程会锁定
-                # 这轮已经拿到的套装/额外驱动，只从完整背包为缺槽补候选，
-                # 避免同级角色因重算而被悄悄降为较低优先级。
+                # 同级组首轮始终联合分配。第一次恢复只冻结图纸必需
+                # 套装驱动，额外驱动全部回到固定快照重选；仍受暴击约束
+                # 阻断的角色才从零遍历全部语义图纸，成功同级角色不重算。
                 failed_roles = [
                     role for role in group
                     if not group_allocation.get(role, {}).get("valid")
@@ -448,6 +672,8 @@ class RolePriorityGroupStrategyMixin:
                         crit_priority_modes, crit_rate_caps,
                         full_drives=list(candidate_pool.get("all_drives") or drives_pool),
                         occupied_uids=occupied_drive_uids,
+                        tapes_pool=tapes_pool,
+                        used_tape_uids=used_tape_uids,
                         candidate_limit=int(candidate_pool.get("drive_screen_limit") or 15),
                     )
                 final_allocation.update(group_allocation)
@@ -475,13 +701,17 @@ class RolePriorityGroupStrategyMixin:
 
             best_plan = {"valid": False, "score": -1.0, "rank_score": -1.0, "stat_priority_key": ()}
             failure_reasons: list[str] = []
-            cap_enabled = self._crit_rate_cap(role_name, crit_rate_caps) is not None
+            role_crit_config = crit_priority_modes.get(role_name)
+            retry_tape_candidates = (
+                self._crit_rate_cap(role_name, crit_rate_caps) is not None
+                or self._crit_floor_threshold(role_crit_config) is not None
+            )
             tape_candidates = (
                 self._tape_candidates_for_capped_role(
                     role_name, assigned_tapes, tapes_pool, used_tape_uids, custom_sets,
-                    crit_priority_modes.get(role_name),
+                    role_crit_config,
                 )
-                if cap_enabled
+                if retry_tape_candidates
                 else [assigned_tapes.get(role_name)]
             )
 
@@ -491,7 +721,7 @@ class RolePriorityGroupStrategyMixin:
                     # Keep the long-standing non-cap call shape intact:
                     # extensions/tests may override this method with the
                     # historic five-argument signature.
-                    if cap_enabled:
+                    if retry_tape_candidates:
                         plan = self._find_best_fit(
                             role_name,
                             bp,

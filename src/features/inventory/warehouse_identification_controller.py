@@ -25,6 +25,28 @@ from src.features.inventory.warehouse import warehouse_item_compare_category
 from src.services.warehouse_identification_service import (
     WarehouseIdentificationService,
 )
+from src.services.equipment_identification_service import (
+    EquipmentIdentificationService,
+)
+
+
+def _identify_snapshot_items(
+    *,
+    database_path: Any,
+    config_dir: Any,
+    snapshot_id: int,
+    uids: tuple[str, ...],
+) -> tuple[dict[str, Any], ...]:
+    """Load and score fixed-snapshot items without calling another controller."""
+    loader = WarehouseIdentificationService(database_path)
+    matcher = EquipmentIdentificationService.from_paths(
+        config_dir=config_dir,
+        user_database_path=database_path,
+    )
+    return tuple(
+        matcher.identify_item(loader.load_item(snapshot_id, uid))
+        for uid in uids
+    )
 
 
 def show_warehouse_item_identification(
@@ -42,13 +64,16 @@ def show_warehouse_item_identification(
     active_worker = getattr(owner, "_warehouse_identification_worker", None)
     if active_worker is not None and active_worker.isRunning():
         return
-    service = WarehouseIdentificationService(
-        owner.app_context.account.user_database_path
-    )
+    database_path = owner.app_context.account.user_database_path
+    config_dir = owner.app_context.paths.config_dir
+    uid = str(item.get("uid") or "")
     worker = WorkerThread(
-        target=lambda: owner._run_identify_item(
-            service.load_item(snapshot_id, str(item.get("uid") or ""))
-        ),
+        target=lambda: _identify_snapshot_items(
+            database_path=database_path,
+            config_dir=config_dir,
+            snapshot_id=snapshot_id,
+            uids=(uid,),
+        )[0],
         parent=owner,
     )
     owner._warehouse_identification_worker = worker
@@ -107,19 +132,18 @@ def select_warehouse_compare_item(
     if active_worker is not None and active_worker.isRunning():
         return
     owner._warehouse_compare_first = None
-    service = WarehouseIdentificationService(
-        owner.app_context.account.user_database_path
+    database_path = owner.app_context.account.user_database_path
+    config_dir = owner.app_context.paths.config_dir
+    uids = (
+        str(first_item.get("uid") or ""),
+        str(item.get("uid") or ""),
     )
     worker = WorkerThread(
-        target=lambda: (
-            owner._run_identify_item(
-                service.load_item(
-                    snapshot_id, str(first_item.get("uid") or "")
-                )
-            ),
-            owner._run_identify_item(
-                service.load_item(snapshot_id, str(item.get("uid") or ""))
-            ),
+        target=lambda: _identify_snapshot_items(
+            database_path=database_path,
+            config_dir=config_dir,
+            snapshot_id=snapshot_id,
+            uids=uids,
         ),
         parent=owner,
     )

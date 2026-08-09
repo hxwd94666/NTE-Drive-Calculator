@@ -35,6 +35,10 @@ DEFAULT_PRESERVE_RULE: dict[str, Any] = {
 
 DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
     "server_region": "default",
+    # This scope belongs only to discard/lock evaluation.  It is deliberately
+    # independent from the allocation page's role selection and priority
+    # groups.
+    "selected_character_ids": [],
     "discard": {
         "enabled": False,
         "grade": "S",
@@ -71,6 +75,8 @@ def merge_post_action_config(raw: dict | None) -> dict[str, Any]:
         return config
     if raw.get("server_region") in {"default", "hmt"}:
         config["server_region"] = raw["server_region"]
+    if isinstance(raw.get("selected_character_ids"), list):
+        config["selected_character_ids"] = list(raw["selected_character_ids"])
     for module_name in ("discard", "lock"):
         module = raw.get(module_name)
         if isinstance(module, dict):
@@ -85,6 +91,15 @@ def normalize_post_action_config(config: dict[str, Any]) -> dict[str, Any]:
     config = merge_post_action_config(config) if not {"discard", "lock"}.issubset(set(config.keys())) else copy.deepcopy(config)
     if config.get("server_region") not in {"default", "hmt"}:
         config["server_region"] = "default"
+    selected_character_ids: list[int] = []
+    for raw_character_id in config.get("selected_character_ids", []) or []:
+        try:
+            character_id = int(raw_character_id)
+        except (TypeError, ValueError):
+            continue
+        if character_id > 0 and character_id not in selected_character_ids:
+            selected_character_ids.append(character_id)
+    config["selected_character_ids"] = selected_character_ids
     for module_name in ("discard", "lock"):
         default_module = DEFAULT_POST_ACTION_CONFIG[module_name]
         module = config.setdefault(module_name, copy.deepcopy(default_module))
@@ -210,14 +225,20 @@ def _legacy_custom_keep_rules(raw_custom_keep: Any) -> list[dict[str, Any]]:
 def validate_post_action_config(config: dict[str, Any] | None, selected_roles: list[str] | None = None) -> str | None:
     config = merge_post_action_config(config)
     selected_roles = selected_roles or []
+    selected_character_ids = config.get("selected_character_ids", []) or []
     discard = config["discard"]
     lock = config["lock"]
     if discard["enabled"] and lock["enabled"]:
         if GRADE_ORDER.index(lock["grade"]) >= GRADE_ORDER.index(discard["grade"]):
             return "锁定阈值必须高于弃置阈值。"
     for title, module in (("弃置模块", discard), ("锁定模块", lock)):
-        if module["enabled"] and module.get("role_scope") == "selected" and not selected_roles:
-            return f"{title} 已选择“所选角色”，请先在第二步选择至少一个角色。"
+        if (
+            module["enabled"]
+            and module.get("role_scope") == "selected"
+            and not selected_character_ids
+            and not selected_roles
+        ):
+            return f"{title} 已选择“指定角色”，请在管理界面选择至少一个评估角色。"
     for index, rule in enumerate(config["preserve_rules"], start=1):
         if not rule.get("enabled"):
             continue

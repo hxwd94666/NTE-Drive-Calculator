@@ -54,6 +54,8 @@ class CritThresholdDomainTests(unittest.TestCase):
         self.assertTrue(crit_floor_enabled({"crit_threshold": 5}))
         self.assertTrue(crit_floor_enabled({"stats": ["攻击力%"], "crit_threshold": 5}))
         self.assertTrue(crit_floor_enabled({"crit_min_threshold": 12}))
+        self.assertFalse(crit_floor_enabled({"crit_threshold": None}))
+        self.assertFalse(crit_floor_enabled({"crit_threshold": ""}))
 
     def test_crit_rank_adjustment_only_below_threshold(self):
         self.assertEqual(CRIT_RANK_BONUS, crit_rank_adjustment(3.0, True, 5.0))

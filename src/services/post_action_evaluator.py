@@ -16,6 +16,7 @@ from src.domain.post_actions import (
 )
 from src.integrations.bundled_resources import bundled_config_dir
 from src.optimizer.scoring import ScoringEngine
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.utils.logger import logger
 
 
@@ -59,6 +60,12 @@ class PostActionEvaluator:
             return PostActionEvaluation(config=effective_config, enabled=True)
 
         scoring.evaluate_global_inventory(inventory)
+        selected_roles = self.selected_roles
+        if not selected_roles:
+            selected_roles = _selected_role_names(
+                scoring.roles_db,
+                effective_config.get("selected_character_ids", []),
+            )
         score_context = PostActionScoreContext.from_config_dir(
             str(self.config_dir),
             user_database_path=self.user_database_path,
@@ -76,7 +83,7 @@ class PostActionEvaluator:
             parsed_items,
             effective_config,
             scoring,
-            self.selected_roles,
+            selected_roles,
             score_context,
         )
         logger.info(
@@ -117,3 +124,52 @@ class PostActionEvaluator:
             state_changes=state_changes,
             filter_summary=filter_summary,
         )
+
+
+def _selected_role_names(
+    roles_db: dict[str, Any],
+    selected_character_ids: list[int] | tuple[int, ...],
+) -> list[str]:
+    """Resolve the management dialog's official IDs to scoring role names.
+
+    Avatar variants share one logical role.  Resolving through the static
+    logical key keeps a saved female/male avatar selection valid when the
+    account snapshot later exposes the other official variant ID.
+    """
+
+    selected_ids: set[int] = set()
+    for value in selected_character_ids:
+        try:
+            character_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if character_id > 0:
+            selected_ids.add(character_id)
+    if not selected_ids:
+        return []
+    with StaticGameDataDao() as static_dao:
+        selected_keys = {
+            static_dao.get_logical_character_key(character_id)
+            or f"character:{character_id}"
+            for character_id in selected_ids
+        }
+        names: list[str] = []
+        matched_keys: set[str] = set()
+        for role_name, role in roles_db.items():
+            try:
+                character_id = int(role.get("character_id"))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            logical_key = (
+                static_dao.get_logical_character_key(character_id)
+                or f"character:{character_id}"
+            )
+            if logical_key in selected_keys:
+                names.append(str(role_name))
+                matched_keys.add(logical_key)
+        missing_count = len(selected_keys - matched_keys)
+        if missing_count:
+            raise ValueError(
+                f"弃置/锁定管理中有 {missing_count} 名指定角色缺少可用评分配置，请重新选择角色"
+            )
+    return names

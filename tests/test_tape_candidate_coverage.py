@@ -95,6 +95,116 @@ class TapeCandidateCoverageTests(unittest.TestCase):
         self.assertFalse(result["A"]["valid"])
         self.assertIn("暴击率上限 20%", result["A"]["reason"])
 
+    def test_critical_cap_includes_fixed_five_percent_base(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {"A": [{"set_pieces": [], "extra_pieces": ["H_2"]}]},
+        )
+
+        result = strategy.execute(
+            {
+                "drives": [_drive("drive", 16.0)],
+                "tapes": {
+                    "A": [
+                        _tape(
+                            "attack",
+                            "攻击力%",
+                            score=10.0,
+                            sub_stats={"攻击力%": 1.0},
+                        )
+                    ]
+                },
+            },
+            ["A"],
+            {"A": "Set"},
+            crit_rate_caps={"A": 20.0},
+        )
+
+        self.assertFalse(result["A"]["valid"])
+        self.assertIn("暴击率上限 20%", result["A"]["reason"])
+
+    def test_minimum_crit_invalidates_plan_and_reports_threshold(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {"A": [{"set_pieces": [], "extra_pieces": ["H_2"]}]},
+        )
+
+        result = strategy.execute(
+            {"drives": [_drive("drive", 10.0)], "tapes": {"A": []}},
+            ["A"],
+            {"A": "Set"},
+            crit_priority_modes={"A": {"crit_threshold": 20.0}},
+        )
+
+        self.assertFalse(result["A"]["valid"])
+        self.assertEqual(
+            "没有达成暴击率最小值 20% 的方案（当前 15%）",
+            result["A"]["reason"],
+        )
+
+    def test_minimum_crit_retries_alternative_tapes(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {"A": [{"set_pieces": [], "extra_pieces": ["H_2"]}]},
+        )
+        attack = _tape(
+            "attack",
+            "攻击力%",
+            score=100.0,
+            sub_stats={"攻击力%": 1.0},
+        )
+        crit = _tape(
+            "crit",
+            "暴击率%",
+            score=10.0,
+            sub_stats={"攻击力%": 1.0},
+        )
+
+        result = strategy.execute(
+            {"drives": [_drive("drive", 0.0)], "tapes": {"A": [attack, crit]}},
+            ["A"],
+            {"A": "Set"},
+            crit_priority_modes={"A": {"crit_threshold": 35.0}},
+        )
+
+        self.assertTrue(result["A"]["valid"])
+        self.assertEqual("crit", result["A"]["assigned_tape"].uid)
+
+    def test_minimum_crit_invalidates_equal_priority_group_roles(self) -> None:
+        strategy = RolePriorityStrategy(
+            {
+                "A": {"default_set": "Set"},
+                "B": {"default_set": "Set"},
+            },
+            {"Set": {"shapes": []}},
+            {
+                "A": [{"set_pieces": [], "extra_pieces": ["H_2"]}],
+                "B": [{"set_pieces": [], "extra_pieces": ["H_2"]}],
+            },
+        )
+        drives = [_drive("drive-a", 0.0), _drive("drive-b", 0.0)]
+        for drive in drives:
+            drive.role_scores = {"A": 1.0, "B": 1.0}
+
+        result = strategy.execute(
+            {"drives": drives, "all_drives": drives, "tapes": {}},
+            ["A", "B"],
+            {"A": "Set", "B": "Set"},
+            crit_priority_modes={
+                "A": {"crit_threshold": 10.0},
+                "B": {"crit_threshold": 10.0},
+            },
+            priority_groups=[["A", "B"]],
+        )
+
+        self.assertFalse(result["A"]["valid"])
+        self.assertFalse(result["B"]["valid"])
+        self.assertIn("没有达成暴击率最小值 10% 的方案", result["A"]["reason"])
+        self.assertIn("没有达成暴击率最小值 10% 的方案", result["B"]["reason"])
+
     def test_ordered_substats_keep_deeper_tape_pool_ahead_of_raw_score(self) -> None:
         scoring = ScoringEngine(
             roles_db={

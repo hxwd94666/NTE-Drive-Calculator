@@ -126,6 +126,7 @@ class OfficialRoleController:
         *,
         replacement_score: float,
         current_score: float,
+        current_assignment_scores: Mapping[str, float],
     ) -> None:
         character_id = int((detail.get("character") or {})["character_id"])
         with operation_scope(
@@ -143,6 +144,7 @@ class OfficialRoleController:
                 replacement,
                 replacement_score=float(replacement_score),
                 current_score=float(current_score),
+                current_assignment_scores=current_assignment_scores,
             )
 
     def log_dirty_exit(self, action: str, dirty_count: int) -> None:

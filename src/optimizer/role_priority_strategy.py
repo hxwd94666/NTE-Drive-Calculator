@@ -5,12 +5,17 @@ from typing import List, Dict
 
 from src.models.equipment import Drive, Tape
 from src.optimizer.allocation_matrix_builder import AllocationMatrixBuilder
+from src.optimizer.crit_constraint_repair import CritConstraintRepairMixin
 from src.optimizer.contracts import AllocationResult
 from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 
 from src.optimizer.role_priority_group_strategy import RolePriorityGroupStrategyMixin
 
-class RolePriorityStrategy(RolePriorityGroupStrategyMixin, AllocationMatrixBuilder):
+class RolePriorityStrategy(
+    CritConstraintRepairMixin,
+    RolePriorityGroupStrategyMixin,
+    AllocationMatrixBuilder,
+):
     """Greedy per-role allocation by priority order."""
 
     def _required_shapes_for_role_blueprints(self, role_name: str, blueprints: list[dict], custom_sets: Dict[str, str]) -> set[str]:
@@ -137,6 +142,18 @@ class RolePriorityStrategy(RolePriorityGroupStrategyMixin, AllocationMatrixBuild
                 }
 
         assigned_drives = assigned_set + assigned_extra
+        floor_failure = self._crit_floor_failure_reason(
+            role_name,
+            assigned_tape,
+            assigned_drives,
+            crit_mode,
+        )
+        if floor_failure:
+            return {
+                "valid": False,
+                "score": 0.0,
+                "reason": floor_failure,
+            }
         return {"valid": True, "blueprint": blueprint, "assigned_set_drives": assigned_set,
                 "assigned_extra_drives": assigned_extra, "score": round(total_score, 2),
                 "rank_score": round(total_rank_score, 2),
@@ -547,6 +564,17 @@ class RolePriorityStrategy(RolePriorityGroupStrategyMixin, AllocationMatrixBuild
                     if not self._within_crit_rate_cap(role, items, crit_rate_caps):
                         is_valid = False
                         break
+                    if self._crit_floor_failure_reason(
+                        role,
+                        plan.get("assigned_tape"),
+                        [
+                            *(plan.get("assigned_set_drives", []) or []),
+                            *(plan.get("assigned_extra_drives", []) or []),
+                        ],
+                        crit_priority_modes.get(role),
+                    ):
+                        is_valid = False
+                        break
                 if not is_valid:
                     continue
                 team_score = sum(item["score"] for item in temp_alloc.values())
@@ -624,6 +652,17 @@ class RolePriorityStrategy(RolePriorityGroupStrategyMixin, AllocationMatrixBuild
                         *(plan.get("assigned_extra_drives", []) or []),
                     ]
                     if not self._within_crit_rate_cap(role, items, crit_rate_caps):
+                        is_valid = False
+                        break
+                    if self._crit_floor_failure_reason(
+                        role,
+                        plan.get("assigned_tape"),
+                        [
+                            *(plan.get("assigned_set_drives", []) or []),
+                            *(plan.get("assigned_extra_drives", []) or []),
+                        ],
+                        crit_priority_modes.get(role),
+                    ):
                         is_valid = False
                         break
             priority_key = self._group_stat_priority_key(temp_alloc, valid_group, crit_priority_modes)

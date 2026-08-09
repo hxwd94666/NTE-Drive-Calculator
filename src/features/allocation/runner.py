@@ -287,6 +287,23 @@ def _plan_changed_uids(plan: dict[str, Any]) -> set[str]:
     return changed
 
 
+def _plan_assignment_scores(
+    role_name: str,
+    plan: dict[str, Any],
+) -> dict[str, float]:
+    """Freeze each selected item's role score beside the aggregate score."""
+
+    result: dict[str, float] = {}
+    for item in [plan.get(PLAN_ASSIGNED_TAPE), *plan_drives(plan)]:
+        if item is None:
+            continue
+        uid = str(getattr(item, EQUIP_UID, "") or "")
+        role_scores = getattr(item, "role_scores", {}) or {}
+        if uid:
+            result[uid] = float(role_scores.get(role_name, 0.0) or 0.0)
+    return result
+
+
 def _confirm_unsaved_allocation_before_recompute(self: Any) -> bool:
     if not self.final_plan or not self._allocation_dirty:
         return True
@@ -410,6 +427,10 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
                         "strategy": getattr(self, "_pending_strat", ""),
                         "last_diff": _persistable_plan_diff(role_diff),
                         "changed_uids": sorted(_plan_changed_uids(plan)),
+                        "assignment_scores": _plan_assignment_scores(
+                            role_name,
+                            plan,
+                        ),
                     },
                 )
                 saved_roles.append(role_name)

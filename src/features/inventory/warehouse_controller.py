@@ -604,18 +604,16 @@ def _open_warehouse_state_manager(self):
             self, "仓库管理不可用", "全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。"
         )
         return
-    # 仓库状态管理不读取计算页控件；目标角色由本对话框独立选择。
-    selected_roles: list[str] = []
     account = self.app_context.account
     if not show_scan_post_action_dialog(
         self,
         account.user_config_dir,
         self.app_context.paths.config_dir,
-        selected_roles,
+        window_title="仓库弃置/锁定管理",
     ):
         return
     config = load_scan_post_action_config(account.user_config_dir)
-    error = validate_post_action_config(config, selected_roles)
+    error = validate_post_action_config(config)
     if error:
         QMessageBox.warning(self, "管理配置无效", error)
         return
@@ -636,7 +634,7 @@ def _open_warehouse_state_manager(self):
     )
     self._warehouse_state_service = service
     self._set_warehouse_management_busy(True, "正在计算弃置/锁定目标…")
-    worker = WorkerThread(target=lambda: service.evaluate(config, selected_roles), parent=self)
+    worker = WorkerThread(target=lambda: service.evaluate(config), parent=self)
     self._warehouse_state_worker = worker
     worker.result_ready.connect(self._on_warehouse_state_plan_ready)
     worker.error.connect(self._on_warehouse_state_error)

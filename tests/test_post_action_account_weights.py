@@ -6,6 +6,17 @@ from unittest.mock import patch
 
 
 class PostActionAccountWeightTests(unittest.TestCase):
+    def test_management_character_ids_resolve_avatar_variants_to_scoring_role(self):
+        from src.services.post_action_evaluator import _selected_role_names
+
+        self.assertEqual(
+            ["主角"],
+            _selected_role_names(
+                {"主角": {"character_id": 1046}},
+                [1051],
+            ),
+        )
+
     def test_evaluator_passes_account_database_to_scoring_engine(self):
         from src.domain.post_actions import default_post_action_config
         from src.services.post_action_evaluator import PostActionEvaluator

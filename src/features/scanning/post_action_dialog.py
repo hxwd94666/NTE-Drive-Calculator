@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -18,10 +17,12 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -38,8 +39,11 @@ from src.domain.post_actions import (
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
 from src.features.inventory.warehouse import warehouse_shape_pixmap
+from src.integrations.bundled_resources import bundled_game_ui_asset_root
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.ui.widgets import NoWheelComboBox, match_pinyin
 
 
 ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
@@ -66,15 +70,15 @@ def save_scan_post_action_config(user_config_dir: Path, config: dict) -> None:
     write_json(scan_post_action_config_path(user_config_dir), merge_post_action_config(config), indent=2)
 
 
-def _set_combo_data(combo: QComboBox, value: object) -> None:
+def _set_combo_data(combo: NoWheelComboBox, value: object) -> None:
     for index in range(combo.count()):
         if combo.itemData(index) == value:
             combo.setCurrentIndex(index)
             return
 
 
-def _combo(options, value: object, width: int = 130) -> QComboBox:
-    combo = QComboBox()
+def _combo(options, value: object, width: int = 130) -> NoWheelComboBox:
+    combo = NoWheelComboBox()
     for label, data in options:
         combo.addItem(label, data)
     _set_combo_data(combo, value)
@@ -94,6 +98,22 @@ def _load_drive_shape_options() -> list[tuple[str, int]]:
 def _load_set_name_options() -> list[str]:
     with StaticGameDataDao() as static_dao:
         return [str(suit["name_zh"]) for suit in static_dao.list_suits()]
+
+
+def _load_role_options() -> list[tuple[int, str, str]]:
+    """Return one official ID, display name and avatar per logical role."""
+
+    asset_catalog = GameUiAssetCatalog(bundled_game_ui_asset_root())
+    with StaticGameDataDao() as static_dao:
+        options = [
+            (
+                int(character["character_id"]),
+                str(character.get("name_zh") or character["character_id"]),
+                str(asset_catalog.character_icon(int(character["character_id"])) or ""),
+            )
+            for character in static_dao.list_role_template_characters()
+        ]
+    return sorted(options, key=lambda item: item[0])
 
 
 def _button_style(checked: bool) -> str:
@@ -242,24 +262,144 @@ def _preserve_rule_summary(rule: dict) -> str:
 from src.features.scanning.preserve_rule_editor import PreserveRuleEditor
 
 
+class RoleScopeDialog(QDialog):
+    """Select the roles used only by discard/lock scoring."""
+
+    def __init__(
+        self,
+        parent,
+        role_options: list[tuple[int, str, str]],
+        selected_character_ids: list[int],
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("选择弃置/锁定评估角色")
+        self.setMinimumSize(620, 500)
+        self.resize(700, 620)
+        self._role_options = list(role_options)
+        selected_ids = {int(value) for value in selected_character_ids}
+
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+        description = QLabel("这些角色只用于本次弃置/锁定评分，不会改变计算页面的角色选择或优先级。")
+        description.setWordWrap(True)
+        description.setStyleSheet("color:#8b949e")
+        root.addWidget(description)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("搜索角色（支持拼音）")
+        self.search_edit.textChanged.connect(self._apply_filter)
+        root.addWidget(self.search_edit)
+
+        toolbar = QHBoxLayout()
+        select_all = QPushButton("全选")
+        clear_all = QPushButton("清空")
+        select_all.clicked.connect(lambda: self._set_visible_items_checked(True))
+        clear_all.clicked.connect(lambda: self._set_visible_items_checked(False))
+        toolbar.addWidget(select_all)
+        toolbar.addWidget(clear_all)
+        toolbar.addStretch()
+        self.count_label = QLabel()
+        self.count_label.setStyleSheet("color:#58a6ff;font-weight:700")
+        toolbar.addWidget(self.count_label)
+        root.addLayout(toolbar)
+
+        self.role_scroll = QScrollArea()
+        self.role_scroll.setWidgetResizable(True)
+        self.role_scroll.setFrameShape(QFrame.NoFrame)
+        self.role_scroll.setMinimumHeight(300)
+        self.role_grid_widget = QWidget()
+        self.role_grid = QGridLayout(self.role_grid_widget)
+        self.role_grid.setContentsMargins(4, 4, 4, 4)
+        self.role_grid.setHorizontalSpacing(8)
+        self.role_grid.setVerticalSpacing(8)
+        self.role_grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.role_cards: list[tuple[QToolButton, int, str]] = []
+        for character_id, role_name, avatar_path in self._role_options:
+            # Bind the parent before the card is ever shown.  A parentless
+            # widget briefly becomes a top-level window on Windows, which
+            # previously caused a rapid flash while opening this dialog.
+            card = QToolButton(self.role_grid_widget)
+            card.setCheckable(True)
+            card.setChecked(character_id in selected_ids)
+            card.setText(role_name)
+            card.setToolTip(role_name)
+            card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            card.setIconSize(QSize(76, 76))
+            card.setFixedSize(116, 116)
+            if avatar_path:
+                card.setIcon(QIcon(avatar_path))
+            card.setStyleSheet(
+                "QToolButton{background:#161b22;color:#c9d1d9;border:1px solid #30363d;"
+                "border-radius:8px;padding:6px;font-size:12px;font-weight:700;}"
+                "QToolButton:hover{border-color:#58a6ff;background:#1f6feb22;}"
+                "QToolButton:checked{border:2px solid #58a6ff;background:#1f6feb44;color:#fff;}"
+            )
+            card.toggled.connect(self._update_count)
+            self.role_cards.append((card, character_id, role_name))
+        self._reflow_cards()
+        self.role_scroll.setWidget(self.role_grid_widget)
+        root.addWidget(self.role_scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+        self._update_count()
+
+    def _apply_filter(self, text: str) -> None:
+        self._reflow_cards(str(text or "").strip())
+
+    def _reflow_cards(self, keyword: str = "") -> None:
+        while self.role_grid.count():
+            self.role_grid.takeAt(0)
+        visible_cards = [
+            card
+            for card in self.role_cards
+            if not keyword or match_pinyin(card[2], keyword)
+        ]
+        for card, _character_id, _role_name in self.role_cards:
+            card.setVisible(False)
+        for index, (card, _character_id, _role_name) in enumerate(visible_cards):
+            self.role_grid.addWidget(card, index // 5, index % 5)
+            card.setVisible(True)
+
+    def _set_visible_items_checked(self, checked: bool) -> None:
+        for card, _character_id, _role_name in self.role_cards:
+            if not card.isHidden():
+                card.setChecked(checked)
+        self._update_count()
+
+    def _update_count(self, _checked: bool | None = None) -> None:
+        self.count_label.setText(f"已选{len(self.selected_character_ids())}名")
+
+    def selected_character_ids(self) -> list[int]:
+        return [
+            character_id
+            for card, character_id, _role_name in self.role_cards
+            if card.isChecked()
+        ]
+
+
 class ScanPostActionDialog(QDialog):
     def __init__(
         self,
         parent,
         user_config_dir: Path,
         config_dir: Path,
-        selected_roles: list[str] | None = None,
+        *,
+        window_title: str = "全量扫描管理",
     ):
         super().__init__(parent)
         self.user_config_dir = Path(user_config_dir)
         self.config_dir = Path(config_dir)
-        self.selected_roles = selected_roles or []
-        self.setWindowTitle("全量扫描管理")
+        self.setWindowTitle(window_title)
         self.setMinimumWidth(560)
         self.config = load_scan_post_action_config(self.user_config_dir)
         self._widgets = {}
         self._shape_options = _load_drive_shape_options()
         self._set_options = _load_set_name_options()
+        self._role_options = _load_role_options()
+        self._selected_character_ids = list(self.config.get("selected_character_ids", []))
         self._range_values = {}
         self._preserve_rules = copy.deepcopy(self.config.get("preserve_rules", []))
         self._build_ui()
@@ -487,7 +627,7 @@ class ScanPostActionDialog(QDialog):
         return (
             f"{threshold}\n"
             f"{result}\n\n"
-            "角色范围：按所有角色或第二步所选角色评分。\n"
+            "角色范围：按所有角色或在本管理界面指定的角色评分。\n"
             "品质范围：限制品质，范围外不改状态。\n"
             "处理类别：可只处理驱动或卡带。\n"
             "类型范围：驱动按形状过滤，卡带按套装过滤。\n"
@@ -523,7 +663,7 @@ class ScanPostActionDialog(QDialog):
 
         form = QFormLayout()
         grade_combo = _combo([(grade, grade) for grade in GRADE_ORDER], module.get("grade"), 100)
-        role_scope = _combo(ROLE_SCOPE_OPTIONS, module.get("role_scope"), 130)
+        role_scope = _combo(ROLE_SCOPE_OPTIONS, module.get("role_scope"), 110)
         quality_scope = _combo(QUALITY_SCOPE_OPTIONS, module.get("quality_scope"), 130)
         type_scope = _combo(TYPE_SCOPE_OPTIONS, module.get("type_scope"), 130)
         on_locked = _combo(STATE_ACTION_OPTIONS, module.get("on_locked"), 130)
@@ -546,8 +686,23 @@ class ScanPostActionDialog(QDialog):
         type_range_button.clicked.connect(lambda _checked=False, module_key=key: self._open_type_range_dialog(module_key))
         type_range_layout.addWidget(type_range_summary, 1)
         type_range_layout.addWidget(type_range_button)
+        role_scope_row = QWidget()
+        role_scope_layout = QHBoxLayout(role_scope_row)
+        role_scope_layout.setContentsMargins(0, 0, 0, 0)
+        role_scope_layout.setSpacing(8)
+        role_scope_summary = QLabel()
+        role_scope_button = QPushButton("选择")
+        role_scope_button.setStyleSheet(
+            "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
+            "border-radius:6px;padding:3px 10px;font-weight:700;}"
+            "QPushButton:hover{background:#388bfd;}"
+        )
+        role_scope_button.clicked.connect(self._open_role_scope_dialog)
+        role_scope_layout.addWidget(role_scope)
+        role_scope_layout.addWidget(role_scope_summary, 1)
+        role_scope_layout.addWidget(role_scope_button)
         form.addRow(grade_label, grade_combo)
-        form.addRow("角色范围", role_scope)
+        form.addRow("角色范围", role_scope_row)
         form.addRow("品质范围", quality_scope)
         form.addRow("处理类别", type_scope)
         form.addRow("类型范围", type_range_row)
@@ -558,13 +713,44 @@ class ScanPostActionDialog(QDialog):
             "enabled": enabled,
             "grade": grade_combo,
             "role_scope": role_scope,
+            "role_scope_summary": role_scope_summary,
+            "role_scope_button": role_scope_button,
             "quality_scope": quality_scope,
             "type_scope": type_scope,
             "type_range_summary": type_range_summary,
             "on_locked": on_locked,
             "on_discarded": on_discarded,
         }
+        role_scope.currentIndexChanged.connect(
+            lambda _index, module_key=key: self._update_role_scope_summary(module_key)
+        )
+        self._update_role_scope_summary(key)
         return panel
+
+    def _update_role_scope_summary(self, key: str) -> None:
+        widgets = self._widgets.get(key, {})
+        combo = widgets.get("role_scope")
+        summary = widgets.get("role_scope_summary")
+        button = widgets.get("role_scope_button")
+        if combo is None or summary is None or button is None:
+            return
+        uses_selected = combo.currentData() == "selected"
+        count = len(self._selected_character_ids)
+        summary.setText(f"已选{count}名" if uses_selected else "")
+        summary.setStyleSheet("color:#58a6ff" if count else "color:#f85149")
+        button.setVisible(uses_selected)
+
+    def _open_role_scope_dialog(self) -> None:
+        dialog = RoleScopeDialog(
+            self,
+            self._role_options,
+            self._selected_character_ids,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        self._selected_character_ids = dialog.selected_character_ids()
+        for key in self._widgets:
+            self._update_role_scope_summary(key)
 
     def _default_shape_ids(self) -> list[str]:
         return [shape_id for shape_id, _area in self._shape_options if shape_id not in DEFAULT_EXCLUDED_SHAPE_IDS]
@@ -604,6 +790,7 @@ class ScanPostActionDialog(QDialog):
     def _collect_config(self) -> dict:
         config = default_post_action_config()
         config["server_region"] = "hmt" if self.hmt_region_check.isChecked() else "default"
+        config["selected_character_ids"] = list(self._selected_character_ids)
         for key, widgets in self._widgets.items():
             module = config[key]
             module["enabled"] = widgets["enabled"].isChecked()
@@ -616,7 +803,7 @@ class ScanPostActionDialog(QDialog):
 
     def _save(self) -> None:
         config = self._collect_config()
-        error = validate_post_action_config(config, self.selected_roles)
+        error = validate_post_action_config(config)
         if error:
             QMessageBox.warning(self, "配置无效", error)
             return
@@ -628,12 +815,13 @@ def show_scan_post_action_dialog(
     parent,
     user_config_dir: Path,
     config_dir: Path,
-    selected_roles: list[str] | None = None,
+    *,
+    window_title: str = "全量扫描管理",
 ) -> bool:
     dialog = ScanPostActionDialog(
         parent,
         user_config_dir,
         config_dir,
-        selected_roles,
+        window_title=window_title,
     )
     return dialog.exec() == QDialog.Accepted

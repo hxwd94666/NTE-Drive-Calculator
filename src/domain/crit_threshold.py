@@ -174,10 +174,17 @@ def preference_config_active(config: dict | None) -> bool:
 
 
 def crit_floor_enabled(config: dict | None) -> bool:
-    # 仅显式写入 crit_threshold / crit_min_threshold 时启用暴击下限与 greedy
+    # 仅显式写入有效数值时启用暴击下限与 greedy；None 表示 UI 留空。
     if not isinstance(config, dict) or not config:
         return False
-    return "crit_threshold" in config or "crit_min_threshold" in config
+    raw = config.get("crit_threshold", config.get("crit_min_threshold"))
+    if raw is None:
+        return False
+    try:
+        float(raw)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def meets_preference_grade_limit(

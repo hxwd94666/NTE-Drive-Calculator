@@ -213,10 +213,14 @@ class RolePriorityFallbackTests(unittest.TestCase):
         self.assertTrue(result["B"]["valid"])
         self.assertEqual({"drive-a", "drive-b"}, strategy._allocated_drive_uids(result))
 
-    def test_equal_priority_recovery_keeps_partial_set_and_extra_drives_frozen(self) -> None:
+    def test_equal_priority_recovery_freezes_only_required_set_drives(self) -> None:
         frozen_sets = [_drive(f"frozen-set-{index}") for index in range(1, 4)]
         missing_set = _drive("missing-set")
         frozen_extra = _drive("frozen-extra", "H_3")
+        replacement_extra = _drive("replacement-extra", "H_3")
+        frozen_extra.role_scores = {"A": 1.0}
+        replacement_extra.role_scores = {"A": 20.0}
+        missing_set.role_scores = {"A": 10.0}
         strategy = RolePriorityStrategy(
             {"A": {"default_set": "S"}},
             {"S": {"shapes": ["H_2"]}},
@@ -239,8 +243,13 @@ class RolePriorityFallbackTests(unittest.TestCase):
 
         result = strategy._complete_partial_group_fit(
             provisional,
-            [*frozen_sets, frozen_extra, missing_set],
-            {*(drive.uid for drive in frozen_sets), "frozen-extra", "missing-set"},
+            [*frozen_sets, frozen_extra, replacement_extra, missing_set],
+            {
+                *(drive.uid for drive in frozen_sets),
+                "frozen-extra",
+                "replacement-extra",
+                "missing-set",
+            },
             {},
             None,
             15,
@@ -252,7 +261,7 @@ class RolePriorityFallbackTests(unittest.TestCase):
             [drive.uid for drive in result["A"]["assigned_set_drives"]],
         )
         self.assertEqual(
-            ["frozen-extra"],
+            ["replacement-extra"],
             [drive.uid for drive in result["A"]["assigned_extra_drives"]],
         )
 

@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QAbstractItemView,
@@ -43,6 +42,7 @@ from src.app.theme import themed_style
 from src.features.inventory.warehouse import warehouse_shape_pixmap
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.ui.widgets import NoWheelComboBox
 
 
 ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
@@ -69,15 +69,15 @@ def save_scan_post_action_config(user_config_dir: Path, config: dict) -> None:
     write_json(scan_post_action_config_path(user_config_dir), merge_post_action_config(config), indent=2)
 
 
-def _set_combo_data(combo: QComboBox, value: object) -> None:
+def _set_combo_data(combo: NoWheelComboBox, value: object) -> None:
     for index in range(combo.count()):
         if combo.itemData(index) == value:
             combo.setCurrentIndex(index)
             return
 
 
-def _combo(options, value: object, width: int = 130) -> QComboBox:
-    combo = QComboBox()
+def _combo(options, value: object, width: int = 130) -> NoWheelComboBox:
+    combo = NoWheelComboBox()
     for label, data in options:
         combo.addItem(label, data)
     _set_combo_data(combo, value)
@@ -382,7 +382,7 @@ class PreserveRuleEditor(QDialog):
             widget.setTextElideMode(Qt.ElideRight)
             widget.setStyleSheet("")
 
-    def _active_sub_match_widgets(self) -> tuple[QComboBox, QListWidget, QLabel]:
+    def _active_sub_match_widgets(self) -> tuple[NoWheelComboBox, QListWidget, QLabel]:
         if self._item_type == "tape":
             return self.tape_sub_match_combo, self.tape_sub_stat_list, self.tape_sub_match_hint
         return self.drive_sub_match_combo, self.drive_sub_stat_list, self.drive_sub_match_hint

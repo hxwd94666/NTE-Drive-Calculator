@@ -181,7 +181,8 @@ class AllocationSolverTests(unittest.TestCase):
         self.assertEqual(len(all_uids), len(set(all_uids)))
 
     def test_property_limit_rejects_high_scoring_layout(self) -> None:
-        role = fixture_role(1, weight_id="Score", limit=PropertyLimit("CritRate", None, 5.0))
+        # 暴击率上限包含固定基础 5%：装备 5% 时总计正好 10%。
+        role = fixture_role(1, weight_id="Score", limit=PropertyLimit("CritRate", None, 10.0))
         candidates = list(complete_role_candidates(1, "Score", shape_a_score=100.0))
         candidates[1] = candidate((1, 2), kind="module", item_id="Illegal", geometry="ShapeA", suit_id="Preferred", stats={"Score": 100.0, "CritRate": 9.0})
         candidates.append(candidate((9, 9), kind="module", item_id="Legal", geometry="ShapeA", suit_id="Preferred", stats={"Score": 5.0, "CritRate": 5.0}))

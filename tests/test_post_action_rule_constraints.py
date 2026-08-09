@@ -5,12 +5,26 @@ from src.domain.stat_catalog import StatCatalog
 from src.domain.post_actions import (
     preserve_rule_matches_item,
     default_post_action_config,
+    merge_post_action_config,
     validate_post_action_config,
 )
 from src.models.equipment import Drive
 
 
 class PostActionRuleConstraintTests(unittest.TestCase):
+    def test_selected_role_scope_is_persisted_inside_post_action_config(self):
+        config = default_post_action_config()
+        config["discard"]["enabled"] = True
+        config["discard"]["role_scope"] = "selected"
+
+        self.assertIn("指定角色", validate_post_action_config(config))
+
+        config["selected_character_ids"] = [1003, "1003", "bad", 1004]
+        normalized = merge_post_action_config(config)
+
+        self.assertEqual([1003, 1004], normalized["selected_character_ids"])
+        self.assertIsNone(validate_post_action_config(normalized))
+
     def test_catalog_exposes_strict_main_and_sub_stat_pools(self):
         catalog = StatCatalog.from_config_dir("config")
         self.assertEqual(set(catalog.tape_main_values), set(catalog.tape_main_stat_pool()))

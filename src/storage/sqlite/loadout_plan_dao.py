@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.domain.loadout_plan_scores import exact_assignment_score_total
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
     SCHEMA_VERSION,
@@ -558,11 +559,16 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
                     )
                     assignment_scores[virtual_key] = 0.0
                 previous_score = plan.get("score")
-                residual_score = (
-                    max(0.0, float(previous_score) - removed_score)
-                    if previous_score is not None and known_removed_scores
-                    else float(previous_score) if previous_score is not None else None
+                exact_residual_score = exact_assignment_score_total(
+                    residual_assignments,
+                    assignment_scores,
                 )
+                if exact_residual_score is not None:
+                    residual_score: float | None = exact_residual_score
+                elif previous_score is not None and known_removed_scores:
+                    residual_score = max(0.0, float(previous_score) - removed_score)
+                else:
+                    residual_score = float(previous_score) if previous_score is not None else None
                 previous_source = residual_payload.get("source")
                 residual_payload["source"] = "active_plan_overlay"
                 residual_payload["active_plan_overlay"] = {

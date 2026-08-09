@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.domain.allocation_rating import allocation_grade
+from src.domain.loadout_plan_scores import exact_assignment_score_total
 from src.app.theme import themed_style
 from src.features.inventory.warehouse import warehouse_item_view
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
@@ -252,6 +253,10 @@ def _sqlite_plan_display_state(
         "strategy_mode": payload.get("strategy", ""),
         "_sqlite_plan_id": plan["plan_id"],
         "_sqlite_source_snapshot_id": snapshot_id,
+        "_sqlite_assignment_scores_complete": exact_assignment_score_total(
+            plan["assignments"],
+            payload.get("assignment_scores") or {},
+        ) is not None,
         "_allocation_locked": bool(plan.get("allocation_locked")),
         ROLE_LAST_DIFF: last_diff,
     }
@@ -623,6 +628,7 @@ def _optimize_saved_equipment(
                 assignment_scores.pop(str(uid), None)
                 assignment_scores[str(selected.get(EQUIP_UID) or "")] = float(selected_score)
                 replacement_payload["assignment_scores"] = assignment_scores
+                exact_score = exact_assignment_score_total(assignments, assignment_scores)
                 if callable(replacement_persister):
                     replacement_persister(selected, selected_score, current_score)
                 else:
@@ -633,7 +639,14 @@ def _optimize_saved_equipment(
                             assignments=assignments,
                             source_snapshot_id=int(plan["source_snapshot_id"]),
                             status="saved",
-                            score=float(plan.get("score") or 0.0) - current_score + selected_score,
+                            score=(
+                                exact_score
+                                if is_virtual_equipment_assignment(current)
+                                and exact_score is not None
+                                else float(plan.get("score") or 0.0)
+                                - current_score
+                                + selected_score
+                            ),
                             payload=replacement_payload,
                             is_active=True,
                         )

@@ -9,10 +9,12 @@ src/domain/drive_layout.py
 src/domain/equipment_duplicate_marker.py
 src/domain/equipment_normalizer.py
 src/domain/grade_limits.py
+src/domain/loadout_plan_scores.py
 src/domain/official_role.py
 src/domain/post_actions.py
 src/domain/recommended_weights.py
 src/domain/stat_catalog.py
+src/optimizer/crit_constraint_repair.py
 src/features/blueprints/controller.py
 src/features/blueprints/dependencies.py
 src/features/allocation/runner.py
@@ -34,6 +36,7 @@ src/services/character_shape_bonus_service.py
 src/services/damage_calculation_service.py
 src/services/dashboard_service.py
 src/services/equipment_apply_service.py
+src/services/equipment_identification_service.py
 src/services/equipment_level_projection_service.py
 src/services/equipment_plugin_deployment.py
 src/services/equipment_scoring_service.py

@@ -185,6 +185,80 @@ class UserDataLoadoutDaoTests(unittest.TestCase):
         real_uids = [uid for uid in active_uids if uid[0] > 0]
         self.assertEqual(len(real_uids), len(set(real_uids)))
 
+    def test_batch_replace_rebuilds_residual_score_from_assignment_scores(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(11, 22), item(12, 23), item(13, 24)])
+        )
+        self.dao.save_loadout_plan(
+            name="旧角色陈旧总分方案",
+            character_id=1003,
+            source_snapshot_id=snapshot_id,
+            status="ready",
+            is_active=True,
+            score=600.0,
+            assignments=[
+                {
+                    "uid_serial": 11,
+                    "uid_slot": 22,
+                    "kind": "module",
+                    "target_row": 1,
+                    "target_column": 1,
+                    "rotation": 0,
+                },
+                {
+                    "uid_serial": 12,
+                    "uid_slot": 23,
+                    "kind": "module",
+                    "target_row": 2,
+                    "target_column": 2,
+                    "rotation": 0,
+                },
+            ],
+            payload={
+                "assignment_scores": {
+                    "nte-module-22-11": 25.0,
+                    "nte-module-23-12": 35.0,
+                },
+            },
+        )
+
+        self.dao.replace_active_loadout_plans([{
+            "name": "借用装备的新角色",
+            "character_id": 1055,
+            "source_snapshot_id": snapshot_id,
+            "status": "ready",
+            "assignments": [
+                {
+                    "uid_serial": 11,
+                    "uid_slot": 22,
+                    "kind": "module",
+                    "target_row": 1,
+                    "target_column": 1,
+                    "rotation": 0,
+                },
+                {
+                    "uid_serial": 13,
+                    "uid_slot": 24,
+                    "kind": "module",
+                    "target_row": 2,
+                    "target_column": 2,
+                    "rotation": 0,
+                },
+            ],
+        }])
+
+        residual = next(
+            plan
+            for plan in self.dao.list_loadout_plans()
+            if plan["is_active"] and plan["character_id"] == 1003
+        )
+        placeholder = next(
+            item for item in residual["assignments"] if item["uid_slot"] == 0
+        )
+        placeholder_key = f"nte-module-0-{placeholder['uid_serial']}"
+        self.assertEqual(0.0, residual["payload"]["assignment_scores"][placeholder_key])
+        self.assertEqual(35.0, residual["score"])
+
     def test_batch_replace_rolls_back_every_role_when_one_uid_is_missing(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
             snapshot(1, [item(11, 22), item(12, 23)])

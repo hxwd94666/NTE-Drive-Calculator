@@ -85,13 +85,11 @@ def _on_priority_changed(self):
 
 
 def _open_scan_post_action_manager(self):
-    selected = self.role_selector.get_selected() if hasattr(self, "role_selector") else []
     dependencies = _current_scanning_dependencies(self)
     show_scan_post_action_dialog(
         self.dialog_parent,
         dependencies.user_config_dir,
         dependencies.config_dir,
-        selected,
     )
 
 
@@ -172,7 +170,7 @@ def _do_exec(self):
     post_actions_config = None
     if sm == "1":
         post_actions_config = load_scan_post_action_config(dependencies.user_config_dir)
-        post_action_error = validate_post_action_config(post_actions_config, sel)
+        post_action_error = validate_post_action_config(post_actions_config)
         if post_action_error:
             QMessageBox.warning(
                 self.dialog_parent,
@@ -213,7 +211,7 @@ def _do_exec(self):
         self._start_gamepad_scan(
             total_drives,
             post_actions_config=post_actions_config,
-            selected_roles=sel,
+            selected_roles=None,
             parse_during_scan=parse_during_scan,
             amd_compatibility=amd_compatibility,
         )

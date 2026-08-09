@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout, QWidget
 
 from src.app.theme import current_style_sheet
 
 
-def show_help(parent, title, text):
-    dlg = QDialog(parent)
+def show_help(parent: QWidget | None, title: str, text: str) -> None:
+    # Feature controllers are QObjects rather than widgets.  Keep this shared
+    # boundary defensive so an accidental controller caller cannot crash Qt's
+    # strict parent overload; page builders should still pass their button.
+    dialog_parent = parent if isinstance(parent, QWidget) else None
+    dlg = QDialog(dialog_parent)
     dlg.setWindowTitle(title)
     dlg.setMinimumSize(380, 220)
     dlg.setStyleSheet(current_style_sheet())

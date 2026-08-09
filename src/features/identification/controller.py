@@ -60,6 +60,9 @@ from src.observability.operation import log_event
 from src.optimizer.scoring import ScoringEngine
 from src.scanner.batch_processor import BatchProcessor
 from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.services.equipment_identification_service import (
+    EquipmentIdentificationService,
+)
 from src.ui.plain_text_edit import PlainTextOnlyTextEdit
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.ui.widgets import SearchableComboBox
@@ -672,49 +675,11 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             str(dependencies.config_dir),
             user_database_path=dependencies.user_database_path,
         )
-        rows = []
-        if isinstance(item, Tape):
-            item_set = orchestrator._resolve_set_name(item.set_name)
-            item.set_name = item_set
-        for role_name, role_data in orchestrator.roles_db.items():
-            role_bps = blueprints.get(role_name, [])
-            if not role_bps:
-                continue
-            target_set = orchestrator._resolve_set_name(role_data.get("default_set", ""))
-            weights = role_data.get("weights", {})
-            main_weights = role_data.get("main_weights") if isinstance(role_data, dict) else None
-            max_weight = scoring.max_theoretical_weight(weights)
-            if isinstance(item, Tape):
-                if item.set_name != target_set:
-                    continue
-                score = scoring.calculate_cartridge_score(item, weights, max_weight, main_weights)
-                match_desc = "套装匹配"
-                area = 15
-            else:
-                set_shapes = orchestrator.sets_db[target_set]["shapes"]
-                in_set = item.shape_id in set_shapes
-                in_extra = any(item.shape_id in bp.get("extra_pieces", []) for bp in role_bps)
-                if not in_set and not in_extra:
-                    continue
-                score = scoring.calculate_drive_score(item, weights, max_weight)
-                match_desc = "套装位" if in_set else "散件位"
-                area = item.area
-            grade = scoring.get_grade_tag(score, area)
-            max_score = area * 10.0
-            rows.append(
-                {
-                    "role": role_name,
-                    "set": target_set,
-                    "score": score,
-                    "grade": grade,
-                    "percent": round(score / max_score * 100, 1) if max_score else 0,
-                    "match": match_desc,
-                    "weights": weights,
-                    "main_weights": main_weights,
-                }
-            )
-        rows.sort(key=lambda r: r["score"], reverse=True)
-        return {"item": item, "rows": rows}
+        return EquipmentIdentificationService(
+            orchestrator,
+            blueprints,
+            scoring,
+        ).identify_item(item)
 
     def _run_identify_items(self, items):
         return [self._run_identify_item(item) for item in items]

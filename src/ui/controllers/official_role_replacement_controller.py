@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 from src.domain.allocation_rating import allocation_grade
+from src.domain.loadout_plan_scores import assignment_score_key
 from src.features.inventory.warehouse import warehouse_item_view
 from src.features.official_role.controller import OfficialRoleController
 from src.features.official_role.dependencies import OfficialRoleDependencies
@@ -51,6 +52,15 @@ def show_official_role_replacement(
         item=current_item,
         shape_areas=shape_areas,
     )
+    current_assignment_scores = {
+        assignment_score_key(item): score_official_role_equipment(
+            scoring_engine,
+            detail=detail,
+            item=item,
+            shape_areas=shape_areas,
+        )
+        for item in candidates[0].get("current_items") or ()
+    }
 
     def card_data(
         item: dict[str, Any],
@@ -120,6 +130,7 @@ def show_official_role_replacement(
             row["item"],
             replacement_score=float(row["base_score"]),
             current_score=current_base_score,
+            current_assignment_scores=current_assignment_scores,
         )
 
     accepted = show_equipment_replacement_dialog(

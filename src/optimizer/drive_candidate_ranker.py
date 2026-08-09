@@ -5,6 +5,7 @@ from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 
 from src.domain.crit_threshold import (
+    BASE_CRIT_RATE,
     DEFAULT_CRIT_THRESHOLD,
     deepest_stat_priority_pool,
     minimum_crit_total,
@@ -114,6 +115,34 @@ class BaseDispatchStrategy:
             current_crit,
             drive_has_crit(item),
             pref.get("crit_threshold", DEFAULT_CRIT_THRESHOLD),
+        )
+
+    def _crit_floor_threshold(self, config: dict | None) -> float | None:
+        if not crit_floor_enabled(config):
+            return None
+        return float(
+            normalize_preference_config(config).get(
+                "crit_threshold",
+                DEFAULT_CRIT_THRESHOLD,
+            )
+        )
+
+    def _crit_floor_failure_reason(
+        self,
+        role: str,
+        tape: Tape | None,
+        drives: list[Drive],
+        config: dict | None,
+    ) -> str | None:
+        threshold = self._crit_floor_threshold(config)
+        if threshold is None:
+            return None
+        current = self._current_role_crit(role, tape, drives)
+        if current + 1e-9 >= threshold:
+            return None
+        return (
+            f"没有达成暴击率最小值 {threshold:g}% 的方案"
+            f"（当前 {current:g}%）"
         )
 
     def _item_has_stat(self, item, stat_key: str) -> bool:
@@ -464,7 +493,11 @@ class BaseDispatchStrategy:
         cap = self._crit_rate_cap(role, crit_rate_caps)
         if cap is None:
             return True
-        total = self._items_crit_rate(items) + self._extra_shape_crit_rate(role, items)
+        total = (
+            BASE_CRIT_RATE
+            + self._items_crit_rate(items)
+            + self._extra_shape_crit_rate(role, items)
+        )
         return total <= cap + 1e-9
 
     def _set_pieces_for_blueprint(self, blueprint: Dict, target_set: str) -> list[str]:

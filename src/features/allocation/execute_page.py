@@ -52,7 +52,11 @@ def _add_scan_mode_options(window, scan_card, scan_help, show_help):
         row.addWidget(rb)
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
-        help_btn.clicked.connect(lambda checked, v=value: show_help(window, "扫描模式说明", scan_help.get(v, "")))
+        help_btn.clicked.connect(
+            lambda checked, v=value, parent=help_btn: show_help(
+                parent, "扫描模式说明", scan_help.get(v, ""),
+            )
+        )
         row.addWidget(help_btn)
         row.addStretch()
         scan_card.layout().addLayout(row)
@@ -76,7 +80,11 @@ def _build_offline_frame(window, scan_card, offline_help, show_help):
         sub_row.addWidget(rb)
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
-        help_btn.clicked.connect(lambda checked, k=key: show_help(window, "离线解析说明", offline_help.get(k, "")))
+        help_btn.clicked.connect(
+            lambda checked, k=key, parent=help_btn: show_help(
+                parent, "离线解析说明", offline_help.get(k, ""),
+            )
+        )
         sub_row.addWidget(help_btn)
         offline_layout.addLayout(sub_row)
     offline_layout.addStretch()
@@ -134,8 +142,8 @@ def build_scan_processing_options(window, scan_card, show_help):
     dual_help_btn = QPushButton("?")
     dual_help_btn.setObjectName("btnHelp")
     dual_help_btn.clicked.connect(
-        lambda _checked=False: show_help(
-            window,
+        lambda _checked=False, parent=dual_help_btn: show_help(
+            parent,
             "双线程处理说明",
             "如果扫描负载大，出现重启或异常，请关闭这个功能。",
         )
@@ -160,8 +168,8 @@ def build_scan_processing_options(window, scan_card, show_help):
     amd_help_btn = QPushButton("?")
     amd_help_btn.setObjectName("btnHelp")
     amd_help_btn.clicked.connect(
-        lambda _checked=False: show_help(
-            window,
+        lambda _checked=False, parent=amd_help_btn: show_help(
+            parent,
             "AMD实验性兼容说明",
             "实验性低负载模式，不保证一定解决重启或异常。\n\n"
             "开启后会自动关闭双线程处理，扫描完成后再解析截图，并降低 OCR/图像处理线程负载。"
@@ -193,7 +201,11 @@ def _build_drone_frame(window, scan_card, drone_help, show_help):
         sub_row.addWidget(rb)
         help_btn = QPushButton("?")
         help_btn.setObjectName("btnHelp")
-        help_btn.clicked.connect(lambda checked, v=value: show_help(window, "增量模式说明", drone_help.get(v, "")))
+        help_btn.clicked.connect(
+            lambda checked, v=value, parent=help_btn: show_help(
+                parent, "增量模式说明", drone_help.get(v, ""),
+            )
+        )
         sub_row.addWidget(help_btn)
         drone_layout.addLayout(sub_row)
     drone_layout.addStretch()
