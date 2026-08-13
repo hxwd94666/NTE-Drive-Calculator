@@ -34,6 +34,37 @@ DEFAULT_DRIVE_FILTER_CONTROLS = {
 DEFAULT_FILTER_ACTION_CONTROLS = {
     "reset_filter": (1861.0, 1322.0),
 }
+# 倒带界面的基准截图为 2560×1440；所有后续执行都必须通过映射函数缩放。
+DEFAULT_REWIND_CONTROLS = {
+    "random_selection": (986.0, 611.0),
+    "drive_customization": (1634.0, 608.0),
+    "rewind_once": (816.0, 1033.0),
+    "rewind_ten": (1765.0, 1031.0),
+    "difficulty_low": (800.0, 1306.0),
+    "difficulty_medium": (1263.0, 1306.0),
+    "difficulty_advanced": (1770.0, 1306.0),
+    "select_drives": (1280.0, 1113.0),
+    "customization_menu": (1463.0, 264.0),
+    "customization_free_match": (1421.0, 356.0),
+    "customization_menu_dismiss": (900.0, 300.0),
+    "confirm_drive_selection": (2090.0, 1146.0),
+}
+DEFAULT_REWIND_OCR_REGIONS = {
+    "currency_counter": (1670.0, 94.0, 1905.0, 178.0),
+    "custom_ten_cost": (1640.0, 1130.0, 1810.0, 1200.0),
+}
+DEFAULT_REWIND_SELECTED_DRIVE_REMOVE = (
+    (1734.0, 458.0), (1930.0, 458.0), (2125.0, 458.0), (2318.0, 458.0),
+    (1734.0, 650.0), (1930.0, 650.0), (2125.0, 650.0), (2318.0, 650.0),
+)
+DEFAULT_REWIND_AVAILABLE_DRIVE_SHAPES = {
+    "H_2": (180.0, 526.0), "V_2": (375.0, 526.0),
+    "H_3": (565.0, 526.0), "V_3": (748.0, 526.0),
+    "H_4": (938.0, 526.0), "V_4": (1125.0, 526.0),
+    "Trap_4_H": (1313.0, 526.0), "Trap_4_V": (1505.0, 526.0),
+    "L_3_BL": (180.0, 720.0), "L_3_TL": (375.0, 720.0),
+    "L_3_TR": (565.0, 720.0), "L_3_BR": (748.0, 720.0),
+}
 DEFAULT_TAPE_FILTER_STATUS_CONTROLS = {
     "status_equipped": (1861.0, 618.0),
     "status_locked": (2273.0, 618.0),
@@ -70,7 +101,7 @@ DEFAULT_DRIVE_FILTER_QUALITY_SELECTION_PROBES = {
     "quality_orange": (1721.0, 1075.0),
 }
 DEFAULT_TAPE_MAIN_STAT_OCR_REGION = {
-    "main_stat_ocr_region": (1640.0, 430.0, 2460.0, 1130.0),
+    "main_stat_ocr_region": (1640.0, 560.0, 2460.0, 1260.0),
 }
 DEFAULT_DRIVE_FILTER_SUB_STAT_CONTROLS = {
     "sub_stat_expand": (2067.0, 890.0),
@@ -84,7 +115,9 @@ DEFAULT_TAPE_MAIN_STAT_SCROLL = {
     "main_stat_scroll_start": (2067.0, 1190.0),
     "main_stat_scroll_end": (2067.0, 395.0),
 }
-TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS = 0.20
+DEFAULT_TAPE_MAIN_STAT_WHEEL_POSITION = (2067.0, 760.0)
+TAPE_MAIN_STAT_WHEEL_CLICKS = -13
+TAPE_MAIN_STAT_WHEEL_CLICK_INTERVAL_SECONDS = 0.06
 FILTER_NAVIGATION_PAUSE_SECONDS = 0.60
 FILTER_OPTION_PAUSE_SECONDS = 0.30
 FILTER_DIALOG_CLOSE_SETTLE_SECONDS = 0.80
@@ -144,21 +177,21 @@ DEFAULT_TAPE_SUB_STAT_OPTIONS = {
     "通用伤害增强": (1861.0, 893.0),
 }
 DEFAULT_TAPE_MAIN_STAT_OPTIONS = {
-    "生命值百分比": (1861.0, 485.0),
-    "攻击力百分比": (2273.0, 485.0),
-    "防御力百分比": (1861.0, 570.0),
-    "暴击率": (2273.0, 570.0),
-    "暴击伤害": (1861.0, 656.0),
-    "环合强度": (2273.0, 656.0),
-    "倾陷强度": (1861.0, 742.0),
-    "治疗加成": (2273.0, 742.0),
-    "光属性异能伤害增强": (1861.0, 828.0),
-    "灵属性异能伤害增强": (2273.0, 828.0),
-    "咒属性异能伤害增强": (1861.0, 914.0),
-    "暗属性异能伤害增强": (2273.0, 914.0),
-    "魂属性异能伤害增强": (1861.0, 999.0),
-    "相属性异能伤害增强": (2273.0, 999.0),
-    "心灵伤害增强": (1861.0, 1085.0),
+    "生命值百分比": (1861.0, 600.0),
+    "攻击力百分比": (2273.0, 600.0),
+    "防御力百分比": (1861.0, 686.0),
+    "暴击率": (2273.0, 686.0),
+    "暴击伤害": (1861.0, 773.0),
+    "环合强度": (2273.0, 773.0),
+    "倾陷强度": (1861.0, 856.0),
+    "治疗加成": (2273.0, 856.0),
+    "光属性异能伤害增强": (1861.0, 942.0),
+    "灵属性异能伤害增强": (2273.0, 942.0),
+    "咒属性异能伤害增强": (1861.0, 1030.0),
+    "暗属性异能伤害增强": (2273.0, 1030.0),
+    "魂属性异能伤害增强": (1861.0, 1116.0),
+    "相属性异能伤害增强": (2273.0, 1116.0),
+    "心灵伤害增强": (1861.0, 1202.0),
 }
 TAPE_MAIN_STAT_ALIASES = {
     # 旧库存按数值属性名保存百分号，游戏筛选器则展示为无百分号的主词条名称。

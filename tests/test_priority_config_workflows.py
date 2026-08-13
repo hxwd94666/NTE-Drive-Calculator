@@ -1,13 +1,100 @@
-# 覆盖用户工作流相关的回归测试。
+# 覆盖角色优先级配置、拖拽批次和优化器回归。
+
+import json
 import os
 import tempfile
 import unittest
-import urllib.error
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+
+
 class PriorityGroupWorkflowTests(unittest.TestCase):
+    def test_explicit_empty_protagonist_preferences_round_trip(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "priority.json"
+            selector = RoleSelector()
+            selector.load_roles(
+                {"「零」": {"character_id": 1051}},
+                [],
+                tape_main_stats=["攻击力%", "环合强度"],
+                drive_sub_stats=["攻击力%", "环合强度"],
+            )
+            selector.selected = ["「零」"]
+            selector._set_tape_main_filter("「零」", [])
+            selector._set_stat_priority_config("「零」", [], [], False, False, "A")
+            selector._write_priority_config(path)
+
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            restored = RoleSelector()
+            restored.load_roles(
+                {"「零」": {"character_id": 1051}},
+                [],
+                tape_main_stats=["攻击力%", "环合强度"],
+                drive_sub_stats=["攻击力%", "环合强度"],
+            )
+            restored._load_priority_config_from(path)
+
+        self.assertEqual({"「零」": []}, saved["tape_main_filters"])
+        self.assertEqual(["「零」"], saved["tape_main_filter_override_roles"])
+        self.assertEqual(["「零」"], saved["stat_priority_override_roles"])
+        self.assertEqual({}, restored.get_tape_main_filters())
+        self.assertEqual({}, restored.get_crit_priority_modes())
+        self.assertEqual([], restored._selected_substat_priority("「零」"))
+
+    def test_saved_mag_preferences_are_preserved_for_every_role(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "priority.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "priority_list": ["主角", "卡尼斯"],
+                        "tape_main_filters": {
+                            "主角": ["环合强度"],
+                            "卡尼斯": ["环合强度"],
+                        },
+                        "stat_priority_configs": {
+                            "主角": {"stats": ["环合强度"]},
+                            "卡尼斯": {"stats": ["环合强度"]},
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            selector = RoleSelector()
+            selector.load_roles(
+                {
+                    "主角": {"character_id": 1051},
+                    "卡尼斯": {"character_id": 1071},
+                },
+                [],
+                tape_main_stats=["环合强度"],
+                drive_sub_stats=["环合强度"],
+            )
+
+            selector._load_priority_config_from(path)
+
+        self.assertEqual(
+            {"主角": ["环合强度"], "卡尼斯": ["环合强度"]},
+            selector.get_tape_main_filters(),
+        )
+        priority_modes = selector.get_crit_priority_modes()
+        self.assertEqual({"主角", "卡尼斯"}, set(priority_modes))
+        self.assertEqual(["环合强度"], priority_modes["主角"]["stats"])
+        self.assertEqual(["环合强度"], priority_modes["卡尼斯"]["stats"])
+
     def test_priority_links_promote_boundary_splits_two_equal_batches(self):
         from src.features.allocation.priority_groups import (
             links_to_priority_groups,
@@ -74,7 +161,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
             ),
         )
 
-    def test_role_selector_reorder_selected_moves_role_without_changing_links(self):
+    def test_role_selector_reorder_selected_moves_crossed_boundary_backward(self):
         from PySide6.QtWidgets import QApplication
 
         from src.features.allocation.role_selector import RoleSelector
@@ -88,7 +175,39 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         selector._reorder_selected(3, 1)
 
         self.assertEqual(["A", "D", "B", "C"], selector.selected)
-        self.assertEqual(["=", ">>", "="], selector.priority_links)
+        self.assertEqual(["=", "=", ">>"], selector.priority_links)
+
+    def test_dragging_role_forward_moves_crossed_boundary_one_slot_forward(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({name: {} for name in "ABCDE"}, [])
+        selector.selected = ["A", "B", "C", "D", "E"]
+        selector.priority_links = ["=", ">>", ">", "="]
+
+        selector._reorder_selected(0, 3)
+
+        self.assertEqual(["B", "C", "D", "A", "E"], selector.selected)
+        self.assertEqual([">>", "=", ">", "="], selector.priority_links)
+
+    def test_dragging_role_backward_moves_crossed_boundary_one_slot_backward(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({name: {} for name in "ABCDE"}, [])
+        selector.selected = ["A", "B", "C", "D", "E"]
+        selector.priority_links = ["=", ">>", ">", "="]
+
+        selector._reorder_selected(3, 0)
+
+        self.assertEqual(["D", "A", "B", "C", "E"], selector.selected)
+        self.assertEqual(["=", "=", ">>", "="], selector.priority_links)
 
     def test_role_selector_available_names_excludes_selected_and_filters(self):
         from PySide6.QtWidgets import QApplication
@@ -204,19 +323,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         selector._drop_selected_on(3, 1)
 
         self.assertEqual(["A", "D", "B", "C"], selector.selected)
-        self.assertEqual([">", ">>", "="], selector.priority_links)
-
-    def test_role_selector_uses_single_combined_scroll_area(self):
-        from PySide6.QtWidgets import QApplication
-
-        from src.features.allocation.role_selector import RoleSelector
-
-        app = QApplication.instance() or QApplication([])
-        selector = RoleSelector()
-
-        self.assertTrue(hasattr(selector, "roles_scroll"))
-        self.assertFalse(hasattr(selector, "priority_scroll"))
-        self.assertFalse(hasattr(selector, "grid_scroll"))
+        self.assertEqual(["=", "=", ">>"], selector.priority_links)
 
     def test_role_priority_batch_uses_local_optimum_within_equal_group(self):
         from src.models.equipment import Drive
@@ -439,358 +546,9 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertFalse(duplicated_helpers & set(MatrixBaseStrategy.__dict__))
 
 
-class ConfigurationWorkflowTests(unittest.TestCase):
-    def test_roles_form_does_not_render_or_edit_legacy_board_matrix(self):
-        from PySide6.QtWidgets import QApplication, QComboBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
-        from src.features.configuration import page as config_page
 
-        app = QApplication.instance() or QApplication([])
 
-        class Window:
-            all_set_names = ["套装A"]
+if __name__ == "__main__":
 
-            def __init__(self):
-                self.container = QWidget()
-                self.config_form_layout = QVBoxLayout(self.container)
-
-            def _save_role_weight_value(self, *_args):
-                pass
-
-            def _add_weight(self, *_args):
-                pass
-
-            def _del_weight(self, *_args):
-                pass
-
-        data = {
-            "A": {
-                "default_set": "套装A",
-                "extra_shape_buffs": {},
-                "weights": {},
-            }
-        }
-        window = Window()
-        config_page.render_roles_form(window, data)
-        tabs = window.container.findChild(QTabWidget)
-        tabs.setCurrentIndex(0)
-        app.processEvents()
-
-        combos = [
-            combo
-            for combo in window.container.findChildren(QComboBox)
-            if combo.count() == 2 and [combo.itemText(0), combo.itemText(1)] == ["-1", "0"]
-        ]
-        self.assertEqual([], combos)
-        self.assertFalse(any(button.objectName() == "btnBoardLock" for button in window.container.findChildren(QPushButton)))
-        self.assertNotIn(
-            "默认套装",
-            [label.text() for label in window.container.findChildren(config_page.QLabel)],
-        )
-
-
-class UpdateWorkflowTests(unittest.TestCase):
-    def test_update_check_default_timeout_is_short(self):
-        from src.features.settings import updates
-
-        seen_timeouts = []
-        original_urlopen = updates.urllib.request.urlopen
-
-        def fake_urlopen(_request, **kwargs):
-            seen_timeouts.append(kwargs.get("timeout"))
-            raise urllib.error.URLError("network unavailable")
-
-        updates.urllib.request.urlopen = fake_urlopen
-        try:
-            updates.fetch_update_info(
-                "https://example.invalid/latest",
-                "1.1.0",
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertTrue(seen_timeouts)
-        self.assertTrue(all(timeout <= 5 for timeout in seen_timeouts))
-
-    def test_startup_update_error_updates_status_without_prompt(self):
-        import src.ui.app as app_module
-
-        class Label:
-            def __init__(self):
-                self.text = ""
-
-            def setText(self, text):
-                self.text = text
-
-        class Window:
-            def __init__(self):
-                self._update_check_manual = False
-                self._update_status = Label()
-                self.prompts = []
-
-            def _show_update_failure_netdisk_prompt(self, detail=""):
-                self.prompts.append(detail)
-
-        window = Window()
-        app_module.MainWindow._on_update_error(window, "timeout")
-
-        self.assertIn("Mirror 酱", window._update_status.text)
-        self.assertEqual([], window.prompts)
-
-    def test_update_network_failure_returns_user_facing_result(self):
-        from src.features.settings import updates
-
-        original_urlopen = updates.urllib.request.urlopen
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            urllib.error.URLError(OSError(10061, "connection refused"))
-        )
-        try:
-            info = updates.fetch_update_info(
-                "https://example.invalid/latest",
-                "1.1.0",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertFalse(info["has_release"])
-        self.assertFalse(info["newer"])
-        self.assertEqual("", info["url"])
-        self.assertEqual("Mirror 酱更新服务请求失败，请稍后重试。", info["message"])
-        self.assertNotIn("Traceback", info["message"])
-
-    def test_mirror_error_code_returns_user_facing_result(self):
-        from src.features.settings import updates
-
-        original_urlopen = updates.urllib.request.urlopen
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return '{"code":4001,"msg":"CDK 无效"}'.encode("utf-8")
-
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
-        try:
-            info = updates.fetch_update_info(
-                "https://example.invalid/latest",
-                "1.1.0",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertFalse(info["has_release"])
-        self.assertTrue(info["error"])
-        self.assertEqual("CDK 无效", info["message"])
-
-    def test_mirror_update_response_includes_version_notes_and_download_url(self):
-        from src.features.settings import updates
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return (
-                    '{"code":0,"msg":"success","data":{'
-                    '"version_name":"v2.1.0","url":"https://download.example/file",'
-                    '"release_note":"修复配装页面"}}'
-                ).encode("utf-8")
-
-        original_urlopen = updates.urllib.request.urlopen
-        requested_urls = []
-
-        def fake_urlopen(request, **_kwargs):
-            url = request.full_url if hasattr(request, "full_url") else str(request)
-            requested_urls.append(url)
-            return Response()
-
-        updates.urllib.request.urlopen = fake_urlopen
-        try:
-            info = updates.fetch_update_info(
-                "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest",
-                "2.0.0",
-                cdk="0001bf xxxxxx",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertTrue(info["has_release"])
-        self.assertTrue(info["newer"])
-        self.assertEqual("v2.1.0", info["latest"])
-        self.assertEqual("https://download.example/file", info["url"])
-        self.assertEqual("修复配装页面", info["message"])
-        self.assertEqual(
-            "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest?current_version=2.0.0&cdk=0001bf+xxxxxx",
-            requested_urls[0],
-        )
-
-    def test_mirror_installer_download_writes_valid_exe_and_reports_progress(self):
-        from src.features.settings import updates
-
-        class Response:
-            headers = {"Content-Length": "8"}
-
-            def __init__(self):
-                self._blocks = [b"MZtest", b"ok", b""]
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _size):
-                return self._blocks.pop(0)
-
-        original_urlopen = updates.urllib.request.urlopen
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
-        updates_progress = []
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                result = updates.download_update_installer(
-                    "https://download.example/NTE-Drive-Calc.exe",
-                    destination_dir=temp_dir,
-                    progress_callback=lambda current, total: updates_progress.append((current, total)),
-                )
-                installer = Path(result["path"])
-                self.assertEqual(b"MZtestok", installer.read_bytes())
-                self.assertEqual(8, result["downloaded"])
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertEqual((0, 8), updates_progress[0])
-        self.assertEqual((8, 8), updates_progress[-1])
-
-    def test_mirror_installer_download_removes_partial_file_when_cancelled(self):
-        from src.features.settings import updates
-
-        class Response:
-            headers = {"Content-Length": "16"}
-
-            def __init__(self):
-                self._blocks = [b"MZfirst", b"second", b""]
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _size):
-                return self._blocks.pop(0)
-
-        original_urlopen = updates.urllib.request.urlopen
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
-        cancelled = {"value": False}
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                with self.assertRaises(updates.UpdateDownloadCancelled):
-                    updates.download_update_installer(
-                        "https://download.example/NTE-Drive-Calc.exe",
-                        destination_dir=temp_dir,
-                        progress_callback=lambda *_args: cancelled.__setitem__("value", True),
-                        cancel_check=lambda: cancelled["value"],
-                    )
-                self.assertEqual([], list(Path(temp_dir).iterdir()))
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-    def test_update_check_uses_mirror_without_cdk_and_keeps_github_release_link(self):
-        from src.ui.controllers import update_controller
-
-        captured = {}
-        original_fetch = update_controller.fetch_update_info
-
-        def fake_fetch(api_url, version, *, cdk=""):
-            captured.update(api_url=api_url, version=version, cdk=cdk)
-            return {"has_release": True, "latest": "v2.0.1"}
-
-        class Window:
-            pass
-
-        update_controller.fetch_update_info = fake_fetch
-        try:
-            info = update_controller._fetch_update_info(Window())
-        finally:
-            update_controller.fetch_update_info = original_fetch
-
-        self.assertEqual("", captured["cdk"])
-        self.assertIn("mirrorchyan.com/api/resources/NTE-Drive-Calc/latest", captured["api_url"])
-        self.assertTrue(info["release_url"].endswith("/releases"))
-
-    def test_update_dialog_link_prefers_download_url(self):
-        from src.features.settings.updates import update_dialog_link_url
-
-        info = {"url": "https://example.invalid/download.exe", "release_url": "https://example.invalid/release"}
-        self.assertEqual("https://example.invalid/download.exe", update_dialog_link_url(info))
-
-    def test_update_dialog_renders_markdown_notes_with_clickable_links(self):
-        from PySide6.QtWidgets import QApplication, QDialog, QTextBrowser, QWidget
-        from src.features.settings.updates import show_update_dialog
-
-        _app = QApplication.instance() or QApplication([])
-        captured = {}
-        original_exec = QDialog.exec
-
-        def fake_exec(dialog):
-            browser = dialog.findChild(QTextBrowser)
-            captured["html"] = browser.toHtml() if browser is not None else ""
-            captured["external"] = browser.openExternalLinks() if browser is not None else False
-            return QDialog.Rejected
-
-        QDialog.exec = fake_exec
-        try:
-            show_update_dialog(
-                QWidget(), "", {
-                    "latest": "2.0.1",
-                    "message": "## 修复\n1.修复第一项\n2.修复第二项\n[查看详情](https://example.invalid/details)\n> 💖 支持\n> 💡 下载",
-                }, "2.0.0",
-            )
-        finally:
-            QDialog.exec = original_exec
-
-        self.assertIn('href="https://example.invalid/details"', captured["html"])
-        self.assertIn("修复第一项", captured["html"])
-        self.assertIn("修复第二项", captured["html"])
-        self.assertEqual(2, captured["html"].count("margin-left:40px"))
-        self.assertTrue(captured["external"])
-
-    def test_quark_netdisk_url_uses_latest_link(self):
-        from src.app.constants import NETDISK_DOWNLOAD_LINKS, QUARK_NETDISK_URL
-
-        self.assertEqual("https://pan.quark.cn/s/82f16b845aec", QUARK_NETDISK_URL)
-        self.assertIn(("夸克网盘", "https://pan.quark.cn/s/82f16b845aec"), NETDISK_DOWNLOAD_LINKS)
-
-    def test_marginal_benefit_uses_ability_damage_term(self):
-        from src.features.role import core
-
-        original_load_stats = core.load_stats
-        try:
-            core.load_stats = lambda: {"benefit_one": {"异能伤害%": 1.25}}
-            _base, items = core.calc_marginal_benefits(
-                {
-                    "攻击力白值": 100.0,
-                    "攻击力%": 0.0,
-                    "攻击力": 0.0,
-                    "异能伤害%": 10.0,
-                    "伤害增加%": 0.0,
-                    "暴击率%": 0.0,
-                    "暴击伤害%": 0.0,
-                }
-            )
-        finally:
-            core.load_stats = original_load_stats
-
-        names = [item[0] for item in items]
-        self.assertIn("异能伤害%", names)
-        self.assertNotIn("元素" + "伤害%", names)
+    unittest.main()

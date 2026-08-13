@@ -86,6 +86,20 @@ def is_mods_plugin_busy_error(error: object) -> bool:
     return nte_core_error_has_domain_code(error, MODS_PLUGIN_BUSY_CODES)
 
 
+def equipment_request_failure_kind(error: object) -> str:
+    """Return a stable UI/report category without discarding the original error."""
+
+    if is_mods_plugin_busy_error(error):
+        return "plugin_busy"
+    if is_mods_plugin_unavailable_error(error):
+        return "plugin_unavailable"
+    if isinstance(error, NteCoreTimeoutError):
+        return "core_request_timeout"
+    if getattr(error, "domain_code", None) == "EQUIPMENT_REQUEST_REJECTED":
+        return "request_rejected"
+    return "apply_error"
+
+
 def inventory_item_placement(
     item: Mapping[str, Any],
 ) -> tuple[int, int] | None:
@@ -140,4 +154,3 @@ def group_inventory_items_by_character(
             )
         grouped.setdefault(character_id, []).append(dict(item))
     return grouped
-

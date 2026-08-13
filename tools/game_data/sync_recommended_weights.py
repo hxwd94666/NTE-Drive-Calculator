@@ -26,6 +26,10 @@ if str(ROOT) not in sys.path:
 from src.domain.recommended_weights import parse_workshop_recommendations
 from tools import build_cli
 from tools.game_data.build_graduation_templates import populate_graduation_templates
+from tools.game_data.static_database_build_support import (
+    file_sha256,
+    write_static_manifest,
+)
 from tools.game_data.workshop_api import fetch_workshop_weight_configs
 
 
@@ -83,20 +87,59 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _is_windows_sharing_error(exc: OSError) -> bool:
+    return getattr(exc, "winerror", None) in {5, 32}
+
+
+def _install_database_candidate(
+    candidate_path: Path,
+    database_path: Path,
+    *,
+    original_sha256: str,
+) -> str:
+    """Install a complete candidate, including when Windows readers hold the file."""
+
+    try:
+        os.replace(candidate_path, database_path)
+        return "replace"
+    except OSError as exc:
+        if not _is_windows_sharing_error(exc):
+            raise
+
+    current_sha256 = file_sha256(database_path)
+    if current_sha256 != original_sha256:
+        raise RuntimeError("静态数据库在同步期间已被其他任务修改，已取消覆盖")
+    source_uri = f"{candidate_path.as_uri()}?mode=ro"
+    with sqlite3.connect(source_uri, uri=True) as source:
+        with sqlite3.connect(database_path, timeout=30.0) as destination:
+            destination.execute("PRAGMA busy_timeout = 30000")
+            source.backup(destination)
+            integrity = destination.execute("PRAGMA integrity_check").fetchone()
+            violations = destination.execute("PRAGMA foreign_key_check").fetchall()
+            if integrity is None or integrity[0] != "ok":
+                raise RuntimeError(f"静态数据库在线写入完整性检查失败：{integrity}")
+            if violations:
+                raise RuntimeError(f"静态数据库在线写入外键检查失败：{violations[:3]}")
+    candidate_path.unlink(missing_ok=True)
+    return "online_backup"
+
+
 def update_static_database(
     database_path: Path,
     records: list[dict],
     *,
     api_source_kind: str = "workshop_api",
     config_dir: Path = ROOT / "config",
-) -> dict[str, int]:
-    """Atomically replace bundled recommendations after an API response is available."""
+    manifest_path: Path | None = None,
+) -> dict[str, int | str]:
+    """Install bundled recommendations from a complete validated candidate."""
 
     if api_source_kind not in {"workshop_api", "workshop_cache"}:
         raise ValueError("api_source_kind 必须是 workshop_api 或 workshop_cache")
     database_path = Path(database_path).expanduser().resolve()
     if not database_path.is_file():
         raise FileNotFoundError(f"静态数据库不存在：{database_path}")
+    original_sha256 = file_sha256(database_path)
     handle, temporary_name = tempfile.mkstemp(
         prefix=f".{database_path.name}.", suffix=".tmp", dir=database_path.parent,
     )
@@ -171,13 +214,20 @@ def update_static_database(
                 database_path=temporary,
                 config_dir=Path(config_dir).expanduser().resolve(),
             )
-        os.replace(temporary, database_path)
+        install_mode = _install_database_candidate(
+            temporary,
+            database_path,
+            original_sha256=original_sha256,
+        )
+        if manifest_path is not None:
+            write_static_manifest(database_path, manifest_path)
         return {
             "character_count": len(character_ids),
             "api_count": api_count,
             "default_count": default_count,
             "property_count": property_count,
             "graduation_count": graduation_count,
+            "install_mode": install_mode,
         }
     except BaseException:
         temporary.unlink(missing_ok=True)
@@ -189,6 +239,7 @@ def main() -> int:
     parser.add_argument("--database", type=Path, default=ROOT / "data" / "game_static.sqlite3")
     parser.add_argument("--config-dir", type=Path, default=ROOT / "config")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
+    parser.add_argument("--manifest", type=Path)
     parser.add_argument("--optional", action="store_true")
     parser.add_argument("--prompt-key", action="store_true")
     parser.add_argument("--fallback-normal", action="store_true")
@@ -210,10 +261,17 @@ def main() -> int:
         return 2
     try:
         records = fetch_workshop_weight_configs(api_key)
+        manifest_path = args.manifest
+        adjacent_manifest = args.database.expanduser().resolve().with_name(
+            "manifest.json"
+        )
+        if manifest_path is None and adjacent_manifest.is_file():
+            manifest_path = adjacent_manifest
         summary = update_static_database(
             args.database,
             records,
             config_dir=args.config_dir,
+            manifest_path=manifest_path,
         )
     except Exception as exc:
         build_cli.fail(f"静态角色权重同步失败：{exc}")
@@ -221,7 +279,8 @@ def main() -> int:
     build_cli.ok(
         "静态角色权重已更新"
         f"（来源={source}，API={summary['api_count']}，默认={summary['default_count']}，"
-        f"词条={summary['property_count']}，毕业模板={summary['graduation_count']}）"
+        f"词条={summary['property_count']}，毕业模板={summary['graduation_count']}，"
+        f"写入={summary['install_mode']}）"
     )
     return 0
 

@@ -179,12 +179,10 @@ def _build_environment_card(window):
     npcap_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(npcap_title)
     npcap_description = QLabel(
-        "<b>简单原理：</b>Npcap 读取本机的游戏网络数据，用来识别背包内容，不会代替玩家操作游戏。"
-        "<br><span style='color:#d29922'><b>风险提示：</b>这属于网络抓包，有一定的使用风险；"
-        "诊断抓包文件可能包含网络或账号相关数据，请勿随意公开。</span>"
+        "Npcap 抓包用于识别背包；虽有一定风险，但低于视觉扫描快照，建议优先使用。"
     )
     npcap_description.setTextFormat(Qt.RichText)
-    npcap_description.setWordWrap(True)
+    npcap_description.setWordWrap(False)
     npcap_description.setStyleSheet(
         themed_style("color:#8b949e;font-size:12px")
     )
@@ -323,6 +321,11 @@ def build_settings_page(
     log_card.layout().addLayout(log_row)
     window._refresh_log_session_status()
 
+    cloud_mode_row = QHBoxLayout()
+    cloud_mode_row.addWidget(QLabel("云异环模式：正在开发中"))
+    cloud_mode_row.addStretch()
+    log_card.layout().addLayout(cloud_mode_row)
+
     protagonist_row = QHBoxLayout()
     protagonist_row.addWidget(QLabel("主角游戏名:"))
     window._protagonist_game_name_edit = QLineEdit()
@@ -349,7 +352,7 @@ def build_settings_page(
 
     theme_row = QHBoxLayout()
     theme_row.addWidget(QLabel("主题颜色:"))
-    current_theme = (getattr(window, "_ui_preferences", {}) or {}).get("theme", "dark")
+    current_theme = getattr(window, "_theme_preference", "dark")
     dark_radio = QRadioButton(THEME_LABELS["dark"])
     black_radio = QRadioButton(THEME_LABELS["black"])
     light_radio = QRadioButton(THEME_LABELS["light"])
@@ -360,7 +363,7 @@ def build_settings_page(
     def select_theme(theme: str):
         if window._set_theme_preference(theme):
             return
-        active_theme = (getattr(window, "_ui_preferences", {}) or {}).get("theme", "dark")
+        active_theme = getattr(window, "_theme_preference", "dark")
         for value, radio in theme_radios.items():
             radio.blockSignals(True)
             radio.setChecked(value == active_theme)

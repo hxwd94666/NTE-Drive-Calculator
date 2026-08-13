@@ -12,6 +12,7 @@ from src.integrations.nte_core import is_mods_plugin_busy_error
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
+from .equipment_apply_verification import module_plan_mismatch, plan_mismatch
 from .inventory_sync_service import InventorySyncState
 
 
@@ -387,101 +388,6 @@ class EquipmentApplyService:
                 raise EquipmentApplyError(f"方案核心 UID {uid_pair} 不在当前稳定背包中")
         return plan
 
-    @staticmethod
-    def _plan_mismatch(
-        *,
-        items: list[dict[str, Any]],
-        modules: list[dict[str, Any]],
-        core_assignment: dict[str, Any] | None,
-        character_id: int,
-        character_uid: dict[str, int],
-    ) -> str | None:
-        """返回方案与稳定快照的首个差异；完全一致时返回 ``None``。"""
-
-        by_uid = {(item["uid_serial"], item["uid_slot"]): item for item in items}
-        expected_uids = {
-            (assignment["uid_serial"], assignment["uid_slot"])
-            for assignment in modules
-        }
-        core_pair: tuple[int, int] | None = None
-        if core_assignment is not None:
-            core_pair = (
-                core_assignment["uid_serial"],
-                core_assignment["uid_slot"],
-            )
-            expected_uids.add(core_pair)
-
-        for assignment in modules:
-            uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
-            item = by_uid.get(uid_pair)
-            expected_placement = {
-                "row": assignment["target_row"],
-                "column": assignment["target_column"],
-            }
-            if (
-                item is None
-                or not item["equipped"]
-                or item["equipped_character_uid"] != character_uid
-                or item["equipped_character_id"] != character_id
-                or item["equipped_placement"] != expected_placement
-            ):
-                return f"驱动 UID {uid_pair} 的装配位置不一致"
-
-        if core_pair is not None:
-            verified_core = by_uid.get(core_pair)
-            if (
-                verified_core is None
-                or not verified_core["equipped"]
-                or verified_core["equipped_character_uid"] != character_uid
-                or verified_core["equipped_character_id"] != character_id
-            ):
-                return f"核心 UID {core_pair} 的装备状态不一致"
-
-        actual_uids = {
-            (item["uid_serial"], item["uid_slot"])
-            for item in items
-            if item["equipped"]
-            and item["equipped_character_uid"] == character_uid
-            and item["equipped_character_id"] == character_id
-        }
-        if actual_uids != expected_uids:
-            return "角色当前装备数量或装备 UID 与方案不一致"
-        return None
-
-    @staticmethod
-    def _module_plan_mismatch(
-        *,
-        items: list[dict[str, Any]],
-        modules: list[dict[str, Any]],
-        character_id: int,
-        character_uid: dict[str, int],
-    ) -> str | None:
-        """Verify a driver-only plan without changing an existing core.
-
-        ``equipment.equip_one_key`` requires a core, but a saved plan may
-        intentionally contain drivers only.  In that case the current core and
-        unrelated placements must remain untouched; only requested modules are
-        verified.
-        """
-
-        by_uid = {(item["uid_serial"], item["uid_slot"]): item for item in items}
-        for assignment in modules:
-            uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
-            item = by_uid.get(uid_pair)
-            expected_placement = {
-                "row": assignment["target_row"],
-                "column": assignment["target_column"],
-            }
-            if (
-                item is None
-                or not item["equipped"]
-                or item["equipped_character_uid"] != character_uid
-                or item["equipped_character_id"] != character_id
-                or item["equipped_placement"] != expected_placement
-            ):
-                return f"驱动 UID {uid_pair} 的装配位置不一致"
-        return None
-
     def verify_plan_in_snapshot(
         self,
         plan_id: int,
@@ -510,14 +416,14 @@ class EquipmentApplyService:
         )
         items = self.user_dao.list_inventory_items(snapshot_id)
         if cores or exact_loadout:
-            return self._plan_mismatch(
+            return plan_mismatch(
                 items=items,
                 modules=modules,
                 core_assignment=cores[0] if cores else None,
                 character_id=effective_character_id,
                 character_uid=resolved_character_uid,
             )
-        return self._module_plan_mismatch(
+        return module_plan_mismatch(
             items=items,
             modules=modules,
             character_id=effective_character_id,
@@ -612,7 +518,7 @@ class EquipmentApplyService:
             effective_character_id, before_snapshot_id, character_uid
         )
         current_mismatch = (
-            self._plan_mismatch(
+            plan_mismatch(
                 items=current_items,
                 modules=modules,
                 core_assignment=core_assignment,
@@ -620,7 +526,7 @@ class EquipmentApplyService:
                 character_uid=resolved_character_uid,
             )
             if core_assignment is not None or exact_loadout
-            else self._module_plan_mismatch(
+            else module_plan_mismatch(
                 items=current_items,
                 modules=modules,
                 character_id=effective_character_id,
@@ -754,7 +660,7 @@ class EquipmentApplyService:
             raise EquipmentApplyError("核心组件没有返回装配后的新稳定快照")
 
         mismatch = (
-            self._plan_mismatch(
+            plan_mismatch(
                 items=self.user_dao.list_inventory_items(after_snapshot_id),
                 modules=modules,
                 core_assignment=core_assignment,
@@ -762,7 +668,7 @@ class EquipmentApplyService:
                 character_uid=resolved_character_uid,
             )
             if core_assignment is not None or exact_loadout
-            else self._module_plan_mismatch(
+            else module_plan_mismatch(
                 items=self.user_dao.list_inventory_items(after_snapshot_id),
                 modules=modules,
                 character_id=effective_character_id,

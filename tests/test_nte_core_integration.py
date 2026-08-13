@@ -13,6 +13,7 @@ from src.integrations.nte_core import (
     NteCoreProtocolError,
     NteCoreRpcError,
     NteCoreTimeoutError,
+    equipment_request_failure_kind,
     group_inventory_items_by_character,
     inventory_item_placement,
     is_mods_plugin_busy_error,
@@ -236,6 +237,20 @@ class NteCoreClientTests(unittest.TestCase):
         self.assertTrue(is_mods_plugin_busy_error(
             "nte-core RPC error -32000 [EQUIPMENT_PLUGIN_BUSY]: Core error"
         ))
+        self.assertEqual(
+            "plugin_unavailable",
+            equipment_request_failure_kind(current_unavailable),
+        )
+        self.assertEqual(
+            "plugin_busy",
+            equipment_request_failure_kind(current_busy),
+        )
+        self.assertEqual(
+            "core_request_timeout",
+            equipment_request_failure_kind(
+                NteCoreTimeoutError("equipment.equip_one_key", 30.0)
+            ),
+        )
 
     def test_request_timeout_keeps_client_usable(self):
         with fake_client() as client:

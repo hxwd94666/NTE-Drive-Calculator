@@ -366,6 +366,37 @@ class UserDataLoadoutDaoTests(unittest.TestCase):
             for name, row in self.dao.list_active_loadout_plans_by_role().items()
         })
 
+    def test_game_import_schema_is_visible_as_active_role_plan(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
+        plan_id = self.dao.save_loadout_plan(
+            name="游戏内方案：早雾",
+            character_id=1003,
+            source_snapshot_id=snapshot_id,
+            status="ready",
+            is_active=True,
+            assignments=[{
+                "uid_serial": 11,
+                "uid_slot": 22,
+                "kind": "module",
+                "target_row": 2,
+                "target_column": 3,
+                "rotation": 0,
+            }],
+            payload={
+                "source_role_name": "早雾",
+                "schema": "game-observed-loadout-v1",
+            },
+        )
+
+        self.assertEqual(
+            plan_id,
+            self.dao.get_active_loadout_plan_for_role("早雾")["plan_id"],
+        )
+        self.assertEqual(
+            plan_id,
+            self.dao.list_active_loadout_plans_by_role()["早雾"]["plan_id"],
+        )
+
     def test_deactivates_active_plan_without_deleting_plan_history(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
         plan_id = self.dao.save_loadout_plan(

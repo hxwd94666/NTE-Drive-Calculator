@@ -1,3 +1,4 @@
+# 统一读取和归一化配装方案中的装备评分。
 """Pure score helpers for persisted loadout assignments."""
 
 from __future__ import annotations

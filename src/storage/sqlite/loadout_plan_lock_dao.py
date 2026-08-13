@@ -14,20 +14,26 @@ from .user_data_support import UserDataError, UserDataValidationError, _integer,
 
 
 class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
-    """Own the persisted lock state for active, official allocation plans.
+    """Own the persisted lock state for active role loadout plans.
 
     This is a reservation in the calculator, not the game's equipment-lock
-    flag.  A lock can retain a partially filled plan, but it must contain a
-    real core and cannot contain a virtual placeholder.
+    flag.  A lock can retain a partially filled plan without a core, but it
+    must contain at least one real assignment and no virtual placeholder.
     """
 
+    _LOCKABLE_ROLE_PLAN_SCHEMAS = frozenset({
+        "allocation-official-snapshot-v1",
+        "game-observed-loadout-v1",
+    })
+
     @staticmethod
-    def _is_official_allocation_plan(plan: Mapping[str, Any]) -> bool:
+    def _is_role_loadout_plan(plan: Mapping[str, Any]) -> bool:
         payload = plan.get("payload")
         role_name = payload.get("source_role_name") if isinstance(payload, Mapping) else None
         return bool(
             isinstance(payload, Mapping)
-            and payload.get("schema") == "allocation-official-snapshot-v1"
+            and payload.get("schema")
+            in LoadoutPlanLockDaoMixin._LOCKABLE_ROLE_PLAN_SCHEMAS
             and isinstance(role_name, str)
             and role_name.strip()
         )
@@ -36,12 +42,11 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
     def _validate_lockable_plan(plan: Mapping[str, Any]) -> None:
         if not plan.get("is_active"):
             raise UserDataValidationError("只能锁定当前活动的配装方案")
-        if not LoadoutPlanLockDaoMixin._is_official_allocation_plan(plan):
-            raise UserDataValidationError("只有当前配装页的正式角色方案可以锁定")
+        if not LoadoutPlanLockDaoMixin._is_role_loadout_plan(plan):
+            raise UserDataValidationError("只有活动角色配装方案可以锁定")
         assignments = tuple(plan.get("assignments") or ())
         if not assignments:
             raise UserDataValidationError("空方案不能锁定")
-        has_real_core = False
         for assignment in assignments:
             raw_assignment = assignment.get("raw_assignment") or assignment
             if is_virtual_equipment_assignment(raw_assignment):
@@ -53,10 +58,6 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
                 raise UserDataValidationError("方案存在无效装备 UID，不能锁定") from exc
             if slot <= 0 or serial <= 0:
                 raise UserDataValidationError("方案存在非真实装备，不能锁定")
-            if assignment.get("kind") == "core":
-                has_real_core = True
-        if not has_real_core:
-            raise UserDataValidationError("不含真实卡带的方案不能锁定")
 
     def set_allocation_lock(self, plan_id: int, locked: bool) -> bool:
         """Set a plan reservation lock after validating its visible state."""
@@ -100,7 +101,7 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
             raise
 
     def list_allocation_locked_loadout_plans_by_role(self) -> dict[str, dict[str, Any]]:
-        """Return active official plans that reserve equipment for calculation."""
+        """Return active role plans that reserve equipment for calculation."""
 
         locked: dict[str, dict[str, Any]] = {}
         for plan in self.list_loadout_plans():
@@ -109,7 +110,7 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
             if (
                 plan.get("is_active")
                 and plan.get("allocation_locked")
-                and self._is_official_allocation_plan(plan)
+                and self._is_role_loadout_plan(plan)
                 and isinstance(role_name, str)
             ):
                 locked[role_name] = plan

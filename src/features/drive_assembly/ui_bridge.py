@@ -28,7 +28,7 @@ from src.features.drive_assembly.page_mapping import (
     map_tape_equip_first_result,
     map_tape_filter_controls,
     map_tape_filter_refinement,
-    map_tape_main_stat_gamepad_open,
+    map_tape_main_stat_mouse_open,
     map_tape_main_stat_selection,
     map_tape_set_selection,
     map_tape_sub_stat_filter_entry,
@@ -36,8 +36,9 @@ from src.features.drive_assembly.page_mapping import (
 )
 from src.features.drive_assembly.role_flow import (
     build_role_assembly_payloads,
-    collect_role_roster_from_role_list,
-    map_role_list_initial_left_reset_sequence,
+    collect_role_roster_from_mouse_rows,
+    map_role_list_mouse_entry,
+    map_role_list_mouse_row_scan,
     plan_role_assembly_from_role_list_roster,
     recognize_current_role_from_image,
     required_roles_from_payloads,
@@ -54,13 +55,45 @@ _STARTUP_ROLE_RECOGNITION_METHODS = {
     "ocr_correction",
     "ocr_yi_fallback",
 }
+
+
+def _log_mouse_delivery_diagnostics(backend: MouseBackend) -> None:
+    """Log local button-state observations without coupling the UI to a backend type."""
+
+    consume = getattr(backend, "consume_mouse_delivery_diagnostics", None)
+    if not callable(consume):
+        return
+    records = consume()
+    if not records:
+        return
+    states = []
+    for record in records:
+        if record.get("stage") == "touch_tap":
+            touch_text = "ok" if record.get("touch_success") else "failed"
+            error_text = record.get("touch_error")
+            states.append(f"touch_tap:{touch_text}:error={error_text if error_text is not None else 'n/a'}")
+            continue
+        local_state = record.get("local_left_down")
+        state_text = "down" if local_state is True else "up" if local_state is False else "unknown"
+        sent = record.get("send_input_result")
+        sent_text = "n/a" if sent is None else str(sent)
+        requested = record.get("requested_position")
+        dispatched = record.get("dispatched_position")
+        cursor = record.get("cursor_position")
+        states.append(
+            f"{record.get('stage')}:{state_text}:send={sent_text}:"
+            f"requested={requested}:dispatched={dispatched}:cursor={cursor}"
+        )
+    logger.info("驱动装配鼠标送达诊断 | " + " | ".join(states))
 _RECORDED_ASSEMBLY_ACTIONS = {
     "open_role_list",
     "confirm_role_list_selection",
     "close_role_list_after_confirmation",
     "left_kongmu_tab",
     "wait_after_left_kongmu_tab",
+    "activate_assemble_button_gamepad",
     "assemble_button",
+    "assembly_page_wake_mouse_after_gamepad",
     "wait_after_assemble_button",
     "assembly_back_to_role_page",
 }
@@ -213,6 +246,7 @@ def execute_all_roles_from_current_game_page(
     verification_enabled: bool = True,
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
+    cloud_nte_mode: bool = False,
 ):
     """Recognize the current game role list, traverse roles, and execute assembly."""
 
@@ -227,6 +261,7 @@ def execute_all_roles_from_current_game_page(
         verification_enabled=verification_enabled,
         role_name_aliases=role_name_aliases,
         record_root=record_root,
+        cloud_nte_mode=cloud_nte_mode,
     )
 
 
@@ -241,6 +276,7 @@ def execute_selected_role_from_current_game_page(
     verification_enabled: bool = True,
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
+    cloud_nte_mode: bool = False,
 ):
     """Find one selected role in the game sidebar and assemble only its blueprint."""
 
@@ -255,6 +291,7 @@ def execute_selected_role_from_current_game_page(
         verification_enabled=verification_enabled,
         role_name_aliases=role_name_aliases,
         record_root=record_root,
+        cloud_nte_mode=cloud_nte_mode,
     )
 
 
@@ -269,6 +306,7 @@ def _execute_roles_from_current_game_page(
     verification_enabled: bool,
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
+    cloud_nte_mode: bool = False,
 ):
     """Shared game-page flow: find target roles first, then assemble their blueprints."""
 
@@ -322,58 +360,53 @@ def _execute_roles_from_current_game_page(
         f"窗口尺寸={screen_size} | 操作区域={action_rect} | 向上复位次数=5"
     )
     logger.info(
-        "角色列表扫描路径 | 复位=dpad_up×5 | 打开列表=RS | "
-        "逐格移动=左摇杆 | 确认=A | 达成全部目标后保留列表并规划返回首个目标"
+        f"角色列表扫描路径 | 模式={'云异环' if cloud_nte_mode else '普通鼠标'} | 右侧下滑×2 | 首个头像 | 信息页签 | 右下角色列表按钮 | "
+        "首屏12格一次识别，随后滚轮逐行并只检查第4行；首次重复即到底"
     )
     action_backend = backend or PyAutoGuiMouseBackend()
     randomization_enabled = enable_assembly_randomization(action_backend)
     logger.info(
         "驱动装配随机化 | "
         f"鼠标随机化={'已启用' if randomization_enabled else '后端不支持'} | "
-        "点击偏移、拖拽路径与拖拽节奏随机；手柄路径保持固定"
+        "点击/滚轮±3像素、离散输入延迟0~0.1秒、拖拽端点与节奏随机"
     )
 
-    def press_up():
-        execute_action_sequence(
-            [{"name": "role_list_reset_dpad_up", "gamepad_button": "dpad_up"}],
-            backend=action_backend,
-        )
-
     def open_role_list():
+        sequence = map_role_list_mouse_entry(
+            screen_size, action_rect, cloud_nte_mode=cloud_nte_mode
+        )["entry_sequence"]
         execute_action_sequence(
-            [{"name": "open_role_list", "gamepad_button": "rs"}],
+            sequence,
             backend=action_backend,
         )
-        logger.info("角色列表打开指令已发送 | button=RS")
+        _log_mouse_delivery_diagnostics(action_backend)
+        logger.info("角色列表鼠标入口已执行 | 右侧下滑×1 | 首个头像 | 信息页签 | 右下角色列表按钮")
         recorder.capture_foreground("role_list_opened")
 
-    def confirm_role_list_selection():
+    row_scan = map_role_list_mouse_row_scan(screen_size, action_rect)
+    captured_role_images: dict[int, np.ndarray] = {}
+
+    def select_role_list_slot(slot_index: int):
+        action = row_scan["slot_selection_actions"][slot_index]
+        logger.info(
+            "角色列表格点击请求 | "
+            f"slot={slot_index} | position={action['position']}"
+        )
         execute_action_sequence(
-            [{"name": "confirm_role_list_selection", "gamepad_button": "a"}],
+            [action],
             backend=action_backend,
         )
+        _log_mouse_delivery_diagnostics(action_backend)
 
-    def move_role_list_right():
+    def scroll_role_list_next_row():
         execute_action_sequence(
-            [
-                {
-                    "name": "role_list_next",
-                    "gamepad_stick": "left_right",
-                    "post_action_pause_seconds": 0.25,
-                }
-            ],
-            backend=action_backend,
-        )
-
-    def move_role_list_left_fast():
-        execute_action_sequence(
-            map_role_list_initial_left_reset_sequence(repeat_count=1),
+            row_scan["row_scroll_sequence"],
             backend=action_backend,
         )
 
     def observe_current(_index: int):
         image, _rect = _capture_foreground_client_image()
-        recorder.save_image(image, f"role_list_scan_{_index + 1:02d}")
+        captured_role_images[_index] = image
         recognition = recognize_current_role_from_image(
             image,
             recognition_roles,
@@ -391,17 +424,23 @@ def _execute_roles_from_current_game_page(
         )
         return recognition
 
+    def record_unique_role_observation(index: int):
+        image = captured_role_images.pop(index, None)
+        if image is not None:
+            recorder.save_image(image, f"role_list_scan_{index + 1:02d}")
+
     try:
-        role_roster = collect_role_roster_from_role_list(
+        role_roster = collect_role_roster_from_mouse_rows(
             required_roles,
             current_observer=observe_current,
-            press_up=press_up,
-            open_role_list=open_role_list,
-            confirm_selection=confirm_role_list_selection,
-            move_right=move_role_list_right,
-            move_left=move_role_list_left_fast,
+            select_grid_slot=select_role_list_slot,
+            scroll_next_row=scroll_role_list_next_row,
+            enter_role_list=open_role_list,
+            on_unique_observation=record_unique_role_observation,
             max_roles=max_pages or max(20, len(recognition_roles) + 6),
         )
+        captured_role_images.clear()
+
     except BaseException:
         close_assembly_backend(action_backend)
         raise
@@ -415,7 +454,7 @@ def _execute_roles_from_current_game_page(
         "角色列表扫描结果 | "
         f"停止原因={role_roster.get('stop_reason', '')} | "
         f"缺少={role_roster.get('missing_expected_roles', [])} | "
-        f"当前列表索引={role_roster.get('current_index', 0)} | 列表保持打开={role_roster.get('list_open', False)}"
+        f"当前列表索引={role_roster.get('current_index', 0)} | 将在选中首个装配角色后关闭列表"
     )
     recorder.capture_foreground("role_list_scan_complete")
     traversal_plan = plan_role_assembly_from_role_list_roster(
@@ -424,6 +463,7 @@ def _execute_roles_from_current_game_page(
         screen_size=screen_size,
         content_rect=action_rect,
         current_index=role_roster.get("current_index", max(0, len(role_roster.get("roles", []) or []) - 1)),
+        cloud_nte_mode=cloud_nte_mode,
     )
     _log_traversal_plan_diagnostics(traversal_plan)
     checker = f12_stop_checker()
@@ -720,9 +760,9 @@ def tape_install_sequence(
             include_status_filters=is_duplicate_tape,
         )["refinement_sequence"]
     )
-    sequence.extend(map_tape_main_stat_gamepad_open()["open_sequence"])
+    sequence.extend(map_tape_main_stat_mouse_open(screen_size, content_rect)["open_sequence"])
     main_stat_selection = map_tape_main_stat_selection(tape_filter["main_stat"], screen_size, content_rect)
-    sequence.extend(main_stat_selection.get("ocr_selection_sequence") or main_stat_selection["selection_sequence"])
+    sequence.extend(main_stat_selection["selection_sequence"])
     sequence.extend(map_tape_sub_stat_filter_entry(screen_size, content_rect)["entry_sequence"])
     sequence.extend(
         map_tape_sub_stat_selection(tape_filter.get("sub_stats", []), screen_size, content_rect)["selection_sequence"]

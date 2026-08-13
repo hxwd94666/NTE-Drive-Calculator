@@ -145,7 +145,7 @@ def build_scan_processing_options(window, scan_card, show_help):
         lambda _checked=False, parent=dual_help_btn: show_help(
             parent,
             "双线程处理说明",
-            "如果扫描负载大，出现重启或异常，请关闭这个功能。",
+            "· 同时处理截图，速度更快\n· 出现卡顿、重启或异常时请关闭",
         )
     )
     dual_thread_layout.addWidget(dual_help_btn)
@@ -171,9 +171,10 @@ def build_scan_processing_options(window, scan_card, show_help):
         lambda _checked=False, parent=amd_help_btn: show_help(
             parent,
             "AMD实验性兼容说明",
-            "实验性低负载模式，不保证一定解决重启或异常。\n\n"
-            "开启后会自动关闭双线程处理，扫描完成后再解析截图，并降低 OCR/图像处理线程负载。"
-            "适合 AMD CPU/核显/显卡机器在全量扫描中出现重启、蓝屏或异常时尝试。",
+            "· 降低扫描和解析负载\n"
+            "· 开启后自动关闭双线程\n"
+            "· AMD 设备全量扫描异常时尝试\n"
+            "· 属于实验功能，效果因设备而异",
         )
     )
     dual_thread_layout.addWidget(amd_help_btn)

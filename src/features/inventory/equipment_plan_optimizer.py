@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
@@ -18,12 +17,23 @@ from PySide6.QtWidgets import (
 from src.domain.allocation_rating import allocation_grade
 from src.domain.loadout_plan_scores import exact_assignment_score_total
 from src.app.theme import themed_style
-from src.features.inventory.warehouse import warehouse_item_view
+from src.features.inventory.warehouse import warehouse_item_icon_path
+from src.features.inventory.saved_plan_badge import display_strategy_mode
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.tape_main_value import full_level_tape_main_value
+from src.features.inventory.equipment_plan_projection import (
+    display_shape_id as _display_shape_id,
+    official_stat_values as _official_stat_values,
+)
+from src.features.inventory.equipment_display_context import (
+    equipment_presentation,
+    equipment_paths as _equipment_paths,
+)
 from src.services.virtual_equipment_service import (
     is_virtual_equipment_assignment,
+    normalized_equipment_assignment,
     virtual_equipment_inventory_item,
 )
 from src.optimizer.contracts import (
@@ -38,6 +48,7 @@ from src.optimizer.contracts import (
     EQUIP_SET_NAME,
     EQUIP_SHAPE_ID,
     EQUIP_SUB_STATS,
+    EQUIP_TYPE,
     EQUIP_UID,
     ROLE_BLUEPRINT_LAYOUT,
     ROLE_EQUIPPED_DRIVES,
@@ -60,70 +71,23 @@ __all__ = [
     "_delete_role_equipment",
     "_optimize_saved_equipment",
 ]
-
 EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT = 520
 EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
 # Legacy test hosts and non-Qt callers retain the old batch-only path.
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
 
-_OFFICIAL_STAT_LABELS = {
-    "AtkAdd": "攻击力",
-    "AtkUp": "攻击力%",
-    "CritBase": "暴击率%",
-    "CritDamageBase": "暴击伤害%",
-    "DamageUpChaosBase": "暗属性异能伤害增强%",
-    "DamageUpCosmosBase": "光属性异能伤害增强%",
-    "DamageUpGeneralBase": "伤害增加%",
-    "DamageUpIncantationBase": "咒属性异能伤害增强%",
-    "DamageUpLakshanaBase": "相属性异能伤害增强%",
-    "DamageUpNatureBase": "灵属性异能伤害增强%",
-    "DamageUpPsycheBase": "魂属性异能伤害增强%",
-    "DamageUpPsychicallyBase": "心灵伤害增强%",
-    "DefAdd": "防御力",
-    "DefUp": "防御力%",
-    "HealUp": "治疗加成",
-    "HPMaxAdd": "生命值",
-    "HPMaxUp": "生命值%",
-    "MagBase": "环合强度",
-    "UnbalIntensityBase": "倾陷强度",
-}
-_OFFICIAL_SHAPE_LABELS = {
-    "hen2": "H_2",
-    "hen3": "H_3",
-    "hen4": "H_4",
-    "shu2": "V_2",
-    "shu3": "V_3",
-    "shu4": "V_4",
-    "z3": "Trap_4_H",
-    "z4": "Trap_4_V",
-    "zhijiao1": "L_3_BL",
-    "zhijiao2": "L_3_TL",
-    "zhijiao3": "L_3_TR",
-    "zhijiao4": "L_3_BR",
-}
+def _inventory_uid_key(uid):
+    """Return the snapshot (serial, slot) key from an official display UID."""
 
-
-from src.features.inventory.equipment_display_context import (
-    equipment_presentation,
-    equipment_paths as _equipment_paths,
-)
-
-def _official_stat_values(stats):
-    values = {}
-    for stat in stats or []:
-        property_id = str(stat.get("property_id") or "")
-        label = _OFFICIAL_STAT_LABELS.get(property_id, property_id or "未知属性")
-        value = float(stat.get("value", 0.0) or 0.0)
-        if stat.get("percent"):
-            value *= 100.0
-        values[label] = round(value, 6)
-    return values
-
-
-def _display_shape_id(geometry):
-    value = str(geometry or "").removeprefix("EquipmentGeometry_").casefold()
-    return _OFFICIAL_SHAPE_LABELS.get(value, str(geometry or "未知形状"))
+    parts = str(uid or "").rsplit("-", 2)
+    if len(parts) != 3:
+        return None
+    try:
+        key = int(parts[-1]), int(parts[-2])
+    except ValueError:
+        return None
+    return key if min(key) >= 1 else None
 
 
 def _sqlite_plan_display_state(
@@ -152,13 +116,62 @@ def _sqlite_plan_display_state(
         attribute_ids = {str(attribute["attribute_id"]) for attribute in static_dao.list_equipment_attributes()}
     payload = plan.get("payload") or {}
     last_diff = dict(payload.get("last_diff") or {})
+    requested_diff_uids = {
+        str(
+            (entry.get(EQUIP_UID) if isinstance(entry, dict) else entry)
+            or ""
+        )
+        for diff_key in (DIFF_REMOVED, DIFF_ADDED)
+        for entry in (last_diff.get(diff_key, ()) or ())
+    }
+    requested_diff_uids.discard("")
+    diff_item_index = {}
+    if requested_diff_uids:
+        for row in items.values():
+            if bool(row.get("virtual")):
+                continue
+            kind = "module" if row.get("kind") == "module" else "core"
+            uid = f"nte-{kind}-{row.get('uid_slot')}-{row.get('uid_serial')}"
+            if uid in requested_diff_uids:
+                diff_item_index[uid] = _sqlite_inventory_item_display(
+                    row,
+                    suit_names,
+                )
+        # Virtual placeholders live only inside the saved plan, not in the
+        # immutable inventory snapshot.  Project them into the same diff index
+        # so a displaced core remains a tape swap and a displaced module keeps
+        # its original shape/area instead of appearing as an unrelated unknown
+        # addition.
+        for assignment in plan.get("assignments") or ():
+            raw = normalized_equipment_assignment(assignment)
+            if not is_virtual_equipment_assignment(raw):
+                continue
+            virtual_item = virtual_equipment_inventory_item(raw)
+            kind = "module" if virtual_item.get("kind") == "module" else "core"
+            uid = (
+                f"nte-{kind}-{virtual_item.get('uid_slot')}-"
+                f"{virtual_item.get('uid_serial')}"
+            )
+            if uid in requested_diff_uids:
+                diff_item_index[uid] = _sqlite_inventory_item_display(
+                    virtual_item,
+                    suit_names,
+                )
+    for diff_key in (DIFF_REMOVED, DIFF_ADDED):
+        hydrated = []
+        for diff_item in last_diff.get(diff_key, ()) or ():
+            minimal = dict(diff_item) if isinstance(diff_item, dict) else {EQUIP_UID: str(diff_item)}
+            source = diff_item_index.get(str(minimal.get(EQUIP_UID) or ""), {})
+            hydrated.append({**source, **minimal})
+        if hydrated:
+            last_diff[diff_key] = hydrated
     added_uids = {str(uid) for uid in (last_diff.get(DIFF_ADDED_UIDS) or ()) if uid}
     changed_uids = {str(uid) for uid in (payload.get("changed_uids") or ()) if uid}
     board = [["0" for _ in range(5)] for _ in range(5)]
     drives = []
     tape = None
     for assignment in plan["assignments"]:
-        raw = assignment.get("raw_assignment") or {}
+        raw = normalized_equipment_assignment(assignment)
         item = (
             virtual_equipment_inventory_item(raw)
             if is_virtual_equipment_assignment(raw)
@@ -186,7 +199,7 @@ def _sqlite_plan_display_state(
             raise RuntimeError(message)
         uid_prefix = "module" if item["kind"] == "module" else "core"
         uid = f"nte-{uid_prefix}-{item['uid_slot']}-{item['uid_serial']}"
-        item_icon_path = warehouse_item_view(item).get("item_icon_path")
+        item_icon_path = warehouse_item_icon_path(item)
         if item["kind"] == "core":
             suit_id = str(item.get("suit_id") or "")
             if suit_id not in suit_names:
@@ -194,10 +207,22 @@ def _sqlite_plan_display_state(
                 logger.error("已保存方案兼容性错误：{}", message)
                 raise RuntimeError(message)
             main_stats = _official_stat_values(item.get("main_stats"))
+            main_stat, snapshot_main_value = next(iter(main_stats.items()), ("未知主词条", None))
+            saved_main_values = payload.get("tape_main_values") or {}
+            main_value = saved_main_values.get(uid)
+            if main_value is None:
+                main_value = full_level_tape_main_value(main_stat, item.get("quality"))
+            if main_value is None:
+                main_value = snapshot_main_value
             tape = {
                 EQUIP_UID: uid,
                 EQUIP_SET_NAME: suit_names.get(str(item.get("suit_id") or ""), str(item.get("suit_id") or "未知套装")),
-                EQUIP_MAIN_STATS: next(iter(main_stats), "未知主词条"),
+                EQUIP_MAIN_STATS: main_stat,
+                # Keep the exact snapshot value.  The card and both attribute
+                # summaries must not replace an imported core stat with a
+                # quality-based fallback estimate.
+                "main_value": main_value,
+                "_role_main_stats": main_stats,
                 EQUIP_SUB_STATS: _official_stat_values(item.get("sub_stats")),
                 EQUIP_QUALITY: {"orange": "Gold", "purple": "Purple", "blue": "Blue"}.get(
                     str(item.get("quality")).casefold(), "Gold"
@@ -250,7 +275,9 @@ def _sqlite_plan_display_state(
         ROLE_EQUIPPED_DRIVES: drives,
         ROLE_TOTAL_SCORE: float(plan.get("score") or 0.0),
         ROLE_TOTAL_GRADE: "",
-        "strategy_mode": payload.get("strategy", ""),
+        # A plan imported from the game is a mutually exclusive origin marker,
+        # not a result of the strategy that happened to be active earlier.
+        "strategy_mode": display_strategy_mode(payload),
         "_sqlite_plan_id": plan["plan_id"],
         "_sqlite_source_snapshot_id": snapshot_id,
         "_sqlite_assignment_scores_complete": exact_assignment_score_total(
@@ -271,19 +298,35 @@ def _sqlite_inventory_item_display(row, suit_names):
     uid = f"nte-{'module' if kind == 'module' else 'core'}-{row.get('uid_slot')}-{row.get('uid_serial')}"
     if kind == "core":
         main_stats = _official_stat_values(row.get("main_stats"))
+        main_stat, snapshot_main_value = next(iter(main_stats.items()), ("未知主词条", None))
+        main_value = full_level_tape_main_value(main_stat, row.get("quality"))
+        if main_value is None:
+            main_value = snapshot_main_value
         return {
             EQUIP_UID: uid,
-            EQUIP_SET_NAME: suit_names.get(str(row.get("suit_id") or ""), str(row.get("suit_id") or "未知套装")),
-            EQUIP_MAIN_STATS: next(iter(main_stats), "未知主词条"),
+            EQUIP_TYPE: "tape",
+            EQUIP_SET_NAME: (
+                "空空幕"
+                if row.get("virtual")
+                else suit_names.get(
+                    str(row.get("suit_id") or ""),
+                    str(row.get("suit_id") or "未知套装"),
+                )
+            ),
+            EQUIP_MAIN_STATS: main_stat,
+            "main_value": main_value,
             EQUIP_SUB_STATS: _official_stat_values(row.get("sub_stats")),
             EQUIP_QUALITY: quality,
             "_role_main_stats": main_stats,
             "_item_id": str(row.get("item_id") or ""),
             "_uid_serial": int(row.get("uid_serial") or 0),
             "_uid_slot": int(row.get("uid_slot") or 0),
+            "item_icon_path": warehouse_item_icon_path(row),
+            "virtual": bool(row.get("virtual")),
         }
     return {
         EQUIP_UID: uid,
+        EQUIP_TYPE: "drive",
         EQUIP_SHAPE_ID: _display_shape_id(row.get("geometry")),
         EQUIP_SUB_STATS: _official_stat_values(row.get("sub_stats")),
         EQUIP_QUALITY: quality,
@@ -294,6 +337,8 @@ def _sqlite_inventory_item_display(row, suit_names):
         "duplicate_count": row.get("duplicate_count"),
         "_uid_serial": int(row.get("uid_serial") or 0),
         "_uid_slot": int(row.get("uid_slot") or 0),
+        "item_icon_path": warehouse_item_icon_path(row),
+        "virtual": bool(row.get("virtual")),
     }
 
 
@@ -587,6 +632,7 @@ def _optimize_saved_equipment(
             main_weights=main_weights,
             card_variant="inventory",
             item_icon_path=_replacement_item_icon(asset_catalog, item_kind, current),
+            main_value=current.get("main_value"),
         )
     )
     layout.addWidget(current_group)
@@ -654,6 +700,7 @@ def _optimize_saved_equipment(
                 QMessageBox.warning(dialog, "替换失败", str(exc))
                 return
             dialog.accept()
+            self._saved_equipment_cache_valid = False
             self._refresh_equip(restore_role_name=role_name)
             if callable(after_replace):
                 after_replace(selected, selected_score, current_score)
@@ -690,6 +737,7 @@ def _optimize_saved_equipment(
                 replacement_text="替换",
                 card_variant="inventory",
                 item_icon_path=_replacement_item_icon(asset_catalog, item_kind, candidate),
+                main_value=candidate.get("main_value"),
             )
         )
         if rank_by_damage:

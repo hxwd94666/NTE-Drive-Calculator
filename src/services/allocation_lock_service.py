@@ -6,7 +6,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from src.services.virtual_equipment_service import is_virtual_equipment_assignment
+from src.services.virtual_equipment_service import (
+    is_virtual_equipment_assignment,
+    normalized_equipment_assignment,
+)
 from src.storage.sqlite.user_data_support import UserDataValidationError
 
 if TYPE_CHECKING:
@@ -52,10 +55,9 @@ def build_allocation_lock_snapshot(
         assignments = tuple(plan.get("assignments") or ())
         if not assignments:
             raise UserDataValidationError(f"锁定方案 [{role_name}] 为空，请解除锁定后重试")
-        has_real_core = False
         for assignment in assignments:
-            raw_assignment = assignment.get("raw_assignment") or assignment
-            if is_virtual_equipment_assignment(raw_assignment):
+            resolved_assignment = normalized_equipment_assignment(assignment)
+            if is_virtual_equipment_assignment(resolved_assignment):
                 raise UserDataValidationError(
                     f"锁定方案 [{role_name}] 含虚拟装备，请解除锁定后重试"
                 )
@@ -76,12 +78,7 @@ def build_allocation_lock_snapshot(
                     f"锁定方案 [{role_name}] 的装备 ({slot}, {serial}) 不在当前稳定背包快照中；"
                     "请同步背包后检查方案，或解除锁定。"
                 )
-            has_real_core = has_real_core or kind == "core"
             reserved_uids.add(_display_uid(kind, slot, serial))
-        if not has_real_core:
-            raise UserDataValidationError(
-                f"锁定方案 [{role_name}] 不含真实卡带，请解除锁定后重试"
-            )
         revisions.append((int(plan["plan_id"]), str(plan.get("updated_at_utc") or "")))
     return AllocationLockSnapshot(
         inventory_snapshot_id=int(inventory_snapshot_id),

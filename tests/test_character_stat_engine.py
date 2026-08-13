@@ -63,9 +63,44 @@ class CharacterStatEngineTests(unittest.TestCase):
         self.assertEqual(840.0, panel.totals["总生命值"])
         self.assertEqual(2.0, panel.totals["暴击伤害%"])
 
+    def test_saved_tape_main_value_is_used_without_a_quality_fallback(self):
+        panel = build_character_panel(
+            self._context(),
+            "测试角色",
+            tape={"main_stats": "攻击力%", "main_value": 12.5, "quality": "Gold", "sub_stats": {}},
+            drives=[],
+        )
+        # The saved snapshot value is authoritative; do not substitute the old
+        # generic Gold fallback of 37.5%.
+        self.assertEqual(168.75, panel.totals["总攻击力"])
+
     def test_conditional_weapon_skill_is_not_a_panel_stat(self):
         panel = build_character_panel(self._context(), "测试角色")
         self.assertEqual(150.0, panel.totals["总攻击力"])
+
+    def test_marginal_benefit_uses_ability_damage_term(self):
+        from src.features.role import core
+
+        original_load_stats = core.load_stats
+        try:
+            core.load_stats = lambda: {"benefit_one": {"异能伤害%": 1.25}}
+            _base, items = core.calc_marginal_benefits(
+                {
+                    "攻击力白值": 100.0,
+                    "攻击力%": 0.0,
+                    "攻击力": 0.0,
+                    "异能伤害%": 10.0,
+                    "伤害增加%": 0.0,
+                    "暴击率%": 0.0,
+                    "暴击伤害%": 0.0,
+                }
+            )
+        finally:
+            core.load_stats = original_load_stats
+
+        names = [item[0] for item in items]
+        self.assertIn("异能伤害%", names)
+        self.assertNotIn("元素" + "伤害%", names)
 
 
 if __name__ == "__main__":

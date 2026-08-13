@@ -24,6 +24,17 @@ QWidget{color:#c9d1d9;font-family:"Microsoft YaHei UI","Segoe UI",sans-serif;fon
 #card{background:#161b22;border:1px solid #21262d;border-radius:10px}
 #cardTitle{font-size:14px;font-weight:600;color:#58a6ff}
 
+QFrame#dashboardMetricCard{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:2px}
+QLabel#dashboardMetricTitle{color:#8b949e;font-size:12px}
+QLabel#dashboardMetricValue{color:#f0f6fc;font-size:25px;font-weight:700}
+QLabel#dashboardMetricSubtitle{color:#6e7681;font-size:11px}
+QLabel#statusBadge{border-radius:10px;padding:4px 10px;font-size:11px;font-weight:600}
+QLabel#statusBadge[tone="success"]{color:#3fb950;background:#23863622;border:1px solid #3fb950}
+QLabel#statusBadge[tone="warning"]{color:#d2991d;background:#d2991d22;border:1px solid #d2991d}
+QLabel#statusBadge[tone="error"]{color:#f85149;background:#f8514922;border:1px solid #f85149}
+QLabel#statusBadge[tone="active"]{color:#58a6ff;background:#1f6feb33;border:1px solid #58a6ff}
+QLabel#statusBadge[tone="neutral"]{color:#8b949e;background:#21262d;border:1px solid #8b949e}
+
 #sidebar{background:#161b22;border-right:1px solid #21262d;min-width:200px;max-width:200px;border-bottom-left-radius:10px}
 #sidebar QPushButton{background:transparent;color:#8b949e;border:none;border-radius:8px;padding:10px 14px;text-align:left;font-size:13px;font-weight:500;margin:2px 8px}
 #sidebar QPushButton:hover{background:#1c2128;color:#c9d1d9}

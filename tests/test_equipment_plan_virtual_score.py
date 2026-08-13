@@ -1,3 +1,4 @@
+# 验证虚拟配装方案的评分投影。
 """Ensure saved plans with empty placeholders do not trust a stale total."""
 
 from src.features.inventory.equipment_plan_renderer import (

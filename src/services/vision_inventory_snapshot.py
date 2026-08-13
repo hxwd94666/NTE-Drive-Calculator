@@ -87,6 +87,7 @@ def _stats(
     *,
     core: bool = False,
     stat_catalog: StatCatalog | None = None,
+    quality: str = "orange",
 ) -> list[dict[str, Any]]:
     if core:
         # The scanner only reads a card's main-stat *name*.  Its value must
@@ -100,7 +101,8 @@ def _stats(
             raise VisionInventorySnapshotError(
                 f"视觉扫描卡带主词条无法匹配：{str(value or '').strip() or '<empty>'}"
             )
-        return [_stat(main_name, catalog.tape_main_values[main_name])]
+        quality_coef = {"orange": 1.0, "purple": 0.8, "blue": 0.6}.get(str(quality).casefold(), 1.0)
+        return [_stat(main_name, float(catalog.tape_main_values[main_name]) * quality_coef)]
     if not isinstance(value, Mapping):
         raise VisionInventorySnapshotError("视觉扫描驱动缺少词条列表")
     return [_stat(label, amount) for label, amount in value.items()]
@@ -171,6 +173,7 @@ def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: Static
                 item.get("main_stats"),
                 core=True,
                 stat_catalog=stat_catalog,
+                quality=quality,
             )
         normalized.append(row)
     return {"complete": True, "item_count": len(normalized), "items": normalized}

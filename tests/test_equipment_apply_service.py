@@ -302,6 +302,30 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.assertEqual([], self.sync.module_calls)
         self.assertEqual([], self.sync.unmount_calls)
 
+    def test_verify_plan_in_snapshot_distinguishes_wrong_position(self) -> None:
+        rows = [copy.deepcopy(item(11, "module")), copy.deepcopy(item(22, "core"))]
+        for row in rows:
+            row["equipped"] = True
+            row["equipped_character_uid"] = dict(CHARACTER_UID)
+            row["equipped_character_id"] = 1003
+            if row["kind"] == "module":
+                row["equipped_placement"] = {"row": 5, "column": 5}
+        current = self.dao.import_inventory_snapshot(snapshot(3, rows))
+
+        mismatch = EquipmentApplyService(
+            self.dao, self.sync
+        ).verify_plan_in_snapshot(
+            self.plan_id,
+            character_uid=CHARACTER_UID,
+            target_character_id=1003,
+            stable_snapshot_id=current,
+            exact_loadout=True,
+        )
+
+        self.assertIn("位置不一致", mismatch)
+        self.assertIn("'row': 5", mismatch)
+        self.assertIn("'row': 2", mismatch)
+
     def test_verify_plan_in_snapshot_reports_mismatch_without_repairing(self) -> None:
         current = self.dao.import_inventory_snapshot(
             snapshot(3, [item(11, "module"), item(22, "core")])
@@ -317,7 +341,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             exact_loadout=True,
         )
 
-        self.assertIn("装配位置不一致", mismatch)
+        self.assertIn("未装备", mismatch)
         self.assertIsNone(self.sync.params)
         self.assertEqual([], self.sync.module_calls)
         self.assertEqual([], self.sync.unmount_calls)
@@ -580,7 +604,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
 
     def test_rejects_snapshot_that_does_not_confirm_target_position(self) -> None:
         self.sync.verify_correctly = False
-        with self.assertRaisesRegex(EquipmentApplyError, "装配位置不一致"):
+        with self.assertRaisesRegex(EquipmentApplyError, "位置不一致"):
             EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
 
     def test_bulk_validation_rejects_equipment_uid_conflict(self) -> None:

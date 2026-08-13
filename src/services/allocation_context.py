@@ -16,6 +16,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.character_weight_service import is_unmodified_account_weight_cache
 from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
+from src.services.equipment_level_projection_service import project_equipment_items_to_max_level
 
 
 ALLOCATION_CONTEXT_SOLVER_VERSION = "allocation-context-v1"
@@ -611,6 +612,10 @@ def build_allocation_context(
         )
         for row in role_rows
     )
+    calculation_inventory_rows = project_equipment_items_to_max_level(
+        inventory_rows,
+        static_dao,
+    )
     candidates = tuple(
         _candidate(
             row, known_attribute_ids=known_attribute_ids,
@@ -619,7 +624,7 @@ def build_allocation_context(
             known_character_ids=known_character_ids,
             snapshot_source=_required_text(snapshot.get("source"), "背包快照 source"),
         )
-        for row in inventory_rows
+        for row in calculation_inventory_rows
     )
     allocation_strategy = _required_text(
         version.get("allocation_strategy"), "allocation_strategy"

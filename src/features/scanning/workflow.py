@@ -155,6 +155,13 @@ def _do_exec(self):
     tmf = self.role_selector.get_tape_main_filters()
     cpm = self.role_selector.get_crit_priority_modes()
     crc = self.role_selector.get_crit_rate_caps()
+    if strat == "global_optimal":
+        # Global solving has no per-role preference contract.  Keep it usable
+        # with the new defaults, and only send user-authored overrides so the
+        # existing validation can explain unsupported combinations.
+        tmf = self.role_selector.get_tape_main_filter_overrides()
+        cpm = self.role_selector.get_crit_priority_mode_overrides()
+        crc = self.role_selector.get_crit_rate_cap_overrides()
     sem = self.role_selector.get_set_effect_modes()
     pg = self.role_selector.get_priority_groups() if hasattr(self.role_selector, "get_priority_groups") else None
     preference_error = role_preference_mode_error(strat, tmf, cpm, crc)

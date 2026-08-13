@@ -17,6 +17,9 @@ from src.features.official_role.page import (
     build_official_role_page,
     refresh_official_role_page,
 )
+from src.features.inventory.equipment_display_view import (
+    build_equipment_mode_switch,
+)
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 
 class MainWindowNavigationMixin:
@@ -84,10 +87,14 @@ class MainWindowNavigationMixin:
         self.topbar_title = QLabel(NAV_ITEMS[0].label)
         tbh.addWidget(self.topbar_title)
         self.topbar_source_label = QLabel("评分标准来源于微信小程序“异环工坊”")
-        self.topbar_source_label.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px;margin-left:12px")
+        self.topbar_source_label.setStyleSheet("color:#8b949e;font-size:12px;margin-left:12px")
         self.topbar_source_label.setWordWrap(False)
         self.topbar_source_label.setVisible(False)
         tbh.addWidget(self.topbar_source_label)
+        tbh.addSpacing(14)
+        self.topbar_equipment_modes = build_equipment_mode_switch(self, tbar)
+        self.topbar_equipment_modes.setVisible(False)
+        tbh.addWidget(self.topbar_equipment_modes)
         tbh.addStretch()
         self.account_combo = QComboBox()
         self.account_combo.setFixedWidth(150)
@@ -174,20 +181,35 @@ class MainWindowNavigationMixin:
             return
         self.stack.setCurrentIndex(indexes.get(item.key, 0))
         self.topbar_title.setText(item.label)
-        if hasattr(self, "topbar_source_label"):
-            self.topbar_source_label.setVisible(item.key in {"equipment", "identify", "config"})
+        self.topbar_source_label.setVisible(item.key in {"identify", "config"})
+        self.topbar_equipment_modes.setVisible(item.key == "equipment")
         for btn in self._nav_buttons.values():
             btn.setChecked(False)
         selected_key = item.key if item.sidebar else item.parent_key
         button = self._nav_buttons.get(selected_key or "")
         if button is not None:
             button.setChecked(True)
-        if item.refresh_method:
-            if item.key == "identify":
-                self.identification_controller.refresh_options()
-            elif item.key == "blueprint":
-                self.blueprint_page.refresh()
-            elif item.key == "my_role":
-                refresh_official_role_page(self)
-            else:
-                getattr(self, item.refresh_method)()
+        self._refresh_navigation_item(item)
+
+    def _refresh_navigation_item(self, item) -> None:
+        """Refresh one built page through its public feature boundary."""
+
+        if not item.refresh_method:
+            return
+        if item.key == "identify":
+            self.identification_controller.refresh_options()
+        elif item.key == "blueprint":
+            self.blueprint_page.refresh()
+        elif item.key == "my_role":
+            refresh_official_role_page(self)
+        else:
+            getattr(self, item.refresh_method)()
+
+    def refresh_current_account_page(self) -> str:
+        """Reload the visible account-scoped page after an account switch."""
+
+        item = nav_item_by_key(
+            self._nav_key_for_index(self.stack.currentIndex())
+        ) or NAV_ITEMS[0]
+        self._refresh_navigation_item(item)
+        return item.key

@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -21,7 +20,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.app.theme import themed_style
 from src.services.official_role_page_service import (
     calculate_official_role_margins,
 )
@@ -196,14 +194,8 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     pointer_close = QPushButton("关闭")
     pointer_close.clicked.connect(pointer_dialog.accept)
     pointer_layout.addWidget(pointer_close)
-    help_button.setToolTip("编辑觉醒和直伤技能")
+    help_button.setToolTip("设置觉醒和直伤技能")
     help_button.clicked.connect(pointer_dialog.exec)
-
-    separator = QFrame()
-    separator.setFrameShape(QFrame.HLine)
-    separator.setFrameShadow(QFrame.Sunken)
-    separator.setStyleSheet(themed_style("background-color:#30363d;max-height:1px"))
-    layout.addWidget(separator)
 
     skills_by_id = {str(skill["skill_id"]): skill for skill in detail["skills"]}
     skill_levels = {str(key): int(value) for key, value in (profile.get("skill_levels") or {}).items()}

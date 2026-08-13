@@ -29,6 +29,7 @@ from src.features.allocation.priority_groups import (
     links_to_priority_groups,
     load_priority_selection,
     normalize_priority_links,
+    shift_crossed_priority_boundaries,
 )
 from src.solver.set_effects import FOUR_PIECE, NO_EFFECT, SET_EFFECT_MODES, TWO_PIECE, normalize_set_effect_mode
 from src.features.allocation.role_selector_help import (
@@ -36,6 +37,9 @@ from src.features.allocation.role_selector_help import (
     SET_EFFECT_HELP,
     STAT_PRIORITY_HELP,
 )
+
+
+_ROLE_DEFAULT_POLICY = "no-default-stat-selection-v2"
 
 
 def resolve_priority_choice(values: list[str], raw_text: str | None, current_data=None) -> str:
@@ -78,6 +82,18 @@ def normalize_weapons_db(weapons_db) -> dict:
 
 
 class RoleSelectorPreferencesMixin:
+    def _selected_substat_priority(self, name: str) -> list[str]:
+        """Resolve the editor value while preserving an explicit empty override."""
+
+        current = self.stat_priority_configs.get(name)
+        if isinstance(current, dict) and "stats" in current:
+            values = current.get("stats") or []
+        elif name in self.stat_priority_override_roles:
+            values = []
+        else:
+            values = self._default_substat_priority(name)
+        return [stat for stat in list(values) if stat in self.drive_sub_stats]
+
     def _manage_role_preferences(self, name):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{name} · 管理")
@@ -89,13 +105,14 @@ class RoleSelectorPreferencesMixin:
 
         role_data = self.all_roles.get(name, {})
         current_set = self.custom_sets.get(name) or role_data.get("default_set", self.all_sets[0] if self.all_sets else "")
+        default_weapon = self._default_weapon_for_role(name)
         set_box = QGroupBox("角色配置")
         set_layout = QVBoxLayout(set_box)
         set_layout.setContentsMargins(8, 8, 8, 8)
         set_layout.setSpacing(5)
         set_row = QHBoxLayout()
         set_row.setSpacing(8)
-        set_row.addWidget(QLabel("套装："))
+        set_row.addWidget(QLabel("卡带："))
         set_combo = SearchableComboBox()
         self._fill_search_combo(set_combo, self.all_sets, current_set)
         set_row.addWidget(set_combo, 1)
@@ -105,7 +122,11 @@ class RoleSelectorPreferencesMixin:
         weapon_row.addWidget(QLabel("弧盘："))
         weapon_combo = SearchableComboBox()
         weapon_names = sorted(self.weapons_db.keys())
-        self._fill_search_combo(weapon_combo, weapon_names, self.custom_weapons.get(name, ""))
+        self._fill_search_combo(
+            weapon_combo,
+            weapon_names,
+            self.custom_weapons.get(name, "") or default_weapon,
+        )
         if weapon_combo.lineEdit() is not None:
             weapon_combo.lineEdit().setClearButtonEnabled(True)
         weapon_row.addWidget(weapon_combo, 1)
@@ -117,8 +138,18 @@ class RoleSelectorPreferencesMixin:
         template_layout.setContentsMargins(8, 6, 8, 6)
         template_layout.setSpacing(5)
 
-        selected_main_stats = list(self.tape_main_filters.get(name, []))
-        main_box = self._build_multi_select_row("卡带主词条：", self.tape_main_stats, selected_main_stats, "、")
+        selected_main_stats = list(
+            self.tape_main_filters.get(name, [])
+            if name in self.tape_main_filter_override_roles
+            else self._default_tape_main_filter(name)
+        )
+        main_box = self._build_multi_select_row(
+            "卡带主词条：",
+            self.tape_main_stats,
+            selected_main_stats,
+            "、",
+            empty_text="未选择",
+        )
         template_layout.addWidget(main_box)
 
         current_stat_cfg = (
@@ -126,8 +157,14 @@ class RoleSelectorPreferencesMixin:
             if isinstance(self.stat_priority_configs.get(name, {}), dict)
             else {}
         )
-        selected_stats = [s for s in list(current_stat_cfg.get("stats", []) or []) if s in self.drive_sub_stats]
-        stat_box = self._build_multi_select_row("卡带/驱动副词条：", self.drive_sub_stats, selected_stats, " > ")
+        selected_stats = self._selected_substat_priority(name)
+        stat_box = self._build_multi_select_row(
+            "卡带/驱动副词条：",
+            self.drive_sub_stats,
+            selected_stats,
+            " > ",
+            empty_text="未选择",
+        )
         stat_layout = stat_box.layout()
         selected_blacklist = [
             stat
@@ -136,7 +173,11 @@ class RoleSelectorPreferencesMixin:
         ]
         stat_layout.addWidget(
             self._build_multi_select_row(
-                "副词条黑名单：", self.drive_sub_stats, selected_blacklist, "、"
+                "副词条黑名单：",
+                self.drive_sub_stats,
+                selected_blacklist,
+                "、",
+                empty_text="未选择",
             )
         )
         help_btn = QPushButton("?")
@@ -220,6 +261,10 @@ class RoleSelectorPreferencesMixin:
         crit_row.addWidget(QLabel("暴击率上限："))
         crit_cap_edit = QLineEdit()
         current_cap = self.crit_rate_caps.get(name)
+        if current_cap is None:
+            current_cap = self._weapon_crit_rate_cap(
+                self.custom_weapons.get(name, "") or default_weapon
+            )
         if current_cap is not None:
             crit_cap_edit.setText(f"{float(current_cap):g}")
         crit_cap_edit.setPlaceholderText("留空不限制")
@@ -279,7 +324,9 @@ class RoleSelectorPreferencesMixin:
         self.custom_weapons.clear()
         self.crit_rate_caps.clear()
         self.tape_main_filters.clear()
+        self.tape_main_filter_override_roles.clear()
         self.stat_priority_configs.clear()
+        self.stat_priority_override_roles.clear()
         self.set_effect_modes.clear()
         self._render_grid(self.search.text())
 
@@ -313,6 +360,8 @@ class RoleSelectorPreferencesMixin:
     def _reorder_selected(self, index, new_index):
         if index < 0 or new_index < 0 or index >= len(self.selected) or new_index >= len(self.selected):
             return
+        self.priority_links = normalize_priority_links(self.selected, self.priority_links)
+        shift_crossed_priority_boundaries(self.priority_links, index, new_index)
         role = self.selected.pop(index)
         self.selected.insert(new_index, role)
         self.priority_links = normalize_priority_links(self.selected, self.priority_links)
@@ -338,33 +387,66 @@ class RoleSelectorPreferencesMixin:
             if self.custom_sets.get(name)
         }
 
-    def get_tape_main_filters(self):
+    def get_tape_main_filter_overrides(self):
         return {
             name: list(self.tape_main_filters.get(name, []))
             for name in self.selected
             if self.tape_main_filters.get(name)
         }
 
-    def get_custom_weapons(self):
-        return {
-            name: self.custom_weapons.get(name)
-            for name in self.selected
-            if self.custom_weapons.get(name)
-        }
-
-    def get_crit_rate_caps(self):
+    def get_crit_rate_cap_overrides(self):
         return {
             name: float(self.crit_rate_caps.get(name))
             for name in self.selected
             if name in self.crit_rate_caps
         }
 
-    def get_crit_priority_modes(self):
+    def get_crit_priority_mode_overrides(self):
         return {
             name: dict(self.stat_priority_configs.get(name))
             for name in self.selected
             if self.stat_priority_configs.get(name)
         }
+
+    def get_tape_main_filters(self):
+        filters = {}
+        for name in self.selected:
+            effective = (
+                self.tape_main_filters.get(name, [])
+                if name in self.tape_main_filter_override_roles
+                else self._default_tape_main_filter(name)
+            )
+            if effective:
+                filters[name] = list(effective)
+        return filters
+
+    def get_custom_weapons(self):
+        return {
+            name: weapon
+            for name in self.selected
+            if (weapon := self._effective_weapon_for_role(name))
+        }
+
+    def get_crit_rate_caps(self):
+        caps = {}
+        for name in self.selected:
+            cap = self.crit_rate_caps.get(name)
+            if cap is None:
+                cap = self._weapon_crit_rate_cap(self._effective_weapon_for_role(name))
+            if cap is not None:
+                caps[name] = float(cap)
+        return caps
+
+    def get_crit_priority_modes(self):
+        configs = {}
+        for name in self.selected:
+            default = self._default_substat_priority(name)
+            effective = self.stat_priority_configs.get(name)
+            if effective:
+                configs[name] = dict(effective)
+            elif name not in self.stat_priority_override_roles and default:
+                configs[name] = {"stats": list(default)}
+        return configs
 
     def get_set_effect_modes(self):
         return {
@@ -384,6 +466,8 @@ class RoleSelectorPreferencesMixin:
     def _write_priority_config(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
+            "role_default_policy": _ROLE_DEFAULT_POLICY,
+            "default_mag_character_ids": sorted(self.default_mag_character_ids),
             "priority_list": self.selected,
             "priority_groups": self.get_priority_groups(),
             "priority_links": normalize_priority_links(self.selected, self.priority_links),
@@ -391,8 +475,22 @@ class RoleSelectorPreferencesMixin:
             "custom_set_overrides": self.get_custom_sets(),
             "custom_weapons": self.get_custom_weapons(),
             "crit_rate_caps": self.get_crit_rate_caps(),
-            "tape_main_filters": self.get_tape_main_filters(),
-            "stat_priority_configs": self.get_crit_priority_modes(),
+            "tape_main_filters": {
+                name: list(self.tape_main_filters[name])
+                for name in self.selected
+                if name in self.tape_main_filters
+            },
+            "tape_main_filter_override_roles": sorted(
+                name
+                for name in self.selected
+                if name in self.tape_main_filter_override_roles
+            ),
+            "stat_priority_configs": self.get_crit_priority_mode_overrides(),
+            "stat_priority_override_roles": sorted(
+                name
+                for name in self.selected
+                if name in self.stat_priority_override_roles
+            ),
             "set_effect_modes": self.get_set_effect_modes(),
         }
         with open(path, "w", encoding="utf-8") as f:
@@ -418,7 +516,9 @@ class RoleSelectorPreferencesMixin:
         self.custom_weapons.clear()
         self.crit_rate_caps.clear()
         self.tape_main_filters.clear()
+        self.tape_main_filter_override_roles.clear()
         self.stat_priority_configs.clear()
+        self.stat_priority_override_roles.clear()
         self.set_effect_modes.clear()
         if not path.exists():
             self._render_grid(self.search.text())
@@ -442,12 +542,24 @@ class RoleSelectorPreferencesMixin:
                 except (TypeError, ValueError):
                     continue
             raw_filters = data.get("tape_main_filters", {})
-            self.tape_main_filters = {
-                role: [value for value in values if value in self.tape_main_stats]
-                for role, values in raw_filters.items()
-                if role in self.all_roles and isinstance(values, list)
+            self.tape_main_filters = {}
+            self.tape_main_filter_override_roles = {
+                role
+                for role in data.get("tape_main_filter_override_roles", [])
+                if role in self.all_roles
             }
+            for role, values in raw_filters.items():
+                if role not in self.all_roles or not isinstance(values, list):
+                    continue
+                filtered = [value for value in values if value in self.tape_main_stats]
+                self.tape_main_filters[role] = filtered
+                self.tape_main_filter_override_roles.add(role)
             self.stat_priority_configs = {}
+            self.stat_priority_override_roles = {
+                role
+                for role in data.get("stat_priority_override_roles", [])
+                if role in self.all_roles
+            }
             allowed_stats = set(self.drive_sub_stats)
             for role, cfg_item in data.get("stat_priority_configs", {}).items():
                 if role not in self.all_roles or not isinstance(cfg_item, dict):
@@ -455,6 +567,7 @@ class RoleSelectorPreferencesMixin:
                 cfg = persistable_stat_priority_config(cfg_item, allowed_stats=allowed_stats)
                 if cfg:
                     self.stat_priority_configs[role] = cfg
+                    self.stat_priority_override_roles.add(role)
             self.set_effect_modes = {}
             for role, mode in data.get("set_effect_modes", {}).items():
                 normalized = normalize_set_effect_mode(mode)

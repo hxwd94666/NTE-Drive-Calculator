@@ -1,7 +1,7 @@
 # PySide6 主窗口入口和功能模块挂载。
 """NTE Drive Calc - PySide6 Desktop Application"""
 
-import sys, os, threading, ctypes, subprocess
+import sys, os, threading, ctypes
 from pathlib import Path
 from typing import Optional
 
@@ -26,11 +26,7 @@ from src.app.constants import (
 )
 from src.app.theme import (
     apply_app_theme,
-    current_style_sheet,
     install_dialog_defaults,
-    refresh_inline_theme_styles,
-    theme_color,
-    theme_preference,
 )
 
 _BUNDLED_CONFIG_DIR = _PACKAGE_ROOT / "config"
@@ -122,10 +118,12 @@ def _migrate_legacy_shared_shape_bonus() -> None:
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.page import refresh_account_scoped_settings
 from src.integrations.global_hotkeys import GlobalHotkeyManager
-from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.global_theme_settings_service import GlobalThemeSettingsService
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
+from src.features.toolbox.page import ToolboxDependencies, ToolboxPage
+from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
 from src.features.battle_report.dependencies import build_battle_report_controller
 from src.features.identification.controller import IdentificationController
 from src.features.onboarding.guide import OnboardingGuide
@@ -144,6 +142,9 @@ _INITIAL_ACCOUNT_STATE = _initialize_accounts()
 APP_CONTEXT = AppContext(
     APPLICATION_PATHS,
     _INITIAL_ACCOUNT_STATE,
+)
+GLOBAL_THEME_SETTINGS = GlobalThemeSettingsService(
+    APPLICATION_PATHS.global_ui_preferences_file
 )
 _migrate_legacy_shared_shape_bonus()
 from src.features.inventory.warehouse import configure_warehouse_view_template_roots
@@ -188,8 +189,9 @@ def _ensure_admin():
 from src.ui.main_window_data_mixin import MainWindowDataMixin
 
 from src.ui.main_window_navigation_mixin import MainWindowNavigationMixin
+from src.ui.main_window_theme_mixin import MainWindowThemeMixin
 
-class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWindowMixin, QMainWindow):
+class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWindowMixin, QMainWindow):
     log_signal = Signal(str)
     inventory_sync_state_signal = Signal(object)
     W, H = 1260, 860
@@ -258,7 +260,11 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         self._hk_finish = "F10"
         self._hk_stop = "F12"
         self._account_settings = self.app_context.account_settings
+        legacy_theme = self._account_settings.legacy_theme_preference()
         self._account_settings.migrate_legacy_settings()
+        self._account_settings.remove_legacy_theme_preference()
+        self._global_theme_settings = GLOBAL_THEME_SETTINGS
+        self._theme_preference = self._load_theme_preference(legacy_theme)
         self._load_hotkey_config()
         self.global_hotkey_manager = GlobalHotkeyManager(
             capture_hotkey=self._hk_capture,
@@ -280,7 +286,7 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
             preferences_provider=lambda: self._ui_preferences,
             save_preferences=self._save_ui_preferences,
             refresh_roles=lambda: refresh_official_role_page(self),
-            refresh_equipment=self._refresh_equip,
+            refresh_equipment=self.refresh_saved_equipment_after_mutation,
             card_factory=self._card,
             equipment_presentation=self.equipment_presentation,
             hotkey_manager=self.global_hotkey_manager,
@@ -308,6 +314,15 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         self.blueprint_page = BlueprintPage(
             app_context=self.app_context,
             navigate=self._go,
+        )
+        self.toolbox_page = ToolboxPage(
+            dependencies=ToolboxDependencies(
+                rewind_service_factory=lambda: RewindShapeRecommendationService(
+                    user_database_path=self.app_context.account.user_database_path,
+                    static_database_path=self.app_context.paths.static_database_path,
+                ),
+            ),
+            dialog_parent=self,
         )
         self.onboarding_guide = OnboardingGuide(
             app_context=self.app_context,
@@ -342,81 +357,6 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         self._on_log("系统就绪")
         self.onboarding_guide.maybe_show()
         self._maybe_check_updates_on_startup()
-
-    def _load_update_config(self):
-        return self._account_settings.load("update")
-
-    def _save_update_config(self):
-        self._update_config = self._account_settings.save("update", self._update_config)
-
-    def _load_ui_preferences(self):
-        return self._account_settings.load("ui")
-
-    def _save_ui_preferences(self):
-        self._ui_preferences = self._account_settings.save("ui", self._ui_preferences)
-
-    def _current_style_sheet(self):
-        return current_style_sheet(QApplication.instance())
-
-    def _apply_theme_preference(self):
-        theme = (self._ui_preferences or {}).get("theme", "dark")
-        apply_app_theme(QApplication.instance(), theme)
-        refresh_inline_theme_styles(self, QApplication.instance())
-        if hasattr(self, "topbar_source_label"):
-            self.topbar_source_label.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px;margin-left:12px")
-        if hasattr(self, "status_lbl"):
-            self.status_lbl.setStyleSheet(f"color:{theme_color('#6e7681')};font-size:12px")
-
-    def _set_theme_preference(self, theme):
-        normalized = theme_preference(theme)
-        if (self._ui_preferences or {}).get("theme", "dark") == normalized:
-            return True
-        if not self._prompt_restart_for_theme_change():
-            return False
-        previous = (self._ui_preferences or {}).get("theme", "dark")
-        self._ui_preferences["theme"] = normalized
-        self._save_ui_preferences()
-        if not self._restart_application_as_admin():
-            self._ui_preferences["theme"] = previous
-            self._save_ui_preferences()
-            return False
-        return True
-
-    def _prompt_restart_for_theme_change(self):
-        box = QMessageBox(self)
-        box.setWindowTitle("重启生效")
-        box.setText("切换主题需要重启应用，是否现在重启并应用？")
-        ok_button = box.addButton("好的", QMessageBox.AcceptRole)
-        box.addButton("取消", QMessageBox.RejectRole)
-        box.setDefaultButton(ok_button)
-        box.exec()
-        return box.clickedButton() is ok_button
-
-    def _restart_application_as_admin(self):
-        QApplication.processEvents()
-        program = sys.executable
-        args = sys.argv[:]
-        parameters = ""
-        if not getattr(sys, "frozen", False):
-            parameters = subprocess.list2cmdline(args)
-        elif len(args) > 1:
-            parameters = subprocess.list2cmdline(args[1:])
-        if sys.platform == "win32":
-            result = ctypes.windll.shell32.ShellExecuteW(
-                None,
-                "runas",
-                program,
-                parameters,
-                str(self.app_context.paths.app_dir),
-                1,
-            )
-            if result <= 32:
-                QMessageBox.warning(self, "重启失败", "未能以管理员方式重启应用，主题设置已取消。")
-                return False
-            QApplication.quit()
-            return True
-        QMessageBox.warning(self, "重启失败", "当前系统不支持自动管理员重启，主题设置已取消。")
-        return False
 
     # ── Frameless
     def _on_edge(self, pos):
@@ -656,10 +596,6 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
                 reason="account_not_found",
             )
             return False
-        # A freshly-created account has no UI preference copy yet.  Seed its
-        # theme from the current account so the running application never
-        # switches to an incompatible default theme mid-session.
-        self._account_switch_theme_seed = (self._ui_preferences or {}).get("theme", "dark")
         ACCOUNT_MANAGER.set_active_account_id(account_id)
         target_account = ACCOUNT_MANAGER.activate(account_id)
         self.app_context.switch_account(target_account)
@@ -673,7 +609,6 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
             account_id=event.previous.active_account_id,
             context_generation=max(0, event.generation - 1),
         )
-        current_theme = getattr(self, "_account_switch_theme_seed", "dark")
         if self._log_enabled:
             disable_session_log(
                 reason="account_switch",
@@ -686,6 +621,7 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         set_log_dir(event.current.log_dir, reopen_session=False)
         self._account_settings = self.app_context.account_settings
         self._account_settings.migrate_legacy_settings()
+        self._account_settings.remove_legacy_theme_preference()
         self._load_hotkey_config()
         self.global_hotkey_manager.update_configuration(
             capture_hotkey=self._hk_capture,
@@ -694,12 +630,6 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         )
         self._update_config = self._load_update_config()
         self._ui_preferences = self._load_ui_preferences()
-        with UserDataDao(event.current.user_database_path) as user_dao:
-            has_ui_preference_copy = "ui" in user_dao.list_application_setting_copies()
-        if not has_ui_preference_copy:
-            self._ui_preferences["theme"] = current_theme
-            self._save_ui_preferences()
-        self._apply_theme_preference()
         self._toggle_log(
             bool(self._ui_preferences["log_enabled"]),
             reason="account_switch",
@@ -709,11 +639,13 @@ class MainWindow(MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWind
         self.battle_report_controller.reset_account_state()
         self.blueprint_page.reset_account_state()
         self.scanning_controller.reset_account_state()
+        self.reset_equipment_account_state()
         self._load_data()
-        if hasattr(self, "my_role_form_layout"):
-            refresh_official_role_page(self)
         if hasattr(self, "weighted_role_selector"):
             self._refresh_weighted_allocation()
+        active_page = self._nav_key_for_index(self.stack.currentIndex())
+        if active_page not in {"home", "execute"}:
+            self.refresh_current_account_page()
         self._refresh_account_combo()
         if hasattr(self, "_ss_info"):
             self._refresh_ss()
@@ -780,7 +712,14 @@ def run_gui():
         QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    apply_app_theme(app, "dark")
+    account_settings = APP_CONTEXT.account_settings
+    legacy_theme = account_settings.legacy_theme_preference()
+    account_settings.migrate_legacy_settings()
+    account_settings.remove_legacy_theme_preference()
+    apply_app_theme(
+        app,
+        GLOBAL_THEME_SETTINGS.load(legacy_theme=legacy_theme),
+    )
     install_dialog_defaults(app)
     if APP_CONTEXT.paths.app_icon_path.exists():
         app.setWindowIcon(QIcon(str(APP_CONTEXT.paths.app_icon_path)))

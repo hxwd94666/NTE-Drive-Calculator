@@ -16,6 +16,7 @@ from src.features.drive_assembly.randomization import (
     jitter_scroll_endpoint,
     jitter_timing,
     path_noise_offset,
+    random_input_delay,
 )
 
 _DEFAULT_RANDOMIZATION_CTX = RandomizationContext()
@@ -32,18 +33,29 @@ INPUT_MOUSE = 0
 MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_WHEEL = 0x0800
 MOUSEEVENTF_ABSOLUTE = 0x8000
+WHEEL_DELTA = 120
 
 
 class MouseBackend(Protocol):
     def click(self, position: tuple[int, int]) -> None:
         """Click a screen position."""
 
+    def move_to(self, position: tuple[int, int]) -> None:
+        """Move the pointer without pressing a mouse button."""
+
     def drag(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
         """Drag from one screen position to another."""
 
     def drag_scroll(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
         """Perform a filter-panel scroll gesture."""
+
+    def scroll(self, position: tuple[int, int], clicks: int) -> None:
+        """Rotate the mouse wheel at a screen position."""
+
+    def press_key(self, key_name: str) -> None:
+        """Press a keyboard key."""
 
     def press_gamepad_button(self, button_name: str) -> None:
         """Press a virtual gamepad button."""
@@ -116,19 +128,145 @@ class PyAutoGuiMouseBackend:
         self._send_input = _WindowsSendInputMouseDriver(randomization=self._randomization)
         self._gamepad = _VirtualGamepadDriver()
         self._sleeper = time.sleep
+        self._mouse_delivery_diagnostics: list[dict[str, Any]] = []
 
     def click(self, position: tuple[int, int]) -> None:
         ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
         jpos = jitter_position(ctx, position, ctx.click_offset_range)
         jhold = jitter_timing(ctx, DEFAULT_CLICK_HOLD_SECONDS)
+        input_delay = random_input_delay(ctx)
+        sleeper = getattr(self, "_sleeper", time.sleep)
+        if input_delay > 0.0:
+            sleeper(input_delay)
         if self._send_input.available:
             self._send_input.click(jpos, hold_seconds=jhold)
+            self._record_mouse_delivery(
+                "sendinput_click",
+                requested_position=position,
+                dispatched_position=jpos,
+                cursor_position=self._send_input_cursor_position(),
+            )
             return
         self._pyautogui.mouseUp()
         self._pyautogui.moveTo(*jpos)
         self._pyautogui.mouseDown()
-        time.sleep(jhold)
+        sleeper(jhold)
         self._pyautogui.mouseUp()
+        self._record_mouse_delivery(
+            "pyautogui_click",
+            requested_position=position,
+            dispatched_position=jpos,
+            cursor_position=self._pyautogui_cursor_position(),
+        )
+
+    def move_to(self, position: tuple[int, int]) -> None:
+        """Send a pointer-only movement to wake the cloud cursor after gamepad input."""
+
+        if self._send_input.available:
+            self._send_input.move_to(position)
+            self._record_mouse_delivery(
+                "sendinput_move",
+                requested_position=position,
+                dispatched_position=position,
+                cursor_position=self._send_input_cursor_position(),
+            )
+            return
+        self._pyautogui.moveTo(*position)
+        self._record_mouse_delivery(
+            "pyautogui_move",
+            requested_position=position,
+            dispatched_position=position,
+            cursor_position=self._pyautogui_cursor_position(),
+        )
+
+    def cloud_click(self, position: tuple[int, int], hold_seconds: float = 0.12) -> None:
+        """Use PyAutoGUI's down/up route for cloud-stream controls that retain SendInput state."""
+
+        ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
+        jpos = jitter_position(ctx, position, ctx.click_offset_range)
+        sleeper = getattr(self, "_sleeper", time.sleep)
+        delay = random_input_delay(ctx)
+        if delay > 0.0:
+            sleeper(delay)
+        self._pyautogui.mouseUp(button="left")
+        self._record_mouse_delivery("cloud_before_down")
+        self._pyautogui.moveTo(*jpos)
+        sleeper(0.05)
+        self._pyautogui.mouseDown(button="left")
+        self._record_mouse_delivery("cloud_after_down")
+        sleeper(max(0.06, float(hold_seconds)))
+        self._pyautogui.mouseUp(button="left")
+        self._record_mouse_delivery("cloud_after_up")
+
+    def force_mouse_release(self) -> None:
+        """Send both release routes so a cloud client never retains left-button state."""
+
+        send_input_result: int | None = None
+        if self._send_input.available:
+            send_input_result = self._send_input.release_left()
+        self._pyautogui.mouseUp(button="left")
+        self._record_mouse_delivery("forced_release", send_input_result)
+
+    def consume_mouse_delivery_diagnostics(self) -> list[dict[str, Any]]:
+        """Return and clear recent local button-state observations for one action batch."""
+
+        records = list(getattr(self, "_mouse_delivery_diagnostics", []))
+        self._mouse_delivery_diagnostics = []
+        return records
+
+    def _record_mouse_delivery(
+        self,
+        stage: str,
+        send_input_result: int | None = None,
+        requested_position: tuple[int, int] | None = None,
+        dispatched_position: tuple[int, int] | None = None,
+        cursor_position: tuple[int, int] | None = None,
+    ) -> None:
+        records = getattr(self, "_mouse_delivery_diagnostics", None)
+        if records is None:
+            records = []
+            self._mouse_delivery_diagnostics = records
+        record: dict[str, Any] = {
+            "stage": stage,
+            "local_left_down": self._local_left_button_down(),
+            "send_input_result": send_input_result,
+        }
+        if requested_position is not None:
+            record["requested_position"] = requested_position
+        if dispatched_position is not None:
+            record["dispatched_position"] = dispatched_position
+        if cursor_position is not None:
+            record["cursor_position"] = cursor_position
+        records.append(record)
+        del records[:-12]
+
+    def _send_input_cursor_position(self) -> tuple[int, int] | None:
+        cursor = getattr(self._send_input, "cursor_position", None)
+        if not callable(cursor):
+            return None
+        try:
+            return cursor()
+        except Exception:
+            return None
+
+    def _pyautogui_cursor_position(self) -> tuple[int, int] | None:
+        position = getattr(self._pyautogui, "position", None)
+        if not callable(position):
+            return None
+        try:
+            point = position()
+            return int(point.x), int(point.y)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _local_left_button_down() -> bool | None:
+        try:
+            import ctypes
+
+            return bool(ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000)
+        except Exception:
+            return None
 
     def drag(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
         # Equipment placement needs the game's original mouse drag behavior.
@@ -158,6 +296,28 @@ class PyAutoGuiMouseBackend:
             self._send_input.drag(start, end, duration_ms)
             return
         self.drag(start, end, duration_ms)
+
+    def scroll(self, position: tuple[int, int], clicks: int) -> None:
+        if not clicks:
+            return
+        ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
+        randomized_position = jitter_position(ctx, position, ctx.click_offset_range)
+        input_delay = random_input_delay(ctx)
+        if input_delay > 0.0:
+            getattr(self, "_sleeper", time.sleep)(input_delay)
+        if self._send_input.available:
+            self._send_input.scroll(randomized_position, clicks)
+            return
+        self._pyautogui.mouseUp(button="left")
+        self._pyautogui.moveTo(*randomized_position)
+        self._pyautogui.scroll(int(clicks))
+
+    def press_key(self, key_name: str) -> None:
+        ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
+        input_delay = random_input_delay(ctx)
+        if input_delay > 0.0:
+            getattr(self, "_sleeper", time.sleep)(input_delay)
+        self._pyautogui.press(str(key_name))
 
     def press_gamepad_button(self, button_name: str) -> None:
         self._gamepad.press(button_name)
@@ -248,6 +408,24 @@ class _WindowsSendInputMouseDriver:
         self._sleeper(hold)
         self._send(MOUSEEVENTF_LEFTUP)
 
+    def release_left(self) -> int | None:
+        """Issue a standalone left-button release without moving the pointer."""
+
+        if self.available:
+            return self._send(MOUSEEVENTF_LEFTUP)
+        return None
+
+    def scroll(self, position: tuple[int, int], clicks: int) -> None:
+        """Rotate the wheel at *position* using the same SendInput route as scanner swipes."""
+
+        if not self.available:
+            raise RuntimeError("SendInput is not available")
+        if not clicks:
+            return
+        self._move_to(position)
+        self._sleeper(0.05)
+        self._send(MOUSEEVENTF_WHEEL, mouse_data=int(clicks) * WHEEL_DELTA)
+
     def _move_relative_in_steps(
         self,
         start: tuple[int, int],
@@ -285,6 +463,26 @@ class _WindowsSendInputMouseDriver:
         ax, ay = self._abs_coord(position)
         self._send(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, ax, ay)
 
+    def move_to(self, position: tuple[int, int]) -> None:
+        """Move without emitting a button event."""
+
+        if not self.available:
+            raise RuntimeError("SendInput is not available")
+        self._move_to(position)
+
+    def cursor_position(self) -> tuple[int, int] | None:
+        """Return Windows' recorded pointer position after a SendInput action."""
+
+        if self._user32 is None or self._wintypes is None:
+            return None
+        try:
+            point = self._wintypes.POINT()
+            if not self._user32.GetCursorPos(self._ctypes.byref(point)):
+                return None
+            return int(point.x), int(point.y)
+        except Exception:
+            return None
+
     def _abs_coord(self, position: tuple[int, int]) -> tuple[int, int]:
         width = max(1, int(self._user32.GetSystemMetrics(0)))
         height = max(1, int(self._user32.GetSystemMetrics(1)))
@@ -297,10 +495,10 @@ class _WindowsSendInputMouseDriver:
         distance_steps = max(1, int(distance / 18))
         return max(50, min(90, max(duration_steps, distance_steps)))
 
-    def _send(self, flags: int, dx: int = 0, dy: int = 0) -> None:
-        mouse_input = self._mouse_input_cls(dx, dy, 0, flags, 0, None)
+    def _send(self, flags: int, dx: int = 0, dy: int = 0, mouse_data: int = 0) -> int:
+        mouse_input = self._mouse_input_cls(dx, dy, mouse_data, flags, 0, None)
         input_value = self._input_cls(INPUT_MOUSE, mouse_input)
-        self._user32.SendInput(1, self._ctypes.byref(input_value), self._ctypes.sizeof(input_value))
+        return int(self._user32.SendInput(1, self._ctypes.byref(input_value), self._ctypes.sizeof(input_value)))
 
     @staticmethod
     def _build_structs(ctypes_module: Any, wintypes_module: Any) -> tuple[Any, Any]:

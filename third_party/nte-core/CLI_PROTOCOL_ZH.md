@@ -4,12 +4,12 @@
 
 `nte-core` 是仅输出英文机器协议值的无界面本地 Sidecar。协议字段和值保持稳定；调用方必须根据 JSON-RPC 数字错误码和 `error.data.domain_code` 分支，不能依赖用于人工阅读的 `message` 或 `detail` 文案。
 
-正式发行包为 `nte-core-windows-x64.zip`，包含 `nte-core.exe`、`CLI_PROTOCOL.md`、`CLI_PROTOCOL_ZH.md`、`examples/`、`THIRD_PARTY_LICENSES.md` 与 `licenses/`。Sidecar 供同一台 Windows 计算机上的第三方工具调用，不监听或开放 TCP/HTTP 端口。CLI 只内嵌抓包解析所需的核心 JSON，不包含 GUI 图片、字体、应用图标或 GUI 依赖栈。发行和集成仍受仓库 AGPL／商业双授权约束。
+正式发行包为 `nte-core-windows-x64.zip`，包含 `nte-core.exe`、`CLI_PROTOCOL.md`、`CLI_PROTOCOL_ZH.md`、`examples/` 与 `THIRD_PARTY_LICENSES.md`。Sidecar 供同一台 Windows 计算机上的第三方工具调用，不监听或开放 TCP/HTTP 端口。CLI 只内嵌抓包解析所需的核心 JSON，不包含桌面 UI 图片、字体、应用图标或窗口依赖栈。发行和集成仍受仓库 AGPL／商业双授权约束。
 
 ## 命令行
 
 ```text
-nte-core serve --stdio [--data-dir <path>] [--log-level <level>]
+nte-core serve --stdio [--data-dir <path>]
 nte-core version --json
 nte-core devices --json
 ```
@@ -97,6 +97,10 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 - `MODS_PLUGIN_UNAVAILABLE`
 - `MODS_PLUGIN_BUSY`
 - `EQUIPMENT_REQUEST_REJECTED`
+- `BATTLE_RECORD_NOT_FOUND`
+- `BATTLE_AXIS_CURSOR_EXPIRED`
+- `BATTLE_AXIS_CURSOR_INVALID`
+- `BATTLE_TIMELINE_TOO_LARGE`
 
 底层操作系统、Npcap、端点、payload 和文件系统技术细节不会复制到 stdout。
 
@@ -108,7 +112,7 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 {"jsonrpc":"2.0","id":"hello-1","method":"core.hello","params":{"client_name":"NTE Drive Calc","client_version":"1.3.0","protocol_min":1,"protocol_max":1}}
 ```
 
-结果包含 `core_version`、协商后的 `protocol_version`、`data_version`、`capabilities` 和 `raw_capture_default`。当前 Core 构建支持本机装备插件桥接时，`capabilities` 包含 `equipment`。只有本文列出的方法可调用。
+结果包含 `core_version`、协商后的 `protocol_version`、`data_version`、`capabilities` 和 `raw_capture_default`。三个战斗读取接口分别以 `battle_record_v1`、`battle_axis_v1`、`battle_timeline_v1` 声明能力；`equipment` 表示此 Core 构建包含本机 `nte-mods-plugin` 桥接。只有本文列出的方法可调用。
 
 ## 方法索引
 
@@ -132,6 +136,9 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 | `equipment.set_item_discarded` | 装备、弃置状态 | 是 | 插件派发状态 |
 | `equipment.set_item_locked` | 装备、锁定状态 | 是 | 插件派发状态 |
 | `battle.get_summary` | `subtract_time_stop` | 是 | 战斗摘要或 null |
+| `battle.get_record` | 可选记录 ID、`subtract_time_stop` | 是 | 带版本的战斗记录或 null |
+| `battle.get_axis` | 可选记录 ID/cursor、有界 limit | 是 | 一页有界逐击数据或 null |
+| `battle.get_timeline` | 可选记录 ID、范围、桶宽、计时口径 | 是 | 有界时间线或 null |
 | `battle.reset` | `{}` 或省略 | 是 | `reset:true` |
 
 ## Core 方法
@@ -305,6 +312,56 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 `subtract_time_stop` 模式下，原生插件直接观测权威的 `AHTPlayerController::IsGamePausedByType` 状态。状态从零变为非零时开始时停，随后从非零回到零时结束时停；Core 配对这两个带时间戳的状态，并只扣除与伤害窗口重叠的区间。角色大招、角色专属时长表和深渊倒计时均不参与该计算；结算阶段事件也不会作为时长终点。
 
 外部战斗 DTO 由内部 `CombatSessionSummary` 显式逐字段映射，不直接暴露内部 Rust 序列化结构。所有数值都来自已验证的战斗状态，并保证是有限 JSON 数字。
+
+### `battle.get_record`
+
+```json
+{
+  "jsonrpc":"2.0",
+  "id":"record-1",
+  "method":"battle.get_record",
+  "params":{"battle_record_id":null,"subtract_time_stop":true}
+}
+```
+
+尚无战斗或深渊状态时返回 null。记录获得进程内稳定的 `battle_record_id`；抓包停止或 Core 关闭前状态为 `live`，之后变为 `finalized`。`battle.reset` 会终止该记录的可读取周期，下一场战斗获得新 ID。传入已经失效或未知的 ID 会返回 `BATTLE_RECORD_NOT_FOUND`，不会静默切换到当前战斗。
+
+响应契约版本为 1，包含共享 `generation`、抓包 operation ID、状态/来源、战斗时间边界、裁剪后的时停区间、深渊标记、聚合摘要、质量计数和逐击数据完整性。`generation`、`axis_first_sequence`、`axis_total_hits` 使用十进制字符串，避免 JavaScript 丢失 64 位整数精度。只有公开战斗读取模型发生变化或记录完成时才推进 generation。
+
+### `battle.get_axis`
+
+```json
+{
+  "jsonrpc":"2.0",
+  "id":"axis-1",
+  "method":"battle.get_axis",
+  "params":{"battle_record_id":"battle-1","cursor":null,"limit":250}
+}
+```
+
+返回一页有序逐击数据。`limit` 必填，范围为 1～500。`cursor` 可省略/为 null（从首条保留记录开始），也可传入 `next_cursor` 返回的正十进制字符串。sequence、cursor、total 均使用字符串，页面同时携带同一战斗 `generation`。每行包含 Core 已持有的有界、脱敏战斗事实，包括记录 ID、角色来源、归因状态/未知原因、方向、伤害/追击、目标投影、技能标识和深渊半场；不包含网络包字节、端点或 PCAP 数据。稳定队伍快照尚不存在时，`team_snapshot_id` 明确返回 null，不根据当前 UI 状态推测。
+
+Core 只保留有界命中窗口。更早记录被裁剪后，`complete` 变为 false，`first_available_cursor` 指出首条仍可读取记录。过旧 cursor 返回 `BATTLE_AXIS_CURSOR_EXPIRED`；超过 `total_hits + 1` 的 cursor 返回 `BATTLE_AXIS_CURSOR_INVALID`。
+
+### `battle.get_timeline`
+
+```json
+{
+  "jsonrpc":"2.0",
+  "id":"timeline-1",
+  "method":"battle.get_timeline",
+  "params":{
+    "battle_record_id":"battle-1",
+    "scope":"all",
+    "bucket_seconds":1.0,
+    "subtract_time_stop":true
+  }
+}
+```
+
+`scope` 可取 `all`、`upper`、`lower`。`bucket_seconds` 必填且必须是 0.2～10 的有限数值。响应复用 Core 权威时间线投影，包含角色、时间桶、桶内分角色 DPS、标记、时停区间和简化曲线段；同时携带契约版本 1、共享 battle generation，并在底层逐击数据已裁剪时返回 `complete:false`。
+
+Core 会在分配时间线前检查响应预算，最多输出 10,000 个桶和总计 100,000 个桶内角色行。超过任一预算会返回 `BATTLE_TIMELINE_TOO_LARGE`；客户端可以增大 `bucket_seconds` 或只查询深渊某一半。
 
 ### `battle.reset`
 

@@ -23,6 +23,14 @@
       "variant_key": "bat_form",
       "confidence": "confirmed",
       "reason": "安魂曲长按 E 技能后变成的蝙蝠战斗形象；与 1004 共用角色身份、属性包和养成配置，不是独立角色。"
+    },
+    "1091": {
+      "logical_character_key": "character:1004",
+      "classification": "combat_transformation",
+      "canonical_character_id": "1004",
+      "variant_key": "radio_form",
+      "confidence": "confirmed",
+      "reason": "测试服 DT_Character 中使用 lacrimosa_base 且没有独立技能配置的安魂曲广播形态；与 1004 共用角色身份、属性包和养成配置，不是独立角色。"
     }
   },
   "ability_profile_overrides": {

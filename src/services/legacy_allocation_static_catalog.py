@@ -80,6 +80,14 @@ def build_legacy_allocation_static_catalog(
             str(attribute["attribute_id"]): ScoringEngine._scoring_property_name(attribute)
             for attribute in static_dao.list_equipment_attributes()
         }
+        fork_names = {
+            str(fork.get("fork_id") or ""): str(fork.get("name_zh") or "")
+            for fork in static_dao.list_fork_templates()
+        }
+        graduation_templates = {
+            int(template["character_id"]): template
+            for template in static_dao.list_character_graduation_templates()
+        }
         for character in characters:
             character_id = int(character["character_id"])
             role_name = str(character.get("name_zh") or character_id)
@@ -100,9 +108,15 @@ def build_legacy_allocation_static_catalog(
                 if attributes.get(str(row["property_id"]))
             }
             scoring_role = scoring.roles_db.get(role_name, {})
+            graduation_template = graduation_templates.get(character_id, {})
+            default_weapon = fork_names.get(
+                str(graduation_template.get("fork_id") or ""),
+                "",
+            )
             roles_db[role_name] = {
                 "character_id": character_id,
                 "default_set": suit_name,
+                "default_weapon": default_weapon,
                 "extra_shape_label": extra_shape_label,
                 "extra_shape_buffs": extra_shape_buffs,
                 "weights": dict(scoring_role.get("weights") or {}),

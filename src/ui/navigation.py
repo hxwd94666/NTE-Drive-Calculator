@@ -54,6 +54,7 @@ NAV_ITEMS = (
         sidebar=False,
         parent_key="my_role",
     ),
+    NavItem("toolbox", "🧰  工具", "btn_toolbox", "_page_toolbox", "_refresh_toolbox"),
     NavItem("settings", "🔧  设置", "btn_settings", "_page_settings"),
 )
 

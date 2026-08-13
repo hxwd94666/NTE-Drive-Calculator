@@ -15,6 +15,7 @@ from src.utils.logger import logger
 
 
 SETTING_GROUPS = frozenset({"sync", "hotkeys", "update", "ui"})
+_LEGACY_THEME_PREFERENCES = frozenset({"dark", "black", "light"})
 
 # These are account preferences rather than game data.  Keep them here so an
 # older bundled static database can still supply the remaining UI defaults.
@@ -25,6 +26,7 @@ _UI_RUNTIME_DEFAULTS = {
     "equipment_plugin_dll_source": "",
     "equipment_plugin_backup_path": "",
     "equipment_plugin_deployed_sha256": "",
+    "cloud_nte_mode": False,
 }
 _UPDATE_RUNTIME_DEFAULTS = {
     # Kept account-scoped in the private SQLite database.  Older bundled
@@ -68,6 +70,36 @@ class AccountSettingsService:
         with UserDataDao(self.user_database_path) as dao:
             account_copy = dao.list_application_setting_copies().get(key, {})
         return self._normalize(key, {**defaults, **account_copy}, defaults)
+
+    def legacy_theme_preference(self) -> str:
+        """Read the former account theme only for one-time global migration."""
+
+        with UserDataDao(self.user_database_path) as dao:
+            account_ui = dao.list_application_setting_copies().get("ui", {})
+        candidates: list[object] = [account_ui.get("theme")]
+        if self.legacy_config_dir is not None:
+            legacy_ui = self._read_legacy_json(
+                self.legacy_config_dir / "ui_preferences.json"
+            )
+            if legacy_ui is not None:
+                candidates.append(legacy_ui.get("theme"))
+        candidates.append(self._defaults()["ui"].get("theme"))
+        for candidate in candidates:
+            theme = str(candidate or "").strip()
+            if theme in _LEGACY_THEME_PREFERENCES:
+                return theme
+        return "dark"
+
+    def remove_legacy_theme_preference(self) -> None:
+        """Remove the obsolete theme field without changing other account UI settings."""
+
+        with UserDataDao(self.user_database_path) as dao:
+            account_ui = dao.list_application_setting_copies().get("ui")
+        if not account_ui or "theme" not in account_ui:
+            return
+        remaining = dict(account_ui)
+        remaining.pop("theme", None)
+        self.save("ui", remaining)
 
     def save(
         self, setting_key: str, value: Mapping[str, Any]
@@ -150,6 +182,9 @@ class AccountSettingsService:
     ) -> dict[str, Any]:
         effective_defaults = dict(defaults)
         if key == "ui":
+            # Theme ownership moved to the application-wide global preferences
+            # file.  Ignore stale account copies and never write them back.
+            effective_defaults.pop("theme", None)
             effective_defaults.update(_UI_RUNTIME_DEFAULTS)
         elif key == "update":
             effective_defaults.update(_UPDATE_RUNTIME_DEFAULTS)
@@ -221,12 +256,9 @@ class AccountSettingsService:
                 "skip_automatic_assembly_duplicate_warning",
                 "full_scan_dual_thread_processing",
                 "full_scan_amd_compatibility",
+                "cloud_nte_mode",
             ):
                 normalized[name] = bool(normalized[name])
-            theme = str(normalized["theme"]).strip()
-            if theme not in {"dark", "black", "light"}:
-                raise UserDataValidationError("theme 必须是 dark、black 或 light")
-            normalized["theme"] = theme
             if normalized["full_scan_amd_compatibility"]:
                 normalized["full_scan_dual_thread_processing"] = False
             normalized["protagonist_game_name"] = str(

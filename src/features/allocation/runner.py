@@ -297,11 +297,33 @@ def _plan_assignment_scores(
     for item in [plan.get(PLAN_ASSIGNED_TAPE), *plan_drives(plan)]:
         if item is None:
             continue
-        uid = str(getattr(item, EQUIP_UID, "") or "")
-        role_scores = getattr(item, "role_scores", {}) or {}
+        uid = str(
+            item.get(EQUIP_UID, "")
+            if isinstance(item, dict)
+            else getattr(item, EQUIP_UID, "")
+        )
+        role_scores = (
+            item.get("role_scores", {})
+            if isinstance(item, dict)
+            else getattr(item, "role_scores", {})
+        ) or {}
         if uid:
             result[uid] = float(role_scores.get(role_name, 0.0) or 0.0)
     return result
+
+
+def _plan_tape_main_values(plan: dict[str, Any]) -> dict[str, float]:
+    """Freeze the calculated card main value in the saved plan payload."""
+
+    tape = plan.get(PLAN_ASSIGNED_TAPE)
+    if tape is None:
+        return {}
+    uid = str(tape.get(EQUIP_UID, "") if isinstance(tape, dict) else getattr(tape, EQUIP_UID, ""))
+    value = tape.get("main_value") if isinstance(tape, dict) else getattr(tape, "main_value", None)
+    try:
+        return {uid: float(value)} if uid and value is not None else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def _confirm_unsaved_allocation_before_recompute(self: Any) -> bool:
@@ -431,6 +453,10 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
                             role_name,
                             plan,
                         ),
+                        # The card's full-level main stat is part of this
+                        # computed plan, not a value to reconstruct at every
+                        # later presentation pass.
+                        "tape_main_values": _plan_tape_main_values(plan),
                     },
                 )
                 saved_roles.append(role_name)

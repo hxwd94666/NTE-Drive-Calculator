@@ -1,42 +1,50 @@
-nte_mod(4)
-mod("combat-clock")
-requires("viewport.tick")
-requires("game.session")
-requires("combat-clock")
-requires("ipc")
+#include <nte/mod.hpp>
 
-# External routing publishes the services owned by this Mod.
-route_ipc(11, "combat_clock.query_transitions")
-route_ipc(12, "ipc.query_mod_events")
+NTE_SCRIPT(5);
+NTE_MOD("combat-clock");
+NTE_BIND("feature.dps-time-stop");
+NTE_REQUIRES("viewport.tick");
+NTE_REQUIRES("game.session");
+NTE_REQUIRES("combat-clock");
+NTE_REQUIRES("ipc");
+NTE_ROUTE_IPC(11, "combat_clock.query_transitions");
+NTE_ROUTE_IPC(12, "ipc.query_mod_events");
 
-# The script owns sampling, transition detection, and forwarding.
-# Stable host properties hide the session offsets and packed sample format.
-state.initialized = 0
-state.last_controller = 0
-state.last_pause_mask = 0
-state.last_state_flags = 0
+std::uint64_t initialized = 0;
+std::uint64_t last_controller = 0;
+std::uint64_t last_pause_mask = 0;
+std::uint64_t last_state_flags = 0;
 
-def on_viewport_tick(event):
-    player_controller = game.player_controller
-    pause_mask = 0
-    state_flags = 0
-    if player_controller != None:
-        pause_mask = combat_clock.pause_mask(player_controller)
-        state_flags = combat_clock.state_flags(player_controller)
-        ipc.bind(None, player_controller)
-
-    # Forward only the first sample or a real state transition.
-    changed = state.initialized == False
-    if player_controller != state.last_controller:
-        changed = True
-    if pause_mask != state.last_pause_mask:
-        changed = True
-    if state_flags != state.last_state_flags:
-        changed = True
-
-    if changed == True:
-        combat_clock.forward(pause_mask, state_flags)
-        state.initialized = 1
-        state.last_controller = player_controller
-        state.last_pause_mask = pause_mask
-        state.last_state_flags = state_flags
+void on_viewport_tick(const nte::viewport_tick_event& event)
+{
+    const auto player_controller = nte::game::player_controller;
+    std::uint64_t pause_mask = 0;
+    std::uint64_t state_flags = 0;
+    if (player_controller != nullptr)
+    {
+        pause_mask = nte::combat_clock::pause_mask(player_controller);
+        state_flags = nte::combat_clock::state_flags(player_controller);
+        nte::ipc::bind(nullptr, player_controller);
+    }
+    auto changed = initialized == false;
+    if (player_controller != last_controller)
+    {
+        changed = true;
+    }
+    if (pause_mask != last_pause_mask)
+    {
+        changed = true;
+    }
+    if (state_flags != last_state_flags)
+    {
+        changed = true;
+    }
+    if (changed == true)
+    {
+        nte::combat_clock::forward(pause_mask, state_flags);
+        initialized = 1;
+        last_controller = player_controller;
+        last_pause_mask = pause_mask;
+        last_state_flags = state_flags;
+    }
+}

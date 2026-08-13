@@ -2,10 +2,10 @@
   "format_version": 1,
   "database": {
     "filename": "game_static.sqlite3",
-    "dataset_id": "unversioned_20260723_update",
+    "dataset_id": "test_server_20260813",
     "schema_version": 16,
-    "sha256": "04DCCAC56FD25F5A77B923410425698462E9551FE91174D099C47878AABDE3B9",
-    "generated_at_utc": "2026-07-23T10:20:22+00:00",
+    "sha256": "6B62BBB42F2BC591D7351E362849418DBC237149C0592D6316FFE823F1914132",
+    "generated_at_utc": "2026-08-12T22:50:16+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {

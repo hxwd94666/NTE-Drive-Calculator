@@ -116,6 +116,7 @@ def build_database(
     as_of: date,
     overrides_path: Path = DEFAULT_OVERRIDES,
     config_dir: Path = PROJECT_ROOT / "config",
+    release_shape_defaults_database: Path | None = None,
     include_source_payloads: bool = True,
     manifest_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -155,6 +156,7 @@ def build_database(
             counts["logical_character_shape_bonus"] = populate_logical_character_shape_bonuses(
                 connection,
                 config_dir=config_dir.expanduser().resolve(),
+                release_defaults_database=release_shape_defaults_database,
             )
             counts["logical_character_shape_bonus_property"] = int(
                 connection.execute(
@@ -208,6 +210,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     parser.add_argument("--config-dir", type=Path, default=PROJECT_ROOT / "config")
     parser.add_argument(
+        "--release-shape-defaults-database",
+        type=Path,
+        help=(
+            "从确认的上一发行静态库继承仍可映射的角色额外形状默认值；"
+            "不会读取账号或共享覆盖"
+        ),
+    )
+    parser.add_argument(
         "--manifest",
         type=Path,
         help="同时为发行数据库生成机器可读清单，例如 data/manifest.json",
@@ -230,6 +240,7 @@ def main() -> int:
         as_of=args.as_of,
         overrides_path=args.overrides,
         config_dir=args.config_dir,
+        release_shape_defaults_database=args.release_shape_defaults_database,
         include_source_payloads=not args.omit_source_payloads,
         manifest_path=args.manifest,
     )

@@ -14,11 +14,17 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
 from src.app.theme import theme_color
+from src.domain.warehouse_filter import (
+    WarehouseFilterSpec,
+    filter_projected_warehouse_items,
+    sort_projected_warehouse_items,
+)
 from src.domain.stat_catalog import StatCatalog
+from src.services.tape_main_value import full_level_tape_main_value
 from src.integrations.bundled_resources import bundled_config_dir, bundled_game_ui_asset_root
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.sqlite_allocation_inventory import legacy_stat_name
@@ -26,6 +32,7 @@ from src.services.warehouse_visual_catalog import (
     representative_core_item_id,
     representative_module_item_id,
 )
+from src.ui.equipment_state_icons import paint_warehouse_lock_button
 
 
 _STAT_LABELS = {
@@ -195,19 +202,16 @@ def _visual_core_main_values() -> dict[str, float]:
 
 
 def _warehouse_main_stats(row: Mapping[str, Any], source: str) -> list[Mapping[str, Any]]:
-    """Keep pre-fix visual snapshots readable without mutating user SQLite data."""
+    """Display card mains at their quality's level cap without mutating SQLite."""
+
     stats = [stat for stat in row.get("main_stats") or [] if isinstance(stat, Mapping)]
-    if (
-        source != "gamepad"
-        or str(row.get("kind") or "") != "core"
-        or not str(row.get("item_id") or "").startswith("vision_core_")
-    ):
+    if str(row.get("kind") or "") != "core":
         return stats
-    values = _visual_core_main_values()
     normalized: list[Mapping[str, Any]] = []
     for stat in stats:
         property_id = str(stat.get("property_id") or "")
-        main_value = values.get(property_id)
+        stat_name = legacy_stat_name(property_id)
+        main_value = full_level_tape_main_value(stat_name or "", row.get("quality"))
         if main_value is None:
             normalized.append(stat)
             continue
@@ -215,7 +219,6 @@ def _warehouse_main_stats(row: Mapping[str, Any], source: str) -> list[Mapping[s
         replacement["value"] = main_value / 100.0 if bool(stat.get("percent")) else main_value
         normalized.append(replacement)
     return normalized
-
 
 def _template_root_candidates() -> tuple[Path, ...]:
     return _TEMPLATE_ROOTS
@@ -291,6 +294,16 @@ def _warehouse_item_icon(
     return _equipment_item_icon("core", fallback_item_id, asset_root=asset_root)
 
 
+def warehouse_item_icon_path(
+    row: Mapping[str, Any],
+    *,
+    asset_root: str | Path | None = None,
+) -> Path | None:
+    """Public narrow projection for callers that only need the item image."""
+
+    return _warehouse_item_icon(row, asset_root=asset_root)
+
+
 def _character_icon(
     character_id: Any,
     *,
@@ -338,9 +351,14 @@ def warehouse_item_view(
     sub_stat_rows = [_stat_view(stat) for stat in row.get("sub_stats") or [] if isinstance(stat, Mapping)]
     stats = [f"{stat['label']}  {stat['value']}" for stat in [*main_stat_rows, *sub_stat_rows]]
     kind_label = "驱动" if kind == "module" else "卡带" if kind == "core" else kind or "未知"
-    shape = _shape_label(row.get("geometry")) if kind == "module" else "卡带"
+    suit_id = str(row.get("suit_id") or "")
+    shape_id = str(row.get("geometry") or "")
+    shape = _shape_label(shape_id) if kind == "module" else "卡带"
     title = _drive_type_label(shape) if kind == "module" else "卡带"
     display_name = title if kind == "module" else suit_name
+    type_value = shape_id if kind == "module" else suit_id
+    item_type_id = f"{kind}:{type_value or display_name}"
+    item_type_label = title if kind == "module" else suit_name
     state_row = dict(row)
     state_row["state_known"] = state_known
     tags = _state_tags(state_row)
@@ -361,9 +379,13 @@ def warehouse_item_view(
         "item_name": item_name,
         "item_icon_path": _warehouse_item_icon(row, asset_root=asset_root),
         "suit_name": suit_name,
+        "suit_id": suit_id,
         "display_name": display_name,
         "title": title,
         "shape": shape if kind == "module" else "H_3",
+        "shape_id": shape_id,
+        "item_type_id": item_type_id,
+        "item_type_label": item_type_label,
         "source": source,
         "level": int(row.get("level", 0) or 0),
         "max_level": int(row.get("max_level", 0) or 0),
@@ -429,6 +451,9 @@ def warehouse_item_with_state(item: Mapping[str, Any], target_state: str) -> dic
 
 def warehouse_item_type_key(item: Mapping[str, Any]) -> str:
     """Return the type-filter key: drive model for modules, suit name for cards."""
+    official_key = str(item.get("item_type_id") or "")
+    if official_key:
+        return official_key
     kind = str(item.get("kind") or "")
     label = str(item.get("title") if kind == "module" else item.get("suit_name") or "")
     return f"{kind}:{label}"
@@ -455,8 +480,11 @@ def warehouse_type_options(items: Iterable[Mapping[str, Any]], category: str = "
 def filter_warehouse_items(
     items: Iterable[Mapping[str, Any]], *, search: str = "", kind: str = "all",
     quality: str = "all", status: str = "all", character_id: int | None = None, item_type: str = "all",
+    spec: WarehouseFilterSpec | None = None,
 ) -> list[dict[str, Any]]:
     """Filter already projected cards; this is intentionally inexpensive for 2k rows."""
+    if spec is not None:
+        return filter_projected_warehouse_items(items, spec.with_search(search or spec.search))
     needle = str(search or "").strip().casefold()
     result: list[dict[str, Any]] = []
     for source in items:
@@ -482,7 +510,7 @@ def filter_warehouse_items(
         if needle and needle not in str(item.get("search_text") or ""):
             continue
         result.append(item)
-    return result
+    return sort_projected_warehouse_items(result)
 
 
 class WarehouseInventoryModel(QAbstractListModel):
@@ -589,6 +617,14 @@ class WarehouseCardDelegate(QStyledItemDelegate):
 
     @staticmethod
     def _paint_action_button(painter: QPainter, rect: QRect, *, action: str, active: bool, available: bool = True) -> None:
+        if action == "lock":
+            paint_warehouse_lock_button(
+                painter,
+                rect,
+                active=active,
+                available=available,
+            )
+            return
         background = "#5b2026" if action == "discard" and active else "#3a2f13" if active else "#172a45" if action == "inspect" else "#21262d"
         foreground = "#ff7b72" if action == "discard" and active else "#e3b341" if active else "#79c0ff" if action == "inspect" else "#8b949e"
         if not available:
@@ -621,27 +657,6 @@ class WarehouseCardDelegate(QStyledItemDelegate):
                     int(rect.left() + offset),
                     int(rect.top() + 14.6),
                 )
-        elif action == "lock":
-            body = QRectF(rect.left() + 5.0, rect.top() + 10.0, 10.0, 7.0)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(icon_color)
-            painter.drawRoundedRect(body, 1.8, 1.8)
-            shackle = QPainterPath()
-            shackle.moveTo(rect.left() + 6.9, rect.top() + 10.0)
-            shackle.lineTo(rect.left() + 6.9, rect.top() + 8.0)
-            shackle.cubicTo(
-                rect.left() + 6.9, rect.top() + 4.6,
-                rect.left() + 13.1, rect.top() + 4.6,
-                rect.left() + 13.1, rect.top() + 8.0,
-            )
-            shackle.lineTo(rect.left() + 13.1, rect.top() + 10.0)
-            painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(icon_color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            painter.drawPath(shackle)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(theme_color(background)))
-            painter.drawEllipse(QRectF(rect.left() + 8.5, rect.top() + 12.0, 3.0, 3.0))
-            painter.drawRoundedRect(QRectF(rect.left() + 9.35, rect.top() + 14.0, 1.3, 1.8), 0.6, 0.6)
         elif action == "inspect":
             lens = rect.adjusted(5, 5, -8, -8)
             painter.drawEllipse(lens)

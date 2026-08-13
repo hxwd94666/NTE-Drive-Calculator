@@ -436,7 +436,10 @@ class AllocationKernel:
             elif item.main_stats:
                 main_name = str(item.main_stats)
                 tape_values = getattr(self.scoring_engine.stat_catalog, "tape_main_values", {}) or {}
-                totals[main_name] = totals.get(main_name, 0.0) + float(tape_values.get(main_name, 0.0) or 0.0)
+                main_value = getattr(item, "main_value", None)
+                if main_value is None:
+                    main_value = tape_values.get(main_name, 0.0)
+                totals[main_name] = totals.get(main_name, 0.0) + float(main_value or 0.0)
         label = str((role_data or {}).get("extra_shape_label", "") or "")
         area_match = re.search(r"(\d+)", label)
         if area_match:

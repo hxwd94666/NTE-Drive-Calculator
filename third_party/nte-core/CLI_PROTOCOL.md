@@ -7,19 +7,19 @@ stable machine-facing values; clients must branch on numeric JSON-RPC codes and
 `error.data.domain_code`, not on human-readable `message` or `detail` text.
 
 The supported distribution is `nte-core-windows-x64.zip`. It contains
-`nte-core.exe`, `CLI_PROTOCOL.md`, `CLI_PROTOCOL_ZH.md`, `examples/`,
-`THIRD_PARTY_LICENSES.md`, and `licenses/`.
+`nte-core.exe`, `CLI_PROTOCOL.md`, `CLI_PROTOCOL_ZH.md`, `examples/`, and
+`THIRD_PARTY_LICENSES.md`.
 The sidecar is intended for third-party tools running on the same Windows
 machine. It never listens on or opens a TCP/HTTP port. The CLI executable embeds
-only the core JSON resources required by capture parsing and contains no GUI
-images, fonts, application icon, or GUI dependency stack. Distribution and
+only the core JSON resources required by capture parsing and contains no desktop
+UI images, fonts, application icon, or windowing dependency stack. Distribution and
 integration remain subject to the repository's AGPL/commercial dual-license
 terms.
 
 ## Commands
 
 ```text
-nte-core serve --stdio [--data-dir <path>] [--log-level <level>]
+nte-core serve --stdio [--data-dir <path>]
 nte-core version --json
 nte-core devices --json
 ```
@@ -122,6 +122,10 @@ Core domain failures use code `-32000`, message `Core error`, and include stable
 - `MODS_PLUGIN_UNAVAILABLE`
 - `MODS_PLUGIN_BUSY`
 - `EQUIPMENT_REQUEST_REJECTED`
+- `BATTLE_RECORD_NOT_FOUND`
+- `BATTLE_AXIS_CURSOR_EXPIRED`
+- `BATTLE_AXIS_CURSOR_INVALID`
+- `BATTLE_TIMELINE_TOO_LARGE`
 
 Underlying OS, Npcap, endpoint, payload, and filesystem details are not copied to
 stdout.
@@ -137,8 +141,9 @@ handshake. Repeating a valid handshake is idempotent.
 
 The result contains `core_version`, negotiated `protocol_version`,
 `data_version`, `capabilities`, and `raw_capture_default`. Only the methods
-documented below are callable. `capabilities` contains `equipment` when the
-local `nte-mods-plugin` bridge is available in this Core build.
+documented below are callable. The battle read APIs are advertised as
+`battle_record_v1`, `battle_axis_v1`, and `battle_timeline_v1`; `equipment`
+identifies the local `nte-mods-plugin` bridge included in this Core build.
 
 ## Method reference
 
@@ -162,6 +167,9 @@ local `nte-mods-plugin` bridge is available in this Core build.
 | `equipment.set_item_discarded` | equipment, discarded | Yes | plugin dispatch status |
 | `equipment.set_item_locked` | equipment, locked | Yes | plugin dispatch status |
 | `battle.get_summary` | `subtract_time_stop` | Yes | battle summary or null |
+| `battle.get_record` | optional record ID, `subtract_time_stop` | Yes | versioned battle record or null |
+| `battle.get_axis` | optional record ID/cursor, bounded limit | Yes | one bounded hit page or null |
+| `battle.get_timeline` | optional record ID, scope, bucket, timing mode | Yes | bounded timeline or null |
 | `battle.reset` | `{}` or omitted | Yes | `reset:true` |
 
 ## Core methods
@@ -401,6 +409,85 @@ The external battle DTO is an explicit field-by-field mapping from the internal
 `CombatSessionSummary`; internal Rust serialization is not exposed as the API.
 All numeric values originate from validated combat state and are finite JSON
 numbers.
+
+### `battle.get_record`
+
+```json
+{
+  "jsonrpc":"2.0",
+  "id":"record-1",
+  "method":"battle.get_record",
+  "params":{"battle_record_id":null,"subtract_time_stop":true}
+}
+```
+
+Returns null until combat or abyss state exists. A record receives a stable
+process-local `battle_record_id` and remains `live` until its capture stops or
+Core shuts down; `battle.reset` ends its availability and the next battle gets
+a new ID. Passing a no-longer-available or unknown ID returns
+`BATTLE_RECORD_NOT_FOUND` instead of silently switching to the current battle.
+
+The response contract is version 1. It includes the shared `generation`,
+capture operation ID, state/source, battle bounds, clipped time-stop intervals,
+abyss markers, aggregate summary, quality counters, and axis completeness.
+`generation`, `axis_first_sequence`, and `axis_total_hits` are decimal strings
+so JavaScript clients do not lose 64-bit integer precision. The generation
+advances only when an exposed battle read model changes or the record is
+finalized.
+
+### `battle.get_axis`
+
+```json
+{
+  "jsonrpc":"2.0",
+  "id":"axis-1",
+  "method":"battle.get_axis",
+  "params":{"battle_record_id":"battle-1","cursor":null,"limit":250}
+}
+```
+
+Returns one ordered hit page. `limit` is required and must be from 1 through
+500. `cursor` is null/omitted for the first retained row or a positive decimal
+string returned by `next_cursor`. Sequence/cursor/total values are strings;
+the page also carries the same battle `generation`. Each row contains the
+bounded, redacted combat facts already held by Core, including its record ID,
+source, attribution status/reason, direction, damage/follow-up, target
+projection, skill identifiers, and abyss half; it never contains packet bytes,
+endpoints, or PCAP data. `team_snapshot_id` is explicitly null until a stable
+team snapshot is available instead of being inferred from current UI state.
+
+Core retains a bounded hit window. Once earlier rows have been trimmed,
+`complete` becomes false and `first_available_cursor` identifies the first
+retained row. An older cursor returns `BATTLE_AXIS_CURSOR_EXPIRED`; a cursor
+beyond `total_hits + 1` returns `BATTLE_AXIS_CURSOR_INVALID`.
+
+### `battle.get_timeline`
+
+```json
+{
+  "jsonrpc":"2.0",
+  "id":"timeline-1",
+  "method":"battle.get_timeline",
+  "params":{
+    "battle_record_id":"battle-1",
+    "scope":"all",
+    "bucket_seconds":1.0,
+    "subtract_time_stop":true
+  }
+}
+```
+
+`scope` is `all`, `upper`, or `lower`. `bucket_seconds` is required, finite,
+and from 0.2 through 10 seconds. The response reuses Core's authoritative
+timeline projection and includes characters, buckets, per-character DPS rows,
+markers, time-stop intervals, and simplified segments. It carries contract
+version 1, the shared battle generation, and `complete:false` if the underlying
+axis was trimmed.
+
+Core checks the response budget before allocating the timeline and caps it at
+10,000 buckets and 100,000 total bucket-role rows. A request exceeding either
+budget returns `BATTLE_TIMELINE_TOO_LARGE`; clients can increase
+`bucket_seconds` or narrow the abyss-half scope.
 
 ### `battle.reset`
 

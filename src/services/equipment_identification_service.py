@@ -1,3 +1,4 @@
+# 编排装备鉴定所需的解析、评分与角色适配。
 """Match one equipment item against account character blueprints."""
 
 from __future__ import annotations

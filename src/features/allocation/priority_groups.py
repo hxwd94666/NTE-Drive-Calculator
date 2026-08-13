@@ -141,3 +141,21 @@ def cycle_priority_link(links: list[str], index: int) -> None:
         promote_priority_boundary(links, index)
     else:
         strictify_priority_region(links, index)
+
+
+def shift_crossed_priority_boundaries(
+    links: list[str],
+    index: int,
+    new_index: int,
+) -> None:
+    """Move each crossed batch boundary one slot opposite to a role drag."""
+
+    if new_index > index:
+        for pos in range(index, min(new_index, len(links))):
+            if links[pos] == GROUP_BOUNDARY_LINK and pos > 0:
+                links[pos - 1], links[pos] = links[pos], links[pos - 1]
+    elif new_index < index:
+        for pos in range(index - 1, max(new_index - 1, -1), -1):
+            if links[pos] == GROUP_BOUNDARY_LINK and pos + 1 < len(links):
+                links[pos], links[pos + 1] = links[pos + 1], links[pos]
+                promote_priority_boundary(links, pos + 1)

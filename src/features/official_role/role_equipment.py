@@ -130,9 +130,13 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
             if isinstance(current_scroll, QScrollArea)
             else None
         )
-        refresh_equip = getattr(window, "_refresh_equip", None)
-        if callable(refresh_equip):
-            refresh_equip()
+        refresh_loadouts = getattr(
+            window,
+            "refresh_saved_equipment_after_mutation",
+            None,
+        )
+        if callable(refresh_loadouts):
+            refresh_loadouts()
         window._refresh_my_role(restore_scroll_value=restore_scroll_value)
 
     show_official_role_replacement(

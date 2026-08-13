@@ -46,6 +46,44 @@ def load_builder_module():
 
 
 class StaticGameDatabaseTests(unittest.TestCase):
+    def test_release_shape_defaults_can_seed_a_rebuilt_database(self):
+        from tools.game_data.build_graduation_templates import (
+            populate_logical_character_shape_bonuses,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            release_database = Path(directory) / "release.sqlite3"
+            rebuilt_database = Path(directory) / "rebuilt.sqlite3"
+            shutil.copy2(PROJECT_DATABASE_PATH, release_database)
+            shutil.copy2(PROJECT_DATABASE_PATH, rebuilt_database)
+            connection = sqlite3.connect(rebuilt_database)
+            try:
+                count = populate_logical_character_shape_bonuses(
+                    connection,
+                    config_dir=PROJECT_ROOT / "config",
+                    release_defaults_database=release_database,
+                )
+                protagonist = connection.execute(
+                    """SELECT shape_label, shape_grid_count
+                       FROM logical_character_shape_bonus
+                       WHERE logical_character_key = 'protagonist'"""
+                ).fetchone()
+                violations = connection.execute(
+                    "PRAGMA foreign_key_check"
+                ).fetchall()
+            finally:
+                connection.close()
+
+        self.assertGreater(count, 0)
+        self.assertEqual(("Type-3", 3), protagonist)
+        self.assertEqual([], violations)
+
+    def test_split_character_importer_uses_public_show_time_helper(self):
+        module = load_builder_module()
+
+        self.assertTrue(callable(module.show_time))
+        self.assertIn("show_time", module.CharacterImportMixin._import_characters.__code__.co_names)
+
     def test_legacy_calculation_catalog_uses_sqlite_not_legacy_set_json(self):
         """The old calculation UI may retain its solver, but not JSON static data."""
         from src.services.legacy_allocation_static_catalog import (

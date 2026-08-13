@@ -65,7 +65,7 @@ class CharacterImportMixin:
                     item.get("element_type"),
                     item.get("group_type"),
                     item.get("actor_class"),
-                    _show_time(row),
+                    show_time(row),
                     self.source_row_id("character", character_id),
                 ),
             )

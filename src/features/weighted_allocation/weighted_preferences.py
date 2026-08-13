@@ -26,10 +26,10 @@ from src.app.workers import WorkerThread
 from src.domain.grade_limits import GRADE_LADDER
 from src.features.allocation.priority_groups import priority_groups_to_links
 from src.features.allocation.role_selector import RoleSelector, resolve_priority_choice
-from src.features.allocation.role_selector_help import (
-    CRIT_THRESHOLD_HELP,
-    SET_EFFECT_HELP,
-    STAT_PRIORITY_HELP,
+from src.features.weighted_allocation.help_text import (
+    WEIGHTED_CRIT_THRESHOLD_HELP,
+    WEIGHTED_SET_EFFECT_HELP,
+    WEIGHTED_STAT_FILTER_HELP,
 )
 from src.features.weighted_allocation.runner import (
     WeightedAllocationPersistence,
@@ -51,7 +51,6 @@ from .dependencies import weighted_allocation_dependencies
 _INTERNAL_PROFILE_NAME = "__weighted_allocation_role_priority__"
 # 普通入口不展示候选；避免为不可见的 Top-K 重复执行昂贵的 DFS 与评分。
 _INTERNAL_TOP_K = 1
-
 _MAIN_PROPERTY_CHOICES = (
     ("生命值百分比", "HPMaxUp"),
     ("攻击力百分比", "AtkUp"),
@@ -133,17 +132,17 @@ def _load_weighted_persistence(window, database_path: Path) -> None:
         persistence = replace(persistence, restore_request=None)
     if persistence.restore_request is None:
         if weights_changed:
-            window.weighted_status_label.setText("账号词条权重已更新；已保留角色与空幕选择，请重新计算。")
+            window.weighted_status_label.setText("账号词条权重已更新；已保留角色与卡带选择，请重新计算。")
         elif persistence.profile_version is None:
             window.weighted_status_label.setText("请选择角色并设置优先级。")
         else:
             window.weighted_status_label.setText(
-                f"已自动读取空幕偏好（v{persistence.profile_version}）；未找到与该版本完整对应的已保存方案。"
+                f"已自动读取卡带偏好（v{persistence.profile_version}）；未找到与该版本完整对应的已保存方案。"
             )
         return
     token = object()
     window._weighted_restore_token = token
-    window.weighted_status_label.setText(f"已自动读取空幕偏好（v{persistence.profile_version}），正在恢复已保存方案…")
+    window.weighted_status_label.setText(f"已自动读取卡带偏好（v{persistence.profile_version}），正在恢复已保存方案…")
     worker = WorkerThread(
         target=lambda: restore_weighted_allocation_preview(persistence),
         parent=window,
@@ -227,7 +226,7 @@ def _on_weighted_restore_done(
     )
     _set_weighted_equipment_actions_enabled(window, bool(preview.result.unified.selected))
     window.weighted_status_label.setText(
-        f"已自动读取保存方案：{len(preview.result.unified.selected)} 个角色，空幕偏好 v{persistence.profile_version}。"
+        f"已自动读取保存方案：{len(preview.result.unified.selected)} 个角色，卡带偏好 v{persistence.profile_version}。"
     )
 
 
@@ -241,7 +240,7 @@ def _on_weighted_restore_error(
         return
     window._weighted_allocation_restore_worker = None
     window.weighted_status_label.setText(
-        f"已自动读取空幕偏好（v{persistence.profile_version}），但保存方案无法安全恢复：{error}"
+        f"已自动读取卡带偏好（v{persistence.profile_version}），但保存方案无法安全恢复：{error}"
     )
 
 
@@ -256,6 +255,33 @@ def _mark_weighted_preferences_dirty(window) -> None:
         window.weighted_status_label.setText("配置已修改，请重新计算。")
 
 
+def _effective_core_main_property_id(
+    character_id: int,
+    preference: dict[str, Any],
+    default_mag_character_ids: frozenset[int] = frozenset(),
+) -> str | None:
+    """Return only an explicitly saved main-stat selection."""
+
+    del character_id, default_mag_character_ids
+    selected = preference.get("core_main_property_id")
+    return str(selected) if selected else None
+
+
+def _effective_substat_priorities(
+    character_id: int,
+    preference: dict[str, Any],
+    default_mag_character_ids: frozenset[int] = frozenset(),
+) -> list[str]:
+    """Return only explicitly saved substat preferences."""
+
+    del character_id, default_mag_character_ids
+    return [
+        str(value)
+        for value in preference.get("substat_priorities") or ()
+        if value
+    ]
+
+
 def _selection_rows(window) -> list[dict[str, Any]]:
     selected = window.weighted_role_selector.get_selected()
     groups = window.weighted_role_selector.get_priority_groups()
@@ -263,12 +289,21 @@ def _selection_rows(window) -> list[dict[str, Any]]:
     overrides = getattr(window, "_weighted_preference_overrides", {})
     default_suits = getattr(window, "_weighted_default_suits", {})
     default_weights = getattr(window, "_weighted_default_property_weights", {})
+    default_mag_character_ids = getattr(
+        window.weighted_role_selector,
+        "default_mag_character_ids",
+        frozenset(),
+    )
 
     def row_for(name: str, ordinal: int) -> dict[str, Any]:
         character_id = window._weighted_role_ids[name]
         preference = overrides.get(character_id, {})
         target_suit_id = preference.get("target_suit_id", default_suits.get(character_id))
-        priorities = list(preference.get("substat_priorities") or ())
+        priorities = _effective_substat_priorities(
+            character_id,
+            preference,
+            default_mag_character_ids,
+        )
         blacklist = list(preference.get("substat_blacklist") or ())
         weights = dict(preference.get("property_weights", default_weights.get(character_id, {})))
         return {
@@ -280,7 +315,11 @@ def _selection_rows(window) -> list[dict[str, Any]]:
                 "four_piece" if target_suit_id else "none",
             ),
             "target_suit_id": target_suit_id,
-            "core_main_property_id": preference.get("core_main_property_id"),
+            "core_main_property_id": _effective_core_main_property_id(
+                character_id,
+                preference,
+                default_mag_character_ids,
+            ),
             "property_weights": weights,
             "substat_priorities": priorities,
             "substat_blacklist": blacklist,
@@ -354,7 +393,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     suit_names = getattr(window, "_weighted_suit_names", {})
     suit_ids_by_name = {name: suit_id for suit_id, name in suit_names.items()}
     current_suit_id = current.get("target_suit_id", window._weighted_default_suits.get(character_id))
-    config_box = QGroupBox("空幕配置")
+    config_box = QGroupBox("卡带配置")
     config_layout = QVBoxLayout(config_box)
     suit_row = QHBoxLayout()
     suit_row.addWidget(QLabel("套装："))
@@ -372,14 +411,28 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     substat_by_label = getattr(window, "_weighted_substat_property_by_label", {})
     main_label_by_id = {property_id: label for label, property_id in main_by_label.items()}
     substat_label_by_id = {property_id: label for label, property_id in substat_by_label.items()}
+    default_mag_character_ids = getattr(
+        selector,
+        "default_mag_character_ids",
+        frozenset(),
+    )
+    effective_main_property_id = _effective_core_main_property_id(
+        character_id,
+        current,
+        default_mag_character_ids,
+    )
     selected_main = (
-        [main_label_by_id[current["core_main_property_id"]]]
-        if current.get("core_main_property_id") in main_label_by_id
+        [main_label_by_id[effective_main_property_id]]
+        if effective_main_property_id in main_label_by_id
         else []
     )
     selected_substats = [
         substat_label_by_id[property_id]
-        for property_id in current.get("substat_priorities") or ()
+        for property_id in _effective_substat_priorities(
+            character_id,
+            current,
+            default_mag_character_ids,
+        )
         if property_id in substat_label_by_id
     ]
     selected_blacklist = [
@@ -392,17 +445,18 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     stats_layout.addWidget(
         _build_single_select_row(
             selector,
-            "空幕主词条：",
+            "卡带主词条：",
             list(main_by_label),
             selected_main,
         )
     )
     stats_layout.addWidget(
         selector._build_multi_select_row(
-            "空幕/驱动副词条：",
+            "卡带/驱动副词条：",
             list(substat_by_label),
             selected_substats,
             " > ",
+            empty_text="未选择",
         )
     )
     stats_layout.addWidget(
@@ -411,6 +465,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
             list(substat_by_label),
             selected_blacklist,
             "、",
+            empty_text="未选择",
         )
     )
     stat_options = QHBoxLayout()
@@ -437,7 +492,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     stat_help.setObjectName("btnHelp")
     stat_help.setFixedSize(24, 24)
     stat_help.clicked.connect(
-        lambda: selector._show_help("副词条自选说明", STAT_PRIORITY_HELP)
+        lambda: selector._show_help("词条筛选与优先级说明", WEIGHTED_STAT_FILTER_HELP)
     )
     stat_options.addWidget(equal_priority)
     stat_options.addWidget(ignore_grade_limit)
@@ -452,11 +507,10 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     )
     stats_layout.addLayout(stat_options)
     priority_tip = QLabel(
-        "副词条黑名单最先从驱动候选池硬过滤，不淘汰空幕；"
-        "套装与空幕主词条随后硬过滤；"
-        "副词条自选按连续前缀选择最深非空候选池，"
-        "候选池内再比较基础权重评分。空幕无副词条命中时不参与，"
-        "驱动无命中时允许回退以填满图纸。"
+        "副词条黑名单最先从驱动候选池硬过滤，不淘汰卡带；"
+        "套装与卡带主词条随后硬过滤；"
+        "副词条自选先使用连续前缀的最深候选池，"
+        "组合无解时逐层放宽，最后回到完整候选池。"
     )
     priority_tip.setWordWrap(True)
     stats_layout.addWidget(priority_tip)
@@ -480,7 +534,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     effect_help.setObjectName("btnHelp")
     effect_help.setFixedSize(24, 24)
     effect_help.clicked.connect(
-        lambda: selector._show_help("套装效果说明", SET_EFFECT_HELP)
+        lambda: selector._show_help("套装效果说明", WEIGHTED_SET_EFFECT_HELP)
     )
     effect_row.addWidget(effect_help)
     other_layout.addLayout(effect_row)
@@ -498,7 +552,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     crit_help.setObjectName("btnHelp")
     crit_help.setFixedSize(24, 24)
     crit_help.clicked.connect(
-        lambda: selector._show_help("暴击率最小值", CRIT_THRESHOLD_HELP)
+        lambda: selector._show_help("暴击率最小值", WEIGHTED_CRIT_THRESHOLD_HELP)
     )
     crit_row.addWidget(crit_help)
     crit_row.addStretch(1)

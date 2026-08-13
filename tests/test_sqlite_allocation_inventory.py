@@ -127,6 +127,17 @@ class SqliteAllocationInventoryTests(unittest.TestCase):
         self.assertEqual(core["suit_id"], "Suit6")
         self.assertEqual(core["set_name"], "失落光芒")
         self.assertEqual(core["main_stats"], "光属性异能伤害增强%")
+        self.assertEqual(core["main_value"], 37.5)
+
+    def test_core_projection_ignores_the_captured_level_one_main_value(self) -> None:
+        low_level_core = item(202, 22, kind="core")
+        low_level_core["level"] = 1
+        low_level_core["main_stats"] = [stat("DamageUpCosmosBase", 0.075, percent=True)]
+        snapshot_id = self.user_dao.import_inventory_snapshot(snapshot([low_level_core]))
+
+        result = SqliteAllocationInventory(self.user_dao, self.static_dao).build(snapshot_id)
+
+        self.assertEqual(result.items[0]["main_value"], 37.5)
 
     def test_rejects_implicit_current_snapshot(self) -> None:
         with self.assertRaisesRegex(

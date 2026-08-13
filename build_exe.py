@@ -74,6 +74,7 @@ def _sync_workshop_weights_before_build() -> None:
         sys.executable,
         str(ROOT / "tools" / "game_data" / "sync_recommended_weights.py"),
         "--database", str(STATIC_DATABASE_PATH),
+        "--manifest", str(STATIC_MANIFEST_PATH),
     ]
     if require_workshop_sync:
         cmd.extend(["--prompt-key", "--fallback-normal"])

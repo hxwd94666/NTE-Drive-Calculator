@@ -215,6 +215,9 @@ def _diff_snapshot_from_source(self, role_name, source):
         EQUIP_SUB_STATS: sub_stats,
         EQUIP_QUALITY: quality,
     }
+    item_icon_path = _diff_value(source, "item_icon_path")
+    if item_icon_path:
+        snapshot["item_icon_path"] = item_icon_path
     if item_type == "tape":
         snapshot[EQUIP_SET_NAME] = _diff_value(source, EQUIP_SET_NAME, "") or "卡带"
         snapshot[EQUIP_MAIN_STATS] = _diff_value(source, EQUIP_MAIN_STATS, "")
@@ -399,6 +402,7 @@ def _diff_item_card(self, role_name, item, is_new=False):
         is_duplicate_drive=bool(item.get("is_duplicate_drive", False)),
         main_weights=main_weights,
         card_variant="result",
+        item_icon_path=item.get("item_icon_path"),
     )
 
 
@@ -503,13 +507,33 @@ def _build_plan_diff_dialog(self, role_name, diff):
 
         for old_d in unmatched_old:
             pair_index += 1
-            body_layout.addWidget(section_label(f"变动 {pair_index}：卸下 {old_d.get(EQUIP_SHAPE_ID, '未知驱动')}"))
-            body_layout.addWidget(diff_item_card(role_name, old_d, is_new=False))
+            body_layout.addWidget(
+                section_label(
+                    f"变动 {pair_index}：{old_d.get(EQUIP_SHAPE_ID) or '驱动'}"
+                )
+            )
+            _append_equipment_swap_frame(
+                body_layout,
+                role_name,
+                old_d,
+                None,
+                diff_item_card,
+            )
 
         for new_d in unmatched_new:
             pair_index += 1
-            body_layout.addWidget(section_label(f"变动 {pair_index}：新增 {new_d.get(EQUIP_SHAPE_ID, '未知驱动')}"))
-            body_layout.addWidget(diff_item_card(role_name, new_d, is_new=True))
+            body_layout.addWidget(
+                section_label(
+                    f"变动 {pair_index}：{new_d.get(EQUIP_SHAPE_ID) or '驱动'}"
+                )
+            )
+            _append_equipment_swap_frame(
+                body_layout,
+                role_name,
+                None,
+                new_d,
+                diff_item_card,
+            )
 
     body_layout.addStretch()
     scroll.setWidget(body)

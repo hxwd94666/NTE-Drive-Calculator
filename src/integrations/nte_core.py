@@ -32,6 +32,7 @@ from src.integrations.nte_core_protocol import (
     inventory_item_placement,
     is_mods_plugin_busy_error,
     is_mods_plugin_unavailable_error,
+    equipment_request_failure_kind,
     nte_core_error_has_domain_code,
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     "inventory_item_placement",
     "is_mods_plugin_busy_error",
     "is_mods_plugin_unavailable_error",
+    "equipment_request_failure_kind",
     "nte_core_error_has_domain_code",
 ]
 

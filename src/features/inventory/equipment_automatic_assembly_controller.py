@@ -157,6 +157,8 @@ def _start_automatic_equipment_assembly(
             "已有自动装配任务正在执行，请等待它结束。",
         )
         return
+    # 云异环路径仍保留在自动装配实现中，但当前没有前端入口。
+    cloud_nte_mode = False
     try:
         state = _sqlite_automatic_assembly_state(
             _account_database_path(window),
@@ -172,13 +174,17 @@ def _start_automatic_equipment_assembly(
         protagonist_names
     ) and not aliases:
         return
-    QMessageBox.information(
+    confirmation = QMessageBox.question(
         window,
         "自动装配准备",
         "将模拟游戏内操作逐步装配。请在 3 秒内切换到游戏的角色详情页，"
         "并保持游戏窗口可见；执行期间可按 F12 停止。\n\n"
         "请保证游戏里的 C 键角色页面已打开，且游戏分辨率为 1080p 或 2K。",
+        QMessageBox.Ok | QMessageBox.Cancel,
+        QMessageBox.Cancel,
     )
+    if confirmation != QMessageBox.Ok:
+        return
     show_minimized = getattr(window, "showMinimized", None)
     if callable(show_minimized):
         show_minimized()
@@ -192,12 +198,14 @@ def _start_automatic_equipment_assembly(
                 template_dir=str(template_dir),
                 record_root=record_root,
                 role_name_aliases=aliases,
+                cloud_nte_mode=cloud_nte_mode,
             )
         return execute_all_roles_from_current_game_page(
             state,
             template_dir=str(template_dir),
             record_root=record_root,
             role_name_aliases=aliases,
+            cloud_nte_mode=cloud_nte_mode,
         )
 
     worker = WorkerThread(target=run, parent=window)

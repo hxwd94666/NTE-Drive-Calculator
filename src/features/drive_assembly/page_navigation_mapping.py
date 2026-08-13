@@ -23,6 +23,10 @@ from src.features.drive_assembly.page_mapping_helpers import (
     DEFAULT_FILTER_ACTION_CONTROLS,
     DEFAULT_PAGE_CALIBRATION,
     DEFAULT_PAGE_CONTROLS,
+    DEFAULT_REWIND_CONTROLS,
+    DEFAULT_REWIND_OCR_REGIONS,
+    DEFAULT_REWIND_SELECTED_DRIVE_REMOVE,
+    DEFAULT_REWIND_AVAILABLE_DRIVE_SHAPES,
     DEFAULT_TAPE_FILTER_CONTROLS,
     DEFAULT_TAPE_SET_DIALOG_CONTROLS,
     DEFAULT_TAPE_SET_OPTIONS,
@@ -201,6 +205,36 @@ def map_filter_reset(
             "post_action_pause_seconds": FILTER_NAVIGATION_PAUSE_SECONDS,
         }
     ]
+    return controls
+
+
+def map_rewind_controls(
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+) -> dict[str, Any]:
+    """Return scaled controls plus balance and custom-price OCR regions."""
+
+    controls = _scale_controls(DEFAULT_REWIND_CONTROLS, screen_size, content_rect)
+    for name, region in DEFAULT_REWIND_OCR_REGIONS.items():
+        corners = _scale_controls(
+            {"top_left": region[:2], "bottom_right": region[2:]},
+            screen_size,
+            content_rect,
+        )
+        controls[f"{name}_region"] = (*corners["top_left"], *corners["bottom_right"])
+    controls["selected_drive_remove"] = [
+        position
+        for position in _scale_controls(
+            {str(index): point for index, point in enumerate(DEFAULT_REWIND_SELECTED_DRIVE_REMOVE)},
+            screen_size,
+            content_rect,
+        ).values()
+    ]
+    controls["available_drive_shapes"] = _scale_controls(
+        DEFAULT_REWIND_AVAILABLE_DRIVE_SHAPES,
+        screen_size,
+        content_rect,
+    )
     return controls
 
 

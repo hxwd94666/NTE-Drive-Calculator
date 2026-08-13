@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
-from src.domain.crit_threshold import meets_preference_grade_limit
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult
 
@@ -39,9 +38,6 @@ if TYPE_CHECKING:
         def _tape_matches_core_target(self, role: str, tape: Tape, custom_sets: dict[str, str]) -> bool: ...
         def _is_crit_rate_key(self, key: str) -> bool: ...
         def _current_role_crit(self, role: str, tape: Tape | None, drives: list[Drive]) -> float: ...
-        def _deepest_stat_priority_pool(
-            self, role: str, items: list[Drive], config: dict | None, *, require_match: bool,
-        ) -> list[Drive]: ...
         def _crit_floor_threshold(self, config: dict | None) -> float | None: ...
         def _crit_rate_cap(self, role: str, crit_rate_caps: dict[str, float] | None) -> float | None: ...
         def _target_set(self, role: str, custom_sets: dict[str, str]) -> str: ...
@@ -49,6 +45,9 @@ if TYPE_CHECKING:
         def _stat_priority_key_for_items(
             self, role: str, items: list[Drive], config: dict | None,
         ) -> tuple: ...
+        def _stat_priority_depth(
+            self, role: str, item: Drive | Tape, config: dict | None,
+        ) -> int: ...
 else:
     class _CritConstraintRepairBase:
         pass
@@ -80,10 +79,8 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
         return unique
 
     def _repair_quality_allowed(self, role: str, item: Drive | Tape, config: dict | None) -> bool:
-        if not self._item_allowed_for_role(item, config):
-            return False
-        score = float(item.role_scores.get(role, 0.0))
-        return meets_preference_grade_limit(score, int(item.area or 1), config)
+        del role
+        return not isinstance(item, Drive) or self._item_allowed_for_role(item, config)
 
     def _repair_tape_candidates(
         self,
@@ -116,12 +113,27 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
         # Keep the highest-score cards overall and the best representatives of
         # each main stat.  This preserves non-critical alternatives without
         # letting a low-score card enter merely because of its main stat.
-        legal.sort(key=lambda tape: float(tape.role_scores.get(role, 0.0)), reverse=True)
+        legal.sort(
+            key=lambda tape: (
+                self._stat_priority_depth(role, tape, config),
+                float(tape.role_scores.get(role, 0.0)),
+            ),
+            reverse=True,
+        )
         selected: dict[str, Tape] = {}
+        best_by_depth: dict[int, Tape] = {}
+        for tape in legal:
+            best_by_depth.setdefault(
+                self._stat_priority_depth(role, tape, config),
+                tape,
+            )
+        for depth in sorted(best_by_depth, reverse=True):
+            tape = best_by_depth[depth]
+            selected.setdefault(tape.uid, tape)
         if isinstance(primary, Tape):
             for tape in legal:
                 if tape.uid == primary.uid:
-                    selected[tape.uid] = tape
+                    selected.setdefault(tape.uid, tape)
                     break
         best_crit = next((tape for tape in legal if self._is_crit_rate_key(tape.main_stats)), None)
         best_noncrit = next((tape for tape in legal if not self._is_crit_rate_key(tape.main_stats)), None)
@@ -139,7 +151,8 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
             selected.setdefault(tape.uid, tape)
             if len(selected) >= self.REPAIR_TAPE_CANDIDATES:
                 break
-        candidates = list(selected.values())[: self.REPAIR_TAPE_CANDIDATES]
+        candidate_count = max(self.REPAIR_TAPE_CANDIDATES, len(best_by_depth))
+        candidates = list(selected.values())[:candidate_count]
         return candidates or [None]
 
     def _repair_drive_crit_delta(self, role: str, drive: Drive) -> float:
@@ -162,12 +175,6 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
             and drive.shape_id == slot["shape"]
             and self._repair_quality_allowed(role, drive, config)
         ]
-        legal = self._deepest_stat_priority_pool(
-            role,
-            legal,
-            config,
-            require_match=False,
-        )
         if not legal:
             return []
 
@@ -195,6 +202,19 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
         # Reserve space for all three directions before filling the remaining
         # capacity by score.  A small upstream screen limit must not erase the
         # low-critical lane needed by an upper cap.
+        depth_buckets: dict[int, list[Drive]] = {}
+        for drive in legal:
+            depth_buckets.setdefault(
+                self._stat_priority_depth(role, drive, config),
+                [],
+            ).append(drive)
+        for depth in sorted(depth_buckets, reverse=True):
+            bucket = sorted(
+                depth_buckets[depth],
+                key=lambda drive: float(drive.role_scores.get(role, 0.0)),
+                reverse=True,
+            )
+            selected.setdefault(bucket[0].uid, bucket[0])
         for drive in score_sorted[:4] + high_crit[:3] + low_crit[:3]:
             selected.setdefault(drive.uid, drive)
         for drive in (
@@ -203,7 +223,7 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
             + low_crit[: self.REPAIR_CRIT_CANDIDATES]
         ):
             selected.setdefault(drive.uid, drive)
-        limit = max(10, min(int(candidate_limit), 14))
+        limit = max(10, min(int(candidate_limit), 14), len(depth_buckets))
         return list(selected.values())[:limit]
 
     def _repair_bounds(

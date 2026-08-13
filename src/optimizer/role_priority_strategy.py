@@ -246,7 +246,7 @@ class RolePriorityStrategy(
                     role,
                     legal_tapes,
                     stat_priority_configs.get(role),
-                    require_match=True,
+                    require_match=False,
                 )
                 for tape in legal_tapes:
                     score = tape.role_scores.get(role, 0.0)

@@ -9,12 +9,14 @@ from typing import Any
 
 from src.observability.context import OperationContext
 from src.observability.operation import operation_scope
+from src.integrations.nte_core import equipment_request_failure_kind
 from src.services.equipment_apply_service import EquipmentApplyService
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
 
 ProgressCallback = Callable[[dict[str, Any]], None] | None
+MAX_EQUIPMENT_APPLY_ATTEMPTS = 3
 
 
 def report_bulk_apply_progress(
@@ -41,7 +43,7 @@ def report_bulk_apply_progress(
 def _snapshot_timeout(user_dao: UserDataDao) -> float:
     try:
         settle_seconds = float(user_dao.get_sync_settings()["inventory_settle_seconds"])
-    except (KeyError, TypeError, ValueError):
+    except (AttributeError, KeyError, TypeError, ValueError):
         settle_seconds = 5.0
     return max(1.0, settle_seconds) + 5.0
 
@@ -469,6 +471,7 @@ class BulkEquipmentApplyService:
                     "identity_requests": identity_requests,
                     "failed_role": role_name,
                     "error": str(exc),
+                    "failure_kind": equipment_request_failure_kind(exc),
                     "completed": False,
                 }
         return None
@@ -527,79 +530,106 @@ class BulkEquipmentApplyService:
             "postcheck_snapshot_id": None,
             "postrepair_snapshot_id": None,
             "postrepair_check_timed_out": False,
+            "snapshot_wait_failure": None,
+            "attempt_snapshots": [],
             "repair_errors": [],
         }
-        if len(prepared) <= 1 or len(applied) != len(prepared):
+        if not applied or len(applied) != len(prepared):
             return output
         timeout = _snapshot_timeout(user_dao)
-        report_bulk_apply_progress(
-            progress_callback,
-            current=len(prepared),
-            total=len(prepared),
-            message="正在等待装配后快照并检查遗漏…",
-        )
-        try:
-            state = self.sync_service.wait_for_snapshot(
-                after_snapshot_id=stable_snapshot_id,
-                timeout=timeout,
+        pending = [row for row in applied if not row.get("already_applied")]
+        for row in applied:
+            row["attempt_count"] = 0 if row.get("already_applied") else 1
+        if not pending:
+            return output
+        after_snapshot_id = stable_snapshot_id
+
+        for attempt in range(1, MAX_EQUIPMENT_APPLY_ATTEMPTS + 1):
+            if attempt > 1:
+                pending = self._dispatch_retry_attempt(
+                    apply_service,
+                    pending,
+                    after_snapshot_id,
+                    attempt,
+                    output["repair_errors"],
+                )
+                if not pending:
+                    return output
+
+            report_bulk_apply_progress(
+                progress_callback,
+                current=len(prepared),
+                total=len(prepared),
+                message=f"第 {attempt} 次装配已下发，正在等待稳定快照复核…",
             )
-            output["postcheck_snapshot_id"] = state.last_snapshot_id
-        except TimeoutError:
-            logger.info("极速全角色装配后快照检查超时；保留已下发结果")
-            return output
-        except Exception as exc:
-            logger.warning("极速全角色装配后快照检查失败：{}", exc)
-            return output
-        postcheck_id = output["postcheck_snapshot_id"]
-        if postcheck_id is None or postcheck_id <= stable_snapshot_id:
-            return output
-        repaired = self._repair_in_snapshot(
-            apply_service,
-            applied,
-            postcheck_id,
-            output["repair_errors"],
-        )
-        if not repaired:
-            return output
-        report_bulk_apply_progress(
-            progress_callback,
-            current=len(prepared),
-            total=len(prepared),
-            message="补装已下发，正在等待第二份快照复查…",
-        )
-        try:
-            state = self.sync_service.wait_for_snapshot(
-                after_snapshot_id=postcheck_id,
-                timeout=timeout,
-            )
-            output["postrepair_snapshot_id"] = state.last_snapshot_id
-        except TimeoutError:
-            output["postrepair_check_timed_out"] = True
-            logger.info("极速全角色补装后二次快照检查超时；补装指令已下发，但无法确认最终状态")
-            return output
-        except Exception as exc:
-            output["postrepair_check_timed_out"] = True
-            logger.warning("极速全角色补装后二次快照检查失败：{}", exc)
-            return output
-        postrepair_id = output["postrepair_snapshot_id"]
-        if postrepair_id is not None and postrepair_id > postcheck_id:
-            self._verify_repairs(
+            try:
+                state = self.sync_service.wait_for_snapshot(
+                    after_snapshot_id=after_snapshot_id,
+                    timeout=timeout,
+                )
+            except TimeoutError as exc:
+                output["postrepair_check_timed_out"] = attempt > 1
+                output["snapshot_wait_failure"] = {
+                    "attempt": attempt,
+                    "kind": "snapshot_timeout",
+                    "error": str(exc) or "等待新的稳定背包快照超时",
+                }
+                logger.info(
+                    "极速装配第 {} 次请求后稳定快照等待超时；停止后续请求",
+                    attempt,
+                )
+                return output
+            except Exception as exc:
+                output["postrepair_check_timed_out"] = attempt > 1
+                output["snapshot_wait_failure"] = {
+                    "attempt": attempt,
+                    "kind": "snapshot_error",
+                    "error": str(exc),
+                }
+                logger.warning(
+                    "极速装配第 {} 次请求后稳定快照检查失败：{}",
+                    attempt,
+                    exc,
+                )
+                return output
+
+            snapshot_id = state.last_snapshot_id
+            if snapshot_id is None or snapshot_id <= after_snapshot_id:
+                output["snapshot_wait_failure"] = {
+                    "attempt": attempt,
+                    "kind": "snapshot_not_advanced",
+                    "error": "背包同步未返回递增的稳定快照",
+                }
+                return output
+            after_snapshot_id = snapshot_id
+            output["attempt_snapshots"].append(snapshot_id)
+            if attempt == 1:
+                output["postcheck_snapshot_id"] = snapshot_id
+            else:
+                output["postrepair_snapshot_id"] = snapshot_id
+
+            pending = self._verify_attempt(
                 apply_service,
-                repaired,
-                postrepair_id,
-                output["repair_errors"],
+                pending,
+                snapshot_id,
+                attempt,
+                final_attempt=attempt == MAX_EQUIPMENT_APPLY_ATTEMPTS,
+                errors=output["repair_errors"],
             )
+            if not pending:
+                return output
         return output
 
     @staticmethod
-    def _repair_in_snapshot(
+    def _dispatch_retry_attempt(
         apply_service,
-        applied: list[dict],
+        pending: list[dict],
         snapshot_id: int,
+        attempt: int,
         errors: list[dict],
     ) -> list[dict]:
-        repaired = []
-        for row in applied:
+        dispatched = []
+        for row in pending:
             try:
                 repair = apply_service.apply_plan(
                     row["plan_id"],
@@ -615,30 +645,43 @@ class BulkEquipmentApplyService:
                 row["snapshot_id"] = snapshot_id
                 if repair.already_applied:
                     row["verified"] = True
+                    row["repair_verified"] = True
                     continue
                 row["repaired"] = True
-                repaired.append(row)
+                row["attempt_count"] = attempt
+                dispatched.append(row)
                 logger.warning(
-                    "装配后快照发现 [{}] 配装不完整，已卸空并补装",
+                    "第 {} 次装配前复核发现 [{}] 配装不完整，已卸空并重装",
+                    attempt,
                     row["role_name"],
                 )
             except Exception as exc:
-                errors.append({"role_name": row["role_name"], "error": str(exc)})
+                errors.append({
+                    "role_name": row["role_name"],
+                    "attempt": attempt,
+                    "kind": equipment_request_failure_kind(exc),
+                    "error": f"第 {attempt} 次装配请求失败：{exc}",
+                })
                 logger.error(
-                    "装配后快照补装 [{}] 失败：{}",
+                    "第 {} 次装配 [{}] 请求失败：{}",
+                    attempt,
                     row["role_name"],
                     exc,
                 )
-        return repaired
+        return dispatched
 
     @staticmethod
-    def _verify_repairs(
+    def _verify_attempt(
         apply_service,
-        repaired: list[dict],
+        pending: list[dict],
         snapshot_id: int,
+        attempt: int,
+        *,
+        final_attempt: bool,
         errors: list[dict],
-    ) -> None:
-        for row in repaired:
+    ) -> list[dict]:
+        mismatched = []
+        for row in pending:
             try:
                 mismatch = apply_service.verify_plan_in_snapshot(
                     row["plan_id"],
@@ -650,29 +693,36 @@ class BulkEquipmentApplyService:
                 row["snapshot_id"] = snapshot_id
                 if mismatch is None:
                     row["verified"] = True
-                    row["repair_verified"] = True
+                    if attempt > 1:
+                        row["repair_verified"] = True
                     continue
                 row["repair_verification_error"] = mismatch
-                errors.append(
-                    {
+                row["last_mismatch"] = mismatch
+                mismatched.append(row)
+                if final_attempt:
+                    errors.append({
                         "role_name": row["role_name"],
-                        "error": f"补装后复查仍不完整：{mismatch}",
-                    }
-                )
-                logger.error(
-                    "补装后快照复查 [{}] 仍不完整：{}",
-                    row["role_name"],
-                    mismatch,
-                )
+                        "attempt": attempt,
+                        "kind": "loadout_mismatch",
+                        "error": f"第 {attempt} 次装配后复核仍不一致：{mismatch}",
+                    })
+                    logger.error(
+                        "第 {} 次装配后快照复查 [{}] 仍不完整：{}",
+                        attempt,
+                        row["role_name"],
+                        mismatch,
+                    )
             except Exception as exc:
-                errors.append(
-                    {
-                        "role_name": row["role_name"],
-                        "error": f"补装后复查失败：{exc}",
-                    }
-                )
+                errors.append({
+                    "role_name": row["role_name"],
+                    "attempt": attempt,
+                    "kind": "verification_error",
+                    "error": f"第 {attempt} 次装配后复核失败：{exc}",
+                })
                 logger.error(
-                    "补装后快照复查 [{}] 失败：{}",
+                    "第 {} 次装配后快照复查 [{}] 失败：{}",
+                    attempt,
                     row["role_name"],
                     exc,
                 )
+        return mismatched

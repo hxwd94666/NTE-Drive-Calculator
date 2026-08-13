@@ -24,6 +24,12 @@ from src.services.virtual_equipment_service import (
 )
 
 
+_ACTIVE_ROLE_PLAN_SCHEMAS = frozenset({
+    "allocation-official-snapshot-v1",
+    "game-observed-loadout-v1",
+})
+
+
 class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
     def save_loadout_plan(
         self,
@@ -705,7 +711,7 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
                 for plan in self.list_loadout_plans()
                 if plan["is_active"]
                 and isinstance(plan.get("payload"), Mapping)
-                and plan["payload"].get("schema") == "allocation-official-snapshot-v1"
+                and plan["payload"].get("schema") in _ACTIVE_ROLE_PLAN_SCHEMAS
                 and plan["payload"].get("source_role_name") == raw_role_name
             ),
             None,
@@ -721,7 +727,7 @@ class LoadoutPlanDaoMixin(UserDataDaoMixinHost):
             if (
                 plan["is_active"]
                 and isinstance(payload, Mapping)
-                and payload.get("schema") == "allocation-official-snapshot-v1"
+                and payload.get("schema") in _ACTIVE_ROLE_PLAN_SCHEMAS
                 and isinstance(role_name, str)
                 and role_name.strip()
             ):

@@ -280,33 +280,30 @@ class DriveAssemblyPageMappingTests(unittest.TestCase):
         self.assertEqual((1034, 595), scroll["main_stat_scroll_start"])
         self.assertEqual((1034, 198), scroll["main_stat_scroll_end"])
 
-    def test_maps_main_stat_gamepad_open_sequence(self):
-        from src.features.drive_assembly.page_mapping import map_tape_main_stat_gamepad_open
+    def test_maps_main_stat_mouse_open_with_thirteen_faster_wheel_ticks(self):
+        from src.features.drive_assembly.page_mapping import map_tape_main_stat_mouse_open
 
-        sequence = map_tape_main_stat_gamepad_open()["open_sequence"]
+        controls = map_tape_main_stat_mouse_open()
 
-        self.assertEqual(11, len(sequence))
-        self.assertEqual(["left_down"] * 7, [step["gamepad_stick"] for step in sequence[:7]])
+        self.assertEqual((2067, 1071), controls["main_stat_expand"])
+        self.assertEqual((2067, 760), controls["main_stat_wheel_position"])
         self.assertEqual(
-            {
-                "name": "main_stat_gamepad_confirm_expand",
-                "gamepad_button": "a",
-                "post_action_pause_seconds": 0.2,
-            },
-            sequence[7],
+            [
+                {"name": "main_stat_expand", "position": (2067, 1071), "post_action_pause_seconds": 0.5},
+                {"name": "main_stat_wheel_to_options", "position": (2067, 760), "wheel_clicks": -13, "wheel_click_interval_seconds": 0.06, "post_action_pause_seconds": 0.8},
+            ],
+            controls["open_sequence"],
         )
-        self.assertEqual(["left_down"] * 3, [step["gamepad_stick"] for step in sequence[8:]])
-        self.assertEqual([0.2] * 11, [step["post_action_pause_seconds"] for step in sequence])
 
     def test_maps_tape_main_stat_selection_from_blueprint_stat(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
 
         selection = map_tape_main_stat_selection("攻击力百分比")
 
-        self.assertEqual((2273, 485), selection["main_stat_option"])
+        self.assertEqual((2273, 600), selection["main_stat_option"])
         self.assertEqual("攻击力百分比", selection["main_stat"])
         self.assertEqual(
-            [{"name": "main_stat_option", "main_stat": "攻击力百分比", "position": (2273, 485), "post_action_pause_seconds": 0.3}],
+            [{"name": "main_stat_option", "main_stat": "攻击力百分比", "position": (2273, 600), "post_action_pause_seconds": 0.3}],
             selection["selection_sequence"],
         )
 
@@ -314,21 +311,21 @@ class DriveAssemblyPageMappingTests(unittest.TestCase):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection
 
         expected = {
-            "生命值百分比": (1861, 485),
-            "攻击力百分比": (2273, 485),
-            "防御力百分比": (1861, 570),
-            "暴击率": (2273, 570),
-            "暴击伤害": (1861, 656),
-            "环合强度": (2273, 656),
-            "倾陷强度": (1861, 742),
-            "治疗加成": (2273, 742),
-            "光属性异能伤害增强": (1861, 828),
-            "灵属性异能伤害增强": (2273, 828),
-            "咒属性异能伤害增强": (1861, 914),
-            "暗属性异能伤害增强": (2273, 914),
-            "魂属性异能伤害增强": (1861, 999),
-            "相属性异能伤害增强": (2273, 999),
-            "心灵伤害增强": (1861, 1085),
+            "生命值百分比": (1861, 600),
+            "攻击力百分比": (2273, 600),
+            "防御力百分比": (1861, 686),
+            "暴击率": (2273, 686),
+            "暴击伤害": (1861, 773),
+            "环合强度": (2273, 773),
+            "倾陷强度": (1861, 856),
+            "治疗加成": (2273, 856),
+            "光属性异能伤害增强": (1861, 942),
+            "灵属性异能伤害增强": (2273, 942),
+            "咒属性异能伤害增强": (1861, 1030),
+            "暗属性异能伤害增强": (2273, 1030),
+            "魂属性异能伤害增强": (1861, 1116),
+            "相属性异能伤害增强": (2273, 1116),
+            "心灵伤害增强": (1861, 1202),
         }
 
         self.assertEqual(
@@ -355,7 +352,7 @@ class DriveAssemblyPageMappingTests(unittest.TestCase):
 
         selection = map_tape_main_stat_selection("暴击率", screen_size=(1280, 720))
 
-        self.assertEqual((1137, 285), selection["main_stat_option"])
+        self.assertEqual((1137, 343), selection["main_stat_option"])
 
     def test_rejects_unknown_tape_main_stat_selection(self):
         from src.features.drive_assembly.page_mapping import map_tape_main_stat_selection

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.tape_main_value import full_level_tape_main_value
 
 
 class AllocationInventoryProjectionError(RuntimeError):
@@ -236,13 +237,21 @@ class SqliteAllocationInventory:
                     raise AllocationInventoryProjectionError(
                         f"核心 {base['uid']} 必须且仅包含一个主词条"
                     )
+                main_stat, snapshot_main_value = next(iter(main_stats.items()))
+                main_value = full_level_tape_main_value(main_stat, item.get("quality"))
+                if main_value is None:
+                    main_value = snapshot_main_value
                 base.update(
                     {
                         "area": 15,
                         "shape_id": "TAPE_15",
                         "suit_id": suit_id,
                         "set_name": set_name,
-                        "main_stats": next(iter(main_stats)),
+                        "main_stats": main_stat,
+                        # Cards are evaluated at their quality's level cap;
+                        # never leak a captured level-one main value into a
+                        # calculation result.
+                        "main_value": main_value,
                     }
                 )
             else:

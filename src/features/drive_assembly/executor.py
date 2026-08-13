@@ -346,8 +346,45 @@ def _execute_one_action(
         return _click_ocr_target(action, backend)
     if "optional_confirm_position" in action:
         return _maybe_click_optional_confirm(action, backend)
+    if "wheel_clicks" in action:
+        scroll = getattr(backend, "scroll", None)
+        if scroll is None:
+            raise TypeError("backend does not support wheel actions")
+        position = _point(action["position"])
+        clicks = int(action["wheel_clicks"])
+        interval = max(0.0, float(action.get("wheel_click_interval_seconds") or 0.0))
+        if interval <= 0.0 or abs(clicks) <= 1:
+            scroll(position, clicks)
+            return True
+        direction = 1 if clicks > 0 else -1
+        for click_index in range(abs(clicks)):
+            if should_stop and should_stop():
+                raise AssemblyExecutionStopped("assembly execution stopped")
+            scroll(position, direction)
+            if click_index + 1 < abs(clicks):
+                _pause_with_stop(backend, interval, should_stop)
+        return True
+    if action.get("mouse_move_only"):
+        position = _point(action["position"])
+        move_to = getattr(backend, "move_to", None)
+        if not callable(move_to):
+            raise TypeError("backend does not support pointer-only move actions")
+        move_to(position)
+        return True
     if "position" in action:
-        backend.click(_point(action["position"]))
+        position = _point(action["position"])
+        if action.get("ensure_mouse_release"):
+            _force_mouse_release(backend)
+        cloud_click = getattr(backend, "cloud_click", None)
+        if action.get("cloud_click") and callable(cloud_click):
+            cloud_click(position, hold_seconds=float(action.get("click_hold_seconds") or 0.12))
+        else:
+            backend.click(position)
+        if action.get("ensure_mouse_release"):
+            _force_mouse_release(backend)
+        return True
+    if "keyboard_key" in action:
+        _press_keyboard_key(backend, str(action["keyboard_key"]))
         return True
     if "gamepad_button" in action:
         _press_gamepad_button(backend, str(action["gamepad_button"]))
@@ -372,7 +409,7 @@ def _execute_one_action(
         start = _point(action["from"])
         end = _point(action["to"])
         duration_ms = int(action.get("duration_ms") or DEFAULT_DRAG_DURATION_MS)
-        if _is_scroll_action(action):
+        if _is_scroll_action(action) and action.get("drag_mode") != "standard":
             _drag_scroll(backend, start, end, duration_ms)
         else:
             if action.get("name") == "drag_first_drive_to_block":
@@ -385,6 +422,13 @@ def _execute_one_action(
                 logger.info(f"Drive block {action.get('block_id')} drag completed")
         return True
     return False
+
+
+
+def _force_mouse_release(backend: MouseBackend) -> None:
+    release = getattr(backend, "force_mouse_release", None)
+    if callable(release):
+        release()
 
 
 def _retry_unselected_quality(
@@ -624,6 +668,13 @@ def _press_gamepad_button(backend: MouseBackend, button_name: str) -> None:
     if press is None:
         raise TypeError("backend does not support gamepad button actions")
     press(button_name)
+
+
+def _press_keyboard_key(backend: MouseBackend, key_name: str) -> None:
+    press = getattr(backend, "press_key", None)
+    if press is None:
+        raise TypeError("backend does not support keyboard key actions")
+    press(key_name)
 
 
 def _push_gamepad_stick(backend: MouseBackend, direction: str) -> None:

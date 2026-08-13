@@ -10,6 +10,9 @@ from pathlib import Path
 from tools.game_data.catalog_characters import build_catalog, write_reports
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
@@ -57,6 +60,18 @@ def ability(prefix: str, marker: str = "normal") -> dict:
 
 
 class CharacterDataCatalogTests(unittest.TestCase):
+    def test_test_server_radio_form_maps_to_lacrimosa_character(self):
+        overrides = json.loads(
+            (
+                PROJECT_ROOT
+                / "tools/game_data/character_overrides.json"
+            ).read_text(encoding="utf-8")
+        )["character_overrides"]["1091"]
+
+        self.assertEqual("combat_transformation", overrides["classification"])
+        self.assertEqual("1004", overrides["canonical_character_id"])
+        self.assertEqual("character:1004", overrides["logical_character_key"])
+
     def test_special_ability_profile_is_not_counted_as_a_character(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

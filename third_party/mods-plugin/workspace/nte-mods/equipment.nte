@@ -1,45 +1,51 @@
-nte_mod(4)
-mod("equipment")
-requires("viewport.tick")
-requires("game.session")
-requires("equipment")
-requires("ipc")
+#include <nte/mod.hpp>
 
-# External routing is the Mod's service table; the DLL only exposes validated kernel calls.
-route_ipc(1, "equipment.equip_module")
-route_ipc(2, "equipment.equip_core")
-route_ipc(3, "equipment.unequip_module")
-route_ipc(4, "equipment.unequip_core")
-route_ipc(5, "equipment.unequip_all")
-route_ipc(6, "equipment.equip_one_key")
-route_ipc(7, "equipment.move_module_to_character")
-route_ipc(8, "equipment.move_core_to_character")
-route_ipc(9, "equipment.set_item_discarded")
-route_ipc(10, "equipment.set_item_locked")
-route_ipc(12, "ipc.query_mod_events")
+NTE_SCRIPT(5);
+NTE_MOD("equipment");
+NTE_BIND("feature.empty-curtain-equipment");
+NTE_REQUIRES("viewport.tick");
+NTE_REQUIRES("game.session");
+NTE_REQUIRES("equipment");
+NTE_REQUIRES("ipc");
+NTE_ROUTE_IPC(1, "equipment.equip_module");
+NTE_ROUTE_IPC(2, "equipment.equip_core");
+NTE_ROUTE_IPC(3, "equipment.unequip_module");
+NTE_ROUTE_IPC(4, "equipment.unequip_core");
+NTE_ROUTE_IPC(5, "equipment.unequip_all");
+NTE_ROUTE_IPC(6, "equipment.equip_one_key");
+NTE_ROUTE_IPC(7, "equipment.move_module_to_character");
+NTE_ROUTE_IPC(8, "equipment.move_core_to_character");
+NTE_ROUTE_IPC(9, "equipment.set_item_discarded");
+NTE_ROUTE_IPC(10, "equipment.set_item_locked");
+NTE_ROUTE_IPC(12, "ipc.query_mod_events");
 
-# The script owns PlayerState lifecycle, cache retry, and IPC activation.
-# game.player_state is a stable built-in; client offsets stay in the host.
-state.last_player_state = 0
-state.next_prepare_at = 0
+std::uint64_t last_player_state = 0;
+std::uint64_t next_prepare_at = 0;
 
-def on_viewport_tick(event):
-    player_state = game.player_state
-    now = time.now_ms()
-    if player_state != None:
-        # A new PlayerState starts a fresh cache lifecycle.
-        if player_state != state.last_player_state:
-            state.last_player_state = player_state
-            state.next_prepare_at = 0
-
-        cache_ready = equipment.cache_ready(player_state)
-        if cache_ready == False:
-            # Retry at most once per second while UE functions are unavailable.
-            if now >= state.next_prepare_at:
-                equipment.prepare(player_state)
-                state.next_prepare_at = now + 1000
-                cache_ready = equipment.cache_ready(player_state)
-
-        # Equipment IPC becomes actionable only after this Mod prepared it.
-        if cache_ready == True:
-            ipc.bind(player_state, None)
+void on_viewport_tick(const nte::viewport_tick_event& event)
+{
+    const auto player_state = nte::game::player_state;
+    const auto now = nte::time::now_ms();
+    if (player_state != nullptr)
+    {
+        if (player_state != last_player_state)
+        {
+            last_player_state = player_state;
+            next_prepare_at = 0;
+        }
+        auto cache_ready = nte::equipment::cache_ready(player_state);
+        if (cache_ready == false)
+        {
+            if (now >= next_prepare_at)
+            {
+                nte::equipment::prepare(player_state);
+                next_prepare_at = now + 1000;
+                cache_ready = nte::equipment::cache_ready(player_state);
+            }
+        }
+        if (cache_ready == true)
+        {
+            nte::ipc::bind(player_state, nullptr);
+        }
+    }
+}

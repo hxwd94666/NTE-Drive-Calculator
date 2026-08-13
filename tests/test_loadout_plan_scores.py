@@ -1,3 +1,4 @@
+# 验证配装方案评分的读取与兼容规则。
 """Verify persisted loadout totals are rebuilt from concrete slots."""
 
 from src.domain.loadout_plan_scores import exact_assignment_score_total

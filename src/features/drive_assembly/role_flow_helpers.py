@@ -16,8 +16,41 @@ DEFAULT_ROLE_NAVIGATION_CONTROLS = {
     "left_kongmu_tab": (88.0, 581.0),
     "assemble_button": (2160.0, 1322.0),
 }
+DEFAULT_ROLE_LIST_ENTRY_CONTROLS = {
+    "left_information_tab": (136.0, 345.0),
+    "role_list_button": (2455.0, 1320.0),
+    # Empty space just above-left of the lower-right clover.  The pointer
+    # deliberately hovers into the control because cloud streaming may drop
+    # a click sent immediately after a long cross-screen pointer jump.
+    "role_list_button_approach": (2320.0, 1230.0),
+}
+DEFAULT_ROLE_LIST_GRID_SLOT_POSITIONS = [
+    (165.0, 185.0),
+    (415.0, 185.0),
+    (665.0, 185.0),
+    (165.0, 455.0),
+    (415.0, 455.0),
+    (665.0, 455.0),
+    (165.0, 725.0),
+    (415.0, 725.0),
+    (665.0, 725.0),
+    (165.0, 995.0),
+    (415.0, 995.0),
+    (665.0, 995.0),
+]
+DEFAULT_ROLE_LIST_WHEEL_POSITION = (720.0, 600.0)
 ROLE_KONGMU_TAB_SETTLE_SECONDS = 1.0
 ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS = 1.2
+ROLE_LIST_ENTRY_RESET_SCROLLS = 1
+ROLE_LIST_ENTRY_SCROLL_DURATION_MS = 700
+ROLE_LIST_ENTRY_SCROLL_SETTLE_SECONDS = 0.5
+ROLE_LIST_ENTRY_ROLE_SETTLE_SECONDS = 0.8
+ROLE_LIST_ENTRY_INFORMATION_SETTLE_SECONDS = 0.6
+ROLE_LIST_ENTRY_OPEN_SETTLE_SECONDS = 1.0
+ROLE_LIST_WHEEL_CLICKS_PER_ROW = -6
+ROLE_LIST_WHEEL_CLICK_INTERVAL_SECONDS = 0.15
+ROLE_LIST_WHEEL_SETTLE_SECONDS = 1.0
+ROLE_LIST_SELECTION_SETTLE_SECONDS = 1.2
 ROLE_LIST_STICK_MOVE_PAUSE_SECONDS = 0.25
 DEFAULT_ROLE_SLOT_POSITIONS = [
     (2410.0, 242.0),
@@ -27,8 +60,15 @@ DEFAULT_ROLE_SLOT_POSITIONS = [
     (2410.0, 1152.0),
 ]
 DEFAULT_ROLE_PAGE_SCROLL = {
-    "role_scroll_start": (2388.0, 1152.0),
-    "role_scroll_end": (2388.0, 242.0),
+    # End in the blank area above the lower-right role-list button.
+    "role_scroll_start": (2440.0, 1210.0),
+    "role_scroll_end": (2440.0, 242.0),
+}
+# First-entry reset follows the full highlighted avatar-rail strip: its top edge
+# to its bottom edge.  The ending point remains above the lower-right clover.
+DEFAULT_ROLE_LIST_ENTRY_SCROLL = {
+    "role_list_entry_scroll_start": (2455.0, 208.0),
+    "role_list_entry_scroll_end": (2455.0, 1154.0),
 }
 DEFAULT_ROLE_PAGE_RESET_SCROLLS = 6
 DEFAULT_ROLE_ROSTER_MAX_PAGES = 20

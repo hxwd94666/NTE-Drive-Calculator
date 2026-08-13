@@ -23,7 +23,10 @@
     "1071": "characters/player_kaesi1_256.png",
     "1073": "characters/player_073_256.png",
     "1075": "characters/player_yiluoyi_256.png",
-    "1076": "characters/player_zhenhong_256.png"
+    "1076": "characters/player_zhenhong_256.png",
+    "1036": "characters/player_canhong_256.png",
+    "1072": "characters/player_lingke_256.png",
+    "1091": "characters/player_004_256.png"
   },
   "attributes": {
     "attack": "attributes/attack.png",
@@ -158,7 +161,9 @@
     "fork_wuhuakuang": "forks/fork_wuhuakuang.png",
     "fork_wushoutieyu": "forks/fork_wushoutieyu.png",
     "fork_yaodao": "forks/fork_yaodao.png",
-    "fork_yuren": "forks/fork_yuren.png"
+    "fork_yuren": "forks/fork_yuren.png",
+    "fork_DemonBlade": "forks/fork_DemonBlade.png",
+    "fork_GoldRecord": "forks/fork_GoldRecord.png"
   },
   "monster_icons": {
     "monster_static_big_world:mon_016_BP_Clone": "monsters/monster_static_big_world/mon_16.png",
@@ -1330,8 +1335,26 @@
       "height": 128,
       "bytes": 35797,
       "sha256": "0F0ABA97F388AE574D1B8C95FC0D7FF4AAEFE81209BEB64FFBF425233D1B368C"
+    },
+    "characters/player_canhong_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_canhong_256.player_canhong_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 120827,
+      "sha256": "C59CD79DAE0D37A5A5DBFCAC23A44B0775FCC5724B227225AC07B378DE5EF4E0"
+    },
+    "characters/player_lingke_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_lingke_256.player_lingke_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 120644,
+      "sha256": "315A73C2BD3412C9FBF9E540FDCD3C43672EC12C1891397C9ADD394333A7D712"
     }
   },
-  "total_files": 160,
-  "total_bytes": 5228092
+  "total_files": 162,
+  "total_bytes": 5469563,
+  "unresolved_assets": {
+    "fork_DemonBlade": "/Game/UI/UI_Icon/Fork/fork_DemonBlade_256.fork_DemonBlade_256",
+    "fork_GoldRecord": "/Game/UI/UI_Icon/Fork/fork_GoldRecord_256.fork_GoldRecord_256"
+  }
 }

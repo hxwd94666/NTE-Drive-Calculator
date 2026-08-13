@@ -58,6 +58,9 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         tape = next(row for row in projection.items if row["item_type"] == "tape")
         self.assertEqual(3.5, drive["sub_stats"]["防御力%"])
         self.assertEqual("Suit6", tape["suit_id"])
+        # Purple visual cards infer their unobserved main value from the
+        # catalogue and its quality coefficient (37.5% × 0.8).
+        self.assertEqual(30.0, tape["main_value"])
         imported = self.user_dao.list_inventory_items(snapshot_id)
         self.assertEqual("EquipmentGeometry_Hen2", next(row for row in imported if row["kind"] == "module")["geometry"])
         self.assertTrue(all(row["level"] == 0 and row["max_level"] == 0 for row in imported))

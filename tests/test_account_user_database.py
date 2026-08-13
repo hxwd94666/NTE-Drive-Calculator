@@ -74,6 +74,21 @@ class AccountUserDatabaseTests(unittest.TestCase):
             self.assertEqual(first_settings.load("ui")["protagonist_game_name"], "无度")
             self.assertEqual(second_settings.load("ui")["protagonist_game_name"], "")
 
+    def test_cloud_nte_mode_is_account_scoped_ui_setting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self.make_manager(Path(temporary))
+            first = manager.initialize()
+            second_id = manager.create_account("第二账号")
+            second_path = manager.account_dir(second_id) / "user_data.sqlite3"
+
+            first_settings = AccountSettingsService(first.user_database_path)
+            second_settings = AccountSettingsService(second_path)
+            self.assertFalse(first_settings.load("ui")["cloud_nte_mode"])
+            first_settings.save("ui", {"cloud_nte_mode": True})
+
+            self.assertTrue(first_settings.load("ui")["cloud_nte_mode"])
+            self.assertFalse(second_settings.load("ui")["cloud_nte_mode"])
+
     def test_versioned_stats_catalog_replaces_stale_local_copy(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -125,6 +140,7 @@ class AccountUserDatabaseTests(unittest.TestCase):
                 legacy_config_dir=legacy,
             )
 
+            self.assertEqual(settings.legacy_theme_preference(), "light")
             settings.migrate_legacy_settings()
 
             self.assertEqual(
@@ -135,7 +151,7 @@ class AccountUserDatabaseTests(unittest.TestCase):
             self.assertEqual(settings.load("update")["mirror_cdk"], "legacy-cdk")
             self.assertTrue(settings.load("update")["never_remind"])
             self.assertTrue(settings.load("ui")["log_enabled"])
-            self.assertEqual(settings.load("ui")["theme"], "light")
+            self.assertNotIn("theme", settings.load("ui"))
             with UserDataDao(state.user_database_path) as database:
                 self.assertTrue(database.legacy_application_settings_imported())
 
@@ -157,7 +173,6 @@ class AccountUserDatabaseTests(unittest.TestCase):
             settings.save(
                 "ui",
                 {
-                    "theme": "light",
                     "log_enabled": True,
                     "protagonist_game_name": "无度",
                 },
@@ -206,7 +221,7 @@ class AccountUserDatabaseTests(unittest.TestCase):
             imported_settings = AccountSettingsService(
                 imported_root / "user_data.sqlite3"
             )
-            self.assertEqual(imported_settings.load("ui")["theme"], "light")
+            self.assertNotIn("theme", imported_settings.load("ui"))
             self.assertEqual(
                 imported_settings.load("ui")["protagonist_game_name"],
                 "无度",

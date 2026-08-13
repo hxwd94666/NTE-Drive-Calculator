@@ -30,15 +30,52 @@ class DriveAssemblyRoleRecognitionTests(unittest.TestCase):
             [
                 {
                     "name": "assembly_back_to_role_page",
-                    "gamepad_button": "b",
+                    "keyboard_key": "esc",
                     "post_action_pause_seconds": 1.5,
                 },
             ],
             controls["exit_sequence"],
         )
 
+    def test_maps_cloud_nte_assembly_to_gamepad_dpad_right_then_y(self):
+        from src.features.drive_assembly.role_flow import map_role_navigation_controls
+
+        controls = map_role_navigation_controls(cloud_nte_mode=True)
+
+        self.assertEqual(
+            [
+                {"name": "left_kongmu_tab", "position": (88, 581)},
+                {"name": "wait_after_left_kongmu_tab", "wait_seconds": 1.0},
+                {
+                    "name": "activate_assemble_button_gamepad",
+                    "gamepad_button": "dpad_right",
+                    "post_action_pause_seconds": 0.2,
+                },
+                {
+                    "name": "assemble_button",
+                    "gamepad_button": "y",
+                    "post_action_pause_seconds": 1.2,
+                },
+                {
+                    "name": "assembly_page_wake_mouse_after_gamepad",
+                    "position": (1524, 1252),
+                    "mouse_move_only": True,
+                    "post_action_pause_seconds": 0.25,
+                },
+            ],
+            controls["entry_sequence"],
+        )
+
     def test_maps_five_visible_role_slots_and_scroll(self):
-        from src.features.drive_assembly.role_flow import map_role_page_reset, map_role_page_scroll, map_role_slots
+        from src.features.drive_assembly.role_flow import (
+            map_role_list_mouse_entry,
+            map_role_list_mouse_row_scan,
+            map_role_list_mouse_selection,
+            map_role_list_mouse_selection_from_current,
+            map_role_page_reset,
+            map_role_page_scroll,
+            map_role_slots,
+        )
 
         self.assertEqual(
             [(2410, 242), (2410, 470), (2410, 697), (2410, 925), (2410, 1152)],
@@ -46,14 +83,14 @@ class DriveAssemblyRoleRecognitionTests(unittest.TestCase):
         )
 
         scroll = map_role_page_scroll()
-        self.assertEqual((2388, 1152), scroll["role_scroll_start"])
-        self.assertEqual((2388, 242), scroll["role_scroll_end"])
+        self.assertEqual((2440, 1210), scroll["role_scroll_start"])
+        self.assertEqual((2440, 242), scroll["role_scroll_end"])
         self.assertEqual(
             [
                 {
                     "name": "role_scroll_next_page",
-                    "from": (2388, 1152),
-                    "to": (2388, 242),
+                    "from": (2440, 1210),
+                    "to": (2440, 242),
                     "duration_ms": 700,
                 }
             ],
@@ -63,8 +100,110 @@ class DriveAssemblyRoleRecognitionTests(unittest.TestCase):
         reset = map_role_page_reset(repeat_count=2)
         self.assertEqual(2, len(reset["reset_sequence"]))
         self.assertEqual("role_scroll_reset_to_first_page", reset["reset_sequence"][0]["name"])
-        self.assertEqual((2388, 242), reset["reset_sequence"][0]["from"])
-        self.assertEqual((2388, 1152), reset["reset_sequence"][0]["to"])
+        self.assertEqual((2440, 242), reset["reset_sequence"][0]["from"])
+        self.assertEqual((2440, 1210), reset["reset_sequence"][0]["to"])
+
+        entry = map_role_list_mouse_entry()
+        self.assertEqual(
+            [
+                {
+                    "name": "role_list_entry_scroll_to_first",
+                    "from": (2455, 208),
+                    "to": (2455, 1154),
+                    "duration_ms": 700,
+                    "post_action_pause_seconds": 0.5,
+                },
+                {
+                    "name": "role_list_entry_first_role",
+                    "position": (2410, 242),
+                    "post_action_pause_seconds": 0.8,
+                },
+                {
+                    "name": "role_list_entry_information_tab",
+                    "position": (136, 345),
+                    "post_action_pause_seconds": 0.6,
+                },
+                {
+                    "name": "open_role_list_mouse",
+                    "position": (2455, 1320),
+                    "post_action_pause_seconds": 1.0,
+                },
+            ],
+            entry["entry_sequence"],
+        )
+        self.assertEqual(
+            [{"name": "close_role_list_to_role_page", "keyboard_key": "esc", "post_action_pause_seconds": 1.0}],
+            entry["close_sequence"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "name": "open_role_list_from_current_role_mouse",
+                    "position": (2455, 1320),
+                    "post_action_pause_seconds": 1.0,
+                },
+            ],
+            entry["reentry_sequence"],
+        )
+        cloud_entry = map_role_list_mouse_entry(cloud_nte_mode=True)
+        self.assertEqual(
+            ["activate_role_list_gamepad", "open_role_list", "role_list_wake_mouse_after_gamepad"],
+            [action["name"] for action in cloud_entry["entry_sequence"][-3:]],
+        )
+        self.assertEqual(
+            ["activate_role_list_gamepad", "open_role_list_from_current_role", "role_list_wake_mouse_after_gamepad"],
+            [action["name"] for action in cloud_entry["reentry_sequence"]],
+        )
+        compact_entry = map_role_list_mouse_entry(screen_size=(1920, 1080))
+        self.assertEqual((1841, 156), compact_entry["role_list_entry_scroll_start"])
+        self.assertEqual((1841, 866), compact_entry["role_list_entry_scroll_end"])
+        self.assertLess(compact_entry["role_list_entry_scroll_end"][1], 990)
+
+        row_scan = map_role_list_mouse_row_scan()
+        self.assertEqual((9, 10, 11), row_scan["bottom_row_slot_indexes"])
+        self.assertEqual((165, 995), row_scan["slot_positions"][9])
+
+        selection = map_role_list_mouse_selection(14)
+        self.assertEqual(1, selection["row_scroll_count"])
+        self.assertEqual(11, selection["slot_index"])
+        self.assertEqual(
+            [
+                {
+                    "name": "role_list_wheel_next_row",
+                    "position": (720, 600),
+                    "wheel_clicks": -6,
+                    "wheel_click_interval_seconds": 0.15,
+                    "post_action_pause_seconds": 1.0,
+                },
+                {
+                    "name": "role_list_select_grid_slot",
+                    "position": (665, 995),
+                    "post_action_pause_seconds": 1.2,
+                },
+            ],
+            selection["selection_sequence"],
+        )
+
+        remembered = map_role_list_mouse_selection_from_current(14, 1)
+        self.assertEqual(1, remembered["upward_rows"])
+        self.assertEqual(1, remembered["slot_index"])
+        self.assertEqual(
+            [
+                {
+                    "name": "role_list_wheel_previous_row",
+                    "position": (720, 600),
+                    "wheel_clicks": 6,
+                    "wheel_click_interval_seconds": 0.15,
+                    "post_action_pause_seconds": 1.0,
+                },
+                {
+                    "name": "role_list_select_grid_slot",
+                    "position": (415, 185),
+                    "post_action_pause_seconds": 1.2,
+                },
+            ],
+            remembered["selection_sequence"],
+        )
 
     def test_defaults_role_dpad_reset_to_five_up_moves(self):
         from src.features.drive_assembly.role_flow import map_dpad_role_reset_sequence

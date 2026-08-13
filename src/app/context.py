@@ -28,6 +28,7 @@ class ApplicationPaths:
     accounts_dir: Path
     accounts_index_file: Path
     shared_database_path: Path
+    global_ui_preferences_file: Path
     template_dir: Path
     static_database_path: Path
 
@@ -58,6 +59,7 @@ class ApplicationPaths:
             accounts_dir=accounts_dir,
             accounts_index_file=accounts_dir / "accounts.json",
             shared_database_path=data_root_path / "app_shared.sqlite3",
+            global_ui_preferences_file=config_dir / "global_ui_preferences.json",
             template_dir=config_dir / "templates",
             static_database_path=(
                 Path(static_database_path).resolve()

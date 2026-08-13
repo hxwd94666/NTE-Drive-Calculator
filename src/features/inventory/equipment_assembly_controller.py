@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QMessageBox, QProgressDialog
 from src.app.workers import WorkerThread
 from src.observability.context import OperationContext
 from src.integrations.nte_core import is_mods_plugin_unavailable_error
+from src.services.dwmapi_diagnostics import probe_equipment_pipe
 from src.features.inventory.equipment_assembly_dialogs import (
     assembly_report_dialog as _assembly_report_dialog,
 )
@@ -39,6 +40,48 @@ def _is_equipment_plugin_unavailable_error(error: object) -> bool:
     """识别核心已启动但游戏内装备插件桥接不可用的不可重试错误。"""
 
     return is_mods_plugin_unavailable_error(error)
+
+
+def _equipment_failure_details(
+    failure_kind: str,
+    error: object,
+    *,
+    pipe_probe: dict[str, Any] | None = None,
+) -> str:
+    """Render one concrete failure category without conflating pipe states."""
+
+    message = str(error or "未知错误")
+    if failure_kind == "plugin_unavailable":
+        probe = pipe_probe if pipe_probe is not None else probe_equipment_pipe()
+        state = str(probe.get("state") or "error")
+        if state == "missing":
+            return (
+                "当前探测确认装备插件命名管道不存在。"
+                "通常表示 DLL/脚本未完成加载、Viewport Tick 未运行，或 IPC 版本不匹配。"
+            )
+        if state == "busy":
+            return "当前探测确认命名管道存在，但连接实例仍被占用。"
+        if state == "available":
+            return (
+                "当前探测确认命名管道存在；此前请求更可能是管道短暂不可用或等待响应超时，"
+                "不是持续性的管道缺失。"
+            )
+        if state == "access_denied":
+            return "当前探测确认命名管道访问被拒绝，请检查程序与游戏的权限级别。"
+        return f"装备插件通道不可用，当前管道探测结果：{probe.get('message') or message}"
+    if failure_kind == "plugin_busy":
+        return "装备插件队列在 6 次串行退避后仍繁忙，本次请求未进入执行队列。"
+    if failure_kind == "core_request_timeout":
+        return "nte-core 的请求响应等待超时；这不是命名管道缺失的检测结果。"
+    if failure_kind == "request_rejected":
+        return f"装备插件已收到请求但拒绝执行：{message}"
+    if failure_kind == "snapshot_timeout":
+        return "装配请求已经下发，但没有在等待时间内取得新的稳定背包快照。"
+    if failure_kind == "snapshot_error":
+        return f"装配请求已经下发，但背包同步复核失败：{message}"
+    if failure_kind == "loadout_mismatch":
+        return message
+    return message
 
 
 def _equipment_assembly_is_running(window: Any) -> bool:
@@ -215,9 +258,12 @@ def _start_nte_core_equipment_apply(
             )
             + ("（原本已装好）" if row.get("already_applied") else "")
             + (
-                "（遗漏已补装并复查通过）"
+                f"（第 {row.get('attempt_count', 2)} 次装配后复查通过）"
                 if row.get("repair_verified")
-                else ("（末次快照发现遗漏后已补装）" if row.get("repaired") else "")
+                else (
+                    f"（已执行 {row.get('attempt_count', 2)} 次装配）"
+                    if row.get("repaired") else ""
+                )
             )
             for row in applied
         )
@@ -227,17 +273,25 @@ def _start_nte_core_equipment_apply(
         summary = f"已下发 {len(applied)} 个角色的配装" if unverified_count else f"已确认 {len(applied)} 个角色的配装"
         repaired_count = sum(bool(row.get("repaired")) for row in applied)
         if repaired_count:
-            summary += f"（末次快照补装 {repaired_count} 个）"
+            summary += f"（复核后重试 {repaired_count} 个）"
         if unchanged_count:
             summary += f"（实际装配 {changed_count} 个，原本已装好 {unchanged_count} 个）"
         if report.get("failed_role"):
             error_message = str(report.get("error") or "未知错误")
-            if _is_equipment_plugin_unavailable_error(error_message):
+            failure_kind = str(report.get("failure_kind") or "apply_error")
+            if (
+                failure_kind == "plugin_unavailable"
+                or _is_equipment_plugin_unavailable_error(error_message)
+            ):
+                reason = _equipment_failure_details(
+                    "plugin_unavailable",
+                    error_message,
+                )
                 QMessageBox.warning(
                     self,
                     "装备插件不可用",
                     f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n"
-                    "本地核心组件已连接，但未能连接游戏内装备 MOD（命名管道不可用或超时）。\n\n"
+                    f"{reason}\n\n"
                     "请先确认：\n"
                     "1. 已在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
                     "nte-mods-plugin 和 equipment.nte；\n"
@@ -246,10 +300,11 @@ def _start_nte_core_equipment_apply(
                     f"此前已确认 {len(applied)} 个角色；任务日志已保存。此次不会立即重试。",
                 )
                 return
+            reason = _equipment_failure_details(failure_kind, error_message)
             retry = QMessageBox.question(
                 self,
                 "装配暂停",
-                f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n{error_message}\n\n"
+                f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n{reason}\n\n"
                 f"此前已确认 {len(applied)} 个角色；任务日志已保存。是否重试失败角色并继续？",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
@@ -266,17 +321,37 @@ def _start_nte_core_equipment_apply(
         repair_errors = report.get("repair_errors") or []
         if repair_errors:
             error_details = "\n".join(
-                f"• [{row.get('role_name', '未知角色')}]：{row.get('error', '补装失败')}" for row in repair_errors
+                f"• [{row.get('role_name', '未知角色')}]："
+                + _equipment_failure_details(
+                    str(row.get("kind") or "apply_error"),
+                    row.get("error", "装配失败"),
+                )
+                for row in repair_errors
             )
             QMessageBox.warning(
                 self,
-                "装配后补装未完成",
-                f"{summary}，但以下角色补装失败：\n\n{error_details}\n\n请保持游戏在线后单独重试这些角色。",
+                "装配后复核未通过",
+                f"{summary}，但以下角色在最多 3 次装配后仍未通过复核："
+                f"\n\n{error_details}\n\n请保持游戏在线后单独重试这些角色。",
+            )
+            return
+        snapshot_failure = report.get("snapshot_wait_failure")
+        if isinstance(snapshot_failure, dict):
+            attempt = int(snapshot_failure.get("attempt") or 1)
+            reason = _equipment_failure_details(
+                str(snapshot_failure.get("kind") or "snapshot_error"),
+                snapshot_failure.get("error"),
+            )
+            QMessageBox.warning(
+                self,
+                "装配复核未完成",
+                f"{summary}。\n\n第 {attempt} 次装配后的复核未完成：{reason}\n\n"
+                "由于没有取得可靠的新快照，本次没有继续发送后续装配请求。",
             )
             return
         if report.get("postrepair_snapshot_id"):
             verification_note = (
-                "\n\n已使用装配后稳定背包快照检查全部角色；发现的遗漏已自动补装，并通过第二份稳定快照复查。"
+                "\n\n已在每次装配后等待稳定背包快照，并完成最终复核；单个角色最多发送 3 次装配请求。"
             )
         elif report.get("postrepair_check_timed_out"):
             verification_note = (

@@ -17,12 +17,17 @@ __all__ = [
     "build_role_assembly_payloads",
     "collect_role_observation_pages",
     "collect_role_roster_from_role_list",
+    "collect_role_roster_from_mouse_rows",
     "collect_role_roster_until_repeat",
     "collect_role_roster_with_dpad",
     "map_current_role_name_region",
     "map_dpad_role_down_sequence",
     "map_dpad_role_move_sequence",
     "map_dpad_role_reset_sequence",
+    "map_role_list_mouse_entry",
+    "map_role_list_mouse_row_scan",
+    "map_role_list_mouse_selection",
+    "map_role_list_mouse_selection_from_current",
     "map_role_list_grid_move_sequence",
     "map_role_list_initial_left_reset_sequence",
     "map_role_list_reset_to_first_sequence",
@@ -65,6 +70,10 @@ from src.features.drive_assembly.role_navigation_mapping import (
     map_dpad_role_reset_sequence,
     map_dpad_role_down_sequence,
     map_dpad_role_move_sequence,
+    map_role_list_mouse_entry,
+    map_role_list_mouse_row_scan,
+    map_role_list_mouse_selection,
+    map_role_list_mouse_selection_from_current,
     map_role_list_grid_move_sequence,
     map_role_list_reverse_left_move_sequence,
     map_role_list_initial_left_reset_sequence,
@@ -283,6 +292,104 @@ def collect_role_roster_with_dpad(
     }
 
 
+def collect_role_roster_from_mouse_rows(
+    expected_roles: list[str] | tuple[str, ...],
+    current_observer: Callable[[int], RoleRecognition],
+    select_grid_slot: Callable[[int], None],
+    scroll_next_row: Callable[[], None],
+    enter_role_list: Callable[[], None],
+    on_unique_observation: Callable[[int], None] | None = None,
+    max_roles: int = DEFAULT_DPAD_ROLE_LIMIT,
+) -> dict[str, Any]:
+    """Scan the role grid once, then scan only each newly revealed bottom row.
+
+    A recognized role is recorded and persisted only on its first appearance.
+    The very first repeated recognized role is the bottom sentinel: on a
+    partial final row, selecting an empty cell keeps the final role selected
+    and therefore produces exactly the same sentinel.
+    """
+
+    enter_role_list()
+    expected_order = [str(role).strip() for role in expected_roles if str(role).strip()]
+    expected = set(expected_order)
+    roles: list[str] = []
+    role_positions: dict[str, int] = {}
+    observations: list[RoleRecognition] = []
+    seen: set[str] = set()
+    duplicates: list[dict[str, Any]] = []
+    unrecognized: list[dict[str, Any]] = []
+    current_index = 0
+    row_scroll_count = 0
+    stop_reason = "max_roles_reached"
+    observation_index = 0
+
+    def inspect_slot(slot_index: int) -> bool:
+        nonlocal current_index, observation_index, stop_reason
+        select_grid_slot(slot_index)
+        recognition = _coerce_recognition(current_observer(observation_index))
+        role_name = recognition.role_name
+        if role_name and role_name in seen:
+            duplicates.append(
+                {
+                    "role_name": role_name,
+                    "roster_index": observation_index,
+                    "slot_index": slot_index,
+                    "row_scroll_count": row_scroll_count,
+                }
+            )
+            stop_reason = "role_list_end_reached"
+            return False
+
+        current_index = observation_index
+        if not role_name:
+            unrecognized.append(
+                {"roster_index": observation_index, "slot_index": slot_index, "raw_text": recognition.raw_text}
+            )
+        else:
+            seen.add(role_name)
+            role_positions[role_name] = observation_index
+            roles.append(role_name)
+            observations.append(recognition)
+            if on_unique_observation is not None:
+                on_unique_observation(observation_index)
+
+        observation_index += 1
+        if expected and expected.issubset(seen):
+            stop_reason = "all_required_roles_found"
+            return False
+        return observation_index < max(1, int(max_roles))
+
+    for slot_index in range(ROLE_LIST_FIRST_PAGE_SIZE):
+        if not inspect_slot(slot_index):
+            break
+    else:
+        while observation_index < max(1, int(max_roles)):
+            scroll_next_row()
+            row_scroll_count += 1
+            for slot_index in range(ROLE_LIST_FIRST_PAGE_SIZE - 3, ROLE_LIST_FIRST_PAGE_SIZE):
+                if not inspect_slot(slot_index):
+                    break
+            else:
+                continue
+            break
+
+    return {
+        "roles": roles,
+        "role_positions": role_positions,
+        "current_index": current_index,
+        "observations": observations,
+        "duplicates": duplicates,
+        "unrecognized": unrecognized,
+        "missing_expected_roles": [role for role in expected_order if role not in seen],
+        "reached_bottom": stop_reason == "role_list_end_reached",
+        "stop_reason": stop_reason,
+        "list_open": True,
+        "navigation": "mouse_role_list_row_scan",
+        "row_scroll_count": row_scroll_count,
+        "scanned_role_count": len(roles),
+    }
+
+
 def collect_role_roster_from_role_list(
     expected_roles: list[str] | tuple[str, ...],
     current_observer: Callable[[int], RoleRecognition],
@@ -295,6 +402,7 @@ def collect_role_roster_from_role_list(
     bottom_repeat_limit: int = DEFAULT_DPAD_BOTTOM_REPEAT_LIMIT,
     max_roles: int = DEFAULT_DPAD_ROLE_LIMIT,
     initial_left_reset_count: int = ROLE_LIST_INITIAL_LEFT_RESET_COUNT,
+    enter_role_list: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Scan the RS three-column role list and stop as soon as targets are found.
 
@@ -302,9 +410,12 @@ def collect_role_roster_from_role_list(
     observes each grid position without relying on the unrelated sidebar order.
     """
 
-    for _index in range(max(0, int(reset_up_count))):
-        press_up()
-    open_role_list()
+    if enter_role_list is not None:
+        enter_role_list()
+    else:
+        for _index in range(max(0, int(reset_up_count))):
+            press_up()
+        open_role_list()
     if move_left is not None:
         for _index in range(max(0, int(initial_left_reset_count))):
             move_left()
@@ -448,6 +559,7 @@ def plan_role_assembly_from_dpad_roster(
 
     required = [str(role) for role in required_roles if str(role).strip()]
     entry = map_role_navigation_controls(screen_size, content_rect)
+    role_list_entry = map_role_list_mouse_entry(screen_size, content_rect)
     roster = [str(role) for role in role_roster.get("roles", []) if str(role).strip()]
     role_positions = {
         str(role): int(index)
@@ -478,17 +590,16 @@ def plan_role_assembly_from_dpad_roster(
             ]
             navigation = "sidebar_dpad"
         else:
-            move_sequence = map_role_list_grid_move_sequence(cursor_index, index)
+            selection = map_role_list_mouse_selection(index, screen_size, content_rect)
             action_sequence = [
-                {"name": "open_role_list", "gamepad_button": "rs"},
-                *move_sequence,
-                {"name": "confirm_role_list_selection", "gamepad_button": "a"},
-                {"name": "close_role_list_after_confirmation", "gamepad_button": "b"},
+                *role_list_entry["reentry_sequence"],
+                *selection["selection_sequence"],
+                *role_list_entry["close_sequence"],
                 *entry["entry_sequence"],
                 {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
                 *entry["exit_sequence"],
             ]
-            navigation = "rs_role_list_grid"
+            navigation = "mouse_role_list_entry_then_wheel_and_click"
         plans.append(
             {
                 "role_name": role_name,
@@ -512,7 +623,7 @@ def plan_role_assembly_from_dpad_roster(
         "role_roster": roster,
         "plans": plans,
         "complete": not missing and not role_roster.get("unrecognized"),
-        "navigation": "sidebar_then_rs_role_list_grid",
+        "navigation": "sidebar_then_mouse_role_list_wheel_and_click",
     }
 
 
@@ -522,18 +633,19 @@ def plan_role_assembly_from_role_list_roster(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
     current_index: int | None = None,
+    cloud_nte_mode: bool = False,
 ) -> dict[str, Any]:
-    """Plan assembly entirely through the RS three-column character list.
-
-    The initial roster scan leaves the list open. The first target therefore
-    only needs grid movement, ``A`` confirmation and ``B`` to close the list;
-    every later target reopens the list with ``RS`` before following the same
-    route. Targets are visited in reverse list order, using only left-stick
-    movement so selection never depends on the unrelated sidebar order.
-    """
+    """Plan descending assembly through the role list's remembered position."""
 
     required = [str(role) for role in required_roles if str(role).strip()]
-    entry = map_role_navigation_controls(screen_size, content_rect)
+    entry = map_role_navigation_controls(
+        screen_size,
+        content_rect,
+        cloud_nte_mode=cloud_nte_mode,
+    )
+    role_list_entry = map_role_list_mouse_entry(
+        screen_size, content_rect, cloud_nte_mode=cloud_nte_mode
+    )
     roster = [str(role) for role in role_roster.get("roles", []) if str(role).strip()]
     role_positions = {
         str(role): int(index)
@@ -552,34 +664,24 @@ def plan_role_assembly_from_role_list_roster(
         else int(role_roster.get("current_index", max(0, len(roster) - 1)) or 0)
     )
     list_is_open = bool(role_roster.get("list_open", True))
-    first_target_page = (
-        role_indexes[ordered_required[0]] // ROLE_LIST_FIRST_PAGE_SIZE
-        if ordered_required else 0
-    )
-    # 从第二页起打开角色列表没有稳定光标。先通过“左推复位 + 网格”处理，
-    # 直到实际装配过一个第一页角色；之后第一页光标可用，继续倒序左移即可。
-    first_page_cursor_established = first_target_page == 0
     plans: list[dict[str, Any]] = []
 
     for plan_index, role_name in enumerate(ordered_required):
         index = role_indexes[role_name]
         starts_in_open_list = plan_index == 0 and list_is_open
-        reset_to_first = not starts_in_open_list and not first_page_cursor_established
-        if reset_to_first:
-            move_sequence = [
-                *map_role_list_reset_to_first_sequence(),
-                *map_role_list_grid_move_sequence(0, index),
-            ]
-        else:
-            move_sequence = map_role_list_reverse_left_move_sequence(cursor_index, index)
+        selection = map_role_list_mouse_selection_from_current(
+            cursor_index,
+            index,
+            screen_size,
+            content_rect,
+        )
         action_sequence: list[dict[str, Any]] = []
         if not starts_in_open_list:
-            action_sequence.append({"name": "open_role_list", "gamepad_button": "rs"})
+            action_sequence.extend(role_list_entry["reentry_sequence"])
         action_sequence.extend(
             [
-                *move_sequence,
-                {"name": "confirm_role_list_selection", "gamepad_button": "a"},
-                {"name": "close_role_list_after_confirmation", "gamepad_button": "b"},
+                *selection["selection_sequence"],
+                *role_list_entry["close_sequence"],
                 *entry["entry_sequence"],
                 {"name": "assemble_current_role_from_blueprint", "role_name": role_name},
                 *entry["exit_sequence"],
@@ -589,21 +691,19 @@ def plan_role_assembly_from_role_list_roster(
             {
                 "role_name": role_name,
                 "roster_index": index,
-                "target_page": index // ROLE_LIST_FIRST_PAGE_SIZE,
+                "target_page": selection["target_viewport_row"],
                 "start_roster_index": cursor_index,
+                "upward_rows": selection["upward_rows"],
+                "slot_index": selection["slot_index"],
                 "navigation": (
-                    "role_list_reverse_left_from_open"
+                    "role_list_memory_from_open"
                     if starts_in_open_list
-                    else "rs_role_list_reset_then_grid"
-                    if reset_to_first
-                    else "rs_role_list_reverse_left"
+                    else "role_list_memory_reopen_then_upward_rows"
                 ),
                 "flow": "find_role_then_assemble_blueprint",
                 "action_sequence": action_sequence,
             }
         )
-        if index < ROLE_LIST_FIRST_PAGE_SIZE:
-            first_page_cursor_established = True
         cursor_index = index
 
     planned_roles = [plan["role_name"] for plan in plans]
@@ -617,10 +717,8 @@ def plan_role_assembly_from_role_list_roster(
         "role_roster": roster,
         "plans": plans,
         "complete": not missing and not role_roster.get("unrecognized"),
-        "navigation": "rs_role_list_scan_then_reverse_left",
+        "navigation": "role_list_memory_then_upward_rows",
         "scan_stop_reason": role_roster.get("stop_reason", ""),
-        "first_target_page": first_target_page,
-        "reset_until_first_page_target": first_target_page > 0,
     }
 
 

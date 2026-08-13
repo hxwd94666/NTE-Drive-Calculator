@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ class GameUiAssetCatalog:
             }
         )
 
+    @lru_cache(maxsize=2048)
     def _resolve(self, group: str, key: str) -> Path | None:
         relative = self._manifest.get(group, {}).get(key)
         if not isinstance(relative, str):

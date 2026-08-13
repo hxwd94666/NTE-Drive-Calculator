@@ -465,7 +465,16 @@ def _bonus_delta_column(self, aligned_rows, priority_stats=None, role_name=None,
 
 
 def _bonus_comparison_widget(
-    self, role_name, old_rows, new_rows, has_old=True, compact=False, priority_stats=None, mode="equipment"
+    self,
+    role_name,
+    old_rows,
+    new_rows,
+    has_old=True,
+    compact=False,
+    priority_stats=None,
+    mode="equipment",
+    old_title=None,
+    new_title=None,
 ):
     priority_stats = list(priority_stats or [])
     if compact:
@@ -478,8 +487,8 @@ def _bonus_comparison_widget(
     if compact:
         aligned = aligned[:4]
     colored_stats = {item.get("stat") for item in aligned[:4]} if mode == "character" else None
-    old_title = "旧" if compact else "旧方案"
-    new_title = "新" if compact else "新方案"
+    old_title = old_title or ("旧" if compact else "旧方案")
+    new_title = new_title or ("新" if compact else "新方案")
     old_empty = "无已保存配装" if not has_old else ("暂无属性变化" if compact else "暂无可汇总属性")
     old_column = self._bonus_comparison_column(
         old_title,
@@ -621,7 +630,16 @@ def _refresh_bonus_summary_panel(
         )
 
 
-def _show_bonus_comparison_dialog(self, role_name, old_rows, new_rows, priority_stats=None, mode="equipment"):
+def _show_bonus_comparison_dialog(
+    self,
+    role_name,
+    old_rows,
+    new_rows,
+    priority_stats=None,
+    mode="equipment",
+    old_title=None,
+    new_title=None,
+):
     priority_stats = list(priority_stats if priority_stats is not None else self._role_stat_priority_stats(role_name))
     dlg = QDialog(getattr(self, "dialog_parent", None))
     dlg.setWindowTitle(f"{role_name} {self._bonus_summary_mode_label(mode)}对比")
@@ -632,7 +650,15 @@ def _show_bonus_comparison_dialog(self, role_name, old_rows, new_rows, priority_
     layout.setSpacing(8)
     layout.addWidget(
         self._bonus_comparison_widget(
-            role_name, old_rows, new_rows, has_old=True, compact=False, priority_stats=priority_stats, mode=mode
+            role_name,
+            old_rows,
+            new_rows,
+            has_old=True,
+            compact=False,
+            priority_stats=priority_stats,
+            mode=mode,
+            old_title=old_title,
+            new_title=new_title,
         )
     )
     buttons = QDialogButtonBox(QDialogButtonBox.Ok)

@@ -222,7 +222,10 @@ def refresh_weighted_allocation_page(window) -> None:
         suit_names = window._weighted_suit_names
         window.weighted_role_selector.load_roles(
             {
-                name: {"default_set": suit_names.get(suit_defaults.get(character_id), "")}
+                name: {
+                    "character_id": character_id,
+                    "default_set": suit_names.get(suit_defaults.get(character_id), ""),
+                }
                 for name, character_id in role_names.items()
             },
             list(suit_names.values()),

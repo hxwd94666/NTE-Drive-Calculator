@@ -261,6 +261,199 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
 
         self.assertEqual([("sendinput_click", (320, 240))], calls)
 
+    def test_sendinput_click_diagnostic_reports_requested_and_actual_cursor_position(self):
+        from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
+        from src.features.drive_assembly.randomization import RandomizationContext
+
+        class SendInput:
+            available = True
+
+            def click(self, position, hold_seconds=None):
+                self.position = position
+
+            def cursor_position(self):
+                return (165, 185)
+
+        backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend._randomization = RandomizationContext(enabled=False)
+        backend._send_input = SendInput()
+        backend._sleeper = lambda _seconds: None
+        backend._mouse_delivery_diagnostics = []
+        backend._local_left_button_down = lambda: False
+
+        backend.click((165, 185))
+
+        self.assertEqual(
+            {
+                "stage": "sendinput_click",
+                "local_left_down": False,
+                "send_input_result": None,
+                "requested_position": (165, 185),
+                "dispatched_position": (165, 185),
+                "cursor_position": (165, 185),
+            },
+            backend.consume_mouse_delivery_diagnostics()[0],
+        )
+
+    def test_pointer_only_move_records_actual_cursor_position_without_clicking(self):
+        from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
+
+        calls = []
+
+        class SendInput:
+            available = True
+
+            def move_to(self, position):
+                calls.append(position)
+
+            def cursor_position(self):
+                return (165, 185)
+
+        backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend._send_input = SendInput()
+        backend._mouse_delivery_diagnostics = []
+        backend._local_left_button_down = lambda: False
+
+        backend.move_to((165, 185))
+
+        diagnostic = backend.consume_mouse_delivery_diagnostics()[0]
+        self.assertEqual([(165, 185)], calls)
+        self.assertEqual("sendinput_move", diagnostic["stage"])
+        self.assertEqual((165, 185), diagnostic["requested_position"])
+        self.assertEqual((165, 185), diagnostic["cursor_position"])
+
+    def test_cloud_click_uses_explicit_pyautogui_release_before_and_after(self):
+        from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
+        from src.features.drive_assembly.randomization import RandomizationContext
+
+        calls = []
+
+        class SendInput:
+            available = True
+
+            def release_left(self):
+                calls.append(("sendinput_release",))
+
+        class PyAutoGui:
+            def mouseUp(self, button=None):
+                calls.append(("up", button))
+
+            def moveTo(self, x, y):
+                calls.append(("move", x, y))
+
+            def mouseDown(self, button=None):
+                calls.append(("down", button))
+
+        backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend._randomization = RandomizationContext(enabled=False)
+        backend._send_input = SendInput()
+        backend._pyautogui = PyAutoGui()
+        backend._sleeper = lambda seconds: calls.append(("sleep", seconds))
+
+        backend.cloud_click((320, 240), hold_seconds=0.12)
+        backend.force_mouse_release()
+
+        self.assertEqual(
+            [
+                ("up", "left"),
+                ("move", 320, 240),
+                ("sleep", 0.05),
+                ("down", "left"),
+                ("sleep", 0.12),
+                ("up", "left"),
+                ("sendinput_release",),
+                ("up", "left"),
+            ],
+            calls,
+        )
+
+    def test_forced_release_records_sendinput_result_and_local_button_state(self):
+        from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
+
+        class SendInput:
+            available = True
+
+            def release_left(self):
+                return 1
+
+        class PyAutoGui:
+            def mouseUp(self, button=None):
+                self.button = button
+
+        backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend._send_input = SendInput()
+        backend._pyautogui = PyAutoGui()
+        backend._mouse_delivery_diagnostics = []
+        backend._local_left_button_down = lambda: False
+
+        backend.force_mouse_release()
+
+        self.assertEqual(
+            [
+                {
+                    "stage": "forced_release",
+                    "local_left_down": False,
+                    "send_input_result": 1,
+                }
+            ],
+            backend.consume_mouse_delivery_diagnostics(),
+        )
+
+    def test_repeated_clicks_use_independent_three_pixel_offsets_and_short_delays(self):
+        from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
+        from src.features.drive_assembly.randomization import RandomizationContext
+
+        calls = []
+        delays = []
+
+        class SendInput:
+            available = True
+
+            def click(self, position, hold_seconds=None):
+                calls.append(position)
+
+        backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend._randomization = RandomizationContext(enabled=True)
+        backend._randomization.seed(42)
+        backend._send_input = SendInput()
+        backend._sleeper = delays.append
+
+        for _index in range(8):
+            backend.click((320, 240))
+
+        self.assertEqual(8, len(calls))
+        self.assertTrue(all(317 <= x <= 323 and 237 <= y <= 243 for x, y in calls))
+        self.assertGreater(len(set(calls)), 1)
+        self.assertEqual(8, len(delays))
+        self.assertTrue(all(0.0 <= delay <= 0.1 for delay in delays))
+
+    def test_repeated_wheel_ticks_randomize_the_pointer_within_three_pixels(self):
+        from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
+        from src.features.drive_assembly.randomization import RandomizationContext
+
+        calls = []
+        delays = []
+
+        class SendInput:
+            available = True
+
+            def scroll(self, position, clicks):
+                calls.append((position, clicks))
+
+        backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend._randomization = RandomizationContext(enabled=True)
+        backend._randomization.seed(77)
+        backend._send_input = SendInput()
+        backend._sleeper = delays.append
+
+        for _index in range(6):
+            backend.scroll((720, 600), -1)
+
+        self.assertTrue(all(717 <= x <= 723 and 597 <= y <= 603 and clicks == -1 for (x, y), clicks in calls))
+        self.assertGreater(len({position for position, _clicks in calls}), 1)
+        self.assertEqual(6, len(delays))
+        self.assertTrue(all(0.0 <= delay <= 0.1 for delay in delays))
+
     def test_backend_keeps_mouse_pressed_through_equipment_dragging(self):
         from src.features.drive_assembly.executor import PyAutoGuiMouseBackend
 

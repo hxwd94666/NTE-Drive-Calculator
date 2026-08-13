@@ -20,6 +20,9 @@ class FakeMouseBackend:
     def push_left_joystick(self, x, y):
         self.calls.append(("left_joystick", x, y))
 
+    def press_key(self, key_name):
+        self.calls.append(("key", key_name))
+
     def pause(self, seconds):
         self.calls.append(("pause", round(seconds, 3)))
 
@@ -55,6 +58,23 @@ class FakeOcrEngine:
 
 
 class DriveAssemblyActionExecutorTests(unittest.TestCase):
+    def test_executes_pointer_only_move_without_a_click(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        class PointerBackend(FakeMouseBackend):
+            def move_to(self, position):
+                self.calls.append(("move", position))
+
+        backend = PointerBackend()
+
+        execute_action_sequence(
+            [{"name": "role_list_wake_mouse_after_gamepad", "position": (165, 185), "mouse_move_only": True}],
+            backend=backend,
+            pause_seconds=0.0,
+        )
+
+        self.assertEqual([("move", (165, 185))], backend.calls)
+
     def test_action_observer_runs_after_each_successful_action(self):
         from src.features.drive_assembly.executor import execute_action_sequence
 
@@ -107,6 +127,41 @@ class DriveAssemblyActionExecutorTests(unittest.TestCase):
         self.assertEqual(2, report.executed_actions)
         self.assertEqual([], report.skipped_actions)
 
+    def test_cloud_click_releases_before_and_after_the_click(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        class CloudAwareBackend(FakeMouseBackend):
+            def force_mouse_release(self):
+                self.calls.append(("release",))
+
+            def cloud_click(self, position, hold_seconds=0.12):
+                self.calls.append(("cloud_click", position, hold_seconds))
+
+        backend = CloudAwareBackend()
+        report = execute_action_sequence(
+            [
+                {
+                    "name": "open_role_list",
+                    "position": (2455, 1320),
+                    "cloud_click": True,
+                    "click_hold_seconds": 0.12,
+                    "ensure_mouse_release": True,
+                }
+            ],
+            backend=backend,
+            pause_seconds=0.0,
+        )
+
+        self.assertEqual(
+            [
+                ("release",),
+                ("cloud_click", (2455, 1320), 0.12),
+                ("release",),
+            ],
+            backend.calls,
+        )
+        self.assertEqual(1, report.executed_actions)
+
     def test_executes_filter_scrolls_with_the_backend_scroll_gesture(self):
         from src.features.drive_assembly.executor import execute_action_sequence
 
@@ -130,10 +185,84 @@ class DriveAssemblyActionExecutorTests(unittest.TestCase):
 
         self.assertEqual([("scroll", (200, 900), (200, 300), 700)], backend.calls)
 
+    def test_role_list_reset_uses_two_upward_wheel_batches_without_clicking(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        class WheelAwareBackend(FakeMouseBackend):
+            def scroll(self, position, clicks):
+                self.calls.append(("wheel", position, clicks))
+
+        backend = WheelAwareBackend()
+        execute_action_sequence(
+            [
+                {"name": "role_list_grid_reset_to_first", "position": (415, 600), "wheel_clicks": 48},
+                {"name": "role_list_grid_reset_to_first", "position": (415, 600), "wheel_clicks": 48},
+            ],
+            backend=backend,
+            pause_seconds=0.0,
+        )
+
+        self.assertEqual([("wheel", (415, 600), 48), ("wheel", (415, 600), 48)], backend.calls)
+
+
+    def test_executes_wheel_action_at_the_mapped_position(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        class WheelAwareBackend(FakeMouseBackend):
+            def scroll(self, position, clicks):
+                self.calls.append(("wheel", position, clicks))
+
+        backend = WheelAwareBackend()
+        report = execute_action_sequence(
+            [{"name": "role_list_wheel_next_page", "position": (720, 600), "wheel_clicks": -8}],
+            backend=backend,
+            pause_seconds=0.0,
+        )
+
+        self.assertEqual([("wheel", (720, 600), -8)], backend.calls)
+        self.assertEqual(1, report.executed_actions)
+
+    def test_role_list_wheel_can_emit_six_visible_incremental_ticks(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        class WheelAwareBackend(FakeMouseBackend):
+            def scroll(self, position, clicks):
+                self.calls.append(("wheel", position, clicks))
+
+        backend = WheelAwareBackend()
+        execute_action_sequence(
+            [{
+                "name": "role_list_wheel_next_row",
+                "position": (720, 600),
+                "wheel_clicks": -6,
+                "wheel_click_interval_seconds": 0.15,
+            }],
+            backend=backend,
+            pause_seconds=0.0,
+        )
+
+        self.assertEqual(
+            [("wheel", (720, 600), -1)] * 6,
+            [call for call in backend.calls if call[0] == "wheel"],
+        )
+        self.assertAlmostEqual(0.75, sum(call[1] for call in backend.calls if call[0] == "pause"))
+
     def test_default_pause_between_actions_is_half_second(self):
         from src.features.drive_assembly.executor import DEFAULT_ACTION_PAUSE_SECONDS
 
         self.assertEqual(0.5, DEFAULT_ACTION_PAUSE_SECONDS)
+
+    def test_executes_escape_key_action(self):
+        from src.features.drive_assembly.executor import execute_action_sequence
+
+        backend = FakeMouseBackend()
+        execute_action_sequence(
+            [{"name": "close_role_list_to_role_page", "keyboard_key": "esc"}],
+            backend=backend,
+            pause_seconds=0.0,
+        )
+
+        self.assertEqual([("key", "esc")], backend.calls)
 
     def test_quality_filter_click_pauses_before_the_next_filter_action(self):
         from src.features.drive_assembly.executor import execute_action_sequence

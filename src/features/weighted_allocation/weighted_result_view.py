@@ -421,7 +421,7 @@ def _role_option_card(
             candidate_map,
             detail=detail,
         )
-        layout.addWidget(_section_label(f"空幕 / 驱动 ({len(equipment_assignments)}件):"))
+        layout.addWidget(_section_label(f"卡带 / 驱动 ({len(equipment_assignments)}件):"))
         equipment_grid = QGridLayout()
         equipment_grid.setHorizontalSpacing(10)
         equipment_grid.setVerticalSpacing(10)

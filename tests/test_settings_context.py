@@ -53,6 +53,10 @@ class SettingsContextTests(unittest.TestCase):
             self.assertEqual(second.screenshot_dir, current.screenshot_dir)
             self.assertEqual(second.log_dir, current.log_dir)
             self.assertEqual(paths.config_dir, current.config_dir)
+            self.assertEqual(
+                paths.config_dir / "global_ui_preferences.json",
+                paths.global_ui_preferences_file,
+            )
 
     def test_migrated_settings_controllers_do_not_import_runtime_globals(self):
         paths = [
@@ -110,6 +114,41 @@ class SettingsContextTests(unittest.TestCase):
             if ".account.account_id" in source:
                 violations.append(str(path))
         self.assertEqual([], violations)
+
+    def test_cloud_mode_development_label_uses_complete_feature_name(self):
+        source = Path("src/features/settings/page.py").read_text(encoding="utf-8")
+        self.assertIn('QLabel("云异环模式：正在开发中")', source)
+        self.assertNotIn('QLabel("云异环：正在开发中', source)
+
+    def test_account_switch_does_not_reload_or_apply_theme(self):
+        tree = ast.parse(
+            Path("src/ui/app.py").read_text(encoding="utf-8"),
+            filename="src/ui/app.py",
+        )
+        handler = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "_on_app_context_account_changed"
+        )
+        method_calls = {
+            node.func.attr
+            for node in ast.walk(handler)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assigned_attributes = {
+            target.attr
+            for node in ast.walk(handler)
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+            if isinstance(target, ast.Attribute)
+        }
+
+        self.assertNotIn("_load_theme_preference", method_calls)
+        self.assertNotIn("_apply_theme_preference", method_calls)
+        self.assertNotIn("_theme_preference", assigned_attributes)
 
 
 if __name__ == "__main__":

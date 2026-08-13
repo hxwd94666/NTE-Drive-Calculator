@@ -21,6 +21,13 @@ def _official_payload(role_name: str) -> dict[str, str]:
     }
 
 
+def _game_payload(role_name: str) -> dict[str, str]:
+    return {
+        "schema": "game-observed-loadout-v1",
+        "source_role_name": role_name,
+    }
+
+
 def _module(serial: int, slot: int) -> dict[str, int | str]:
     return {
         "uid_serial": serial,
@@ -93,7 +100,7 @@ class AllocationLockServiceTests(unittest.TestCase):
         self.assertEqual([["千秋"], ["岚"]], groups)
         verify_allocation_lock_snapshot(self.dao, lock_snapshot)
 
-    def test_lock_requires_real_core_and_rejects_virtual_assignments(self) -> None:
+    def test_lock_accepts_missing_core_and_rejects_virtual_assignments(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
             snapshot(1, [item(11, 22), item(12, 23, "core")])
         )
@@ -105,9 +112,18 @@ class AllocationLockServiceTests(unittest.TestCase):
             assignments=[_module(11, 22)],
             payload=_official_payload("早雾"),
         )
-        with self.assertRaisesRegex(UserDataValidationError, "不含真实卡带"):
-            self.dao.set_allocation_lock(no_core_plan, True)
+        self.assertTrue(self.dao.set_allocation_lock(no_core_plan, True))
+        lock_snapshot = build_allocation_lock_snapshot(
+            self.dao,
+            inventory_snapshot_id=snapshot_id,
+        )
+        self.assertEqual(frozenset({"早雾"}), lock_snapshot.locked_role_names)
+        self.assertEqual(
+            frozenset({"nte-module-22-11"}),
+            lock_snapshot.reserved_uids,
+        )
 
+        self.dao.set_allocation_lock(no_core_plan, False)
         self.dao.deactivate_loadout_plan(no_core_plan)
         virtual_core = _core(99, 0)
         virtual_core["virtual"] = True
@@ -121,6 +137,33 @@ class AllocationLockServiceTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(UserDataValidationError, "虚拟"):
             self.dao.set_allocation_lock(virtual_plan, True)
+
+    def test_imported_game_plan_is_a_lockable_calculation_reservation(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(11, 22), item(12, 23, "core")]),
+            source="nte_core",
+        )
+        plan_id = self.dao.save_loadout_plan(
+            name="游戏导入方案",
+            character_id=1003,
+            source_snapshot_id=snapshot_id,
+            status="incomplete",
+            is_active=True,
+            assignments=[_module(11, 22)],
+            payload=_game_payload("早雾"),
+        )
+
+        self.assertTrue(self.dao.set_allocation_lock(plan_id, True))
+        listed = self.dao.list_allocation_locked_loadout_plans_by_role()
+        self.assertEqual(plan_id, listed["早雾"]["plan_id"])
+        lock_snapshot = build_allocation_lock_snapshot(
+            self.dao,
+            inventory_snapshot_id=snapshot_id,
+        )
+        self.assertEqual(
+            frozenset({"nte-module-22-11"}),
+            lock_snapshot.reserved_uids,
+        )
 
     def test_lock_blocks_overwrite_and_equipment_borrow(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(

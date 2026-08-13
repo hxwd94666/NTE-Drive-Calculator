@@ -14,12 +14,33 @@ from src.domain.equipment_normalizer import calculate_drive_main_stats
 VIRTUAL_UID_SLOT = 0
 
 
+def normalized_equipment_assignment(
+    assignment: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Merge a persisted assignment row with its original JSON payload.
+
+    SQLite stores UID/placement fields in columns and the complete assignment
+    in ``raw_assignment``.  Historical rows are not uniform about where the
+    virtual marker lives, so consumers must inspect the merged projection.
+    """
+
+    raw = assignment.get("raw_assignment")
+    result = dict(raw) if isinstance(raw, Mapping) else {}
+    result.update(
+        (key, value)
+        for key, value in assignment.items()
+        if key != "raw_assignment"
+    )
+    return result
+
+
 def is_virtual_equipment_assignment(assignment: Mapping[str, Any]) -> bool:
     """Return whether a loadout assignment is a non-inventory placeholder."""
 
-    return bool(assignment.get("virtual")) or (
-        int(assignment.get("uid_slot") or 0) == VIRTUAL_UID_SLOT
-        and isinstance(assignment.get("virtual_equipment"), Mapping)
+    resolved = normalized_equipment_assignment(assignment)
+    return bool(resolved.get("virtual")) or (
+        int(resolved.get("uid_slot") or 0) == VIRTUAL_UID_SLOT
+        and isinstance(resolved.get("virtual_equipment"), Mapping)
     )
 
 

@@ -33,7 +33,7 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
         self.assertEqual({"name": "role_slot", "role_name": "真红", "position": (2410, 242)}, plan["plans"][0]["action_sequence"][0])
         self.assertEqual("assemble_current_role_from_blueprint", plan["plans"][0]["action_sequence"][-1]["name"])
         self.assertEqual("find_role_then_assemble_blueprint", plan["plans"][0]["flow"])
-        self.assertEqual([{"name": "role_scroll_next_page", "from": (2388, 1152), "to": (2388, 242), "duration_ms": 700}], plan["plans"][2]["action_sequence"])
+        self.assertEqual([{"name": "role_scroll_next_page", "from": (2440, 1210), "to": (2440, 242), "duration_ms": 700}], plan["plans"][2]["action_sequence"])
 
     def test_reports_missing_required_roles(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_observations
@@ -227,6 +227,36 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
         self.assertEqual("all_required_roles_found", roster["stop_reason"])
         self.assertEqual(["up", "up", "rs", "a", "right", "a"], inputs)
 
+    def test_mouse_row_scan_records_each_unique_role_once_and_stops_on_first_repeat(self):
+        from src.features.drive_assembly.role_flow import collect_role_roster_from_mouse_rows
+
+        observations = iter(list("ABCDEFGHIJKLMN") + ["N"])
+        inputs: list[tuple[str, int] | str] = []
+        persisted: list[int] = []
+        roster = collect_role_roster_from_mouse_rows(
+            [],
+            current_observer=lambda _index: next(observations),
+            select_grid_slot=lambda slot: inputs.append(("slot", slot)),
+            scroll_next_row=lambda: inputs.append("scroll"),
+            enter_role_list=lambda: inputs.append("open"),
+            on_unique_observation=persisted.append,
+            max_roles=20,
+        )
+
+        self.assertEqual(list("ABCDEFGHIJKLMN"), roster["roles"])
+        self.assertEqual(list(range(14)), persisted)
+        self.assertEqual("role_list_end_reached", roster["stop_reason"])
+        self.assertTrue(roster["reached_bottom"])
+        self.assertEqual(1, roster["row_scroll_count"])
+        self.assertEqual(
+            [{"role_name": "N", "roster_index": 14, "slot_index": 11, "row_scroll_count": 1}],
+            roster["duplicates"],
+        )
+        self.assertEqual(
+            ["open", *[("slot", index) for index in range(12)], "scroll", ("slot", 9), ("slot", 10), ("slot", 11)],
+            inputs,
+        )
+
     def test_dpad_roster_keeps_real_cursor_indexes_when_some_roles_are_unrecognized(self):
         from src.features.drive_assembly.role_flow import (
             RoleRecognition,
@@ -297,9 +327,9 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
         first_actions = plan["plans"][0]["action_sequence"]
         second_actions = plan["plans"][1]["action_sequence"]
         self.assertEqual(["A", "C"], plan["planned_roles"])
-        self.assertEqual("sidebar_then_rs_role_list_grid", plan["navigation"])
+        self.assertEqual("sidebar_then_mouse_role_list_wheel_and_click", plan["navigation"])
         self.assertEqual("sidebar_dpad", plan["plans"][0]["navigation"])
-        self.assertEqual("rs_role_list_grid", plan["plans"][1]["navigation"])
+        self.assertEqual("mouse_role_list_entry_then_wheel_and_click", plan["plans"][1]["navigation"])
         self.assertEqual(
             [
                 "role_dpad_previous",
@@ -313,17 +343,15 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
             ],
             [a["name"] for a in first_actions],
         )
-        self.assertEqual(["dpad_up", "dpad_up", "b"], [a["gamepad_button"] for a in first_actions if "gamepad_button" in a])
-        self.assertEqual(["rs", "left_right", "left_right", "a", "b", "b"], [a.get("gamepad_button") or a.get("gamepad_stick") for a in second_actions if "gamepad_button" in a or "gamepad_stick" in a])
+        self.assertEqual(["dpad_up", "dpad_up"], [a["gamepad_button"] for a in first_actions if "gamepad_button" in a])
+        self.assertEqual([], [a.get("gamepad_button") or a.get("gamepad_stick") for a in second_actions if "gamepad_button" in a or "gamepad_stick" in a])
         self.assertEqual("assembly_back_to_role_page", first_actions[-1]["name"])
-        self.assertEqual("b", first_actions[-1]["gamepad_button"])
+        self.assertEqual("esc", first_actions[-1]["keyboard_key"])
         self.assertEqual(
             [
-                "open_role_list",
-                "role_list_next",
-                "role_list_next",
-                "confirm_role_list_selection",
-                "close_role_list_after_confirmation",
+                "open_role_list_from_current_role_mouse",
+                "role_list_select_grid_slot",
+                "close_role_list_to_role_page",
                 "left_kongmu_tab",
                 "wait_after_left_kongmu_tab",
                 "assemble_button",
@@ -334,88 +362,95 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
             [a["name"] for a in second_actions],
         )
 
-    def test_plans_first_assembly_from_open_rs_role_list_then_uses_rs_for_later_roles(self):
+    def test_plans_first_assembly_from_open_role_list_then_uses_memory_for_later_roles(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
 
         plan = plan_role_assembly_from_role_list_roster(
             ["C", "A", "B"],
-            {
-                "roles": ["A", "B", "C"],
-                "role_positions": {"A": 0, "B": 1, "C": 2},
-                "current_index": 2,
-                "list_open": True,
-                "stop_reason": "all_required_roles_found",
-            },
+            {"roles": ["A", "B", "C"], "role_positions": {"A": 0, "B": 1, "C": 2}, "current_index": 2, "list_open": True},
         )
 
-        first_actions = plan["plans"][0]["action_sequence"]
-        second_actions = plan["plans"][1]["action_sequence"]
-        third_actions = plan["plans"][2]["action_sequence"]
-
+        first, second, third = plan["plans"]
         self.assertEqual(["C", "B", "A"], plan["planned_roles"])
-        self.assertEqual("rs_role_list_scan_then_reverse_left", plan["navigation"])
-        self.assertEqual("role_list_reverse_left_from_open", plan["plans"][0]["navigation"])
-        self.assertEqual("rs_role_list_reverse_left", plan["plans"][1]["navigation"])
-        self.assertEqual(["a", "b", "b"], [
-            action.get("gamepad_button") or action.get("gamepad_stick")
-            for action in first_actions
-            if "gamepad_button" in action or "gamepad_stick" in action
-        ])
-        self.assertEqual(["rs", "left_left", "a", "b", "b"], [
-            action.get("gamepad_button") or action.get("gamepad_stick")
-            for action in second_actions
-            if "gamepad_button" in action or "gamepad_stick" in action
-        ])
-        self.assertEqual(["rs", "left_left", "a", "b", "b"], [
-            action.get("gamepad_button") or action.get("gamepad_stick")
-            for action in third_actions
-            if "gamepad_button" in action or "gamepad_stick" in action
-        ])
-        self.assertEqual("all_required_roles_found", plan["scan_stop_reason"])
+        self.assertEqual("role_list_memory_then_upward_rows", plan["navigation"])
+        self.assertEqual("role_list_memory_from_open", first["navigation"])
+        self.assertEqual("role_list_memory_reopen_then_upward_rows", second["navigation"])
+        self.assertEqual(0, second["upward_rows"])
+        self.assertEqual(
+            ["open_role_list_from_current_role_mouse", "role_list_select_grid_slot"],
+            [action["name"] for action in second["action_sequence"][:2]],
+        )
+        self.assertEqual((415, 185), next(action["position"] for action in second["action_sequence"] if action["name"] == "role_list_select_grid_slot"))
+        self.assertEqual((165, 185), next(action["position"] for action in third["action_sequence"] if action["name"] == "role_list_select_grid_slot"))
+        for item in (first, second, third):
+            names = [action["name"] for action in item["action_sequence"]]
+            self.assertEqual(
+                names.index("role_list_select_grid_slot") + 1,
+                names.index("close_role_list_to_role_page"),
+            )
 
-    def test_later_page_first_target_resets_each_later_selection_to_grid_origin(self):
+    def test_cloud_nte_role_list_exit_uses_gamepad_to_enter_assembly(self):
+        from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
+
+        plan = plan_role_assembly_from_role_list_roster(
+            ["A"],
+            {"roles": ["A"], "role_positions": {"A": 0}, "current_index": 0, "list_open": True},
+            cloud_nte_mode=True,
+        )
+
+        actions = plan["plans"][0]["action_sequence"]
+        self.assertEqual(
+            [
+                "role_list_select_grid_slot",
+                "close_role_list_to_role_page",
+                "left_kongmu_tab",
+                "wait_after_left_kongmu_tab",
+                "activate_assemble_button_gamepad",
+                "assemble_button",
+                "assembly_page_wake_mouse_after_gamepad",
+                "assemble_current_role_from_blueprint",
+                "assembly_back_to_role_page",
+            ],
+            [action["name"] for action in actions],
+        )
+        self.assertEqual(
+            "dpad_right",
+            next(action["gamepad_button"] for action in actions if action["name"] == "activate_assemble_button_gamepad"),
+        )
+        self.assertEqual(
+            "y",
+            next(action["gamepad_button"] for action in actions if action["name"] == "assemble_button"),
+        )
+
+    def test_later_page_target_reuses_its_remembered_fourth_row_without_reset_wheels(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
 
         plan = plan_role_assembly_from_role_list_roster(
             ["N", "O"],
-            {
-                "roles": list("ABCDEFGHIJKLMNO"),
-                "role_positions": {role: index for index, role in enumerate("ABCDEFGHIJKLMNO")},
-                "current_index": 14,
-                "list_open": True,
-            },
+            {"roles": list("ABCDEFGHIJKLMNO"), "role_positions": {role: index for index, role in enumerate("ABCDEFGHIJKLMNO")}, "current_index": 14, "list_open": True},
         )
 
         first, second = plan["plans"]
         self.assertEqual(["O", "N"], plan["planned_roles"])
-        self.assertEqual(1, plan["first_target_page"])
-        self.assertTrue(plan["reset_until_first_page_target"])
-        self.assertEqual("role_list_reverse_left_from_open", first["navigation"])
-        self.assertEqual("rs_role_list_reset_then_grid", second["navigation"])
-        self.assertEqual(
-            ["left_left", "left_down", "left_down", "left_down", "left_down", "left_right"],
-            [action["gamepad_stick"] for action in second["action_sequence"] if "gamepad_stick" in action],
-        )
+        self.assertEqual("role_list_memory_from_open", first["navigation"])
+        self.assertEqual("role_list_memory_reopen_then_upward_rows", second["navigation"])
+        self.assertEqual([], [action["wheel_clicks"] for action in second["action_sequence"] if "wheel_clicks" in action])
+        self.assertEqual((415, 995), next(action["position"] for action in second["action_sequence"] if action["name"] == "role_list_select_grid_slot"))
 
-    def test_second_page_start_uses_grid_until_a_first_page_role_is_assembled(self):
+    def test_memory_navigation_moves_up_only_when_the_target_leaves_the_fourth_row(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
 
         plan = plan_role_assembly_from_role_list_roster(
             ["A", "B", "N", "O"],
-            {
-                "roles": list("ABCDEFGHIJKLMNO"),
-                "role_positions": {role: index for index, role in enumerate("ABCDEFGHIJKLMNO")},
-                "current_index": 14,
-                "list_open": True,
-            },
+            {"roles": list("ABCDEFGHIJKLMNO"), "role_positions": {role: index for index, role in enumerate("ABCDEFGHIJKLMNO")}, "current_index": 14, "list_open": True},
         )
 
         first, second, third, fourth = plan["plans"]
         self.assertEqual(["O", "N", "B", "A"], plan["planned_roles"])
-        self.assertEqual("role_list_reverse_left_from_open", first["navigation"])
-        self.assertEqual("rs_role_list_reset_then_grid", second["navigation"])
-        self.assertEqual("rs_role_list_reset_then_grid", third["navigation"])
-        self.assertEqual("rs_role_list_reverse_left", fourth["navigation"])
+        self.assertEqual([0, 0, 1, 0], [item["upward_rows"] for item in (first, second, third, fourth)])
+        self.assertEqual([6], [action["wheel_clicks"] for action in third["action_sequence"] if "wheel_clicks" in action])
+        self.assertEqual([], [action["wheel_clicks"] for action in fourth["action_sequence"] if "wheel_clicks" in action])
+        self.assertEqual((415, 185), next(action["position"] for action in third["action_sequence"] if action["name"] == "role_list_select_grid_slot"))
 
     def test_role_list_scan_defensively_pushes_left_four_times_after_opening(self):
         from src.features.drive_assembly.role_flow import collect_role_roster_from_role_list
@@ -437,7 +472,7 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
         self.assertEqual(["rs", "left", "left", "left", "left"], inputs)
         self.assertEqual(4, roster["initial_left_reset_count"])
 
-    def test_rs_role_list_plan_moves_only_left_in_reverse_roster_order(self):
+    def test_mouse_role_list_plan_clicks_from_first_page_after_every_reentry(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
 
         plan = plan_role_assembly_from_role_list_roster(
@@ -453,7 +488,7 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
         self.assertEqual(["F", "E", "C", "A"], plan["planned_roles"])
         self.assertEqual([5, 4, 2, 0], [item["roster_index"] for item in plan["plans"]])
         self.assertEqual(
-            [[], ["left_left"], ["left_left", "left_left"], ["left_left", "left_left"]],
+            [[], [], [], []],
             [
                 [action["gamepad_stick"] for action in item["action_sequence"] if "gamepad_stick" in action]
                 for item in plan["plans"]
@@ -478,16 +513,18 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
             action["gamepad_button"]
             for action in plan["plans"][0]["action_sequence"][:2]
         ])
-        self.assertEqual(["rs", "left_right", "a", "b", "b"], [
+        self.assertEqual([], [
             action.get("gamepad_button") or action.get("gamepad_stick")
             for action in plan["plans"][1]["action_sequence"]
             if "gamepad_button" in action or "gamepad_stick" in action
         ])
-        self.assertEqual(["rs", "left_right", "a", "b", "b"], [
+        self.assertEqual([], [
             action.get("gamepad_button") or action.get("gamepad_stick")
             for action in plan["plans"][2]["action_sequence"]
             if "gamepad_button" in action or "gamepad_stick" in action
         ])
+        self.assertEqual("esc", plan["plans"][1]["action_sequence"][-1]["keyboard_key"])
+        self.assertEqual("esc", plan["plans"][2]["action_sequence"][-1]["keyboard_key"])
 
 if __name__ == "__main__":
     unittest.main()

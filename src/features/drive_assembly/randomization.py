@@ -23,8 +23,11 @@ class RandomizationContext:
 
     # Position offsets (pixels — per-axis, symmetrical ± range)
     click_offset_range: int = 3
-    drag_start_offset_range: int = 2
-    drag_end_offset_range: int = 3
+    drag_start_offset_range: int = 5
+    drag_end_offset_range: int = 5
+
+    # Independent delay sampled before every click / wheel / key input.
+    click_delay_max_seconds: float = 0.10
 
     # Timing jitter as a fraction of the base value (0.0 – 1.0)
     timing_jitter_fraction: float = 0.15
@@ -122,6 +125,14 @@ def jitter_duration_ms(
     """Convenience wrapper around :func:`jitter_timing` for millisecond values."""
     jittered = jitter_timing(ctx, float(base_ms) / 1000.0)
     return max(1, round(jittered * 1000.0))
+
+
+def random_input_delay(ctx: RandomizationContext) -> float:
+    """Return an independent 0..max delay for a discrete input action."""
+
+    if not ctx.enabled or ctx.click_delay_max_seconds <= 0.0:
+        return 0.0
+    return ctx.rng.uniform(0.0, ctx.click_delay_max_seconds)
 
 
 # ------------------------------------------------------------------

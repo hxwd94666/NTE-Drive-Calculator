@@ -163,12 +163,90 @@ class WeightedAllocationBoundaryTests(unittest.TestCase):
             weighted_preferences._show_empty_curtain_preferences
         )
 
-        self.assertLess(source.index("空幕/驱动副词条："), source.index("副词条黑名单："))
+        self.assertLess(source.index("卡带/驱动副词条："), source.index("副词条黑名单："))
+        self.assertIn("词条筛选与优先级说明", source)
+        self.assertNotIn("src.features.allocation.role_selector_help", source)
         self.assertLess(
             source.index("不限制评分等级"),
             source.index("最低生效等级："),
         )
         self.assertLess(source.index("套装效果："), source.index("暴击率最小值："))
+
+    def test_all_roles_have_empty_stat_defaults(self):
+        selector = SimpleNamespace(
+            get_selected=lambda: ["主角", "角色甲", "角色乙"],
+            get_priority_groups=lambda: [["主角"], ["角色甲"], ["角色乙"]],
+        )
+        window = SimpleNamespace(
+            weighted_role_selector=selector,
+            _weighted_role_ids={"主角": 1051, "角色甲": 101, "角色乙": 102},
+            _weighted_preference_overrides={
+                1051: {},
+                101: {},
+                102: {
+                    "core_main_property_id": None,
+                    "substat_priorities": [],
+                },
+            },
+            _weighted_default_suits={},
+            _weighted_default_property_weights={},
+        )
+
+        rows = weighted_preferences._selection_rows(window)
+
+        self.assertEqual([1051, 101, 102], [row["character_id"] for row in rows])
+        self.assertEqual(
+            [None, None, None],
+            [row["core_main_property_id"] for row in rows],
+        )
+        self.assertEqual(
+            [[], [], []],
+            [row["substat_priorities"] for row in rows],
+        )
+
+    def test_explicit_non_default_stats_remain_unchanged(self):
+        preference = {
+            "core_main_property_id": "CritBase",
+            "substat_priorities": ["CritDamageBase", "AtkUp"],
+        }
+
+        self.assertEqual(
+            "CritBase",
+            weighted_preferences._effective_core_main_property_id(101, preference),
+        )
+        self.assertEqual(
+            ["CritDamageBase", "AtkUp"],
+            weighted_preferences._effective_substat_priorities(101, preference),
+        )
+
+    def test_saved_empty_preferences_remain_empty(self):
+        preference = {
+            "core_main_property_id": None,
+            "substat_priorities": [],
+        }
+
+        self.assertIsNone(
+            weighted_preferences._effective_core_main_property_id(1051, preference)
+        )
+        self.assertEqual(
+            [],
+            weighted_preferences._effective_substat_priorities(1051, preference),
+        )
+
+    def test_saved_protagonist_magbase_preferences_remain_unchanged(self):
+        preference = {
+            "core_main_property_id": "MagBase",
+            "substat_priorities": ["MagBase"],
+        }
+
+        self.assertEqual(
+            "MagBase",
+            weighted_preferences._effective_core_main_property_id(1051, preference),
+        )
+        self.assertEqual(
+            ["MagBase"],
+            weighted_preferences._effective_substat_priorities(1051, preference),
+        )
 
 
 if __name__ == "__main__":

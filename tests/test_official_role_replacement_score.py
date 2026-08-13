@@ -5,6 +5,79 @@ from unittest.mock import patch
 from src.services.official_role_page_service import save_official_role_replacement
 
 
+def test_shared_replacement_dialog_uses_four_candidate_columns(
+    monkeypatch,
+) -> None:
+    from PySide6.QtWidgets import QApplication, QDialog, QGridLayout, QWidget
+
+    from src.features.inventory.warehouse_result_card import WarehouseResultCard
+    from src.ui.equipment_replacement_dialog import (
+        EquipmentReplacementCard,
+        REPLACEMENT_CANDIDATE_COLUMNS,
+        REPLACEMENT_CANDIDATE_GAP,
+        REPLACEMENT_DIALOG_CHROME_WIDTH,
+        REPLACEMENT_DIALOG_WIDTH,
+        show_equipment_replacement_dialog,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    parent = QWidget()
+
+    def replacement_card(key: str) -> EquipmentReplacementCard:
+        return EquipmentReplacementCard(
+            key=key,
+            item_view={"display_name": key},
+            score=10.0,
+            grade="A",
+            direct_damage_score=1.0,
+            payload=None,
+        )
+
+    monkeypatch.setattr(QDialog, "exec", lambda _dialog: QDialog.Rejected)
+    show_equipment_replacement_dialog(
+        parent,
+        title="替换优化",
+        role_name="测试角色",
+        summary="测试四列候选布局",
+        current=replacement_card("当前"),
+        candidates=[replacement_card(f"候选{index}") for index in range(5)],
+        on_confirm=lambda _choice: None,
+    )
+
+    dialog = parent.findChild(QDialog, "equipmentReplacementDialog")
+    candidate_group = dialog.findChild(QWidget, "equipmentReplacementCandidateGroup")
+    candidate_cards = candidate_group.findChildren(WarehouseResultCard)
+    grid = candidate_cards[0].parentWidget().layout()
+
+    assert dialog.width() == REPLACEMENT_DIALOG_WIDTH
+    assert REPLACEMENT_CANDIDATE_COLUMNS == 4
+    assert REPLACEMENT_DIALOG_WIDTH == (
+        WarehouseResultCard.CARD_SIZE.width() * 4
+        + REPLACEMENT_CANDIDATE_GAP * 3
+        + REPLACEMENT_DIALOG_CHROME_WIDTH
+    )
+    assert isinstance(grid, QGridLayout)
+    assert [grid.getItemPosition(grid.indexOf(card))[:2] for card in candidate_cards] == [
+        (0, 0),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (1, 0),
+    ]
+    parent.deleteLater()
+    app.processEvents()
+
+
+def test_official_role_base_group_has_no_internal_horizontal_separator() -> None:
+    from inspect import getsource
+
+    from src.features.official_role.role_growth import _build_base_group
+
+    source = getsource(_build_base_group)
+    assert "QFrame.HLine" not in source
+    assert "layout.addWidget(separator)" not in source
+
+
 def test_role_replacement_updates_equipment_score_not_direct_damage() -> None:
     captured: dict = {}
 
@@ -39,6 +112,8 @@ def test_role_replacement_updates_equipment_score_not_direct_damage() -> None:
                     "source_snapshot_id": 1,
                     "score": 261.0,
                     "payload": {
+                        "schema": "game-observed-loadout-v1",
+                        "source_role_name": "测试角色",
                         "assignment_scores": {
                             "nte-module-10-20": 25.0,
                             "nte-module-11-21": 236.0,
@@ -78,6 +153,8 @@ def test_role_replacement_updates_equipment_score_not_direct_damage() -> None:
         "nte-module-11-21": 236.0,
         "nte-module-12-22": 31.0,
     }
+    assert plan["payload"]["schema"] == "game-observed-loadout-v1"
+    assert plan["payload"]["source_role_name"] == "测试角色"
 
 
 def test_virtual_drive_replacement_rebuilds_stale_plan_total() -> None:

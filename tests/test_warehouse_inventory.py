@@ -397,6 +397,38 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual(1, len(filter_warehouse_items(items, search="驱动 1999")))
         self.assertEqual(182, len(filter_warehouse_items(items, status="discarded")))
 
+    def test_warehouse_rows_group_cards_by_suit_and_drives_by_official_shape_order(self):
+        from src.features.inventory.warehouse import filter_warehouse_items
+
+        rows = [
+            {"uid": "card-b-1", "kind": "core", "item_type_label": "套装乙"},
+            {
+                "uid": "drive-3",
+                "kind": "module",
+                "shape_id": "EquipmentGeometry_Hen3",
+                "item_type_label": "III型驱动",
+            },
+            {"uid": "card-a", "kind": "core", "item_type_label": "套装甲"},
+            {
+                "uid": "drive-2-v",
+                "kind": "module",
+                "shape_id": "EquipmentGeometry_Shu2",
+                "item_type_label": "II型驱动",
+            },
+            {"uid": "card-b-2", "kind": "core", "item_type_label": "套装乙"},
+            {
+                "uid": "drive-2-h",
+                "kind": "module",
+                "shape_id": "EquipmentGeometry_Hen2",
+                "item_type_label": "II型驱动",
+            },
+        ]
+
+        self.assertEqual(
+            ["card-b-1", "card-b-2", "card-a", "drive-2-h", "drive-2-v", "drive-3"],
+            [row["uid"] for row in filter_warehouse_items(rows)],
+        )
+
     def test_local_state_edit_updates_badges_without_writing_snapshot(self):
         from src.features.inventory.warehouse import warehouse_item_with_state
 

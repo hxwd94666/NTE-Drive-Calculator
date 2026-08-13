@@ -450,7 +450,8 @@ class BaseDispatchStrategy:
         main_stats = getattr(item, "main_stats", {}) or {}
         total += self._crit_rate_from_stats(main_stats)
         if isinstance(main_stats, str) and self._is_crit_rate_key(main_stats):
-            total += 30.0
+            main_value = getattr(item, "main_value", None)
+            total += float(main_value) if main_value is not None else 30.0
         return total
 
     def _items_crit_rate(self, items) -> float:
@@ -585,7 +586,7 @@ class BaseDispatchStrategy:
                 role,
                 role_tapes,
                 stat_priority_configs.get(role),
-                require_match=True,
+                require_match=False,
             )
 
             best_tape = None

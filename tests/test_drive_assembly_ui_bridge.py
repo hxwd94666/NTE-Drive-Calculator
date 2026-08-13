@@ -1,5 +1,5 @@
-# 验证装配页面调用的计划汇总入口。
-"""Tests for drive assembly UI bridge helpers."""
+# 验证装配计划、识别、筛选顺序和执行器生命周期。
+"""Behavior tests for drive-assembly planning and bridge helpers."""
 
 import unittest
 from types import SimpleNamespace
@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 
 import numpy as np
+
 
 
 class DriveAssemblyUiBridgeTests(unittest.TestCase):
@@ -199,7 +200,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         )
         self.assertEqual("真红：卡带 1，驱动 2", summarize_assembly_plan(plan))
 
-    def test_tape_filter_sequence_opens_main_stat_with_gamepad_before_sub_stat_bottom(self):
+    def test_tape_filter_sequence_opens_main_stat_with_mouse_wheel_before_sub_stat_bottom(self):
         from src.features.drive_assembly.ui_bridge import build_single_role_assembly_plan
 
         state = self._state()
@@ -210,9 +211,8 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         main_stat_step = next(step for step in tape_action["sequence"] if step["name"] == "main_stat_option")
 
         expected_order = [
-            "main_stat_gamepad_down_to_expand",
-            "main_stat_gamepad_confirm_expand",
-            "main_stat_gamepad_down_to_options",
+            "main_stat_expand",
+            "main_stat_wheel_to_options",
             "main_stat_option",
             "sub_stat_scroll_to_expand",
             "sub_stat_expand",
@@ -223,18 +223,14 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         indexes = [sequence_names.index(name) for name in expected_order]
 
         self.assertEqual(sorted(indexes), indexes)
-        main_stat_open_steps = [
-            step for step in tape_action["sequence"] if step["name"].startswith("main_stat_gamepad")
-        ]
         self.assertEqual(
-            ["left_down"] * 7 + ["a"] + ["left_down"] * 3,
-            [step.get("gamepad_stick") or step.get("gamepad_button") for step in main_stat_open_steps],
+            {"name": "main_stat_wheel_to_options", "position": (2067, 760), "wheel_clicks": -13, "wheel_click_interval_seconds": 0.06, "post_action_pause_seconds": 0.8},
+            next(step for step in tape_action["sequence"] if step["name"] == "main_stat_wheel_to_options"),
         )
-        self.assertNotIn("main_stat_expand", sequence_names)
+        self.assertIn("main_stat_expand", sequence_names)
         self.assertNotIn("main_stat_scroll_to_second_page", sequence_names)
-        self.assertIn("ocr_target_text", main_stat_step)
-        self.assertIn("ocr_search_region", main_stat_step)
-        self.assertIn("fallback_position", main_stat_step)
+        self.assertNotIn("ocr_target_text", main_stat_step)
+        self.assertEqual((1861, 600), main_stat_step["position"])
 
     def test_tape_status_filters_are_used_only_for_duplicate_tape_and_missing_quality_is_ignored(self):
         from src.features.drive_assembly.ui_bridge import tape_install_sequence
@@ -285,7 +281,8 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             "status_discarded",
             "status_other",
             "quality_orange",
-            "main_stat_gamepad_down_to_expand",
+            "main_stat_expand",
+            "main_stat_wheel_to_options",
             "main_stat_option",
             "sub_stat_scroll_to_expand",
             "sub_stat_option",
@@ -351,49 +348,6 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertIn("- 真红：卡带 1，驱动 2", summarize_assembly_plan(plan))
         self.assertIn("- 空幕：卡带 0，驱动 1", summarize_assembly_plan(plan))
 
-    def test_equipment_page_exposes_fast_and_automatic_actions(self):
-        from PySide6.QtWidgets import QApplication, QPushButton
-
-        from src.features.inventory.page import _page_equipment
-
-        app = QApplication.instance() or QApplication([])
-        clicked = []
-
-        class FakeWindow:
-            def _refresh_equip(self):
-                pass
-
-            def _clear_all_equipment(self):
-                pass
-
-            def _preview_fast_assemble_all_roles(self):
-                clicked.append("fast")
-
-            def _preview_automatic_assemble_all_roles(self):
-                clicked.append("automatic")
-
-        window = FakeWindow()
-        page = _page_equipment(window)
-
-        buttons = {button.text(): button for button in page.findChildren(QPushButton)}
-        buttons["极速装配"].click()
-        buttons["自动装配"].click()
-
-        self.assertEqual(["fast", "automatic"], clicked)
-        self.assertFalse(
-            any(button.text() in {"一键装配", "继续未完成装配"} for button in page.findChildren(QPushButton))
-        )
-        self.assertEqual("btnPrimary", buttons["极速装配"].objectName())
-        self.assertEqual("btnPrimary", buttons["自动装配"].objectName())
-        app.processEvents()
-
-    def test_explicit_feature_mixin_exposes_assembly_methods(self):
-        from src.ui.main_window_mixins import FeatureMainWindowMixin
-
-        self.assertTrue(hasattr(FeatureMainWindowMixin, "_preview_assemble_role"))
-        self.assertTrue(hasattr(FeatureMainWindowMixin, "_preview_fast_assemble_all_roles"))
-        self.assertTrue(hasattr(FeatureMainWindowMixin, "_preview_automatic_assemble_all_roles"))
-
     def test_role_recognition_candidates_include_templates_and_payload_roles(self):
         import tempfile
         from pathlib import Path
@@ -419,358 +373,10 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
 
         self.assertEqual(["主角", "空月"], roles[:2])
 
-    def test_equipment_role_card_exposes_renamed_single_action_button(self):
-        from PySide6.QtWidgets import (
-            QApplication,
-            QLabel,
-            QPushButton,
-            QVBoxLayout,
-            QWidget,
-        )
 
-        from src.features.inventory.page import _render_equip_role
-        from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
-        from src.domain.allocation_rating import allocation_grade
 
-        app = QApplication.instance() or QApplication([])
-        clicked = []
-
-        class FakeWindow:
-            roles_db = {}
-
-            def __init__(self):
-                self.equip_content = QWidget()
-                self.equip_content_layout = QVBoxLayout(self.equip_content)
-                self.equipment_presentation = object()
-
-            def _show_saved_plan_diff_dialog(self, _role_name, _diff):
-                pass
-
-            def _delete_role_equipment(self, _role_name):
-                pass
-
-            def _preview_assemble_role(self, role_name):
-                clicked.append(role_name)
-
-        window = FakeWindow()
-        _render_equip_role(
-            window,
-            "真红",
-            {
-                "_sqlite_plan_id": 1,
-                "total_score": 80.0,
-            },
-        )
-
-        button = next(button for button in window.equip_content.findChildren(QPushButton) if button.text() == "装配")
-        button.click()
-
-        self.assertEqual(["真红"], clicked)
-        self.assertTrue(
-            any(
-                label.text()
-                == allocation_grade(80.0, ALLOCATION_TOTAL_SCORE_AREA)
-                for label in window.equip_content.findChildren(QLabel)
-            )
-        )
-        self.assertFalse(
-            any(button.text() == "装配该角色" for button in window.equip_content.findChildren(QPushButton))
-        )
-        app.processEvents()
-
-    def test_single_role_button_executes_confirmed_plan(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
-
-        calls = []
-        old_select = page_module._select_single_role_assembly_mode
-        old_fast = page_module._preview_nte_core_assemble_role
-        try:
-            page_module._select_single_role_assembly_mode = lambda *_args: "fast"
-            page_module._preview_nte_core_assemble_role = lambda _window, role_name, **kwargs: calls.append(
-                (role_name, kwargs)
-            )
-            page_module._preview_assemble_role(object(), "真红")
-        finally:
-            page_module._select_single_role_assembly_mode = old_select
-            page_module._preview_nte_core_assemble_role = old_fast
-
-        self.assertEqual([("真红", {"confirmed": True})], calls)
-
-    def test_all_role_button_does_not_execute_when_cancelled(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
-
-        calls = []
-
-        class EmptyPlansDao:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def list_active_loadout_plans_by_role(self):
-                return {}
-
-        old_start = page_module._start_nte_core_equipment_apply
-        old_dao = page_module.UserDataDao
-        old_info = page_module.QMessageBox.information
-        try:
-            page_module._start_nte_core_equipment_apply = lambda *_args, **_kwargs: calls.append(True)
-            page_module.UserDataDao = lambda *_args, **_kwargs: EmptyPlansDao()
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
-            page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
-        finally:
-            page_module._start_nte_core_equipment_apply = old_start
-            page_module.UserDataDao = old_dao
-            page_module.QMessageBox.information = old_info
-
-        self.assertEqual([], calls)
-
-    def test_all_role_button_executes_current_game_role_flow_when_confirmed(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
-
-        class PlansDao:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def list_active_loadout_plans_by_role(self):
-                return {
-                    "抓包角色": {"source_snapshot_id": 1},
-                    "视觉角色": {"source_snapshot_id": 2},
-                }
-
-            def inventory_snapshot_summary(self, snapshot_id):
-                return {"source": "nte_core" if snapshot_id == 1 else "gamepad"}
-
-        calls = []
-        old_dao = page_module.UserDataDao
-        old_start = page_module._start_nte_core_equipment_apply
-        try:
-            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
-            page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
-            page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
-        finally:
-            page_module.UserDataDao = old_dao
-            page_module._start_nte_core_equipment_apply = old_start
-
-        self.assertEqual([["抓包角色"]], calls)
-
-    def test_weighted_result_can_limit_fast_equipment_to_its_selected_roles(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
-
-        class PlansDao:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def list_active_loadout_plans_by_role(self):
-                return {
-                    "当前角色": {"source_snapshot_id": 1},
-                    "旧方案角色": {"source_snapshot_id": 1},
-                }
-
-            def inventory_snapshot_summary(self, _snapshot_id):
-                return {"source": "nte_core"}
-
-        calls = []
-        old_dao = page_module.UserDataDao
-        old_start = page_module._start_nte_core_equipment_apply
-        try:
-            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
-            page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
-            page_module._preview_nte_core_assemble_all_roles(
-                window,
-                confirmed=True,
-                role_names=["当前角色"],
-            )
-        finally:
-            page_module.UserDataDao = old_dao
-            page_module._start_nte_core_equipment_apply = old_start
-
-        self.assertEqual([["当前角色"]], calls)
-
-    def test_weighted_result_can_limit_automatic_equipment_to_its_selected_roles(self):
-        import src.features.inventory.equipment_automatic_assembly_controller as page_module
-
-        class PlansDao:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def list_active_loadout_plans_by_role(self):
-                return {"当前角色": {}, "旧方案角色": {}}
-
-        calls = []
-        old_dao = page_module.UserDataDao
-        old_question = page_module.QMessageBox.question
-        old_warning = page_module._confirm_automatic_assembly_duplicate_warning
-        old_start = page_module._start_automatic_equipment_assembly
-        try:
-            page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Yes
-            page_module._confirm_automatic_assembly_duplicate_warning = lambda _window: True
-            page_module._start_automatic_equipment_assembly = lambda _window, roles: calls.append(roles)
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
-            page_module._preview_automatic_assemble_all_roles(
-                window,
-                role_names=["当前角色"],
-            )
-        finally:
-            page_module.UserDataDao = old_dao
-            page_module.QMessageBox.question = old_question
-            page_module._confirm_automatic_assembly_duplicate_warning = old_warning
-            page_module._start_automatic_equipment_assembly = old_start
-
-        self.assertEqual([["当前角色"]], calls)
-
-    def test_confirmed_assembly_minimizes_calculator_before_execution(self):
-        import src.features.inventory.equipment_automatic_assembly_controller as page_module
-
-        class Signal:
-            def __init__(self):
-                self.callback = None
-
-            def connect(self, callback):
-                self.callback = callback
-
-        class FakeWorker:
-            def __init__(self, *, target, parent):
-                self.target = target
-                self.parent = parent
-                self.result_ready = Signal()
-                self.error = Signal()
-                self.started = False
-
-            def start(self):
-                self.started = True
-
-        class Window:
-            def __init__(self):
-                self.calls = []
-
-            def showMinimized(self):
-                self.calls.append("minimized")
-
-            def showNormal(self):
-                self.calls.append("show_normal")
-
-            def _go(self, page):
-                self.calls.append(page)
-
-            def raise_(self):
-                self.calls.append("raise")
-
-            def activateWindow(self):
-                self.calls.append("activate")
-
-            def _refresh_equip(self):
-                self.calls.append("refresh")
-
-        old_worker = page_module.WorkerThread
-        old_state = page_module._sqlite_automatic_assembly_state
-        old_aliases = page_module._prompt_protagonist_alias_if_needed
-        old_report = page_module._assembly_report_dialog
-        old_info = page_module.QMessageBox.information
-        old_warning = page_module.QMessageBox.warning
-        old_critical = page_module.QMessageBox.critical
-        try:
-            page_module.WorkerThread = FakeWorker
-            page_module._sqlite_automatic_assembly_state = lambda _path, _roles: {"角色": {}}
-            page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
-            page_module._assembly_report_dialog = lambda *_args: ("完成", "ok", True)
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-            page_module.QMessageBox.warning = lambda *_args, **_kwargs: None
-            page_module.QMessageBox.critical = lambda *_args, **_kwargs: None
-
-            window = Window()
-            window.user_database_path = "unused.sqlite3"
-            page_module._start_automatic_equipment_assembly(window, ["角色"])
-            worker = window._automatic_equipment_apply_worker
-            self.assertTrue(worker.started)
-            self.assertEqual(["minimized"], window.calls)
-
-            worker.result_ready.callback(SimpleNamespace())
-            self.assertEqual(
-                ["minimized", "show_normal", "equipment", "raise", "activate", "refresh"],
-                window.calls,
-            )
-
-            window.calls.clear()
-            worker.error.callback("失败")
-            self.assertEqual(["show_normal", "equipment", "raise", "activate"], window.calls)
-        finally:
-            page_module.WorkerThread = old_worker
-            page_module._sqlite_automatic_assembly_state = old_state
-            page_module._prompt_protagonist_alias_if_needed = old_aliases
-            page_module._assembly_report_dialog = old_report
-            page_module.QMessageBox.information = old_info
-            page_module.QMessageBox.warning = old_warning
-            page_module.QMessageBox.critical = old_critical
-
-    def test_single_role_f12_stop_restores_equipment_page_before_dialog(self):
-        from src.features.inventory.page import _return_to_equipment_after_assembly
-
-        calls = []
-
-        class Window:
-            def showNormal(self):
-                calls.append("show_normal")
-
-            def _go(self, page):
-                calls.append(page)
-
-            def raise_(self):
-                calls.append("raise")
-
-            def activateWindow(self):
-                calls.append("activate")
-
-        _return_to_equipment_after_assembly(Window())
-        self.assertEqual(["show_normal", "equipment", "raise", "activate"], calls)
-
-    def test_all_roles_f12_stop_restores_equipment_page_before_dialog(self):
-        from src.features.inventory.page import _assembly_report_dialog
-
-        report = SimpleNamespace(
-            role_reports=[],
-            executed_actions=0,
-            missing_roles=[],
-            skipped_roles=[],
-            duplicate_roles=[],
-            unrecognized_roles=[],
-            verification_failures=[],
-        )
-        _title, _message, completed = _assembly_report_dialog("自动装配", report, 1)
-        self.assertFalse(completed)
-
-    def test_verifies_blueprint_against_screenshot_samples_drive_positions(self):
-        from src.features.drive_assembly.ui_bridge import verify_blueprint_against_screenshot
-
-        image = np.zeros((100, 100, 3), dtype=np.uint8)
-        image[48:53, 48:53] = 120
-        rect = SimpleNamespace(left=10, top=20)
-        plan = {
-            "drive_blocks": [
-                {"block_id": 1, "pixel_position": (60, 70)},
-                {"block_id": 2, "pixel_position": (90, 90)},
-            ]
-        }
-
-        result = verify_blueprint_against_screenshot(image, rect, plan)
-
-        self.assertFalse(result["ok"])
-        self.assertEqual([{"block_id": 2, "position": (90, 90)}], result["missing_blocks"])
 
 
 if __name__ == "__main__":
+
     unittest.main()

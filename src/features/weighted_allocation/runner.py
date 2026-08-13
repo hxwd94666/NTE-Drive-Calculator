@@ -494,6 +494,26 @@ def save_weighted_allocation_preview(
         return plan_ids
 
 
+def _option_tape_main_values(
+    context: AllocationContext,
+    option: RoleAllocationOption,
+) -> dict[str, float]:
+    """Persist the exact max-level card value produced by this calculation."""
+
+    candidates = {candidate.uid: candidate for candidate in context.candidates}
+    for assignment in option.assignments:
+        if assignment.kind != "core" or assignment.virtual:
+            continue
+        candidate = candidates.get(assignment.uid)
+        stat = next(iter(candidate.main_stats), None) if candidate is not None else None
+        if stat is None:
+            continue
+        value = float(stat.value) * (100.0 if stat.percent else 1.0)
+        uid = f"nte-core-{assignment.uid[0]}-{assignment.uid[1]}"
+        return {uid: round(value, 6)}
+    return {}
+
+
 def _save_weighted_allocation_preview(
     preview: WeightedAllocationPreview,
 ) -> tuple[int, ...]:
@@ -528,6 +548,7 @@ def _save_weighted_allocation_preview(
                         f"nte-{assignment.kind}-{assignment.uid[0]}-{assignment.uid[1]}": assignment.score
                         for assignment in option.assignments
                     },
+                    "tape_main_values": _option_tape_main_values(preview.context, option),
                     "static_dataset": {
                         "schema_version": preview.static_dataset.schema_version,
                         "dataset_id": preview.static_dataset.dataset_id,

@@ -27,6 +27,19 @@ from src.app.theme import themed_style
 from src.features.inventory.warehouse_result_card import WarehouseResultCard
 
 
+REPLACEMENT_CANDIDATE_COLUMNS = 4
+REPLACEMENT_CANDIDATE_GAP = 10
+# Four warehouse cards, three inter-card gaps, one vertical scrollbar and
+# enough root/group chrome for the fourth card to remain fully visible.
+REPLACEMENT_DIALOG_CHROME_WIDTH = 122
+REPLACEMENT_DIALOG_WIDTH = (
+    WarehouseResultCard.CARD_SIZE.width() * REPLACEMENT_CANDIDATE_COLUMNS
+    + REPLACEMENT_CANDIDATE_GAP * (REPLACEMENT_CANDIDATE_COLUMNS - 1)
+    + REPLACEMENT_DIALOG_CHROME_WIDTH
+)
+REPLACEMENT_DIALOG_HEIGHT = 920
+
+
 @dataclass(frozen=True, slots=True)
 class EquipmentReplacementCard:
     key: str
@@ -116,7 +129,7 @@ def show_equipment_replacement_dialog(
     dialog = QDialog(parent)
     dialog.setObjectName("equipmentReplacementDialog")
     dialog.setWindowTitle(title)
-    dialog.resize(980, 920)
+    dialog.resize(REPLACEMENT_DIALOG_WIDTH, REPLACEMENT_DIALOG_HEIGHT)
     root = QVBoxLayout(dialog)
     root.setSpacing(10)
 
@@ -205,7 +218,7 @@ def show_equipment_replacement_dialog(
     content = QWidget()
     grid = QGridLayout(content)
     grid.setContentsMargins(0, 0, 0, 0)
-    grid.setHorizontalSpacing(10)
+    grid.setHorizontalSpacing(REPLACEMENT_CANDIDATE_GAP)
     grid.setVerticalSpacing(10)
     candidate_widgets: dict[str, WarehouseResultCard] = {}
     selected: list[EquipmentReplacementCard | None] = [None]
@@ -281,11 +294,11 @@ def show_equipment_replacement_dialog(
         candidate_widgets[choice.key] = card
         grid.addWidget(
             card,
-            index // 3,
-            index % 3,
+            index // REPLACEMENT_CANDIDATE_COLUMNS,
+            index % REPLACEMENT_CANDIDATE_COLUMNS,
             Qt.AlignLeft | Qt.AlignTop,
         )
-    grid.setColumnStretch(3, 1)
+    grid.setColumnStretch(REPLACEMENT_CANDIDATE_COLUMNS, 1)
     scroll.setWidget(content)
     candidate_layout.addWidget(scroll)
     root.addWidget(candidate_group, 1)

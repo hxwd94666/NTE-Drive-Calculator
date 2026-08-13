@@ -11,6 +11,7 @@ from src.features.drive_assembly.randomization import (
     jitter_timing,
     jitter_duration_ms,
     path_noise_offset,
+    random_input_delay,
 )
 
 
@@ -136,6 +137,14 @@ class JitterTimingTests(unittest.TestCase):
     def test_base_zero_always_returns_zero(self):
         ctx = RandomizationContext(enabled=True)
         self.assertEqual(0.0, jitter_timing(ctx, 0.0))
+
+    def test_discrete_input_delay_stays_between_zero_and_point_one(self):
+        ctx = RandomizationContext(enabled=True)
+        ctx.seed(42)
+        values = [random_input_delay(ctx) for _ in range(50)]
+
+        self.assertTrue(all(0.0 <= value <= 0.1 for value in values))
+        self.assertGreater(len(set(values)), 1)
 
 
 class JitterDurationMsTests(unittest.TestCase):

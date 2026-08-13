@@ -287,7 +287,9 @@ def parse_plan_grid(rows: Any) -> tuple[list[tuple[int, int, str | None]], list[
     return cells, anchors
 
 
-def _show_time(row: dict[str, Any]) -> str | None:
+def show_time(row: dict[str, Any]) -> str | None:
+    """Return the official mainland availability time for one character row."""
+
     element = row.get("ElementData")
     if not isinstance(element, dict) or not element.get("bCheckShowTime"):
         return None

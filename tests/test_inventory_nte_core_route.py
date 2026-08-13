@@ -50,6 +50,9 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             def complete_equipment_apply_job_if_done(self, _job_id):
                 return True
 
+            def get_sync_settings(self):
+                return {"inventory_settle_seconds": 5.0}
+
         class ApplyService:
             last_instance = None
 
@@ -84,6 +87,10 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     already_applied=False,
                 )
 
+        class Sync:
+            def wait_for_snapshot(self, **_kwargs):
+                raise TimeoutError("测试中未产生新快照")
+
         dao = Dao()
         old_dao = page_module.UserDataDao
         old_service = page_module.EquipmentApplyService
@@ -92,7 +99,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             page_module.EquipmentApplyService = ApplyService
             report = page_module._run_nte_core_equipment_apply(
                 SimpleNamespace(
-                    _inventory_sync_service=object(),
+                    _inventory_sync_service=Sync(),
                     user_database_path="unused.sqlite3",
                 ),
                 ["可装配", "实例缺失"],
@@ -190,7 +197,10 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 )
 
             def verify_plan_in_snapshot(self, plan_id, **kwargs):
-                assert kwargs["stable_snapshot_id"] == 12
+                snapshot_id = kwargs["stable_snapshot_id"]
+                if snapshot_id == 11:
+                    return None if plan_id == 1001 else "驱动 UID (2, 2) 未装备"
+                assert snapshot_id == 12
                 assert plan_id == 1002
                 return None
 
@@ -231,6 +241,219 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             ["乙"],
             [row["role_name"] for row in report["applied"] if row.get("repair_verified")],
         )
+        repaired = next(row for row in report["applied"] if row["role_name"] == "乙")
+        self.assertEqual(2, repaired["attempt_count"])
+
+    def test_fast_apply_stops_after_third_verified_attempt(self) -> None:
+        class Dao:
+            def __init__(self):
+                self.prepared = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def current_inventory_snapshot_id(self):
+                return 20
+
+            def get_active_loadout_plan_for_role(self, _role_name):
+                return {
+                    "plan_id": 1001,
+                    "character_id": 1001,
+                    "source_snapshot_id": 20,
+                    "assignments": [{"kind": "module"}],
+                }
+
+            def inventory_snapshot_summary(self, _snapshot_id):
+                return {"source": "nte_core"}
+
+            def get_sync_settings(self):
+                return {"inventory_settle_seconds": 5.0}
+
+            def create_equipment_apply_job(self, _snapshot_id, prepared):
+                self.prepared = list(prepared)
+                return 90
+
+            def get_equipment_apply_job(self, _job_id):
+                return {"items": [{"job_item_id": 1, **self.prepared[0]}]}
+
+            def mark_equipment_apply_job_item(self, *_args, **_kwargs):
+                pass
+
+            def complete_equipment_apply_job_if_done(self, _job_id):
+                return True
+
+        class ApplyService:
+            last_instance = None
+
+            def __init__(self, *_args):
+                self.apply_calls = []
+                ApplyService.last_instance = self
+
+            def validate_plan_for_fast_apply(self, *_args, **_kwargs):
+                pass
+
+            def validate_bulk_plans_for_fast_apply(self, *_args, **_kwargs):
+                pass
+
+            def resolve_fast_apply_character_ids(self, character_id, *_args, **_kwargs):
+                return (character_id,)
+
+            def resolve_character_uid(self, *_args, **_kwargs):
+                return {"slot": 1, "serial": 2}
+
+            def require_stable_snapshot(self):
+                return 20
+
+            def apply_plan(self, plan_id, **kwargs):
+                self.apply_calls.append((plan_id, kwargs["stable_snapshot_id"]))
+                return SimpleNamespace(
+                    before_snapshot_id=kwargs["stable_snapshot_id"],
+                    after_snapshot_id=kwargs["stable_snapshot_id"],
+                    character_uid=kwargs["character_uid"],
+                    verified=False,
+                    already_applied=False,
+                )
+
+            def verify_plan_in_snapshot(self, *_args, **kwargs):
+                return (
+                    "驱动 UID (11, 11) 未装备"
+                    if kwargs["stable_snapshot_id"] < 23
+                    else "驱动 UID (11, 11) 的位置不一致"
+                )
+
+        class Sync:
+            def __init__(self):
+                self.wait_calls = []
+
+            def wait_for_snapshot(self, **kwargs):
+                self.wait_calls.append(kwargs)
+                return SimpleNamespace(last_snapshot_id=20 + len(self.wait_calls))
+
+        dao = Dao()
+        sync = Sync()
+        old_dao = page_module.UserDataDao
+        old_service = page_module.EquipmentApplyService
+        try:
+            page_module.UserDataDao = lambda *_args, **_kwargs: dao
+            page_module.EquipmentApplyService = ApplyService
+            report = page_module._run_nte_core_equipment_apply(
+                SimpleNamespace(
+                    _inventory_sync_service=sync,
+                    user_database_path="unused.sqlite3",
+                ),
+                ["甲"],
+            )
+        finally:
+            page_module.UserDataDao = old_dao
+            page_module.EquipmentApplyService = old_service
+
+        self.assertEqual(3, len(ApplyService.last_instance.apply_calls))
+        self.assertEqual([20, 21, 22], [snapshot for _, snapshot in ApplyService.last_instance.apply_calls])
+        self.assertEqual([20, 21, 22], [call["after_snapshot_id"] for call in sync.wait_calls])
+        self.assertEqual(3, report["applied"][0]["attempt_count"])
+        self.assertEqual("loadout_mismatch", report["repair_errors"][0]["kind"])
+        self.assertIn("第 3 次", report["repair_errors"][0]["error"])
+
+    def test_snapshot_timeout_stops_without_second_request(self) -> None:
+        class Dao:
+            def __init__(self):
+                self.prepared = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def current_inventory_snapshot_id(self):
+                return 30
+
+            def get_active_loadout_plan_for_role(self, _role_name):
+                return {
+                    "plan_id": 1001,
+                    "character_id": 1001,
+                    "source_snapshot_id": 30,
+                    "assignments": [{"kind": "module"}],
+                }
+
+            def inventory_snapshot_summary(self, _snapshot_id):
+                return {"source": "nte_core"}
+
+            def get_sync_settings(self):
+                return {"inventory_settle_seconds": 5.0}
+
+            def create_equipment_apply_job(self, _snapshot_id, prepared):
+                self.prepared = list(prepared)
+                return 91
+
+            def get_equipment_apply_job(self, _job_id):
+                return {"items": [{"job_item_id": 1, **self.prepared[0]}]}
+
+            def mark_equipment_apply_job_item(self, *_args, **_kwargs):
+                pass
+
+            def complete_equipment_apply_job_if_done(self, _job_id):
+                return True
+
+        class ApplyService:
+            last_instance = None
+
+            def __init__(self, *_args):
+                self.apply_calls = 0
+                ApplyService.last_instance = self
+
+            def validate_plan_for_fast_apply(self, *_args, **_kwargs):
+                pass
+
+            def validate_bulk_plans_for_fast_apply(self, *_args, **_kwargs):
+                pass
+
+            def resolve_fast_apply_character_ids(self, character_id, *_args, **_kwargs):
+                return (character_id,)
+
+            def resolve_character_uid(self, *_args, **_kwargs):
+                return {"slot": 1, "serial": 2}
+
+            def require_stable_snapshot(self):
+                return 30
+
+            def apply_plan(self, _plan_id, **kwargs):
+                self.apply_calls += 1
+                return SimpleNamespace(
+                    before_snapshot_id=30,
+                    after_snapshot_id=30,
+                    character_uid=kwargs["character_uid"],
+                    verified=False,
+                    already_applied=False,
+                )
+
+        class Sync:
+            def wait_for_snapshot(self, **_kwargs):
+                raise TimeoutError("等待新的稳定背包快照超时")
+
+        dao = Dao()
+        old_dao = page_module.UserDataDao
+        old_service = page_module.EquipmentApplyService
+        try:
+            page_module.UserDataDao = lambda *_args, **_kwargs: dao
+            page_module.EquipmentApplyService = ApplyService
+            report = page_module._run_nte_core_equipment_apply(
+                SimpleNamespace(
+                    _inventory_sync_service=Sync(),
+                    user_database_path="unused.sqlite3",
+                ),
+                ["甲"],
+            )
+        finally:
+            page_module.UserDataDao = old_dao
+            page_module.EquipmentApplyService = old_service
+
+        self.assertEqual(1, ApplyService.last_instance.apply_calls)
+        self.assertEqual("snapshot_timeout", report["snapshot_wait_failure"]["kind"])
+        self.assertEqual(1, report["snapshot_wait_failure"]["attempt"])
 
     def test_single_role_routes_to_fast_mode_when_selected(self) -> None:
         calls = []
@@ -294,6 +517,27 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             )
         )
 
+    def test_plugin_unavailable_message_distinguishes_current_pipe_state(self) -> None:
+        available = page_module._equipment_failure_details(
+            "plugin_unavailable",
+            "[MODS_PLUGIN_UNAVAILABLE]",
+            pipe_probe={"state": "available"},
+        )
+        missing = page_module._equipment_failure_details(
+            "plugin_unavailable",
+            "[MODS_PLUGIN_UNAVAILABLE]",
+            pipe_probe={"state": "missing"},
+        )
+        timed_out = page_module._equipment_failure_details(
+            "core_request_timeout",
+            "nte-core request timed out",
+        )
+
+        self.assertIn("管道存在", available)
+        self.assertIn("短暂不可用或等待响应超时", available)
+        self.assertIn("管道不存在", missing)
+        self.assertIn("不是命名管道缺失", timed_out)
+
     def test_automatic_assembly_uses_duplicate_warning_after_mode_choice(self) -> None:
         calls = []
 
@@ -329,6 +573,44 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 FakeWindow()
             )
         )
+
+    def test_automatic_assembly_preparation_can_be_cancelled(self) -> None:
+        class FakeWindow:
+            _automatic_equipment_apply_worker = None
+            user_database_path = "unused.sqlite3"
+
+            def __init__(self) -> None:
+                self.minimized = False
+
+            def showMinimized(self) -> None:
+                self.minimized = True
+
+        window = FakeWindow()
+        original_state = automatic_module._sqlite_automatic_assembly_state
+        original_question = automatic_module.QMessageBox.question
+        original_worker = automatic_module.WorkerThread
+        worker_calls = []
+        try:
+            automatic_module._sqlite_automatic_assembly_state = (
+                lambda _path, _roles: {"测试角色": object()}
+            )
+            automatic_module.QMessageBox.question = (
+                lambda *_args, **_kwargs: automatic_module.QMessageBox.Cancel
+            )
+            automatic_module.WorkerThread = (
+                lambda *_args, **_kwargs: worker_calls.append("created")
+            )
+            automatic_module._start_automatic_equipment_assembly(
+                window,
+                ["测试角色"],
+            )
+        finally:
+            automatic_module._sqlite_automatic_assembly_state = original_state
+            automatic_module.QMessageBox.question = original_question
+            automatic_module.WorkerThread = original_worker
+
+        self.assertFalse(window.minimized)
+        self.assertEqual([], worker_calls)
 
     def test_visual_snapshot_confirms_before_fast_assembly_falls_back(self) -> None:
         class PlansDao:

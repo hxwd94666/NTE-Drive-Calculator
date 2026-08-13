@@ -29,12 +29,14 @@ from src.features.drive_assembly.page_mapping_helpers import (
     DEFAULT_TAPE_MAIN_STAT_OCR_REGION,
     DEFAULT_TAPE_MAIN_STAT_OPTIONS,
     DEFAULT_TAPE_MAIN_STAT_SCROLL,
+    DEFAULT_TAPE_MAIN_STAT_WHEEL_POSITION,
     DEFAULT_TAPE_SUB_STAT_FILTER_ENTRY,
     DEFAULT_TAPE_SUB_STAT_OPTIONS,
     DEFAULT_TAPE_SUB_STAT_SELECTION,
     FILTER_OPTION_PAUSE_SECONDS,
     TAPE_FILTER_RESULT_SETTLE_SECONDS,
-    TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
+    TAPE_MAIN_STAT_WHEEL_CLICKS,
+    TAPE_MAIN_STAT_WHEEL_CLICK_INTERVAL_SECONDS,
     TAPE_MODAL_DISMISS_SETTLE_SECONDS,
 )
 
@@ -237,34 +239,38 @@ def map_tape_main_stat_scroll(
     return result
 
 
-def map_tape_main_stat_gamepad_open() -> dict[str, Any]:
-    """Return gamepad actions that open the tape main-stat list."""
+def map_tape_main_stat_mouse_open(
+    screen_size: tuple[int, int] | None = None,
+    content_rect: tuple[int, int, int, int] | None = None,
+) -> dict[str, Any]:
+    """Open the tape main-stat list and wheel it to the option rows."""
 
-    sequence: list[dict[str, Any]] = []
-    sequence.extend(
+    controls = _scale_controls(
         {
-            "name": "main_stat_gamepad_down_to_expand",
-            "gamepad_stick": "left_down",
-            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
-        }
-        for _index in range(7)
+            **DEFAULT_TAPE_FILTER_MAIN_STAT_CONTROLS,
+            "main_stat_wheel_position": DEFAULT_TAPE_MAIN_STAT_WHEEL_POSITION,
+        },
+        screen_size,
+        content_rect,
     )
-    sequence.append(
-        {
-            "name": "main_stat_gamepad_confirm_expand",
-            "gamepad_button": "a",
-            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
-        }
-    )
-    sequence.extend(
-        {
-            "name": "main_stat_gamepad_down_to_options",
-            "gamepad_stick": "left_down",
-            "post_action_pause_seconds": TAPE_MAIN_STAT_GAMEPAD_ACTION_PAUSE_SECONDS,
-        }
-        for _index in range(3)
-    )
-    return {"open_sequence": sequence}
+    return {
+        "main_stat_expand": controls["main_stat_expand"],
+        "main_stat_wheel_position": controls["main_stat_wheel_position"],
+        "open_sequence": [
+            {
+                "name": "main_stat_expand",
+                "position": controls["main_stat_expand"],
+                "post_action_pause_seconds": 0.5,
+            },
+            {
+                "name": "main_stat_wheel_to_options",
+                "position": controls["main_stat_wheel_position"],
+                "wheel_clicks": TAPE_MAIN_STAT_WHEEL_CLICKS,
+                "wheel_click_interval_seconds": TAPE_MAIN_STAT_WHEEL_CLICK_INTERVAL_SECONDS,
+                "post_action_pause_seconds": 0.8,
+            },
+        ],
+    }
 
 
 def map_tape_main_stat_selection(

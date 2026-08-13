@@ -47,9 +47,22 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertEqual(fork_ids, set(manifest["fork_items"]))
         self.assertGreater(len(manifest["monster_icons"]), 0)
 
+    def test_test_server_missing_fork_exports_remain_explicit(self) -> None:
+        manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            {"fork_DemonBlade", "fork_GoldRecord"},
+            set(manifest["unresolved_assets"]),
+        )
+        catalog = GameUiAssetCatalog(ASSET_ROOT)
+        self.assertIsNone(catalog.fork_icon("fork_DemonBlade"))
+        self.assertIsNone(catalog.fork_icon("fork_GoldRecord"))
+
     def test_catalog_resolves_ids_and_rejects_missing_keys(self) -> None:
         catalog = GameUiAssetCatalog(ASSET_ROOT)
         self.assertTrue(catalog.character_icon(1003).is_file())
+        self.assertEqual("player_canhong_256.png", catalog.character_icon(1036).name)
+        self.assertEqual("player_lingke_256.png", catalog.character_icon(1072).name)
+        self.assertEqual(catalog.character_icon(1004), catalog.character_icon(1091))
         self.assertTrue(catalog.attribute_icon("crit_rate").is_file())
         self.assertTrue(catalog.equipment_icon("Lakshana_orange").is_file())
         self.assertTrue(catalog.module_icon("cell3_style1_1_Orange").is_file())

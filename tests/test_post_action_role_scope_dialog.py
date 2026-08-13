@@ -7,8 +7,9 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication, QToolButton
+from PySide6.QtWidgets import QApplication, QLabel, QToolButton
 
+from src.app.theme import apply_app_theme
 from src.features.scanning.post_action_dialog import (
     RoleScopeDialog,
     ScanPostActionDialog,
@@ -58,6 +59,24 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
     def test_all_management_combo_boxes_ignore_mouse_wheel_selection(self):
         self.assertIsInstance(post_action_combo([("全部", "all")], "all"), NoWheelComboBox)
         self.assertIsInstance(preserve_rule_combo([("全部", "all")], "all"), NoWheelComboBox)
+
+    def test_light_theme_rule_name_uses_the_main_text_color(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            apply_app_theme(self.app, "light")
+            try:
+                dialog = ScanPostActionDialog(None, Path(temp_dir), Path("config"))
+                row = dialog._build_preserve_rule_row(
+                    0,
+                    {"name": "高分驱动", "item_type": "module", "action": "keep"},
+                )
+                name = next(
+                    label for label in row.findChildren(QLabel)
+                    if label.text() == "高分驱动"
+                )
+                self.assertIn("color:#24292f", name.styleSheet())
+                dialog.close()
+            finally:
+                apply_app_theme(self.app, "dark")
 
     def test_role_select_button_only_appears_for_selected_scope(self):
         with tempfile.TemporaryDirectory() as temp_dir:

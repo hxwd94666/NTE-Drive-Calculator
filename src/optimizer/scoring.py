@@ -175,7 +175,10 @@ class ScoringEngine:
         main_stat_name = tape.main_stats
         main_weight_source = main_weights if isinstance(main_weights, dict) else weights
         main_weight = self.flexible_weight(main_stat_name, main_weight_source)
-        main_score = main_weight * 50.0 * quality_coef
+        catalog_value = float((self.stat_catalog.tape_main_values or {}).get(main_stat_name, 0.0) or 0.0)
+        actual_value = getattr(tape, "main_value", None)
+        value_ratio = float(actual_value) / catalog_value if actual_value is not None and catalog_value > 0 else quality_coef
+        main_score = main_weight * 50.0 * value_ratio
 
         sub_weight = sum(self.flexible_weight(stat_name, weights) for stat_name in tape.sub_stats.keys())
         sub_score = (10.0 / max_weight) * sub_weight * 10.0 * quality_coef
@@ -258,9 +261,8 @@ class ScoringEngine:
         if not self.roles_db: return {"drives": [], "tapes": {}}
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
-        has_unlimited_stat_priority = any(
+        has_stat_priority = any(
             isinstance(config, dict)
-            and bool(config.get("ignore_grade_limit"))
             and bool(config.get("stats"))
             for config in crit_priority_modes.values()
         )
@@ -293,13 +295,14 @@ class ScoringEngine:
                 # 受控扩展使用。普通流程仍只会消费下方筛出的 valid_drives。
                 all_scored_drives.append(item)
                 if (
-                    has_unlimited_stat_priority
+                    has_stat_priority
                     or item.max_score > 0
                     or self._has_stat_priority_for_any_role(item, crit_priority_modes)
                 ):
                     valid_drives.append(item)
             elif (
                 item.max_score > 0
+                or has_stat_priority
                 or self._has_stat_priority_for_any_role(item, crit_priority_modes)
                 or any(
                     self._tape_main_allowed(item, self._allowed_tape_main_names(values))
@@ -311,9 +314,8 @@ class ScoringEngine:
         global_drive_uids = set()
         for role_name in self.roles_db.keys():
             role_priority_config = crit_priority_modes.get(role_name)
-            role_unlimited_stat_priority = (
+            role_has_stat_priority = (
                 isinstance(role_priority_config, dict)
-                and bool(role_priority_config.get("ignore_grade_limit"))
                 and bool(role_priority_config.get("stats"))
             )
             buckets: Dict[str, List[Drive]] = {}
@@ -321,7 +323,7 @@ class ScoringEngine:
                 if self._item_matches_stat_blacklist(d, role_priority_config):
                     continue
                 priority_rank = self._priority_rank_for_item(role_name, d, role_priority_config)
-                if role_unlimited_stat_priority or d.role_scores[role_name] > 0 or priority_rank > (0, 0):
+                if role_has_stat_priority or d.role_scores[role_name] > 0 or priority_rank > (0, 0):
                     buckets.setdefault(d.shape_id, []).append(d)
 
             for shape, drives_in_bucket in buckets.items():
@@ -365,6 +367,11 @@ class ScoringEngine:
                 t
                 for t in valid_tapes
                 if (
+                    (
+                        isinstance(crit_priority_modes.get(role_name), dict)
+                        and bool(crit_priority_modes[role_name].get("stats"))
+                    )
+                    or
                     t.role_scores[role_name] > 0
                     or self._priority_rank_for_item(
                         role_name,
@@ -391,8 +398,7 @@ class ScoringEngine:
                             tape,
                             role_config,
                         )[0]
-                        if depth > 0:
-                            by_depth.setdefault(depth, []).append(tape)
+                        by_depth.setdefault(depth, []).append(tape)
                     layered_buckets.extend(
                         by_depth[depth]
                         for depth in sorted(by_depth, reverse=True)

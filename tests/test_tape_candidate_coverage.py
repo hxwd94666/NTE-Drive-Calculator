@@ -41,6 +41,21 @@ def _tape(
 
 
 class TapeCandidateCoverageTests(unittest.TestCase):
+    def test_cartridge_score_uses_the_exact_main_stat_value_when_available(self) -> None:
+        scoring = ScoringEngine(roles_db={})
+        catalog_value = float(scoring.stat_catalog.tape_main_values["攻击力%"])
+        tape = Tape(
+            uid="exact-main",
+            quality="Gold",
+            area=15,
+            set_name="Set",
+            main_stats="攻击力%",
+            main_value=catalog_value / 2.0,
+            sub_stats={},
+        )
+
+        assert scoring.calculate_cartridge_score(tape, {}, 1.0, {"攻击力%": 1.0}) == 25.0
+
     def test_scoring_retains_best_card_for_each_main_stat_beyond_top_k(self) -> None:
         scoring = ScoringEngine(
             roles_db={
@@ -268,7 +283,7 @@ class TapeCandidateCoverageTests(unittest.TestCase):
         )
         self.assertEqual("double-crit-damage", assigned["安魂曲"].uid)
 
-    def test_zero_score_priority_keeps_matching_tape_and_hard_filters_nonmatch(self) -> None:
+    def test_zero_score_priority_keeps_matching_and_full_fallback_tapes(self) -> None:
         scoring = ScoringEngine(
             roles_db={"A": {"weights": {"暴击率%": 0.0}, "main_weights": {}}}
         )
@@ -294,9 +309,12 @@ class TapeCandidateCoverageTests(unittest.TestCase):
         )
 
         self.assertEqual(0.0, matching.role_scores["A"])
-        self.assertEqual(["matching"], [tape.uid for tape in pools["tapes"]["A"]])
+        self.assertEqual(
+            {"matching", "nonmatching"},
+            {tape.uid for tape in pools["tapes"]["A"]},
+        )
 
-    def test_core_main_filter_runs_before_substat_hard_pool(self) -> None:
+    def test_core_main_filter_stays_hard_before_substat_preference(self) -> None:
         scoring = ScoringEngine(
             roles_db={
                 "A": {
@@ -362,6 +380,42 @@ class TapeCandidateCoverageTests(unittest.TestCase):
 
         self.assertIsNotNone(picked)
         self.assertEqual("abc", picked[1].uid)
+
+    def test_repeated_shape_slots_fall_back_depth_by_depth_then_full_pool(self) -> None:
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {},
+        )
+
+        def candidate(uid: str, sub_stats: dict[str, float], score: float) -> Drive:
+            return Drive(
+                uid=uid,
+                quality="Gold",
+                area=2,
+                shape_id="H_2",
+                main_stats={"攻击力%": 1.0, "生命值%": 1.0},
+                sub_stats=sub_stats,
+                role_scores={"A": score},
+            )
+
+        deepest = candidate("abc", {"a": 1.0, "b": 1.0, "c": 1.0}, 1.0)
+        outer = candidate("ab", {"a": 1.0, "b": 1.0}, 10.0)
+        full = candidate("none", {"z": 1.0}, 100.0)
+
+        plan = strategy._find_best_fit(
+            "A",
+            {"set_pieces": [], "extra_pieces": ["H_2", "H_2", "H_2"]},
+            [full, outer, deepest],
+            "Set",
+            {"stats": ["a", "b", "c"], "ignore_grade_limit": True},
+        )
+
+        self.assertTrue(plan["valid"])
+        self.assertEqual(
+            ["abc", "ab", "none"],
+            [drive.uid for drive in plan["assigned_extra_drives"]],
+        )
 
     def test_substat_blacklist_hard_filters_drives_but_not_tapes(self) -> None:
         strategy = RolePriorityStrategy(

@@ -173,7 +173,7 @@ def build_home_page(window) -> QScrollArea:
 
     sync_card, sync_layout = _section(
         "背包同步",
-        "请先停留在游戏登录页，再启动同步并进入游戏。稳定后仍会在后台监听后续变化。",
+        "请先关闭代理和加速器，停留在游戏登录页，再启动同步并进入游戏；稳定后仍会在后台监听后续变化。",
     )
     window.home_sync_detail = QLabel("尚未启动 nte-core")
     window.home_sync_detail.setWordWrap(True)
@@ -199,7 +199,7 @@ def build_home_page(window) -> QScrollArea:
     for label, page_key in (
         ("计算配装", "execute"),
         ("查看方案", "equipment"),
-        ("角色管理", "my_role"),
+        ("角色边际", "my_role"),
         ("仓库管理", "warehouse"),
         ("空幕鉴定", "identify"),
     ):

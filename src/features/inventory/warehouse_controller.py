@@ -8,7 +8,6 @@ from typing import Any
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,14 +20,15 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
+from src.domain.warehouse_filter import WarehouseFilterSpec
 from src.features.inventory.warehouse import (
     WarehouseCardDelegate,
     WarehouseGridView,
     WarehouseInventoryModel,
     filter_warehouse_items,
     warehouse_item_with_state,
-    warehouse_type_options,
 )
+from src.features.inventory.warehouse_filter_drawer import WarehouseFilterDrawer
 from src.features.inventory.warehouse_presenter import load_warehouse_snapshot
 from src.features.inventory.warehouse_progress import (
     close_warehouse_state_progress,
@@ -139,7 +139,32 @@ def _page_warehouse(self):
     self.warehouse_summary = QLabel("读取背包稳定快照中…")
     self.warehouse_summary.setStyleSheet(themed_style("color:#8b949e;margin-left:8px"))
     title_row.addWidget(self.warehouse_summary)
+    self.warehouse_selection_label = QLabel("选中 0 件")
+    self.warehouse_selection_label.setStyleSheet(themed_style("color:#8b949e;margin-left:8px"))
+    title_row.addWidget(self.warehouse_selection_label)
+    multi_select_hint = QLabel("（按住 CTRL 多选）")
+    multi_select_hint.setStyleSheet(themed_style("color:#8b949e"))
+    title_row.addWidget(multi_select_hint)
+    self.warehouse_normal_btn = QPushButton("正常")
+    self.warehouse_lock_btn = QPushButton("锁定")
+    self.warehouse_discard_btn = QPushButton("弃置")
+    for button, target_state in (
+        (self.warehouse_normal_btn, "normal"),
+        (self.warehouse_lock_btn, "locked"),
+        (self.warehouse_discard_btn, "discarded"),
+    ):
+        button.setObjectName("btnAction")
+        button.setEnabled(False)
+        button.clicked.connect(
+            lambda _checked=False, target=target_state: self._set_warehouse_selected_state(target)
+        )
+        title_row.addWidget(button)
     title_row.addStretch()
+    self.warehouse_manage_btn = QPushButton("管理")
+    self.warehouse_manage_btn.setObjectName("btnPrimary")
+    self.warehouse_manage_btn.setToolTip("按管理规则一键同步弃置/锁定状态")
+    self.warehouse_manage_btn.clicked.connect(self._open_warehouse_state_manager)
+    title_row.addWidget(self.warehouse_manage_btn)
     self.warehouse_save_btn = QPushButton("保存")
     self.warehouse_save_btn.setObjectName("btnPrimary")
     self.warehouse_save_btn.setStyleSheet(
@@ -153,11 +178,6 @@ def _page_warehouse(self):
     self.warehouse_save_btn.setEnabled(True)
     self.warehouse_save_btn.clicked.connect(self._save_warehouse_state_changes)
     title_row.addWidget(self.warehouse_save_btn)
-    self.warehouse_manage_btn = QPushButton("管理")
-    self.warehouse_manage_btn.setObjectName("btnPrimary")
-    self.warehouse_manage_btn.setToolTip("按管理规则一键同步弃置/锁定状态")
-    self.warehouse_manage_btn.clicked.connect(self._open_warehouse_state_manager)
-    title_row.addWidget(self.warehouse_manage_btn)
     layout.addLayout(title_row)
 
     filters = QHBoxLayout()
@@ -168,56 +188,11 @@ def _page_warehouse(self):
     self.warehouse_search.setMinimumWidth(280)
     self.warehouse_search.textChanged.connect(self._apply_warehouse_filters)
     filters.addWidget(self.warehouse_search, 1)
-    self.warehouse_category_filter = QComboBox()
-    self.warehouse_category_filter.addItem("全部类别", "all")
-    self.warehouse_category_filter.addItem("驱动", "module")
-    self.warehouse_category_filter.addItem("卡带", "core")
-    self.warehouse_category_filter.currentIndexChanged.connect(lambda *_args: _on_warehouse_category_changed(self))
-    filters.addWidget(self.warehouse_category_filter)
-    self.warehouse_type_filter = QComboBox()
-    self.warehouse_type_filter.addItem("全部类型", "all")
-    self.warehouse_type_filter.currentIndexChanged.connect(self._apply_warehouse_filters)
-    filters.addWidget(self.warehouse_type_filter)
-    self.warehouse_quality_filter = QComboBox()
-    self.warehouse_quality_filter.addItem("全部品质", "all")
-    self.warehouse_quality_filter.addItem("金色", "gold")
-    self.warehouse_quality_filter.addItem("紫色", "purple")
-    self.warehouse_quality_filter.addItem("蓝色", "blue")
-    self.warehouse_quality_filter.currentIndexChanged.connect(self._apply_warehouse_filters)
-    filters.addWidget(self.warehouse_quality_filter)
-    self.warehouse_status_filter = QComboBox()
-    self.warehouse_status_filter.addItem("全部状态", "all")
-    self.warehouse_status_filter.addItem("未装备", "unequipped")
-    self.warehouse_status_filter.addItem("已装备", "equipped")
-    self.warehouse_status_filter.addItem("已锁定", "locked")
-    self.warehouse_status_filter.addItem("已弃置", "discarded")
-    self.warehouse_status_filter.currentIndexChanged.connect(self._apply_warehouse_filters)
-    filters.addWidget(self.warehouse_status_filter)
+    self.warehouse_filter_btn = QPushButton("筛选")
+    self.warehouse_filter_btn.setObjectName("warehouseFilterOpen")
+    self.warehouse_filter_btn.clicked.connect(lambda: _open_warehouse_filter_drawer(self))
+    filters.addWidget(self.warehouse_filter_btn)
     layout.addLayout(filters)
-
-    state_row = QHBoxLayout()
-    state_row.setSpacing(8)
-    self.warehouse_selection_label = QLabel("选中 0 件")
-    self.warehouse_selection_label.setStyleSheet(themed_style("color:#8b949e"))
-    state_row.addWidget(self.warehouse_selection_label)
-    state_row.addWidget(QLabel("手动状态："))
-    multi_select_hint = QLabel("（按住 CTRL 多选）")
-    multi_select_hint.setStyleSheet(themed_style("color:#8b949e"))
-    state_row.addWidget(multi_select_hint)
-    self.warehouse_normal_btn = QPushButton("正常")
-    self.warehouse_lock_btn = QPushButton("锁定")
-    self.warehouse_discard_btn = QPushButton("弃置")
-    for button, target_state in (
-        (self.warehouse_normal_btn, "normal"),
-        (self.warehouse_lock_btn, "locked"),
-        (self.warehouse_discard_btn, "discarded"),
-    ):
-        button.setObjectName("btnAction")
-        button.setEnabled(False)
-        button.clicked.connect(lambda _checked=False, target=target_state: self._set_warehouse_selected_state(target))
-        state_row.addWidget(button)
-    state_row.addStretch()
-    layout.addLayout(state_row)
 
     self.warehouse_model = WarehouseInventoryModel(page)
     self.warehouse_view = WarehouseGridView(page)
@@ -253,6 +228,11 @@ def _page_warehouse(self):
     self._warehouse_base_states = {}
     self._warehouse_compare_first = None
     self._warehouse_deferred_snapshot_id = None
+    self._warehouse_filter_spec = WarehouseFilterSpec()
+    self.warehouse_filter_drawer = WarehouseFilterDrawer(page)
+    self.warehouse_filter_drawer.applied.connect(
+        lambda spec: _on_warehouse_filter_applied(self, spec)
+    )
     return page
 
 
@@ -309,7 +289,10 @@ def _on_warehouse_loaded(self, token, result):
         if item.get("state_known", True)
     }
     self._warehouse_compare_first = None
-    _refresh_warehouse_type_filter(self)
+    self._warehouse_filter_spec = self.warehouse_filter_drawer.set_items(
+        self._warehouse_all_items,
+        getattr(self, "_warehouse_filter_spec", WarehouseFilterSpec()),
+    )
     self._apply_warehouse_filters()
     if self._warehouse_source == "gamepad":
         self.warehouse_hint.setText("当前为全量扫描库存：等级、锁定/弃置状态和已装备角色无法识别；鉴定与对比仍可使用。")
@@ -333,16 +316,17 @@ def _apply_warehouse_filters(self):
     filtered = filter_warehouse_items(
         getattr(self, "_warehouse_all_items", []),
         search=self.warehouse_search.text(),
-        kind=str(self.warehouse_category_filter.currentData() or "all"),
-        quality=str(self.warehouse_quality_filter.currentData() or "all"),
-        status=str(self.warehouse_status_filter.currentData() or "all"),
-        item_type=str(self.warehouse_type_filter.currentData() or "all"),
+        spec=getattr(self, "_warehouse_filter_spec", WarehouseFilterSpec()),
     )
     self.warehouse_model.set_items(filtered)
     total = len(getattr(self, "_warehouse_all_items", []))
-    snapshot_id = getattr(self, "_warehouse_snapshot_id", None)
-    snapshot_text = f"快照 #{snapshot_id} · " if snapshot_id is not None else ""
-    self.warehouse_summary.setText(f"{snapshot_text}显示 {len(filtered)} / {total} 件")
+    self.warehouse_summary.setText(f"显示 {len(filtered)} / {total} 件")
+    active_count = getattr(
+        self, "_warehouse_filter_spec", WarehouseFilterSpec()
+    ).active_group_count
+    self.warehouse_filter_btn.setText(
+        f"筛选 ({active_count})" if active_count else "筛选"
+    )
     if filtered:
         self.warehouse_hint.hide()
     else:
@@ -350,26 +334,15 @@ def _apply_warehouse_filters(self):
         self.warehouse_hint.show()
 
 
-def _on_warehouse_category_changed(self: Any) -> None:
-    _refresh_warehouse_type_filter(self)
+def _open_warehouse_filter_drawer(self: Any) -> None:
+    self.warehouse_filter_drawer.open_for(
+        getattr(self, "_warehouse_filter_spec", WarehouseFilterSpec())
+    )
+
+
+def _on_warehouse_filter_applied(self: Any, spec: WarehouseFilterSpec) -> None:
+    self._warehouse_filter_spec = spec
     self._apply_warehouse_filters()
-
-
-def _refresh_warehouse_type_filter(self: Any) -> None:
-    """Link visible types to the selected category using the already loaded snapshot."""
-    combo = getattr(self, "warehouse_type_filter", None)
-    if combo is None:
-        return
-    current = combo.currentData()
-    category = str(getattr(self, "warehouse_category_filter", combo).currentData() or "all")
-    combo.blockSignals(True)
-    combo.clear()
-    combo.addItem("全部类型", "all")
-    for key, label in warehouse_type_options(getattr(self, "_warehouse_all_items", []), category):
-        combo.addItem(label, key)
-    index = combo.findData(current)
-    combo.setCurrentIndex(index if index >= 0 else 0)
-    combo.blockSignals(False)
 
 
 def _on_warehouse_sync_state(self, state):

@@ -149,8 +149,11 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self.custom_weapons: dict[str, str] = {}
         self.crit_rate_caps: dict[str, float] = {}
         self.tape_main_filters: dict[str, list[str]] = {}
+        self.tape_main_filter_override_roles: set[str] = set()
         self.stat_priority_configs: dict[str, dict] = {}
+        self.stat_priority_override_roles: set[str] = set()
         self.set_effect_modes: dict[str, str] = {}
+        self.default_mag_character_ids: frozenset[int] = frozenset()
         self._cards: dict = {}
         self._build()
 
@@ -198,10 +201,6 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         search_row.addWidget(help_btn)
         layout.addLayout(search_row)
 
-        tip = QLabel("点击选择角色，选中顺序即优先级；重置只影响当前界面，恢复会读取已保存配置。")
-        tip.setStyleSheet(themed_style("color:#8b949e;font-size:11px;border:none"))
-        layout.addWidget(tip)
-
         self.roles_scroll = QScrollArea()
         self.roles_scroll.setWidgetResizable(True)
         self.roles_scroll.setMinimumHeight(260)
@@ -231,12 +230,24 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
     _CARD_SEL = "QFrame{background:#1f6feb22;border:2px solid #58a6ff;border-radius:8px}QFrame:hover{border-color:#79c0ff}"
     _CARD_OFF = "QFrame{background:#161b22;border:1px solid #21262d;border-radius:8px}QFrame:hover{border-color:#30363d}"
 
-    def load_roles(self, roles_db, all_sets, tape_main_stats=None, drive_sub_stats=None, weapons_db=None):
+    def load_roles(
+        self,
+        roles_db,
+        all_sets,
+        tape_main_stats=None,
+        drive_sub_stats=None,
+        weapons_db=None,
+        default_mag_character_ids=None,
+    ):
         self.all_roles = roles_db
         self.all_sets = all_sets
         self.weapons_db = normalize_weapons_db(weapons_db)
         self.tape_main_stats = list(tape_main_stats or [])
         self.drive_sub_stats = list(drive_sub_stats or [])
+        if default_mag_character_ids is not None:
+            self.default_mag_character_ids = frozenset(
+                int(character_id) for character_id in default_mag_character_ids
+            )
         self._render_grid(self.search.text() if hasattr(self, "search") else "")
 
     def _render_grid(self, filter_text=""):
@@ -322,7 +333,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
                 themed_style(
                     "QPushButton{background:transparent;color:#c9d1d9;border:none;"
                     f"padding:3px 5px;font-size:{name_size}px;font-weight:700;text-align:left}}"
-                    "QPushButton:hover{color:#fff}"
+                    "QPushButton:hover{color:#c9d1d9}"
                 )
             )
             item_layout.addWidget(name_btn)
@@ -401,15 +412,31 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             self.custom_sets.pop(name, None)
         self.orderChanged.emit()
 
+    def _default_weapon_for_role(self, name: str) -> str:
+        role_data = self.all_roles.get(name, {}) or {}
+        weapon = str(role_data.get("default_weapon") or "").strip()
+        return weapon if weapon in self.weapons_db else ""
+
+    def _default_tape_main_filter(self, name: str) -> list[str]:
+        del name
+        return []
+
+    def _default_substat_priority(self, name: str) -> list[str]:
+        del name
+        return []
+
+    def _effective_weapon_for_role(self, name: str) -> str:
+        return str(self.custom_weapons.get(name) or self._default_weapon_for_role(name))
+
     def _set_custom_weapon(self, name, text):
         weapon = str(text or "").strip()
-        if weapon:
+        if weapon and weapon != self._default_weapon_for_role(name):
             self.custom_weapons[name] = weapon
-            cap = self._weapon_crit_rate_cap(weapon)
-            if cap is not None:
-                self.crit_rate_caps[name] = cap
         else:
             self.custom_weapons.pop(name, None)
+        cap = self._weapon_crit_rate_cap(weapon)
+        if cap is not None:
+            self.crit_rate_caps[name] = cap
         self.orderChanged.emit()
 
     def _set_crit_rate_cap(self, name, value):
@@ -445,10 +472,10 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         return None
 
     def _set_tape_main_filter(self, name, values):
-        if values:
-            self.tape_main_filters[name] = values
-        else:
-            self.tape_main_filters.pop(name, None)
+        self.tape_main_filter_override_roles.add(name)
+        self.tape_main_filters[name] = [
+            value for value in values or [] if value in self.tape_main_stats
+        ]
         self.orderChanged.emit()
 
     def _set_stat_priority_config(
@@ -475,6 +502,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             allowed_stats=set(self.drive_sub_stats),
             dedupe_stats=True,
         )
+        self.stat_priority_override_roles.add(name)
         if cfg:
             self.stat_priority_configs[name] = cfg
         else:
@@ -522,12 +550,25 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             )
         return label
 
-    def _refresh_selected_summary_label(self, label: QLabel, selected: list[str], separator: str):
-        text = "Default" if not selected else separator.join(selected)
+    def _refresh_selected_summary_label(
+        self,
+        label: QLabel,
+        selected: list[str],
+        separator: str,
+        empty_text: str = "Default",
+    ):
+        text = empty_text if not selected else separator.join(selected)
         label.setText(text)
         label.setToolTip(text)
 
-    def _build_multi_select_row(self, title: str, choices: list[str], selected: list[str], separator: str):
+    def _build_multi_select_row(
+        self,
+        title: str,
+        choices: list[str],
+        selected: list[str],
+        separator: str,
+        empty_text: str = "Default",
+    ):
         box = QWidget()
         layout = QVBoxLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -556,7 +597,12 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         layout.addWidget(summary)
 
         def refresh_summary():
-            self._refresh_selected_summary_label(summary, selected, separator)
+            self._refresh_selected_summary_label(
+                summary,
+                selected,
+                separator,
+                empty_text,
+            )
 
         def add_choice():
             value = combo.currentText().strip()

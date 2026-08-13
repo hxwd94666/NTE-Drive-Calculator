@@ -71,8 +71,11 @@ class Tape(BaseEquipment):
     suit_id: str | None = None
     set_name: str
     main_stats: str
+    # Exact snapshot main-stat value, in the same display unit as ``sub_stats``.
+    # Vision snapshots synthesize it from the shared max-level stat catalogue.
+    main_value: float | None = None
 
-    # Tape main_stats is a plain text label, not a numeric dict
+    # Tape main_stats remains a plain text label; ``main_value`` carries its value.
     @model_validator(mode='after')
     def validate_cartridge_rules(self):
         if self.area != 15:
