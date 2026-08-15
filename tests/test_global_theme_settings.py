@@ -9,6 +9,10 @@ from pathlib import Path
 from src.services.account_settings_service import AccountSettingsService
 from src.services.global_theme_settings_service import GlobalThemeSettingsService
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.features.scanning.post_action_dialog import (
+    load_scan_post_action_config,
+    save_scan_post_action_config,
+)
 
 
 class GlobalThemeSettingsTests(unittest.TestCase):
@@ -73,6 +77,73 @@ class GlobalThemeSettingsTests(unittest.TestCase):
                 stored = database.list_application_setting_copies()["ui"]
             self.assertNotIn("theme", stored)
 
+    def test_full_scan_preferences_are_persisted_per_account(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first_database = root / "first.sqlite3"
+            second_database = root / "second.sqlite3"
+            with UserDataDao(first_database, account_id="first", account_name="First"):
+                pass
+            with UserDataDao(second_database, account_id="second", account_name="Second"):
+                pass
+
+            first = AccountSettingsService(first_database)
+            second = AccountSettingsService(second_database)
+            first.save(
+                "ui",
+                {
+                    "full_scan_capture_driver": "gamepad",
+                    "full_scan_dual_thread_processing": False,
+                    "full_scan_amd_compatibility": True,
+                    "full_scan_post_action_config": {"discard": {"enabled": True}},
+                },
+            )
+
+            first_loaded = first.load("ui")
+            second_loaded = second.load("ui")
+            self.assertEqual("gamepad", first_loaded["full_scan_capture_driver"])
+            self.assertFalse(first_loaded["full_scan_dual_thread_processing"])
+            self.assertTrue(first_loaded["full_scan_amd_compatibility"])
+            self.assertEqual(
+                {"discard": {"enabled": True}},
+                first_loaded["full_scan_post_action_config"],
+            )
+            self.assertEqual("mouse", second_loaded["full_scan_capture_driver"])
+            self.assertTrue(second_loaded["full_scan_dual_thread_processing"])
+            self.assertFalse(second_loaded["full_scan_amd_compatibility"])
+            self.assertEqual({}, second_loaded["full_scan_post_action_config"])
+
+    def test_full_scan_management_rules_use_account_sqlite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first_database = root / "first.sqlite3"
+            second_database = root / "second.sqlite3"
+            first_config = root / "first-config"
+            second_config = root / "second-config"
+            with UserDataDao(first_database, account_id="first", account_name="First"):
+                pass
+            with UserDataDao(second_database, account_id="second", account_name="Second"):
+                pass
+
+            save_scan_post_action_config(
+                first_config,
+                {"discard": {"enabled": True, "grade": "A"}},
+                user_database_path=first_database,
+            )
+            first = load_scan_post_action_config(
+                first_config,
+                user_database_path=first_database,
+            )
+            second = load_scan_post_action_config(
+                second_config,
+                user_database_path=second_database,
+            )
+
+            self.assertTrue(first["discard"]["enabled"])
+            self.assertEqual("A", first["discard"]["grade"])
+            self.assertFalse(second["discard"]["enabled"])
+            self.assertFalse((first_config / "scan_post_actions.json").exists())
+
     def test_legacy_theme_removal_preserves_other_account_ui_settings(self):
         with tempfile.TemporaryDirectory() as temporary:
             database_path = Path(temporary) / "user_data.sqlite3"
@@ -104,10 +175,10 @@ class GlobalThemeSettingsTests(unittest.TestCase):
             path = Path(temporary) / "config" / "global_ui_preferences.json"
             service = GlobalThemeSettingsService(path)
 
-            self.assertEqual(service.load(), "dark")
+            self.assertEqual(service.load(), "black")
             self.assertEqual(
                 json.loads(path.read_text(encoding="utf-8")),
-                {"theme": "dark"},
+                {"theme": "black"},
             )
             path.write_text("{broken", encoding="utf-8")
             self.assertEqual(service.load(legacy_theme="light"), "light")

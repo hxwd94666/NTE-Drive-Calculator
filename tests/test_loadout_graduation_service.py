@@ -86,6 +86,59 @@ def test_loadout_summary_reuses_role_page_graduation_tooltip(monkeypatch) -> Non
     assert summary.tooltip == graduation_service.graduation_tooltip(detail)
 
 
+def test_graduation_summary_resolves_the_selected_secondary_slot(monkeypatch) -> None:
+    captured = {}
+    detail = {
+        "equipment_contexts": {
+            "saved": {"slot_id": 18},
+            "saved:27": {"slot_id": 27},
+        },
+        "graduation_template": {"equipment": []},
+    }
+    monkeypatch.setattr(
+        "src.services.official_role_page_service.load_official_role_detail",
+        lambda *_args, **_kwargs: detail,
+    )
+    monkeypatch.setattr(
+        graduation_service,
+        "graduation_rate",
+        lambda _detail, context_key: captured.setdefault("context_key", context_key) or 73.2,
+    )
+
+    graduation_service.load_official_role_graduation_summary(
+        Path("account.sqlite3"),
+        1003,
+        context_key="saved:27",
+    )
+
+    assert captured["context_key"] == "saved:27"
+
+
+def test_graduation_summary_maps_selected_primary_projection_back_to_saved(monkeypatch) -> None:
+    captured = {}
+    detail = {
+        "equipment_contexts": {"saved": {"slot_id": 18}},
+        "graduation_template": {"equipment": []},
+    }
+    monkeypatch.setattr(
+        "src.services.official_role_page_service.load_official_role_detail",
+        lambda *_args, **_kwargs: detail,
+    )
+    monkeypatch.setattr(
+        graduation_service,
+        "graduation_rate",
+        lambda _detail, context_key: captured.setdefault("context_key", context_key) or 73.2,
+    )
+
+    graduation_service.load_official_role_graduation_summary(
+        Path("account.sqlite3"),
+        1003,
+        context_key="saved:18",
+    )
+
+    assert captured["context_key"] == "saved"
+
+
 def test_cached_loadout_graduation_does_not_start_worker() -> None:
     app = QApplication.instance() or QApplication([])
     label = QLabel()
@@ -171,6 +224,41 @@ def test_selected_loadout_graduation_resolves_in_background(monkeypatch) -> None
     assert label.text() == "77.7%"
     assert label.toolTip() == "角色页同款毕业基准说明"
     assert tooltip_widget.toolTip() == "角色页同款毕业基准说明"
+    for worker in list(getattr(window, "_equipment_graduation_workers", {}).values()):
+        worker.wait(1000)
+    window.deleteLater()
+    app.processEvents()
+    del app
+
+
+def test_selected_loadout_graduation_requests_its_own_slot_context(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    captured = {}
+
+    def load_summary(*_args, **kwargs):
+        captured["context_key"] = kwargs["context_key"]
+        return graduation_service.OfficialRoleGraduationSummary(rate=77.7, tooltip="说明")
+
+    monkeypatch.setattr(graduation_service, "load_official_role_graduation_summary", load_summary)
+    state = {"_character_id": 1003, "_loadout_slot_id": 27}
+    window = QWidget()
+    window.app_context = SimpleNamespace(generation=4)
+    window._saved_equipment_states = {"slot:27": state}
+    label = QLabel(parent=window)
+
+    request_equipment_graduation_rate(
+        window,
+        "测试角色",
+        state,
+        label,
+        database_path=Path("account.sqlite3"),
+    )
+    deadline = monotonic() + 2.0
+    while not state.get("_graduation_rate_loaded") and monotonic() < deadline:
+        app.processEvents()
+        sleep(0.01)
+
+    assert captured["context_key"] == "saved:27"
     for worker in list(getattr(window, "_equipment_graduation_workers", {}).values()):
         worker.wait(1000)
     window.deleteLater()

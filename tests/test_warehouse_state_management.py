@@ -88,6 +88,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
             def __init__(self):
                 self.calls = []
                 self.snapshot_waits = []
+                self.guards = []
 
             def set_item_discarded(self, *, equipment, discarded):
                 self.calls.append(("discarded", equipment, discarded))
@@ -100,6 +101,14 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 next_snapshot_id = {7: 8, 8: 9}[after_snapshot_id]
                 dao.snapshot_id = next_snapshot_id
                 return SimpleNamespace(last_snapshot_id=next_snapshot_id)
+
+            def begin_full_inventory_guard(self, item_uids):
+                token = object()
+                self.guards.append(("begin", item_uids, token))
+                return token
+
+            def end_full_inventory_guard(self, token):
+                self.guards.append(("end", token))
 
         sync = Sync()
         service = WarehouseStateManagementService("unused.sqlite3", sync, dao_factory=lambda _path: dao)
@@ -130,6 +139,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertTrue(result.verified)
         self.assertIsNone(result.verification_error)
         self.assertEqual([7, 8], sync.snapshot_waits)
+        self.assertEqual("begin", sync.guards[0][0])
+        self.assertEqual(frozenset({(1, 10), (2, 20)}), sync.guards[0][1])
+        self.assertEqual(("end", sync.guards[0][2]), sync.guards[1])
         self.assertTrue(
             any("第 1/2 件" in message for message in progress_messages)
         )

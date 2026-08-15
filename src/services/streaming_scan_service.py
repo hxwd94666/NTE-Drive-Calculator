@@ -1,5 +1,5 @@
 # 串联全量扫描截图与后台解析，减少用户总等待时间。
-"""Streaming scan/parse pipeline for full gamepad scans."""
+"""Streaming scan/parse pipeline for full visual scans."""
 
 from __future__ import annotations
 
@@ -8,19 +8,24 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import cv2
-import numpy as np
-
 from src.domain.post_actions import (
     merge_post_action_config,
     post_actions_enabled,
     summarize_state_changes,
 )
+from src.integrations.vision import equipment_state_detection
+from src.integrations.vision.equipment_state_detection import right_panel_button_state_from_image
 from src.services.gamepad_state_sync_service import GamepadStateSyncService
+
+
+# Compatibility exports for existing state-image callers. Detection ownership stays
+# in the vision integration, while this service continues to expose its prior ratios.
+TRASH_BUTTON_CENTER = equipment_state_detection.TRASH_BUTTON_CENTER
+LOCK_BUTTON_CENTER = equipment_state_detection.LOCK_BUTTON_CENTER
 from src.services.post_action_evaluator import PostActionEvaluator
 from src.services.scan_inventory_commit_service import ScanInventoryCommitService
-from src.services.scan_parse_coordinator import ScanParseCoordinator
-from src.scanner.window_capture import crop_window_border_from_image, game_content_rect
+from src.services.scan_parse_coordinator import CAPTURE_QUEUE_MAXSIZE, ScanParseCoordinator
+from src.scanner.window_capture import crop_window_border_from_image
 from src.utils.image_io import imread_unicode
 from src.utils.logger import logger
 
@@ -33,47 +38,14 @@ def _parse_during_scan_enabled() -> bool:
 
 
 GRADE_ORDER = ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]
-TRASH_BUTTON_CENTER = (0.89375, 0.21944)
-LOCK_BUTTON_CENTER = (0.93047, 0.21944)
-STATE_BUTTON_SIZE_RATIO = 0.025
-
-
-def _state_button_is_active(img: np.ndarray, center: tuple[float, float]) -> bool:
-    height, width = img.shape[:2]
-    if height < 100 or width < 100:
-        return False
-    left, top, content_width, content_height = game_content_rect(width, height)
-    cx = int(round(left + content_width * center[0]))
-    cy = int(round(top + content_height * center[1]))
-    size = max(18, int(round(min(content_width, content_height) * STATE_BUTTON_SIZE_RATIO)))
-    half = max(1, size // 2)
-    roi = img[max(0, cy - half) : min(height, cy + half), max(0, cx - half) : min(width, cx + half)]
-    if roi.size == 0:
-        return False
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    bright_fraction = float((gray > 95).mean())
-    high_value = float(np.percentile(hsv[:, :, 2], 95))
-    return bool(bright_fraction > 0.12 and high_value > 130.0)
-
-
-def right_panel_button_state_from_image(img: np.ndarray) -> str:
-    trash_active = _state_button_is_active(img, TRASH_BUTTON_CENTER)
-    lock_active = _state_button_is_active(img, LOCK_BUTTON_CENTER)
-    if lock_active:
-        return "locked"
-    if trash_active:
-        return "discarded"
-    return "normal"
-
-
 def _equipment_screenshot_state(image_path: str) -> str:
     try:
         img = imread_unicode(image_path)
         if img is None:
             return "normal"
         img = crop_window_border_from_image(img)
-        return right_panel_button_state_from_image(img)
+        state = right_panel_button_state_from_image(img)
+        return state if state in {"normal", "locked", "discarded"} else "normal"
     except Exception as exc:
         logger.debug(f"装备状态图标检测失败，按普通处理: {image_path} | {exc}")
         return "normal"
@@ -94,8 +66,12 @@ def run_streaming_scan_parse(
     user_database_path: str | Path | None = None,
     parse_during_scan: bool | None = None,
     low_load_mode: bool = False,
+    low_load_parse_delay_seconds: float = 0.12,
+    capture_queue_maxsize: int = CAPTURE_QUEUE_MAXSIZE,
+    allow_post_actions: bool = True,
+    result_is_current: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Run gamepad scanning while parsing captured screenshots in a consumer thread."""
+    """Run a full visual scan while parsing captured screenshots in a consumer thread."""
 
     if parse_during_scan is None:
         parse_during_scan = _parse_during_scan_enabled()
@@ -110,11 +86,18 @@ def run_streaming_scan_parse(
         scan_done_callback=scan_done_callback,
         parse_during_scan=bool(parse_during_scan),
         low_load_mode=bool(low_load_mode),
+        low_load_parse_delay_seconds=float(low_load_parse_delay_seconds),
+        capture_queue_maxsize=int(capture_queue_maxsize),
         state_detector=lambda path: _equipment_screenshot_state(path),
         sleep_fn=time.sleep,
     ).run()
     if parse_done_callback is not None:
         parse_done_callback()
+
+    if result_is_current is not None and not result_is_current():
+        stats = scan_result.to_stats()
+        stats["discarded_stale"] = True
+        return stats
 
     effective_post_config = post_actions_config
     effective_post_config = merge_post_action_config(effective_post_config) if effective_post_config else None
@@ -123,21 +106,30 @@ def run_streaming_scan_parse(
         post_action_filter_summary = {}
         post_action_summary = summarize_state_changes([])
     elif scan_result.captured_count == int(total_drives):
-        evaluation = PostActionEvaluator(
-            post_actions_config=effective_post_config,
-            selected_roles=selected_roles,
-            config_dir=config_dir,
-            user_database_path=user_database_path,
-        ).evaluate(scan_result.parsed_items, processor.inventory)
         ScanInventoryCommitService(processor, scanner).commit()
-        post_action_summary = GamepadStateSyncService(
-            scanner,
-            total_drives=total_drives,
-            post_action_ready_callback=post_action_ready_callback,
-            sleep_fn=time.sleep,
-        ).sync(evaluation.state_changes, evaluation.config)
-        post_action_filter_summary = evaluation.filter_summary
-        effective_post_config = evaluation.config
+        if result_is_current is not None and not result_is_current():
+            stats = scan_result.to_stats()
+            stats["discarded_stale"] = True
+            return stats
+        if allow_post_actions:
+            evaluation = PostActionEvaluator(
+                post_actions_config=effective_post_config,
+                selected_roles=selected_roles,
+                config_dir=config_dir,
+                user_database_path=user_database_path,
+            ).evaluate(scan_result.parsed_items, processor.inventory)
+            post_action_summary = GamepadStateSyncService(
+                scanner,
+                total_drives=total_drives,
+                post_action_ready_callback=post_action_ready_callback,
+                sleep_fn=time.sleep,
+            ).sync(evaluation.state_changes, evaluation.config)
+            post_action_filter_summary = evaluation.filter_summary
+            effective_post_config = evaluation.config
+        else:
+            effective_post_config = None
+            post_action_filter_summary = {}
+            post_action_summary = summarize_state_changes([])
     else:
         post_action_filter_summary = {}
         post_action_summary = summarize_state_changes([])

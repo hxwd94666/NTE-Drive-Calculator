@@ -164,6 +164,45 @@ class UserDataInventoryDaoTests(unittest.TestCase):
         self.assertEqual(1, diff["added_count"])
         self.assertEqual(0, diff["removed_count"])
 
+    def test_runtime_state_delta_projects_current_snapshot_without_replacing_it(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(1, 1), item(2, 2)])
+        )
+        changed = item(1, 1)
+        changed.update({
+            "locked": True,
+            "discarded": True,
+            "equipped": True,
+            "equipped_character_id": 1003,
+            "equipped_character_uid": {"slot": 700, "serial": 701},
+            "equipped_placement": {"row": 2, "column": 3},
+        })
+
+        updated = self.dao.apply_inventory_runtime_state_delta(
+            snapshot_id,
+            [changed],
+            observed_at_unix_ms=1_784_308_856_999,
+            sequence=9,
+        )
+
+        self.assertEqual(1, updated)
+        self.assertEqual(snapshot_id, self.dao.current_inventory_snapshot_id())
+        immutable = self.dao.list_inventory_items(snapshot_id)
+        self.assertFalse(immutable[0]["equipped"])
+        projected = self.dao.list_inventory_items_with_runtime_state(snapshot_id)
+        self.assertTrue(projected[0]["equipped"])
+        self.assertTrue(projected[0]["locked"])
+        self.assertTrue(projected[0]["discarded"])
+        self.assertEqual(1003, projected[0]["equipped_character_id"])
+        self.assertEqual({"row": 2, "column": 3}, projected[0]["equipped_placement"])
+
+        stale = dict(changed)
+        stale["equipped"] = False
+        self.dao.apply_inventory_runtime_state_delta(snapshot_id, [stale], sequence=8)
+        self.assertTrue(
+            self.dao.list_inventory_items_with_runtime_state(snapshot_id)[0]["equipped"]
+        )
+
     def test_inventory_uid_filter_keeps_only_requested_item_and_stats(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [
             item(1, 1), item(2, 2), item(3, 3),

@@ -19,6 +19,8 @@ from src.app.context import (
     ApplicationPaths,
     CallbackAccountLifecycle,
 )
+from src.app.shared_data_seed import seed_shared_database
+from src.services.character_shape_bonus_service import SHARED_DATABASE_ENV
 from src.app.constants import (
     ACCOUNT_USER_FILES,
     APP_VERSION,
@@ -54,14 +56,18 @@ def _select_data_root() -> Path:
     raise RuntimeError("无法创建可写数据目录，请检查安装目录或用户权限。")
 
 
+_DATA_ROOT = _select_data_root()
+seed_shared_database(_PACKAGE_ROOT / "data" / "app_shared.sqlite3", _DATA_ROOT)
+
 APPLICATION_PATHS = ApplicationPaths.from_roots(
     root=_PACKAGE_ROOT,
     app_dir=_APP_DIR,
-    data_root=_select_data_root(),
+    data_root=_DATA_ROOT,
     bundled_config_dir=_BUNDLED_CONFIG_DIR,
     asset_dir=_ASSET_DIR,
     app_icon_path=_APP_ICON_PATH,
 )
+os.environ[SHARED_DATABASE_ENV] = str(APPLICATION_PATHS.shared_database_path)
 
 
 def _initialize_accounts():
@@ -99,7 +105,7 @@ def _migrate_legacy_shared_shape_bonus() -> None:
     try:
         with StaticGameDataDao() as static_dao:
             current_static_database = static_dao.database_path
-        result = migrate_legacy_static_shape_bonuses(
+        migrate_legacy_static_shape_bonuses(
             legacy_database_path=legacy_database,
             current_static_database_path=current_static_database,
             shared_database_path=APPLICATION_PATHS.shared_database_path,
@@ -111,7 +117,7 @@ def _migrate_legacy_shared_shape_bonus() -> None:
             ),
             operation_context=OperationContext.create("database_migration"),
         )
-    except Exception as exc:
+    except Exception:
         logger.warning("旧版公共额外形状迁移失败；备份已保留且新版静态库未修改")
 
 
@@ -436,6 +442,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             self.battle_report_controller.close()
         except Exception as exc:
             logger.warning(f"停止战报采集失败: {exc}")
+        try:
+            self.scanning_controller.close()
+        except Exception as exc:
+            logger.warning(f"停止视觉扫描失败: {exc}")
         try:
             self._stop_inventory_sync()
         except Exception as exc:

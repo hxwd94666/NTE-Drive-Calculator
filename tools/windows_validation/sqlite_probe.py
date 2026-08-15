@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,10 @@ def _table_names(connection: sqlite3.Connection) -> set[str]:
 def _count(connection: sqlite3.Connection, table: str) -> int:
     row = connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
     return int(row[0]) if row else 0
+
+
+def _column_names(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
 
 def sqlite_summary(path: Path | None) -> dict[str, Any]:
@@ -46,7 +51,41 @@ def sqlite_summary(path: Path | None) -> dict[str, Any]:
         ):
             if table in tables:
                 summary[f"{table}_count"] = _count(connection, table)
+        snapshot_columns = (
+            _column_names(connection, "inventory_snapshot")
+            if "inventory_snapshot" in tables
+            else set()
+        )
+        required = {
+            "snapshot_id",
+            "source",
+            "complete",
+            "declared_item_count",
+            "stored_item_count",
+            "raw_snapshot_json",
+            "is_current",
+        }
+        if required <= snapshot_columns:
+            row = connection.execute(
+                """SELECT snapshot_id, source, complete, declared_item_count,
+                          stored_item_count, raw_snapshot_json
+                   FROM inventory_snapshot
+                   WHERE is_current = 1
+                   ORDER BY snapshot_id DESC LIMIT 1"""
+            ).fetchone()
+            if row is not None:
+                try:
+                    raw = json.loads(str(row[5] or "{}"))
+                except json.JSONDecodeError:
+                    raw = {}
+                summary["current_inventory"] = {
+                    "snapshot_id": int(row[0]),
+                    "source": str(row[1]),
+                    "complete": bool(row[2]),
+                    "declared_item_count": int(row[3]),
+                    "stored_item_count": int(row[4]),
+                    "capture_driver": str(raw.get("capture_driver") or ""),
+                }
         return summary
     finally:
         connection.close()
-

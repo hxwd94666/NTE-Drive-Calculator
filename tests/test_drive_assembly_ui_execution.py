@@ -28,6 +28,24 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
 
         self.assertEqual([("真红", {"confirmed": True})], calls)
 
+    def test_single_role_button_forwards_selected_loadout_slot(self):
+        import src.features.inventory.equipment_assembly_controller as page_module
+
+        calls = []
+        old_select = page_module._select_single_role_assembly_mode
+        old_fast = page_module._preview_nte_core_assemble_role
+        try:
+            page_module._select_single_role_assembly_mode = lambda *_args: "fast"
+            page_module._preview_nte_core_assemble_role = lambda _window, role_name, **kwargs: calls.append(
+                (role_name, kwargs)
+            )
+            page_module._preview_assemble_role(object(), "真红", slot_id=71)
+        finally:
+            page_module._select_single_role_assembly_mode = old_select
+            page_module._preview_nte_core_assemble_role = old_fast
+
+        self.assertEqual([("真红", {"slot_id": 71, "confirmed": True})], calls)
+
     def test_all_role_button_does_not_execute_when_cancelled(self):
         import src.features.inventory.equipment_assembly_controller as page_module
 
@@ -40,8 +58,8 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return None
 
-            def list_active_loadout_plans_by_role(self):
-                return {}
+            def list_current_loadout_slot_plans(self):
+                return []
 
         old_start = page_module._start_nte_core_equipment_apply
         old_dao = page_module.UserDataDao
@@ -69,11 +87,36 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return None
 
-            def list_active_loadout_plans_by_role(self):
-                return {
-                    "抓包角色": {"source_snapshot_id": 1},
-                    "视觉角色": {"source_snapshot_id": 2},
+            @staticmethod
+            def _row(slot_id, character_id, role_name, snapshot_id):
+                plan = {
+                    "plan_id": slot_id + 100,
+                    "character_id": character_id,
+                    "source_snapshot_id": snapshot_id,
+                    "payload": {"source_role_name": role_name},
                 }
+                return {
+                    "slot": {
+                        "slot_id": slot_id,
+                        "character_id": character_id,
+                        "slot_key": "primary",
+                        "slot_name": role_name,
+                    },
+                    "plan": plan,
+                }
+
+            def list_current_loadout_slot_plans(self):
+                return [
+                    self._row(11, 1003, "抓包角色", 1),
+                    self._row(12, 1004, "视觉角色", 2),
+                ]
+
+            def get_loadout_slot(self, slot_id):
+                row = next(
+                    row for row in self.list_current_loadout_slot_plans()
+                    if row["slot"]["slot_id"] == slot_id
+                )
+                return {**row["slot"], "current_plan": row["plan"]}
 
             def inventory_snapshot_summary(self, snapshot_id):
                 return {"source": "nte_core" if snapshot_id == 1 else "gamepad"}
@@ -83,14 +126,14 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         old_start = page_module._start_nte_core_equipment_apply
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
-            page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
+            page_module._start_nte_core_equipment_apply = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
             window = SimpleNamespace(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
         finally:
             page_module.UserDataDao = old_dao
             page_module._start_nte_core_equipment_apply = old_start
 
-        self.assertEqual([["抓包角色"]], calls)
+        self.assertEqual([([], {"slot_ids": [11]})], calls)
 
     def test_weighted_result_can_limit_fast_equipment_to_its_selected_roles(self):
         import src.features.inventory.equipment_assembly_controller as page_module
@@ -102,11 +145,44 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return None
 
-            def list_active_loadout_plans_by_role(self):
-                return {
-                    "当前角色": {"source_snapshot_id": 1},
-                    "旧方案角色": {"source_snapshot_id": 1},
-                }
+            def list_current_loadout_slot_plans(self):
+                return [
+                    {
+                        "slot": {
+                            "slot_id": 21,
+                            "character_id": 1003,
+                            "slot_key": "primary",
+                            "slot_name": "当前角色",
+                        },
+                        "plan": {
+                            "plan_id": 121,
+                            "character_id": 1003,
+                            "source_snapshot_id": 1,
+                            "payload": {"source_role_name": "当前角色"},
+                        },
+                    },
+                    {
+                        "slot": {
+                            "slot_id": 22,
+                            "character_id": 1004,
+                            "slot_key": "primary",
+                            "slot_name": "旧方案角色",
+                        },
+                        "plan": {
+                            "plan_id": 122,
+                            "character_id": 1004,
+                            "source_snapshot_id": 1,
+                            "payload": {"source_role_name": "旧方案角色"},
+                        },
+                    },
+                ]
+
+            def get_loadout_slot(self, slot_id):
+                row = next(
+                    row for row in self.list_current_loadout_slot_plans()
+                    if row["slot"]["slot_id"] == slot_id
+                )
+                return {**row["slot"], "current_plan": row["plan"]}
 
             def inventory_snapshot_summary(self, _snapshot_id):
                 return {"source": "nte_core"}
@@ -116,7 +192,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         old_start = page_module._start_nte_core_equipment_apply
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
-            page_module._start_nte_core_equipment_apply = lambda _window, roles: calls.append(roles)
+            page_module._start_nte_core_equipment_apply = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
             window = SimpleNamespace(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_all_roles(
                 window,
@@ -127,7 +203,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.UserDataDao = old_dao
             page_module._start_nte_core_equipment_apply = old_start
 
-        self.assertEqual([["当前角色"]], calls)
+        self.assertEqual([([], {"slot_ids": [21]})], calls)
 
     def test_weighted_result_can_limit_automatic_equipment_to_its_selected_roles(self):
         import src.features.inventory.equipment_automatic_assembly_controller as page_module
@@ -139,8 +215,42 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return None
 
-            def list_active_loadout_plans_by_role(self):
-                return {"当前角色": {}, "旧方案角色": {}}
+            def list_current_loadout_slot_plans(self):
+                return [
+                    {
+                        "slot": {
+                            "slot_id": 31,
+                            "character_id": 1003,
+                            "slot_key": "primary",
+                            "slot_name": "当前角色",
+                        },
+                        "plan": {
+                            "plan_id": 131,
+                            "character_id": 1003,
+                            "payload": {"source_role_name": "当前角色"},
+                        },
+                    },
+                    {
+                        "slot": {
+                            "slot_id": 32,
+                            "character_id": 1004,
+                            "slot_key": "primary",
+                            "slot_name": "旧方案角色",
+                        },
+                        "plan": {
+                            "plan_id": 132,
+                            "character_id": 1004,
+                            "payload": {"source_role_name": "旧方案角色"},
+                        },
+                    },
+                ]
+
+            def get_loadout_slot(self, slot_id):
+                row = next(
+                    row for row in self.list_current_loadout_slot_plans()
+                    if row["slot"]["slot_id"] == slot_id
+                )
+                return {**row["slot"], "current_plan": row["plan"]}
 
         calls = []
         old_dao = page_module.UserDataDao
@@ -151,7 +261,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Yes
             page_module._confirm_automatic_assembly_duplicate_warning = lambda _window: True
-            page_module._start_automatic_equipment_assembly = lambda _window, roles: calls.append(roles)
+            page_module._start_automatic_equipment_assembly = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
             window = SimpleNamespace(user_database_path="unused.sqlite3")
             page_module._preview_automatic_assemble_all_roles(
                 window,
@@ -163,7 +273,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module._confirm_automatic_assembly_duplicate_warning = old_warning
             page_module._start_automatic_equipment_assembly = old_start
 
-        self.assertEqual([["当前角色"]], calls)
+        self.assertEqual([([], {"slot_ids": [31]})], calls)
 
     def test_confirmed_assembly_minimizes_calculator_before_execution(self):
         import src.features.inventory.equipment_automatic_assembly_controller as page_module
@@ -218,7 +328,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         old_critical = page_module.QMessageBox.critical
         try:
             page_module.WorkerThread = FakeWorker
-            page_module._sqlite_automatic_assembly_state = lambda _path, _roles: {"角色": {}}
+            page_module._sqlite_automatic_assembly_state = lambda _path, _roles, **_kwargs: {"角色": {}}
             page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
             page_module._assembly_report_dialog = lambda *_args: ("完成", "ok", True)
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
@@ -280,7 +390,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         old_paths = page_module._assembly_runtime_paths
         try:
             page_module.WorkerThread = FakeWorker
-            page_module._sqlite_automatic_assembly_state = lambda _path, _roles: {"角色": {}}
+            page_module._sqlite_automatic_assembly_state = lambda _path, _roles, **_kwargs: {"角色": {}}
             page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
             page_module.QMessageBox.question = (

@@ -261,6 +261,7 @@ class WarehouseStateManagementService:
         except WarehouseStateWriteError as exc:
             raise WarehouseStateManagementError(str(exc)) from exc
 
+        guard_token: object | None = None
         with self.dao_factory(self.database_path) as user_dao:
             current_snapshot_id = user_dao.current_inventory_snapshot_id()
             if current_snapshot_id != plan.snapshot_id:
@@ -269,31 +270,46 @@ class WarehouseStateManagementService:
                 (row["uid_slot"], row["uid_serial"]): row
                 for row in user_dao.list_inventory_items(plan.snapshot_id)
             }
+            # State RPCs can produce a scoped inventory response.  Keep the
+            # current pointer pinned to snapshots containing this frozen full
+            # UID set until the write-result reconciliation has completed.
+            # This is the same session-local protection used by fast assembly;
+            # the partial response is ignored rather than imported as current.
+            begin_guard = getattr(self.sync_service, "begin_full_inventory_guard", None)
+            if plan.changes and callable(begin_guard):
+                guard_token = begin_guard(frozenset(current_rows))
             applied_changes: list[dict[str, Any]] = []
             total_changes = len(plan.changes)
-            for index, change in enumerate(plan.changes, 1):
-                equipment = dict(change["equipment"])
-                row = current_rows.get((equipment["slot"], equipment["serial"]))
-                if row is None:
-                    raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
-                self._report_progress(
-                    progress_callback,
-                    f"正在向游戏提交第 {index}/{total_changes} 件装备状态…",
-                )
-                try:
-                    self.state_writer.apply_one(
-                        row,
-                        str(change["target_state"]),
-                        equipment,
+            try:
+                for index, change in enumerate(plan.changes, 1):
+                    equipment = dict(change["equipment"])
+                    row = current_rows.get((equipment["slot"], equipment["serial"]))
+                    if row is None:
+                        raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
+                    self._report_progress(
+                        progress_callback,
+                        f"正在向游戏提交第 {index}/{total_changes} 件装备状态…",
                     )
-                except WarehouseStateWriteError as exc:
-                    raise WarehouseStateManagementError(str(exc)) from exc
-                # Rule-generated changes already have the presentation UID,
-                # while manually-created plans do not.  Return one consistent
-                # form so the warehouse can update the affected card at once.
-                applied_change = dict(change)
-                applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
-                applied_changes.append(applied_change)
+                    try:
+                        self.state_writer.apply_one(
+                            row,
+                            str(change["target_state"]),
+                            equipment,
+                        )
+                    except WarehouseStateWriteError as exc:
+                        raise WarehouseStateManagementError(str(exc)) from exc
+                    # Rule-generated changes already have the presentation UID,
+                    # while manually-created plans do not.  Return one consistent
+                    # form so the warehouse can update the affected card at once.
+                    applied_change = dict(change)
+                    applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
+                    applied_changes.append(applied_change)
+            except BaseException:
+                if guard_token is not None:
+                    end_guard = getattr(self.sync_service, "end_full_inventory_guard", None)
+                    if callable(end_guard):
+                        end_guard(guard_token)
+                raise
 
         if not plan.changes:
             self._report_progress(
@@ -307,18 +323,24 @@ class WarehouseStateManagementService:
                 after_snapshot_id=plan.snapshot_id,
                 verified=True,
             )
-        self._report_progress(
-            progress_callback,
-            "修改指令已全部提交，正在等待游戏产生新的完整背包快照…",
-        )
-        after_snapshot_id, verified, verification_error = (
-            self._wait_for_confirmation(
-                plan.snapshot_id,
-                tuple(applied_changes),
-                timeout=confirmation_timeout,
-                progress_callback=progress_callback,
+        try:
+            self._report_progress(
+                progress_callback,
+                "修改指令已全部提交，正在等待游戏产生新的完整背包快照…",
             )
-        )
+            after_snapshot_id, verified, verification_error = (
+                self._wait_for_confirmation(
+                    plan.snapshot_id,
+                    tuple(applied_changes),
+                    timeout=confirmation_timeout,
+                    progress_callback=progress_callback,
+                )
+            )
+        finally:
+            if guard_token is not None:
+                end_guard = getattr(self.sync_service, "end_full_inventory_guard", None)
+                if callable(end_guard):
+                    end_guard(guard_token)
         return WarehouseStateManagementResult(
             before_snapshot_id=plan.snapshot_id,
             summary=summarize_state_changes(list(plan.changes)),

@@ -277,6 +277,37 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.assertEqual(result.rpc_result, {"status": "already_applied"})
         self.assertIsNone(self.sync.params)
 
+    def test_full_reset_dispatches_even_when_snapshot_already_matches(self) -> None:
+        rows = [copy.deepcopy(item(11, "module")), copy.deepcopy(item(22, "core"))]
+        for row in rows:
+            row["equipped"] = True
+            row["equipped_character_uid"] = dict(CHARACTER_UID)
+            row["equipped_character_id"] = 1003
+            if row["kind"] == "module":
+                row["equipped_placement"] = {"row": 2, "column": 3}
+        current = self.dao.import_inventory_snapshot(snapshot(3, rows))
+        self.sync.state = InventorySyncState(
+            phase="listening",
+            running=True,
+            last_snapshot_id=current,
+            last_item_count=2,
+        )
+        self.sync.emit_snapshot = False
+
+        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+                self.plan_id,
+                stable_snapshot_id=current,
+                verify_after_dispatch=False,
+                exact_loadout=True,
+                reset_before_apply=True,
+            )
+
+        self.assertFalse(result.already_applied)
+        self.assertEqual(["all"], [name for name, _ in self.sync.unmount_calls])
+        self.assertEqual(CHARACTER_UID, self.sync.params["character"])
+        self.assertEqual([0.7, 0.5], [row.args[0] for row in sleep.call_args_list])
+
     def test_verify_plan_in_snapshot_is_read_only(self) -> None:
         rows = [copy.deepcopy(item(11, "module")), copy.deepcopy(item(22, "core"))]
         for row in rows:

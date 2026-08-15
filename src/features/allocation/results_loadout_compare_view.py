@@ -27,6 +27,7 @@ class EquipmentLoadoutComparisonPresentationMixin:
         saved_tape,
         saved_drives,
         priority_stats=None,
+        header_control: QWidget | None = None,
     ):
         priority_stats = list(
             priority_stats
@@ -69,6 +70,8 @@ class EquipmentLoadoutComparisonPresentationMixin:
         more_button.setVisible(False)
         header.addWidget(more_button)
         header.addStretch()
+        if header_control is not None:
+            header.addWidget(header_control, 0, Qt.AlignRight)
         layout.addLayout(header)
         content_host = QWidget()
         content_layout = QVBoxLayout(content_host)

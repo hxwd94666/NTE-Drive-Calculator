@@ -32,8 +32,8 @@ from src.features.scanning.hotkey_actions import (
     on_hotkey_finish as _on_hk_finish,
     on_hotkey_stop as _on_hk_stop,
 )
+from src.features.scanning.scan_contracts import scanning_is_running as _scanning_is_running
 from src.features.scanning.workflow import (
-    _scanning_is_running,
     _page_execute,
     _on_scan_change,
     _on_priority_changed,
@@ -187,12 +187,37 @@ class ScanningController(QObject):
     def is_running(self) -> bool:
         return _scanning_is_running(self) or self._allocation_controller.is_running()
 
+    def stop(self) -> None:
+        """Stop account-bound capture/parse workers and release held input."""
+
+        self._stop_scan_hotkeys()
+        for name in ("_scan_worker", "_gamepad_worker"):
+            worker = getattr(self, name, None)
+            scanner = getattr(worker, "scanner", None) if worker is not None else None
+            if scanner is not None:
+                if hasattr(scanner, "emergency_stop"):
+                    scanner.emergency_stop()
+                else:
+                    scanner._stopped = True
+            if worker is not None and worker.isRunning():
+                worker.wait(5000)
+        vision_worker = getattr(self, "_vision_worker", None)
+        if vision_worker is not None and vision_worker.isRunning():
+            if hasattr(vision_worker, "request_cancel"):
+                vision_worker.request_cancel()
+            vision_worker.wait(5000)
+
+    def close(self) -> None:
+        self.stop()
+
     def reset_account_state(self) -> None:
         self._pending_archive_paths = []
         self._pending_parse_only = False
         self._pending_parse_scope = "all"
         self._pending_scan_mode = None
         self._scan_dependencies = None
+        self._ui_preferences = self._preferences_provider()
+        self._reload_full_scan_preference_widgets()
         self._allocation_controller.reset_account_state()
 
     def _start_scan_hotkeys(self, mode: str) -> None:
@@ -214,6 +239,35 @@ class ScanningController(QObject):
 
     def _save_ui_preferences(self) -> None:
         self._save_preferences_callback()
+
+    def _reload_full_scan_preference_widgets(self) -> None:
+        """Project current-account scan preferences onto an already-built page."""
+        preferences = self._ui_preferences
+        capture_driver = str(
+            preferences.get("full_scan_capture_driver", "mouse")
+        ).strip().casefold()
+        if capture_driver not in {"mouse", "gamepad"}:
+            capture_driver = "mouse"
+        group = getattr(self, "full_scan_driver_group", None)
+        if group is not None:
+            for button in group.buttons():
+                button.blockSignals(True)
+                button.setChecked(button.property("capture_driver") == capture_driver)
+                button.blockSignals(False)
+        dual_thread = getattr(self, "scan_dual_thread_check", None)
+        if dual_thread is not None:
+            dual_thread.blockSignals(True)
+            dual_thread.setChecked(
+                bool(preferences.get("full_scan_dual_thread_processing", True))
+            )
+            dual_thread.blockSignals(False)
+        compatibility = getattr(self, "scan_amd_compat_check", None)
+        if compatibility is not None:
+            compatibility.blockSignals(True)
+            compatibility.setChecked(
+                bool(preferences.get("full_scan_amd_compatibility", False))
+            )
+            compatibility.blockSignals(False)
 
     def showMinimized(self) -> None:
         self._minimize_window()

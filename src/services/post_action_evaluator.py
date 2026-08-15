@@ -130,7 +130,7 @@ def _selected_role_names(
     roles_db: dict[str, Any],
     selected_character_ids: list[int] | tuple[int, ...],
 ) -> list[str]:
-    """Resolve the management dialog's official IDs to scoring role names.
+    """Resolve the management dialog's role IDs to scoring role names.
 
     Avatar variants share one logical role.  Resolving through the static
     logical key keeps a saved female/male avatar selection valid when the
@@ -150,7 +150,7 @@ def _selected_role_names(
     with StaticGameDataDao() as static_dao:
         selected_keys = {
             static_dao.get_logical_character_key(character_id)
-            or f"character:{character_id}"
+            or f"custom:{character_id}"
             for character_id in selected_ids
         }
         names: list[str] = []
@@ -162,7 +162,7 @@ def _selected_role_names(
                 continue
             logical_key = (
                 static_dao.get_logical_character_key(character_id)
-                or f"character:{character_id}"
+                or f"custom:{character_id}"
             )
             if logical_key in selected_keys:
                 names.append(str(role_name))

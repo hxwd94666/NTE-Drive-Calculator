@@ -107,6 +107,42 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertGreater(len(catalog.sets_db), 0)
         self.assertGreater(len(catalog.shapes_db), 0)
 
+    def test_legacy_calculation_catalog_includes_custom_role_for_step_two(self):
+        from src.services.custom_character_service import (
+            create_custom_character,
+            save_custom_character_target_suit,
+        )
+        from src.services.legacy_allocation_static_catalog import (
+            build_legacy_allocation_static_catalog,
+        )
+        from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+        from src.storage.sqlite.user_data_dao import UserDataDao
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "user.sqlite3"
+            with UserDataDao(database, account_id="legacy-custom"):
+                pass
+            custom = create_custom_character(database, "第二步自建角色")
+            with StaticGameDataDao(PROJECT_DATABASE_PATH) as static_dao:
+                target_suit = next(
+                    suit for suit in static_dao.list_suits()
+                    if suit.get("required_shape_ids")
+                )
+            save_custom_character_target_suit(
+                database,
+                int(custom["character_id"]),
+                str(target_suit["suit_id"]),
+            )
+            catalog = build_legacy_allocation_static_catalog(
+                config_dir=PROJECT_ROOT / "config",
+                user_database_path=database,
+            )
+
+        role = catalog.roles_db["第二步自建角色"]
+        self.assertTrue(role["is_custom"])
+        self.assertEqual(target_suit["name_zh"], role["default_set"])
+        self.assertEqual(20, sum(cell == 0 for row in catalog.board_matrices["第二步自建角色"] for cell in row))
+
     def test_legacy_calculation_catalog_uses_public_shape_bonus_rule(self):
         from src.services.character_shape_bonus_service import (
             save_public_character_shape_bonus,

@@ -27,6 +27,10 @@ ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 SPEC = ROOT / "NTE_Drive_Calc.spec"
+PACKAGE_NAME = "NTE_Drive_Calc"
+PACKAGE_BUILD_DIR = BUILD / PACKAGE_NAME
+PACKAGE_ONEDIR_DIR = DIST / PACKAGE_NAME
+PACKAGE_ONEFILE_EXE = DIST / f"{PACKAGE_NAME}.exe"
 THIRD_PARTY_DIR = ROOT / "third_party"
 SQLITE_SCHEMA_DIR = ROOT / "src" / "storage" / "sqlite" / "schema"
 NTE_CORE_ENV = "NTE_CORE_EXE"
@@ -35,6 +39,7 @@ LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
 STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
 STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"
 STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"
+SHARED_DATABASE_SEED_PATH = ROOT / "data" / "app_shared.sqlite3"
 MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"
 NTE_CORE_RELEASE_FILES = (
     "LICENSE",
@@ -87,9 +92,16 @@ def _sync_workshop_weights_before_build() -> None:
 
 _sync_workshop_weights_before_build()
 
-for path in (DIST, BUILD):
-    if path.exists():
+def _remove_package_artifact(path: Path) -> None:
+    """Remove only this package's PyInstaller output, never unrelated build worktrees."""
+    if path.is_dir():
         shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+for path in (PACKAGE_BUILD_DIR, PACKAGE_ONEDIR_DIR, PACKAGE_ONEFILE_EXE):
+    _remove_package_artifact(path)
 if SPEC.exists():
     SPEC.unlink()
 
@@ -97,7 +109,7 @@ onefile = "--onefile" in sys.argv
 
 args = [
     str(ROOT / "main.py"),
-    "--name=NTE_Drive_Calc",
+    f"--name={PACKAGE_NAME}",
     "--windowed" if "--console" not in sys.argv else "--console",
     "--clean",
     "--noconfirm",
@@ -195,7 +207,13 @@ _append_add_data(static_manifest_path, "data")
 if not STATIC_MIGRATION_DATA_DIR.is_dir():
     raise FileNotFoundError(f"静态数据迁移基线目录不存在：{STATIC_MIGRATION_DATA_DIR}")
 _append_add_data(STATIC_MIGRATION_DATA_DIR, "data/migrations")
+shared_database_seed_path = _required_build_file(
+    "公共额外形状默认库",
+    SHARED_DATABASE_SEED_PATH,
+)
+_append_add_data(shared_database_seed_path, "data")
 build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
+build_cli.info(f"[DATA] 已加入公共额外形状默认库：{shared_database_seed_path}")
 
 # 环境配置页会显式部署该 DLL 至用户选择的游戏目录；安装器本身不会修改游戏目录。
 mods_plugin_path = _required_build_file(
@@ -346,9 +364,9 @@ args.append("--upx-dir=.")
 build_cli.info(f"[BUILD] Mode: {'Single File' if onefile else 'Single Dir'}")
 PyInstaller.__main__.run(args)
 
-output = DIST / "NTE_Drive_Calc"
+output = PACKAGE_ONEDIR_DIR
 if onefile:
-    output = DIST / "NTE_Drive_Calc.exe"
+    output = PACKAGE_ONEFILE_EXE
 
 if output.exists():
     size_mb = sum(

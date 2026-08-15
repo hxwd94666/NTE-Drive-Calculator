@@ -36,8 +36,10 @@ from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.services.account_settings_service import AccountSettingsService
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.widgets import NoWheelComboBox
 
 
@@ -54,15 +56,45 @@ def scan_post_action_config_path(user_config_dir: Path) -> Path:
     return Path(user_config_dir) / "scan_post_actions.json"
 
 
-def load_scan_post_action_config(user_config_dir: Path) -> dict:
+def load_scan_post_action_config(
+    user_config_dir: Path | None,
+    *,
+    user_database_path: Path | None = None,
+) -> dict:
+    if user_database_path is not None:
+        preferences = AccountSettingsService(user_database_path).load("ui")
+        stored = preferences.get("full_scan_post_action_config")
+        if isinstance(stored, dict) and stored:
+            return merge_post_action_config(stored)
     if user_config_dir is None:
         return default_post_action_config()
-    path = scan_post_action_config_path(user_config_dir)
-    return merge_post_action_config(read_json(path, default=default_post_action_config()))
+    legacy = read_json(scan_post_action_config_path(user_config_dir), default=None)
+    config = merge_post_action_config(legacy)
+    if user_database_path is not None and isinstance(legacy, dict) and legacy:
+        save_scan_post_action_config(
+            user_config_dir,
+            config,
+            user_database_path=user_database_path,
+        )
+    return config
 
 
-def save_scan_post_action_config(user_config_dir: Path, config: dict) -> None:
-    write_json(scan_post_action_config_path(user_config_dir), merge_post_action_config(config), indent=2)
+def save_scan_post_action_config(
+    user_config_dir: Path | None,
+    config: dict,
+    *,
+    user_database_path: Path | None = None,
+) -> None:
+    normalized = merge_post_action_config(config)
+    if user_database_path is not None:
+        settings = AccountSettingsService(user_database_path)
+        preferences = settings.load("ui")
+        preferences["full_scan_post_action_config"] = normalized
+        settings.save("ui", preferences)
+        return
+    if user_config_dir is None:
+        raise ValueError("user_config_dir is required when account storage is unavailable")
+    write_json(scan_post_action_config_path(user_config_dir), normalized, indent=2)
 
 
 def _set_combo_data(combo: NoWheelComboBox, value: object) -> None:
@@ -95,8 +127,8 @@ def _load_set_name_options() -> list[str]:
         return [str(suit["name_zh"]) for suit in static_dao.list_suits()]
 
 
-def _load_role_options() -> list[tuple[int, str, str]]:
-    """Return one official ID, display name and avatar per logical role."""
+def _load_role_options(user_database_path: Path | None = None) -> list[tuple[int, str, str]]:
+    """Return selectable official and custom roles with an optional avatar."""
 
     asset_catalog = GameUiAssetCatalog(bundled_game_ui_asset_root())
     with StaticGameDataDao() as static_dao:
@@ -108,6 +140,18 @@ def _load_role_options() -> list[tuple[int, str, str]]:
             )
             for character in static_dao.list_role_template_characters()
         ]
+    if user_database_path is not None and Path(user_database_path).is_file():
+        with UserDataDao(user_database_path) as user_dao:
+            official_ids = {character_id for character_id, _name, _avatar in options}
+            options.extend(
+                (
+                    character_id,
+                    str(role.get("name_zh") or character_id),
+                    "",
+                )
+                for role in user_dao.list_custom_characters()
+                if (character_id := int(role["character_id"])) not in official_ids
+            )
     return sorted(options, key=lambda item: item[0])
 
 
@@ -153,18 +197,23 @@ class ScanPostActionDialog(QDialog):
         user_config_dir: Path,
         config_dir: Path,
         *,
+        user_database_path: Path | None = None,
         window_title: str = "全量扫描管理",
     ):
         super().__init__(parent)
         self.user_config_dir = Path(user_config_dir)
         self.config_dir = Path(config_dir)
+        self.user_database_path = user_database_path
         self.setWindowTitle(window_title)
         self.setMinimumWidth(560)
-        self.config = load_scan_post_action_config(self.user_config_dir)
+        self.config = load_scan_post_action_config(
+            self.user_config_dir,
+            user_database_path=self.user_database_path,
+        )
         self._widgets = {}
         self._shape_options = _load_drive_shape_options()
         self._set_options = _load_set_name_options()
-        self._role_options = _load_role_options()
+        self._role_options = _load_role_options(self.user_database_path)
         self._selected_character_ids = list(self.config.get("selected_character_ids", []))
         self._range_values = {}
         self._preserve_rules = copy.deepcopy(self.config.get("preserve_rules", []))
@@ -570,7 +619,11 @@ class ScanPostActionDialog(QDialog):
         if error:
             QMessageBox.warning(self, "配置无效", error)
             return
-        save_scan_post_action_config(self.user_config_dir, config)
+        save_scan_post_action_config(
+            self.user_config_dir,
+            config,
+            user_database_path=self.user_database_path,
+        )
         self.accept()
 
 
@@ -579,12 +632,14 @@ def show_scan_post_action_dialog(
     user_config_dir: Path,
     config_dir: Path,
     *,
+    user_database_path: Path | None = None,
     window_title: str = "全量扫描管理",
 ) -> bool:
     dialog = ScanPostActionDialog(
         parent,
         user_config_dir,
         config_dir,
+        user_database_path=user_database_path,
         window_title=window_title,
     )
     return dialog.exec() == QDialog.Accepted

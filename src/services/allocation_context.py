@@ -9,6 +9,7 @@ syncs or later preference edits cannot change a calculation in flight.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from src.services.sqlite_allocation_inventory import legacy_shape_id
@@ -17,6 +18,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.character_weight_service import is_unmodified_account_weight_cache
 from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.services.equipment_level_projection_service import project_equipment_items_to_max_level
+from src.services.inventory_source_capabilities import is_visual_inventory_source
 
 
 ALLOCATION_CONTEXT_SOLVER_VERSION = "allocation-context-v1"
@@ -261,7 +263,7 @@ def _candidate(
     template = equipment_by_id.get(item_id)
     if (
         template is None
-        and snapshot_source == "gamepad"
+        and is_visual_inventory_source(snapshot_source)
         and item_id.startswith(f"vision_{kind}_")
     ):
         quality = str(row.get("quality") or "").strip().casefold()
@@ -388,10 +390,30 @@ def _role_equipment_constraints(
     return RoleEquipmentConstraints(character_id=character_id, cells=cells)
 
 
+def _custom_role_equipment_constraints(
+    character_id: int, cells: Sequence[Mapping[str, Any]],
+) -> RoleEquipmentConstraints:
+    """Freeze the current account's 20-cell chassis for a custom role."""
+
+    enabled_cells = tuple(
+        BlueprintCell(row=int(cell["row_number"]), column=int(cell["column_number"]))
+        for cell in cells if bool(cell.get("is_enabled"))
+    )
+    positions = {(cell.row, cell.column) for cell in enabled_cells}
+    if len(enabled_cells) != 20 or len(positions) != 20 or any(
+        row < 1 or row > 5 or column < 1 or column > 5
+        for row, column in positions
+    ):
+        raise AllocationContextError(f"自建角色 {character_id} 的底盘必须包含 20 个唯一合法格位")
+    return RoleEquipmentConstraints(character_id=character_id, cells=enabled_cells)
+
+
 def _allocation_role_values(
     user_dao: UserDataDao,
     static_dao: StaticGameDataDao,
     character_id: int,
+    *,
+    shared_database_path: str | Path | None = None,
 ) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
     account_weights = user_dao.get_character_weight_preferences(character_id)
     weight_record = (
@@ -415,7 +437,20 @@ def _allocation_role_values(
     else:
         weights = {}
         main_weights = {}
-    shape_bonus = get_effective_character_shape_bonus(static_dao, character_id) or {}
+    # Account-created roles deliberately do not resolve the public shared DB:
+    # their chassis and extra-shape settings are account-private calculation
+    # inputs. Official roles alone use the release-supplied shared override.
+    is_custom_role = bool(user_dao.list_custom_character_board_cells(character_id))
+    shape_bonus = (
+        user_dao.get_custom_character_shape_bonus(character_id)
+        if is_custom_role
+        else get_effective_character_shape_bonus(
+            static_dao,
+            character_id,
+            shared_database_path=shared_database_path,
+        )
+        or {}
+    )
     extra_shape_label = str(shape_bonus.get("shape_label") or "")
     extra_shape_buffs = {
         str(row["property_id"]): float(row["display_value"])
@@ -511,6 +546,7 @@ def build_allocation_context(
     profile_id: int,
     profile_version: int,
     solver_version: str = ALLOCATION_CONTEXT_SOLVER_VERSION,
+    shared_database_path: str | Path | None = None,
 ) -> AllocationContext:
     """Copy one exact account, dataset, snapshot and preference version into memory.
 
@@ -558,6 +594,10 @@ def build_allocation_context(
                 attribute_id_by_name.setdefault(str(name), attribute_id)
     character_rows = static_dao.list_characters()
     known_character_ids = {int(character["character_id"]) for character in character_rows}
+    custom_rows = user_dao.list_custom_characters()
+    custom_character_ids = {int(row["character_id"]) for row in custom_rows}
+    custom_cells = {int(row["character_id"]): row.get("board_cells") or () for row in custom_rows}
+    known_character_ids.update(custom_character_ids)
     suits_by_id = {
         _required_text(suit.get("suit_id"), "官方套装 ID"): suit
         for suit in static_dao.list_suits()
@@ -598,14 +638,21 @@ def build_allocation_context(
         _role_preference(
             row,
             known_attribute_ids=known_attribute_ids,
-            equipment=_role_equipment_constraints(
-                static_dao, row, known_character_ids=known_character_ids,
+            equipment=(
+                _custom_role_equipment_constraints(
+                    int(row["character_id"]), custom_cells[int(row["character_id"])],
+                )
+                if int(row["character_id"]) in custom_character_ids
+                else _role_equipment_constraints(
+                    static_dao, row, known_character_ids=known_character_ids,
+                )
             ),
             default_values=(
                 _allocation_role_values(
                     user_dao,
                     static_dao,
                     int(row["character_id"]),
+                    shared_database_path=shared_database_path,
                 )
             ),
             known_suit_ids=set(suits_by_id),

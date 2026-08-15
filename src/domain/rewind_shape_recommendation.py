@@ -307,69 +307,51 @@ def target_grade_score(grade: str, area: int) -> float:
     return GRADE_RATIOS.get(str(grade).upper(), GRADE_RATIOS["S"]) * max(1, area) * 10.0
 
 
-def _normalized_integer_ratios(priority_values: dict[str, float]) -> dict[str, int]:
-    """Normalize positive priorities so the smallest ratio is one integer unit."""
-
-    positive = {shape_id: float(value) for shape_id, value in priority_values.items() if value > 0}
-    if not positive:
-        return {shape_id: 1 for shape_id in priority_values}
-    smallest = min(positive.values())
-    return {
-        shape_id: max(1, int(value / smallest)) if value > 0 else 1
-        for shape_id, value in priority_values.items()
-    }
-
-
 def _allocate_ratio_repeats(
     selected: Counter[str],
     *,
     priority_values: dict[str, float],
     selection_limit: int,
 ) -> Counter[str]:
-    """Apply the documented ratio allocation after every shape has a base slot.
+    """Allocate remaining slots by fixed priority ratio and largest remainder.
 
-    The priority ratios are normalized so their minimum is one, then converted
-    to integers.  That one unit is the mandatory base seat; only the residual
-    ratio participates in the proportional allocation of the remaining seats.
-    Floor the proportional quotas and give *all* unfilled seats to the largest
-    original ratio, exactly matching the eight-slot custom-pool rule.
+    ``selected`` already contains the mandatory under-grade drives.  The
+    remaining custom-pool slots use one frozen ``score gap / inventory`` ratio;
+    they never feed prior selections back into the next marginal score.  This
+    keeps a 2:1 ratio at five versus three after two base slots are reserved.
     """
 
     remaining = max(0, int(selection_limit) - sum(selected.values()))
     if remaining <= 0 or not selected:
         return selected
-    priorities = {shape_id: float(priority_values.get(shape_id, 0.0)) for shape_id in selected}
-    ratios = _normalized_integer_ratios(priorities)
-    residual = {shape_id: max(0, ratio - 1) for shape_id, ratio in ratios.items()}
-    residual_total = sum(residual.values())
-    additions = {shape_id: 0 for shape_id in selected}
-    if residual_total:
-        additions = {
-            shape_id: int(remaining * value / residual_total)
-            for shape_id, value in residual.items()
-        }
-        for shape_id, count in additions.items():
-            selected[shape_id] += count
+    priorities = {
+        shape_id: max(0.0, float(priority_values.get(shape_id, 0.0)))
+        for shape_id in selected
+    }
+    total_priority = sum(priorities.values())
+    if total_priority <= 0:
+        priorities = {shape_id: 1.0 for shape_id in selected}
+        total_priority = float(len(priorities))
+    quotas = {
+        shape_id: remaining * priority / total_priority
+        for shape_id, priority in priorities.items()
+    }
+    additions = {shape_id: int(quota) for shape_id, quota in quotas.items()}
+    for shape_id, count in additions.items():
+        selected[shape_id] += count
     leftover = remaining - sum(additions.values())
-    if leftover:
-        winner = max(
-            selected,
-            key=lambda shape_id: (ratios[shape_id], priorities[shape_id], shape_id),
-        )
-        selected[winner] += leftover
+    for shape_id in sorted(
+        priorities,
+        key=lambda value: (
+            -(quotas[value] - additions[value]),
+            -priorities[value],
+            value,
+        ),
+    )[:leftover]:
+        selected[shape_id] += 1
     return selected
 
 
-def _reciprocal_stock_priorities(
-    shape_ids: tuple[str, ...],
-    owned_shape_counts: Counter[str],
-) -> dict[str, float]:
-    """Use finite reciprocal stock priorities; zero stock shares top priority."""
-
-    return {
-        shape_id: 1.0 / max(1, int(owned_shape_counts.get(shape_id, 0)))
-        for shape_id in shape_ids
-    }
 def recommend_score_shortfall_shapes(
     *,
     shapes: tuple[RewindShape, ...],
@@ -379,34 +361,44 @@ def recommend_score_shortfall_shapes(
     selection_limit: int = 8,
     proportional: bool = True,
 ) -> tuple[RewindShapeRecommendation, ...]:
-    """Fill every under-grade drive, then allocate repeats by the selected mode."""
-    required = sum(max(0, int(value)) for value in shortfalls.values())
-    if required > selection_limit:
-        return ()
-    selected: Counter[str] = Counter({key: int(value) for key, value in shortfalls.items() if value > 0})
-    by_id = {shape.shape_id: shape for shape in shapes}
-    if proportional:
-        while sum(selected.values()) < selection_limit and selected:
-            winner = max(
-                selected,
-                key=lambda shape_id: (
-                    score_gaps[shape_id] / (selected[shape_id] + 1),
-                    score_gaps[shape_id],
-                    shape_id,
-                ),
-            )
-            selected[winner] += 1
-    else:
-        # Comprehensive mode combines quality shortage with current stock:
-        # a shape's repeat priority is total score gap × reciprocal inventory.
-        _allocate_ratio_repeats(
-            selected,
-            priority_values={
-                shape_id: float(score_gaps[shape_id]) / max(1, int(owned_shape_counts[shape_id]))
-                for shape_id in selected
-            },
-            selection_limit=selection_limit,
+    """Allocate the custom pool by the selected strategy's priority ratio.
+
+    Both strategies reserve one slot per shape with a positive gap. Balanced
+    mode apportions repeats from ``score gap / inventory``; focused mode uses
+    raw score gaps only. Neither mode reserves more than one slot merely because
+    multiple low-score drives share the same shape.
+    """
+    selected: Counter[str] = (
+        Counter(
+            {
+                shape_id: 1
+                for shape_id, score_gap in score_gaps.items()
+                if float(score_gap) > 0
+            }
         )
+        if proportional
+        else Counter(
+            {shape_id: 1 for shape_id, count in shortfalls.items() if count > 0}
+        )
+    )
+    if sum(selected.values()) > selection_limit:
+        return ()
+    by_id = {shape.shape_id: shape for shape in shapes}
+    # ``proportional`` is retained as the public focused-mode flag for saved
+    # callers. Only balanced mode compensates for the current inventory.
+    _allocate_ratio_repeats(
+        selected,
+        priority_values={
+            shape_id: (
+                float(score_gaps[shape_id])
+                if proportional
+                else float(score_gaps[shape_id])
+                / max(1, int(owned_shape_counts[shape_id]))
+            )
+            for shape_id in selected
+        },
+        selection_limit=selection_limit,
+    )
     return tuple(
         RewindShapeRecommendation(
             shape=by_id[shape_id],

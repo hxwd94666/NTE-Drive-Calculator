@@ -208,11 +208,16 @@ class RoleScopeDialog(QDialog):
             card.setChecked(character_id in selected_ids)
             card.setText(role_name)
             card.setToolTip(role_name)
-            card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            card.setIconSize(QSize(76, 76))
-            card.setFixedSize(116, 116)
             if avatar_path:
+                card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+                card.setIconSize(QSize(76, 76))
+                card.setFixedSize(116, 116)
                 card.setIcon(QIcon(avatar_path))
+            else:
+                # Custom roles do not have a game avatar.  Keep their picker
+                # cards deliberately text-only instead of rendering a blank icon.
+                card.setToolButtonStyle(Qt.ToolButtonTextOnly)
+                card.setFixedSize(116, 44)
             card.setStyleSheet(
                 themed_style(
                     "QToolButton{background:#161b22;color:#c9d1d9;border:1px solid #30363d;"

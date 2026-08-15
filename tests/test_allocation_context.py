@@ -17,6 +17,12 @@ from src.services.allocation_context import (
     build_allocation_context,
 )
 from src.services.character_shape_bonus_service import SHARED_DATABASE_ENV
+from src.services.character_shape_bonus_service import save_public_character_shape_bonus
+from src.services.custom_character_service import (
+    create_custom_character,
+    save_custom_character_board,
+    save_custom_character_shape_bonus,
+)
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -168,6 +174,83 @@ class AllocationContextTests(unittest.TestCase):
             context.profile_id = 99
         with self.assertRaises(FrozenInstanceError):
             context.candidates[0].level = 1
+
+    def test_uses_the_pinned_public_extra_shape_override(self) -> None:
+        snapshot_id = self.user_dao.import_inventory_snapshot(
+            snapshot(1, [item(101, 11, kind="module"), item(202, 22, kind="core")])
+        )
+        profile = self._profile()
+        save_public_character_shape_bonus(
+            1003,
+            shape_label="Type-4",
+            property_values={"CritBase": 8.0},
+            database_path=self.static_database_path,
+            shared_database_path=self.shared_database_path,
+        )
+
+        context = build_allocation_context(
+            self.user_dao,
+            self.static_dao,
+            snapshot_id=snapshot_id,
+            profile_id=profile["profile_id"],
+            profile_version=1,
+            shared_database_path=self.shared_database_path,
+        )
+
+        role = next(role for role in context.roles if role.character_id == 1003)
+        self.assertEqual("Type-4", role.extra_shape_label)
+        self.assertEqual((("CritBase", 8.0),), role.extra_shape_buffs)
+
+    def test_custom_role_uses_its_account_chassis_and_extra_shape_in_calculation(self) -> None:
+        snapshot_id = self.user_dao.import_inventory_snapshot(
+            snapshot(1, [item(101, 11, kind="module"), item(202, 22, kind="core")])
+        )
+        custom = create_custom_character(self.user_dao.database_path, "自建计算角色")
+        character_id = int(custom["character_id"])
+        cells = self.user_dao.list_custom_characters()[0]["board_cells"]
+        edited = [
+            {
+                "row": int(cell["row_number"]),
+                "column": int(cell["column_number"]),
+                "is_enabled": bool(cell["is_enabled"]),
+                "is_locked": bool(cell["is_locked"]),
+            }
+            for cell in cells
+        ]
+        for cell in edited:
+            if (cell["row"], cell["column"]) == (4, 5):
+                cell["is_enabled"] = False
+            elif (cell["row"], cell["column"]) == (5, 1):
+                cell["is_enabled"] = True
+        save_custom_character_board(self.user_dao.database_path, character_id, edited)
+        save_custom_character_shape_bonus(
+            self.user_dao.database_path,
+            character_id,
+            shape_label="Type-4",
+            property_values={"CritBase": 8.0},
+        )
+        profile = self.user_dao.create_optimization_profile(
+            "Custom chassis",
+            allocation_strategy="role_priority",
+            characters=[{"character_id": character_id, "suit_requirement_mode": "none"}],
+        )
+
+        context = build_allocation_context(
+            self.user_dao,
+            self.static_dao,
+            snapshot_id=snapshot_id,
+            profile_id=profile["profile_id"],
+            profile_version=1,
+            shared_database_path=self.shared_database_path,
+        )
+
+        role = context.roles[0]
+        self.assertEqual(character_id, role.character_id)
+        self.assertEqual("Type-4", role.extra_shape_label)
+        self.assertEqual((("CritBase", 8.0),), role.extra_shape_buffs)
+        positions = {(cell.row, cell.column) for cell in role.equipment.cells}
+        self.assertNotIn((4, 5), positions)
+        self.assertIn((5, 1), positions)
 
     def test_gamepad_snapshot_adapts_visual_ids_without_replacing_them(self) -> None:
         visual_module = item(101, 11, kind="module")

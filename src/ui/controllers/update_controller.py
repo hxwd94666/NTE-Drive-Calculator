@@ -15,9 +15,12 @@ from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, Q
 from src.app.constants import (
     APP_VERSION,
     BILIBILI_HOME_URL,
+    GROUP_CHAT_NOTICE,
     GITHUB_HOME_URL,
+    GITHUB_LATEST_RELEASE_URL,
     GITHUB_RELEASES_URL,
     MIRROR_UPDATE_API,
+    SUPPORT_US_URL,
 )
 from src.app.workers import WorkerThread
 from src.observability.context import OperationContext
@@ -427,11 +430,23 @@ def _show_update_failure_netdisk_prompt(self, detail=""):
 
 
 def _open_update_homepage(self):
-    self._open_url(GITHUB_HOME_URL)
+    self._open_url(GITHUB_LATEST_RELEASE_URL)
 
 
 def _open_bilibili_homepage(self):
     self._open_url(BILIBILI_HOME_URL)
+
+
+def _open_project_homepage(self):
+    self._open_url(GITHUB_HOME_URL)
+
+
+def _open_support_homepage(self):
+    self._open_url(SUPPORT_US_URL)
+
+
+def _show_group_chat_notice(self):
+    QMessageBox.information(self, "加入群聊", GROUP_CHAT_NOTICE)
 
 
 def _show_netdisk_download_dialog(self, links):
@@ -476,6 +491,9 @@ class UpdateControllerMixin:
     _show_update_failure_netdisk_prompt = _show_update_failure_netdisk_prompt
     _open_update_homepage = _open_update_homepage
     _open_bilibili_homepage = _open_bilibili_homepage
+    _open_project_homepage = _open_project_homepage
+    _open_support_homepage = _open_support_homepage
+    _show_group_chat_notice = _show_group_chat_notice
     _show_netdisk_download_dialog = _show_netdisk_download_dialog
     _open_url = _open_url
     _is_newer_version = _is_newer_version

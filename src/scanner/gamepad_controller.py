@@ -345,6 +345,25 @@ class GamepadScanner:
         if moved:
             time.sleep(self._profile().menu_after_equipment_move_seconds)
 
+    def _activate_and_focus_last_inventory_equipment(self) -> None:
+        """Re-activate the gamepad and focus the final physical item in the last row."""
+        profile = self._profile()
+        logger.info("状态同步前发送两次左摇杆下推：激活手柄并定位到最后一行末件。")
+        for _ in range(2):
+            self.push_left_joystick(
+                0.0,
+                -1.0,
+                hold_seconds=profile.row_move_hold_seconds,
+                settle_seconds=profile.row_move_settle_seconds,
+            )
+
+    def _last_inventory_position(self, total_drives: int) -> tuple[int, int]:
+        """Return the final physical grid cell, independent of the S scan direction."""
+        total = int(total_drives)
+        if total < 1:
+            raise ValueError("全量扫描库存数量必须大于 0。")
+        return divmod(total - 1, self.cols)
+
     def _scan_positions(self, total_drives: int) -> list[tuple[int, int]]:
         scan_order = []
         for row in range((total_drives + self.cols - 1) // self.cols):
@@ -613,7 +632,11 @@ class GamepadScanner:
         self.action_profile = profile
         try:
             positions = self._scan_positions(int(total_drives))
-            curr_row, curr_col = positions[-1]
+            # Two down-stick inputs consistently focus the last physical item
+            # of the last row. This origin differs from the S-path end on odd
+            # rows, so it must not be derived from ``positions[-1]``.
+            self._activate_and_focus_last_inventory_equipment()
+            curr_row, curr_col = self._last_inventory_position(int(total_drives))
             applied = 0
 
             def moves_to(index: int) -> list[str]:
@@ -635,7 +658,7 @@ class GamepadScanner:
                 return moves
 
             logger.warning(
-                f"准备倒序同步 {len(changes)} 个装备状态，将从扫描结束时的最后一件装备开始，请保持游戏背包界面不动。"
+                f"准备倒序同步 {len(changes)} 个装备状态，已定位到最后一行末件，请保持游戏背包界面不动。"
             )
             for change in changes:
                 if self._stopped:

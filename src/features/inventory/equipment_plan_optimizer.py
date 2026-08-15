@@ -17,47 +17,31 @@ from PySide6.QtWidgets import (
 from src.domain.allocation_rating import allocation_grade
 from src.domain.loadout_plan_scores import exact_assignment_score_total
 from src.app.theme import themed_style
-from src.features.inventory.warehouse import warehouse_item_icon_path
-from src.features.inventory.saved_plan_badge import display_strategy_mode
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.services.loadout_equipment_identity import source_snapshots_share_equipment_uids
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.tape_main_value import full_level_tape_main_value
 from src.features.inventory.equipment_plan_projection import (
-    display_shape_id as _display_shape_id,
-    official_stat_values as _official_stat_values,
+    display_stat_label as _display_stat_label,
 )
 from src.features.inventory.equipment_display_context import (
     equipment_presentation,
     equipment_paths as _equipment_paths,
 )
-from src.services.virtual_equipment_service import (
-    is_virtual_equipment_assignment,
-    normalized_equipment_assignment,
-    virtual_equipment_inventory_item,
-)
+from src.services.virtual_equipment_service import is_virtual_equipment_assignment
 from src.optimizer.contracts import (
     DIFF_ADDED,
     DIFF_ADDED_UIDS,
     DIFF_CHANGED,
     DIFF_REMOVED,
     EQUIP_IS_CHANGED,
-    EQUIP_IS_NEW,
     EQUIP_MAIN_STATS,
     EQUIP_QUALITY,
     EQUIP_SET_NAME,
     EQUIP_SHAPE_ID,
     EQUIP_SUB_STATS,
-    EQUIP_TYPE,
     EQUIP_UID,
-    ROLE_BLUEPRINT_LAYOUT,
-    ROLE_EQUIPPED_DRIVES,
-    ROLE_EQUIPPED_TAPE,
-    ROLE_LAST_DIFF,
-    ROLE_TOTAL_GRADE,
-    ROLE_TOTAL_SCORE,
 )
-from src.utils.logger import logger
 
 
 __all__ = [
@@ -70,6 +54,9 @@ __all__ = [
     "_clear_all_equipment",
     "_delete_role_equipment",
     "_optimize_saved_equipment",
+    "_inventory_uid_key",
+    "_sqlite_inventory_item_display",
+    "_sqlite_plan_display_state",
 ]
 EQUIPMENT_ROLE_PLACEHOLDER_HEIGHT = 520
 EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
@@ -77,269 +64,11 @@ EQUIPMENT_VIEWPORT_PREFETCH_COUNT = 1
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
 EQUIPMENT_RENDER_BATCH_SIZE = 3
 
-def _inventory_uid_key(uid):
-    """Return the snapshot (serial, slot) key from an official display UID."""
-
-    parts = str(uid or "").rsplit("-", 2)
-    if len(parts) != 3:
-        return None
-    try:
-        key = int(parts[-1]), int(parts[-2])
-    except ValueError:
-        return None
-    return key if min(key) >= 1 else None
-
-
-def _sqlite_plan_display_state(
-    plan,
-    user_dao,
-    static_dao,
-    *,
-    inventory_by_snapshot=None,
-    shape_cells=None,
-    suit_names=None,
-    attribute_ids=None,
-):
-    """将活动 SQLite 方案转换为配装页展示模型；不读取旧 JSON。"""
-    snapshot_id = int(plan["source_snapshot_id"])
-    if inventory_by_snapshot is None:
-        items = {(row["uid_serial"], row["uid_slot"]): row for row in user_dao.list_inventory_items(snapshot_id)}
-    else:
-        items = inventory_by_snapshot.get(snapshot_id, {})
-    if shape_cells is None:
-        shape_cells = {shape["shape_id"]: shape.get("cells") or [] for shape in static_dao.list_shapes()}
-    if suit_names is None:
-        suit_names = {
-            str(suit["suit_id"]): str(suit.get("name_zh") or suit["suit_id"]) for suit in static_dao.list_suits()
-        }
-    if attribute_ids is None:
-        attribute_ids = {str(attribute["attribute_id"]) for attribute in static_dao.list_equipment_attributes()}
-    payload = plan.get("payload") or {}
-    last_diff = dict(payload.get("last_diff") or {})
-    requested_diff_uids = {
-        str(
-            (entry.get(EQUIP_UID) if isinstance(entry, dict) else entry)
-            or ""
-        )
-        for diff_key in (DIFF_REMOVED, DIFF_ADDED)
-        for entry in (last_diff.get(diff_key, ()) or ())
-    }
-    requested_diff_uids.discard("")
-    diff_item_index = {}
-    if requested_diff_uids:
-        for row in items.values():
-            if bool(row.get("virtual")):
-                continue
-            kind = "module" if row.get("kind") == "module" else "core"
-            uid = f"nte-{kind}-{row.get('uid_slot')}-{row.get('uid_serial')}"
-            if uid in requested_diff_uids:
-                diff_item_index[uid] = _sqlite_inventory_item_display(
-                    row,
-                    suit_names,
-                )
-        # Virtual placeholders live only inside the saved plan, not in the
-        # immutable inventory snapshot.  Project them into the same diff index
-        # so a displaced core remains a tape swap and a displaced module keeps
-        # its original shape/area instead of appearing as an unrelated unknown
-        # addition.
-        for assignment in plan.get("assignments") or ():
-            raw = normalized_equipment_assignment(assignment)
-            if not is_virtual_equipment_assignment(raw):
-                continue
-            virtual_item = virtual_equipment_inventory_item(raw)
-            kind = "module" if virtual_item.get("kind") == "module" else "core"
-            uid = (
-                f"nte-{kind}-{virtual_item.get('uid_slot')}-"
-                f"{virtual_item.get('uid_serial')}"
-            )
-            if uid in requested_diff_uids:
-                diff_item_index[uid] = _sqlite_inventory_item_display(
-                    virtual_item,
-                    suit_names,
-                )
-    for diff_key in (DIFF_REMOVED, DIFF_ADDED):
-        hydrated = []
-        for diff_item in last_diff.get(diff_key, ()) or ():
-            minimal = dict(diff_item) if isinstance(diff_item, dict) else {EQUIP_UID: str(diff_item)}
-            source = diff_item_index.get(str(minimal.get(EQUIP_UID) or ""), {})
-            hydrated.append({**source, **minimal})
-        if hydrated:
-            last_diff[diff_key] = hydrated
-    added_uids = {str(uid) for uid in (last_diff.get(DIFF_ADDED_UIDS) or ()) if uid}
-    changed_uids = {str(uid) for uid in (payload.get("changed_uids") or ()) if uid}
-    board = [["0" for _ in range(5)] for _ in range(5)]
-    drives = []
-    tape = None
-    for assignment in plan["assignments"]:
-        raw = normalized_equipment_assignment(assignment)
-        item = (
-            virtual_equipment_inventory_item(raw)
-            if is_virtual_equipment_assignment(raw)
-            else items.get((assignment["uid_serial"], assignment["uid_slot"]))
-        )
-        if item is None:
-            message = (
-                f"方案 #{plan.get('plan_id')} 的装备 UID "
-                f"({assignment.get('uid_slot')}, {assignment.get('uid_serial')}) "
-                f"不在来源快照 {snapshot_id} 中"
-            )
-            logger.error("已保存方案兼容性错误：{}", message)
-            raise RuntimeError(message)
-        unknown_properties = [
-            str(stat.get("property_id") or "")
-            for stat in (*item.get("main_stats", ()), *item.get("sub_stats", ()))
-            if str(stat.get("property_id") or "") not in attribute_ids
-        ]
-        if unknown_properties:
-            message = (
-                f"方案 #{plan.get('plan_id')} 的来源快照包含当前静态数据未定义的属性 ID："
-                f"{', '.join(sorted(set(unknown_properties)))}"
-            )
-            logger.error("已保存方案兼容性错误：{}", message)
-            raise RuntimeError(message)
-        uid_prefix = "module" if item["kind"] == "module" else "core"
-        uid = f"nte-{uid_prefix}-{item['uid_slot']}-{item['uid_serial']}"
-        item_icon_path = warehouse_item_icon_path(item)
-        if item["kind"] == "core":
-            suit_id = str(item.get("suit_id") or "")
-            if suit_id not in suit_names:
-                message = f"方案 #{plan.get('plan_id')} 的核心套装 {suit_id or '<empty>'} 不在当前静态数据中"
-                logger.error("已保存方案兼容性错误：{}", message)
-                raise RuntimeError(message)
-            main_stats = _official_stat_values(item.get("main_stats"))
-            main_stat, snapshot_main_value = next(iter(main_stats.items()), ("未知主词条", None))
-            saved_main_values = payload.get("tape_main_values") or {}
-            main_value = saved_main_values.get(uid)
-            if main_value is None:
-                main_value = full_level_tape_main_value(main_stat, item.get("quality"))
-            if main_value is None:
-                main_value = snapshot_main_value
-            tape = {
-                EQUIP_UID: uid,
-                EQUIP_SET_NAME: suit_names.get(str(item.get("suit_id") or ""), str(item.get("suit_id") or "未知套装")),
-                EQUIP_MAIN_STATS: main_stat,
-                # Keep the exact snapshot value.  The card and both attribute
-                # summaries must not replace an imported core stat with a
-                # quality-based fallback estimate.
-                "main_value": main_value,
-                "_role_main_stats": main_stats,
-                EQUIP_SUB_STATS: _official_stat_values(item.get("sub_stats")),
-                EQUIP_QUALITY: {"orange": "Gold", "purple": "Purple", "blue": "Blue"}.get(
-                    str(item.get("quality")).casefold(), "Gold"
-                ),
-                "discarded": bool(item.get("discarded")),
-                "item_icon_path": item_icon_path,
-                "virtual": bool(item.get("virtual")),
-                EQUIP_IS_CHANGED: uid in changed_uids,
-                EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
-            }
-            continue
-        geometry = item.get("geometry")
-        shape_id = _display_shape_id(geometry)
-        official_shape = "EquipmentGeometry_" + str(geometry or "").removeprefix("EquipmentGeometry_")
-        if official_shape not in shape_cells:
-            message = f"方案 #{plan.get('plan_id')} 的驱动形状 {geometry or '<empty>'} 不在当前静态数据中"
-            logger.error("已保存方案兼容性错误：{}", message)
-            raise RuntimeError(message)
-        drives.append(
-            {
-                EQUIP_UID: uid,
-                EQUIP_SHAPE_ID: shape_id,
-                EQUIP_SUB_STATS: _official_stat_values(item.get("sub_stats")),
-                EQUIP_QUALITY: {"orange": "Gold", "purple": "Purple", "blue": "Blue"}.get(
-                    str(item.get("quality")).casefold(), "Gold"
-                ),
-                "discarded": bool(item.get("discarded")),
-                # Snapshot ingestion derives duplicate state for modules.  Keep it
-                # on the saved-plan view model so the card can show it alongside
-                # discard/new/change state.
-                "is_duplicate_drive": bool(item.get("is_duplicate_drive")),
-                "duplicate_group_id": item.get("duplicate_group_id"),
-                "duplicate_index": item.get("duplicate_index"),
-                "duplicate_count": item.get("duplicate_count"),
-                "item_icon_path": item_icon_path,
-                "virtual": bool(item.get("virtual")),
-                EQUIP_IS_CHANGED: uid in changed_uids,
-                EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
-            }
-        )
-        row, column = assignment.get("target_row"), assignment.get("target_column")
-        for cell in shape_cells.get(official_shape, []):
-            target_row = int(row) + int(cell["x"]) - 1
-            target_column = int(column) + int(cell["y"]) - 1
-            if 0 <= target_row < 5 and 0 <= target_column < 5:
-                board[target_row][target_column] = shape_id
-    return {
-        ROLE_BLUEPRINT_LAYOUT: board,
-        ROLE_EQUIPPED_TAPE: tape,
-        ROLE_EQUIPPED_DRIVES: drives,
-        ROLE_TOTAL_SCORE: float(plan.get("score") or 0.0),
-        ROLE_TOTAL_GRADE: "",
-        # A plan imported from the game is a mutually exclusive origin marker,
-        # not a result of the strategy that happened to be active earlier.
-        "strategy_mode": display_strategy_mode(payload),
-        "_sqlite_plan_id": plan["plan_id"],
-        "_sqlite_source_snapshot_id": snapshot_id,
-        "_sqlite_assignment_scores_complete": exact_assignment_score_total(
-            plan["assignments"],
-            payload.get("assignment_scores") or {},
-        ) is not None,
-        "_allocation_locked": bool(plan.get("allocation_locked")),
-        ROLE_LAST_DIFF: last_diff,
-    }
-
-
-def _sqlite_inventory_item_display(row, suit_names):
-    """Project one official snapshot item for the saved-plan replacement dialog."""
-    kind = str(row.get("kind") or "")
-    quality = {"orange": "Gold", "purple": "Purple", "blue": "Blue"}.get(
-        str(row.get("quality") or "").casefold(), "Gold"
-    )
-    uid = f"nte-{'module' if kind == 'module' else 'core'}-{row.get('uid_slot')}-{row.get('uid_serial')}"
-    if kind == "core":
-        main_stats = _official_stat_values(row.get("main_stats"))
-        main_stat, snapshot_main_value = next(iter(main_stats.items()), ("未知主词条", None))
-        main_value = full_level_tape_main_value(main_stat, row.get("quality"))
-        if main_value is None:
-            main_value = snapshot_main_value
-        return {
-            EQUIP_UID: uid,
-            EQUIP_TYPE: "tape",
-            EQUIP_SET_NAME: (
-                "空空幕"
-                if row.get("virtual")
-                else suit_names.get(
-                    str(row.get("suit_id") or ""),
-                    str(row.get("suit_id") or "未知套装"),
-                )
-            ),
-            EQUIP_MAIN_STATS: main_stat,
-            "main_value": main_value,
-            EQUIP_SUB_STATS: _official_stat_values(row.get("sub_stats")),
-            EQUIP_QUALITY: quality,
-            "_role_main_stats": main_stats,
-            "_item_id": str(row.get("item_id") or ""),
-            "_uid_serial": int(row.get("uid_serial") or 0),
-            "_uid_slot": int(row.get("uid_slot") or 0),
-            "item_icon_path": warehouse_item_icon_path(row),
-            "virtual": bool(row.get("virtual")),
-        }
-    return {
-        EQUIP_UID: uid,
-        EQUIP_TYPE: "drive",
-        EQUIP_SHAPE_ID: _display_shape_id(row.get("geometry")),
-        EQUIP_SUB_STATS: _official_stat_values(row.get("sub_stats")),
-        EQUIP_QUALITY: quality,
-        "_item_id": str(row.get("item_id") or ""),
-        "is_duplicate_drive": bool(row.get("is_duplicate_drive")),
-        "duplicate_group_id": row.get("duplicate_group_id"),
-        "duplicate_index": row.get("duplicate_index"),
-        "duplicate_count": row.get("duplicate_count"),
-        "_uid_serial": int(row.get("uid_serial") or 0),
-        "_uid_slot": int(row.get("uid_slot") or 0),
-        "item_icon_path": warehouse_item_icon_path(row),
-        "virtual": bool(row.get("virtual")),
-    }
+from src.features.inventory.equipment_plan_display_state import (
+    _inventory_uid_key,
+    _sqlite_inventory_item_display,
+    _sqlite_plan_display_state,
+)
 
 
 def _replacement_item_icon(asset_catalog, item_kind, item):
@@ -373,12 +102,61 @@ def _replacement_assignments(plan, old_uid, replacement):
     return assignments
 
 
-def _active_sqlite_equipment_users(user_dao, excluded_role_name: str) -> dict[tuple[str, int, int], tuple[str, ...]]:
+def _active_sqlite_equipment_users(
+    user_dao,
+    excluded_plan_id: int | str | None,
+    *,
+    target_snapshot_id: int | None = None,
+) -> dict[tuple[str, int, int], tuple[str, ...]]:
     """Map native equipment UIDs to other active SQLite loadout roles once."""
     users: dict[tuple[str, int, int], list[str]] = {}
-    for role_name, plan in user_dao.list_active_loadout_plans_by_role().items():
-        if role_name == excluded_role_name:
+    target_summary_loader = getattr(user_dao, "inventory_snapshot_summary", None)
+    target_summary = (
+        target_summary_loader(int(target_snapshot_id)) or {}
+        if target_snapshot_id is not None and callable(target_summary_loader)
+        else {}
+    )
+    slot_plan_loader = getattr(user_dao, "list_current_loadout_slot_plans", None)
+    if callable(slot_plan_loader):
+        slot_rows = slot_plan_loader()
+    else:
+        # Keep the small legacy-DAO seam usable for older callers while the
+        # production path always resolves individual current slots.
+        slot_rows = [
+            {
+                "slot": {"character_id": role_name},
+                "plan": plan,
+            }
+            for role_name, plan in getattr(
+                user_dao,
+                "list_active_loadout_plans_by_role",
+                lambda: {},
+            )().items()
+        ]
+    for row in slot_rows:
+        slot = row["slot"]
+        plan = row["plan"]
+        owner_snapshot_id = plan.get("source_snapshot_id")
+        if (
+            target_snapshot_id is not None
+            and owner_snapshot_id is not None
+            and callable(target_summary_loader)
+            and not source_snapshots_share_equipment_uids(
+                int(target_snapshot_id),
+                target_summary.get("source"),
+                int(owner_snapshot_id),
+                (target_summary_loader(int(owner_snapshot_id)) or {}).get("source"),
+            )
+        ):
             continue
+        payload = plan.get("payload") or {}
+        role_name = str(payload.get("source_role_name") or slot["character_id"])
+        if excluded_plan_id is not None:
+            plan_id = plan.get("plan_id")
+            if plan_id is not None and int(plan_id) == excluded_plan_id:
+                continue
+            if isinstance(excluded_plan_id, str) and role_name == excluded_plan_id:
+                continue
         for assignment in plan.get("assignments") or []:
             kind = str(assignment.get("kind") or "")
             if kind not in {"module", "core"}:
@@ -393,10 +171,17 @@ def _active_sqlite_equipment_users(user_dao, excluded_role_name: str) -> dict[tu
     return {key: tuple(names) for key, names in users.items()}
 
 
-def _sqlite_replacement_candidates(database_path, role_name, item_kind, old_uid):
-    """Read compatible alternatives from the active plan's immutable snapshot."""
+def _sqlite_replacement_candidates(
+    database_path,
+    role_name,
+    item_kind,
+    old_uid,
+    *,
+    plan_id: int | None = None,
+):
+    """Read compatible alternatives from the selected plan's immutable snapshot."""
     with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
-        plan = user_dao.get_active_loadout_plan_for_role(role_name)
+        plan = user_dao.get_loadout_plan(plan_id) if plan_id is not None else user_dao.get_active_loadout_plan_for_role(role_name)
         if plan is None:
             raise ValueError("未找到该角色的已保存方案")
         if plan.get("allocation_locked"):
@@ -417,11 +202,35 @@ def _sqlite_replacement_candidates(database_path, role_name, item_kind, old_uid)
             for assignment in plan.get("assignments") or []
             if str(assignment.get("kind")) == expected_kind
         }
-        equipped_by_roles = _active_sqlite_equipment_users(user_dao, role_name)
-        locked_uids = {
-            (str(owner["kind"]), int(owner["uid_serial"]), int(owner["uid_slot"]))
-            for owner in user_dao.list_allocation_locked_equipment_owners()
-        }
+        equipped_by_roles = _active_sqlite_equipment_users(
+            user_dao,
+            int(plan["plan_id"]),
+            target_snapshot_id=snapshot_id,
+        )
+        snapshot_summary = user_dao.inventory_snapshot_summary(snapshot_id) or {}
+        locked_uids: set[tuple[str, int, int]] = set()
+        for owner in user_dao.list_allocation_locked_equipment_owners():
+            owner_snapshot_id = owner.get("source_snapshot_id")
+            if owner_snapshot_id is not None:
+                owner_summary = user_dao.inventory_snapshot_summary(
+                    int(owner_snapshot_id)
+                ) or {}
+                same_item_space = source_snapshots_share_equipment_uids(
+                    snapshot_id,
+                    snapshot_summary.get("source"),
+                    int(owner_snapshot_id),
+                    owner_summary.get("source"),
+                )
+            else:
+                # An old locked plan without a fixed snapshot is ambiguous;
+                # keep the historical conservative reservation behavior.
+                same_item_space = True
+            if same_item_space:
+                locked_uids.add((
+                    str(owner["kind"]),
+                    int(owner["uid_serial"]),
+                    int(owner["uid_slot"]),
+                ))
         old_key = (int(current["_uid_serial"]), int(current["_uid_slot"]))
         assigned_items = [
             items_by_key[(int(assignment["uid_serial"]), int(assignment["uid_slot"]))]
@@ -456,6 +265,8 @@ def _open_official_saved_plan_optimizer(
     role_name: str,
     item_kind: str,
     uid: str,
+    *,
+    plan_id: int | None = None,
 ) -> bool:
     """Open the replacement flow backed by the new SQLite role panel.
 
@@ -466,7 +277,11 @@ def _open_official_saved_plan_optimizer(
     """
     database_path = _equipment_paths(window)[0]
     with UserDataDao(database_path) as dao:
-        plan = dao.get_active_loadout_plan_for_role(role_name)
+        plan = (
+            dao.get_loadout_plan(int(plan_id))
+            if plan_id is not None
+            else dao.get_active_loadout_plan_for_role(role_name)
+        )
     if not isinstance(plan, dict):
         return False
     if plan.get("allocation_locked"):
@@ -481,11 +296,23 @@ def _open_official_saved_plan_optimizer(
     )
 
     detail = load_official_role_detail(database_path, int(character_id))
+    contexts = detail.get("equipment_contexts", {}) or {}
+    context_key = next(
+        (
+            key
+            for key, context in contexts.items()
+            if int((context.get("plan") or {}).get("plan_id") or 0)
+            == int(plan.get("plan_id") or 0)
+        ),
+        None,
+    )
+    if context_key is None:
+        return False
     expected_kind = "module" if item_kind == "drive" else "core"
     target = next(
         (
             item
-            for item in (detail.get("equipment_contexts", {}).get("saved", {}).get("items") or ())
+            for item in (contexts.get(context_key, {}).get("items") or ())
             if str(item.get("kind") or "") == expected_kind
             and f"nte-{expected_kind}-{item.get('uid_slot')}-{item.get('uid_serial')}" == str(uid)
         ),
@@ -498,9 +325,59 @@ def _open_official_saved_plan_optimizer(
         window,
         detail,
         target,
+        context_key=context_key,
         on_saved=refresh if callable(refresh) else None,
     )
     return True
+
+
+def _saved_plan_uses_custom_character(
+    database_path,
+    role_name: str,
+    *,
+    plan_id: int | None,
+) -> bool:
+    """Resolve custom-role identity from the saved plan's account-local ID."""
+
+    with UserDataDao(database_path) as dao:
+        plan = (
+            dao.get_loadout_plan(int(plan_id))
+            if plan_id is not None
+            else dao.get_active_loadout_plan_for_role(role_name)
+        )
+        if not isinstance(plan, dict) or plan.get("character_id") is None:
+            return False
+        character_id = int(plan["character_id"])
+        return any(
+            int(custom["character_id"]) == character_id
+            for custom in dao.list_custom_characters()
+        )
+
+
+def _custom_plan_weight_overrides(
+    database_path,
+    plan: dict,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Read current custom-role weights in the labels rendered on equipment cards."""
+
+    character_id = plan.get("character_id")
+    if character_id is None:
+        return {}, {}
+    with UserDataDao(database_path) as dao:
+        record = dao.get_character_weight_preferences(int(character_id)) or {}
+
+    def display_weights(field_name: str) -> dict[str, float]:
+        result: dict[str, float] = {}
+        for property_id, raw_weight in (record.get(field_name) or {}).items():
+            try:
+                weight = float(raw_weight)
+            except (TypeError, ValueError):
+                continue
+            if weight > 0:
+                result[_display_stat_label(property_id)] = weight
+        return result
+
+    return display_weights("property_weights"), display_weights("main_property_weights")
 
 
 def _optimize_saved_equipment(
@@ -517,21 +394,43 @@ def _optimize_saved_equipment(
     assignment_scores_override: dict[str, float] | None = None,
     exclude_used_by_others: bool = False,
     replacement_persister=None,
+    plan_id: int | None = None,
 ):
-    """Restore per-card optimization using only the active SQLite plan snapshot."""
-    if rank_by_damage and weights_override is None and main_weights_override is None:
-        try:
-            if _open_official_saved_plan_optimizer(self, role_name, item_kind, uid):
+    """Restore per-card optimization using only the selected SQLite plan snapshot."""
+    is_custom_role = False
+    if (
+        weights_override is None
+        and main_weights_override is None
+        and replacement_persister is None
+    ):
+        database_path = _equipment_paths(self)[0]
+        is_custom_role = _saved_plan_uses_custom_character(
+            database_path,
+            role_name,
+            plan_id=plan_id,
+        )
+        if not is_custom_role:
+            try:
+                if _open_official_saved_plan_optimizer(
+                    self,
+                    role_name,
+                    item_kind,
+                    uid,
+                    plan_id=plan_id,
+                ):
+                    return
+            except Exception as exc:
+                QMessageBox.warning(self, "优化替换", f"无法读取官方角色详情：{exc}")
                 return
-        except Exception as exc:
-            QMessageBox.warning(self, "优化替换", f"无法读取官方角色详情：{exc}")
+            QMessageBox.warning(self, "优化替换", "当前方案无法在官方角色详情中定位，请重新计算并保存后重试。")
             return
-        QMessageBox.warning(self, "优化替换", "当前方案无法在官方角色详情中定位，请重新计算并保存后重试。")
-        return
+        # Custom roles intentionally have no official detail or damage model.
+        # Their replacement flow ranks only by their current account weights.
+        rank_by_damage = False
     database_path, _, asset_dir = _equipment_paths(self)
     try:
         plan, current, candidates, _plan_drives, _plan_tape = _sqlite_replacement_candidates(
-            database_path, role_name, item_kind, uid
+            database_path, role_name, item_kind, uid, plan_id=plan_id
         )
     except Exception as exc:
         QMessageBox.warning(self, "优化替换", str(exc))
@@ -539,11 +438,25 @@ def _optimize_saved_equipment(
     if exclude_used_by_others:
         candidates = [candidate for candidate in candidates if not candidate.get("_used_by")]
     role_cfg = {}
+    custom_weights: dict[str, float] | None = None
+    custom_main_weights: dict[str, float] | None = None
+    if is_custom_role:
+        custom_weights, custom_main_weights = _custom_plan_weight_overrides(database_path, plan)
     if not isinstance(weights_override, dict) or not isinstance(main_weights_override, dict):
         role_cfg = (getattr(self, "roles_db", {}) or {}).get(role_name, {})
-    weights = dict(weights_override) if isinstance(weights_override, dict) else role_cfg.get("weights", {})
+    weights = (
+        dict(weights_override)
+        if isinstance(weights_override, dict)
+        else custom_weights
+        if custom_weights is not None
+        else role_cfg.get("weights", {})
+    )
     main_weights = (
-        dict(main_weights_override) if isinstance(main_weights_override, dict) else role_cfg.get("main_weights")
+        dict(main_weights_override)
+        if isinstance(main_weights_override, dict)
+        else custom_main_weights
+        if custom_main_weights is not None
+        else role_cfg.get("main_weights")
     )
     presentation = equipment_presentation(self)
     if item_kind == "drive":
@@ -594,9 +507,13 @@ def _optimize_saved_equipment(
     )
     layout.addWidget(role_header)
     summary_text = (
+        "自建角色仅按当前词条与卡带主属性权重评分排序"
+        if is_custom_role
+        else (
         f"当前直伤收益：{current_margin:+.2f}%（候选按直伤收益排序）"
-        if rank_by_damage
+        if rank_by_damage and current_margin is not None
         else "候选按当前词条配装权重评分排序"
+        )
     )
     summary = QLabel(
         f"{summary_text}；仅显示同{('形状' if item_kind == 'drive' else '套装')}的候选装备，"
@@ -679,13 +596,15 @@ def _optimize_saved_equipment(
                     replacement_persister(selected, selected_score, current_score)
                 else:
                     with UserDataDao(database_path) as dao:
-                        dao.save_loadout_plan(
-                            name=str(plan.get("name") or f"优化方案：{role_name}"),
-                            character_id=int(plan["character_id"]),
-                            assignments=assignments,
-                            source_snapshot_id=int(plan["source_snapshot_id"]),
-                            status="saved",
-                            score=(
+                        save_replacement_to_slot = getattr(
+                            dao, "save_replacement_plan_to_slot", None
+                        )
+                        save_kwargs = {
+                            "name": str(plan.get("name") or f"优化方案：{role_name}"),
+                            "assignments": assignments,
+                            "source_snapshot_id": int(plan["source_snapshot_id"]),
+                            "status": "saved",
+                            "score": (
                                 exact_score
                                 if is_virtual_equipment_assignment(current)
                                 and exact_score is not None
@@ -693,9 +612,17 @@ def _optimize_saved_equipment(
                                 - current_score
                                 + selected_score
                             ),
-                            payload=replacement_payload,
-                            is_active=True,
-                        )
+                            "payload": replacement_payload,
+                        }
+                        if plan.get("slot_id") is not None and callable(save_replacement_to_slot):
+                            save_replacement_to_slot(int(plan["slot_id"]), **save_kwargs)
+                        else:
+                            dao.save_loadout_plan(
+                                character_id=int(plan["character_id"]),
+                                is_active=bool(plan.get("is_active")),
+                                slot_id=plan.get("slot_id"),
+                                **save_kwargs,
+                            )
             except Exception as exc:
                 QMessageBox.warning(dialog, "替换失败", str(exc))
                 return

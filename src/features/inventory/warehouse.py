@@ -23,10 +23,10 @@ from src.domain.warehouse_filter import (
     filter_projected_warehouse_items,
     sort_projected_warehouse_items,
 )
-from src.domain.stat_catalog import StatCatalog
 from src.services.tape_main_value import full_level_tape_main_value
 from src.integrations.bundled_resources import bundled_config_dir, bundled_game_ui_asset_root
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.services.inventory_source_capabilities import is_visual_inventory_source
 from src.services.sqlite_allocation_inventory import legacy_stat_name
 from src.services.warehouse_visual_catalog import (
     representative_core_item_id,
@@ -185,22 +185,6 @@ def _stat_view(stat: Mapping[str, Any], *, main: bool = False) -> dict[str, Any]
     }
 
 
-@lru_cache(maxsize=1)
-def _visual_core_main_values() -> dict[str, float]:
-    """Map official property IDs to max-level card-main values for old scans."""
-    catalog = StatCatalog.from_config_dir(bundled_config_dir())
-    values: dict[str, float] = {}
-    for property_id in set(_STAT_LABELS) | {
-        "DamageUpChaosBase", "DamageUpCosmosBase", "DamageUpIncantationBase",
-        "DamageUpLakshanaBase", "DamageUpNatureBase", "DamageUpPsycheBase",
-        "DamageUpPsychicallyBase",
-    }:
-        stat_name = legacy_stat_name(property_id)
-        if stat_name in catalog.tape_main_values:
-            values[property_id] = float(catalog.tape_main_values[stat_name])
-    return values
-
-
 def _warehouse_main_stats(row: Mapping[str, Any], source: str) -> list[Mapping[str, Any]]:
     """Display card mains at their quality's level cap without mutating SQLite."""
 
@@ -337,7 +321,9 @@ def warehouse_item_view(
 ) -> dict[str, Any]:
     """Turn one official SQLite item into the compact card data used by the view."""
     source = str(source or "")
-    level_known = source != "gamepad"
+    level_known = bool(
+        row.get("level_known", not is_visual_inventory_source(source))
+    )
     # Equipped/locked/discarded state is authoritative only in a packet-capture
     # snapshot.  Saved calculator plans are deliberately not projected onto
     # warehouse cards, and vision/gamepad rows cannot claim game state.
@@ -737,7 +723,7 @@ class WarehouseCardDelegate(QStyledItemDelegate):
             if max_level:
                 level += f" / {max_level}"
         else:
-            level = "未知等级"
+            level = "等级未知"
         self._text(painter, QRect(left + 52, top + 23, width - 112, 16), level, quality_color, 9)
         if item.get("equipped"):
             # Packet snapshots contain an official character ID.  Prefer its

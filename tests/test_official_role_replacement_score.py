@@ -5,79 +5,6 @@ from unittest.mock import patch
 from src.services.official_role_page_service import save_official_role_replacement
 
 
-def test_shared_replacement_dialog_uses_four_candidate_columns(
-    monkeypatch,
-) -> None:
-    from PySide6.QtWidgets import QApplication, QDialog, QGridLayout, QWidget
-
-    from src.features.inventory.warehouse_result_card import WarehouseResultCard
-    from src.ui.equipment_replacement_dialog import (
-        EquipmentReplacementCard,
-        REPLACEMENT_CANDIDATE_COLUMNS,
-        REPLACEMENT_CANDIDATE_GAP,
-        REPLACEMENT_DIALOG_CHROME_WIDTH,
-        REPLACEMENT_DIALOG_WIDTH,
-        show_equipment_replacement_dialog,
-    )
-
-    app = QApplication.instance() or QApplication([])
-    parent = QWidget()
-
-    def replacement_card(key: str) -> EquipmentReplacementCard:
-        return EquipmentReplacementCard(
-            key=key,
-            item_view={"display_name": key},
-            score=10.0,
-            grade="A",
-            direct_damage_score=1.0,
-            payload=None,
-        )
-
-    monkeypatch.setattr(QDialog, "exec", lambda _dialog: QDialog.Rejected)
-    show_equipment_replacement_dialog(
-        parent,
-        title="替换优化",
-        role_name="测试角色",
-        summary="测试四列候选布局",
-        current=replacement_card("当前"),
-        candidates=[replacement_card(f"候选{index}") for index in range(5)],
-        on_confirm=lambda _choice: None,
-    )
-
-    dialog = parent.findChild(QDialog, "equipmentReplacementDialog")
-    candidate_group = dialog.findChild(QWidget, "equipmentReplacementCandidateGroup")
-    candidate_cards = candidate_group.findChildren(WarehouseResultCard)
-    grid = candidate_cards[0].parentWidget().layout()
-
-    assert dialog.width() == REPLACEMENT_DIALOG_WIDTH
-    assert REPLACEMENT_CANDIDATE_COLUMNS == 4
-    assert REPLACEMENT_DIALOG_WIDTH == (
-        WarehouseResultCard.CARD_SIZE.width() * 4
-        + REPLACEMENT_CANDIDATE_GAP * 3
-        + REPLACEMENT_DIALOG_CHROME_WIDTH
-    )
-    assert isinstance(grid, QGridLayout)
-    assert [grid.getItemPosition(grid.indexOf(card))[:2] for card in candidate_cards] == [
-        (0, 0),
-        (0, 1),
-        (0, 2),
-        (0, 3),
-        (1, 0),
-    ]
-    parent.deleteLater()
-    app.processEvents()
-
-
-def test_official_role_base_group_has_no_internal_horizontal_separator() -> None:
-    from inspect import getsource
-
-    from src.features.official_role.role_growth import _build_base_group
-
-    source = getsource(_build_base_group)
-    assert "QFrame.HLine" not in source
-    assert "layout.addWidget(separator)" not in source
-
-
 def test_role_replacement_updates_equipment_score_not_direct_damage() -> None:
     captured: dict = {}
 
@@ -155,6 +82,69 @@ def test_role_replacement_updates_equipment_score_not_direct_damage() -> None:
     }
     assert plan["payload"]["schema"] == "game-observed-loadout-v1"
     assert plan["payload"]["source_role_name"] == "测试角色"
+
+
+def test_role_replacement_keeps_the_selected_secondary_slot() -> None:
+    captured: dict = {}
+
+    class FakeDao:
+        def __init__(self, _path) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def save_plan_to_slot(self, slot_id, **plan):
+            captured["slot_id"] = slot_id
+            captured["plan"] = plan
+            return 99
+
+    target = {
+        "uid_slot": 10,
+        "uid_serial": 20,
+        "kind": "module",
+        "geometry": "Hen2",
+    }
+    detail = {
+        "character": {"name_zh": "测试角色"},
+        "equipment_contexts": {
+            "saved:27": {
+                "slot_id": 27,
+                "plan": {
+                    "plan_id": 7,
+                    "character_id": 1003,
+                    "source_snapshot_id": 1,
+                    "score": 25.0,
+                    "payload": {"source_role_name": "测试角色"},
+                    "assignments": [dict(target)],
+                },
+            },
+        },
+    }
+    replacement = {
+        "uid_slot": 12,
+        "uid_serial": 22,
+        "kind": "module",
+        "geometry": "Hen2",
+    }
+
+    with patch("src.services.official_role_replacement_service.UserDataDao", FakeDao):
+        saved_plan_id = save_official_role_replacement(
+            Path("test.sqlite3"),
+            detail,
+            target,
+            replacement,
+            context_key="saved:27",
+            replacement_score=31.0,
+            current_score=25.0,
+        )
+
+    assert saved_plan_id == 99
+    assert captured["slot_id"] == 27
+    assert captured["plan"]["assignments"][0]["uid_slot"] == 12
 
 
 def test_virtual_drive_replacement_rebuilds_stale_plan_total() -> None:

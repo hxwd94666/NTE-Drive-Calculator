@@ -7,6 +7,7 @@ from src.features.blueprints.dependencies import BlueprintDependencies
 from src.observability import OperationContext, log_event, operation_scope
 from src.services.blueprint_service import solve_blueprints_from_static
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 class BlueprintController:
@@ -26,8 +27,15 @@ class BlueprintController:
             failed_event="blueprint.generate_failed",
             message="生成角色图纸",
         ) as span:
-            with StaticGameDataDao() as static_dao:
-                results = solve_blueprints_from_static(static_dao)
+            with (
+                StaticGameDataDao(self.dependencies.static_database_path) as static_dao,
+                UserDataDao(self.dependencies.user_database_path) as user_dao,
+            ):
+                results = solve_blueprints_from_static(
+                    static_dao,
+                    custom_characters=user_dao.list_custom_characters(),
+                    shared_database_path=self.dependencies.shared_database_path,
+                )
             span.annotate(
                 role_count=len(results),
                 plan_count=sum(

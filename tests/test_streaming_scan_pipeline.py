@@ -9,6 +9,53 @@ import numpy as np
 
 
 class StreamingScanPipelineTests(unittest.TestCase):
+    def test_streaming_queue_is_bounded_to_one_three_row_page(self):
+        from src.services.scan_parse_coordinator import CAPTURE_QUEUE_MAXSIZE
+
+        self.assertEqual(21, CAPTURE_QUEUE_MAXSIZE)
+
+    def test_mouse_worker_honors_bounded_streaming_parse_option(self):
+        from src.app.workers import FullVisualScanParseWorkerThread
+
+        mouse = FullVisualScanParseWorkerThread(
+            total_drives=1,
+            screenshot_dir="screenshots",
+            config_dir="config",
+            user_database_path="account.sqlite3",
+            parse_during_scan=True,
+            capture_driver="mouse",
+        )
+        gamepad = FullVisualScanParseWorkerThread(
+            total_drives=1,
+            screenshot_dir="screenshots",
+            config_dir="config",
+            user_database_path="account.sqlite3",
+            parse_during_scan=True,
+            capture_driver="gamepad",
+        )
+
+        self.assertTrue(mouse.parse_during_scan)
+        self.assertTrue(gamepad.parse_during_scan)
+        self.assertEqual("standard-low-load-v1", mouse.mouse_input_profile)
+        self.assertEqual(21, mouse.capture_queue_maxsize)
+        self.assertFalse(mouse.low_load_mode)
+        self.assertEqual(0.12, mouse.low_load_parse_delay_seconds)
+
+        low_load_mouse = FullVisualScanParseWorkerThread(
+            total_drives=1,
+            screenshot_dir="screenshots",
+            config_dir="config",
+            user_database_path="account.sqlite3",
+            parse_during_scan=True,
+            amd_compatibility=True,
+            capture_driver="mouse",
+        )
+        self.assertFalse(low_load_mouse.parse_during_scan)
+        self.assertEqual("compatibility-low-load-v1", low_load_mouse.mouse_input_profile)
+        self.assertEqual(7, low_load_mouse.capture_queue_maxsize)
+        self.assertTrue(low_load_mouse.low_load_mode)
+        self.assertEqual(0.20, low_load_mouse.low_load_parse_delay_seconds)
+
     def test_gamepad_worker_waits_for_post_action_focus_ack(self):
         from src.app import workers
 
@@ -383,6 +430,12 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual(2, stats["success_count"])
         self.assertEqual(0, stats["failed_count"])
         self.assertEqual("full", stats["parse_scope"])
+        self.assertGreaterEqual(stats["capture_ms"], 0.0)
+        self.assertGreaterEqual(stats["parse_ms"], 0.0)
+        self.assertGreaterEqual(stats["end_to_end_ms"], stats["capture_ms"])
+        self.assertGreaterEqual(stats["parse_tail_ms"], 0.0)
+        self.assertGreaterEqual(stats["producer_block_ms"], 0.0)
+        self.assertGreaterEqual(stats["queue_high_watermark"], 1)
 
     def test_default_low_load_parse_waits_until_scan_finishes(self):
         from src.services.streaming_scan_service import run_streaming_scan_parse
@@ -425,6 +478,89 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertLess(events.index("scan_done"), events.index("parse:raw_drive_0001.png"))
         self.assertEqual(2, stats["success_count"])
         self.assertEqual(0, stats["failed_count"])
+
+    def test_mouse_pipeline_commits_then_runs_shared_state_plan(self):
+        from unittest.mock import patch
+
+        from src.services.streaming_scan_service import run_streaming_scan_parse
+
+        events = []
+
+        class FakeScanner:
+            output_dir = "screenshots"
+
+            def start_scan(self, total_drives, on_capture=None, commit_on_complete=True):
+                on_capture("screenshots/temp/raw_drive_0001.png", 1, total_drives)
+                return total_drives
+
+            def _commit_temp_output(self):
+                events.append("commit")
+
+            def sync_equipment_states(self, total_drives, state_changes, action_mode="default"):
+                events.append(("sync", total_drives, state_changes, action_mode))
+                return len(state_changes)
+
+        class FakeProcessor:
+            inventory = []
+
+            def process_image_file(self, _path, _filename, **_kwargs):
+                return SimpleNamespace(item_type="drive"), True
+
+        evaluation = SimpleNamespace(
+            config={"server_region": "cn", "discard": {"enabled": True}, "lock": {"enabled": False}},
+            state_changes=[{"index": 1, "current_state": "normal", "target_state": "locked"}],
+            filter_summary={"post_action_candidate_count": 1},
+        )
+        with patch(
+            "src.services.streaming_scan_service.PostActionEvaluator.evaluate",
+            return_value=evaluation,
+        ):
+            stats = run_streaming_scan_parse(
+                FakeScanner(),
+                FakeProcessor(),
+                total_drives=1,
+                parse_during_scan=True,
+                post_actions_config=evaluation.config,
+                allow_post_actions=True,
+            )
+
+        self.assertEqual("commit", events[0])
+        self.assertEqual(("sync", 1, evaluation.state_changes, "default"), events[1])
+        self.assertTrue(stats["post_actions_enabled"])
+        self.assertEqual(1, stats["lock_set_count"])
+
+    def test_stale_generation_discards_pipeline_before_file_commit(self):
+        from src.services.streaming_scan_service import run_streaming_scan_parse
+
+        class FakeScanner:
+            output_dir = "screenshots"
+            committed = False
+
+            def start_scan(self, total_drives, on_capture=None, commit_on_complete=True):
+                on_capture("screenshots/temp/raw_drive_0001.png", 1, total_drives)
+                return total_drives
+
+            def _commit_temp_output(self):
+                self.committed = True
+
+        class FakeProcessor:
+            inventory = []
+
+            def process_image_file(self, _path, _filename, **_kwargs):
+                return SimpleNamespace(item_type="drive"), True
+
+        scanner = FakeScanner()
+        stats = run_streaming_scan_parse(
+            scanner,
+            FakeProcessor(),
+            total_drives=1,
+            parse_during_scan=True,
+            allow_post_actions=False,
+            result_is_current=lambda: False,
+        )
+
+        self.assertTrue(stats["discarded_stale"])
+        self.assertFalse(scanner.committed)
 
     def test_amd_low_load_forces_post_scan_parse_and_throttles(self):
         from src.services import streaming_scan_service

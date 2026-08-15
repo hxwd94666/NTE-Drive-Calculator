@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 21
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -26,9 +26,17 @@ USER_MIGRATIONS = {
     11: Path(__file__).with_name("schema") / "012_user_data_v11.sql",
     12: Path(__file__).with_name("schema") / "013_user_data_v12.sql",
     13: Path(__file__).with_name("schema") / "014_user_data_v13.sql",
+    14: Path(__file__).with_name("schema") / "015_user_data_v14.sql",
+    15: Path(__file__).with_name("schema") / "016_user_data_v15.sql",
+    16: Path(__file__).with_name("schema") / "017_user_data_v16.sql",
+    17: Path(__file__).with_name("schema") / "018_user_data_v17.sql",
+    18: Path(__file__).with_name("schema") / "019_user_data_v18.sql",
+    19: Path(__file__).with_name("schema") / "020_user_data_v19.sql",
+    20: Path(__file__).with_name("schema") / "021_user_data_v20.sql",
+    21: Path(__file__).with_name("schema") / "022_user_data_v21.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
-SNAPSHOT_SOURCES = frozenset({"nte_core", "gamepad", "import"})
+SNAPSHOT_SOURCES = frozenset({"nte_core", "vision", "gamepad", "import"})
 DEFAULT_SNAPSHOT_RETENTION_COUNT = 20
 ALLOCATION_STRATEGIES = frozenset({"role_priority", "global_optimal"})
 SUIT_REQUIREMENT_MODES = frozenset({"none", "two_piece", "four_piece"})

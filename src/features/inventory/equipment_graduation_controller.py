@@ -47,13 +47,20 @@ def request_equipment_graduation_rate(
     app_context = getattr(window, "app_context", None)
     generation = getattr(app_context, "generation", None)
     mode = "game" if state.get("_game_mode") else "saved"
-    context_key = "current" if mode == "game" else "saved"
+    slot_id = state.get("_loadout_slot_id")
+    context_key = (
+        "current"
+        if mode == "game"
+        else f"saved:{int(slot_id)}"
+        if slot_id is not None
+        else "saved"
+    )
     token = object()
     tokens = getattr(window, "_equipment_graduation_tokens", None)
     if not isinstance(tokens, dict):
         tokens = {}
         window._equipment_graduation_tokens = tokens
-    cache_key = (mode, role_name)
+    cache_key = (mode, role_name, context_key)
     tokens[cache_key] = token
 
     def target():
@@ -77,7 +84,7 @@ def request_equipment_graduation_rate(
         return (
             tokens.get(cache_key) is token
             and getattr(current_context, "generation", None) == generation
-            and current_states.get(role_name) is state
+            and any(candidate is state for candidate in current_states.values())
         )
 
     def loaded(summary) -> None:

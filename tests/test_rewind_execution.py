@@ -195,7 +195,7 @@ def test_screenshot_balance_plans_54_tens_and_leaves_340_currency() -> None:
     assert backend.pauses == [1.0, 1.0] + [1.0, 1.0, 0.5] * 54
 
 
-def test_apply_plan_rebuilds_eight_slots_and_exits_customization() -> None:
+def test_apply_plan_rebuilds_eight_slots_and_confirm_returns_to_draw_page() -> None:
     backend = _Backend()
     shapes = ("EquipmentGeometry_Hen2",) * 8
     selection_image, expected = _synthetic_shape_selection()
@@ -218,7 +218,7 @@ def test_apply_plan_rebuilds_eight_slots_and_exits_customization() -> None:
     assert report.ten_draws == 2
     assert report.single_draws == 0
     assert report.quality_ten_costs == (("gold", 1200),)
-    assert backend.keys == ["esc"] * 5
+    assert backend.keys == ["esc"] * 4
     h2_x, h2_y = expected["H_2"]
     assert backend.clicks.count((100 + h2_x, 40 + h2_y)) == 8
     assert (2190, 1186) in backend.clicks
@@ -235,7 +235,7 @@ def test_apply_plan_rebuilds_eight_slots_and_exits_customization() -> None:
     setup_pauses = [event for event in backend.events[:first_draw] if event[0] == "pause"]
     assert setup_pauses[:5] == [("pause", 1.0)] * 5
     assert setup_pauses[5:22] == [("pause", 0.2)] * 17
-    assert setup_pauses[22:] == [("pause", 1.0), ("pause", 1.0)]
+    assert setup_pauses[22:] == [("pause", 1.0)]
 
 
 def test_enabled_customization_keeps_existing_pool_without_rebuilding() -> None:

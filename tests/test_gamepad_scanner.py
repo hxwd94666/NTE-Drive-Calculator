@@ -418,7 +418,7 @@ class GamepadScannerTests(unittest.TestCase):
         finally:
             gamepad_controller.time.sleep = original_sleep
 
-    def test_sync_equipment_states_moves_backward_from_last_scanned_item(self):
+    def test_sync_equipment_states_activates_then_moves_backward_from_last_item(self):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
@@ -426,7 +426,9 @@ class GamepadScannerTests(unittest.TestCase):
         scanner._stopped = False
         moves = []
         presses = []
+        down_sticks = []
         scanner._apply_moves = lambda batch: moves.append(batch)
+        scanner.push_left_joystick = lambda x, y, **_kwargs: down_sticks.append((x, y))
         scanner._press_menu = lambda: presses.append("menu")
         scanner._press_a = lambda: presses.append("a")
 
@@ -445,10 +447,11 @@ class GamepadScannerTests(unittest.TestCase):
             gamepad_controller.time.sleep = original_sleep
 
         self.assertEqual(2, applied)
+        self.assertEqual([(0.0, -1.0), (0.0, -1.0)], down_sticks)
         self.assertEqual(["menu", "a", "menu", "menu", "a", "menu"], presses)
-        self.assertEqual([["R", "R", "R", "R", "R", "R"], ["R"], ["U", "L", "L", "L", "L", "L"]], moves)
+        self.assertEqual([[], ["R"], ["U", "L", "L", "L", "L", "L"]], moves)
         self.assertEqual(
-            [0.2, 0.2, 0.3, 0.15, 0.3, 0.3, 0.2, 0.2, 0.3, 0.3, 0.3],
+            [0.3, 0.15, 0.3, 0.3, 0.2, 0.2, 0.3, 0.3, 0.3],
             pauses,
         )
 
@@ -456,26 +459,31 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         cases = [
-            # 13 items end on the odd second row at column 0.
-            (13, (1, 0), [[], ["R"], ["R", "R", "R", "R", "R"]]),
-            # 15 items end on the even third row at column 0.
-            (15, (2, 0), [[], ["R"], ["U", "R", "R", "R", "R", "R", "R"]]),
+            # 13 items end on the odd S row at column 0, but down-stick focus
+            # is the physical final cell at column 5.
+            (13, (1, 0), (1, 5), [["L", "L", "L", "L", "L"], ["R"], ["R", "R", "R", "R", "R"]]),
+            # 15 items end on the even third row at column 0, matching the
+            # final physical cell.
+            (15, (2, 0), (2, 0), [[], ["R"], ["U", "R", "R", "R", "R", "R", "R"]]),
         ]
         original_sleep = gamepad_controller.time.sleep
         gamepad_controller.time.sleep = lambda _seconds: None
         try:
-            for total_drives, expected_last_position, expected_moves in cases:
+            for total_drives, expected_scan_end, expected_origin, expected_moves in cases:
                 with self.subTest(total_drives=total_drives):
                     scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
                     scanner.cols = 7
                     scanner._stopped = False
                     moves = []
                     presses = []
+                    down_sticks = []
                     scanner._apply_moves = lambda batch: moves.append(list(batch))
+                    scanner.push_left_joystick = lambda x, y, **_kwargs: down_sticks.append((x, y))
                     scanner._press_menu = lambda: presses.append("menu")
                     scanner._press_a = lambda: presses.append("a")
 
-                    self.assertEqual(expected_last_position, scanner._scan_positions(total_drives)[-1])
+                    self.assertEqual(expected_scan_end, scanner._scan_positions(total_drives)[-1])
+                    self.assertEqual(expected_origin, scanner._last_inventory_position(total_drives))
                     applied = scanner.sync_equipment_states(
                         total_drives,
                         [
@@ -485,6 +493,7 @@ class GamepadScannerTests(unittest.TestCase):
                     )
 
                     self.assertEqual(2, applied)
+                    self.assertEqual([(0.0, -1.0), (0.0, -1.0)], down_sticks)
                     self.assertEqual(["menu", "a", "menu", "menu", "a", "menu"], presses)
                     self.assertEqual(expected_moves, moves)
         finally:

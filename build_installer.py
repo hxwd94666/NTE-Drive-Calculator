@@ -39,6 +39,7 @@ APP_COMBAT_CLOCK_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "combat-clock.nte
 APP_USER_SCHEMA = APP_INTERNAL / "src" / "storage" / "sqlite" / "schema" / "001_user_data.sql"
 APP_STATIC_DATABASE = APP_INTERNAL / "data" / "game_static.sqlite3"
 APP_STATIC_MANIFEST = APP_INTERNAL / "data" / "manifest.json"
+APP_SHARED_DATABASE_SEED = APP_INTERNAL / "data" / "app_shared.sqlite3"
 APP_SHAPE_BONUS_BASELINE = (
     APP_INTERNAL / "data" / "migrations" / "shape_bonus_defaults_2.0.2.json"
 )
@@ -192,6 +193,7 @@ def _validate_app_bundle() -> None:
         "用户数据库结构": APP_USER_SCHEMA,
         "发行版静态数据库": APP_STATIC_DATABASE,
         "发行版静态数据库清单": APP_STATIC_MANIFEST,
+        "公共额外形状默认库": APP_SHARED_DATABASE_SEED,
         "旧版额外形状迁移基线": APP_SHAPE_BONUS_BASELINE,
     }
     missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]

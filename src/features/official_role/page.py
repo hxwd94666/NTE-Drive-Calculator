@@ -14,8 +14,10 @@ def build_official_role_page(window):
     return _page_my_role(window)
 
 
-def refresh_official_role_page(window):
-    return _refresh_my_role(window)
+def refresh_official_role_page(window, *, restore_scroll_value: int | None = None):
+    """Refresh the role page through its public feature entry point."""
+
+    return _refresh_my_role(window, restore_scroll_value=restore_scroll_value)
 
 
 __all__ = [

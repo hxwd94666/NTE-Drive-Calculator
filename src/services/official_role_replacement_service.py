@@ -106,7 +106,7 @@ def replacement_candidates_for_official_role(
     """
 
     context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
-    if context_key != "saved" or not context.get("plan"):
+    if not (context_key == "saved" or context_key.startswith("saved:")) or not context.get("plan"):
         return []
     if bool((context.get("plan") or {}).get("allocation_locked")):
         return []
@@ -118,7 +118,7 @@ def replacement_candidates_for_official_role(
     target_geometry = str(target.get("geometry") or "")
     target_suit = target.get("suit_id")
     eligible = []
-    for candidate in detail.get("replacement_items") or ():
+    for candidate in context.get("replacement_items") or detail.get("replacement_items") or ():
         if candidate.get("allocation_reserved"):
             continue
         if _same_inventory_item(candidate, target):
@@ -251,13 +251,14 @@ def save_official_role_replacement(
     target: Mapping[str, Any],
     replacement: Mapping[str, Any],
     *,
+    context_key: str = "saved",
     replacement_score: float | None = None,
     current_score: float | None = None,
     current_assignment_scores: Mapping[str, float] | None = None,
 ) -> int:
     """Persist one accepted saved-plan replacement as the next active plan."""
 
-    context = (detail.get("equipment_contexts") or {}).get("saved") or {}
+    context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
     plan = context.get("plan")
     if not isinstance(plan, Mapping) or plan.get("source_snapshot_id") is None:
         raise ValueError("请先保存一套 SQLite 配装方案，再使用替换优化")
@@ -351,11 +352,10 @@ def save_official_role_replacement(
         payload["assignment_scores"] = assignment_scores
     role_name = str((detail.get("character") or {}).get("name_zh") or plan["character_id"])
     with UserDataDao(user_database_path) as user_dao:
-        saved_plan_ids = user_dao.replace_active_loadout_plans([{
+        save_kwargs = {
             "name": f"替换优化：{role_name}",
-            "character_id": int(plan["character_id"]),
-            "source_snapshot_id": int(plan["source_snapshot_id"]),
             "assignments": assignments,
+            "source_snapshot_id": int(plan["source_snapshot_id"]),
             "status": (
                 "incomplete"
                 if any(is_virtual_equipment_assignment(row) for row in assignments)
@@ -363,5 +363,16 @@ def save_official_role_replacement(
             ),
             "score": saved_score,
             "payload": payload,
+        }
+        slot_id = context.get("slot_id") or plan.get("slot_id")
+        save_replacement_to_slot = getattr(user_dao, "save_replacement_plan_to_slot", None)
+        if slot_id is not None and callable(save_replacement_to_slot):
+            return int(save_replacement_to_slot(int(slot_id), **save_kwargs))
+        save_to_slot = getattr(user_dao, "save_plan_to_slot", None)
+        if slot_id is not None and callable(save_to_slot):
+            return int(save_to_slot(int(slot_id), **save_kwargs))
+        saved_plan_ids = user_dao.replace_active_loadout_plans([{
+            **save_kwargs,
+            "character_id": int(plan["character_id"]),
         }])
     return saved_plan_ids[0]

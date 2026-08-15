@@ -9,50 +9,32 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from src.app.constants import DRONE_HELP, OFFLINE_HELP, SCAN_HELP
 from src.app.dialogs import show_help
 from src.app.theme import current_style_sheet
-from src.app.workers import GamepadScanParseWorkerThread, ScanWorkerThread
+from src.app.workers import FullVisualScanParseWorkerThread, ScanWorkerThread
 from src.features.allocation.execute_page import build_execute_page
 from src.features.allocation.preference_modes import role_preference_mode_error
 from src.features.allocation.role_selector import RoleSelector
-from src.features.scanning.dependencies import ScanningDependencies
+from src.features.scanning.dependencies import (
+    current_scanning_dependencies as _current_scanning_dependencies,
+    scanning_dependencies_are_current as _scanning_dependencies_are_current,
+    task_scanning_dependencies as _task_scanning_dependencies,
+)
 from src.features.scanning.manual_recovery import complete_pending_manual_items
 from src.features.scanning.operation_logging import (
     begin_scan_operation as _begin_scan_operation,
     scan_event as _scan_event,
 )
 from src.features.scanning.post_action_dialog import load_scan_post_action_config, show_scan_post_action_dialog
+from src.features.scanning.scan_contracts import (
+    offline_scope_replaces_inventory,
+    vision_cancel_message,
+)
 from src.domain.post_actions import post_actions_enabled, validate_post_action_config
 from src.features.scanning.vision_worker import VisionWorkerThread
-from src.services.vision_inventory_snapshot import import_vision_inventory
+from src.services.full_visual_snapshot_commit import (
+    IncompleteVisionScanError,
+    commit_completed_vision_inventory,
+)
 from src.utils.logger import logger
-
-def _current_scanning_dependencies(self) -> ScanningDependencies:
-    return ScanningDependencies.from_app_context(self.app_context)
-
-
-def _task_scanning_dependencies(self) -> ScanningDependencies:
-    dependencies = getattr(self, "_scan_dependencies", None)
-    return dependencies or _current_scanning_dependencies(self)
-
-
-def _scanning_is_running(self) -> bool:
-    for name in ("_scan_worker", "_gamepad_worker", "_vision_worker"):
-        worker = getattr(self, name, None)
-        if worker is not None and callable(getattr(worker, "isRunning", None)):
-            if worker.isRunning():
-                return True
-    return False
-
-
-def offline_scope_replaces_inventory(scope: str) -> bool:
-    return scope in ("full", "all")
-
-
-def vision_cancel_message(parsed_count: int) -> str:
-    return (
-        f"已停止继续解析，本次已解析 {int(parsed_count or 0)} 张截图。\n\n"
-        "由于解析任务已取消，本次结果未写入/更新 SQLite 背包快照。"
-    )
-
 
 def _page_execute(self):
     return build_execute_page(
@@ -75,6 +57,8 @@ def _on_scan_change(self, id):
     if hasattr(self, "offline_frame"):
         self.offline_frame.setVisible(id == 3)
     self.total_count_frame.setVisible(id == 1)
+    if hasattr(self, "full_scan_driver_frame"):
+        self.full_scan_driver_frame.setVisible(id == 1)
     if hasattr(self, "scan_dual_thread_frame"):
         self.scan_dual_thread_frame.setVisible(id == 1)
     self.drone_frame.setVisible(id == 2)
@@ -90,6 +74,7 @@ def _open_scan_post_action_manager(self):
         self.dialog_parent,
         dependencies.user_config_dir,
         dependencies.config_dir,
+        user_database_path=dependencies.user_database_path,
     )
 
 
@@ -102,7 +87,15 @@ def _do_exec(self):
         QMessageBox.warning(self.dialog_parent, "提示", "请先选择目标角色！")
         return
     total_drives = None
+    capture_driver = "mouse"
     if sm == "1":
+        driver_button = (
+            self.full_scan_driver_group.checkedButton()
+            if hasattr(self, "full_scan_driver_group")
+            else None
+        )
+        if driver_button is not None:
+            capture_driver = str(driver_button.property("capture_driver") or "mouse")
         raw_count = self.total_count_edit.text().strip()
         if not raw_count:
             QMessageBox.warning(
@@ -176,7 +169,10 @@ def _do_exec(self):
         return
     post_actions_config = None
     if sm == "1":
-        post_actions_config = load_scan_post_action_config(dependencies.user_config_dir)
+        post_actions_config = load_scan_post_action_config(
+            dependencies.user_config_dir,
+            user_database_path=dependencies.user_database_path,
+        )
         post_action_error = validate_post_action_config(post_actions_config)
         if post_action_error:
             QMessageBox.warning(
@@ -221,6 +217,7 @@ def _do_exec(self):
             selected_roles=None,
             parse_during_scan=parse_during_scan,
             amd_compatibility=amd_compatibility,
+            capture_driver=capture_driver,
         )
     else:
         self._allocation_controller.start(
@@ -316,6 +313,11 @@ def _on_vision_progress(self, current, total, filename):
 def _on_vision_done(self, stats):
     dependencies = _task_scanning_dependencies(self)
     stats = stats or {}
+    if not _scanning_dependencies_are_current(self, dependencies):
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("⚡  开始计算")
+        self._pending_parse_only = False
+        return
     self._pending_archive_paths = []
     logger.info("视觉解析线程完成，准备启动分配计算...")
     if hasattr(self, "_progress_dlg") and self._progress_dlg:
@@ -369,29 +371,47 @@ def _on_vision_done(self, stats):
     duplicate_count = int(stats.get("duplicate_count", 0) or 0) + int(post.get("probe_duplicates", 0) or 0)
     summary = f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
     vision_snapshot_id = None
-    vision_items = list(stats.get("vision_items") or [])
-    if vision_items and str(stats.get("parse_scope") or "") in {"full", "all"}:
-        try:
-            vision_snapshot_id = import_vision_inventory(
-                dependencies.user_database_path,
-                [*vision_items, *manual_items],
-            )
-        except Exception as exc:
-            logger.error(f"视觉扫描 SQLite 快照写入失败: {exc}")
-            _scan_event(
-                self,
-                "ERROR",
-                "scanning.failed",
-                "视觉库存快照写入失败",
-                stage="snapshot_commit",
-                error=exc,
-            )
-            QMessageBox.warning(
-                self.dialog_parent,
-                "库存写入失败",
-                f"本次扫描未写入 SQLite 背包快照：{exc}",
-            )
-            return
+    try:
+        vision_snapshot_id = commit_completed_vision_inventory(
+            dependencies.user_database_path,
+            stats,
+            manual_items,
+        )
+    except IncompleteVisionScanError as exc:
+        _scan_event(
+            self,
+            "WARNING",
+            "scanning.incomplete",
+            "全量视觉扫描解析不完整",
+            expected_count=exc.expected_count,
+            parsed_count=exc.parsed_count,
+            failed_count=exc.failed_count,
+        )
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("⚡  开始计算")
+        self._pending_parse_only = False
+        QMessageBox.warning(
+            self.dialog_parent,
+            "扫描结果不完整",
+            f"{exc}\n本次结果未切换 SQLite 当前库存快照。",
+        )
+        return
+    except Exception as exc:
+        logger.error(f"视觉扫描 SQLite 快照写入失败: {exc}")
+        _scan_event(
+            self,
+            "ERROR",
+            "scanning.failed",
+            "视觉库存快照写入失败",
+            stage="snapshot_commit",
+            error=exc,
+        )
+        QMessageBox.warning(
+            self.dialog_parent,
+            "库存写入失败",
+            f"本次扫描未写入 SQLite 背包快照：{exc}",
+        )
+        return
     if isinstance(vision_snapshot_id, int) and vision_snapshot_id > 0:
         summary += f"\n已写入视觉扫描库存快照 #{vision_snapshot_id}；没有抓包快照时可用于计算和自动装配。"
         refresh_home = getattr(self, "_refresh_home", None)
@@ -531,12 +551,14 @@ def _start_scan(self, drone_mode):
 
 
 def _start_gamepad_scan(
-    self, total_drives, post_actions_config=None, selected_roles=None, parse_during_scan=True, amd_compatibility=False
+    self, total_drives, post_actions_config=None, selected_roles=None, parse_during_scan=True,
+    amd_compatibility=False, capture_driver="mouse",
 ):
     dependencies = _current_scanning_dependencies(self)
     self._scan_dependencies = dependencies
     self._replace_inventory_on_next_parse = True
-    self._pending_scan_mode = "gamepad"
+    capture_driver = "gamepad" if capture_driver == "gamepad" else "mouse"
+    self._pending_scan_mode = capture_driver
     self._pending_parse_scope = "full"
     self._pending_delete_after_parse = []
     self._pending_probe_duplicate_count = 0
@@ -554,8 +576,13 @@ def _start_gamepad_scan(
         self.dialog_parent,
         "全量扫描准备",
         "点击“确定”后程序会最小化并准备开始全量扫描。\n\n"
-        "请切换至游戏的驱动仓库页面，并确保当前选中第一排第一个驱动。\n"
-        "程序会在短暂倒计时后接管虚拟手柄进行遍历截图。" + action_hint,
+        "请切换至游戏的驱动仓库页面。\n"
+        + (
+            "请把列表滚动到顶部；程序会在倒计时后按网格随机偏移点击并滚动遍历截图。"
+            if capture_driver == "mouse"
+            else "请确保选中第一排第一个驱动；程序会在倒计时后接管虚拟手柄遍历截图。"
+        )
+        + action_hint,
         QMessageBox.Ok | QMessageBox.Cancel,
         QMessageBox.Cancel,
     )
@@ -570,13 +597,13 @@ def _start_gamepad_scan(
     _begin_scan_operation(
         self,
         dependencies,
-        route="gamepad",
+        route=capture_driver,
         expected_capture_count=int(total_drives or 0),
         parse_during_scan=bool(parse_during_scan),
         post_actions_enabled=bool(self._gamepad_post_actions_enabled),
     )
     self.showMinimized()
-    self._gamepad_worker = GamepadScanParseWorkerThread(
+    self._gamepad_worker = FullVisualScanParseWorkerThread(
         total_drives=total_drives,
         screenshot_dir=dependencies.screenshot_dir,
         config_dir=dependencies.config_dir,
@@ -586,6 +613,12 @@ def _start_gamepad_scan(
         selected_roles=selected_roles,
         parse_during_scan=parse_during_scan,
         amd_compatibility=amd_compatibility,
+        capture_driver=capture_driver,
+        result_is_current=lambda: (
+            self.app_context.generation == dependencies.generation
+            and self.app_context.account.active_account_id == dependencies.account_id
+            and self.app_context.account.user_database_path == dependencies.user_database_path
+        ),
     )
     self._gamepad_worker.scan_done.connect(self._on_gamepad_scan_done)
     self._gamepad_worker.progress.connect(self._on_gamepad_parse_progress)
@@ -593,8 +626,9 @@ def _start_gamepad_scan(
     self._gamepad_worker.post_actions_ready.connect(self._on_gamepad_post_actions_ready)
     self._gamepad_worker.processing_done.connect(self._on_gamepad_pipeline_done)
     self._gamepad_worker.error.connect(self._on_gamepad_error)
-    self._start_scan_hotkeys("gamepad")
-    self.btn_run.setText("⏳  手柄扫描/解析中... (F12 停止)")
+    self._start_scan_hotkeys(capture_driver)
+    label = "鼠标" if capture_driver == "mouse" else "手柄"
+    self.btn_run.setText(f"⏳  {label}扫描/解析中... (F12 停止)")
     self._gamepad_worker.start()
 
 
@@ -664,8 +698,8 @@ def _on_gamepad_error(self, err):
         self,
         "ERROR",
         "scanning.failed",
-        "手柄扫描失败",
-        stage="gamepad_pipeline",
+        "全量视觉扫描失败",
+        stage="full_visual_pipeline",
         error=err,
     )
     self._stop_scan_hotkeys()
@@ -682,7 +716,7 @@ def _on_gamepad_error(self, err):
     self._pending_parse_only = False
     QMessageBox.critical(
         self.dialog_parent,
-        "手柄扫描失败",
+        "全量视觉扫描失败",
         f"全量扫描出错:\n{err}",
     )
 
@@ -696,6 +730,11 @@ def _on_gamepad_pipeline_done(self, stats):
     self.activateWindow()
     self._replace_inventory_on_next_parse = False
     self._pending_scan_mode = None
+    if stats.get("discarded_stale"):
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("⚡  开始计算")
+        self._pending_parse_only = False
+        return
     self._on_vision_done(stats)
 
 

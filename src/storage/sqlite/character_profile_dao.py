@@ -245,9 +245,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         dataset_id = self._preference_text(
             source_dataset_id, "source_dataset_id", required=True
         )
-        normalized_source_kind = self._preference_text(
-            source_kind, "source_kind", required=True
-        )
+        self._preference_text(source_kind, "source_kind", required=True)
         connection = self._db()
         try:
             connection.execute("BEGIN IMMEDIATE")

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.domain.warehouse_filter import WarehouseFilterSpec
+from src.services.inventory_source_capabilities import is_visual_inventory_source
 from src.features.inventory.warehouse import (
     WarehouseCardDelegate,
     WarehouseGridView,
@@ -294,7 +295,7 @@ def _on_warehouse_loaded(self, token, result):
         getattr(self, "_warehouse_filter_spec", WarehouseFilterSpec()),
     )
     self._apply_warehouse_filters()
-    if self._warehouse_source == "gamepad":
+    if is_visual_inventory_source(self._warehouse_source):
         self.warehouse_hint.setText("当前为全量扫描库存：等级、锁定/弃置状态和已装备角色无法识别；鉴定与对比仍可使用。")
         self.warehouse_hint.show()
 
@@ -582,10 +583,14 @@ def _open_warehouse_state_manager(self):
         self,
         account.user_config_dir,
         self.app_context.paths.config_dir,
+        user_database_path=account.user_database_path,
         window_title="仓库弃置/锁定管理",
     ):
         return
-    config = load_scan_post_action_config(account.user_config_dir)
+    config = load_scan_post_action_config(
+        account.user_config_dir,
+        user_database_path=account.user_database_path,
+    )
     error = validate_post_action_config(config)
     if error:
         QMessageBox.warning(self, "管理配置无效", error)

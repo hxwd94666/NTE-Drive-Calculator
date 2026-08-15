@@ -4,10 +4,47 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 
 class UpdateWorkflowTests(unittest.TestCase):
+    def test_public_project_links_and_group_notice(self):
+        from src.app.constants import (
+            BILIBILI_HOME_URL,
+            GITHUB_HOME_URL,
+            GITHUB_LATEST_RELEASE_URL,
+            GROUP_CHAT_NOTICE,
+            SUPPORT_US_URL,
+        )
+        from src.ui.controllers import update_controller
+
+        opened = []
+        window = SimpleNamespace(_open_url=opened.append)
+        update_controller._open_update_homepage(window)
+        update_controller._open_bilibili_homepage(window)
+        update_controller._open_project_homepage(window)
+        update_controller._open_support_homepage(window)
+
+        self.assertEqual(
+            [
+                GITHUB_LATEST_RELEASE_URL,
+                BILIBILI_HOME_URL,
+                GITHUB_HOME_URL,
+                SUPPORT_US_URL,
+            ],
+            opened,
+        )
+        self.assertEqual(
+            "https://github.com/hxwd94666/NTE-Drive-Calculator/releases/latest",
+            GITHUB_LATEST_RELEASE_URL,
+        )
+        self.assertEqual("https://afdian.com/a/hxwd94666", SUPPORT_US_URL)
+        with patch.object(update_controller.QMessageBox, "information") as information:
+            update_controller._show_group_chat_notice(window)
+        information.assert_called_once_with(window, "加入群聊", GROUP_CHAT_NOTICE)
+
     def test_update_check_default_timeout_is_short(self):
         from src.features.settings import updates
 

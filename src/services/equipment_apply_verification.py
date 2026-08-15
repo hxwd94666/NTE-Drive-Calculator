@@ -16,18 +16,15 @@ def plan_mismatch(
 ) -> str | None:
     """返回完整方案与稳定快照的首个具体差异。"""
 
-    by_uid = {(item["uid_serial"], item["uid_slot"]): item for item in items}
     expected_uids = {
         (assignment["uid_serial"], assignment["uid_slot"])
         for assignment in modules
     }
-    core_pair: tuple[int, int] | None = None
     if core_assignment is not None:
-        core_pair = (
+        expected_uids.add((
             core_assignment["uid_serial"],
             core_assignment["uid_slot"],
-        )
-        expected_uids.add(core_pair)
+        ))
 
     mismatch = module_plan_mismatch(
         items=items,
@@ -38,7 +35,9 @@ def plan_mismatch(
     if mismatch is not None:
         return mismatch
 
-    if core_pair is not None:
+    if core_assignment is not None:
+        core_pair = (core_assignment["uid_serial"], core_assignment["uid_slot"])
+        by_uid = {(item["uid_serial"], item["uid_slot"]): item for item in items}
         verified_core = by_uid.get(core_pair)
         if verified_core is None:
             return f"卡带 UID {core_pair} 不在复核快照中"
@@ -72,12 +71,42 @@ def plan_mismatch(
     return None
 
 
+def scoped_plan_mismatch(
+    *,
+    items: list[dict[str, Any]],
+    modules: list[dict[str, Any]],
+    core_assignment: dict[str, Any] | None,
+    character_id: int,
+    character_uid: dict[str, int],
+) -> str | None:
+    """Check only whether planned items are equipped in a residual packet.
+
+    Residual packets do not reliably carry target placement or owner fields.
+    They are therefore suitable for detecting a missing equipment operation,
+    not for asserting an exact role/grid loadout.
+    """
+
+    by_uid = {(item["uid_serial"], item["uid_slot"]): item for item in items}
+    assignments = [*modules]
+    if core_assignment is not None:
+        assignments.append(core_assignment)
+    for assignment in assignments:
+        uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
+        item = by_uid.get(uid_pair)
+        if item is None:
+            return f"装备 UID {uid_pair} 不在复核快照中"
+        if not item["equipped"]:
+            return f"装备 UID {uid_pair} 未装备"
+    return None
+
+
 def module_plan_mismatch(
     *,
     items: list[dict[str, Any]],
     modules: list[dict[str, Any]],
     character_id: int,
     character_uid: dict[str, int],
+    allow_missing_placement: bool = False,
 ) -> str | None:
     """复核仅含驱动的方案，不要求更改角色当前卡带。"""
 
@@ -103,9 +132,15 @@ def module_plan_mismatch(
                 f"驱动 UID {uid_pair} 的角色实例不一致："
                 f"实际 {item['equipped_character_uid']}，目标 {character_uid}"
             )
-        if item["equipped_placement"] != expected_placement:
+        actual_placement = item["equipped_placement"]
+        if actual_placement is None and allow_missing_placement:
+            # Equipment residual packets reliably identify the equipped item
+            # and owner, but may omit grid placement.  Treat that as a
+            # successful scoped state observation rather than a false repair.
+            continue
+        if actual_placement != expected_placement:
             return (
                 f"驱动 UID {uid_pair} 的位置不一致："
-                f"实际 {item['equipped_placement']}，目标 {expected_placement}"
+                f"实际 {actual_placement}，目标 {expected_placement}"
             )
     return None

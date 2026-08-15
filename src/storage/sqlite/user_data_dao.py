@@ -5,10 +5,13 @@ from __future__ import annotations
 
 from .account_data_dao import AccountDataDaoMixin
 from .battle_report_dao import BattleReportDaoMixin
+from .custom_character_dao import CustomCharacterDaoMixin
 from .equipment_apply_job_dao import EquipmentApplyJobDaoMixin
 from .inventory_snapshot_dao import InventorySnapshotDaoMixin
+from .inventory_runtime_state_dao import InventoryRuntimeStateDaoMixin
 from .loadout_plan_lock_dao import LoadoutPlanLockDaoMixin
 from .loadout_plan_dao import LoadoutPlanDaoMixin
+from .loadout_slot_dao import LoadoutSlotDaoMixin
 from .optimization_profile_dao import OptimizationProfileDaoMixin
 from .user_data_base import UserDataDaoCore
 from .user_data_support import (
@@ -29,12 +32,15 @@ from .user_data_support import (
 
 
 class UserDataDao(
+    CustomCharacterDaoMixin,
     AccountDataDaoMixin,
     BattleReportDaoMixin,
     OptimizationProfileDaoMixin,
+    InventoryRuntimeStateDaoMixin,
     InventorySnapshotDaoMixin,
     EquipmentApplyJobDaoMixin,
     LoadoutPlanLockDaoMixin,
+    LoadoutSlotDaoMixin,
     LoadoutPlanDaoMixin,
     UserDataDaoCore,
 ):

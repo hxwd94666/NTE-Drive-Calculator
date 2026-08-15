@@ -29,6 +29,13 @@ MOD_WORKSPACE_FILES = (
     Path("nte-mods") / "equipment.nte",
     Path("nte-mods") / "combat-clock.nte",
 )
+# The game-side DLL owns these files.  They are generated from the running
+# HTGame image and must never be bundled or overwritten during a workspace
+# refresh.
+MOD_SDK_CACHE_FILES = (
+    Path("NTE_SDK.bin"),
+    Path("NTE_SDK.checksum"),
+)
 _MANAGED_WORKSPACE_MANIFEST = ".nte-drive-calc-managed.json"
 STANDARD_GAME_EXECUTABLE_RELATIVE_PATH = (
     Path("Neverness To Everness")
@@ -277,10 +284,22 @@ def prepare_mod_workspace(
     writable_workspace_path: str | Path,
     register_workspace: bool = True,
 ) -> Path:
-    """Install release defaults without replacing user-modified NTE Scripts."""
+    """Install release defaults without replacing user scripts or SDK cache.
+
+    The current plugin generates ``NTE_SDK.bin`` for the loaded game image and
+    validates it with ``NTE_SDK.checksum`` on later launches.  Those runtime
+    artifacts intentionally remain outside ``MOD_WORKSPACE_FILES``.
+    """
 
     source = packaged_mod_workspace(application_root)
     destination = Path(writable_workspace_path).expanduser().resolve()
+    # The bundled third_party workspace is now the canonical live workspace.
+    # Do not copy a file onto itself or create a managed manifest beside the
+    # release scripts: the game owns its SDK cache in that same directory.
+    if source == destination:
+        if register_workspace:
+            _register_mod_workspace(destination)
+        return destination
     try:
         destination.mkdir(parents=True, exist_ok=True)
         manifest_path = destination / _MANAGED_WORKSPACE_MANIFEST

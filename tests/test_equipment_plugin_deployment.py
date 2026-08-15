@@ -10,6 +10,7 @@ from unittest.mock import patch
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
     MOD_PLUGIN_SIGNATURE,
+    MOD_SDK_CACHE_FILES,
     MOD_WORKSPACE_FILES,
     deploy_plugin,
     find_game_executables,
@@ -158,6 +159,40 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
             (self.workspace / "nte-mods.enabled").read_text(encoding="utf-8"),
             "nte_mod_set 1\nload equipment\n",
         )
+
+    def test_workspace_refresh_preserves_plugin_generated_sdk_cache(self) -> None:
+        prepare_mod_workspace(
+            application_root=self.root,
+            writable_workspace_path=self.workspace,
+        )
+        sdk_cache = self.workspace / MOD_SDK_CACHE_FILES[0]
+        sdk_checksum = self.workspace / MOD_SDK_CACHE_FILES[1]
+        sdk_cache.write_bytes(b"generated-sdk")
+        sdk_checksum.write_text("game-image-checksum", encoding="ascii")
+
+        prepare_mod_workspace(
+            application_root=self.root,
+            writable_workspace_path=self.workspace,
+        )
+
+        self.assertEqual(sdk_cache.read_bytes(), b"generated-sdk")
+        self.assertEqual(sdk_checksum.read_text(encoding="ascii"), "game-image-checksum")
+
+    def test_bundled_workspace_can_be_registered_without_copying_onto_itself(self) -> None:
+        equipment = self.workspace_source / "nte-mods" / "equipment.nte"
+        before = equipment.read_bytes()
+
+        prepared = prepare_mod_workspace(
+            application_root=self.root,
+            writable_workspace_path=self.workspace_source,
+        )
+
+        self.assertEqual(prepared, self.workspace_source.resolve())
+        self.assertEqual(equipment.read_bytes(), before)
+        self.assertFalse(
+            (self.workspace_source / ".nte-drive-calc-managed.json").exists()
+        )
+        self.register_workspace.assert_called_once_with(self.workspace_source.resolve())
 
     def test_rejects_a_legacy_or_unrelated_dwmapi(self) -> None:
         self.source.write_bytes(b"legacy proxy")

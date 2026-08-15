@@ -1,25 +1,26 @@
 # NTE Drive Calc 开发文档
 
-文档已按“一个入口、少量主题、当前事实优先”整理。长期强制约束从根目录
-[`AGENTS.md`](../AGENTS.md) 开始阅读。
+根目录 [`AGENTS.md`](../AGENTS.md) 是仓库强制契约；本目录只保存系统原理、现有功能、外部边界、仍未完成
+事项和真实环境验收。阅读时先确认任务类型，再进入对应文档。
 
-| 文档 | 用途 |
+## 文档地图
+
+| 文档 | 适用场景 |
 | --- | --- |
-| [系统架构](architecture.md) | 分层、数据域、快照、方案和生命周期 |
-| [功能原理](features.md) | 同步、计算、配装、仓库、鉴定、倒带、装配和战报 |
-| [外部集成与扩展](integrations.md) | nte-core、二进制、DAO、页面与算法扩展 |
-| [当前路线图](roadmap.md) | 尚未完成的结构性工作和上游依赖 |
-| [伤害计算规则](reference/damage-calculation.md) | 项目伤害公式金标准 |
-| [日志事件规范](reference/logging-events.md) | 结构化日志字段与脱敏要求 |
-| [装配插件版本适配](reference/mods-plugin-version-adaptation.md) | 游戏更新后 presence/管道、偏移、Hook 的定位与修复 |
-| [Windows 验证](validation/windows.md) | 真实游戏、驱动和人工检查 |
-| [云异环模式开发](validation/cloud-nte-mode.md) | 云游戏自动装配输入问题、当前进度和后续验证方案 |
-| [鼠标全量视觉扫描](validation/mouse-visual-scan.md) | 鼠标扫描、滚轮反馈、多分辨率、并行解析和账号 SQL 提交设计 |
+| [系统架构](architecture.md) | 理解分层、组合根、数据域、快照、配装槽位和副作用确认 |
+| [功能原理](features.md) | 修改同步、扫描、计算、配装、仓库、倒带、装配、战报或设置 |
+| [外部集成](integrations.md) | 接入 nte-core、插件、OCR、鼠标/手柄、静态数据或新算法 |
+| [当前路线图](roadmap.md) | 判断某项能力是否仍在开发、受何种上游条件阻塞 |
+| [伤害计算规则](reference/damage-calculation.md) | 修改直伤、DOT、环合、倾陷、怪物属性或技能档位 |
+| [日志事件规范](reference/logging-events.md) | 增加结构化事件、运行日志或脱敏字段 |
+| [装配插件版本适配](reference/mods-plugin-version-adaptation.md) | 排查 presence、IPC 管道、动态 SDK 和插件升级 |
+| [Windows 验收](validation/windows.md) | 验证真实游戏、驱动、插件、扫描、装配和更新 |
 
-## 文档维护
+## 维护规则
 
-- 当前能力直接覆盖对应章节，不追加修改流水账；
-- 只记录数据结构、所有权、功能原理、生命周期、算法和外部边界；
-- UI 文案、颜色、间距等细节由代码和测试表达；
-- 过期版本文档和重复索引直接删除，未实现事项集中在 `roadmap.md`；
-- 所有相对链接在提交前自动检查。
+- 当前能力只写入 `features.md`，未完成事项只写入 `roadmap.md`。
+- 架构事实只写入 `architecture.md`；具体公式和字段放入 `reference/`。
+- 真实设备步骤统一放入 `validation/windows.md`，不再为单个功能维护重复验收清单。
+- 功能落地后，将稳定契约整合进架构/功能文档并删除实施方案、调查笔记和阶段流水账。
+- 一个事实只保留一个权威位置，其他文件通过相对链接引用。
+- 所有文档使用 UTF-8，提交前检查相对链接与 `git diff --check`。

@@ -211,12 +211,12 @@ class BattleReportDaoTests(unittest.TestCase):
         connection.execute("DROP TABLE battle_report_page_state")
         connection.execute("DROP TABLE battle_record_retention")
         connection.execute("DROP TABLE battle_record")
-        connection.execute("DELETE FROM schema_migration WHERE version = 13")
+        connection.execute("DELETE FROM schema_migration WHERE version >= 13")
         connection.commit()
         connection.close()
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(13, migrated.summary()["schema_version"])
+            self.assertEqual(14, migrated.summary()["schema_version"])
             tables = {
                 str(row[0])
                 for row in migrated._db().execute(

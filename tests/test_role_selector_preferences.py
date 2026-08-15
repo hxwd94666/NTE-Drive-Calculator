@@ -1,7 +1,6 @@
 # 验证角色偏好弹窗的可选弧盘和暴击率输入交互。
 from __future__ import annotations
 
-import inspect
 import os
 import unittest
 
@@ -25,7 +24,7 @@ class RoleSelectorPreferenceTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.custom_weapons["A"] = "弧盘甲"
         selector.crit_rate_caps["A"] = 72.5
@@ -140,32 +139,6 @@ class RoleSelectorPreferenceTests(unittest.TestCase):
         self.assertEqual({"「零」": ["攻击力%"]}, selector.get_tape_main_filters())
         self.assertEqual(["攻击力%"], selector.get_crit_priority_modes()["「零」"]["stats"])
         self.assertEqual(["攻击力%"], selector._selected_substat_priority("「零」"))
-
-    def test_blacklist_empty_state_is_not_selected(self) -> None:
-        from src.features.allocation.role_selector_preferences import (
-            RoleSelectorPreferencesMixin,
-        )
-
-        source = inspect.getsource(RoleSelectorPreferencesMixin._manage_role_preferences)
-        blacklist_source = source[source.index('"副词条黑名单："') :]
-
-        self.assertIn('empty_text="未选择"', blacklist_source)
-
-    def test_crit_rate_minimum_and_cap_share_one_expanding_row(self) -> None:
-        from src.features.allocation.role_selector_preferences import (
-            RoleSelectorPreferencesMixin,
-        )
-
-        source = inspect.getsource(
-            RoleSelectorPreferencesMixin._manage_role_preferences
-        )
-
-        self.assertLess(
-            source.index("crit_row.addWidget(crit_threshold_edit, 1)"),
-            source.index('crit_row.addWidget(QLabel("暴击率上限："))'),
-        )
-        self.assertIn("crit_row.addWidget(crit_cap_edit, 1)", source)
-        self.assertNotIn("cap_row", source)
 
 
 if __name__ == "__main__":

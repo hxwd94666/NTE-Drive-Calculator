@@ -38,11 +38,20 @@ _OFFICIAL_SHAPE_LABELS = {
     "zhijiao3": "L_3_TR",
     "zhijiao4": "L_3_BR",
 }
+
+
+def display_stat_label(property_id: object) -> str:
+    """Return the same display label used by saved-plan equipment cards."""
+
+    raw_property_id = str(property_id or "")
+    return _OFFICIAL_STAT_LABELS.get(raw_property_id, raw_property_id or "未知属性")
+
+
 def official_stat_values(stats):
     values = {}
     for stat in stats or []:
         property_id = str(stat.get("property_id") or "")
-        label = _OFFICIAL_STAT_LABELS.get(property_id, property_id or "未知属性")
+        label = display_stat_label(property_id)
         value = float(stat.get("value", 0.0) or 0.0)
         if stat.get("percent"):
             value *= 100.0

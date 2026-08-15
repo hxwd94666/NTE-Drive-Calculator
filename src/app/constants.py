@@ -6,10 +6,16 @@ from src.app.version import __version__
 
 APP_VERSION = __version__
 ALLOCATION_TOTAL_SCORE_AREA = 35
-GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calc"
+GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calculator"
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
+GITHUB_LATEST_RELEASE_URL = GITHUB_RELEASES_URL + "/latest"
 MIRROR_UPDATE_API = "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest"
 BILIBILI_HOME_URL = "https://b23.tv/nXJGdh3"
+SUPPORT_US_URL = "https://afdian.com/a/hxwd94666"
+GROUP_CHAT_NOTICE = (
+    "当前开发繁忙，无法面向群聊处理反馈，故群聊暂且只开放给打赏用户，"
+    "后续开发计划完成后再公开。"
+)
 WORKSHOP_WEIGHT_CONFIGS_API = "https://yh.zzzmap.com/api/open/game-character/weight-configs"
 QUARK_NETDISK_URL = "https://pan.quark.cn/s/82f16b845aec"
 BAIDU_NETDISK_URL = "https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke"

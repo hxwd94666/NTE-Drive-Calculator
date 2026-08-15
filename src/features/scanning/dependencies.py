@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from src.app.context import AppContext
 
@@ -33,3 +34,27 @@ class ScanningDependencies:
             config_dir=app_context.paths.config_dir,
             template_dir=app_context.paths.template_dir,
         )
+
+
+def current_scanning_dependencies(owner: Any) -> ScanningDependencies:
+    return ScanningDependencies.from_app_context(owner.app_context)
+
+
+def task_scanning_dependencies(owner: Any) -> ScanningDependencies:
+    dependencies = getattr(owner, "_scan_dependencies", None)
+    return dependencies or current_scanning_dependencies(owner)
+
+
+def scanning_dependencies_are_current(
+    owner: Any,
+    dependencies: ScanningDependencies,
+) -> bool:
+    app_context = getattr(owner, "app_context", None)
+    if app_context is None:
+        return True
+    account = app_context.account
+    return (
+        app_context.generation == dependencies.generation
+        and account.active_account_id == dependencies.account_id
+        and account.user_database_path == dependencies.user_database_path
+    )

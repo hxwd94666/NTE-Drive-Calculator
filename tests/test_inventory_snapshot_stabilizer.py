@@ -121,6 +121,23 @@ class InventorySnapshotStabilizerTests(unittest.TestCase):
         self.clock.advance(3.0)
         self.assertEqual(1, self._commit_ready())
 
+    def test_fast_apply_guard_rejects_scoped_snapshot_without_historical_count_rule(self) -> None:
+        baseline_uids = frozenset({(7, 1), (7, 2)})
+        scoped = self.stabilizer.offer(
+            snapshot(item(1), sequence=1),
+            required_uids=baseline_uids,
+        )
+        self.assertEqual("ignored", scoped.status)
+        self.assertFalse(self.stabilizer.has_pending_changes)
+
+        full = self.stabilizer.offer(
+            snapshot(item(1, equipped=True), item(2), sequence=2),
+            required_uids=baseline_uids,
+        )
+        self.assertEqual("collecting", full.status)
+        self.clock.advance(3.0)
+        self.assertEqual(2, self._commit_ready())
+
     def test_returning_to_committed_content_cancels_pending_cycle(self) -> None:
         original = snapshot(item(1), sequence=1)
         self.stabilizer.offer(original)

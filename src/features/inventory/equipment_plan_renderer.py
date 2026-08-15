@@ -13,6 +13,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QBoxLayout,
+    QComboBox,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -226,8 +227,28 @@ def _render_equip_batch(self, token, batch_size=None):
 
 
 def _render_equip_role(self, role_name, rd, *, target_layout=None):
+    grouped_slots = rd.get("_role_slot_states")
+    if isinstance(grouped_slots, list):
+        for slot_state in grouped_slots:
+            _render_equip_role(
+                self,
+                f"slot:{slot_state.get('_loadout_slot_id')}",
+                slot_state,
+                target_layout=target_layout,
+            )
+        return None
+    if rd.get("_empty_slot"):
+        group = QGroupBox(str(rd.get("_display_name") or role_name))
+        layout = QVBoxLayout(group)
+        layout.addWidget(QLabel("此配装槽位为空；在计算保存时选择它即可写入方案。"))
+        (target_layout or self.equip_content_layout).addWidget(group)
+        return group
     presentation = equipment_presentation(self)
-    role_cfg = self.roles_db.get(role_name, {})
+    source_role_name = str(rd.get("_role_name") or role_name)
+    display_role_name = str(rd.get("_display_name") or source_role_name)
+    plan_id = rd.get("_sqlite_plan_id")
+    slot_id = rd.get("_loadout_slot_id")
+    role_cfg = self.roles_db.get(source_role_name, {})
     wts = role_cfg.get("weights", {})
     main_wts = role_cfg.get("main_weights")
     is_sqlite_plan = "_sqlite_plan_id" in rd
@@ -275,7 +296,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     role_hdr = QHBoxLayout(role_header)
     role_hdr.setContentsMargins(0, 0, 0, 0)
     role_hdr.setSpacing(8)
-    rnl = QLabel(role_name)
+    rnl = QLabel(display_role_name)
     rnl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     rnl.setFixedHeight(header_height)
     rnl.setStyleSheet(
@@ -291,7 +312,13 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                 "QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;border-radius:6px;font-size:13px;font-weight:700;padding:0;min-width:76px}QPushButton:hover{background:#388bfd}"
             )
         )
-        diff_btn.clicked.connect(lambda _=False, rn=role_name, d=last_diff: self._show_saved_plan_diff_dialog(rn, d))
+        # Slot containers use ``slot:<id>`` as their render key.  The diff
+        # presentation must instead receive the actual role name so its
+        # current role weights are found and high-priority stats are colored.
+        diff_btn.clicked.connect(
+            lambda _=False, rn=source_role_name, d=last_diff:
+            self._show_saved_plan_diff_dialog(rn, d)
+        )
         role_hdr.addWidget(diff_btn)
     _sm = rd.get("strategy_mode", "")
     if _sm:
@@ -334,7 +361,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     )
     if callable(request_graduation):
         request_graduation(
-            role_name,
+            source_role_name,
             rd,
             graduation_value,
             (graduation_label, graduation_frame),
@@ -377,19 +404,23 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         elif not rd.get("_game_importable"):
             import_btn.setToolTip(str(rd.get("_game_reason") or "当前方案不完整"))
         import_btn.clicked.connect(
-            lambda _=False, rn=role_name: self._import_game_loadout(rn)
+            lambda _=False, rn=source_role_name: self._import_game_loadout(rn)
         )
         role_hdr.addWidget(import_btn)
     else:
         del_btn = QPushButton("删除")
         del_btn.setObjectName("btnDanger")
         del_btn.setFixedSize(64, header_height)
-        del_btn.clicked.connect(lambda _=False, rn=role_name: self._delete_role_equipment(rn))
+        del_btn.clicked.connect(
+            lambda _=False, rn=source_role_name, pid=plan_id: self._delete_role_equipment(rn, plan_id=pid)
+        )
         role_hdr.addWidget(del_btn)
         import_btn = QPushButton("装配")
         import_btn.setObjectName("btnPrimary")
         import_btn.setFixedHeight(header_height)
-        import_btn.clicked.connect(lambda _, rn=role_name: self._preview_assemble_role(rn))
+        import_btn.clicked.connect(
+            lambda _, rn=source_role_name, sid=slot_id: self._preview_assemble_role(rn, slot_id=sid)
+        )
         role_hdr.addWidget(import_btn)
         locked = bool(rd.get("_allocation_locked"))
         lock_btn = QPushButton()
@@ -397,7 +428,11 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         _set_allocation_lock_button_state(lock_btn, locked)
 
         def toggle_lock(_checked=False):
-            updated = self._toggle_role_allocation_lock(role_name)
+            updated = self._toggle_role_allocation_lock(
+                source_role_name,
+                plan_id=plan_id,
+                state_key=role_name,
+            )
             if isinstance(updated, bool):
                 _set_allocation_lock_button_state(lock_btn, updated)
 
@@ -416,23 +451,92 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     if bp:
         compare_with_saved = bool(last_diff.get(DIFF_CHANGED))
         saved_state = rd.get("_game_saved_state")
+        comparison_selector = None
+        comparison_control = None
+        comparison_slots = []
+        if is_game_mode:
+            comparison_slots = [
+                candidate
+                for candidate in rd.get("_game_compare_slot_states", ()) or ()
+                if isinstance(candidate, dict)
+                and candidate.get("_loadout_slot_id") is not None
+            ]
+            comparison_control = QWidget()
+            comparison_layout = QHBoxLayout(comparison_control)
+            comparison_layout.setContentsMargins(0, 0, 0, 0)
+            comparison_layout.setSpacing(5)
+            comparison_label = QLabel("对比槽位：")
+            comparison_label.setStyleSheet(
+                themed_style("font-size:12px;color:#8b949e;border:none")
+            )
+            comparison_layout.addWidget(comparison_label)
+            comparison_selector = QComboBox(comparison_control)
+            comparison_selector.setToolTip("选择用于属性汇总的计算配装槽位")
+            comparison_selector.setFixedWidth(108)
+            comparison_selector.setSizeAdjustPolicy(
+                QComboBox.AdjustToMinimumContentsLengthWithIcon
+            )
+            comparison_selector.setMinimumContentsLength(5)
+            if comparison_slots:
+                selected_slot_id = (
+                    saved_state.get("_loadout_slot_id")
+                    if isinstance(saved_state, dict)
+                    else None
+                )
+                for candidate in comparison_slots:
+                    label = str(
+                        candidate.get("_display_name")
+                        or candidate.get("_loadout_slot_name")
+                        or "未命名槽位"
+                    )
+                    comparison_selector.addItem(label, candidate["_loadout_slot_id"])
+                selected_index = comparison_selector.findData(selected_slot_id)
+                comparison_selector.setCurrentIndex(
+                    selected_index if selected_index >= 0 else 0
+                )
+
+                def select_comparison_slot(_index: int) -> None:
+                    selected_id = comparison_selector.currentData()
+                    selected_state = next(
+                        (
+                            candidate
+                            for candidate in comparison_slots
+                            if candidate.get("_loadout_slot_id") == selected_id
+                        ),
+                        None,
+                    )
+                    if selected_state is None:
+                        return
+                    rd["_game_saved_state"] = selected_state
+                    from src.features.inventory.equipment_master_detail_view import (
+                        select_equipment_role,
+                    )
+
+                    select_equipment_role(self, source_role_name)
+
+                comparison_selector.currentIndexChanged.connect(select_comparison_slot)
+            else:
+                comparison_selector.addItem("无对比方案")
+                comparison_selector.setEnabled(False)
+            comparison_layout.addWidget(comparison_selector)
         if is_game_mode and isinstance(saved_state, dict):
             bonus_panel = presentation.role_loadout_comparison_panel(
-                role_name,
+                source_role_name,
                 tape_data,
                 drives,
                 saved_state.get(ROLE_EQUIPPED_TAPE),
                 saved_state.get(ROLE_EQUIPPED_DRIVES, []),
-                priority_stats=presentation.role_stat_priority_stats(role_name),
+                priority_stats=presentation.role_stat_priority_stats(source_role_name),
+                header_control=comparison_control,
             )
             bonus_stretch = 1
         else:
             bonus_panel = presentation.role_bonus_summary_panel(
-                role_name,
+                source_role_name,
                 tape_data,
                 drives,
                 compare_with_saved=compare_with_saved,
-                priority_stats=presentation.role_stat_priority_stats(role_name),
+                priority_stats=presentation.role_stat_priority_stats(source_role_name),
                 role_diff=last_diff,
             )
             bonus_stretch = 1 if compare_with_saved else 0
@@ -473,7 +577,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                     None
                     if is_game_mode
                     else lambda rn=role_name, item_uid=tape_uid: self._optimize_saved_equipment(
-                        rn, "tape", item_uid
+                        rn, "tape", item_uid, plan_id=plan_id
                     )
                 ),
                 card_variant="inventory",
@@ -519,10 +623,10 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                     is_discarded=bool(d.get("discarded")),
                     is_duplicate_drive=bool(d.get("is_duplicate_drive")),
                     replacement_callback=(
-                        None
-                        if is_game_mode
-                        else lambda rn=role_name, item_uid=drive_uid: self._optimize_saved_equipment(
-                            rn, "drive", item_uid
+                    None
+                    if is_game_mode
+                    else lambda rn=role_name, item_uid=drive_uid: self._optimize_saved_equipment(
+                            rn, "drive", item_uid, plan_id=plan_id
                         )
                     ),
                     card_variant="inventory",

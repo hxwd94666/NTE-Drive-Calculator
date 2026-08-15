@@ -134,13 +134,31 @@ class UserDataDaoCore:
                 if migration_path is None or not migration_path.is_file():
                     raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")
                 migration_sql = migration_path.read_text(encoding="utf-8")
-                connection.execute("BEGIN IMMEDIATE")
-                self._execute_migration_script(connection, migration_sql)
-                connection.execute(
-                    "INSERT INTO schema_migration(version, applied_at_utc) VALUES (?, ?)",
-                    (target_version, _utc_now()),
+                rebuilds_foreign_key_parent = migration_sql.startswith(
+                    "-- requires-foreign-keys-off"
                 )
-                connection.commit()
+                if rebuilds_foreign_key_parent:
+                    connection.execute("PRAGMA foreign_keys = OFF")
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    self._execute_migration_script(connection, migration_sql)
+                    connection.execute(
+                        "INSERT INTO schema_migration(version, applied_at_utc) VALUES (?, ?)",
+                        (target_version, _utc_now()),
+                    )
+                    connection.commit()
+                except BaseException:
+                    connection.rollback()
+                    raise
+                finally:
+                    if rebuilds_foreign_key_parent:
+                        connection.execute("PRAGMA foreign_keys = ON")
+                if rebuilds_foreign_key_parent:
+                    violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+                    if violations:
+                        raise UserDataError(
+                            f"用户数据库迁移 v{target_version} 产生外键错误"
+                        )
         except (OSError, sqlite3.Error) as exc:
             connection.rollback()
             raise UserDataError("无法升级用户数据库结构") from exc

@@ -7,16 +7,20 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from src.integrations.nte_core import equipment_request_failure_kind
 from src.observability.context import OperationContext
 from src.observability.operation import operation_scope
-from src.integrations.nte_core import equipment_request_failure_kind
+from src.services.bulk_equipment_apply_postcheck import postcheck_and_repair
 from src.services.equipment_apply_service import EquipmentApplyService
+from src.services.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
 
 ProgressCallback = Callable[[dict[str, Any]], None] | None
 MAX_EQUIPMENT_APPLY_ATTEMPTS = 3
+SCOPED_VERIFICATION_SECONDS = 10.0
+POST_APPLY_GUARD_GRACE_SECONDS = 90.0
 
 
 def report_bulk_apply_progress(
@@ -25,6 +29,7 @@ def report_bulk_apply_progress(
     current: int,
     total: int,
     message: str,
+    show_progress_bar: bool = True,
 ) -> None:
     if not callable(callback):
         return
@@ -34,6 +39,7 @@ def report_bulk_apply_progress(
                 "current": max(0, int(current)),
                 "total": max(1, int(total)),
                 "message": str(message),
+                "show_progress_bar": bool(show_progress_bar),
             }
         )
     except Exception:
@@ -41,11 +47,10 @@ def report_bulk_apply_progress(
 
 
 def _snapshot_timeout(user_dao: UserDataDao) -> float:
-    try:
-        settle_seconds = float(user_dao.get_sync_settings()["inventory_settle_seconds"])
-    except (AttributeError, KeyError, TypeError, ValueError):
-        settle_seconds = 5.0
-    return max(1.0, settle_seconds) + 5.0
+    """Return the fixed wait budget for one post-dispatch fragment round."""
+
+    del user_dao
+    return SCOPED_VERIFICATION_SECONDS
 
 
 class BulkEquipmentApplyService:
@@ -70,23 +75,28 @@ class BulkEquipmentApplyService:
 
     def run(
         self,
-        role_names: list[str],
+        role_names: list[str] | None = None,
         *,
+        slot_ids: list[int] | None = None,
         identity_overrides: dict[str, dict] | None = None,
         job_id: int | None = None,
         progress_callback: ProgressCallback = None,
     ) -> dict[str, Any]:
+        if job_id is None and bool(role_names) == bool(slot_ids):
+            raise RuntimeError("极速装配必须指定角色或显式配装槽位（二者只能选其一）")
+        requested_count = len(slot_ids or ()) if slot_ids else len(role_names or ())
         with operation_scope(
             self.operation_context,
             started_event="equipment_apply.bulk_started",
             succeeded_event="equipment_apply.bulk_succeeded",
             failed_event="equipment_apply.bulk_failed",
             message="执行极速装配",
-            requested_role_count=len(role_names),
+            requested_role_count=requested_count,
             resume_job_id=job_id,
         ) as span:
             result = self._run(
-                role_names,
+                role_names or [],
+                slot_ids=slot_ids,
                 identity_overrides=identity_overrides,
                 job_id=job_id,
                 progress_callback=progress_callback,
@@ -104,6 +114,7 @@ class BulkEquipmentApplyService:
         self,
         role_names: list[str],
         *,
+        slot_ids: list[int] | None = None,
         identity_overrides: dict[str, dict] | None = None,
         job_id: int | None = None,
         progress_callback: ProgressCallback = None,
@@ -133,34 +144,44 @@ class BulkEquipmentApplyService:
                     user_dao,
                     apply_service,
                     role_names,
+                    slot_ids,
                     identity_overrides,
                 )
             if early is not None:
                 return early
 
             stable_snapshot_id = pinned_snapshot_id or apply_service.require_stable_snapshot()
-            failure = self._execute_prepared(
-                user_dao,
-                apply_service,
-                prepared,
-                stable_snapshot_id,
-                applied,
-                identity_requests,
-                int(job_id),
-                progress_callback,
+            frozen_inventory_uids = self._inventory_uid_pairs(user_dao, stable_snapshot_id)
+            guard_token = self._begin_full_inventory_guard(
+                frozen_inventory_uids,
+                source_snapshot_id=stable_snapshot_id,
             )
-            if failure is not None:
-                return failure
+            try:
+                failure = self._execute_prepared(
+                    user_dao,
+                    apply_service,
+                    prepared,
+                    stable_snapshot_id,
+                    applied,
+                    identity_requests,
+                    int(job_id),
+                    progress_callback,
+                )
+                if failure is not None:
+                    return failure
 
-            postcheck = self._postcheck_and_repair(
-                user_dao,
-                apply_service,
-                prepared,
-                applied,
-                stable_snapshot_id,
-                progress_callback,
-            )
-            completed = user_dao.complete_equipment_apply_job_if_done(int(job_id))
+                postcheck = self._postcheck_and_repair(
+                    user_dao,
+                    apply_service,
+                    prepared,
+                    applied,
+                    stable_snapshot_id,
+                    progress_callback,
+                    frozen_inventory_uids=frozen_inventory_uids,
+                )
+                completed = user_dao.complete_equipment_apply_job_if_done(int(job_id))
+            finally:
+                self._end_full_inventory_guard(guard_token)
         return {
             "job_id": job_id,
             "applied": applied,
@@ -168,6 +189,41 @@ class BulkEquipmentApplyService:
             **postcheck,
             "completed": completed,
         }
+
+    @staticmethod
+    def _inventory_uid_pairs(user_dao, snapshot_id: int) -> frozenset[tuple[int, int]]:
+        return frozenset(
+            (int(row.get("uid_slot") or 0), int(row.get("uid_serial") or 0))
+            for row in user_dao.list_inventory_items(snapshot_id)
+            if int(row.get("uid_slot") or 0) > 0 and int(row.get("uid_serial") or 0) > 0
+        )
+
+    def _begin_full_inventory_guard(
+        self,
+        item_uids: frozenset[tuple[int, int]],
+        *,
+        source_snapshot_id: int,
+    ) -> object | None:
+        begin = getattr(self.sync_service, "begin_full_inventory_guard", None)
+        if not callable(begin):
+            return None
+        try:
+            return begin(item_uids, source_snapshot_id=source_snapshot_id)
+        except TypeError:
+            return begin(item_uids)
+
+    def _end_full_inventory_guard(self, token: object | None) -> None:
+        if token is None:
+            return
+        finish = getattr(self.sync_service, "finish_full_inventory_guard", None)
+        if callable(finish) and finish(
+            token,
+            grace_seconds=POST_APPLY_GUARD_GRACE_SECONDS,
+        ):
+            return
+        end = getattr(self.sync_service, "end_full_inventory_guard", None)
+        if callable(end):
+            end(token)
 
     def _prepare_resume(
         self,
@@ -229,6 +285,7 @@ class BulkEquipmentApplyService:
         user_dao,
         apply_service,
         role_names: list[str],
+        slot_ids: list[int] | None,
         identity_overrides: dict[str, dict],
     ) -> tuple[list[dict], list[dict], int | None, dict | None]:
         snapshot_id = user_dao.current_inventory_snapshot_id()
@@ -237,13 +294,43 @@ class BulkEquipmentApplyService:
         prepared: list[dict] = []
         identity_requests: list[dict] = []
         preflight_errors: list[dict] = []
-        for role_name in role_names:
-            plan = user_dao.get_active_loadout_plan_for_role(role_name)
-            if plan is None:
-                raise RuntimeError(
-                    f"装配前检查 [{role_name}] 失败，尚未发送任何装配指令："
-                    "没有来自官方背包快照的已保存方案，请重新计算并保存。"
-                )
+        selected_plans: list[tuple[str, dict]] = []
+        selection_service = LoadoutSlotSelectionService(user_dao)
+        if slot_ids:
+            requested_selections = selection_service.resolve(slot_ids)
+        else:
+            requested_selections = selection_service.resolve_default_roles(role_names)
+        custom_character_ids = {
+            int(row["character_id"])
+            for row in user_dao.list_custom_characters()
+        }
+        custom_selections = [
+            selection for selection in requested_selections
+            if selection.character_id in custom_character_ids
+        ]
+        if custom_selections:
+            return (
+                [],
+                [],
+                None,
+                {
+                    "applied": [],
+                    "preflight_errors": [
+                        {
+                            "role_name": selection.role_name,
+                            "error": "自建角色没有游戏角色实例，极速装配不适用；请使用自动装配。",
+                        }
+                        for selection in custom_selections
+                    ],
+                },
+            )
+        native_selections = selection_service.resolve(
+            [selection.slot_id for selection in requested_selections],
+            require_native_snapshot=True,
+        )
+        for selection in native_selections:
+            selected_plans.append((selection.role_name, dict(selection.plan)))
+        for role_name, plan in selected_plans:
             source_snapshot_id = plan.get("source_snapshot_id")
             source_summary = (
                 user_dao.inventory_snapshot_summary(int(source_snapshot_id)) if source_snapshot_id is not None else None
@@ -422,6 +509,15 @@ class BulkEquipmentApplyService:
                 status="running",
             )
             try:
+                cursor_reader = getattr(
+                    self.sync_service, "scoped_equipment_snapshot_cursor", None
+                )
+                required_uid_reader = getattr(
+                    apply_service, "plan_equipment_uid_pairs", None
+                )
+                if callable(cursor_reader) and callable(required_uid_reader):
+                    role["scoped_snapshot_cursor"] = int(cursor_reader())
+                    role["scoped_required_uids"] = required_uid_reader(role["plan_id"])
                 result, character_id = self._apply_role(
                     apply_service,
                     role,
@@ -437,6 +533,7 @@ class BulkEquipmentApplyService:
                 applied.append(
                     {
                         "role_name": role_name,
+                        "job_item_id": role["job_item_id"],
                         "character_id": character_id,
                         "plan_id": role["plan_id"],
                         "module_count": role.get("module_count"),
@@ -445,6 +542,11 @@ class BulkEquipmentApplyService:
                         "verified": result.verified,
                         "already_applied": result.already_applied,
                         "character_uid": result.character_uid,
+                        # The pre-dispatch fence belongs to the applied row:
+                        # post-checking works from this list rather than the
+                        # mutable prepared request list.
+                        "scoped_snapshot_cursor": role.get("scoped_snapshot_cursor"),
+                        "scoped_required_uids": role.get("scoped_required_uids"),
                     }
                 )
                 report_bulk_apply_progress(
@@ -525,204 +627,24 @@ class BulkEquipmentApplyService:
         applied: list[dict],
         stable_snapshot_id: int,
         progress_callback: ProgressCallback,
-    ) -> dict[str, Any]:
-        output = {
-            "postcheck_snapshot_id": None,
-            "postrepair_snapshot_id": None,
-            "postrepair_check_timed_out": False,
-            "snapshot_wait_failure": None,
-            "attempt_snapshots": [],
-            "repair_errors": [],
-        }
-        if not applied or len(applied) != len(prepared):
-            return output
-        timeout = _snapshot_timeout(user_dao)
-        pending = [row for row in applied if not row.get("already_applied")]
-        for row in applied:
-            row["attempt_count"] = 0 if row.get("already_applied") else 1
-        if not pending:
-            return output
-        after_snapshot_id = stable_snapshot_id
-
-        for attempt in range(1, MAX_EQUIPMENT_APPLY_ATTEMPTS + 1):
-            if attempt > 1:
-                pending = self._dispatch_retry_attempt(
-                    apply_service,
-                    pending,
-                    after_snapshot_id,
-                    attempt,
-                    output["repair_errors"],
-                )
-                if not pending:
-                    return output
-
-            report_bulk_apply_progress(
-                progress_callback,
-                current=len(prepared),
-                total=len(prepared),
-                message=f"第 {attempt} 次装配已下发，正在等待稳定快照复核…",
-            )
-            try:
-                state = self.sync_service.wait_for_snapshot(
-                    after_snapshot_id=after_snapshot_id,
-                    timeout=timeout,
-                )
-            except TimeoutError as exc:
-                output["postrepair_check_timed_out"] = attempt > 1
-                output["snapshot_wait_failure"] = {
-                    "attempt": attempt,
-                    "kind": "snapshot_timeout",
-                    "error": str(exc) or "等待新的稳定背包快照超时",
-                }
-                logger.info(
-                    "极速装配第 {} 次请求后稳定快照等待超时；停止后续请求",
-                    attempt,
-                )
-                return output
-            except Exception as exc:
-                output["postrepair_check_timed_out"] = attempt > 1
-                output["snapshot_wait_failure"] = {
-                    "attempt": attempt,
-                    "kind": "snapshot_error",
-                    "error": str(exc),
-                }
-                logger.warning(
-                    "极速装配第 {} 次请求后稳定快照检查失败：{}",
-                    attempt,
-                    exc,
-                )
-                return output
-
-            snapshot_id = state.last_snapshot_id
-            if snapshot_id is None or snapshot_id <= after_snapshot_id:
-                output["snapshot_wait_failure"] = {
-                    "attempt": attempt,
-                    "kind": "snapshot_not_advanced",
-                    "error": "背包同步未返回递增的稳定快照",
-                }
-                return output
-            after_snapshot_id = snapshot_id
-            output["attempt_snapshots"].append(snapshot_id)
-            if attempt == 1:
-                output["postcheck_snapshot_id"] = snapshot_id
-            else:
-                output["postrepair_snapshot_id"] = snapshot_id
-
-            pending = self._verify_attempt(
-                apply_service,
-                pending,
-                snapshot_id,
-                attempt,
-                final_attempt=attempt == MAX_EQUIPMENT_APPLY_ATTEMPTS,
-                errors=output["repair_errors"],
-            )
-            if not pending:
-                return output
-        return output
-
-    @staticmethod
-    def _dispatch_retry_attempt(
-        apply_service,
-        pending: list[dict],
-        snapshot_id: int,
-        attempt: int,
-        errors: list[dict],
-    ) -> list[dict]:
-        dispatched = []
-        for row in pending:
-            try:
-                repair = apply_service.apply_plan(
-                    row["plan_id"],
-                    character_uid=row["character_uid"],
-                    target_character_id=row["character_id"],
-                    timeout=30.0,
-                    verify_after_dispatch=False,
-                    exact_loadout=True,
-                    force_dispatch=False,
-                    reset_before_apply=True,
-                    stable_snapshot_id=snapshot_id,
-                )
-                row["snapshot_id"] = snapshot_id
-                if repair.already_applied:
-                    row["verified"] = True
-                    row["repair_verified"] = True
-                    continue
-                row["repaired"] = True
-                row["attempt_count"] = attempt
-                dispatched.append(row)
-                logger.warning(
-                    "第 {} 次装配前复核发现 [{}] 配装不完整，已卸空并重装",
-                    attempt,
-                    row["role_name"],
-                )
-            except Exception as exc:
-                errors.append({
-                    "role_name": row["role_name"],
-                    "attempt": attempt,
-                    "kind": equipment_request_failure_kind(exc),
-                    "error": f"第 {attempt} 次装配请求失败：{exc}",
-                })
-                logger.error(
-                    "第 {} 次装配 [{}] 请求失败：{}",
-                    attempt,
-                    row["role_name"],
-                    exc,
-                )
-        return dispatched
-
-    @staticmethod
-    def _verify_attempt(
-        apply_service,
-        pending: list[dict],
-        snapshot_id: int,
-        attempt: int,
         *,
-        final_attempt: bool,
-        errors: list[dict],
-    ) -> list[dict]:
-        mismatched = []
-        for row in pending:
-            try:
-                mismatch = apply_service.verify_plan_in_snapshot(
-                    row["plan_id"],
-                    character_uid=row["character_uid"],
-                    target_character_id=row["character_id"],
-                    exact_loadout=True,
-                    stable_snapshot_id=snapshot_id,
-                )
-                row["snapshot_id"] = snapshot_id
-                if mismatch is None:
-                    row["verified"] = True
-                    if attempt > 1:
-                        row["repair_verified"] = True
-                    continue
-                row["repair_verification_error"] = mismatch
-                row["last_mismatch"] = mismatch
-                mismatched.append(row)
-                if final_attempt:
-                    errors.append({
-                        "role_name": row["role_name"],
-                        "attempt": attempt,
-                        "kind": "loadout_mismatch",
-                        "error": f"第 {attempt} 次装配后复核仍不一致：{mismatch}",
-                    })
-                    logger.error(
-                        "第 {} 次装配后快照复查 [{}] 仍不完整：{}",
-                        attempt,
-                        row["role_name"],
-                        mismatch,
-                    )
-            except Exception as exc:
-                errors.append({
-                    "role_name": row["role_name"],
-                    "attempt": attempt,
-                    "kind": "verification_error",
-                    "error": f"第 {attempt} 次装配后复核失败：{exc}",
-                })
-                logger.error(
-                    "第 {} 次装配后快照复查 [{}] 失败：{}",
-                    attempt,
-                    row["role_name"],
-                    exc,
-                )
-        return mismatched
+        frozen_inventory_uids: frozenset[tuple[int, int]] | None = None,
+    ) -> dict[str, Any]:
+        return postcheck_and_repair(
+            self.sync_service,
+            user_dao,
+            apply_service,
+            prepared,
+            applied,
+            stable_snapshot_id=stable_snapshot_id,
+            frozen_inventory_uids=frozen_inventory_uids or frozenset(),
+            timeout=_snapshot_timeout(user_dao),
+            max_attempts=MAX_EQUIPMENT_APPLY_ATTEMPTS,
+            report_progress=lambda current, total, message, show_progress_bar: report_bulk_apply_progress(
+                progress_callback,
+                current=current,
+                total=total,
+                message=message,
+                show_progress_bar=show_progress_bar,
+            ),
+        )

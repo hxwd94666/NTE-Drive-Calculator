@@ -136,9 +136,11 @@ def _ocr_backend_preference(value: str | None = None) -> str:
         "amd": "amd_compat",
         "amd-compat": "amd_compat",
         "amd_compatibility": "amd_compat",
+        "low-load": "low_load",
+        "low_load": "low_load",
     }
     value = aliases.get(value, value)
-    if value not in {"openvino", "directml", "auto", "cpu", "amd_compat"}:
+    if value not in {"openvino", "directml", "auto", "cpu", "amd_compat", "low_load"}:
         logger.warning(f"未知 OCR 后端配置 {source}={value!r}，已使用 openvino。")
         return "openvino"
     return value
@@ -221,16 +223,21 @@ def _create_ocr_engine(backend_preference: str | None = None):
         logger.info("未读取到显卡信息，按无独显策略优先使用 OpenVINO。")
 
     providers = _available_ort_providers()
-    if backend_pref == "amd_compat":
-        logger.warning("已启用 AMD实验性兼容：禁用 DirectML，限制 OCR/图像处理线程，并使用低负载 OCR 初始化。")
+    if backend_pref in {"amd_compat", "low_load"}:
+        mode_label = (
+            "异常兼容模式" if backend_pref == "amd_compat" else "正式低负载模式"
+        )
+        logger.warning(
+            f"已启用 {mode_label}：禁用 DirectML，限制 OCR/图像处理线程，并使用低负载 OCR 初始化。"
+        )
         _apply_low_load_runtime_limits()
         ocr, engine_type = _create_openvino_ocr()
         if ocr is not None:
-            return ocr, f"{engine_type} / AMD实验性兼容"
+            return ocr, f"{engine_type} / {mode_label}"
         ocr, engine_type = _create_onnx_cpu_ocr()
         if ocr is not None:
-            return ocr, f"{engine_type} / AMD实验性兼容"
-        raise ImportError("AMD实验性兼容模式下未检测到任何可用的 RapidOCR 推理引擎")
+            return ocr, f"{engine_type} / {mode_label}"
+        raise ImportError(f"{mode_label}下未检测到任何可用的 RapidOCR 推理引擎")
 
     if backend_pref in {"directml", "auto"} and has_discrete_gpu:
         logger.info(f"OCR 后端配置为 {backend_pref}，检测到独立显卡后尝试 DirectML GPU 加速。")

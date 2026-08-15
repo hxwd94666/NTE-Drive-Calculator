@@ -27,9 +27,11 @@ from src.features.inventory.equipment_assembly_dialogs import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.utils.logger import logger
 
 from .equipment_plan_optimizer import _sqlite_plan_display_state
+from .equipment_slot_selection_dialog import select_assembly_slot_ids
 
 
 def _return_to_equipment_after_assembly(window: Any) -> None:
@@ -126,15 +128,24 @@ def _assembly_runtime_paths(window: Any) -> tuple[Path, Path]:
 def _sqlite_automatic_assembly_state(
     database_path: str | Path,
     role_names: list[str],
+    *,
+    slot_ids: list[int] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """从 SQLite 已保存方案构建自动装配动作所需的只读投影。"""
 
     with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
         states: dict[str, dict[str, Any]] = {}
-        for role_name in role_names:
-            plan = user_dao.get_active_loadout_plan_for_role(role_name)
-            if plan is None:
-                raise RuntimeError(f"[{role_name}] 没有来自官方背包快照的已保存方案")
+        if slot_ids:
+            plans_by_role = [
+                (selection.role_name, dict(selection.plan))
+                for selection in LoadoutSlotSelectionService(user_dao).resolve(slot_ids)
+            ]
+        else:
+            plans_by_role = [
+                (selection.role_name, dict(selection.plan))
+                for selection in LoadoutSlotSelectionService(user_dao).resolve_default_roles(role_names)
+            ]
+        for role_name, plan in plans_by_role:
             states[role_name] = _sqlite_plan_display_state(
                 plan,
                 user_dao,
@@ -146,6 +157,8 @@ def _sqlite_automatic_assembly_state(
 def _start_automatic_equipment_assembly(
     window: Any,
     role_names: list[str],
+    *,
+    slot_ids: list[int] | None = None,
 ) -> None:
     """在工作线程中执行逐步游戏界面自动装配。"""
 
@@ -163,14 +176,16 @@ def _start_automatic_equipment_assembly(
         state = _sqlite_automatic_assembly_state(
             _account_database_path(window),
             role_names,
+            slot_ids=slot_ids,
         )
     except Exception as exc:
         QMessageBox.warning(window, "自动装配", f"无法读取官方 SQLite 方案：{exc}")
         return
 
-    aliases = _prompt_protagonist_alias_if_needed(window, role_names)
+    execution_role_names = list(state)
+    aliases = _prompt_protagonist_alias_if_needed(window, execution_role_names)
     protagonist_names = {"主角", "零", "「零」"}
-    if {str(role).strip() for role in role_names}.intersection(
+    if {str(role).strip() for role in execution_role_names}.intersection(
         protagonist_names
     ) and not aliases:
         return
@@ -191,10 +206,10 @@ def _start_automatic_equipment_assembly(
 
     def run() -> object:
         template_dir, record_root = _assembly_runtime_paths(window)
-        if len(role_names) == 1:
+        if len(execution_role_names) == 1:
             return execute_selected_role_from_current_game_page(
                 state,
-                role_names[0],
+                execution_role_names[0],
                 template_dir=str(template_dir),
                 record_root=record_root,
                 role_name_aliases=aliases,
@@ -216,7 +231,7 @@ def _start_automatic_equipment_assembly(
         title, message, completed = _assembly_report_dialog(
             "自动装配",
             report,
-            len(role_names),
+            len(execution_role_names),
         )
         (QMessageBox.information if completed else QMessageBox.warning)(
             window,
@@ -280,6 +295,7 @@ def _preview_automatic_assemble_role(
     window: Any,
     role_name: str,
     *,
+    slot_id: int | None = None,
     confirmed: bool = False,
 ) -> None:
     """确认后通过游戏界面自动化装配一个角色。"""
@@ -298,7 +314,11 @@ def _preview_automatic_assemble_role(
             return
     if not _confirm_automatic_assembly_duplicate_warning(window):
         return
-    _start_automatic_equipment_assembly(window, [role_name])
+    _start_automatic_equipment_assembly(
+        window,
+        [role_name] if slot_id is None else [],
+        slot_ids=[int(slot_id)] if slot_id is not None else None,
+    )
 
 
 def _preview_automatic_assemble_all_roles(
@@ -312,7 +332,27 @@ def _preview_automatic_assemble_all_roles(
     )
     try:
         with UserDataDao(_account_database_path(window)) as user_dao:
-            plans_by_role = user_dao.list_active_loadout_plans_by_role()
+            selection_service = LoadoutSlotSelectionService(user_dao)
+            current_slots = selection_service.list_current()
+            if requested_roles:
+                available_roles = {selection.role_name for selection in current_slots}
+                missing = [name for name in requested_roles if name not in available_roles]
+                if missing:
+                    QMessageBox.information(
+                        window,
+                        "自动装配",
+                        f"以下角色尚未保存当前方案：{'、'.join(missing)}",
+                    )
+                    return
+                current_slots = tuple(
+                    selection
+                    for selection in current_slots
+                    if selection.role_name in requested_roles
+                )
+            selected_slot_ids = select_assembly_slot_ids(window, current_slots)
+            if selected_slot_ids is None:
+                return
+            selections = selection_service.resolve(selected_slot_ids)
     except Exception as exc:
         QMessageBox.warning(
             window,
@@ -320,19 +360,7 @@ def _preview_automatic_assemble_all_roles(
             f"无法读取官方 SQLite 方案：{exc}",
         )
         return
-    if requested_roles:
-        missing = [name for name in requested_roles if name not in plans_by_role]
-        if missing:
-            QMessageBox.information(
-                window,
-                "自动装配",
-                f"以下角色尚未保存当前方案：{'、'.join(missing)}",
-            )
-            return
-        selected_roles = list(requested_roles)
-    else:
-        selected_roles = sorted(plans_by_role)
-    if not selected_roles:
+    if not selections:
         QMessageBox.information(
             window,
             "自动装配",
@@ -342,7 +370,7 @@ def _preview_automatic_assemble_all_roles(
     result = QMessageBox.question(
         window,
         "自动装配",
-        f"将模拟游戏内操作，依次装配 {len(selected_roles)} 个角色。\n\n"
+        f"将模拟游戏内操作，依次装配 {len(selected_slot_ids)} 个角色。\n\n"
         "无需装备插件，但需切换到游戏角色详情页，耗时更长；"
         "执行期间可按 F12 停止。是否继续？",
         QMessageBox.Yes | QMessageBox.No,
@@ -352,4 +380,4 @@ def _preview_automatic_assemble_all_roles(
         result == QMessageBox.Yes
         and _confirm_automatic_assembly_duplicate_warning(window)
     ):
-        _start_automatic_equipment_assembly(window, selected_roles)
+        _start_automatic_equipment_assembly(window, [], slot_ids=selected_slot_ids)

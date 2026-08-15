@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QKeySequenceEdit,
 )
 
-from src.app.constants import BILIBILI_HOME_URL, NETDISK_DOWNLOAD_LINKS
+from src.app.constants import NETDISK_DOWNLOAD_LINKS
 from src.app.context import AppContext
 from src.app.theme import THEME_LABELS, themed_style
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
@@ -352,18 +352,18 @@ def build_settings_page(
 
     theme_row = QHBoxLayout()
     theme_row.addWidget(QLabel("主题颜色:"))
-    current_theme = getattr(window, "_theme_preference", "dark")
+    current_theme = getattr(window, "_theme_preference", "black")
     dark_radio = QRadioButton(THEME_LABELS["dark"])
     black_radio = QRadioButton(THEME_LABELS["black"])
     light_radio = QRadioButton(THEME_LABELS["light"])
     theme_radios = {"dark": dark_radio, "black": black_radio, "light": light_radio}
-    current_radio = theme_radios.get(current_theme, dark_radio)
+    current_radio = theme_radios.get(current_theme, theme_radios["black"])
     current_radio.setChecked(True)
 
     def select_theme(theme: str):
         if window._set_theme_preference(theme):
             return
-        active_theme = getattr(window, "_theme_preference", "dark")
+        active_theme = getattr(window, "_theme_preference", "black")
         for value, radio in theme_radios.items():
             radio.blockSignals(True)
             radio.setChecked(value == active_theme)
@@ -447,14 +447,8 @@ def build_settings_page(
     window._mirror_download_btn = QPushButton("Mirror 下载")
     window._mirror_download_btn.setObjectName("btnPrimary")
     window._mirror_download_btn.clicked.connect(window._start_mirror_download)
-    home_btn = QPushButton("GitHub 主页")
+    home_btn = QPushButton("GitHub 下载")
     home_btn.clicked.connect(window._open_update_homepage)
-    bilibili_btn = QPushButton("B站主页")
-    bilibili_btn.clicked.connect(
-        window._open_bilibili_homepage
-        if hasattr(window, "_open_bilibili_homepage")
-        else lambda: window._open_url(BILIBILI_HOME_URL)
-    )
     netdisk_btn = QPushButton("网盘下载")
     netdisk_options = _normalize_netdisk_links(netdisk_links)
     netdisk_btn.clicked.connect(
@@ -466,7 +460,6 @@ def build_settings_page(
     update_row.addWidget(window._mirror_download_btn)
     update_row.addWidget(netdisk_btn)
     update_row.addWidget(home_btn)
-    update_row.addWidget(bilibili_btn)
     update_row.addStretch()
     update_card.layout().addLayout(update_row)
     mirror_cdk_row = QHBoxLayout()
@@ -483,6 +476,26 @@ def build_settings_page(
     mirror_cdk_row.addStretch()
     update_card.layout().addLayout(mirror_cdk_row)
     layout.addWidget(update_card)
+
+    about_card = window._card("关于我们")
+    about_row = QHBoxLayout()
+    about_row.setSpacing(10)
+    author_bilibili_btn = QPushButton("作者B站")
+    author_bilibili_btn.clicked.connect(window._open_bilibili_homepage)
+    project_btn = QPushButton("项目页面")
+    project_btn.clicked.connect(window._open_project_homepage)
+    support_btn = QPushButton("支持我们")
+    support_btn.clicked.connect(window._open_support_homepage)
+    group_chat_btn = QPushButton("加入群聊")
+    group_chat_btn.clicked.connect(window._show_group_chat_notice)
+    about_row.addWidget(author_bilibili_btn)
+    about_row.addWidget(project_btn)
+    about_row.addWidget(support_btn)
+    about_row.addWidget(group_chat_btn)
+    about_row.addStretch()
+    about_card.layout().addLayout(about_row)
+    layout.addWidget(about_card)
+
     layout.addWidget(plugin_card)
     layout.addWidget(sync_card)
 

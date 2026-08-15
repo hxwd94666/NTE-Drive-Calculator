@@ -64,6 +64,8 @@ class OfficialRoleController:
             return load_official_role_detail(
                 self.dependencies.user_database_path,
                 int(character_id),
+                static_database_path=self.dependencies.static_database_path,
+                shared_database_path=self.dependencies.shared_database_path,
             )
 
     def save_profiles(
@@ -124,6 +126,7 @@ class OfficialRoleController:
         target: Mapping[str, Any],
         replacement: Mapping[str, Any],
         *,
+        context_key: str = "saved",
         replacement_score: float,
         current_score: float,
         current_assignment_scores: Mapping[str, float],
@@ -142,6 +145,7 @@ class OfficialRoleController:
                 detail,
                 target,
                 replacement,
+                context_key=context_key,
                 replacement_score=float(replacement_score),
                 current_score=float(current_score),
                 current_assignment_scores=current_assignment_scores,

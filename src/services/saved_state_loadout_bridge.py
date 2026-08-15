@@ -248,6 +248,47 @@ def character_ids_for_static_role(
     return ids
 
 
+def custom_character_id_for_role(
+    role_name: str,
+    user_dao: UserDataDao,
+) -> int | None:
+    """Resolve an account-owned custom role before querying release data."""
+
+    raw_name = str(role_name).strip()
+    if not raw_name:
+        raise SavedStateLoadoutError("角色名称不能为空")
+    matches = [
+        row
+        for row in user_dao.list_custom_characters()
+        if str(row.get("name_zh") or "").strip() == raw_name
+    ]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise SavedStateLoadoutError(f"自建角色 [{raw_name}] 存在重复记录")
+    return int(matches[0]["character_id"])
+
+
+def resolve_character_id_for_allocation_role(
+    role_name: str,
+    static_dao: StaticGameDataDao,
+    user_dao: UserDataDao,
+    *,
+    snapshot_id: int,
+) -> int:
+    """Resolve a calculated role to its account custom or official ID."""
+
+    custom_character_id = custom_character_id_for_role(role_name, user_dao)
+    if custom_character_id is not None:
+        return custom_character_id
+    return resolve_character_id_for_static_role(
+        role_name,
+        static_dao,
+        user_dao,
+        snapshot_id=snapshot_id,
+    )
+
+
 def _female_avatar_candidate(
     candidates: tuple[int, ...],
     static_dao: StaticGameDataDao,
@@ -385,6 +426,7 @@ class SavedStateLoadoutBridge:
         name: str | None = None,
         score: float | None = None,
         payload: Mapping[str, Any] | None = None,
+        slot_id: int | None = None,
     ) -> SavedLoadoutPlan:
         prepared = self.prepare_role_plan(
             role_name=role_name,
@@ -395,9 +437,11 @@ class SavedStateLoadoutBridge:
             score=score,
             payload=payload,
         )
+        slot = self.user_dao.get_loadout_slot(slot_id) if slot_id is not None else None
         plan_id = self.user_dao.save_loadout_plan(
             **prepared.as_record(),
-            is_active=True,
+            is_active=(slot_id is None or (slot or {}).get("slot_key") == "primary"),
+            slot_id=slot_id,
         )
         return SavedLoadoutPlan(
             plan_id=plan_id,
@@ -433,7 +477,9 @@ class SavedStateLoadoutBridge:
             )
 
         character = self.static_dao.get_character(character_id)
-        if character is None:
+        custom_character_id = custom_character_id_for_role(role_name, self.user_dao)
+        is_matching_custom_role = custom_character_id == int(character_id)
+        if character is None and not is_matching_custom_role:
             raise SavedStateLoadoutError(
                 f"静态数据库中不存在角色 ID {character_id}（{role_name}）"
             )

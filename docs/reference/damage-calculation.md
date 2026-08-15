@@ -16,7 +16,8 @@ Python API 的百分比使用小数，例如 `20%` 写为 `0.20`。
 3. **待确认映射**：官方文件有原始数组，但没有足够证据把数组档位直接解释为具体角色或技能
    等级。此类数据只保存 `source_tier`，不猜测等级。
 
-发行数据库为 `data/game_static.sqlite3`，战斗数据使用 schema v3 的下列表：
+发行数据库为 `data/game_static.sqlite3`，当前整体 schema 为 v16。战斗基础表最初由静态迁移 v3 引入，
+当前计算读取下列表：
 
 - `combat_level_curve`、`combat_level_curve_point`：倾陷确切等级曲线与环合官方档位。
 - `reaction_definition`、`combat_effect_constant`：环合元素组合、默认伤害效果和固定常量。
@@ -195,17 +196,17 @@ DOT 结算总伤害 = Σ(第 i 层剩余时长 × DOT 单跳伤害)
 | 环合常量 | `DT_ReactionEffectFigure` | 保存官方单点曲线值及已确认单位 |
 | 敌方参数 | `DT_MonsterPackData*` | 标准/轨外属性包的防御、抗性和 `UnbalMax` |
 
-环合和技能倍率数组仍保持官方 `source_tier`。末档数值与当前项目采用的 80 级环合锚点一致，但在
-找到明确的“等级 → 档位”调用逻辑之前，SQLite 不将该末档强制标注为 80 级。
+SQLite 原始数组仍保留官方 `source_tier`，不改写成推导后的等级。Service 按下文已确认规则解释技能
+15 档和环合 16 档，使来源事实与业务映射保持分离。
 
 ## 当前范围
 
 - 已实现：直伤、DOT 单跳和按层结算。
 - 已实现：倾陷伤害。
-- 已实现基础：环合归属选择、环合强度乘区和覆纹/浸染环合系数。
-- 已导入：倾陷完整等级曲线、环合官方伤害档位、环合常量、技能倍率和敌方战斗属性包。
-- 待补充：技能等级与 15 档倍率的映射、角色等级与 16 档环合伤害的映射、怪物实例与属性包的
-  稳定绑定、各环合伤害的完整状态时序以及失谐倾陷扣除量。
+- 已实现：环合归属选择、环合强度乘区、覆纹/浸染系数、技能 15 档和环合 16 档等级映射。
+- 已导入：倾陷完整等级曲线、环合官方伤害档位、环合常量、技能倍率、敌方属性包和 Abyss 绑定。
+- 待补充：运行时目标实例与静态属性包的正式场景快照、各环合伤害的完整状态时序，以及失谐倾陷
+  扣除量的进一步实测确认。
 
 实现位于 `src/services/damage_calculation_service.py`。该 service 为纯函数，不读写 SQLite、
 不访问 UI，也不替代旧角色页面的“直伤评分”。
@@ -219,13 +220,13 @@ DOT 结算总伤害 = Σ(第 i 层剩余时长 × DOT 单跳伤害)
 当前确认规则为基础技能等级，加上“觉醒等级达到 3 时全技能 +1”。因此基础 10 级、三重觉醒
 的技能取第 11 档（下标 10）；其他觉醒效果仍由调用方提供，避免未经确认的推断。
 
-源数据路径：
+上游导出中的源数据路径（导出目录不属于仓库）：
 
-`../Content/DataTable/skill/DT_SkillDamageData.json`
+`SOURCE_EXPORT_ROOT/Content/DataTable/skill/DT_SkillDamageData.json`
 
 SDK 结构为 `FSkillDamageExecutionData`，位于：
 
-`../CppSDK/SDK/HTGame_structs.hpp`。
+`SOURCE_EXPORT_ROOT/CppSDK/SDK/HTGame_structs.hpp`。
 
 ### 环合 16 档
 
@@ -248,9 +249,10 @@ SDK 结构为 `FSkillDamageExecutionData`，位于：
 
 ### 怪物实例与属性包
 
-schema v4 新增 `monster_instance_profile` 与 `monster_instance_profile_variant`，保留怪物实例到属性包
-以及世界/副本/深渊等级变体的原始绑定；schema v5 新增 `abyss_level`、
+静态迁移 v4 引入 `monster_instance_profile` 与 `monster_instance_profile_variant`，保留怪物实例到属性包
+以及世界/副本/深渊等级变体的原始绑定；静态迁移 v5 引入 `abyss_level`、
 `abyss_level_monster_spawn` 与 `abyss_monster_pool_entry`，导入 Abyss 关卡、波次、怪物池和属性包关系。
+这些表继续保留在当前静态 schema v16 中。
 该链路仅以 `HT/Content/DataAssets/DataAssetSet/Abyss` 的专用配置为准：`AbyssCloneLevelDataTable`
 → `MonsterPoolID` → `DT_AbyssMonsterPool` → `AttributeID` → `DT_MonsterPackData`。当前 366 个
 唯一 `AttributeID` 均命中普通属性包。`FT_` 是 999 夜子玩法前缀，不表示轨外之境或 Abyss 场景，

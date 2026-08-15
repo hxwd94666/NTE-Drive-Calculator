@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -80,6 +81,11 @@ def build_config_page(window):
     reset_all_btn.setObjectName("btnDanger")
     reset_all_btn.clicked.connect(window._reset_all_config_weights)
     top_row.addWidget(reset_all_btn)
+
+    new_btn = QPushButton("新建")
+    new_btn.setObjectName("btnNew")
+    new_btn.clicked.connect(lambda: create_custom_role(window))
+    top_row.addWidget(new_btn)
 
     save_btn = QPushButton("保存")
     save_btn.setObjectName("btnPrimary")
@@ -174,8 +180,11 @@ def switch_config_form(window, name=_ACCOUNT_WEIGHT_CONFIG, config_dir=None, use
         window._config_weight_main_choices = loaded["main_choices"]
         window._config_shape_bonus_choices = loaded["shape_bonus_choices"]
         window._config_shape_label_choices = loaded["shape_label_choices"]
+        window._config_suit_choices = loaded["suit_choices"]
         window._config_dirty_character_ids = set()
         window._config_dirty_shape_bonus_ids = set()
+        window._config_dirty_board_ids = set()
+        window._config_dirty_target_suit_ids = set()
     window._current_config_name = name
     window._config_form_data = data
     if name != current_name:
@@ -196,10 +205,19 @@ def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
     value = NoWheelComboBox()
     value.setMaxVisibleItems(6)
     value.addItems(getattr(window, "_config_shape_label_choices", ()))
-    current_label = str(role_data.get("extra_shape_label") or "")
+    choices = tuple(getattr(window, "_config_shape_label_choices", ()))
+    current_label = str(role_data.get("extra_shape_label") or "") or (
+        choices[0] if choices else "Type-3"
+    )
+    role_data["extra_shape_label"] = current_label
     value.setCurrentText(current_label)
     value.setPlaceholderText("选择额外形状标签")
-    value.setToolTip("选择额外形状标签；点击“保存”后写入本机公共覆盖库，所有账号共用；可重置为发行默认值。")
+    ownership = (
+        "点击“保存”后写入当前账号的自建角色数据。"
+        if role_data.get("is_custom")
+        else "点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。"
+    )
+    value.setToolTip(f"选择额外形状标签；{ownership}")
     value.currentTextChanged.connect(
         lambda text, rn=role_name: save_extra_shape_label(window, rn, text, data)
     )
@@ -226,7 +244,12 @@ def _add_extra_shape_buff_row(
         property_combo.addItem(str(label), str(property_id))
     selected_index = property_combo.findData(str(selected_property))
     property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
-    property_combo.setToolTip("选择额外形状提供的属性；点击“保存”后写入本机公共覆盖库，所有账号共用；可重置为发行默认值。")
+    ownership = (
+        "点击“保存”后写入当前账号的自建角色数据。"
+        if role_data.get("is_custom")
+        else "点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。"
+    )
+    property_combo.setToolTip(f"选择额外形状提供的属性；{ownership}")
     row.addWidget(property_combo, 1)
     value_spin = NoWheelDoubleSpinBox()
     value_spin.setRange(0, 1000000)
@@ -235,18 +258,8 @@ def _add_extra_shape_buff_row(
     value_spin.setValue(float(selected_value))
     value_spin.setKeyboardTracking(False)
     value_spin.setEnabled(bool(property_combo.currentData()))
-    value_spin.setToolTip("额外形状加成数值；点击“保存”后写入本机公共覆盖库，所有账号共用；可重置为发行默认值。")
+    value_spin.setToolTip(f"额外形状加成数值；{ownership}")
     row.addWidget(value_spin)
-    reset_button = QPushButton("恢复发行默认")
-    reset_button.setObjectName("btnSm")
-    reset_button.setToolTip("删除该角色的本机公共覆盖，重新使用随版本发布的默认值。")
-    reset_button.clicked.connect(
-        lambda checked=False, item=role_data: reset_extra_shape_bonus(
-            window,
-            item,
-        )
-    )
-    row.addWidget(reset_button)
     form_layout.addLayout(row)
 
     def update_bonus(*_args) -> None:
@@ -313,6 +326,91 @@ def _add_role_weight_group(window, data, role_name, role_data, form_layout, rebu
         form_layout.addLayout(weight_row)
 
 
+def _add_custom_target_suit_row(window, role_name, role_data, form_layout):
+    combo = NoWheelComboBox()
+    combo.setMaxVisibleItems(8)
+    combo.addItem("请选择套装", "")
+    for label, suit_id in getattr(window, "_config_suit_choices", ()):
+        combo.addItem(str(label), str(suit_id))
+    target_suit_id = str(role_data.get("target_suit_id") or "")
+    index = combo.findData(target_suit_id)
+    combo.setCurrentIndex(index if index >= 0 else 0)
+    combo.setToolTip("自建角色的默认计算套装；角色管理可在单次计算中临时调整。")
+
+    def update_target_suit(_index: int) -> None:
+        selected = str(combo.currentData() or "")
+        if selected == str(role_data.get("target_suit_id") or ""):
+            return
+        role_data["target_suit_id"] = selected
+        window._config_dirty_target_suit_ids.add(int(role_data["character_id"]))
+        window._config_form_data = getattr(window, "_config_form_data", {})
+        window._config_dirty = True
+
+    combo.currentIndexChanged.connect(update_target_suit)
+    _field("默认计算套装", combo, form_layout)
+
+
+def _add_custom_board(window, role_name, role_data, form_layout):
+    board_header = QHBoxLayout()
+    board_header.addWidget(QLabel("底盘矩阵：必须保持20格"))
+    board_header.addStretch()
+    enabled_count_label = QLabel()
+    enabled_count_label.setObjectName("customRoleBoardEnabledCount")
+    board_header.addWidget(enabled_count_label)
+    form_layout.addLayout(board_header)
+    grid = QGridLayout()
+    cells = role_data.get("board_cells") or []
+    by_position = {(cell["row"], cell["column"]): cell for cell in cells}
+
+    def enabled_count() -> int:
+        return sum(
+            bool(cell.get("is_enabled")) for cell in by_position.values()
+        )
+
+    def refresh_count() -> None:
+        count = enabled_count()
+        enabled_count_label.setText(f"已启用 {count}/20")
+        enabled_count_label.setStyleSheet(themed_style(
+            "color:#3fb950;font-weight:700" if count == 20 else
+            "color:#f85149;font-weight:700"
+        ))
+
+    for row in range(1, 6):
+        for column in range(1, 6):
+            cell = by_position.setdefault((row, column), {"row": row, "column": column, "is_enabled": row <= 4, "is_locked": False})
+            button = QPushButton()
+            button.setProperty("boardRow", row)
+            button.setProperty("boardColumn", column)
+            button.setFixedSize(34, 30)
+            def refresh(target=button, value=cell):
+                target.setText("")
+                target.setStyleSheet(
+                    "QPushButton{background:#1f6feb;border:1px solid #58a6ff;"
+                    "border-radius:6px;} QPushButton:hover{background:#388bfd;}"
+                    if value["is_enabled"]
+                    else "QPushButton{background:#161b22;border:1px solid #30363d;"
+                    "border-radius:6px;} QPushButton:hover{background:#21262d;}"
+                )
+            def toggle(_checked=False, value=cell, refresh_callback=refresh):
+                if not value["is_enabled"] and enabled_count() >= 20:
+                    # A custom chassis has exactly 20 playable cells.  Prevent
+                    # the accidental 21st selection that otherwise surfaces as
+                    # a later, less actionable SQLite validation error.
+                    refresh_count()
+                    return
+                value["is_enabled"] = not value["is_enabled"]
+                role_data["board_cells"] = list(by_position.values())
+                window._config_dirty_board_ids.add(int(role_data["character_id"]))
+                window._config_dirty = True
+                refresh_callback()
+                refresh_count()
+            refresh()
+            button.clicked.connect(toggle)
+            grid.addWidget(button, row - 1, column - 1)
+    refresh_count()
+    form_layout.addLayout(grid)
+
+
 def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_tabs):
     if tab_scroll.property("loaded"):
         return
@@ -325,22 +423,41 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
     form_layout.setSpacing(12)
     form_layout.setContentsMargins(12, 12, 12, 12)
 
-    source = QLabel(
+    source_text = (
         f"角色：{role_name}　当前账号 SQLite 权重设置"
-        f"（初始来源：{role_data.get('source_kind') or 'default'}）\n"
-        "额外形状：全部账号共用 · "
-        + (
+        f"（初始来源：{role_data.get('source_kind') or 'default'}）"
+    )
+    if not role_data.get("is_custom"):
+        source_text += "\n额外形状：全部账号共用 · " + (
             "本机覆盖"
             if role_data.get("shape_bonus_source") == "shared_override"
             else "发行默认"
         )
-    )
+    source = QLabel(source_text)
     source.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     form_layout.addWidget(source)
-    _add_extra_shape_row(window, data, role_name, role_data, form_layout)
-    _add_extra_shape_buff_row(
-        window, data, role_name, role_data, form_layout, rebuild_all_tabs,
-    )
+    if role_data.get("is_custom"):
+        custom_row = QHBoxLayout()
+        custom_row.addWidget(QLabel("自建可计算角色：没有发行模板；请在此设置默认计算套装与额外形状。"))
+        custom_row.addStretch()
+        delete_btn = QPushButton("删除角色")
+        delete_btn.setObjectName("btnDanger")
+        delete_btn.clicked.connect(
+            lambda: delete_custom_role(window, role_name, role_data, rebuild_all_tabs)
+        )
+        custom_row.addWidget(delete_btn)
+        form_layout.addLayout(custom_row)
+        _add_custom_target_suit_row(window, role_name, role_data, form_layout)
+        _add_extra_shape_row(window, data, role_name, role_data, form_layout)
+        _add_extra_shape_buff_row(
+            window, data, role_name, role_data, form_layout, rebuild_all_tabs,
+        )
+        _add_custom_board(window, role_name, role_data, form_layout)
+    else:
+        _add_extra_shape_row(window, data, role_name, role_data, form_layout)
+        _add_extra_shape_buff_row(
+            window, data, role_name, role_data, form_layout, rebuild_all_tabs,
+        )
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "卡带主词条权重", "main_weights", "+ 添加主词条")
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
     form_layout.addStretch()
@@ -436,30 +553,6 @@ def _mark_shape_bonus_dirty(window, role_data):
     window._config_dirty_shape_bonus_ids.add(int(role_data["character_id"]))
 
 
-def reset_extra_shape_bonus(window, role_data):
-    """删除当前角色的公共覆盖并刷新为发行默认。"""
-
-    if QMessageBox.question(
-        window,
-        "恢复发行默认",
-        "额外形状配置由所有账号共用。确定删除本机覆盖并恢复发行默认值吗？",
-        QMessageBox.Yes | QMessageBox.Cancel,
-        QMessageBox.Cancel,
-    ) != QMessageBox.Yes:
-        return
-    try:
-        _basic_weight_controller(window).reset_shared_shape_bonus(
-            int(role_data["character_id"])
-        )
-    except Exception as exc:
-        QMessageBox.warning(window, "恢复失败", str(exc))
-        return
-    reload_data = getattr(window, "_load_data", None)
-    if callable(reload_data):
-        reload_data()
-    QMessageBox.information(window, "恢复发行默认", "已删除本机公共覆盖。")
-
-
 def save_extra_shape_label(window, rn, value, data):
     if rn not in data:
         return
@@ -470,6 +563,54 @@ def save_extra_shape_label(window, rn, value, data):
     _mark_shape_bonus_dirty(window, data[rn])
     window._config_form_data = data
     window._config_dirty = True
+
+
+def create_custom_role(window):
+    name, accepted = QInputDialog.getText(
+        window,
+        "新建角色",
+        "角色名称（也作为游戏内名称）：",
+    )
+    if not accepted:
+        return
+    try:
+        role = _basic_weight_controller(window).create_custom_role(name)
+    except Exception as exc:
+        QMessageBox.warning(window, "新建角色失败", str(exc))
+        return
+    window._config_dirty = False
+    window._config_form_data = None
+    reload_data = getattr(window, "_load_data", None)
+    if callable(reload_data):
+        reload_data(reload_priority=False)
+    switch_config_form(
+        window,
+        _ACCOUNT_WEIGHT_CONFIG,
+        active_role=str(role["name_zh"]),
+    )
+
+
+def delete_custom_role(window, role_name, role_data, rebuild_all_tabs):
+    if QMessageBox.question(
+        window,
+        "删除角色",
+        f"删除 [{role_name}] 以及它的计算偏好和配装槽位？",
+        QMessageBox.Yes | QMessageBox.Cancel,
+        QMessageBox.Cancel,
+    ) != QMessageBox.Yes:
+        return
+    character_id = int(role_data["character_id"])
+    try:
+        _basic_weight_controller(window).delete_custom_role(character_id)
+    except Exception as exc:
+        QMessageBox.warning(window, "删除角色失败", str(exc))
+        return
+    window._config_dirty = False
+    window._config_dirty_character_ids.discard(character_id)
+    window._config_dirty_board_ids.discard(character_id)
+    data = getattr(window, "_config_form_data", {}) or {}
+    data.pop(role_name, None)
+    rebuild_all_tabs()
 
 
 def save_single_extra_shape_bonus(window, rn, property_id, value, data):
@@ -515,18 +656,31 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     shape_bonus_dirty_ids = set(
         getattr(window, "_config_dirty_shape_bonus_ids", set())
     )
+    board_dirty_ids = set(getattr(window, "_config_dirty_board_ids", set()))
+    target_suit_dirty_ids = set(
+        getattr(window, "_config_dirty_target_suit_ids", set())
+    )
     try:
         _basic_weight_controller(window).save_changes(
             data,
             dirty_ids,
             shape_bonus_dirty_ids,
+            board_dirty_ids,
+            target_suit_dirty_ids,
         )
     except Exception as exc:
         QMessageBox.warning(window, "保存失败", str(exc))
         return
     window._config_dirty = False
-    window._config_dirty_character_ids.clear()
-    window._config_dirty_shape_bonus_ids.clear()
+    for field_name in (
+        "_config_dirty_character_ids",
+        "_config_dirty_shape_bonus_ids",
+        "_config_dirty_board_ids",
+        "_config_dirty_target_suit_ids",
+    ):
+        dirty_values = getattr(window, field_name, None)
+        if dirty_values is not None:
+            dirty_values.clear()
     reload_data = getattr(window, "_load_data", None)
     if callable(reload_data):
         reload_data()
@@ -553,6 +707,7 @@ def _reload_after_weight_reset(window, config_dir, active_role: str | None) -> N
     window._config_form_data = None
     window._config_dirty_character_ids = set()
     window._config_dirty_shape_bonus_ids = set()
+    window._config_dirty_target_suit_ids = set()
     switch_config_form(window, _ACCOUNT_WEIGHT_CONFIG, config_dir, active_role=active_role)
     reload_data = getattr(window, "_load_data", None)
     if callable(reload_data):
@@ -565,6 +720,9 @@ def reset_current_config_weights(window, config_dir):
     role_data = data.get(role_name) or {}
     if not role_name or not role_data:
         QMessageBox.information(window, "重置当前", "请先选择一个角色。")
+        return
+    if role_data.get("is_custom"):
+        QMessageBox.information(window, "重置当前", "自建角色没有发行默认权重，保留当前自定义值。")
         return
     if not _confirm_weight_reset(
         window,
@@ -591,7 +749,11 @@ def reset_all_config_weights(window, config_dir):
     character_ids = [
         int(role_data["character_id"])
         for role_data in data.values()
-        if isinstance(role_data, dict) and role_data.get("character_id") is not None
+        if (
+            isinstance(role_data, dict)
+            and role_data.get("character_id") is not None
+            and not role_data.get("is_custom")
+        )
     ]
     if not character_ids:
         return

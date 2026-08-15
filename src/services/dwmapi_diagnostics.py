@@ -13,6 +13,7 @@ from typing import Any
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
     GAME_EXECUTABLE_NAME,
+    MOD_SDK_CACHE_FILES,
     MOD_WORKSPACE_FILES,
     PLUGIN_FILENAME,
     game_executable,
@@ -138,6 +139,12 @@ def collect_dwmapi_diagnostics(
             for relative in MOD_WORKSPACE_FILES
         )
     )
+    sdk_cache: dict[str, Any] = {}
+    if registered_workspace:
+        sdk_cache = {
+            relative.name: _file_details(registered_workspace / relative)
+            for relative in MOD_SDK_CACHE_FILES
+        }
     recorded_workspace = (
         Path(recorded_workspace_path).expanduser()
         if str(recorded_workspace_path or "").strip()
@@ -154,6 +161,7 @@ def collect_dwmapi_diagnostics(
         "registered_workspace": str(registered_workspace or ""),
         "recorded_workspace": str(recorded_workspace or ""),
         "registered_workspace_ready": registered_workspace_ready,
+        "registered_workspace_sdk_cache": sdk_cache,
         "registered_workspace_matches_record": bool(
             registered_workspace
             and recorded_workspace
@@ -196,6 +204,19 @@ def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
                 "已注册工作区与本程序部署记录："
                 + ("一致" if result.get("registered_workspace_matches_record") else "不一致")
             )
+        sdk_cache = (
+            result.get("registered_workspace_sdk_cache")
+            if isinstance(result.get("registered_workspace_sdk_cache"), Mapping)
+            else {}
+        )
+        sdk_binary = sdk_cache.get("NTE_SDK.bin")
+        sdk_checksum = sdk_cache.get("NTE_SDK.checksum")
+        sdk_binary_exists = isinstance(sdk_binary, Mapping) and bool(sdk_binary.get("exists"))
+        sdk_checksum_exists = isinstance(sdk_checksum, Mapping) and bool(sdk_checksum.get("exists"))
+        lines.extend([
+            "运行时 SDK 缓存：" + ("已生成" if sdk_binary_exists else "尚未生成"),
+            "SDK 校验记录：" + ("存在" if sdk_checksum_exists else "尚未生成"),
+        ])
         configured_hash = str(result.get("configured_deployed_sha256") or "")
         if configured_hash:
             lines.append(
@@ -213,5 +234,8 @@ def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
     ])
     if pipe.get("error_name"):
         lines.append(f"系统结果：{pipe['error_name']}")
-    lines.append("\n说明：本诊断不执行装备操作；管道“存在”仅表示游戏内插件已建立 IPC，不能代替实际装配结果。")
+    lines.append(
+        "\n说明：新版插件会为当前游戏映像自动生成 NTE_SDK.bin，并在校验记录匹配时复用；"
+        "本诊断不执行装备操作。管道“存在”仅表示游戏内插件已建立 IPC，不能代替实际装配结果。"
+    )
     return "\n".join(lines)

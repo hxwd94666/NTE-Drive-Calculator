@@ -12,6 +12,7 @@ from src.services.dwmapi_diagnostics import (
 )
 from src.services.equipment_plugin_deployment import (
     MOD_PLUGIN_SIGNATURE,
+    MOD_SDK_CACHE_FILES,
     MOD_WORKSPACE_FILES,
 )
 
@@ -44,6 +45,10 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
             target = writable_workspace / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("test\n", encoding="utf-8")
+        (writable_workspace / MOD_SDK_CACHE_FILES[0]).write_bytes(b"generated-sdk")
+        (writable_workspace / MOD_SDK_CACHE_FILES[1]).write_text(
+            "game-image-checksum", encoding="ascii"
+        )
 
         with patch(
             "src.services.dwmapi_diagnostics.registered_mod_workspace",
@@ -60,6 +65,8 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
         self.assertTrue(report["target_plugin_is_mods"])
         self.assertTrue(report["registered_workspace_ready"])
         self.assertTrue(report["registered_workspace_matches_record"])
+        self.assertTrue(report["registered_workspace_sdk_cache"]["NTE_SDK.bin"]["exists"])
+        self.assertTrue(report["registered_workspace_sdk_cache"]["NTE_SDK.checksum"]["exists"])
         self.assertIn("state", report["pipe"])
         self.assertEqual(EQUIPMENT_PIPE_NAME, r"\\.\pipe\nte-mods-plugin-v7")
 

@@ -141,6 +141,11 @@ def _save_account_character_weights(
     current = ensure_account_character_weights(user_database_path, (character_id,)).get(
         int(character_id), {}
     )
+    # Account-created roles deliberately have no static recommendation.  Their
+    # seed is still a normal account-owned weight record and must be editable.
+    if not current:
+        with UserDataDao(user_database_path) as user_dao:
+            current = user_dao.get_character_weight_preferences(int(character_id)) or {}
     with StaticGameDataDao() as static_dao:
         known_property_ids = {
             str(row["attribute_id"]) for row in static_dao.list_equipment_attributes()

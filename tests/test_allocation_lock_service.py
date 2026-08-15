@@ -100,6 +100,46 @@ class AllocationLockServiceTests(unittest.TestCase):
         self.assertEqual([["千秋"], ["岚"]], groups)
         verify_allocation_lock_snapshot(self.dao, lock_snapshot)
 
+    def test_partial_slot_lock_reserves_equipment_without_skipping_role(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(
+                1,
+                [
+                    item(11, 22),
+                    item(12, 23, "core"),
+                    item(13, 24),
+                    item(14, 25, "core"),
+                ],
+            )
+        )
+        primary_plan_id = self._save_lockable_plan(snapshot_id)
+        secondary_slot_id = self.dao.create_loadout_slot(1003, "副本", slot_key="raid")
+        secondary_plan_id = self.dao.save_plan_to_slot(
+            secondary_slot_id,
+            name="早雾副本方案",
+            source_snapshot_id=snapshot_id,
+            assignments=[_module(13, 24), _core(14, 25)],
+            payload=_official_payload("早雾"),
+        )
+
+        self.assertTrue(self.dao.set_allocation_lock(primary_plan_id, True))
+        partial_lock = build_allocation_lock_snapshot(
+            self.dao,
+            inventory_snapshot_id=snapshot_id,
+        )
+        self.assertEqual(frozenset(), partial_lock.locked_role_names)
+        self.assertEqual(
+            frozenset({"nte-module-22-11", "nte-core-23-12"}),
+            partial_lock.reserved_uids,
+        )
+
+        self.assertTrue(self.dao.set_allocation_lock(secondary_plan_id, True))
+        all_slots_locked = build_allocation_lock_snapshot(
+            self.dao,
+            inventory_snapshot_id=snapshot_id,
+        )
+        self.assertEqual(frozenset({"早雾"}), all_slots_locked.locked_role_names)
+
     def test_lock_accepts_missing_core_and_rejects_virtual_assignments(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
             snapshot(1, [item(11, 22), item(12, 23, "core")])

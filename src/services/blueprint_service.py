@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
+from pathlib import Path
 
 from src.models.equipment import DriveShape
 from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 from src.solver.combinatorics import PuzzleCombinatorics
 from src.solver.dfs_puzzle import DFSPuzzleSolver
+from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -85,6 +88,54 @@ def official_board(plan: dict) -> list[list[int]]:
     return board
 
 
+def custom_board(cells: Iterable[dict]) -> list[list[int]]:
+    """Map an account-owned 5×5 board to the solver representation."""
+
+    board = [[-1] * 5 for _ in range(5)]
+    enabled_count = 0
+    for cell in cells:
+        row = int(cell.get("row_number", cell.get("row", 0))) - 1
+        column = int(cell.get("column_number", cell.get("column", 0))) - 1
+        if not (0 <= row < 5 and 0 <= column < 5):
+            continue
+        if bool(cell.get("is_enabled")):
+            board[row][column] = 0
+            enabled_count += 1
+    if enabled_count != 20:
+        raise ValueError(f"自建角色底盘应为 20 格，实际为 {enabled_count} 格")
+    return board
+
+
+def _solve_board_candidates(
+    *,
+    board: list[list[int]],
+    suit_shape_ids: list[str],
+    preferred_label: str,
+    combinatorics: PuzzleCombinatorics,
+    solver: DFSPuzzleSolver,
+) -> list[dict]:
+    candidates: list[dict] = []
+    for extra_piece_ids in combinatorics.generate_piece_combinations(
+        suit_shape_ids, preferred_label
+    ):
+        solved_boards: list[list[list[object]]] = []
+        solver.solve(
+            board,
+            suit_shape_ids + extra_piece_ids,
+            solved_boards,
+            max_solutions=1,
+        )
+        if solved_boards:
+            candidates.append(
+                {
+                    "set_pieces": list(suit_shape_ids),
+                    "extra_pieces": list(extra_piece_ids),
+                    "board": _display_board(solved_boards[0]),
+                }
+            )
+    return dedupe_blueprints_by_piece_signature(candidates)
+
+
 def _preferred_extra_label(
     plan: dict,
     item_by_id: dict[str, dict],
@@ -112,6 +163,22 @@ def _preferred_extra_label(
     return shape_models[preferred_shape_id].label
 
 
+def _public_extra_shape_label(
+    shape_bonus: dict,
+    shape_models: dict[str, DriveShape],
+) -> str:
+    """Map the public Type-N shape choice to a solver-visible shape label."""
+
+    grid_count = int(shape_bonus.get("shape_grid_count") or 0)
+    if grid_count <= 0:
+        return ""
+    matching = sorted(
+        (shape for shape in shape_models.values() if shape.area == grid_count),
+        key=lambda shape: shape.shape_id,
+    )
+    return matching[0].label if matching else ""
+
+
 def _display_board(board: list[list[object]]) -> list[list[str]]:
     return [
         [
@@ -126,6 +193,9 @@ def _display_board(board: list[list[object]]) -> list[list[str]]:
 
 def solve_blueprints_from_static(
     static_dao: StaticGameDataDao,
+    *,
+    custom_characters: Iterable[dict] = (),
+    shared_database_path: str | Path | None = None,
 ) -> dict[str, dict]:
     module_items = static_dao.list_equipment_items("module")
     core_items = {
@@ -155,29 +225,24 @@ def solve_blueprints_from_static(
             continue
 
         board = official_board(plan)
-        preferred_label = _preferred_extra_label(
+        shape_bonus = get_effective_character_shape_bonus(
+            static_dao,
+            int(character["character_id"]),
+            shared_database_path=shared_database_path,
+        ) or {}
+        preferred_label = _public_extra_shape_label(
+            shape_bonus,
+            shape_models,
+        ) or _preferred_extra_label(
             plan, item_by_id, set_piece_ids, shape_models
         )
-        candidates: list[dict] = []
-        for extra_piece_ids in combinatorics.generate_piece_combinations(
-            set_piece_ids, preferred_label
-        ):
-            solved_boards: list[list[list[object]]] = []
-            solver.solve(
-                board,
-                set_piece_ids + extra_piece_ids,
-                solved_boards,
-                max_solutions=1,
-            )
-            if solved_boards:
-                candidates.append(
-                    {
-                        "set_pieces": list(set_piece_ids),
-                        "extra_pieces": list(extra_piece_ids),
-                        "board": _display_board(solved_boards[0]),
-                    }
-                )
-        candidates = dedupe_blueprints_by_piece_signature(candidates)
+        candidates = _solve_board_candidates(
+            board=board,
+            suit_shape_ids=set_piece_ids,
+            preferred_label=preferred_label,
+            combinatorics=combinatorics,
+            solver=solver,
+        )
         if not candidates:
             continue
         role_name = str(
@@ -196,5 +261,38 @@ def solve_blueprints_from_static(
             "preferred_extra_label": preferred_label or "无特定偏好",
             "blueprints": candidates,
         }
+    for custom in custom_characters:
+        character_id = int(custom["character_id"])
+        role_name = str(custom.get("name_zh") or character_id)
+        target_suit_id = str(custom.get("target_suit_id") or "")
+        suit = static_dao.get_suit(target_suit_id) if target_suit_id else None
+        set_piece_ids = [
+            shape_id
+            for shape_id in (suit or {}).get("required_shape_ids", [])
+            if shape_id in shape_models
+        ]
+        if not suit or not set_piece_ids:
+            continue
+        board = custom_board(custom.get("board_cells") or ())
+        candidates = _solve_board_candidates(
+            board=board,
+            suit_shape_ids=set_piece_ids,
+            preferred_label="",
+            combinatorics=combinatorics,
+            solver=solver,
+        )
+        if not candidates:
+            continue
+        results[role_name] = {
+            "character_id": character_id,
+            "role_name": role_name,
+            "core_name": "未配置卡带",
+            "core_level": 0,
+            "suit_name": str(suit.get("name_zh") or suit["suit_id"]),
+            "preferred_extra_label": "无特定偏好",
+            "blueprints": candidates,
+            "is_custom": True,
+        }
+
     return results
 

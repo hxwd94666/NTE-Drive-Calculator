@@ -18,6 +18,7 @@ class WeightedAllocationDependencies:
     account_id: str
     generation: int
     user_database_path: Path
+    shared_database_path: Path
     game_ui_asset_root: Path
     account_settings: AccountSettingsService
 
@@ -30,6 +31,7 @@ class WeightedAllocationDependencies:
             account_id=context.account.active_account_id,
             generation=context.generation,
             user_database_path=Path(context.account.user_database_path),
+            shared_database_path=Path(context.paths.shared_database_path),
             game_ui_asset_root=Path(context.paths.asset_dir) / "game_ui",
             account_settings=context.account_settings,
         )

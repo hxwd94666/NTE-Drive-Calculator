@@ -10,6 +10,10 @@ from pathlib import Path
 
 from tools.windows_validation.log_probe import inspect_logs, timestamp_logs
 from tools.windows_validation.models import CheckResult, StepResult, ValidationReport
+from tools.windows_validation.mouse_scan_probe import (
+    compare_mouse_scan_to_account,
+    inspect_mouse_scan_report,
+)
 from tools.windows_validation.preflight import file_evidence
 from tools.windows_validation.redaction import redact_text
 from tools.windows_validation.report import write_report
@@ -20,6 +24,68 @@ NTE_TEST_TIER = "core"
 
 
 class WindowsValidationTests(unittest.TestCase):
+    def test_accepts_complete_2k_mouse_scan_report(self) -> None:
+        payload = {
+            "schema": "mouse-visual-scan-report-v1",
+            "status": "complete",
+            "resolution": {"width": 2560, "height": 1440},
+            "inventory": {"expected": 29, "captured": 29},
+            "preflight": {"checked": 28, "matched": 28},
+            "wheel_commands": 3,
+            "pages": [
+                {
+                    "item_range": [1, 28],
+                    "captured": 28,
+                    "wheel_amounts": [-280, -280, -120],
+                    "overlap_row": 0,
+                },
+                {"item_range": [29, 29], "captured": 1, "wheel_amounts": [], "overlap_row": None},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "mouse_scan_last_report.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            result = inspect_mouse_scan_report(path)
+
+        self.assertTrue(result["passed"])
+        self.assertEqual([], result["issues"])
+
+    def test_rejects_incomplete_or_discontinuous_mouse_scan_report(self) -> None:
+        payload = {
+            "schema": "mouse-visual-scan-report-v1",
+            "status": "stopped",
+            "resolution": {"width": 1600, "height": 900},
+            "inventory": {"expected": 29, "captured": 2},
+            "preflight": {"checked": 28, "matched": 27},
+            "wheel_commands": 1,
+            "pages": [{"item_range": [2, 3], "captured": 2, "wheel_amounts": [-999]}],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "mouse_scan_last_report.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            result = inspect_mouse_scan_report(path)
+
+        self.assertFalse(result["passed"])
+        self.assertGreaterEqual(len(result["issues"]), 5)
+
+    def test_matches_mouse_report_to_current_account_vision_snapshot(self) -> None:
+        result = compare_mouse_scan_to_account(
+            {"passed": True, "captured": 29},
+            {
+                "current_inventory": {
+                    "snapshot_id": 7,
+                    "source": "vision",
+                    "capture_driver": "mouse",
+                    "complete": True,
+                    "stored_item_count": 29,
+                }
+            },
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(7, result["snapshot_id"])
     def test_collects_read_only_sqlite_and_file_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -36,6 +102,33 @@ class WindowsValidationTests(unittest.TestCase):
             self.assertEqual(1, summary["inventory_snapshot_count"])
             self.assertIn("sha256", evidence[str(database.resolve())])
             self.assertEqual(before, database.read_bytes())
+
+    def test_sqlite_summary_projects_current_mouse_vision_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "user_data.sqlite3"
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute(
+                    """CREATE TABLE inventory_snapshot(
+                           snapshot_id INTEGER PRIMARY KEY,
+                           source TEXT NOT NULL,
+                           complete INTEGER NOT NULL,
+                           declared_item_count INTEGER NOT NULL,
+                           stored_item_count INTEGER NOT NULL,
+                           raw_snapshot_json TEXT NOT NULL,
+                           is_current INTEGER NOT NULL
+                       )"""
+                )
+                connection.execute(
+                    "INSERT INTO inventory_snapshot VALUES(7, 'vision', 1, 29, 29, ?, 1)",
+                    (json.dumps({"capture_driver": "mouse"}),),
+                )
+                connection.commit()
+
+            summary = sqlite_summary(database)
+
+        self.assertEqual("vision", summary["current_inventory"]["source"])
+        self.assertEqual("mouse", summary["current_inventory"]["capture_driver"])
+        self.assertEqual(29, summary["current_inventory"]["stored_item_count"])
 
     def test_detects_timestamp_logs_and_expected_events(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

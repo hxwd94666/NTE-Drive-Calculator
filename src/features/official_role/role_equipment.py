@@ -119,7 +119,13 @@ def _equipment_weight_score(
     )
 
 
-def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
+def _show_replacement_optimizer(
+    window,
+    detail: dict,
+    target: dict,
+    *,
+    context_key: str = "saved",
+) -> None:
     """Open the shared replacement controller from the role page."""
 
     def refresh_after_save() -> None:
@@ -137,14 +143,31 @@ def _show_replacement_optimizer(window, detail: dict, target: dict) -> None:
         )
         if callable(refresh_loadouts):
             refresh_loadouts()
-        window._refresh_my_role(restore_scroll_value=restore_scroll_value)
+        _refresh_role_page_after_replacement(
+            window,
+            restore_scroll_value=restore_scroll_value,
+        )
 
-    show_official_role_replacement(
-        window,
-        detail,
-        target,
-        on_saved=refresh_after_save,
-    )
+    options = {"on_saved": refresh_after_save}
+    if context_key != "saved":
+        options["context_key"] = context_key
+    show_official_role_replacement(window, detail, target, **options)
+
+
+def _refresh_role_page_after_replacement(
+    window,
+    *,
+    restore_scroll_value: int | None,
+) -> None:
+    """Refresh via the role feature's public page entry point.
+
+    ``MainWindow`` deliberately does not expose feature-private refresh methods.
+    Keeping the import local also avoids the page composition import cycle.
+    """
+
+    from .page import refresh_official_role_page
+
+    refresh_official_role_page(window, restore_scroll_value=restore_scroll_value)
 
 
 def _build_equipment_cards_group(
@@ -170,7 +193,7 @@ def _build_equipment_cards_group(
         if int(item.get("uid_slot") or 0) or int(item.get("uid_serial") or 0)
     } if context_key != "theory" else {}
 
-    group = QGroupBox(f"空幕 / 驱动详情 ({item_count}件)")
+    group = QGroupBox(f"卡带 / 驱动详情 ({item_count}件)")
     group.setObjectName("officialRoleEquipmentCards")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
@@ -195,7 +218,7 @@ def _build_equipment_cards_group(
                         "kind": kind,
                         "display_name": str(
                             detail.get("item_names", {}).get(item_id, item_id)
-                            or ("空幕" if kind == "core" else "驱动")
+                            or ("卡带" if kind == "core" else "驱动")
                         ),
                         "item_name": str(item_id or ""),
                         "item_icon_path": detail.get("item_icon_paths", {}).get(
@@ -219,20 +242,20 @@ def _build_equipment_cards_group(
                 Qt.AlignLeft | Qt.AlignTop,
             )
         if not theory_items:
-            grid.addWidget(QLabel("官方方案未提供空幕或驱动。"), 0, 0)
+            grid.addWidget(QLabel("官方方案未提供卡带或驱动。"), 0, 0)
     else:
         if not items:
-            grid.addWidget(QLabel("暂无空幕或驱动。"), 0, 0)
+            grid.addWidget(QLabel("暂无卡带或驱动。"), 0, 0)
         for index, item in enumerate(items):
             display_item = calculation_by_uid.get(
                 (int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0)),
                 item,
             )
             replacement_callback = None
-            if context_key == "saved":
+            if context_key == "saved" or context_key.startswith("saved:"):
                 replacement_callback = (
-                    lambda target=dict(item): _show_replacement_optimizer(
-                        window, detail, target,
+                    lambda target=dict(item), key=context_key: _show_replacement_optimizer(
+                        window, detail, target, context_key=key,
                     )
                 )
             gain = calculate_official_role_item_gain(detail, context_key, item)
@@ -301,12 +324,18 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
     top.addWidget(count_label)
     top.addStretch()
     context_combo = NoWheelComboBox()
-    for key in ("current", "saved"):
-        context_combo.addItem(detail["equipment_contexts"][key]["title"], key)
+    for key, context in detail["equipment_contexts"].items():
+        if key == "current" or key == "saved" or key.startswith("saved:"):
+            context_combo.addItem(context["title"], key)
     wanted_context = str(editor.get("equipment_context_key") or "current")
     context_index = context_combo.findData(wanted_context)
     context_combo.setCurrentIndex(context_index if context_index >= 0 else 0)
-    context_combo.setFixedWidth(130)
+    # Eleven Chinese characters plus combo padding keeps it compact.
+    context_combo.setFixedWidth(
+        context_combo.fontMetrics().horizontalAdvance("已保存配装方案选择器")
+        + context_combo.fontMetrics().horizontalAdvance("中")
+        + 24
+    )
     top.addWidget(context_combo)
     margin_label = QLabel("直伤收益: --")
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")

@@ -14,7 +14,7 @@ from src.utils.logger import logger
 THEME_PREFERENCES = frozenset({"dark", "black", "light"})
 
 
-def _normalized_theme(value: object, default: str = "dark") -> str:
+def _normalized_theme(value: object, default: str = "black") -> str:
     theme = str(value or "").strip()
     return theme if theme in THEME_PREFERENCES else default
 

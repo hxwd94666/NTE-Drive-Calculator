@@ -51,6 +51,7 @@ class _UserDao:
         self.saved = None
         self.saved_plans = []
         self.replace_calls = 0
+        self.slot_save_calls = 0
 
     def current_inventory_snapshot_id(self):
         return 7
@@ -87,6 +88,12 @@ class _UserDao:
         self.saved_plans = list(plans)
         self.saved = plans[0]
         return tuple(88 + index for index, _plan in enumerate(plans))
+
+    def save_plans_to_slots(self, plans):
+        self.slot_save_calls += 1
+        self.saved_plans = list(plans)
+        self.saved = plans[0]
+        return tuple(188 + index for index, _plan in enumerate(plans))
 
 
 class _StaticDao:
@@ -199,6 +206,24 @@ def test_imports_multiple_game_loadouts_in_one_transaction() -> None:
     assert plan_ids == (88, 89)
     assert user_dao.replace_calls == 1
     assert len(user_dao.saved_plans) == 2
+
+
+def test_imports_game_loadout_into_explicit_named_slot() -> None:
+    user_dao = _UserDao()
+    service = GameLoadoutProjectionService(user_dao, _StaticDao())
+    role = service.project_current().roles[0]
+
+    plan_id = service.import_role(
+        role,
+        score=100.0,
+        assignment_scores={"nte-module-21-11": 20.0, "nte-core-22-12": 80.0},
+        slot_id=71,
+    )
+
+    assert plan_id == 188
+    assert user_dao.slot_save_calls == 1
+    assert user_dao.replace_calls == 0
+    assert user_dao.saved["slot_id"] == 71
 
 
 def test_rejects_non_nte_core_snapshot_for_game_mode() -> None:

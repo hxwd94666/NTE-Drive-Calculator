@@ -18,6 +18,7 @@ from src.features.allocation.role_selector import RoleSelector
 from src.services.character_weight_service import (
     ensure_account_character_weights,
 )
+from src.storage.sqlite.user_data_dao import UserDataDao
 from .weighted_static_catalog import get_weighted_static_catalog
 from .dependencies import weighted_allocation_dependencies
 from .weighted_preferences import (
@@ -174,11 +175,26 @@ def refresh_weighted_allocation_page(window) -> None:
         dependencies = weighted_allocation_dependencies(window)
         catalog = get_weighted_static_catalog(dependencies.game_ui_asset_root)
         characters = [row for row in catalog.characters if int(row["character_id"]) in catalog.plans_by_character_id]
+        database_path = dependencies.user_database_path
+        with UserDataDao(database_path) as user_dao:
+            custom_characters = user_dao.list_custom_characters()
+            custom_weights = {
+                int(row["character_id"]): (
+                    user_dao.get_character_weight_preferences(int(row["character_id"])) or {}
+                )
+                for row in custom_characters
+            }
+        characters.extend({**row, "is_custom": True} for row in custom_characters)
         suit_defaults: dict[int, str] = {}
         item_by_id = {str(row["item_id"]): row for row in catalog.equipment_items}
         for row in characters:
             character_id = int(row["character_id"])
-            plan = catalog.plans_by_character_id[character_id]
+            if row.get("is_custom"):
+                target_suit_id = str(row.get("target_suit_id") or "")
+                if target_suit_id:
+                    suit_defaults[character_id] = target_suit_id
+                continue
+            plan = catalog.plans_by_character_id.get(character_id, {})
             core_template = item_by_id.get(str(plan.get("core_item_id") or "")) or {}
             if core_template.get("suit_id"):
                 suit_defaults[character_id] = str(core_template["suit_id"])
@@ -209,11 +225,14 @@ def refresh_weighted_allocation_page(window) -> None:
         window._weighted_role_ids = role_names
         window._weighted_role_names = {value: key for key, value in role_names.items()}
         window._weighted_default_suits = suit_defaults
-        database_path = dependencies.user_database_path
+        window._weighted_custom_character_ids = frozenset(
+            int(row["character_id"]) for row in custom_characters
+        )
         account_weights = ensure_account_character_weights(
             database_path,
             role_names.values(),
         )
+        account_weights.update(custom_weights)
         window._weighted_default_property_weights = {
             character_id: dict(row.get("property_weights") or {}) for character_id, row in account_weights.items()
         }

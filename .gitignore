@@ -51,12 +51,16 @@ config/update_config.json
 nte_capture*.json
 *.sqlite3
 !/data/game_static.sqlite3
+!/data/app_shared.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
 /nte-core.exe
 /*.dll
 /nte-core-windows-x64*/
 /plugins/
+/third_party/mods-plugin/workspace/NTE_SDK.bin
+/third_party/mods-plugin/workspace/NTE_SDK.checksum
+/third_party/mods-plugin/workspace/.nte-drive-calc-managed.json
 /app_shared.sqlite3
 
 # Temporary OCR and scan artifacts

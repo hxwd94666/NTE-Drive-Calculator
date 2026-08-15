@@ -17,6 +17,7 @@ from src.optimizer.scoring import ScoringEngine
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 _LEGACY_SHAPE_LABELS = {
@@ -45,6 +46,32 @@ def _shape_matrix(shape: dict[str, Any]) -> list[list[int]]:
     for cell in cells:
         matrix[int(cell["x"]) - min(xs)][int(cell["y"]) - min(ys)] = 1
     return matrix
+
+
+def _custom_board_matrix(cells: list[dict[str, Any]]) -> list[list[int]]:
+    board = [[-1] * 5 for _ in range(5)]
+    enabled_count = 0
+    for cell in cells:
+        row = int(cell["row_number"]) - 1
+        column = int(cell["column_number"]) - 1
+        if not (0 <= row < 5 and 0 <= column < 5):
+            continue
+        if bool(cell["is_enabled"]):
+            board[row][column] = 0
+            enabled_count += 1
+    if enabled_count != 20:
+        raise ValueError(f"自建角色底盘应为 20 格，实际为 {enabled_count} 格")
+    return board
+
+
+def _custom_weight_labels(
+    record: dict[str, Any], attributes: dict[str, str], field_name: str,
+) -> dict[str, float]:
+    return {
+        attributes[property_id]: float(weight)
+        for property_id, weight in (record.get(field_name) or {}).items()
+        if attributes.get(str(property_id)) and float(weight) > 0
+    }
 
 
 def build_legacy_allocation_static_catalog(
@@ -126,4 +153,40 @@ def build_legacy_allocation_static_catalog(
             for cell in plan.get("cells") or ():
                 board[int(cell["row"]) - 1][int(cell["column"]) - 1] = 0
             board_matrices[role_name] = board
+        if user_database_path is not None and Path(user_database_path).is_file():
+            suit_name_by_id = {
+                str(data["suit_id"]): name for name, data in sets_db.items()
+            }
+            with UserDataDao(user_database_path) as user_dao:
+                for custom in user_dao.list_custom_characters():
+                    character_id = int(custom["character_id"])
+                    role_name = str(custom.get("name_zh") or character_id)
+                    weights = user_dao.get_character_weight_preferences(character_id) or {}
+                    shape_bonus = custom.get("shape_bonus") or {}
+                    extra_shape_buffs = {
+                        attributes[str(row["property_id"])]: float(row["display_value"])
+                        for row in shape_bonus.get("properties") or ()
+                        if attributes.get(str(row["property_id"]))
+                    }
+                    roles_db[role_name] = {
+                        "character_id": character_id,
+                        "default_set": suit_name_by_id.get(
+                            str(custom.get("target_suit_id") or ""), ""
+                        ),
+                        "default_weapon": "",
+                        "extra_shape_label": str(
+                            shape_bonus.get("shape_label") or "Type-3"
+                        ),
+                        "extra_shape_buffs": extra_shape_buffs,
+                        "weights": _custom_weight_labels(
+                            weights, attributes, "property_weights"
+                        ),
+                        "main_weights": _custom_weight_labels(
+                            weights, attributes, "main_property_weights"
+                        ),
+                        "is_custom": True,
+                    }
+                    board_matrices[role_name] = _custom_board_matrix(
+                        list(custom.get("board_cells") or ())
+                    )
     return LegacyAllocationStaticCatalog(roles_db, sets_db, shapes_db, board_matrices)

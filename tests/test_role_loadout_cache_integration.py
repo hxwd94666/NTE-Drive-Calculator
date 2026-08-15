@@ -15,9 +15,6 @@ def test_role_replacement_invalidates_loadout_cache_before_refresh(
         def refresh_saved_equipment_after_mutation(self):
             events.extend(("invalidate", "loadout_refresh"))
 
-        def _refresh_my_role(self, *, restore_scroll_value):
-            events.append(("role_refresh", restore_scroll_value))
-
     def fake_replacement(_window, _detail, _target, *, on_saved):
         on_saved()
         return True
@@ -26,6 +23,13 @@ def test_role_replacement_invalidates_loadout_cache_before_refresh(
         role_equipment,
         "show_official_role_replacement",
         fake_replacement,
+    )
+    monkeypatch.setattr(
+        role_equipment,
+        "_refresh_role_page_after_replacement",
+        lambda _window, *, restore_scroll_value: events.append(
+            ("role_refresh", restore_scroll_value)
+        ),
     )
 
     role_equipment._show_replacement_optimizer(Window(), {}, {})

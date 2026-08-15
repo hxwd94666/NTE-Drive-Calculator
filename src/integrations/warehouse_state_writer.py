@@ -42,6 +42,13 @@ class LiveInventorySync(Protocol):
         timeout: float = 30.0,
     ) -> Any: ...
 
+    def begin_full_inventory_guard(
+        self,
+        item_uids: frozenset[tuple[int, int]],
+    ) -> object: ...
+
+    def end_full_inventory_guard(self, token: object) -> None: ...
+
 
 class WarehouseStateWriter:
     """Validate and send state RPCs without owning snapshot or UI policy."""

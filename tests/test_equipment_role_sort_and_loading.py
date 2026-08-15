@@ -9,13 +9,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QLabel
 
+from src.features.inventory import equipment_display_loaders
 from src.features.inventory import equipment_display_view
 from src.features.inventory import equipment_plan_optimizer
 from src.features.inventory.equipment_master_detail_view import (
     sorted_equipment_role_states,
 )
 from src.features.inventory.equipment_plan_renderer import _allocation_lock_icon
-from src.optimizer.contracts import ROLE_TOTAL_SCORE
+from src.optimizer.contracts import DIFF_CHANGED, ROLE_LAST_DIFF, ROLE_TOTAL_SCORE
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.equipment_presentation import _equip_card
 from src.ui.equipment_state_icons import warehouse_lock_icon
@@ -32,6 +33,48 @@ def test_loadout_roles_sort_by_score_descending_then_name() -> None:
     )
 
     assert [name for name, _state in roles] == ["乙", "甲", "低分", "无效"]
+
+
+def test_game_loadout_state_is_not_misread_as_a_saved_slot_group() -> None:
+    roles = sorted_equipment_role_states(
+        {
+            "零": {
+                "_game_mode": True,
+                "_role_name": "零",
+                ROLE_TOTAL_SCORE: 80,
+            }
+        }
+    )
+
+    assert roles[0][0] == "零"
+    assert "_role_slot_states" not in roles[0][1]
+
+
+def test_role_summary_keeps_any_slot_change_but_hides_slot_lock_state() -> None:
+    roles = sorted_equipment_role_states(
+        {
+            "slot:1": {
+                "_role_name": "零",
+                "_loadout_slot_key": "primary",
+                "_loadout_slot_name": "零",
+                "_allocation_locked": True,
+                ROLE_LAST_DIFF: {DIFF_CHANGED: False},
+                ROLE_TOTAL_SCORE: 40,
+            },
+            "slot:2": {
+                "_role_name": "零",
+                "_loadout_slot_key": "slot-2",
+                "_loadout_slot_name": "副本",
+                "_allocation_locked": False,
+                ROLE_LAST_DIFF: {DIFF_CHANGED: True},
+                ROLE_TOTAL_SCORE: 20,
+            },
+        }
+    )
+
+    summary = roles[0][1]
+    assert not summary["_allocation_locked"]
+    assert summary[ROLE_LAST_DIFF][DIFF_CHANGED]
 
 
 def test_loadout_lock_icon_is_the_shared_warehouse_artwork() -> None:
@@ -152,14 +195,14 @@ def test_game_loader_reuses_preloaded_saved_states(monkeypatch, tmp_path) -> Non
         def project_current(self):
             return SimpleNamespace(supported=False, message="unsupported")
 
-    monkeypatch.setattr(equipment_display_view, "UserDataDao", FakeDao)
-    monkeypatch.setattr(equipment_display_view, "StaticGameDataDao", FakeDao)
+    monkeypatch.setattr(equipment_display_loaders, "UserDataDao", FakeDao)
+    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", FakeDao)
     monkeypatch.setattr(
         "src.services.game_loadout_projection_service.GameLoadoutProjectionService",
         FakeProjectionService,
     )
     monkeypatch.setattr(
-        equipment_display_view,
+        equipment_display_loaders,
         "_load_sqlite_equipment_display_states",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("saved plans must come from the cache")
@@ -192,6 +235,6 @@ def test_game_asset_catalog_caches_resolved_paths(tmp_path: Path) -> None:
 
 
 def test_calculation_result_forwards_the_tape_main_value_to_its_card() -> None:
-    source = Path("src/ui/equipment_presentation.py").read_text(encoding="utf-8")
+    source = Path("src/ui/equipment_result_rendering.py").read_text(encoding="utf-8")
 
     assert 'main_value=getattr(tape, "main_value", None)' in source

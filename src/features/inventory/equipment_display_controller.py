@@ -6,16 +6,26 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
     QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.optimizer.contracts import (
+    DIFF_CHANGED,
     DIFF_ADDED,
     DIFF_REMOVED,
     EQUIP_DISPLAY_NAME,
+    EQUIP_SET_NAME,
     EQUIP_UID,
+    ROLE_EQUIPPED_DRIVES,
 )
 from src.features.inventory.equipment_display_context import equipment_presentation
 from src.features.inventory.equipment_loadout_scoring import (
@@ -43,6 +53,7 @@ __all__ = [
     "_delete_role_equipment",
     "_optimize_saved_equipment",
     "_toggle_role_allocation_lock",
+    "_manage_loadout_slot",
     "_import_game_loadout",
     "_import_all_game_loadouts",
     "reset_equipment_account_state",
@@ -136,7 +147,20 @@ def _show_saved_plan_diff_dialog(self, role_name, diff):
 def _clear_all_equipment(self):
     database_path = _equipment_paths(self)[0]
     with UserDataDao(database_path) as dao:
-        plans = dao.list_active_loadout_plans_by_role()
+        slot_rows = getattr(dao, "list_current_loadout_slot_plans", lambda: [])()
+        plans = [
+            (
+                str((row.get("plan", {}).get("payload") or {}).get("source_role_name") or "未知角色"),
+                str((row.get("slot") or {}).get("slot_name") or "未命名槽位"),
+                row.get("plan") or {},
+            )
+            for row in slot_rows
+        ]
+        if not plans:
+            plans = [
+                (role_name, role_name, plan)
+                for role_name, plan in dao.list_active_loadout_plans_by_role().items()
+            ]
     if not plans:
         QMessageBox.information(self, "清空配装", "当前没有已保存的配装。")
         return
@@ -151,9 +175,9 @@ def _clear_all_equipment(self):
         return
     skipped_locked = []
     with UserDataDao(database_path) as dao:
-        for role_name, plan in plans.items():
+        for role_name, slot_name, plan in plans:
             if plan.get("allocation_locked"):
-                skipped_locked.append(role_name)
+                skipped_locked.append(f"{role_name} · {slot_name}")
                 continue
             dao.deactivate_loadout_plan(plan["plan_id"])
     self._saved_equipment_cache_valid = False
@@ -201,10 +225,15 @@ def refresh_saved_equipment_after_mutation(
     self._refresh_equip(restore_role_name=restore_role_name)
 
 
-def _delete_role_equipment(self: Any, role_name: str) -> None:
+def _delete_role_equipment(
+    self: Any,
+    role_name: str,
+    *,
+    plan_id: int | None = None,
+) -> None:
     database_path = _equipment_paths(self)[0]
     with UserDataDao(database_path) as dao:
-        plan = dao.get_active_loadout_plan_for_role(role_name)
+        plan = dao.get_loadout_plan(int(plan_id)) if plan_id is not None else dao.get_active_loadout_plan_for_role(role_name)
     if plan is None:
         self._refresh_equip()
         return
@@ -228,13 +257,216 @@ def _delete_role_equipment(self: Any, role_name: str) -> None:
     logger.success(f"已删除角色配装: {role_name}")
 
 
-def _toggle_role_allocation_lock(self: Any, role_name: str) -> bool | None:
-    """Persist one lock change, refresh badges, and retain role selection."""
+def _manage_loadout_slot(
+    self: Any,
+    slot_id: int,
+    *,
+    role_name: str | None = None,
+) -> None:
+    """Open one character-scoped manager for its visible loadout slots."""
 
     database_path = _equipment_paths(self)[0]
     try:
         with UserDataDao(database_path) as dao:
-            plan = dao.get_active_loadout_plan_for_role(role_name)
+            initial_slot = dao.get_loadout_slot(int(slot_id))
+        if initial_slot is None or initial_slot.get("is_archived"):
+            raise RuntimeError("当前配装槽位已不存在，请刷新页面。")
+    except Exception as exc:
+        QMessageBox.warning(self, "管理配装槽位", str(exc))
+        return
+
+    character_id = int(initial_slot["character_id"])
+    character_label = role_name or str(initial_slot["slot_name"])
+    if initial_slot.get("slot_key") == "primary" and initial_slot.get("slot_name") == "主力" and role_name:
+        try:
+            with UserDataDao(database_path) as dao:
+                dao.rename_loadout_slot(int(initial_slot["slot_id"]), role_name)
+            initial_slot["slot_name"] = role_name
+        except Exception as exc:
+            QMessageBox.warning(self, "管理配装槽位", str(exc))
+            return
+    dialog = QDialog(self)
+    dialog.setWindowTitle(f"{character_label} · 配装槽位管理")
+    dialog.setFixedWidth(360)
+    layout = QVBoxLayout(dialog)
+    layout.setSpacing(12)
+
+    selector_row = QHBoxLayout()
+    selector_row.addWidget(QLabel("管理槽位："))
+    selector = QComboBox(dialog)
+    selector.setMinimumWidth(260)
+    selector_row.addWidget(selector, 1)
+    layout.addLayout(selector_row)
+
+    plan_status = QLabel(dialog)
+    plan_status.setWordWrap(True)
+    plan_status.setStyleSheet(
+        "QLabel{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:9px;}"
+    )
+    layout.addWidget(plan_status)
+
+    actions = QHBoxLayout()
+    create_button = QPushButton("新增槽位", dialog)
+    rename_button = QPushButton("重命名", dialog)
+    archive_button = QPushButton("删除槽位", dialog)
+    archive_button.setStyleSheet("QPushButton{color:#ff8b8b}")
+    actions.addWidget(create_button)
+    actions.addWidget(rename_button)
+    actions.addWidget(archive_button)
+    layout.addLayout(actions)
+
+    changed = False
+    slots: list[dict[str, Any]] = []
+
+    def slot_label(slot: dict[str, Any]) -> str:
+        if slot.get("slot_key") == "primary" and str(slot["slot_name"]) == "主力":
+            return character_label
+        return str(slot["slot_name"])
+
+    def slot_suit_text(slot: dict[str, Any]) -> str:
+        slot_state = next(
+            (
+                state
+                for state in (getattr(self, "_saved_equipment_states", {}) or {}).values()
+                if isinstance(state, dict)
+                and state.get("_loadout_slot_id") == slot["slot_id"]
+            ),
+            {},
+        )
+        suit_names = {
+            str(drive.get(EQUIP_SET_NAME)).strip()
+            for drive in slot_state.get(ROLE_EQUIPPED_DRIVES, ()) or ()
+            if isinstance(drive, dict) and str(drive.get(EQUIP_SET_NAME) or "").strip()
+        }
+        return f"套装：{' / '.join(sorted(suit_names))}" if suit_names else "套装：未装备"
+
+    def selected_slot() -> dict[str, Any] | None:
+        selected_id = selector.currentData()
+        return next(
+            (candidate for candidate in slots if candidate["slot_id"] == selected_id),
+            None,
+        )
+
+    def update_selected_slot() -> None:
+        slot = selected_slot()
+        if slot is None:
+            plan_status.setText("没有可管理的配装槽位。")
+            rename_button.setEnabled(False)
+            archive_button.setEnabled(False)
+            return
+        plan = slot.get("current_plan") or {}
+        if plan:
+            if plan.get("allocation_locked"):
+                status = "状态：锁定"
+            elif bool(((plan.get("payload") or {}).get("last_diff") or {}).get(DIFF_CHANGED)):
+                status = "状态：变动"
+            else:
+                status = "状态：已配装"
+        else:
+            status = "状态：未配装"
+        plan_status.setText(f"{status}\n{slot_suit_text(slot)}")
+        rename_button.setEnabled(True)
+        archive_button.setEnabled(len(slots) > 1)
+        archive_button.setToolTip("至少保留一个配装槽位" if len(slots) <= 1 else "")
+
+    def reload_slots(selected_id: int | None = None) -> None:
+        nonlocal slots
+        with UserDataDao(database_path) as dao:
+            slots = dao.list_loadout_slots(character_id)
+        selector.blockSignals(True)
+        selector.clear()
+        for slot in slots:
+            suffix = "（已锁定）" if (slot.get("current_plan") or {}).get("allocation_locked") else ""
+            selector.addItem(f"{slot_label(slot)}{suffix}", int(slot["slot_id"]))
+        target_id = selected_id if selected_id is not None else int(slot_id)
+        target_index = selector.findData(target_id)
+        selector.setCurrentIndex(target_index if target_index >= 0 else 0)
+        selector.blockSignals(False)
+        update_selected_slot()
+
+    def create_slot() -> None:
+        nonlocal changed
+        name, accepted = QInputDialog.getText(dialog, "新增配装槽位", "槽位名称：")
+        if not accepted:
+            return
+        try:
+            with UserDataDao(database_path) as dao:
+                new_slot_id = dao.create_loadout_slot(character_id, name)
+        except Exception as exc:
+            QMessageBox.warning(dialog, "新增配装槽位", str(exc))
+            return
+        changed = True
+        reload_slots(new_slot_id)
+
+    def rename_slot() -> None:
+        nonlocal changed
+        slot = selected_slot()
+        if slot is None:
+            return
+        name, accepted = QInputDialog.getText(
+            dialog,
+            "重命名配装槽位",
+            "槽位名称：",
+            text=slot_label(slot),
+        )
+        if not accepted:
+            return
+        try:
+            with UserDataDao(database_path) as dao:
+                dao.rename_loadout_slot(int(slot["slot_id"]), name)
+        except Exception as exc:
+            QMessageBox.warning(dialog, "重命名配装槽位", str(exc))
+            return
+        changed = True
+        reload_slots(int(slot["slot_id"]))
+
+    def archive_slot() -> None:
+        nonlocal changed
+        slot = selected_slot()
+        if slot is None or len(slots) <= 1:
+            return
+        answer = QMessageBox.question(
+            dialog,
+            "删除配装槽位",
+            f"删除 [{slot_label(slot)}] 后，该槽位当前方案不再参与展示和装配；历史记录保留。是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            with UserDataDao(database_path) as dao:
+                dao.archive_loadout_slot(int(slot["slot_id"]))
+        except Exception as exc:
+            QMessageBox.warning(dialog, "删除配装槽位", str(exc))
+            return
+        changed = True
+        reload_slots()
+
+    selector.currentIndexChanged.connect(lambda _index: update_selected_slot())
+    create_button.clicked.connect(create_slot)
+    rename_button.clicked.connect(rename_slot)
+    archive_button.clicked.connect(archive_slot)
+    reload_slots(int(slot_id))
+    dialog.exec()
+    if changed:
+        invalidate_saved_equipment_cache(self)
+        self._refresh_equip(restore_role_name=character_label)
+
+
+def _toggle_role_allocation_lock(
+    self: Any,
+    role_name: str,
+    *,
+    plan_id: int | None = None,
+    state_key: str | None = None,
+) -> bool | None:
+    """Persist one current-slot lock change and refresh its navigator badge."""
+
+    database_path = _equipment_paths(self)[0]
+    try:
+        with UserDataDao(database_path) as dao:
+            plan = dao.get_loadout_plan(int(plan_id)) if plan_id is not None else dao.get_active_loadout_plan_for_role(role_name)
             if plan is None:
                 raise RuntimeError("未找到该角色的活动配装方案")
             locked = not bool(plan.get("allocation_locked"))
@@ -249,7 +481,7 @@ def _toggle_role_allocation_lock(self: Any, role_name: str) -> bool | None:
     invalidate_saved_equipment_cache(self)
     update_equipment_role_status(
         self,
-        role_name,
+        state_key or role_name,
         _allocation_locked=locked,
     )
     game_state = (getattr(self, "_game_loadout_states", {}) or {}).get(role_name)
@@ -285,8 +517,40 @@ def _import_game_loadout(self: Any, role_name: str) -> None:
             str(state.get("_game_reason") or "当前游戏内装备不能形成完整方案。"),
         )
         return
-    if bool(state.get("_game_existing_plan_locked")):
-        QMessageBox.warning(self, "导入游戏内方案", "现有配装方案已锁定，请先解除锁定。")
+    database_path, static_database_path, _ = _equipment_paths(self)
+    try:
+        with UserDataDao(database_path) as user_dao:
+            slots = user_dao.list_loadout_slots(int(projection.character_id))
+            if not slots:
+                user_dao.create_loadout_slot(
+                    int(projection.character_id),
+                    "主力",
+                    slot_key="primary",
+                )
+                slots = user_dao.list_loadout_slots(int(projection.character_id))
+            labels = [
+                f"{role_name if slot['slot_name'] == '主力' else slot['slot_name']}（槽位 #{slot['slot_id']}）" + ("（已锁定）" if (slot.get("current_plan") or {}).get("allocation_locked") else "")
+                for slot in slots
+            ]
+        if len(slots) == 1:
+            target_slot = slots[0]
+        else:
+            label, accepted = QInputDialog.getItem(
+                self,
+                "导入目标槽位",
+                f"将 [{role_name}] 的游戏内配装导入到：",
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+            target_slot = slots[labels.index(label)]
+        if (target_slot.get("current_plan") or {}).get("allocation_locked"):
+            QMessageBox.warning(self, "导入游戏内方案", "目标配装槽位已锁定，请先解除锁定。")
+            return
+    except Exception as exc:
+        QMessageBox.warning(self, "导入游戏内方案", str(exc))
         return
     if state.get("_game_existing_plan_id") is not None and not bool(state.get("_game_imported")):
         answer = QMessageBox.question(
@@ -299,7 +563,6 @@ def _import_game_loadout(self: Any, role_name: str) -> None:
         if answer != QMessageBox.Yes:
             return
 
-    database_path, static_database_path, _ = _equipment_paths(self)
     try:
         total_score, assignment_scores = _game_loadout_scores(self, role_name, state)
         with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
@@ -307,6 +570,7 @@ def _import_game_loadout(self: Any, role_name: str) -> None:
                 projection,
                 score=total_score,
                 assignment_scores=assignment_scores,
+                slot_id=int(target_slot["slot_id"]),
             )
     except Exception as exc:
         logger.warning(f"导入游戏内配装失败 role={role_name}: {exc}")
@@ -403,6 +667,7 @@ class EquipmentDisplayControllerMixin:
     _clear_all_equipment = _clear_all_equipment
     _delete_role_equipment = _delete_role_equipment
     _toggle_role_allocation_lock = _toggle_role_allocation_lock
+    _manage_loadout_slot = _manage_loadout_slot
     _import_game_loadout = _import_game_loadout
     _import_all_game_loadouts = _import_all_game_loadouts
     _optimize_saved_equipment = _optimize_saved_equipment

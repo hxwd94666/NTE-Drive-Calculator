@@ -3,20 +3,18 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication, QLabel, QToolButton
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QToolButton
 
-from src.app.theme import apply_app_theme
 from src.features.scanning.post_action_dialog import (
     RoleScopeDialog,
-    ScanPostActionDialog,
-    _combo as post_action_combo,
+    _load_role_options,
 )
-from src.features.scanning.preserve_rule_editor import _combo as preserve_rule_combo
-from src.ui.widgets import NoWheelComboBox
 
 
 class PostActionRoleScopeDialogTests(unittest.TestCase):
@@ -56,42 +54,56 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             self.assertEqual("已选1名", dialog.count_label.text())
             dialog.close()
 
-    def test_all_management_combo_boxes_ignore_mouse_wheel_selection(self):
-        self.assertIsInstance(post_action_combo([("全部", "all")], "all"), NoWheelComboBox)
-        self.assertIsInstance(preserve_rule_combo([("全部", "all")], "all"), NoWheelComboBox)
+    def test_custom_role_is_rendered_as_a_text_only_card(self):
+        dialog = RoleScopeDialog(None, [(900001, "自建角色", "")], [900001])
+        card, character_id, role_name = dialog.role_cards[0]
+        self.assertEqual(900001, character_id)
+        self.assertEqual("自建角色", role_name)
+        self.assertEqual(Qt.ToolButtonTextOnly, card.toolButtonStyle())
+        self.assertTrue(card.icon().isNull())
+        self.assertEqual("已选1名", dialog.count_label.text())
+        dialog.close()
 
-    def test_light_theme_rule_name_uses_the_main_text_color(self):
+    def test_role_options_include_account_custom_roles_without_an_avatar(self):
+        class StaticDao:
+            def __init__(self, *_args):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def list_role_template_characters(self):
+                return [{"character_id": 1004, "name_zh": "安魂曲"}]
+
+        class UserDao:
+            def __init__(self, *_args):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def list_custom_characters(self):
+                return [{"character_id": 9001, "name_zh": "自建角色"}]
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            apply_app_theme(self.app, "light")
-            try:
-                dialog = ScanPostActionDialog(None, Path(temp_dir), Path("config"))
-                row = dialog._build_preserve_rule_row(
-                    0,
-                    {"name": "高分驱动", "item_type": "module", "action": "keep"},
+            database_path = Path(temp_dir) / "user.sqlite3"
+            database_path.touch()
+            with (
+                patch("src.features.scanning.post_action_dialog.StaticGameDataDao", StaticDao),
+                patch("src.features.scanning.post_action_dialog.UserDataDao", UserDao),
+                patch("src.features.scanning.post_action_dialog.GameUiAssetCatalog") as catalog,
+            ):
+                catalog.return_value.character_icon.return_value = None
+                self.assertEqual(
+                    [(1004, "安魂曲", ""), (9001, "自建角色", "")],
+                    _load_role_options(database_path),
                 )
-                name = next(
-                    label for label in row.findChildren(QLabel)
-                    if label.text() == "高分驱动"
-                )
-                self.assertIn("color:#24292f", name.styleSheet())
-                dialog.close()
-            finally:
-                apply_app_theme(self.app, "dark")
-
-    def test_role_select_button_only_appears_for_selected_scope(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dialog = ScanPostActionDialog(None, Path(temp_dir), Path("config"))
-            for widgets in dialog._widgets.values():
-                combo = widgets["role_scope"]
-                button = widgets["role_scope_button"]
-                self.assertEqual("all", combo.currentData())
-                self.assertTrue(button.isHidden())
-
-                combo.setCurrentIndex(combo.findData("selected"))
-                self.app.processEvents()
-                self.assertFalse(button.isHidden())
-            dialog.close()
-
 
 if __name__ == "__main__":
     unittest.main()

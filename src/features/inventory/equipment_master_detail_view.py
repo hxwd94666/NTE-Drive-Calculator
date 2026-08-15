@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -135,21 +134,42 @@ def _role_status(state: dict[str, Any]) -> str:
 def sorted_equipment_role_states(
     states: dict[str, Any],
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Sort loadout roles by score descending, with a stable name tie-break."""
+    """Group visible slots under their character in the top navigator."""
 
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    direct_rows: list[tuple[str, dict[str, Any]]] = []
+    for _state_key, state in states.items():
+        if not isinstance(state, dict):
+            continue
+        role_name = str(state.get("_role_name") or _state_key)
+        if state.get("_game_mode"):
+            direct_rows.append((role_name, state))
+            continue
+        grouped.setdefault(role_name, []).append(state)
+    rows = list(direct_rows)
+    for role_name, slots in grouped.items():
+        slots.sort(key=lambda state: (
+            str(state.get("_loadout_slot_key") or "") != "primary",
+            str(state.get("_loadout_slot_name") or "").casefold(),
+        ))
+        summary = dict(slots[0])
+        summary["_role_slot_states"] = slots
+        summary["_display_name"] = role_name
+        summary["_allocation_locked"] = False
+        summary[ROLE_LAST_DIFF] = {
+            DIFF_CHANGED: any(
+                bool((slot.get(ROLE_LAST_DIFF) or {}).get(DIFF_CHANGED))
+                for slot in slots
+            )
+        }
+        rows.append((role_name, summary))
     def score(row: tuple[str, dict[str, Any]]) -> float:
         try:
-            value = float(row[1].get(ROLE_TOTAL_SCORE) or 0.0)
+            return float(row[1].get(ROLE_TOTAL_SCORE) or 0.0)
         except (TypeError, ValueError):
             return 0.0
-        return value if isfinite(value) else 0.0
 
-    valid = [
-        (str(name), state)
-        for name, state in states.items()
-        if isinstance(state, dict)
-    ]
-    return sorted(valid, key=lambda row: (-score(row), row[0].casefold()))
+    return sorted(rows, key=lambda row: (-score(row), row[0].casefold()))
 
 
 def _role_badges(state: dict[str, Any]) -> list[tuple[str, str, str, str]]:
@@ -226,7 +246,11 @@ def update_equipment_role_status(
         saved_state.update(changes)
     button = (getattr(window, "_equip_role_buttons", {}) or {}).get(role_name)
     if button is not None and isinstance(state, dict):
-        _apply_role_button_status(button, role_name, state)
+        _apply_role_button_status(
+            button,
+            str(state.get("_display_name") or role_name),
+            state,
+        )
 
 
 def capture_equipment_navigation_state(window: Any) -> None:
@@ -419,7 +443,8 @@ def show_equipment_master_detail(
         button.setIconSize(QSize(42, 42))
         button.setFixedSize(148, 60)
         button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        button.setText(f"{role_name}\n{_role_status(state)}")
+        display_name = str(state.get("_display_name") or role_name)
+        button.setText(f"{display_name}\n{_role_status(state)}")
         character_id = state.get("_character_id")
         icon_path = (
             catalog.character_icon(int(character_id))
@@ -428,6 +453,31 @@ def show_equipment_master_detail(
         )
         if icon_path is not None:
             button.setIcon(QIcon(str(icon_path)))
+        slot_id = state.get("_loadout_slot_id")
+        if slot_id is not None:
+            manage_button = QToolButton(button)
+            manage_button.setToolTip("管理该角色的配装槽位")
+            manage_button.setFixedSize(20, 20)
+            manage_button.move(124, 36)
+            manage_button.setStyleSheet(
+                "QToolButton{border:2px solid #35dc83;border-radius:10px;"
+                "background:#0d1117;padding:0}"
+                "QToolButton:hover{border-color:#82f5b5;background:#123525}"
+            )
+            inner_ring = QFrame(manage_button)
+            inner_ring.setAttribute(Qt.WA_TransparentForMouseEvents)
+            inner_ring.setFixedSize(12, 12)
+            inner_ring.move(4, 4)
+            inner_ring.setStyleSheet(
+                "QFrame{border:2px solid #35dc83;border-radius:6px;background:transparent}"
+            )
+            manage_button.clicked.connect(
+                lambda _checked=False, slot_id=int(slot_id), role_name=role_name: window._manage_loadout_slot(
+                    slot_id,
+                    role_name=role_name,
+                )
+            )
+            manage_button.show()
         button.setStyleSheet(
             themed_style(
                 "QToolButton{background:#161b22;color:#c9d1d9;"
@@ -448,7 +498,7 @@ def show_equipment_master_detail(
         window.equip_role_layout.addWidget(button)
         window._equip_role_buttons[role_name] = button
         window.equip_role_scroll.enable_drag_scroll(button)
-        _apply_role_button_status(button, role_name, state)
+        _apply_role_button_status(button, display_name, state)
     window.equip_role_layout.addStretch(1)
     window.equip_role_content.adjustSize()
 

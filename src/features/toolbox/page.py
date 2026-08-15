@@ -186,12 +186,17 @@ class _RoleSelectionDialog(QDialog):
             card.setChecked(role.character_id in selected)
             card.setText(role.name)
             card.setToolTip(role.name)
-            card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            card.setIconSize(QSize(76, 76))
-            card.setFixedSize(116, 116)
             avatar_path = catalog.character_icon(role.character_id)
             if avatar_path is not None:
+                card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+                card.setIconSize(QSize(76, 76))
+                card.setFixedSize(116, 116)
                 card.setIcon(QIcon(str(avatar_path)))
+            else:
+                # Account-defined roles have no game portrait; show their name
+                # directly instead of reserving a misleading empty image card.
+                card.setToolButtonStyle(Qt.ToolButtonTextOnly)
+                card.setFixedSize(116, 44)
             card.setStyleSheet(themed_style(
                 "QToolButton{background:#161b22;color:#c9d1d9;border:1px solid #30363d;"
                 "border-radius:8px;padding:6px;font-size:12px;font-weight:700;}"
@@ -308,7 +313,7 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         layout.addLayout(buttons)
 
         # Let the modal paint before opening the two read-only database jobs.
-        QTimer.singleShot(0, self._load_roles_async)
+        QTimer.singleShot(0, self, self._load_roles_async)
         self._initialize_rewind_slots(
             self._saved_rewind_shape_ids,
             self._saved_rewind_slots,
@@ -457,9 +462,10 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         worker.start()
 
     def _load_role_and_inventory_catalog(self) -> _RewindUiCatalog:
+        role_loader = getattr(self._service, "list_target_roles", None)
         count_loader = getattr(self._service, "load_owned_shape_counts", None)
         return _RewindUiCatalog(
-            roles=self._service.list_target_roles(),
+            roles=role_loader() if callable(role_loader) else (),
             owned_shape_counts=count_loader() if callable(count_loader) else (),
         )
 

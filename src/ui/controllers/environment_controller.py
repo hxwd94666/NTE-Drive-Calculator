@@ -260,7 +260,10 @@ def _show_nte_core_diagnostic_report(
     dialog.setWindowTitle("nte-core 诊断结果")
     dialog.resize(720, 510)
     layout = QVBoxLayout(dialog)
-    hint = QLabel("以下信息可直接复制后发送用于排查；本操作不会启动抓包或保存原始数据。")
+    hint = QLabel(
+        "报告仅保留抓包所需的核心、Npcap 驱动、网卡和 DLL 线索；"
+        "不会启动抓包、保存原始数据或显示 IP/MAC 地址。"
+    )
     hint.setWordWrap(True)
     layout.addWidget(hint)
     content = QPlainTextEdit(dialog)
@@ -441,7 +444,9 @@ def _deploy_equipment_plugin(self):
             game_executable_path=executable,
             plugin_dll_path=source,
             application_root=self.app_context.paths.root,
-            writable_workspace_path=self.app_context.paths.data_root / "plugins",
+            writable_workspace_path=packaged_mod_workspace(
+                self.app_context.paths.root
+            ),
             backup_directory=(
                 self.app_context.account.account_data_root
                 / "equipment_plugin_backups"

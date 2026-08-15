@@ -51,6 +51,7 @@ class GameLoadoutImportRequest:
     projection: GameLoadoutRoleProjection
     score: float
     assignment_scores: Mapping[str, float]
+    slot_id: int | None = None
 
 
 def _geometry_key(value: Any) -> str:
@@ -296,11 +297,13 @@ class GameLoadoutProjectionService:
         *,
         score: float,
         assignment_scores: Mapping[str, float],
+        slot_id: int | None = None,
     ) -> int:
         return self.import_roles((GameLoadoutImportRequest(
             projection=projection,
             score=score,
             assignment_scores=assignment_scores,
+            slot_id=slot_id,
         ),))[0]
 
     def import_roles(
@@ -354,6 +357,7 @@ class GameLoadoutProjectionService:
                     f"[{projection.role_name}] 的方案总分与逐件评分不一致。"
                 )
             plans.append({
+                "slot_id": request.slot_id,
                 "name": f"游戏内方案：{projection.role_name}",
                 "character_id": projection.character_id,
                 "source_snapshot_id": projection.snapshot_id,
@@ -382,6 +386,16 @@ class GameLoadoutProjectionService:
                     },
                 },
             })
+        slot_ids = [plan.get("slot_id") for plan in plans]
+        if any(slot_id is not None for slot_id in slot_ids):
+            if any(slot_id is None for slot_id in slot_ids):
+                raise GameLoadoutProjectionError(
+                    "批量游戏内导入必须为每个角色指定配装槽位，不能混用旧主力入口。"
+                )
+            try:
+                return tuple(int(plan_id) for plan_id in self.user_dao.save_plans_to_slots(plans))
+            except Exception as exc:
+                raise GameLoadoutProjectionError(f"保存指定配装槽位失败：{exc}") from exc
         return tuple(
             int(plan_id)
             for plan_id in self.user_dao.replace_active_loadout_plans(plans)

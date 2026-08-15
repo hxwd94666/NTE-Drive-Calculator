@@ -58,7 +58,7 @@ class ApplicationPaths:
             config_dir=config_dir,
             accounts_dir=accounts_dir,
             accounts_index_file=accounts_dir / "accounts.json",
-            shared_database_path=data_root_path / "app_shared.sqlite3",
+            shared_database_path=data_root_path / "data" / "app_shared.sqlite3",
             global_ui_preferences_file=config_dir / "global_ui_preferences.json",
             template_dir=config_dir / "templates",
             static_database_path=(

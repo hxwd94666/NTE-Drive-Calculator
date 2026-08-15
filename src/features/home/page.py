@@ -1,5 +1,5 @@
-# 构建并刷新 2.0 首页工作台。
-"""构建并刷新 2.0 首页工作台。"""
+# 构建并刷新 2.1 首页工作台。
+"""构建并刷新 2.1 首页工作台。"""
 
 from __future__ import annotations
 
@@ -122,7 +122,7 @@ def build_home_page(window) -> QScrollArea:
     hero_layout = QHBoxLayout(hero)
     hero_layout.setContentsMargins(22, 18, 22, 18)
     title_column = QVBoxLayout()
-    title = QLabel("NTE Drive Calc 2.0 工作台")
+    title = QLabel("NTE Drive Calc 2.1 工作台")
     title.setStyleSheet(themed_style("color:#f0f6fc;font-size:21px;font-weight:700"))
     window.home_account_label = QLabel("正在读取账号数据…")
     window.home_account_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
@@ -130,10 +130,10 @@ def build_home_page(window) -> QScrollArea:
     title_column.addWidget(window.home_account_label)
     hero_layout.addLayout(title_column)
     hero_layout.addStretch()
-    # 工作台的后台监听提示使用伊洛伊头像，避免与角色功能中的默认示例混淆。
+    # 工作台的后台监听提示使用残虹头像，避免与角色功能中的默认示例混淆。
     hero_icon_path = GameUiAssetCatalog(
         window.app_context.paths.asset_dir / "game_ui"
-    ).character_icon(1075)
+    ).character_icon(1036)
     if hero_icon_path is not None:
         hero_icon = QLabel()
         hero_icon.setFixedSize(72, 72)

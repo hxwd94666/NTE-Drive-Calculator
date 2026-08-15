@@ -172,7 +172,7 @@ class WarehouseResultCard(QWidget):
             if max_level:
                 level += f" / {max_level}"
         else:
-            level = "未知等级"
+            level = "等级未知"
         WarehouseCardDelegate._text(
             painter,
             QRect(left + 52, top + 23, width - 52 - header_reserved, 16),
@@ -262,4 +262,3 @@ class WarehouseResultCard(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
-

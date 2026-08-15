@@ -108,12 +108,20 @@ def _stats(
     return [_stat(label, amount) for label, amount in value.items()]
 
 
-def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: StaticGameDataDao) -> dict[str, Any]:
+def build_vision_snapshot(
+    items: Iterable[Mapping[str, Any]],
+    static_dao: StaticGameDataDao,
+    *,
+    capture_driver: str = "mouse",
+) -> dict[str, Any]:
     """Convert visual parser items to the SQLite snapshot contract.
 
     The generated UID pair is local to this visual snapshot and is deliberately
     never eligible for nte-core's native-UID equipment RPC.
     """
+    driver = str(capture_driver or "").strip().casefold()
+    if driver not in {"mouse", "gamepad"}:
+        raise VisionInventorySnapshotError("视觉扫描 capture_driver 必须是 mouse 或 gamepad")
     suits = {_compact_set_name(row.get("name_zh")): str(row["suit_id"]) for row in static_dao.list_suits()}
     stat_catalog = StatCatalog.from_config_dir(bundled_config_dir())
     normalized: list[dict[str, Any]] = []
@@ -138,7 +146,7 @@ def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: Static
             "max_level": 0,
             # The visual scan cannot read these state fields.  Persist neutral
             # placeholders because the SQLite contract is non-nullable; the
-            # `gamepad` snapshot source tells consumers that they are unknown.
+            # The unified `vision` source tells consumers that they are unknown.
             "locked": False,
             "discarded": False,
             "equipped": False,
@@ -176,14 +184,21 @@ def build_vision_snapshot(items: Iterable[Mapping[str, Any]], static_dao: Static
                 quality=quality,
             )
         normalized.append(row)
-    return {"complete": True, "item_count": len(normalized), "items": normalized}
+    return {
+        "complete": True,
+        "capture_driver": driver,
+        "item_count": len(normalized),
+        "items": normalized,
+    }
 
 
 def import_vision_inventory(
     database_path: str | Path,
     items: Iterable[Mapping[str, Any]],
+    *,
+    capture_driver: str = "mouse",
 ) -> int:
-    """Persist a completed full visual scan as the `gamepad` fallback source."""
+    """Persist one completed mouse/gamepad scan as the active visual source."""
     with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
-        snapshot = build_vision_snapshot(items, static_dao)
-        return user_dao.import_inventory_snapshot(snapshot, source="gamepad")
+        snapshot = build_vision_snapshot(items, static_dao, capture_driver=capture_driver)
+        return user_dao.import_inventory_snapshot(snapshot, source="vision")

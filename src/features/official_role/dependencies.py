@@ -16,6 +16,8 @@ class OfficialRoleDependencies:
     account_id: str
     generation: int
     user_database_path: Path
+    static_database_path: Path
+    shared_database_path: Path
 
     @classmethod
     def from_app_context(
@@ -26,5 +28,6 @@ class OfficialRoleDependencies:
             account_id=account.active_account_id,
             generation=app_context.generation,
             user_database_path=account.user_database_path,
+            static_database_path=app_context.paths.static_database_path,
+            shared_database_path=app_context.paths.shared_database_path,
         )
-

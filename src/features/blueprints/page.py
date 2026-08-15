@@ -78,7 +78,7 @@ class BlueprintPage:
         header.addWidget(refresh_button)
         layout.addLayout(header)
         self._status = QLabel(
-            "图纸由本地求解器生成，形状、套装、卡带和角色盘面均取自官方静态数据库。"
+            "图纸由本地求解器生成；官方角色读取发行模板，自建角色读取当前账号保存的底盘与默认套装。"
         )
         self._status.setStyleSheet(themed_style("color:#8b949e"))
         layout.addWidget(self._status)
@@ -94,7 +94,7 @@ class BlueprintPage:
     def refresh(self) -> None:
         content_layout, status = self._require_widgets()
         self._clear_content(content_layout)
-        status.setText("正在使用官方数据生成图纸…")
+        status.setText("正在生成官方与自建角色图纸…")
         content_layout.addWidget(QLabel("正在组合驱动并求解盘面…"))
         dependencies = BlueprintDependencies.from_app_context(self._app_context)
         controller = BlueprintController(dependencies)

@@ -315,6 +315,23 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual([], filter_warehouse_items([item], status="unequipped"))
         self.assertEqual([item["uid"]], [row["uid"] for row in filter_warehouse_items([item])])
 
+    def test_card_projection_preserves_explicit_unknown_level_from_saved_visual_plan(self):
+        from src.features.inventory.warehouse import warehouse_item_view
+
+        item = warehouse_item_view(
+            {
+                "kind": "module",
+                "quality": "orange",
+                "uid_slot": 1,
+                "uid_serial": 2,
+                "level": 20,
+                "max_level": 20,
+                "level_known": False,
+            },
+        )
+
+        self.assertFalse(item["level_known"])
+
     def test_role_name_is_searchable_and_role_filter_uses_character_id(self):
         from src.features.inventory.warehouse import filter_warehouse_items, warehouse_item_view
 

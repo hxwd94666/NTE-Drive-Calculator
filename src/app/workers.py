@@ -73,7 +73,7 @@ class ScanWorkerThread(QThread):
             self.error.emit(str(exc))
 
 
-class GamepadScanParseWorkerThread(QThread):
+class FullVisualScanParseWorkerThread(QThread):
     processing_done = Signal(dict)
     error = Signal(str)
     scanner_ready = Signal()
@@ -94,6 +94,8 @@ class GamepadScanParseWorkerThread(QThread):
         selected_roles=None,
         parse_during_scan=True,
         amd_compatibility=False,
+        capture_driver="mouse",
+        result_is_current=None,
     ):
         super().__init__(parent)
         self.total_drives = total_drives
@@ -103,7 +105,33 @@ class GamepadScanParseWorkerThread(QThread):
         self.post_actions_config = post_actions_config
         self.selected_roles = list(selected_roles or [])
         self.amd_compatibility = bool(amd_compatibility)
-        self.parse_during_scan = bool(parse_during_scan) and not self.amd_compatibility
+        self.capture_driver = str(capture_driver or "mouse").strip().casefold()
+        if self.capture_driver not in {"mouse", "gamepad"}:
+            raise ValueError(f"不支持的全量扫描驱动：{capture_driver}")
+        self.mouse_compatibility_mode = (
+            self.capture_driver == "mouse" and self.amd_compatibility
+        )
+        self.mouse_input_profile = (
+            "compatibility-low-load-v1"
+            if self.mouse_compatibility_mode
+            else "standard-low-load-v1"
+            if self.capture_driver == "mouse"
+            else "one-point-five-trial-v1"
+        )
+        # Normal mouse scans honor the dual-thread option just like the
+        # gamepad route.  Compatibility mode deliberately remains serial and
+        # low-load for machines that need the fallback.
+        self.capture_queue_maxsize = 7 if self.mouse_compatibility_mode else 21
+        self.parse_during_scan = (
+            bool(parse_during_scan) and not self.mouse_compatibility_mode
+        )
+        self.low_load_mode = (
+            self.capture_driver == "mouse" and not self.parse_during_scan
+        )
+        self.low_load_parse_delay_seconds = (
+            0.20 if self.mouse_compatibility_mode else 0.12
+        )
+        self.result_is_current = result_is_current
         self.scanner = None
         self._post_actions_ready_event = threading.Event()
 
@@ -121,16 +149,32 @@ class GamepadScanParseWorkerThread(QThread):
         worker_start = time.perf_counter()
         try:
             from src.services.streaming_scan_service import run_streaming_scan_parse
-            from src.scanner.gamepad_controller import GamepadScanner
+            if self.capture_driver == "mouse":
+                from src.integrations.vision.mouse_inventory_scan import MouseInventoryScanner
+                from src.integrations.vision.mouse_scan_runtime import require_mouse_scan_runtime
 
-            self.scanner = GamepadScanner(output_dir=self.screenshot_dir)
+                require_mouse_scan_runtime()
+                self.scanner = MouseInventoryScanner(
+                    output_dir=self.screenshot_dir,
+                    input_speed_profile=self.mouse_input_profile,
+                )
+            else:
+                from src.scanner.gamepad_controller import GamepadScanner
+
+                self.scanner = GamepadScanner(output_dir=self.screenshot_dir)
             self.scanner_ready.emit()
             init_start = time.perf_counter()
             processor = BatchProcessor(
                 input_dir=self.screenshot_dir,
                 config_dir=self.config_dir,
                 replace_output=True,
-                ocr_backend_preference="amd_compat" if self.amd_compatibility else "openvino",
+                ocr_backend_preference=(
+                    "amd_compat"
+                    if self.mouse_compatibility_mode
+                    else "low_load"
+                    if self.low_load_mode
+                    else "openvino"
+                ),
             )
             init_ms = (time.perf_counter() - init_start) * 1000.0
             log_perf(
@@ -156,16 +200,21 @@ class GamepadScanParseWorkerThread(QThread):
                 config_dir=self.config_dir,
                 user_database_path=self.user_database_path,
                 parse_during_scan=self.parse_during_scan,
-                low_load_mode=self.amd_compatibility,
+                low_load_mode=self.low_load_mode,
+                low_load_parse_delay_seconds=self.low_load_parse_delay_seconds,
+                capture_queue_maxsize=self.capture_queue_maxsize,
+                allow_post_actions=True,
+                result_is_current=self.result_is_current,
             )
+            if stats.get("discarded_stale"):
+                self.processing_done.emit(stats)
+                return
             if int(stats.get("total_count", 0) or 0) != int(self.total_drives):
                 raise RuntimeError("全量扫描未完整结束，流水线解析结果未写入库存。")
-            from src.services.vision_inventory_snapshot import import_vision_inventory
-
-            stats["vision_snapshot_id"] = import_vision_inventory(
-                self.user_database_path,
-                [item.model_dump() for item in processor.inventory],
-            )
+            stats["vision_items"] = [item.model_dump() for item in processor.inventory]
+            stats["capture_driver"] = self.capture_driver
+            if self.capture_driver == "mouse":
+                stats["mouse_input_profile"] = self.mouse_input_profile
             del processor
             log_perf(
                 logger,
@@ -181,15 +230,26 @@ class GamepadScanParseWorkerThread(QThread):
             )
             self.processing_done.emit(stats)
         except (FileNotFoundError, OSError) as exc:
-            logger.error(f"GamepadScanParseWorker DLL错误: {exc}")
-            self.error.emit(
-                "ViGEmClient.dll 加载失败，请确认:\n"
-                "1. 已安装 ViGEmBus 驱动 (https://github.com/nefarius/ViGEmBus/releases)\n"
-                f"2. 重启电脑后再试\n\n原始错误: {exc}"
-            )
+            logger.error(f"FullVisualScanParseWorker 系统依赖错误: {exc}")
+            if self.capture_driver == "gamepad":
+                self.error.emit(
+                    "ViGEmClient.dll 加载失败，请确认:\n"
+                    "1. 已安装 ViGEmBus 驱动 (https://github.com/nefarius/ViGEmBus/releases)\n"
+                    f"2. 重启电脑后再试\n\n原始错误: {exc}"
+                )
+            else:
+                self.error.emit(str(exc))
         except Exception as exc:
             err_detail = f"{exc}\n\n{tb.format_exc()}"
-            logger.error(f"GamepadScanParseWorker 异常: {err_detail}")
+            logger.error(f"FullVisualScanParseWorker 异常: {err_detail}")
             self.error.emit(str(exc))
         finally:
             _close_scanner(self.scanner)
+
+
+class GamepadScanParseWorkerThread(FullVisualScanParseWorkerThread):
+    """Compatibility wrapper preserving the legacy gamepad default."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("capture_driver", "gamepad")
+        super().__init__(*args, **kwargs)

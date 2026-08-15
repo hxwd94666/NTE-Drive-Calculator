@@ -285,7 +285,6 @@ def _fork_skill_description(star: dict) -> str:
 
 
 def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> QGroupBox:
-    character = detail["character"]
     profile = detail["profile"]
     group = QGroupBox("弧盘加成")
     group.setObjectName("officialRoleForkGroup")

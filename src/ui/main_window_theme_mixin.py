@@ -43,7 +43,7 @@ class MainWindowThemeMixin:
         return current_style_sheet(QApplication.instance())
 
     def _apply_theme_preference(self):
-        theme = getattr(self, "_theme_preference", "dark")
+        theme = getattr(self, "_theme_preference", "black")
         apply_app_theme(QApplication.instance(), theme)
         refresh_inline_theme_styles(self, QApplication.instance())
         if hasattr(self, "status_lbl"):
@@ -51,11 +51,11 @@ class MainWindowThemeMixin:
 
     def _set_theme_preference(self, theme):
         normalized = theme_preference(theme)
-        if getattr(self, "_theme_preference", "dark") == normalized:
+        if getattr(self, "_theme_preference", "black") == normalized:
             return True
         if not self._prompt_restart_for_theme_change():
             return False
-        previous = getattr(self, "_theme_preference", "dark")
+        previous = getattr(self, "_theme_preference", "black")
         self._theme_preference = normalized
         self._save_theme_preference()
         if not self._restart_application_as_admin():

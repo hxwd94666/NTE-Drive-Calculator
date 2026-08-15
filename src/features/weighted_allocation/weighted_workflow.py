@@ -7,6 +7,7 @@ from typing import Any, Callable, Mapping
 
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import (
+    QInputDialog,
     QMessageBox,
     QScrollArea,
     QWidget,
@@ -35,6 +36,7 @@ from src.services.official_role_page_service import (
     load_official_role_detail,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.equipment_replacement_dialog import (
     EquipmentReplacementCard,
     show_equipment_replacement_dialog,
@@ -125,6 +127,7 @@ def start_weighted_allocation(window) -> None:
             context_generation=dependencies.generation,
             snapshot_id=snapshot_id,
         ),
+        shared_database_path=dependencies.shared_database_path,
     )
     log_event(
         "INFO",
@@ -193,12 +196,62 @@ def _on_error(window, token: object, error: str) -> None:
     QMessageBox.critical(window, "计算失败", error)
 
 
+def _prompt_weighted_save_slots(
+    window,
+    preview: WeightedAllocationPreview,
+) -> dict[int, int] | None:
+    """Collect one explicit current slot target for every calculated role."""
+
+    dependencies = weighted_allocation_dependencies(window)
+    with UserDataDao(dependencies.user_database_path) as user_dao, StaticGameDataDao() as static_dao:
+        role_names = {
+            int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
+            for row in static_dao.list_characters()
+        }
+        targets: dict[int, int] = {}
+        for option in preview.result.unified.selected:
+            character_id = int(option.character_id)
+            role_name = role_names.get(character_id, str(character_id))
+            slots = user_dao.list_loadout_slots(character_id)
+            if not slots:
+                user_dao.create_loadout_slot(character_id, role_name, slot_key="primary")
+                slots = user_dao.list_loadout_slots(character_id)
+            if len(slots) == 1:
+                target_id = int(slots[0]["slot_id"])
+            else:
+                labels = [
+                    f"{slot['slot_name']}（#{slot['slot_id']}）"
+                    + (" · 已锁定" if (slot.get("current_plan") or {}).get("allocation_locked") else "")
+                    for slot in slots
+                ]
+                selected, accepted = QInputDialog.getItem(
+                    window,
+                    "选择保存目标",
+                    f"[{role_name}] 的计算方案保存到：",
+                    labels,
+                    0,
+                    False,
+                )
+                if not accepted:
+                    return None
+                target_id = int(slots[labels.index(selected)]["slot_id"])
+            target = user_dao.get_loadout_slot(target_id) or {}
+            if (target.get("current_plan") or {}).get("allocation_locked"):
+                QMessageBox.warning(window, "保存方案", f"[{role_name}] 选择的槽位已锁定，不能覆盖。")
+                return None
+            targets[character_id] = target_id
+    return targets
+
+
 def start_weighted_allocation_save(
     window,
     after_save: Callable[[], None] | None = None,
 ) -> None:
     preview = _validated_weighted_preview(window, action_name="保存")
     if preview is None:
+        return
+    slot_ids_by_character = _prompt_weighted_save_slots(window, preview)
+    if slot_ids_by_character is None:
         return
     dependencies = weighted_allocation_dependencies(window)
     operation = OperationContext.create(
@@ -208,7 +261,11 @@ def start_weighted_allocation_save(
         snapshot_id=preview.result.snapshot_id,
     )
     worker = WorkerThread(
-        target=lambda: save_weighted_allocation_preview(preview, operation),
+        target=lambda: save_weighted_allocation_preview(
+            preview,
+            operation,
+            slot_ids_by_character=slot_ids_by_character,
+        ),
         parent=window,
     )
     # Keep the QThread reachable for its complete lifetime.  A local variable
@@ -432,6 +489,7 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
     detail = load_official_role_detail(
         preview.user_database_path,
         role_option.character_id,
+        shared_database_path=preview.shared_database_path,
     )
     context = {
         "title": "词条配装临时结果",

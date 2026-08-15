@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QMessageBox, QProgressDialog
+from PySide6.QtWidgets import QMessageBox, QProgressBar, QProgressDialog
 
 from src.app.workers import WorkerThread
 from src.observability.context import OperationContext
@@ -16,8 +16,13 @@ from src.services.dwmapi_diagnostics import probe_equipment_pipe
 from src.features.inventory.equipment_assembly_dialogs import (
     assembly_report_dialog as _assembly_report_dialog,
 )
+from src.features.inventory.fast_apply_completion_summary import (
+    build_fast_apply_completion_summary,
+)
 from src.services.equipment_apply_service import EquipmentApplyService
 from src.services.bulk_equipment_apply_service import BulkEquipmentApplyService
+from src.services.inventory_source_capabilities import is_visual_inventory_source
+from src.services.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.storage.sqlite.user_data_dao import UserDataDao
 from .equipment_automatic_assembly_controller import (
     _account_database_path,
@@ -25,6 +30,7 @@ from .equipment_automatic_assembly_controller import (
     _preview_automatic_assemble_role,
     _return_to_equipment_after_assembly,
 )
+from .equipment_slot_selection_dialog import select_assembly_slot_ids
 
 
 __all__ = [
@@ -101,6 +107,7 @@ def _run_nte_core_equipment_apply(
     self: Any,
     role_names: list[str],
     *,
+    slot_ids: list[int] | None = None,
     identity_overrides: dict[str, dict[str, Any]] | None = None,
     job_id: int | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
@@ -131,6 +138,7 @@ def _run_nte_core_equipment_apply(
         ),
     ).run(
         role_names,
+        slot_ids=slot_ids,
         identity_overrides=identity_overrides,
         job_id=job_id,
         progress_callback=progress_callback,
@@ -173,6 +181,7 @@ def _start_nte_core_equipment_apply(
     self: Any,
     role_names: list[str],
     *,
+    slot_ids: list[int] | None = None,
     identity_overrides: dict[str, dict[str, Any]] | None = None,
     job_id: int | None = None,
 ) -> None:
@@ -183,8 +192,9 @@ def _start_nte_core_equipment_apply(
 
     progress_state: dict[str, Any] = {
         "current": 0,
-        "total": max(1, len(role_names)),
+        "total": max(1, len(slot_ids or role_names)),
         "message": "正在准备极速装配…",
+        "show_progress_bar": True,
     }
     progress_dialog = QProgressDialog(
         progress_state["message"],
@@ -209,6 +219,9 @@ def _start_nte_core_equipment_apply(
         progress_dialog.setMaximum(total)
         progress_dialog.setValue(min(total, max(0, int(progress_state.get("current", 0)))))
         progress_dialog.setLabelText(str(progress_state.get("message") or "正在极速装配…"))
+        progress_bar = progress_dialog.findChild(QProgressBar)
+        if progress_bar is not None:
+            progress_bar.setVisible(bool(progress_state.get("show_progress_bar", True)))
 
     progress_timer.timeout.connect(update_progress_dialog)
     progress_timer.start(80)
@@ -225,6 +238,7 @@ def _start_nte_core_equipment_apply(
         target=lambda: _run_nte_core_equipment_apply(
             self,
             role_names,
+            slot_ids=slot_ids,
             identity_overrides=identity_overrides,
             job_id=job_id,
             progress_callback=update_progress,
@@ -249,33 +263,7 @@ def _start_nte_core_equipment_apply(
             return
         applied = report.get("applied") or []
         requests = report.get("identity_requests") or []
-        details = "\n".join(
-            f"• {row['role_name']}"
-            + (
-                f"：{row['module_count']} 个驱动" + (" + 1 个核心" if row.get("core_count") else "")
-                if row.get("module_count") is not None
-                else "：已下发"
-            )
-            + ("（原本已装好）" if row.get("already_applied") else "")
-            + (
-                f"（第 {row.get('attempt_count', 2)} 次装配后复查通过）"
-                if row.get("repair_verified")
-                else (
-                    f"（已执行 {row.get('attempt_count', 2)} 次装配）"
-                    if row.get("repaired") else ""
-                )
-            )
-            for row in applied
-        )
-        changed_count = sum(not row.get("already_applied") for row in applied)
-        unchanged_count = len(applied) - changed_count
-        unverified_count = sum(not row.get("verified", False) and not row.get("already_applied") for row in applied)
-        summary = f"已下发 {len(applied)} 个角色的配装" if unverified_count else f"已确认 {len(applied)} 个角色的配装"
-        repaired_count = sum(bool(row.get("repaired")) for row in applied)
-        if repaired_count:
-            summary += f"（复核后重试 {repaired_count} 个）"
-        if unchanged_count:
-            summary += f"（实际装配 {changed_count} 个，原本已装好 {unchanged_count} 个）"
+        summary, role_details = build_fast_apply_completion_summary(applied)
         if report.get("failed_role"):
             error_message = str(report.get("error") or "未知错误")
             failure_kind = str(report.get("failure_kind") or "apply_error")
@@ -318,23 +306,6 @@ def _start_nte_core_equipment_apply(
             if callable(refresh):
                 refresh()
             return
-        repair_errors = report.get("repair_errors") or []
-        if repair_errors:
-            error_details = "\n".join(
-                f"• [{row.get('role_name', '未知角色')}]："
-                + _equipment_failure_details(
-                    str(row.get("kind") or "apply_error"),
-                    row.get("error", "装配失败"),
-                )
-                for row in repair_errors
-            )
-            QMessageBox.warning(
-                self,
-                "装配后复核未通过",
-                f"{summary}，但以下角色在最多 3 次装配后仍未通过复核："
-                f"\n\n{error_details}\n\n请保持游戏在线后单独重试这些角色。",
-            )
-            return
         snapshot_failure = report.get("snapshot_wait_failure")
         if isinstance(snapshot_failure, dict):
             attempt = int(snapshot_failure.get("attempt") or 1)
@@ -349,26 +320,14 @@ def _start_nte_core_equipment_apply(
                 "由于没有取得可靠的新快照，本次没有继续发送后续装配请求。",
             )
             return
-        if report.get("postrepair_snapshot_id"):
-            verification_note = (
-                "\n\n已在每次装配后等待稳定背包快照，并完成最终复核；单个角色最多发送 3 次装配请求。"
-            )
-        elif report.get("postrepair_check_timed_out"):
-            verification_note = (
-                "\n\n末次快照发现的遗漏已自动补装，但本次未等到第二份稳定快照，因此无法确认补装后的最终状态。"
-            )
-        elif report.get("postcheck_snapshot_id"):
-            verification_note = "\n\n已使用装配后稳定背包快照检查全部角色，未发现遗漏。"
-        else:
-            verification_note = (
-                "\n\n本次未等到新的稳定背包快照，已完成装配前校验并下发指令。"
-                "请在下次登录后完成背包同步，以更新仓库显示。"
-                if unverified_count
-                else ""
-            )
-        QMessageBox.information(
-            self, "装配完成", f"{summary}。\n任务 #{report.get('job_id')} 已保存日志。\n\n{details}{verification_note}"
+        message = (
+            f"{summary}。\n任务 #{report.get('job_id')} 已保存日志。"
+            f"\n\n{role_details}"
+            "\n\n极速装配可能会有装配遗漏，建议自行检查一遍，并对遗漏角色单独进行极速装配补足。"
         )
+        completion_box = QMessageBox(QMessageBox.Icon.Information, "装配完成", message, QMessageBox.StandardButton.Ok, self)
+        completion_box.setMinimumWidth(560)
+        completion_box.exec()
         refresh = getattr(self, "_refresh_equip", None)
         if callable(refresh):
             refresh()
@@ -406,13 +365,17 @@ def _preview_nte_core_assemble_role(
     self: Any,
     role_name: str,
     *,
+    slot_id: int | None = None,
     confirmed: bool = False,
 ) -> None:
     """确认后通过装备插件极速装配一个已保存角色方案。"""
 
     try:
         with UserDataDao(_account_database_path(self)) as user_dao:
-            plan = user_dao.get_active_loadout_plan_for_role(role_name)
+            slot = user_dao.get_loadout_slot(int(slot_id)) if slot_id is not None else None
+            plan = slot.get("current_plan") if slot is not None else user_dao.get_active_loadout_plan_for_role(role_name)
+            if slot is not None and plan is not None:
+                role_name = str((plan.get("payload") or {}).get("source_role_name") or role_name)
             source_snapshot_id = plan.get("source_snapshot_id") if plan else None
             source_summary = (
                 user_dao.inventory_snapshot_summary(int(source_snapshot_id)) if source_snapshot_id is not None else None
@@ -421,7 +384,7 @@ def _preview_nte_core_assemble_role(
     except Exception as exc:
         QMessageBox.warning(self, "极速装配", f"无法读取已保存方案：{exc}")
         return
-    if source == "gamepad":
+    if is_visual_inventory_source(source):
         if _confirm_automatic_assembly_fallback(
             self,
             "当前已保存方案来自视觉扫描快照，装备 UID 是视觉扫描生成的临时标识；"
@@ -429,11 +392,20 @@ def _preview_nte_core_assemble_role(
             "为避免写入错误装备，可以改用逐步自动装配。若要使用极速装配，请完成一次背包同步，"
             "再重新计算并保存该角色的方案。",
         ):
-            _preview_automatic_assemble_role(self, role_name, confirmed=confirmed)
+            _preview_automatic_assemble_role(
+                self,
+                role_name,
+                slot_id=slot_id,
+                confirmed=confirmed,
+            )
         return
 
     if confirmed:
-        _start_nte_core_equipment_apply(self, [role_name])
+        _start_nte_core_equipment_apply(
+            self,
+            [role_name] if slot_id is None else [],
+            slot_ids=[int(slot_id)] if slot_id is not None else None,
+        )
         return
     ret = QMessageBox.question(
         self,
@@ -445,7 +417,11 @@ def _preview_nte_core_assemble_role(
         QMessageBox.No,
     )
     if ret == QMessageBox.Yes:
-        _start_nte_core_equipment_apply(self, [role_name])
+        _start_nte_core_equipment_apply(
+            self,
+            [role_name] if slot_id is None else [],
+            slot_ids=[int(slot_id)] if slot_id is not None else None,
+        )
 
 
 def _preview_nte_core_assemble_all_roles(
@@ -457,9 +433,11 @@ def _preview_nte_core_assemble_all_roles(
     requested_roles = tuple(dict.fromkeys(str(name) for name in (role_names or ())))
     try:
         with UserDataDao(_account_database_path(self)) as user_dao:
-            plans_by_role = user_dao.list_active_loadout_plans_by_role()
+            selection_service = LoadoutSlotSelectionService(user_dao)
+            current_slots = selection_service.list_current()
             if requested_roles:
-                missing = [name for name in requested_roles if name not in plans_by_role]
+                available_roles = {selection.role_name for selection in current_slots}
+                missing = [role_name for role_name in requested_roles if role_name not in available_roles]
                 if missing:
                     QMessageBox.information(
                         self,
@@ -467,21 +445,33 @@ def _preview_nte_core_assemble_all_roles(
                         f"以下角色尚未保存当前方案：{'、'.join(missing)}",
                     )
                     return
-                plans_by_role = {name: plans_by_role[name] for name in requested_roles}
-            nte_roles = []
+                current_slots = tuple(
+                    selection
+                    for selection in current_slots
+                    if selection.role_name in requested_roles
+                )
+            selected_slot_ids = select_assembly_slot_ids(self, current_slots)
+            if selected_slot_ids is None:
+                return
+            selections = selection_service.resolve(
+                selected_slot_ids,
+            )
+            nte_slot_ids = []
             visual_roles = []
-            for role_name, plan in plans_by_role.items():
+            for selection in selections:
+                role_name = selection.role_name
+                plan = selection.plan
                 snapshot_id = plan.get("source_snapshot_id")
                 summary = user_dao.inventory_snapshot_summary(int(snapshot_id)) if snapshot_id is not None else None
                 if summary and summary.get("source") == "nte_core":
-                    nte_roles.append(role_name)
-                elif summary and summary.get("source") == "gamepad":
+                    nte_slot_ids.append(selection.slot_id)
+                elif summary and is_visual_inventory_source(summary.get("source")):
                     visual_roles.append(role_name)
     except Exception as exc:
         QMessageBox.warning(self, "极速装配", f"无法读取官方 SQLite 方案：{exc}")
         return
-    if nte_roles:
-        role_names = list(nte_roles) if requested_roles else sorted(nte_roles)
+    if nte_slot_ids:
+        selected_slot_ids = list(nte_slot_ids)
     elif visual_roles:
         if _confirm_automatic_assembly_fallback(
             self,
@@ -499,19 +489,19 @@ def _preview_nte_core_assemble_all_roles(
         QMessageBox.information(self, "极速装配", "当前没有来自官方背包快照的已保存方案。请先重新计算并保存。")
         return
     if confirmed:
-        _start_nte_core_equipment_apply(self, role_names)
+        _start_nte_core_equipment_apply(self, [], slot_ids=selected_slot_ids)
         return
     ret = QMessageBox.question(
         self,
         "极速装配",
-        f"将依次向本地组件发送 {len(role_names)} 个角色的装配指令，"
+        f"将依次向本地组件发送 {len(selected_slot_ids)} 个角色的装配指令，"
         "已经正确装配的角色会直接跳过，其余角色在稳定背包快照确认后再处理下一个。"
         "\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )
     if ret == QMessageBox.Yes:
-        _start_nte_core_equipment_apply(self, role_names)
+        _start_nte_core_equipment_apply(self, [], slot_ids=selected_slot_ids)
 
 
 def _preview_fast_assemble_all_roles(
@@ -553,14 +543,35 @@ def _select_single_role_assembly_mode(
     return None
 
 
-def _preview_assemble_role(self: Any, role_name: str) -> None:
-    """为单个角色显示装配方式选择。"""
+def _preview_assemble_role(
+    self: Any,
+    role_name: str,
+    *,
+    slot_id: int | None = None,
+) -> None:
+    """为单个角色或指定配装槽位显示装配方式选择。"""
 
     mode = _select_single_role_assembly_mode(self, role_name)
     if mode == "fast":
-        _preview_nte_core_assemble_role(self, role_name, confirmed=True)
+        if slot_id is None:
+            _preview_nte_core_assemble_role(self, role_name, confirmed=True)
+        else:
+            _preview_nte_core_assemble_role(
+                self,
+                role_name,
+                slot_id=slot_id,
+                confirmed=True,
+            )
     elif mode == "automatic":
-        _preview_automatic_assemble_role(self, role_name, confirmed=True)
+        if slot_id is None:
+            _preview_automatic_assemble_role(self, role_name, confirmed=True)
+        else:
+            _preview_automatic_assemble_role(
+                self,
+                role_name,
+                slot_id=slot_id,
+                confirmed=True,
+            )
 
 
 def request_equipment_assembly(

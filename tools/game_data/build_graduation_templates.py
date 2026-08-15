@@ -283,10 +283,6 @@ def populate_graduation_templates(
             with UserDataDao(user_database, account_id="graduation-builder"):
                 pass
             with StaticGameDataDao(database_path) as static_dao:
-                suits_by_name = {
-                    str(row.get("name_zh") or ""): str(row["suit_id"])
-                    for row in static_dao.list_suits()
-                }
                 percent_property_ids = {
                     str(row["attribute_id"])
                     for row in static_dao.list_equipment_attributes()

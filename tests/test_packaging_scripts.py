@@ -85,6 +85,7 @@ class PackagingScriptTests(unittest.TestCase):
             schema = internal / "src/storage/sqlite/schema/001_user_data.sql"
             static_database = internal / "data/game_static.sqlite3"
             static_manifest = internal / "data/manifest.json"
+            shared_database_seed = internal / "data/app_shared.sqlite3"
             shape_bonus_baseline = (
                 internal / "data/migrations/shape_bonus_defaults_2.0.2.json"
             )
@@ -102,6 +103,7 @@ class PackagingScriptTests(unittest.TestCase):
             static_database.parent.mkdir(parents=True)
             static_database.touch()
             static_manifest.touch()
+            shared_database_seed.touch()
             shape_bonus_baseline.parent.mkdir(parents=True)
             shape_bonus_baseline.touch()
 
@@ -116,6 +118,11 @@ class PackagingScriptTests(unittest.TestCase):
                 patch.object(build_installer, "APP_USER_SCHEMA", schema),
                 patch.object(build_installer, "APP_STATIC_DATABASE", static_database),
                 patch.object(build_installer, "APP_STATIC_MANIFEST", static_manifest),
+                patch.object(
+                    build_installer,
+                    "APP_SHARED_DATABASE_SEED",
+                    shared_database_seed,
+                ),
                 patch.object(
                     build_installer,
                     "APP_SHAPE_BONUS_BASELINE",
@@ -148,10 +155,32 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn('STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"', source)
         self.assertIn('STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"', source)
         self.assertIn('STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"', source)
+        self.assertIn('SHARED_DATABASE_SEED_PATH = ROOT / "data" / "app_shared.sqlite3"', source)
         self.assertIn('_required_build_file("发行版静态数据库", STATIC_DATABASE_PATH)', source)
         self.assertIn('_required_build_file("发行版静态数据库清单", STATIC_MANIFEST_PATH)', source)
         self.assertIn('_append_add_data(static_database_path, "data")', source)
         self.assertIn('_append_add_data(STATIC_MIGRATION_DATA_DIR, "data/migrations")', source)
+        self.assertIn('_append_add_data(shared_database_seed_path, "data")', source)
+
+    def test_pyinstaller_cleanup_does_not_delete_unrelated_build_directories(self):
+        source = Path("build_exe.py").read_text(encoding="utf-8")
+
+        self.assertIn('PACKAGE_BUILD_DIR = BUILD / PACKAGE_NAME', source)
+        self.assertIn('PACKAGE_ONEDIR_DIR = DIST / PACKAGE_NAME', source)
+        self.assertIn('PACKAGE_ONEFILE_EXE = DIST / f"{PACKAGE_NAME}.exe"', source)
+        self.assertIn('for path in (PACKAGE_BUILD_DIR, PACKAGE_ONEDIR_DIR, PACKAGE_ONEFILE_EXE):', source)
+        self.assertNotIn('for path in (DIST, BUILD):', source)
+
+    def test_mouse_scan_runtime_dependencies_are_declared_and_bundled(self):
+        project = Path("pyproject.toml").read_text(encoding="utf-8")
+        build_source = Path("build_exe.py").read_text(encoding="utf-8")
+
+        for dependency in ("mss", "pyautogui", "opencv-python", "numpy"):
+            with self.subTest(dependency=dependency):
+                self.assertIn(dependency, project)
+        for hidden_import in ('"mss"', '"pyautogui"', '"cv2"', '"numpy"'):
+            with self.subTest(hidden_import=hidden_import):
+                self.assertIn(hidden_import, build_source)
 
     def test_windows_validator_is_not_part_of_runtime_packaging(self):
         packaging_sources = (

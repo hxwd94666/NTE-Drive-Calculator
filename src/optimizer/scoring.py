@@ -121,6 +121,32 @@ class ScoringEngine:
                             "weights": weights,
                             "main_weights": main_weights,
                         }
+                # 自建角色没有发行静态模板，不会出现在上面的官方角色列表。
+                # 视觉扫描后的弃置/锁定评分仍需使用其账号权重，且角色范围
+                # 选择器以该 account-local character_id 保存选择结果。
+                if user_dao is not None:
+                    for character in user_dao.list_custom_characters():
+                        character_id = int(character["character_id"])
+                        record = user_dao.get_character_weight_preferences(character_id)
+                        if record is None:
+                            continue
+                        weights = {
+                            labels[property_id]: float(weight)
+                            for property_id, weight in (record.get("property_weights") or {}).items()
+                            if labels.get(str(property_id)) and float(weight) > 0
+                        }
+                        main_weights = {
+                            labels[property_id]: float(weight)
+                            for property_id, weight in (record.get("main_property_weights") or {}).items()
+                            if labels.get(str(property_id)) and float(weight) > 0
+                        }
+                        if weights or main_weights:
+                            role_name = str(character.get("name_zh") or character_id)
+                            self.roles_db[role_name] = {
+                                "character_id": character_id,
+                                "weights": weights,
+                                "main_weights": main_weights,
+                            }
         finally:
             if user_dao is not None:
                 user_dao.close()

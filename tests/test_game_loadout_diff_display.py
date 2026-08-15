@@ -1,6 +1,8 @@
 # 验证游戏导入配装的差异展示与快照边界。
 """Regression coverage for game-loadout score, badges, and diff hydration."""
 
+from src.features.inventory import equipment_display_loaders
+
 
 def test_saved_plan_minimal_diff_is_hydrated_from_its_source_snapshot() -> None:
     from src.features.inventory.equipment_plan_optimizer import (
@@ -332,8 +334,8 @@ def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch) -> Non
                 {"attribute_id": "CritDamageBase"},
             ]
 
-    monkeypatch.setattr(display_view, "UserDataDao", UserDao)
-    monkeypatch.setattr(display_view, "StaticGameDataDao", StaticDao)
+    monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
+    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
 
     states = display_view._load_sqlite_equipment_display_states(
         "user.sqlite3",
@@ -425,8 +427,8 @@ def test_persisted_virtual_slot_is_not_queried_as_snapshot_uid(
                 {"attribute_id": "HPMaxAdd"},
             ]
 
-    monkeypatch.setattr(display_view, "UserDataDao", UserDao)
-    monkeypatch.setattr(display_view, "StaticGameDataDao", StaticDao)
+    monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
+    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
 
     states = display_view._load_sqlite_equipment_display_states(
         "user.sqlite3",
@@ -518,8 +520,8 @@ def test_saved_plan_display_accepts_packet_and_scan_snapshots(
         def list_equipment_attributes(self):
             return []
 
-    monkeypatch.setattr(display_view, "UserDataDao", UserDao)
-    monkeypatch.setattr(display_view, "StaticGameDataDao", StaticDao)
+    monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
+    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
 
     for source in ("nte_core", "gamepad"):
         UserDao.source = source
@@ -598,10 +600,10 @@ def test_missing_tape_game_detail_keeps_blueprint(monkeypatch) -> None:
         def list_equipment_attributes(self):
             return []
 
-    monkeypatch.setattr(display_view, "UserDataDao", Dao)
-    monkeypatch.setattr(display_view, "StaticGameDataDao", Dao)
+    monkeypatch.setattr(equipment_display_loaders, "UserDataDao", Dao)
+    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", Dao)
     monkeypatch.setattr(
-        display_view,
+        equipment_display_loaders,
         "_load_sqlite_equipment_display_states",
         lambda *_args, **_kwargs: {},
     )

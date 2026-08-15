@@ -17,6 +17,7 @@ from src.services.equipment_level_projection_service import (
     project_equipment_items_to_max_level,
 )
 from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
+from src.services.inventory_source_capabilities import is_visual_inventory_source
 from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
@@ -303,12 +304,40 @@ def save_official_role_tab_order(
     return normalized
 
 
+def _display_loadout_slot_name(
+    character: Mapping[str, Any],
+    slot: Mapping[str, Any],
+) -> str:
+    """Keep an unrenamed primary slot labeled with its character name."""
+
+    slot_name = str(slot.get("slot_name") or "").strip()
+    if (
+        str(slot.get("slot_key") or "") == "primary"
+        and slot_name == "主力"
+    ):
+        return str(character.get("name_zh") or slot_name)
+    return slot_name
+
+
+def _mark_equipment_level_known(
+    items: Sequence[dict[str, Any]],
+    snapshot_source: object,
+) -> None:
+    """Carry a snapshot's observable level capability into role-card views."""
+
+    level_known = not is_visual_inventory_source(snapshot_source)
+    for item in items:
+        item["level_known"] = level_known
+
+
 def load_official_role_detail(
     user_database_path: str | Path,
     character_id: int,
     *,
     asset_root: str | Path | None = None,
     include_inventory_contexts: bool = True,
+    static_database_path: str | Path | None = None,
+    shared_database_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Resolve one page model from static SQLite plus account SQLite pointers.
 
@@ -318,7 +347,10 @@ def load_official_role_detail(
     """
 
     catalog = GameUiAssetCatalog(_asset_root(asset_root))
-    with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
+    with (
+        StaticGameDataDao(static_database_path) as static_dao,
+        UserDataDao(user_database_path) as user_dao,
+    ):
         character = static_dao.get_character(character_id)
         if character is None:
             raise ValueError(f"官方角色不存在：{character_id}")
@@ -335,31 +367,101 @@ def load_official_role_detail(
         saved_plan: Mapping[str, Any] | None = None
         saved_items: list[dict[str, Any]] = []
         replacement_items: list[dict[str, Any]] = []
+        extra_saved_contexts: dict[str, dict[str, Any]] = {}
+        selected_slot: Mapping[str, Any] | None = None
+        selected_slot_name = ""
         if include_inventory_contexts:
+            current_snapshot_id = user_dao.current_inventory_snapshot_id()
+            current_snapshot = (
+                user_dao.inventory_snapshot_summary(current_snapshot_id)
+                if current_snapshot_id is not None
+                else None
+            )
             current_items = user_dao.list_current_inventory_items(
                 equipped=True, character_id=character_id
             )
-            plans = [
-                plan for plan in user_dao.list_loadout_plans(character_id)
-                if plan["is_active"]
+            _mark_equipment_level_known(
+                current_items,
+                (current_snapshot or {}).get("source"),
+            )
+            slot_plans = [
+                row
+                for row in user_dao.list_current_loadout_slot_plans()
+                if int(row["slot"]["character_id"]) == character_id
             ]
-            saved_plan = plans[0] if plans else None
+            slot_plans.sort(
+                key=lambda row: (
+                    str(row["slot"].get("slot_key") or "") != "primary",
+                    int(row["slot"].get("sort_order") or 0),
+                    int(row["slot"]["slot_id"]),
+                )
+            )
+            selected_slot = slot_plans[0] if slot_plans else None
+            saved_plan = selected_slot["plan"] if selected_slot is not None else None
+            selected_slot_name = (
+                _display_loadout_slot_name(character, selected_slot["slot"])
+                if selected_slot is not None
+                else ""
+            )
             replacement_items = (
                 user_dao.list_inventory_items(int(saved_plan["source_snapshot_id"]))
                 if saved_plan and saved_plan.get("source_snapshot_id") is not None
                 else []
+            )
+            saved_snapshot = (
+                user_dao.inventory_snapshot_summary(
+                    int(saved_plan["source_snapshot_id"])
+                )
+                if saved_plan and saved_plan.get("source_snapshot_id") is not None
+                else None
+            )
+            _mark_equipment_level_known(
+                replacement_items,
+                (saved_snapshot or {}).get("source"),
             )
             saved_items = _resolved_plan_items(
                 user_dao,
                 saved_plan,
                 snapshot_items=replacement_items,
             )
+            for row in slot_plans[1:]:
+                slot = row["slot"]
+                plan = row["plan"]
+                source_snapshot_id = plan.get("source_snapshot_id")
+                slot_items = (
+                    user_dao.list_inventory_items(int(source_snapshot_id))
+                    if source_snapshot_id is not None
+                    else []
+                )
+                slot_snapshot = (
+                    user_dao.inventory_snapshot_summary(int(source_snapshot_id))
+                    if source_snapshot_id is not None
+                    else None
+                )
+                _mark_equipment_level_known(
+                    slot_items,
+                    (slot_snapshot or {}).get("source"),
+                )
+                slot_display_name = _display_loadout_slot_name(character, slot)
+                extra_saved_contexts[f"saved:{slot['slot_id']}"] = {
+                    "title": f"已保存配装 · {slot_display_name}",
+                    "items": _resolved_plan_items(
+                        user_dao,
+                        plan,
+                        snapshot_items=slot_items,
+                    ),
+                    "calculation_items": (),
+                    "plan": plan,
+                    "replacement_items": slot_items,
+                    "slot_id": int(slot["slot_id"]),
+                    "slot_name": slot_display_name,
+                }
             characters = {
                 int(row["character_id"]): row
                 for row in static_dao.list_characters()
             }
             owner_by_uid: dict[tuple[int, int], int] = {}
-            for row in user_dao.list_active_loadout_equipment_owners():
+            for row in user_dao.list_current_loadout_equipment_owners():
                 owner_by_uid.setdefault(
                     (int(row["uid_slot"]), int(row["uid_serial"])),
                     int(row["character_id"]),
@@ -368,28 +470,36 @@ def load_official_role_detail(
                 (int(row["uid_slot"]), int(row["uid_serial"]))
                 for row in user_dao.list_allocation_locked_equipment_owners()
             }
-            for item in replacement_items:
-                uid = (int(item["uid_slot"]), int(item["uid_serial"]))
-                item["allocation_reserved"] = uid in locked_uids
-                owner_id = owner_by_uid.get(uid)
-                item["equipped"] = False
-                item["equipped_character_id"] = None
-                item["equipped_character_name"] = ""
-                item.pop("equipped_character_icon_path", None)
-                if owner_id is None:
-                    continue
-                owner = characters.get(owner_id) or {}
-                item["equipped"] = True
-                item["equipped_character_id"] = owner_id
-                item["equipped_character_name"] = str(
-                    owner.get("name_zh") or owner_id
-                )
-                owner_icon = catalog.character_icon(owner_id)
-                if owner_icon is not None:
-                    item["equipped_character_icon_path"] = str(owner_icon)
+            candidate_pools = [replacement_items, *(
+                context["replacement_items"]
+                for context in extra_saved_contexts.values()
+                if isinstance(context.get("replacement_items"), list)
+            )]
+            for candidate_pool in candidate_pools:
+                for item in candidate_pool:
+                    uid = (int(item["uid_slot"]), int(item["uid_serial"]))
+                    item["allocation_reserved"] = uid in locked_uids
+                    owner_id = owner_by_uid.get(uid)
+                    item["equipped"] = False
+                    item["equipped_character_id"] = None
+                    item["equipped_character_name"] = ""
+                    item.pop("equipped_character_icon_path", None)
+                    if owner_id is None:
+                        continue
+                    owner = characters.get(owner_id) or {}
+                    item["equipped"] = True
+                    item["equipped_character_id"] = owner_id
+                    item["equipped_character_name"] = str(
+                        owner.get("name_zh") or owner_id
+                    )
+                    owner_icon = catalog.character_icon(owner_id)
+                    if owner_icon is not None:
+                        item["equipped_character_icon_path"] = str(owner_icon)
         equipment_plan = static_dao.get_equipment_plan(character_id)
         static_shape_bonus = get_effective_character_shape_bonus(
-            static_dao, character_id,
+            static_dao,
+            character_id,
+            shared_database_path=shared_database_path,
         ) or {}
         shape_bonus = static_shape_bonus
         current_calculation_items = project_equipment_items_to_max_level(
@@ -400,6 +510,12 @@ def load_official_role_detail(
             saved_items,
             static_dao,
         )
+        for context in extra_saved_contexts.values():
+            context["calculation_items"] = project_equipment_items_to_max_level(
+                context["items"],
+                static_dao,
+            )
+            context["available"] = bool(context["items"])
         graduation_template = static_dao.get_character_graduation_template(character_id)
         # 角色页只读显示当前账号在“权重”页已保存的基础权重；角色页本身
         # 绝不写回它。账号尚未生成该角色记录时，才回落公共默认。
@@ -496,12 +612,15 @@ def load_official_role_detail(
                 "available": bool(current_items),
             },
             "saved": {
-                "title": "已保存配装",
+                "title": f"已保存配装 · {selected_slot_name}",
                 "items": saved_items,
                 "calculation_items": saved_calculation_items,
                 "plan": saved_plan,
+                "slot_id": (int(selected_slot["slot"]["slot_id"]) if selected_slot is not None else None),
+                "slot_name": selected_slot_name,
                 "available": bool(saved_items),
             },
+            **extra_saved_contexts,
             "theory": {
                 "title": "理论最优",
                 "items": (),

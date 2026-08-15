@@ -1,66 +1,113 @@
 # 系统架构
 
-本文描述 NTE Drive Calc 的稳定系统结构。编码代理的强制约束以根目录
-[`AGENTS.md`](../AGENTS.md) 为准。
+本文描述当前稳定结构与公共数据流。强制开发门禁见根目录 [`AGENTS.md`](../AGENTS.md)，业务细节见
+[功能原理](features.md)。
 
 ## 1. 总体数据流
 
 ```text
-nte-core 事件 ─┐
-               ├→ 稳定化 → 账号不可变库存快照 → 计算上下文 → 配装预览
-视觉扫描结果 ──┘                                      ↓
-                                              活动配装与冻结评分
+nte-core 完整库存 ─┐
+                    ├→ 完整性与稳定化 → 账号不可变快照 → 冻结计算上下文
+视觉/手柄全量扫描 ─┘                                      ↓
+                                                     配装预览
                                                         ↓
-                                  nte-core 极速装配 / 游戏界面自动装配
+                                               指定角色配装槽位保存
                                                         ↓
-                                              后续稳定快照确认
+                   nte-core 极速装配 / 游戏界面自动装配 / 仓库状态写回
+                                                        ↓
+                                               后续可观察状态确认
+
+nte-core 残缺状态事件 → 固定完整快照中已知 UID 的运行时状态覆盖
 ```
 
-“当前背包”只在操作开始前解析一次。计算、保存、替换、倒带和装配都保留明确的 `snapshot_id`；
-历史配装按自身 `source_snapshot_id` 解析，不跟随最新指针。
+任何下游操作都在开始时解析一次当前快照并冻结 `snapshot_id`。历史方案按自己的
+`source_snapshot_id` 读取；运行中出现新快照只用于副作用确认，不改变原请求输入。
 
-## 2. 分层
+## 2. 分层与依赖
 
-| 层 | 职责 | 不应持有 |
+```text
+UI Page / View
+      ↓
+Controller + frozen dependencies
+      ↓
+Application Service
+   ↙                 ↘
+Domain / Optimizer       DAO / Integration
+                              ↓
+                    SQLite / nte-core / 文件 / OCR / 游戏输入
+```
+
+| 层 | 拥有的状态 | 排除的职责 |
 | --- | --- | --- |
-| UI | 输入和结果投影 | SQL、协议、业务算法、其他页面控件 |
-| Controller | worker、取消、token、忙碌状态 | DAO 查询细节、其他 Controller |
-| Service | 冻结输入、业务编排、事务 | Qt 页面、MainWindow |
-| Domain/Optimizer | 纯规则和求解 | SQLite、Qt、日志、全局账号 |
-| DAO | SQL、schema、迁移、事务 | UI、协议 |
-| Integration | nte-core、OCR、进程、文件格式 | UI、业务评分 |
+| UI | 控件值、选择和可丢弃展示状态 | SQL、协议、业务算法、其他页面状态 |
+| Controller | worker、取消 token、忙碌态、结果投影 | DAO 查询细节、其他 Controller |
+| Service | 冻结请求、业务编排、事务边界 | Qt 页面、MainWindow、全局账号查找 |
+| Domain/Optimizer | 不可变输入上的纯规则和求解 | SQLite、Qt、日志、进程 |
+| DAO | schema、迁移、SQL、事务 | UI、外部协议 |
+| Integration | nte-core、OCR、文件、鼠标/手柄、插件和进程 | 评分与保存策略 |
+| Observability | sink、脱敏与操作关联 | feature、Service、DAO 和 UI |
 
-公共 `EquipmentPresentation` 和 `GlobalHotkeyManager` 只在 `src.ui.app` 组合根创建并注入。
+`src/ui/app.py` 是 GUI 组合根。`AppContext`、`EquipmentPresentation` 和 `GlobalHotkeyManager` 在这里创建
+并显式注入。MainWindow 只组合导航、账号切换和生命周期；feature 不通过字段扫描或页面索引寻找服务。
 
-## 3. 数据域
+## 3. 应用与账号上下文
 
-| 数据域 | 路径 | 主要内容 |
-| --- | --- | --- |
-| 发行静态 | `data/game_static.sqlite3` | 官方角色、装备、形状、套装、属性、伤害数据、推荐值 |
-| 本机共享 | `app_shared.sqlite3` | 明确跨账号的用户差异 |
-| 应用全局 | `config/global_ui_preferences.json` | 跨账号一致的主题偏好 |
-| 账号私有 | `accounts/<account_id>/user_data.sqlite3` | 快照、养成、权重、偏好、方案、锁、任务、战报 |
+`src.app.context` 提供：
 
-`AppContext` 提供应用路径和当前 `AccountContext`。账号切换递增 generation；长任务必须冻结并复核
-账号路径、generation、快照和配置版本。
+- `ApplicationPaths`：发行资源、静态库、共享库和全局配置路径；
+- `AccountContext`：当前账号数据库、配置、截图和日志目录；
+- `AppContext.generation`：账号切换代次；
+- `AccountLifecycle`：后台能力的停止、重建和恢复。
 
-## 4. 快照来源能力
+长任务冻结账号 ID、用户库路径、generation、快照、静态 dataset、profile/配置版本、配装 `slot_id`、
+锁快照、token 和输出目录。写入或回调前再次核对；过期结果不进入新账号页面和数据库。
 
-nte-core 和视觉扫描共享库存 schema，但能力不同。nte-core 提供正式 UID、角色实例和可写状态；视觉
-快照只提供分析输入。来源能力必须显式检查，不能因为表结构相同就允许状态写回或极速装配。
+账号切换依次停止后台任务、替换上下文并递增 generation、重建窄服务、清空页面账号缓存，再恢复允许
+自动运行的服务。背包同步、战报捕获、扫描、鉴定和游戏输入通过公开生命周期协调独占资源。
 
-## 5. 方案与锁
+## 4. 数据域
 
-活动方案保留来源快照、assignment、逐件评分、卡带满级主词条和来源类型。计算保留锁是账号内方案
-契约，不是游戏装备锁。锁定 UID 在候选构造前排除，并在 DAO 保存事务再次检查。
+| 数据域 | 路径 | 当前 schema | 所有权 |
+| --- | --- | ---: | --- |
+| 发行静态 | `data/game_static.sqlite3` | 16 | 官方目录、成长、技能、伤害、推荐权重和毕业模板；运行时只读 |
+| 公共共享 | `data/app_shared.sqlite3` | 2 | 官方角色额外形状的发行基线与跨账号覆盖 |
+| 应用全局 | `config/global_ui_preferences.json` | JSON | 跨账号主题 |
+| 账号私有 | `accounts/<account_id>/user_data.sqlite3` | 21 | 快照、权重、自建角色、偏好、配装槽位、锁、任务和战报 |
 
-## 6. 副作用确认
+读取优先级为账号显式配置、允许共享的公共覆盖、发行默认。官方额外形状可跨账号；自建角色、基础权重、
+计算偏好、倒带偏好、方案、锁和任务只属于当前账号。schema 迁移只追加。
 
-RPC 接受、手柄动作结束和 UI 更新都不是最终成功。仓库状态写回与装配必须等待比操作前更新的稳定
-快照，核对目标 UID、角色和状态。超时保留待确认，失败项按任务记录重试。
+## 5. 快照与来源能力
 
-## 7. 导航与生命周期
+库存表结构统一，来源能力不统一：
 
-一级功能包括工作台、计算、配装、角色、仓库、鉴定、战报、工具和设置。MainWindow 只负责组合与
-生命周期；业务状态分别由页面、Controller、Service 和 DAO 持有。账号切换、页面销毁和退出都必须
-停止或失效后台任务。
+- `nte_core`：正式装备 UID、角色实例、可靠装备状态、仓库 RPC 和极速装配；
+- `vision`/旧 `gamepad`：分析用临时 UID，可用于仓库、计算、历史展示、倒带和游戏界面自动装配；
+- 运行时状态增量：只覆盖原生完整快照中已知 UID 的锁定、弃置和装备状态，不增加物品或推进当前指针。
+
+来源权限通过公开 capability helper 判断，不从 UID 非空、表结构或 UI 名称推断。快照清理保护当前快照、
+活动配装槽位、锁定方案和未完成任务的所有引用。
+
+## 6. 配装槽位、方案与锁
+
+每个角色最多三个可见配装槽位，使用稳定 `slot_id`；`primary` 是旧数据默认槽位，显示名可修改。槽位
+指向一个当前方案，旧方案作为历史版本保留。方案冻结来源快照、assignment、逐件评分、卡带满级值和
+来源类型。
+
+计算保留锁属于当前账号的具体槽位方案，不等于游戏装备锁。锁定真实 UID 在候选构造前联合排除，并在
+DAO 保存事务再次检查。批量装配显式选择每个角色的槽位，要求角色唯一、槽位有效、原生来源和跨角色
+UID 无冲突。
+
+## 7. 副作用确认
+
+RPC 接受、输入动作结束、按钮状态变化和任务下发都不是最终成功。仓库状态写回和装配必须保留操作前
+基线，并等待操作后的递增稳定快照或范围化正式事件，核对目标 UID、角色实例、位置与状态。
+
+视觉扫描后的鼠标状态管理是特殊会话能力：只使用本次扫描索引，逐件复核操作前后图标，不赋予临时 UID
+后续写回能力。超时进入待确认或失败报告，不伪装为成功。
+
+## 8. 导航与生命周期
+
+一级导航为工作台、计算、配装、角色、仓库、鉴定、战报、工具和设置。角色图纸、基础权重是角色子页，
+通过 `parent_key` 保持父导航高亮。账号切换、页面销毁和应用退出都走公开停止入口，使旧 token 和旧
+generation 结果失效。

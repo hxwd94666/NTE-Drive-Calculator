@@ -15,6 +15,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 SHARED_DATABASE_ENV = "NTE_APP_SHARED_DB"
+DEFAULT_EXTRA_SHAPE_LABEL = "Type-3"
 
 
 def resolve_shared_database(
@@ -27,7 +28,7 @@ def resolve_shared_database(
     configured = os.environ.get(SHARED_DATABASE_ENV)
     if configured:
         return Path(configured).expanduser().resolve()
-    return Path(__file__).resolve().parents[2] / "app_shared.sqlite3"
+    return Path(__file__).resolve().parents[2] / "data" / "app_shared.sqlite3"
 
 
 def _shape_grid_count(shape_label: str) -> int:
@@ -163,9 +164,14 @@ def _save_public_character_shape_bonus(
             static_dao.summary().get("dataset", {}).get("dataset_id") or ""
         )
 
-    effective_label = str(shape_label or "").strip() or str(
-        bundled.get("shape_label") or ""
-    ).strip()
+    # The editor presents Type-3 as its initial selectable value.  Older static
+    # records can lack a label, so an untouched combo used to display Type-3
+    # while persisting an empty string and then failed validation on Save.
+    effective_label = (
+        str(shape_label or "").strip()
+        or str(bundled.get("shape_label") or "").strip()
+        or DEFAULT_EXTRA_SHAPE_LABEL
+    )
     grid_count = _shape_grid_count(effective_label)
     with SharedDataDao(resolve_shared_database(shared_database_path)) as shared_dao:
         shared_dao.upsert_shape_bonus_override(

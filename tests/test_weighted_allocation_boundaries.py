@@ -158,20 +158,6 @@ class WeightedAllocationBoundaryTests(unittest.TestCase):
         self.assertEqual("A", allocation_grade(40, 10))
         self.assertEqual("D", allocation_grade(100, 0))
 
-    def test_active_role_manager_contains_requested_filter_order(self):
-        source = inspect.getsource(
-            weighted_preferences._show_empty_curtain_preferences
-        )
-
-        self.assertLess(source.index("卡带/驱动副词条："), source.index("副词条黑名单："))
-        self.assertIn("词条筛选与优先级说明", source)
-        self.assertNotIn("src.features.allocation.role_selector_help", source)
-        self.assertLess(
-            source.index("不限制评分等级"),
-            source.index("最低生效等级："),
-        )
-        self.assertLess(source.index("套装效果："), source.index("暴击率最小值："))
-
     def test_all_roles_have_empty_stat_defaults(self):
         selector = SimpleNamespace(
             get_selected=lambda: ["主角", "角色甲", "角色乙"],

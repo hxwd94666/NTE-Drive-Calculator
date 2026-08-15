@@ -122,6 +122,82 @@ class FailingCaptureCoreClient(FakeCoreClient):
 
 
 class InventorySyncServiceTests(unittest.TestCase):
+    def test_guarded_role_subset_event_is_available_only_for_memory_verification(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        service._on_inventory_event(snapshot(item(1), item(2), sequence=4))
+        scoped = service.wait_for_equipment_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.1,
+        )
+
+        self.assertEqual({(8, 1), (8, 2)}, scoped.uid_pairs)
+        self.assertEqual(2, len(scoped.items))
+        self.assertIsNotNone(service._take_latest_event())
+        service.end_full_inventory_guard(guard)
+        with self.assertRaises(TimeoutError):
+            service.wait_for_equipment_snapshot(
+                frozenset({(8, 1)}),
+                after_cursor=0,
+                timeout=0.01,
+            )
+
+    def test_guarded_fragments_are_merged_by_uid_for_role_verification(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        # nte-core can split one role's changed equipment across sequential
+        # residual packets.  Neither packet is sufficient on its own.
+        service._on_inventory_event(snapshot(item(1), sequence=4))
+        service._on_inventory_event(snapshot(item(2), sequence=5))
+        scoped = service.wait_for_equipment_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.1,
+        )
+
+        self.assertEqual({(8, 1), (8, 2)}, scoped.uid_pairs)
+        self.assertEqual(2, len(scoped.items))
+        service.end_full_inventory_guard(guard)
+
+    def test_finished_guard_blocks_late_subset_until_full_inventory_returns(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        frozen = frozenset({(8, 1), (8, 2), (8, 3)})
+        guard = service.begin_full_inventory_guard(frozen)
+
+        self.assertTrue(service.finish_full_inventory_guard(guard, grace_seconds=30.0))
+        service._on_inventory_event(snapshot(item(1), item(2), sequence=4))
+        self.assertEqual(frozen, service._full_inventory_guard()[1])
+
+        service._on_inventory_event(snapshot(item(1), item(2), item(3), sequence=5))
+        self.assertIsNone(service._full_inventory_guard()[1])
+
+    def test_new_apply_replaces_only_finished_grace_guard(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        frozen = frozenset({(8, 1), (8, 2), (8, 3)})
+        first = service.begin_full_inventory_guard(frozen)
+        self.assertTrue(service.finish_full_inventory_guard(first, grace_seconds=90.0))
+        self.assertEqual(float("inf"), service._snapshot_guard_expires_at)
+
+        second = service.begin_full_inventory_guard(frozen)
+
+        service.end_full_inventory_guard(first)
+        self.assertEqual(frozen, service._full_inventory_guard()[1])
+        service.end_full_inventory_guard(second)
+        self.assertIsNone(service._full_inventory_guard()[1])
+
+    def test_new_apply_cannot_replace_active_guard(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        frozen = frozenset({(8, 1)})
+        service.begin_full_inventory_guard(frozen)
+
+        with self.assertRaisesRegex(RuntimeError, "已有极速装配"):
+            service.begin_full_inventory_guard(frozen)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.database_path = Path(self.temp_dir.name) / "user_data.sqlite3"
@@ -201,11 +277,34 @@ class InventorySyncServiceTests(unittest.TestCase):
             self.assertEqual(1, dao.summary()["snapshot_count"])
         self.assertEqual([True], self.template_refreshes)
 
+    def test_fast_apply_guard_rejects_scoped_snapshot_before_current_pointer_moves(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), item(2), sequence=1))
+        baseline = self.service.wait_for_snapshot(timeout=2.0)
+        token = self.service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+        try:
+            # A self-consistent response scoped to one equipped character must
+            # never become the current inventory during a bulk apply.
+            self.core.emit(snapshot(item(1, equipped=True), sequence=2))
+            time.sleep(0.12)
+            self.assertEqual(baseline.last_snapshot_id, self.service.state.last_snapshot_id)
+
+            self.core.emit(snapshot(item(1, equipped=True), item(2), sequence=3))
+            committed = self.service.wait_for_snapshot(
+                after_snapshot_id=baseline.last_snapshot_id,
+                timeout=2.0,
+            )
+            self.assertEqual(2, committed.last_item_count)
+            with UserDataDao(self.database_path) as dao:
+                self.assertEqual(2, dao.current_inventory_summary()["stored_item_count"])
+        finally:
+            self.service.end_full_inventory_guard(token)
+
     def test_snapshot_logs_include_authoritative_equipment_and_character_counts(self) -> None:
         events: list[tuple[str, dict[str, object]]] = []
         characters = [{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}]
         with patch(
-            "src.services.inventory_sync_service.log_event",
+            "src.services.inventory_sync_runtime.log_event",
             side_effect=lambda _level, event, _message, _context, **fields: events.append(
                 (event, fields)
             ),
@@ -249,7 +348,7 @@ class InventorySyncServiceTests(unittest.TestCase):
 
         events: list[tuple[str, dict[str, object]]] = []
         with patch(
-            "src.services.inventory_sync_service.log_event",
+            "src.services.inventory_sync_runtime.log_event",
             side_effect=lambda _level, event, _message, _context, **fields: events.append(
                 (event, fields)
             ),

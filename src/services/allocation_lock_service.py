@@ -31,6 +31,25 @@ def _display_uid(kind: str, slot: int, serial: int) -> str:
     return f"nte-{prefix}-{slot}-{serial}"
 
 
+def _role_has_all_slots_locked(user_dao: "UserDataDao", character_id: int) -> bool:
+    """Return whether every visible slot for one character is reservation-locked.
+
+    A lock always reserves the physical equipment in its own slot.  It only
+    removes a character from a new allocation when all of that character's
+    visible slots are locked.  Keep the legacy fallback for databases opened
+    before the named-slot migration is available.
+    """
+
+    list_slots = getattr(user_dao, "list_loadout_slots", None)
+    if not callable(list_slots):
+        return True
+    slots = list_slots(int(character_id))
+    return bool(slots) and all(
+        bool((slot.get("current_plan") or {}).get("allocation_locked"))
+        for slot in slots
+    )
+
+
 def build_allocation_lock_snapshot(
     user_dao: "UserDataDao",
     *,
@@ -48,10 +67,22 @@ def build_allocation_lock_snapshot(
         (int(item["uid_slot"]), int(item["uid_serial"])): str(item["kind"])
         for item in user_dao.list_inventory_items(inventory_snapshot_id)
     }
-    plans_by_role = user_dao.list_allocation_locked_loadout_plans_by_role()
+    locked_plans = user_dao.list_allocation_locked_loadout_plans()
     reserved_uids: set[str] = set()
     revisions: list[tuple[int, str]] = []
-    for role_name, plan in sorted(plans_by_role.items()):
+    locked_role_names: set[str] = set()
+    fully_locked_roles: dict[int, bool] = {}
+    for plan in sorted(locked_plans, key=lambda row: int(row["plan_id"])):
+        payload = plan.get("payload") or {}
+        role_name = str(payload.get("source_role_name") or "")
+        if not role_name:
+            raise UserDataValidationError("锁定方案缺少角色名称，请解除锁定后重新保存")
+        character_id = int(plan["character_id"])
+        if fully_locked_roles.setdefault(
+            character_id,
+            _role_has_all_slots_locked(user_dao, character_id),
+        ):
+            locked_role_names.add(role_name)
         assignments = tuple(plan.get("assignments") or ())
         if not assignments:
             raise UserDataValidationError(f"锁定方案 [{role_name}] 为空，请解除锁定后重试")
@@ -82,7 +113,7 @@ def build_allocation_lock_snapshot(
         revisions.append((int(plan["plan_id"]), str(plan.get("updated_at_utc") or "")))
     return AllocationLockSnapshot(
         inventory_snapshot_id=int(inventory_snapshot_id),
-        locked_role_names=frozenset(plans_by_role),
+        locked_role_names=frozenset(locked_role_names),
         reserved_uids=frozenset(reserved_uids),
         plan_revisions=tuple(revisions),
     )

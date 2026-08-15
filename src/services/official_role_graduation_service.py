@@ -166,6 +166,23 @@ def graduation_rate(detail: dict, context_key: str) -> float | None:
     return damage / benchmark * 100.0
 
 
+def _resolved_graduation_context_key(detail: dict, context_key: str) -> str:
+    """Resolve a saved-slot key to the role detail's selected saved context."""
+
+    contexts = detail.get("equipment_contexts") or {}
+    requested = str(context_key)
+    if requested in contexts:
+        return requested
+    if not requested.startswith("saved:"):
+        return requested
+    try:
+        slot_id = int(requested.removeprefix("saved:"))
+    except ValueError:
+        return requested
+    saved = contexts.get("saved") or {}
+    return "saved" if int(saved.get("slot_id") or 0) == slot_id else requested
+
+
 def graduation_tooltip(detail: dict) -> str:
     """Describe the benchmark equipment behind the graduation percentage."""
 
@@ -248,6 +265,9 @@ def load_official_role_graduation_summary(
         include_inventory_contexts=True,
     )
     return OfficialRoleGraduationSummary(
-        rate=graduation_rate(detail, str(context_key)),
+        rate=graduation_rate(
+            detail,
+            _resolved_graduation_context_key(detail, str(context_key)),
+        ),
         tooltip=graduation_tooltip(detail),
     )

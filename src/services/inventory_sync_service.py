@@ -13,17 +13,10 @@ from typing import Any, Literal
 
 from src.integrations.nte_core import NteCoreClient
 from src.observability import OperationContext, log_event
-from src.services.account_settings_service import AccountSettingsService
-from src.services.raw_capture_retention import prune_raw_capture_files
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.utils.logger import logger
 
 from .inventory_sync_contracts import InventoryCoreClient
-from .inventory_sync_logging import (
-    inventory_payload_log_fields,
-    stored_snapshot_log_fields,
-)
-from .inventory_snapshot_stabilizer import InventorySnapshotStabilizer
+from .inventory_sync_runtime import prune_raw_captures, run_inventory_sync
 
 
 SyncPhase = Literal[
@@ -56,6 +49,15 @@ class InventorySyncState:
     error: str | None = None
     error_code: str | None = None
     updated_at_utc: str = ""
+
+
+@dataclass(frozen=True)
+class ScopedEquipmentSnapshot:
+    """一条仅用于装配复核、绝不写入 SQLite 的角色局部库存事件。"""
+
+    cursor: int
+    items: tuple[dict[str, Any], ...]
+    uid_pairs: frozenset[tuple[int, int]]
 
 
 StateHandler = Callable[[InventorySyncState], None]
@@ -119,6 +121,15 @@ class InventorySyncService:
         self._event_lock = threading.Lock()
         self._latest_inventory_event: dict[str, Any] | None = None
         self._event_ready = threading.Event()
+        self._snapshot_guard_lock = threading.Lock()
+        self._snapshot_guard_token: object | None = None
+        self._snapshot_guard_uids: frozenset[tuple[int, int]] | None = None
+        self._snapshot_guard_source_snapshot_id: int | None = None
+        self._snapshot_guard_expires_at: float | None = None
+        self._snapshot_guard_generation = 0
+        self._scoped_snapshot_cursor = 0
+        self._scoped_equipment_snapshots: list[ScopedEquipmentSnapshot] = []
+        self._pending_runtime_state_deltas: list[tuple[int, tuple[dict[str, Any], ...], int | None, int | None]] = []
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
         self._client: InventoryCoreClient | None = None
@@ -141,6 +152,109 @@ class InventorySyncService:
         if client is None or client.hello_result is None:
             return None
         return dict(client.hello_result)
+
+    def begin_full_inventory_guard(
+        self,
+        item_uids: frozenset[tuple[int, int]],
+        *,
+        source_snapshot_id: int | None = None,
+    ) -> object:
+        """Require the next fast-apply snapshots to retain this full UID set.
+
+        Equipment state can legitimately change during a bulk apply, whereas
+        the physical inventory UID set cannot.  This protects the current
+        snapshot pointer from scoped nte-core responses that contain only the
+        character currently being equipped.
+        """
+
+        if not item_uids:
+            raise ValueError("极速装配的冻结库存不包含可校验装备")
+        token = object()
+        with self._snapshot_guard_lock:
+            if self._snapshot_guard_token is not None:
+                if self._snapshot_guard_expires_at is None:
+                    raise RuntimeError("已有极速装配正在保护背包快照")
+                # The previous task has returned to the UI and is only
+                # retaining a grace guard for late residual packets.  A user
+                # may start the next task immediately; hand the guard over to
+                # it instead of forcing an arbitrary 90-second wait.  The old
+                # token can no longer release this replacement guard.
+            self._snapshot_guard_token = token
+            self._snapshot_guard_uids = frozenset(item_uids)
+            self._snapshot_guard_source_snapshot_id = source_snapshot_id
+            self._snapshot_guard_expires_at = None
+            self._snapshot_guard_generation += 1
+        with self._state_condition:
+            self._scoped_equipment_snapshots.clear()
+            self._pending_runtime_state_deltas.clear()
+            self._state_condition.notify_all()
+        return token
+
+    def end_full_inventory_guard(self, token: object) -> None:
+        """Release a previously installed fast-apply full-inventory guard."""
+
+        with self._snapshot_guard_lock:
+            if token is not self._snapshot_guard_token:
+                return
+            self._snapshot_guard_token = None
+            self._snapshot_guard_uids = None
+            self._snapshot_guard_source_snapshot_id = None
+            self._snapshot_guard_expires_at = None
+            self._snapshot_guard_generation += 1
+        with self._state_condition:
+            self._scoped_equipment_snapshots.clear()
+            self._pending_runtime_state_deltas.clear()
+            self._state_condition.notify_all()
+
+    def finish_full_inventory_guard(self, token: object, *, grace_seconds: float) -> bool:
+        """Keep the membership filter through delayed apply responses.
+
+        A fast equipment request may be followed by per-character inventory
+        responses long after the UI task has returned.  They update only the
+        matching runtime state overlay, never the complete snapshot pointer.
+        The filter releases only when the same full frozen UID set reappears,
+        or when a later fast-apply task takes ownership of it.
+        """
+
+        del grace_seconds
+        with self._snapshot_guard_lock:
+            if token is not self._snapshot_guard_token:
+                return False
+            self._snapshot_guard_expires_at = float("inf")
+        return True
+
+    def _full_inventory_guard(self) -> tuple[int, frozenset[tuple[int, int]] | None]:
+        with self._snapshot_guard_lock:
+            expires_at = self._snapshot_guard_expires_at
+            if expires_at is not None and time.monotonic() >= expires_at:
+                self._snapshot_guard_token = None
+                self._snapshot_guard_uids = None
+                self._snapshot_guard_source_snapshot_id = None
+                self._snapshot_guard_expires_at = None
+                self._snapshot_guard_generation += 1
+            return self._snapshot_guard_generation, self._snapshot_guard_uids
+
+    def _full_inventory_guard_source_snapshot_id(self) -> int | None:
+        with self._snapshot_guard_lock:
+            return self._snapshot_guard_source_snapshot_id
+
+    def _release_finished_guard_for_full_snapshot(
+        self,
+        expected_uids: frozenset[tuple[int, int]],
+    ) -> None:
+        """Release only a finished guard once its full frozen inventory returns."""
+
+        with self._snapshot_guard_lock:
+            if (
+                self._snapshot_guard_expires_at is None
+                or self._snapshot_guard_uids != expected_uids
+            ):
+                return
+            self._snapshot_guard_token = None
+            self._snapshot_guard_uids = None
+            self._snapshot_guard_source_snapshot_id = None
+            self._snapshot_guard_expires_at = None
+            self._snapshot_guard_generation += 1
 
     def equip_one_key(
         self,
@@ -300,9 +414,131 @@ class InventorySyncService:
 
     def _on_inventory_event(self, event: dict[str, Any]) -> None:
         # 单槽合并：完整快照描述的是某一时刻的全部背包，积压时只需处理最新版本。
+        self._capture_scoped_equipment_snapshot(event)
         with self._event_lock:
             self._latest_inventory_event = dict(event)
         self._event_ready.set()
+
+    def scoped_equipment_snapshot_cursor(self) -> int:
+        """Return the in-memory cursor used to fence one equipment dispatch."""
+
+        with self._state_condition:
+            return self._scoped_snapshot_cursor
+
+    def wait_for_equipment_snapshot(
+        self,
+        required_uids: frozenset[tuple[int, int]],
+        *,
+        after_cursor: int,
+        timeout: float = 30.0,
+    ) -> ScopedEquipmentSnapshot:
+        """Wait for a post-dispatch partial event containing one role's items.
+
+        This path is intentionally separate from ``wait_for_snapshot``: the
+        returned rows remain an in-memory verification input and never replace
+        the account's complete current inventory snapshot.
+        """
+
+        expected = frozenset((int(slot), int(serial)) for slot, serial in required_uids)
+        if not expected:
+            raise ValueError("角色局部复核至少需要一件装备 UID")
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._state_condition:
+            while True:
+                fragments = [
+                    snapshot
+                    for snapshot in self._scoped_equipment_snapshots
+                    if snapshot.cursor > int(after_cursor)
+                ]
+                merged: dict[tuple[int, int], dict[str, Any]] = {}
+                for snapshot in fragments:
+                    for item in snapshot.items:
+                        merged[(int(item["uid"]["slot"]), int(item["uid"]["serial"]))] = item
+                if expected.issubset(merged):
+                    return ScopedEquipmentSnapshot(
+                        cursor=max(snapshot.cursor for snapshot in fragments),
+                        items=tuple(merged[key] for key in sorted(merged)),
+                        uid_pairs=frozenset(merged),
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("等待角色装配局部快照超时")
+                self._state_condition.wait(remaining)
+
+    def _capture_scoped_equipment_snapshot(self, event: Mapping[str, Any]) -> None:
+        """Keep guarded subset events for role verification without persisting them."""
+
+        _generation, allowed_uids = self._full_inventory_guard()
+        if not allowed_uids:
+            return
+        source_snapshot_id = self._full_inventory_guard_source_snapshot_id()
+        payload = event.get("params") if event.get("method") == "event.inventory.snapshot" else event
+        if not isinstance(payload, Mapping):
+            return
+        items = payload.get("items")
+        if not isinstance(items, list) or not items:
+            return
+        parsed_items: list[dict[str, Any]] = []
+        uid_pairs: set[tuple[int, int]] = set()
+        for item in items:
+            if not isinstance(item, Mapping) or not isinstance(item.get("uid"), Mapping):
+                return
+            try:
+                slot = int(item["uid"]["slot"])
+                serial = int(item["uid"]["serial"])
+            except (KeyError, TypeError, ValueError):
+                return
+            if slot <= 0 or serial <= 0:
+                continue
+            # A scoped response may contain unrelated rows (for example a
+            # just-acquired item).  It still supplies useful state for the
+            # frozen inventory rows it does contain.  Unknown rows must not
+            # enter either verification or the runtime overlay, but they also
+            # must not discard the known rows from this same response.
+            if (slot, serial) not in allowed_uids:
+                continue
+            normalized = dict(item)
+            normalized["uid_slot"] = slot
+            normalized["uid_serial"] = serial
+            uid_pairs.add((slot, serial))
+            parsed_items.append(normalized)
+        if not uid_pairs:
+            return
+        with self._state_condition:
+            self._scoped_snapshot_cursor += 1
+            self._scoped_equipment_snapshots.append(
+                ScopedEquipmentSnapshot(
+                    cursor=self._scoped_snapshot_cursor,
+                    items=tuple(parsed_items),
+                    uid_pairs=frozenset(uid_pairs),
+                )
+            )
+            if source_snapshot_id is not None:
+                self._pending_runtime_state_deltas.append((
+                    source_snapshot_id,
+                    tuple(parsed_items),
+                    payload.get("observed_at_unix_ms")
+                    if isinstance(payload.get("observed_at_unix_ms"), int)
+                    else None,
+                    payload.get("sequence")
+                    if isinstance(payload.get("sequence"), int)
+                    else None,
+                ))
+            # Several roles may emit one partial response each.  Bound the
+            # cache while retaining enough recent responses for the batch.
+            del self._scoped_equipment_snapshots[:-64]
+            del self._pending_runtime_state_deltas[:-64]
+            self._state_condition.notify_all()
+        if uid_pairs == allowed_uids:
+            self._release_finished_guard_for_full_snapshot(allowed_uids)
+
+    def _take_pending_runtime_state_deltas(
+        self,
+    ) -> list[tuple[int, tuple[dict[str, Any], ...], int | None, int | None]]:
+        with self._state_condition:
+            pending = self._pending_runtime_state_deltas
+            self._pending_runtime_state_deltas = []
+        return pending
 
     def _take_latest_event(self) -> dict[str, Any] | None:
         with self._event_lock:
@@ -334,359 +570,10 @@ class InventorySyncService:
         return value if isinstance(value, int) and not isinstance(value, bool) else None
 
     def _run(self) -> None:
-        client: InventoryCoreClient | None = None
-        fatal_error: Exception | None = None
-        try:
-            with self._open_dao() as dao:
-                settings = AccountSettingsService(self.database_path).load("sync")
-                settle_seconds = (
-                    self._settle_seconds
-                    if self._settle_seconds is not None
-                    else float(settings["inventory_settle_seconds"])
-                )
-                stabilizer = InventorySnapshotStabilizer(settle_seconds)
-                current_id = dao.current_inventory_snapshot_id()
-                current_has_character_instances = (
-                    dao.snapshot_has_independent_character_instances(current_id)
-                    if current_id is not None
-                    else False
-                )
-                if current_id is not None:
-                    previous = dao.raw_snapshot(current_id)
-                    if previous:
-                        try:
-                            stabilizer.seed_committed(previous)
-                        except ValueError:
-                            pass
-
-                client = self._client_factory()
-                self._client = client
-                client.start()
-                client.add_event_handler("event.inventory.snapshot", self._on_inventory_event)
-                log_event(
-                    "INFO",
-                    "inventory_sync.core_connected",
-                    "背包同步已连接 nte-core",
-                    self._operation_context,
-                    protocol_version=self._protocol_version(client),
-                    capabilities=list((client.hello_result or {}).get("capabilities") or ()),
-                )
-                capture_device = self._capture_device_id
-                if capture_device is None:
-                    capture_device = settings.get("capture_device_id")
-                raw_enabled = self._raw_capture_enabled
-                if raw_enabled is None:
-                    raw_enabled = bool(settings.get("raw_capture_enabled"))
-                if raw_enabled and self._raw_capture_directory is not None:
-                    self._raw_capture_directory.mkdir(parents=True, exist_ok=True)
-                    self._prune_raw_captures()
-                    log_event(
-                        "DEBUG",
-                        "inventory_sync.raw_capture_enabled",
-                        "已启用 nte-core 原始抓包诊断",
-                        self._operation_context,
-                        directory=self._raw_capture_directory,
-                    )
-                client.start_capture(
-                    profile="inventory",
-                    device_name=capture_device,
-                    raw_capture="enabled" if raw_enabled else "disabled",
-                )
-                log_event(
-                    "INFO",
-                    "inventory_sync.capture_started",
-                    "背包同步抓包已启动，等待完整背包快照",
-                    self._operation_context,
-                    raw_capture=bool(raw_enabled),
-                    capture_device_configured=bool(capture_device),
-                )
-                current_summary = dao.current_inventory_summary()
-                if current_summary is not None and current_id is not None:
-                    log_event(
-                        "INFO",
-                        "inventory_sync.current_snapshot_loaded",
-                        "已加载当前稳定背包摘要",
-                        self._operation_context.with_values(snapshot_id=current_id),
-                        **stored_snapshot_log_fields(
-                            current_summary,
-                            character_instances_independent=current_has_character_instances,
-                        ),
-                    )
-                self._publish(
-                    "waiting" if current_summary is None else "listening",
-                    "等待进入游戏并接收完整背包"
-                    if current_summary is None
-                    else (
-                        "当前为旧版背包快照，未包含独立角色实例；"
-                        "正在等待新 nte-core 写入完整角色快照"
-                        if not current_has_character_instances
-                        else "背包已同步，正在后台监听变化"
-                    ),
-                    running=True,
-                    capturing=True,
-                    last_snapshot_id=current_id,
-                    last_item_count=(
-                        int(current_summary["stored_item_count"])
-                        if current_summary is not None
-                        else None
-                    ),
-                )
-
-                retry_save_at = 0.0
-                while not self._stop_requested.is_set():
-                    self._event_ready.wait(self._poll_seconds)
-                    event = self._take_latest_event()
-                    if event is not None:
-                        # Some transitions from the old capture stream emit a
-                        # legacy inventory event immediately after the new
-                        # v0.3.5 event.  If the saved snapshot is legacy and a
-                        # candidate already has independent character UIDs,
-                        # allowing that fallback through would erase the
-                        # candidate as a mere "revert" before it can settle.
-                        # Only prefer the richer event during this one-time
-                        # format upgrade; normal inventory changes remain
-                        # governed by the stabilizer.
-                        if (
-                            not current_has_character_instances
-                            and not self._event_has_independent_character_instances(event)
-                            and stabilizer.pending_has_independent_character_instances
-                        ):
-                            log_event(
-                                "DEBUG",
-                                "inventory_sync.legacy_event_ignored",
-                                "忽略紧随角色实例快照后的旧格式背包事件",
-                                self._operation_context,
-                            )
-                            continue
-                        result = stabilizer.offer(event)
-                        if result.status in {"collecting", "changed"}:
-                            candidate_fields = inventory_payload_log_fields(event)
-                            log_event(
-                                "DEBUG",
-                                "inventory_sync.candidate_received",
-                                "已接收背包快照候选，等待内容稳定",
-                                self._operation_context,
-                                added_count=result.added_count,
-                                removed_count=result.removed_count,
-                                candidate_status=result.status,
-                                **candidate_fields,
-                            )
-                            self._publish(
-                                "collecting",
-                                f"已接收 {result.item_count} 件，等待背包内容稳定",
-                                running=True,
-                                capturing=True,
-                                pending_item_count=result.item_count,
-                                added_count=result.added_count,
-                                removed_count=result.removed_count,
-                                error=None,
-                            )
-                        elif result.status == "reverted":
-                            log_event(
-                                "DEBUG",
-                                "inventory_sync.candidate_reverted",
-                                "收到未变更的背包快照，继续监听",
-                                self._operation_context,
-                            )
-                            self._publish(
-                                "listening",
-                                (
-                                    "收到与旧版快照相同的背包内容；其中未包含独立角色实例，"
-                                    "极速装配仍不可用。请确认本次运行的是新 nte-core，"
-                                    "并等待其输出带 characters 的完整快照"
-                                    if not current_has_character_instances
-                                    else "背包变化已撤销，继续后台监听"
-                                ),
-                                running=True,
-                                capturing=True,
-                                pending_item_count=None,
-                                added_count=0,
-                                removed_count=0,
-                            )
-
-                    now = time.monotonic()
-                    stable = stabilizer.ready(now=now)
-                    if stable is None or now < retry_save_at:
-                        continue
-                    self._publish(
-                        "saving",
-                        f"背包已稳定，正在保存 {stable.item_count} 件",
-                        running=True,
-                        capturing=True,
-                        pending_item_count=stable.item_count,
-                    )
-                    try:
-                        snapshot_id = dao.import_inventory_snapshot(
-                            stable.message,
-                            source="nte_core",
-                            protocol_version=self._protocol_version(client),
-                        )
-                    except Exception as exc:
-                        log_event(
-                            "WARNING",
-                            "inventory_sync.snapshot_commit_retry",
-                            "保存稳定背包失败，将自动重试",
-                            self._operation_context,
-                            error=exc,
-                            retry_delay_seconds=2,
-                        )
-                        retry_save_at = time.monotonic() + 2.0
-                        self._publish(
-                            "error",
-                            "保存稳定背包失败，后台将自动重试",
-                            running=True,
-                            capturing=True,
-                            error=f"{type(exc).__name__}: {exc}",
-                            error_code="SNAPSHOT_SAVE_FAILED",
-                        )
-                        continue
-                    stabilizer.mark_committed(stable.fingerprint)
-                    current_has_character_instances = dao.snapshot_has_independent_character_instances(snapshot_id)
-                    committed_summary = dao.inventory_snapshot_summary(snapshot_id) or {}
-                    committed_context = self._operation_context.with_values(
-                        snapshot_id=snapshot_id,
-                    )
-                    log_event(
-                        "INFO",
-                        "inventory_sync.snapshot_committed",
-                        "已保存稳定背包快照",
-                        committed_context,
-                        protocol_version=self._protocol_version(client),
-                        **stored_snapshot_log_fields(
-                            committed_summary,
-                            character_instances_independent=current_has_character_instances,
-                        ),
-                    )
-                    if self._template_refresh is not None:
-                        try:
-                            refreshed = self._template_refresh()
-                            if isinstance(refreshed, Mapping) and refreshed.get("changed"):
-                                log_event(
-                                    "INFO",
-                                    "inventory_sync.templates_refreshed",
-                                    "已刷新公共角色与弧盘模板",
-                                    committed_context,
-                                    role_count=int(refreshed.get("role_count", 0)),
-                                    fork_count=int(refreshed.get("fork_count", 0)),
-                                )
-                        except Exception as exc:
-                            # 背包快照已经成功提交，模板缓存刷新不能阻断同步监听。
-                            log_event(
-                                "WARNING",
-                                "inventory_sync.template_refresh_failed",
-                                "公共角色与弧盘模板刷新失败，将在下次同步重试",
-                                committed_context,
-                                error=exc,
-                            )
-                    try:
-                        retention = dao.prune_inventory_snapshots()
-                        if retention["deleted_snapshot_count"]:
-                            log_event(
-                                "INFO",
-                                "inventory_sync.retention_applied",
-                                "已按保留策略清理历史背包快照",
-                                committed_context,
-                                deleted_snapshot_count=retention["deleted_snapshot_count"],
-                                retained_snapshot_count=retention["total_after"],
-                            )
-                    except Exception as exc:
-                        # 新快照已经安全提交，清理失败不能让同步服务重新导入同一份数据。
-                        log_event(
-                            "WARNING",
-                            "inventory_sync.retention_failed",
-                            "历史背包快照清理失败，将在下次同步或手动维护时重试",
-                            committed_context,
-                            error=exc,
-                        )
-                    retry_save_at = 0.0
-                    self._publish(
-                        "listening",
-                        "背包同步完成，正在后台监听变化",
-                        running=True,
-                        capturing=True,
-                        pending_item_count=None,
-                        added_count=0,
-                        removed_count=0,
-                        last_snapshot_id=snapshot_id,
-                        last_item_count=stable.item_count,
-                        last_synced_at_utc=_utc_now(),
-                        error=None,
-                        error_code=None,
-                    )
-        except Exception as exc:
-            fatal_error = exc
-            log_event(
-                "ERROR",
-                "inventory_sync.failed",
-                "背包同步服务异常停止",
-                self._operation_context,
-                error=exc,
-                error_code=(
-                    str(getattr(exc, "domain_code"))
-                    if getattr(exc, "domain_code", None)
-                    else type(exc).__name__
-                ),
-            )
-            self._publish(
-                "error",
-                "背包同步服务已停止",
-                running=False,
-                capturing=False,
-                error=f"{type(exc).__name__}: {exc}",
-                error_code=(
-                    str(getattr(exc, "domain_code"))
-                    if getattr(exc, "domain_code", None)
-                    else type(exc).__name__
-                ),
-            )
-        finally:
-            if client is not None:
-                try:
-                    client.remove_event_handler("event.inventory.snapshot", self._on_inventory_event)
-                except Exception:
-                    pass
-                try:
-                    client.stop_capture()
-                except Exception:
-                    pass
-                self._prune_raw_captures()
-                try:
-                    client.close()
-                except Exception:
-                    pass
-            self._client = None
-            if fatal_error is None:
-                log_event(
-                    "INFO",
-                    "inventory_sync.stopped",
-                    "背包同步已停止",
-                    self._operation_context,
-                )
-                self._publish(
-                    "stopped",
-                    "背包同步已停止",
-                    running=False,
-                    capturing=False,
-                    pending_item_count=None,
-                )
+        run_inventory_sync(self)
 
     def _prune_raw_captures(self) -> None:
-        """Best-effort cleanup; packet capture must never fail because pruning did."""
-        if self._raw_capture_directory is None:
-            return
-        try:
-            result = prune_raw_capture_files(self._raw_capture_directory)
-        except Exception as exc:
-            logger.warning(f"清理 nte-core .pcapng 诊断文件失败：{exc}")
-            return
-        if result.deleted_count:
-            logger.info(
-                "已自动清理 {} 个旧 .pcapng 诊断文件，释放 {:.1f} MiB；"
-                "当前保留 {} 个",
-                result.deleted_count,
-                result.deleted_bytes / (1024 * 1024),
-                result.retained_count,
-            )
+        prune_raw_captures(self)
 
     def stop(self, timeout: float = 10.0) -> None:
         if timeout <= 0:

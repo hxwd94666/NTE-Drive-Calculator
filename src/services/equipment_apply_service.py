@@ -12,7 +12,11 @@ from src.integrations.nte_core import is_mods_plugin_busy_error
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
-from .equipment_apply_verification import module_plan_mismatch, plan_mismatch
+from .equipment_apply_verification import (
+    module_plan_mismatch,
+    plan_mismatch,
+    scoped_plan_mismatch,
+)
 from .inventory_sync_service import InventorySyncState
 
 
@@ -180,11 +184,22 @@ class EquipmentApplyService:
     def require_stable_snapshot(self) -> int:
         """Validate the live sync once and return the snapshot to pin for a job."""
         state = self.sync_service.state
-        if not self.sync_service.is_running or state.phase != "listening":
+        if not self.sync_service.is_running or state.phase not in {"listening", "collecting"}:
             raise EquipmentApplyError("背包同步必须处于稳定监听状态才能一键装配")
         snapshot_id = self.user_dao.current_inventory_snapshot_id()
-        if snapshot_id is None or state.last_snapshot_id != snapshot_id:
-            raise EquipmentApplyError("同步状态与当前稳定背包快照不一致，请等待同步完成")
+        if snapshot_id is None:
+            raise EquipmentApplyError("当前账号还没有可用于极速装配的稳定背包快照")
+        if state.last_snapshot_id != snapshot_id:
+            # A guarded residual event may temporarily keep the UI state on
+            # its earlier notification while the immutable current snapshot
+            # remains usable.  Pin that SQLite snapshot rather than blocking
+            # a follow-up single-role apply on a display-state race.
+            logger.warning(
+                "背包同步状态快照号与数据库当前快照不同，使用数据库稳定快照继续装配："
+                "state={}, database={}",
+                state.last_snapshot_id,
+                snapshot_id,
+            )
         return snapshot_id
 
     def resolve_fast_apply_character_id(
@@ -430,6 +445,61 @@ class EquipmentApplyService:
             character_uid=resolved_character_uid,
         )
 
+    def plan_equipment_uid_pairs(self, plan_id: int) -> frozenset[tuple[int, int]]:
+        """Return the real items required for an in-memory scoped verification."""
+
+        plan = self.user_dao.get_loadout_plan(int(plan_id))
+        if plan is None:
+            raise EquipmentApplyError("指定的装配方案不存在")
+        return frozenset(
+            (int(item["uid_slot"]), int(item["uid_serial"]))
+            for item in plan.get("assignments") or ()
+            if int(item.get("uid_slot") or 0) > 0
+            and int(item.get("uid_serial") or 0) > 0
+        )
+
+    def verify_plan_in_items(
+        self,
+        plan_id: int,
+        *,
+        items: list[dict[str, Any]],
+        character_uid: Mapping[str, Any],
+        target_character_id: int,
+        exact_loadout: bool,
+        fragment_only: bool = False,
+    ) -> str | None:
+        """Verify one saved plan against a non-persisted role-scoped event."""
+
+        plan = self.user_dao.get_loadout_plan(int(plan_id))
+        if plan is None:
+            raise EquipmentApplyError("指定的装配方案不存在")
+        assignments = plan.get("assignments") or ()
+        modules = [item for item in assignments if item.get("kind") == "module"]
+        cores = [item for item in assignments if item.get("kind") == "core"]
+        resolved_uid = _uid(character_uid, "character_uid")
+        if fragment_only:
+            return scoped_plan_mismatch(
+                items=items,
+                modules=modules,
+                core_assignment=cores[0] if cores else None,
+                character_id=int(target_character_id),
+                character_uid=resolved_uid,
+            )
+        if cores or exact_loadout:
+            return plan_mismatch(
+                items=items,
+                modules=modules,
+                core_assignment=cores[0] if cores else None,
+                character_id=int(target_character_id),
+                character_uid=resolved_uid,
+            )
+        return module_plan_mismatch(
+            items=items,
+            modules=modules,
+            character_id=int(target_character_id),
+            character_uid=resolved_uid,
+        )
+
     def apply_plan(
         self,
         plan_id: int,
@@ -533,7 +603,11 @@ class EquipmentApplyService:
                 character_uid=resolved_character_uid,
             )
         )
-        if current_mismatch is None and not force_dispatch:
+        # A normal read-only apply may skip a plan already present in the
+        # frozen snapshot.  Full-reset apply is deliberately different: every
+        # requested role must first be cleared, even if that snapshot happens
+        # to describe the target layout as already present.
+        if current_mismatch is None and not force_dispatch and not reset_before_apply:
             return EquipmentApplyResult(
                 plan_id=plan["plan_id"],
                 before_snapshot_id=before_snapshot_id,
@@ -543,13 +617,16 @@ class EquipmentApplyService:
                 already_applied=True,
             )
 
-        reset_target = reset_before_apply and current_mismatch is not None
+        reset_target = reset_before_apply
         if reset_target:
-            logger.info(
-                "角色 {} 当前配装不匹配（{}），先卸下全部装备后重装",
-                effective_character_id,
-                current_mismatch,
-            )
+            if current_mismatch is None:
+                logger.info("角色 {} 按全卸空模式重装", effective_character_id)
+            else:
+                logger.info(
+                    "角色 {} 当前配装不匹配（{}），先卸下全部装备后重装",
+                    effective_character_id,
+                    current_mismatch,
+                )
             self._dispatch_with_busy_retry(
                 lambda: self.sync_service.unequip_all(
                     character=resolved_character_uid

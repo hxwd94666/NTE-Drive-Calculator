@@ -55,6 +55,8 @@ QPushButton:pressed{background:#161b22}
 QPushButton#btnPrimary{background:#238636;color:#fff;border:1px solid #2ea043;font-weight:600}
 QPushButton#btnPrimary:hover{background:#2ea043}
 QPushButton#btnPrimary:disabled{background:#1b3a24;color:#6e7681}
+QPushButton#btnNew{background:#1f6feb;color:#fff;border:1px solid #58a6ff;font-weight:600}
+QPushButton#btnNew:hover{background:#388bfd}
 QPushButton#btnDanger{background:#da3633;color:#fff;border:1px solid #f85149}
 QPushButton#btnDanger:hover{background:#f85149}
 QPushButton#btnAction{background:#1f6feb33;color:#58a6ff;border:1px solid #1f6feb;font-size:12px;padding:5px 12px}
@@ -204,13 +206,13 @@ THEME_LABELS = {
 
 
 def theme_preference(value: str | None) -> str:
-    return value if value in THEME_PREFERENCES else "dark"
+    return value if value in THEME_PREFERENCES else "black"
 
 
 def theme_name(value: str | None) -> str:
-    if value == "black":
-        return "black"
-    return "light" if value == "light" else "dark"
+    if value == "light":
+        return "light"
+    return "dark" if value == "dark" else "black"
 
 
 def theme_style(theme: str | None) -> str:
@@ -225,8 +227,8 @@ def theme_style(theme: str | None) -> str:
 def current_theme_name(app: QApplication | None = None) -> str:
     app = app or QApplication.instance()
     if app is None:
-        return "dark"
-    return theme_name(str(app.property("nte_effective_theme") or "dark"))
+        return "black"
+    return theme_name(str(app.property("nte_effective_theme") or "black"))
 
 
 def current_style_sheet(app: QApplication | None = None) -> str:
@@ -278,7 +280,7 @@ def refresh_inline_theme_styles(root, app: QApplication | None = None) -> None:
             widget.setStyleSheet(base)
 
 
-def apply_theme_palette(app: QApplication, theme: str | None = "dark") -> None:
+def apply_theme_palette(app: QApplication, theme: str | None = "black") -> None:
     name = theme_name(theme)
     if name == "light":
         apply_light_palette(app)
@@ -288,7 +290,7 @@ def apply_theme_palette(app: QApplication, theme: str | None = "dark") -> None:
         apply_dark_palette(app)
 
 
-def apply_app_theme(app: QApplication, theme: str | None = "dark") -> None:
+def apply_app_theme(app: QApplication, theme: str | None = "black") -> None:
     preference = theme_preference(theme)
     effective = theme_name(preference)
     app.setProperty("nte_theme_preference", preference)

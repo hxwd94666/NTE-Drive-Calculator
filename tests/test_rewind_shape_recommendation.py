@@ -91,7 +91,7 @@ def test_multiset_recommendation_can_repeat_one_shape() -> None:
 
 
 
-def test_balanced_repeats_use_score_gap_times_reciprocal_stock_with_top_ratio_remainder() -> None:
+def test_balanced_repeats_use_largest_remainder_ratio_allocation() -> None:
     result = recommend_score_shortfall_shapes(
         shapes=(
             RewindShape("shape_a", 2),
@@ -108,14 +108,106 @@ def test_balanced_repeats_use_score_gap_times_reciprocal_stock_with_top_ratio_re
         proportional=False,
     )
 
-    # Base seats are 1:1:1:1.  After subtracting that base from the ratio,
-    # 4:2:1:0 shares four open seats as 2:1:0:0; the one residual seat goes
-    # to the highest original ratio, giving the requested 4:2:1:1 result.
+    # Base seats are 1:1:1:1.  Four open seats use the original 5:3:2:1
+    # weights, yielding floors 1:1:0:0 and largest remainders for A and C.
     assert {row.shape.shape_id: row.quantity for row in result} == {
-        "shape_a": 4,
+        "shape_a": 3,
         "shape_b": 2,
-        "shape_c": 1,
+        "shape_c": 2,
         "shape_d": 1,
+    }
+
+
+def test_balanced_shortfall_reserves_one_slot_for_each_shape_not_each_drive() -> None:
+    result = recommend_score_shortfall_shapes(
+        shapes=(
+            RewindShape("shape_a", 2),
+            RewindShape("shape_b", 2),
+            RewindShape("shape_c", 2),
+        ),
+        shortfalls=Counter({"shape_a": 2, "shape_b": 1, "shape_c": 1}),
+        score_gaps=Counter({"shape_a": 4.0, "shape_b": 3.0, "shape_c": 2.0}),
+        owned_shape_counts=Counter({"shape_a": 1, "shape_b": 1, "shape_c": 1}),
+        selection_limit=8,
+        proportional=False,
+    )
+
+    assert {row.shape.shape_id: row.quantity for row in result} == {
+        "shape_a": 3,
+        "shape_b": 3,
+        "shape_c": 2,
+    }
+    assert next(row for row in result if row.shape.shape_id == "shape_a").suit_demand == 2
+
+
+def test_equal_stock_two_to_one_score_gap_becomes_five_to_three_in_both_modes() -> None:
+    kwargs = {
+        "shapes": (RewindShape("shape_a", 2), RewindShape("shape_b", 2)),
+        "shortfalls": Counter({"shape_a": 1, "shape_b": 1}),
+        "score_gaps": Counter({"shape_a": 2.0, "shape_b": 1.0}),
+        "owned_shape_counts": Counter({"shape_a": 1, "shape_b": 1}),
+        "selection_limit": 8,
+    }
+
+    for proportional in (False, True):
+        result = recommend_score_shortfall_shapes(
+            **kwargs,
+            proportional=proportional,
+        )
+        assert {row.shape.shape_id: row.quantity for row in result} == {
+            "shape_a": 5,
+            "shape_b": 3,
+        }
+
+
+def test_focused_shortfall_uses_raw_score_gaps_without_inventory_balancing() -> None:
+    kwargs = {
+        "shapes": (RewindShape("shape_a", 2), RewindShape("shape_b", 2)),
+        "shortfalls": Counter({"shape_a": 1, "shape_b": 1}),
+        "score_gaps": Counter({"shape_a": 2.0, "shape_b": 1.0}),
+        "owned_shape_counts": Counter({"shape_a": 8, "shape_b": 1}),
+        "selection_limit": 8,
+    }
+
+    focused = recommend_score_shortfall_shapes(**kwargs, proportional=True)
+    balanced = recommend_score_shortfall_shapes(**kwargs, proportional=False)
+
+    assert {row.shape.shape_id: row.quantity for row in focused} == {
+        "shape_a": 5,
+        "shape_b": 3,
+    }
+    assert {row.shape.shape_id: row.quantity for row in balanced} == {
+        "shape_a": 2,
+        "shape_b": 6,
+    }
+
+
+def test_focused_shortfall_reserves_only_one_slot_for_each_tiny_gap_shape() -> None:
+    result = recommend_score_shortfall_shapes(
+        shapes=tuple(RewindShape(f"shape_{index}", 2) for index in range(5)),
+        shortfalls=Counter({f"shape_{index}": 1 for index in range(5)}),
+        score_gaps=Counter(
+            {
+                "shape_0": 4.02,
+                "shape_1": 3.78,
+                "shape_2": 0.71,
+                "shape_3": 0.18,
+                "shape_4": 0.18,
+            }
+        ),
+        owned_shape_counts=Counter(
+            {f"shape_{index}": 1 for index in range(5)}
+        ),
+        selection_limit=8,
+        proportional=True,
+    )
+
+    assert {row.shape.shape_id: row.quantity for row in result} == {
+        "shape_0": 3,
+        "shape_1": 2,
+        "shape_2": 1,
+        "shape_3": 1,
+        "shape_4": 1,
     }
 
 
@@ -204,17 +296,33 @@ def test_focused_shortfall_uses_persisted_drive_scores_from_plan_snapshot(tmp_pa
                 {"uid_slot": 6, "uid_serial": 7, "geometry": "Hen3", "grid_count": 3},
             ]
 
+        def list_current_loadout_slot_plans(self):
+            return [
+                {
+                    "slot": {"character_id": 9001, "slot_key": "primary"},
+                    "plan": {
+                        "character_id": 9001,
+                        "source_snapshot_id": 3,
+                        "payload": {"assignment_scores": {"nte-module-4-5": 5.0}},
+                        "assignments": [{"kind": "module", "uid_slot": 4, "uid_serial": 5}],
+                    },
+                },
+                {
+                    "slot": {"character_id": 9001, "slot_key": "second"},
+                    "plan": {
+                        "character_id": 9001,
+                        "source_snapshot_id": 3,
+                        "payload": {"assignment_scores": {"nte-module-6-7": 5.0}},
+                        "assignments": [{"kind": "module", "uid_slot": 6, "uid_serial": 7}],
+                    },
+                },
+            ]
+
         def list_active_loadout_plans_by_role(self):
-            return {
-                "角色一": {
-                    "source_snapshot_id": 3,
-                    "payload": {"assignment_scores": {"nte-module-4-5": 5.0, "nte-module-6-7": 99.0}},
-                    "assignments": [
-                        {"kind": "module", "uid_slot": 4, "uid_serial": 5},
-                        {"kind": "module", "uid_slot": 6, "uid_serial": 7},
-                    ],
-                }
-            }
+            raise AssertionError("current saved slots must win over any legacy projection")
+
+        def list_custom_characters(self):
+            return [{"character_id": 9001, "name_zh": "自建角色", "target_suit_id": "Suit_Custom"}]
 
     service = RewindShapeRecommendationService(
         user_database_path=database_path,
@@ -224,8 +332,8 @@ def test_focused_shortfall_uses_persisted_drive_scores_from_plan_snapshot(tmp_pa
     )
 
     analysis = service.analyze_for_targets(
-        target_character_ids=(1,),
-        primary_character_ids=(1,),
+        target_character_ids=(9001,),
+        primary_character_ids=(9001,),
         strategy="focused",
         target_grade="S",
     )
@@ -237,7 +345,6 @@ def test_focused_shortfall_uses_persisted_drive_scores_from_plan_snapshot(tmp_pa
         if row.shape.shape_id == "EquipmentGeometry_Hen2"
     )
     assert recommendation.quality_gap == 15.0
-    assert analysis.required_count == 1
     assert dict(analysis.owned_shape_counts) == {
         "EquipmentGeometry_Hen2": 0,
         "EquipmentGeometry_Hen3": 1,
@@ -246,10 +353,59 @@ def test_focused_shortfall_uses_persisted_drive_scores_from_plan_snapshot(tmp_pa
         "EquipmentGeometry_Hen2": 0,
         "EquipmentGeometry_Hen3": 1,
     }
-    # The score above S for Hen3 is deliberately ignored, rather than offsetting
-    # the Hen2 deficit or becoming a negative gap.
-    assert all(row.shape.shape_id != "EquipmentGeometry_Hen3" for row in analysis.recommendations)
+    # Both current slots of the selected role participate. Their gaps are
+    # accumulated independently; one slot never overwrites another.
+    assert {row.shape.shape_id for row in analysis.recommendations} == {
+        "EquipmentGeometry_Hen2",
+        "EquipmentGeometry_Hen3",
+    }
+    assert analysis.required_count == 2
     assert 3 in UserDao.requested_snapshots
+
+
+def test_target_role_picker_includes_account_custom_roles(tmp_path) -> None:
+    class StaticDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def list_characters(self):
+            return [{"character_id": 1004, "name_zh": "安魂曲"}]
+
+        def get_character_graduation_template(self, _character_id):
+            return None
+
+    class UserDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def list_custom_characters(self):
+            return [{"character_id": 9001, "name_zh": "自建角色", "target_suit_id": "Suit_Custom"}]
+
+    database_path = tmp_path / "user.sqlite3"
+    database_path.touch()
+    service = RewindShapeRecommendationService(
+        user_database_path=database_path,
+        static_database_path=tmp_path / "static.sqlite3",
+        user_dao_factory=UserDao,
+        static_dao_factory=StaticDao,
+    )
+
+    assert [(role.character_id, role.name, role.default_suit_id, role.is_custom) for role in service.list_target_roles()] == [
+        (1004, "安魂曲", None, False),
+        (9001, "自建角色", "Suit_Custom", True),
+    ]
 
 
 def test_target_role_picker_excludes_transformations_and_merges_avatar_variants(tmp_path) -> None:

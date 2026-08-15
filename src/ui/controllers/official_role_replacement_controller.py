@@ -30,11 +30,12 @@ def show_official_role_replacement(
     detail: Mapping[str, Any],
     target: Mapping[str, Any],
     *,
+    context_key: str = "saved",
     on_saved: Callable[[], None] | None = None,
 ) -> bool:
     """Show, persist and report one official-role replacement operation."""
 
-    candidates = replacement_candidates_for_official_role(detail, "saved", target)
+    candidates = replacement_candidates_for_official_role(detail, context_key, target)
     if not candidates:
         QMessageBox.information(
             window,
@@ -128,6 +129,7 @@ def show_official_role_replacement(
             detail,
             target,
             row["item"],
+            context_key=context_key,
             replacement_score=float(row["base_score"]),
             current_score=current_base_score,
             current_assignment_scores=current_assignment_scores,

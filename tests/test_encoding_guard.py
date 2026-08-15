@@ -135,12 +135,12 @@ class EncodingGuardTests(unittest.TestCase):
                 failures.append(f"{module}: {type(exc).__name__}: {exc}")
         self.assertEqual([], failures)
 
-    def test_theme_preference_defaults_to_original_theme(self):
+    def test_theme_preference_defaults_to_black_theme(self):
         from src.app.theme import THEME_LABELS, theme_preference
 
-        self.assertEqual("dark", theme_preference(None))
-        self.assertEqual("dark", theme_preference(""))
-        self.assertEqual("dark", theme_preference("unknown"))
+        self.assertEqual("black", theme_preference(None))
+        self.assertEqual("black", theme_preference(""))
+        self.assertEqual("black", theme_preference("unknown"))
         self.assertEqual("dark", theme_preference("dark"))
         self.assertEqual("black", theme_preference("black"))
         self.assertEqual("light", theme_preference("light"))

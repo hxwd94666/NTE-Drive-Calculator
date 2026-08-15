@@ -51,6 +51,7 @@ class WeightedAllocationRequest:
     top_k: int
     include_role_top_k: bool = True
     operation_context: OperationContext | None = None
+    shared_database_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,7 @@ class WeightedAllocationPreview:
     # provide the immutable AllocationContext candidates themselves.
     role_details: Mapping[int, Mapping[str, Any]] = field(default_factory=dict)
     operation_context: OperationContext | None = None
+    shared_database_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,6 +433,7 @@ def _run_weighted_allocation(
             profile_id=int(request.profile_id),
             profile_version=int(request.profile_version),
             solver_version=ALLOCATION_CONTEXT_SOLVER_VERSION,
+            shared_database_path=request.shared_database_path,
         )
     result = solve_allocation_context(
         context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
@@ -443,6 +446,7 @@ def _run_weighted_allocation(
                 request.user_database_path,
                 option.character_id,
                 include_inventory_contexts=False,
+                shared_database_path=request.shared_database_path,
             )
         except (OSError, ValueError):
             # The allocation itself remains valid when an optional UI-only
@@ -456,12 +460,15 @@ def _run_weighted_allocation(
         context=context,
         role_details=role_details,
         operation_context=operation,
+        shared_database_path=request.shared_database_path,
     )
 
 
 def save_weighted_allocation_preview(
     preview: WeightedAllocationPreview,
     operation_context: OperationContext | None = None,
+    *,
+    slot_ids_by_character: Mapping[int, int] | None = None,
 ) -> tuple[int, ...]:
     """Persist the unified result as SQLite plans, without performing equip RPCs.
 
@@ -489,7 +496,10 @@ def save_weighted_allocation_preview(
         role_count=len(result.unified.selected),
         snapshot_id=result.snapshot_id,
     ) as span:
-        plan_ids = _save_weighted_allocation_preview(preview)
+        plan_ids = _save_weighted_allocation_preview(
+            preview,
+            slot_ids_by_character=slot_ids_by_character,
+        )
         span.annotate(saved_plan_count=len(plan_ids))
         return plan_ids
 
@@ -516,6 +526,8 @@ def _option_tape_main_values(
 
 def _save_weighted_allocation_preview(
     preview: WeightedAllocationPreview,
+    *,
+    slot_ids_by_character: Mapping[int, int] | None = None,
 ) -> tuple[int, ...]:
     result = preview.result
     with UserDataDao(preview.user_database_path) as user_dao, StaticGameDataDao() as static_dao:
@@ -557,7 +569,17 @@ def _save_weighted_allocation_preview(
                     },
                 },
             )
-            prepared_plans.append(prepared.as_record())
+            record = prepared.as_record()
+            if slot_ids_by_character is not None:
+                slot_id = slot_ids_by_character.get(int(option.character_id))
+                if slot_id is None:
+                    raise RuntimeError(
+                        f"角色 [{role_name}] 缺少明确的配装槽位保存目标。"
+                    )
+                record["slot_id"] = int(slot_id)
+            prepared_plans.append(record)
+        if slot_ids_by_character is not None:
+            return user_dao.save_plans_to_slots(prepared_plans)
         return user_dao.replace_active_loadout_plans(prepared_plans)
 
 

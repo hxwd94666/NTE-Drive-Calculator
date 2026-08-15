@@ -14,7 +14,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.windows_validation.log_probe import inspect_logs, timestamp_logs
+from src.integrations.vision.mouse_scan_runtime import probe_mouse_scan_runtime
 from tools.windows_validation.models import CheckResult, StepResult, ValidationReport
+from tools.windows_validation.mouse_scan_probe import (
+    compare_mouse_scan_to_account,
+    inspect_mouse_scan_report,
+)
 from tools.windows_validation.preflight import (
     default_artifact_paths,
     environment_evidence,
@@ -32,6 +37,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--account-db", type=Path)
     parser.add_argument("--static-db", type=Path, default=ROOT / "data" / "game_static.sqlite3")
     parser.add_argument("--log-dir", type=Path)
+    parser.add_argument("--mouse-scan-report", type=Path)
     parser.add_argument(
         "--artifact",
         action="append",
@@ -96,15 +102,56 @@ def _profile_checks(profile, args, timestamp_before: set[str]) -> tuple[CheckRes
                 {"new_files": new_files},
             )
         )
-    if profile.key in {"account-switch", "nte-core-sync", "calculation", "warehouse", "assembly"}:
+    mouse_scan = None
+    if profile.key == "vision":
+        runtime = probe_mouse_scan_runtime()
+        checks.append(
+            CheckResult(
+                "mouse-visual-runtime",
+                "passed" if runtime.ok else "warning",
+                "不发送输入地检查截图、鼠标和 Win32 运行依赖",
+                {
+                    "module_versions": dict(runtime.module_versions),
+                    "failures": list(runtime.failures),
+                },
+            )
+        )
+        mouse_scan = inspect_mouse_scan_report(args.mouse_scan_report)
+        checks.append(
+            CheckResult(
+                "mouse-visual-scan-report",
+                "passed" if mouse_scan.get("passed") else "warning",
+                "只读检查鼠标扫描分辨率、完整数量、预检、逐页序号和滚轮量",
+                mouse_scan,
+            )
+        )
+    if profile.key in {
+        "account-switch",
+        "nte-core-sync",
+        "vision",
+        "calculation",
+        "warehouse",
+        "assembly",
+    }:
+        account_summary = sqlite_summary(args.account_db)
         checks.append(
             CheckResult(
                 "account-database",
                 "passed" if args.account_db and args.account_db.is_file() else "warning",
                 "以只读方式采集账号数据库摘要",
-                sqlite_summary(args.account_db),
+                account_summary,
             )
         )
+        if profile.key == "vision":
+            snapshot_match = compare_mouse_scan_to_account(mouse_scan or {}, account_summary)
+            checks.append(
+                CheckResult(
+                    "mouse-visual-current-snapshot",
+                    "passed" if snapshot_match.get("passed") else "warning",
+                    "交叉检查报告与账号 SQLite 当前视觉快照",
+                    snapshot_match,
+                )
+            )
     return tuple(checks)
 
 

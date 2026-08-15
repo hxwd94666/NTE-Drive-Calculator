@@ -33,6 +33,34 @@ def _direct_input() -> DirectDamageInput:
 
 
 class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
+    def test_visual_snapshot_items_keep_unknown_level_for_role_cards(self) -> None:
+        items = [{"uid_slot": 1, "uid_serial": 2}]
+
+        role_service._mark_equipment_level_known(items, "vision")
+
+        self.assertFalse(items[0]["level_known"])
+
+        role_service._mark_equipment_level_known(items, "nte_core")
+
+        self.assertTrue(items[0]["level_known"])
+
+    def test_primary_slot_uses_role_name_until_player_renames_it(self) -> None:
+        character = {"name_zh": "九原"}
+        self.assertEqual(
+            "九原",
+            role_service._display_loadout_slot_name(
+                character,
+                {"slot_key": "primary", "slot_name": "主力"},
+            ),
+        )
+        self.assertEqual(
+            "输出",
+            role_service._display_loadout_slot_name(
+                character,
+                {"slot_key": "primary", "slot_name": "输出"},
+            ),
+        )
+
     def _detail(self) -> dict:
         raw_core = {
             "uid_slot": 1,

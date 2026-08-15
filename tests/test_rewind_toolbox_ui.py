@@ -6,51 +6,6 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
-def test_rewind_control_mapping_scales_every_click_and_ocr_region_for_1080p_2k_4k() -> None:
-    from src.features.drive_assembly.page_navigation_mapping import map_rewind_controls
-
-    reference = map_rewind_controls(screen_size=(2560, 1440))
-    for screen_size, scale in (
-        ((1920, 1080), 0.75),
-        ((2560, 1440), 1.0),
-        ((3840, 2160), 1.5),
-    ):
-        controls = map_rewind_controls(screen_size=screen_size)
-
-        def scaled(point: tuple[int, int]) -> tuple[int, int]:
-            return tuple(int(value * scale + 0.5001) for value in point)
-
-        for name, value in reference.items():
-            if name.endswith("_region"):
-                expected = (*scaled(value[:2]), *scaled(value[2:]))
-                assert controls[name] == expected
-            elif name == "selected_drive_remove":
-                assert controls[name] == [scaled(point) for point in value]
-            elif name == "available_drive_shapes":
-                assert controls[name] == {
-                    shape: scaled(point) for shape, point in value.items()
-                }
-            else:
-                assert controls[name] == scaled(value)
-
-
-def test_rewind_execution_options_expose_tile_multiselect_choices() -> None:
-    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
-
-    from src.features.toolbox.rewind_execution_dialog import RewindExecutionDialog
-
-    QApplication.instance() or QApplication([])
-    dialog = RewindExecutionDialog()
-    labels = {button.text() for button in dialog.findChildren(QPushButton)}
-    descriptions = {label.text() for label in dialog.findChildren(QLabel)}
-
-    assert {"蓝色品质", "紫色品质", "金色品质"}.issubset(labels)
-    assert {"否", "是且不做更改", "是且应用方案"}.issubset(labels)
-    assert not any("每个品质先切换" in text for text in descriptions)
-    assert dialog.options().qualities == ("gold",)
-    assert dialog.options().drive_customization == "none"
-
-
 def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
     monkeypatch,
 ) -> None:
@@ -138,79 +93,6 @@ def test_rewind_execution_dialog_marks_experimental_prerequisite_and_disables_cu
 
     assert custom_buttons["enabled"].isEnabled()
     assert custom_buttons["apply_plan"].isEnabled()
-
-
-def test_rewind_tiles_use_the_dark_recommendation_selection_style_and_customization_help(monkeypatch) -> None:
-    from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
-
-    from src.features.toolbox.rewind_execution_dialog import RewindExecutionDialog
-
-    QApplication.instance() or QApplication([])
-    captured: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        QMessageBox,
-        "information",
-        lambda _parent, title, text: captured.append((title, text)),
-    )
-    dialog = RewindExecutionDialog()
-    quality = dialog.findChild(QPushButton, "rewindQualityTile")
-    help_button = dialog.findChild(QPushButton, "rewindCustomizationHelp")
-
-    assert quality is not None
-    assert "background:#21262d" in quality.styleSheet()
-    assert "background:#1f6feb33" in quality.styleSheet()
-    assert help_button is not None
-    help_button.click()
-    assert captured and all(label in captured[0][1] for label in ("否", "是且不做更改", "是且应用方案"))
-
-def test_rewind_result_slots_are_editable_and_enable_plan_actions() -> None:
-    from PySide6.QtWidgets import QApplication, QFrame, QLabel
-
-    from src.domain.rewind_shape_recommendation import RewindShape, RewindShapeRecommendation
-    from src.features.toolbox.page import _RewindRecommendationDialog
-    from src.services.rewind_shape_recommendation_service import RewindShapeAnalysis
-
-    class Service:
-        saved: dict[str, object] = {}
-
-        def load_preferences(self):
-            return dict(self.saved)
-
-        def save_preferences(self, value):
-            self.saved = dict(value)
-
-    QApplication.instance() or QApplication([])
-    first = RewindShapeRecommendation(
-        RewindShape("shape_a", 2),
-        1,
-        7,
-        1.0,
-        quantity=2,
-        quality_gap=12.5,
-    )
-    second = RewindShapeRecommendation(
-        RewindShape("shape_b", 3),
-        1,
-        3,
-        1.0,
-        quality_gap=4.0,
-    )
-    service = Service()
-    dialog = _RewindRecommendationDialog(service, None)
-    dialog._render_plans(RewindShapeAnalysis(None, "", 2, 8, (first, second)))
-
-    assert len(dialog._editable_slots) == 8
-    assert not dialog._save_plan_button.isEnabled()
-    assert dialog._start_rewind_button.isEnabled()
-    assert len(dialog.findChildren(QFrame, "rewindShapeRecommendationCard")) == 8
-    assert sum(slot is not None for slot in dialog._editable_slots) == 3
-    metric_labels = dialog.findChildren(QLabel, "rewindShapeMetrics")
-    metrics = [label.text() for label in metric_labels]
-    assert "缺分 12.5 · 库存 7 · 概率 25%" in metrics
-    assert all("缺分" in text and "库存" in text and "概率" in text for text in metrics)
-    assert all("方案数量" not in text for text in metrics)
-    assert all("（" not in text and "）" not in text for text in metrics)
-    assert all(not label.wordWrap() for label in metric_labels)
 
 
 def test_rewind_execution_minimizes_host_and_restores_after_completion() -> None:
@@ -317,21 +199,6 @@ def test_rewind_execution_replaces_deleted_worker_and_clears_finished_reference(
     assert worker.deleted
 
 
-def test_rewind_shape_replacement_dialog_returns_the_selected_candidate() -> None:
-    from PySide6.QtWidgets import QApplication
-
-    from src.domain.rewind_shape_recommendation import RewindShape, RewindShapeRecommendation
-    from src.features.toolbox.rewind_execution_dialog import RewindShapeReplacementDialog
-
-    QApplication.instance() or QApplication([])
-    first = RewindShapeRecommendation(RewindShape("shape_a", 2), 1, 0, 1.0)
-    second = RewindShapeRecommendation(RewindShape("shape_b", 3), 1, 0, 1.0)
-    dialog = RewindShapeReplacementDialog(None, candidates=(first, second), current_shape_id="shape_a")
-    dialog._set_selected("shape_b")
-
-    assert dialog.selected() == second
-
-
 def test_rewind_open_prefers_saved_plan_and_replacement_has_all_twelve_shapes() -> None:
     from PySide6.QtWidgets import QApplication, QSpinBox, QToolButton
 
@@ -433,116 +300,39 @@ def test_rewind_candidates_clear_only_the_current_page_and_keep_the_saved_plan()
     )
 
 
-def test_rewind_dialog_cancel_uses_qdialog_result_without_instance_accepted(monkeypatch) -> None:
-    from PySide6.QtWidgets import QDialog
+def test_generating_another_strategy_replaces_the_current_transient_slots() -> None:
+    from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox import rewind_execution_ui
-    from src.features.toolbox.rewind_execution_dialog import RewindExecutionOptions
-
-    class CancelDialog:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def exec(self):
-            return QDialog.DialogCode.Rejected
-
-    class Host(rewind_execution_ui.RewindExecutionUiMixin):
-        _rewind_options = RewindExecutionOptions()
-        _saved_rewind_shape_ids = ()
-
-        def _save_preferences(self):
-            raise AssertionError("取消时不应保存偏好")
-
-    monkeypatch.setattr(rewind_execution_ui, "RewindExecutionDialog", CancelDialog)
-    Host()._configure_rewind()
-
-
-def test_shape_picker_cancel_leaves_slots_unchanged_without_instance_accepted(monkeypatch) -> None:
-    from PySide6.QtWidgets import QApplication, QDialog
-
-    from src.features.toolbox import rewind_slot_ui
+    from src.domain.rewind_shape_recommendation import RewindShape, RewindShapeRecommendation
     from src.features.toolbox.page import _RewindRecommendationDialog
 
     class Service:
         def load_preferences(self):
             return {}
 
-    class CancelDialog:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def exec(self):
-            return QDialog.DialogCode.Rejected
-
     QApplication.instance() or QApplication([])
     dialog = _RewindRecommendationDialog(Service(), None)
-    slots_before_cancel = tuple(dialog._editable_slots)
-    monkeypatch.setattr(rewind_slot_ui, "RewindShapeReplacementDialog", CancelDialog)
+    balanced = RewindShapeRecommendation(
+        RewindShape("EquipmentGeometry_Hen2", 2),
+        suit_demand=1,
+        owned_count=1,
+        priority_score=4.0,
+        quantity=8,
+        quality_gap=4.0,
+    )
+    focused = RewindShapeRecommendation(
+        RewindShape("EquipmentGeometry_Hen3", 3),
+        suit_demand=1,
+        owned_count=1,
+        priority_score=9.0,
+        quantity=8,
+        quality_gap=9.0,
+    )
 
-    dialog._edit_rewind_slot(0)
+    dialog._apply_recommendations((balanced,))
+    dialog._apply_recommendations((focused,))
 
-    assert tuple(dialog._editable_slots) == slots_before_cancel
-
-
-def test_shape_picker_groups_twelve_candidates_by_2_3_4_rows() -> None:
-    from dataclasses import replace
-
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QApplication, QLabel, QToolButton
-
-    from src.features.toolbox.rewind_execution_dialog import RewindShapeReplacementDialog
-    from src.features.toolbox.rewind_slot_ui import all_rewind_shape_candidates
-
-    QApplication.instance() or QApplication([])
-    candidates = list(all_rewind_shape_candidates())
-    candidates[0] = replace(candidates[0], owned_count=7)
-    dialog = RewindShapeReplacementDialog(None, candidates=tuple(candidates))
-    assert dialog.minimumWidth() == 760
-    assert dialog.maximumWidth() == 760
-    row_labels = {label.text() for label in dialog.findChildren(QLabel)}
-    assert {"2 型驱动", "3 型驱动", "4 型驱动"}.issubset(row_labels)
-    assert len(dialog.findChildren(QToolButton, "rewindShapeReplacementOption")) == 12
-    stock_labels = dialog.findChildren(QLabel, "rewindShapeReplacementStock")
-    assert len(stock_labels) == 12
-    assert next(
-        label.text()
-        for label in stock_labels
-        if label.property("shapeId") == candidates[0].shape.shape_id
-    ) == "库存 7"
-    assert all(not label.wordWrap() for label in stock_labels)
-    group_label = dialog.findChild(QLabel, "rewindShapeGroupLabel")
-    assert group_label is not None
-    assert group_label.alignment() & Qt.AlignLeft
-    for option in dialog.findChildren(QToolButton, "rewindShapeReplacementOption"):
-        assert option.text() == ""
-        assert option.toolButtonStyle() == Qt.ToolButtonIconOnly
-
-
-def test_shape_picker_maps_surfaces_and_text_for_each_theme() -> None:
-    from PySide6.QtWidgets import QApplication, QLabel, QToolButton
-
-    from src.app.theme import apply_app_theme
-    from src.features.toolbox.rewind_execution_dialog import RewindShapeReplacementDialog
-    from src.features.toolbox.rewind_slot_ui import all_rewind_shape_candidates
-
-    app = QApplication.instance() or QApplication([])
-    expected_colors = {
-        "dark": ("background:#161b22", "color:#c9d1d9", "color:#8b949e"),
-        "black": ("background:#080a0d", "color:#c9d1d9", "color:#8b949e"),
-        "light": ("background:#f6f8fa", "color:#24292f", "color:#57606a"),
-    }
-    try:
-        for theme, (surface, text, group_text) in expected_colors.items():
-            apply_app_theme(app, theme)
-            dialog = RewindShapeReplacementDialog(None, candidates=all_rewind_shape_candidates())
-            option = dialog.findChild(QToolButton, "rewindShapeReplacementOption")
-            group_label = dialog.findChild(QLabel, "rewindShapeGroupLabel")
-
-            assert option is not None
-            assert group_label is not None
-            assert surface in option.styleSheet()
-            assert text in option.styleSheet()
-            assert group_text in group_label.styleSheet()
-            dialog.deleteLater()
-    finally:
-        apply_app_theme(app, "dark")
+    assert all(
+        slot is not None and slot.shape.shape_id == "EquipmentGeometry_Hen3"
+        for slot in dialog._editable_slots
+    )

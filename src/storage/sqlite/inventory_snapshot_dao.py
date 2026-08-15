@@ -404,7 +404,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             FROM inventory_snapshot
             WHERE is_current = 1
               AND complete = 1
-              AND source IN ('nte_core', 'gamepad')
+              AND source IN ('nte_core', 'vision', 'gamepad')
             ORDER BY snapshot_id DESC
             LIMIT 1
             """
@@ -418,7 +418,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             """
             SELECT snapshot_id
             FROM inventory_snapshot
-            WHERE complete = 1 AND source IN ('nte_core', 'gamepad')
+            WHERE complete = 1 AND source IN ('nte_core', 'vision', 'gamepad')
             ORDER BY captured_at_utc DESC, snapshot_id DESC
             LIMIT 1
             """

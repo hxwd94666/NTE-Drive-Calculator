@@ -166,6 +166,12 @@ class MainWindowDataMixin:
         except Exception as e:
             logger.error(f"加载失败: {e}")
 
+    def _refresh_execute(self):
+        """Reload the legacy calculation role catalog when entering step two."""
+
+        self._load_data(reload_priority=False)
+
+
     def _update_inventory_status(self):
         try:
             user_database_path = self.app_context.account.user_database_path

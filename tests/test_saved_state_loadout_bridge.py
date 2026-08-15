@@ -15,6 +15,7 @@ from src.services.saved_state_loadout_bridge import (
     character_ids_for_saved_role,
     character_ids_for_static_role,
     resolve_character_id_for_saved_role,
+    resolve_character_id_for_allocation_role,
     resolve_character_id_for_static_role,
 )
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
@@ -111,6 +112,38 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
             ),
         )
 
+    def test_custom_role_resolves_and_saves_without_static_character(self) -> None:
+        custom = self.user_dao.create_custom_character("无度")
+        character_id = int(custom["character_id"])
+        self.assertEqual(
+            character_id,
+            resolve_character_id_for_allocation_role(
+                "无度",
+                self.static_dao,
+                self.user_dao,
+                snapshot_id=self.snapshot_id,
+            ),
+        )
+        saved = SavedStateLoadoutBridge(self.user_dao, self.static_dao).save_role_plan(
+            role_name="无度",
+            role_state={
+                "blueprint_layout": [
+                    ["XX", "XX", "XX", "XX", "XX"],
+                    ["XX", "L_3_TL", "L_3_TL", "XX", "XX"],
+                    ["XX", "L_3_TL", "XX", "XX", "XX"],
+                    ["XX", "XX", "XX", "XX", "XX"],
+                    ["XX", "XX", "XX", "XX", "XX"],
+                ],
+                "equipped_drives": [
+                    {"uid": "nte-module-41-410", "shape_id": "L_3_TL"}
+                ],
+                "equipped_tape": {"uid": "nte-core-51-510"},
+            },
+            character_id=character_id,
+            snapshot_id=self.snapshot_id,
+        )
+        self.assertEqual(character_id, saved.character_id)
+
     def test_saves_official_uid_and_anchor_for_legacy_l_shape(self) -> None:
         role_state = {
             "blueprint_layout": [
@@ -160,6 +193,35 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
             },
         )
         self.assertEqual("core", plan["assignments"][1]["kind"])
+
+    def test_saves_to_explicit_secondary_slot_without_replacing_primary(self) -> None:
+        role_state = {
+            "blueprint_layout": [
+                ["XX", "XX", "XX", "XX", "XX"],
+                ["XX", "L_3_TL", "L_3_TL", "XX", "XX"],
+                ["XX", "L_3_TL", "XX", "XX", "XX"],
+            ],
+            "equipped_drives": [{"uid": "nte-module-41-410", "shape_id": "L_3_TL"}],
+            "equipped_tape": {"uid": "nte-core-51-510"},
+        }
+        secondary_slot_id = self.user_dao.create_loadout_slot(
+            1003,
+            "副本",
+            slot_key="raid",
+        )
+
+        saved = SavedStateLoadoutBridge(self.user_dao, self.static_dao).save_role_plan(
+            role_name="测试角色",
+            role_state=role_state,
+            character_id=1003,
+            snapshot_id=self.snapshot_id,
+            slot_id=secondary_slot_id,
+        )
+
+        plan = self.user_dao.get_loadout_plan(saved.plan_id)
+        self.assertFalse(plan["is_active"])
+        self.assertEqual(secondary_slot_id, plan["slot_id"])
+        self.assertEqual(saved.plan_id, self.user_dao.get_loadout_slot(secondary_slot_id)["current_plan_id"])
 
     def test_rejects_uid_missing_from_current_snapshot(self) -> None:
         role_state = {

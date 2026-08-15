@@ -299,6 +299,11 @@ def _selection_rows(window) -> list[dict[str, Any]]:
         character_id = window._weighted_role_ids[name]
         preference = overrides.get(character_id, {})
         target_suit_id = preference.get("target_suit_id", default_suits.get(character_id))
+        if (
+            character_id in getattr(window, "_weighted_custom_character_ids", frozenset())
+            and not target_suit_id
+        ):
+            raise ValueError(f"[{name}] 的套装为空，请先在角色管理中选择套装。")
         priorities = _effective_substat_priorities(
             character_id,
             preference,

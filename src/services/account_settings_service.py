@@ -27,6 +27,12 @@ _UI_RUNTIME_DEFAULTS = {
     "equipment_plugin_backup_path": "",
     "equipment_plugin_deployed_sha256": "",
     "cloud_nte_mode": False,
+    # Full visual-scan controls belong to the active account.  The capture
+    # method may differ by account hardware and its completed inventory data.
+    "full_scan_capture_driver": "mouse",
+    "full_scan_dual_thread_processing": True,
+    "full_scan_amd_compatibility": False,
+    "full_scan_post_action_config": {},
 }
 _UPDATE_RUNTIME_DEFAULTS = {
     # Kept account-scoped in the private SQLite database.  Older bundled
@@ -261,6 +267,18 @@ class AccountSettingsService:
                 normalized[name] = bool(normalized[name])
             if normalized["full_scan_amd_compatibility"]:
                 normalized["full_scan_dual_thread_processing"] = False
+            capture_driver = str(
+                normalized.get("full_scan_capture_driver") or "mouse"
+            ).strip().casefold()
+            normalized["full_scan_capture_driver"] = (
+                capture_driver if capture_driver in {"mouse", "gamepad"} else "mouse"
+            )
+            post_action_config = normalized.get("full_scan_post_action_config")
+            normalized["full_scan_post_action_config"] = (
+                dict(post_action_config)
+                if isinstance(post_action_config, Mapping)
+                else {}
+            )
             normalized["protagonist_game_name"] = str(
                 normalized.get("protagonist_game_name") or ""
             ).strip()

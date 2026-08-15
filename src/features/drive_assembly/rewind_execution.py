@@ -233,8 +233,8 @@ def _configure_drive_customization(
     _click_and_pause(
         backend, selection_controls["confirm_drive_selection"], should_stop
     )
-    _press_key(backend, "esc", should_stop)
-    backend.pause(REWIND_SETUP_CLICK_PAUSE_SECONDS)
+    # Confirming the eighth-slot selection returns to the draw page itself.
+    # Do not send Escape here: it would immediately dismiss that draw page.
     return 22
 
 

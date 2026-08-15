@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton, QVBoxLayout
 
 from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
+from src.optimizer.plan_diff import build_plan_diff
 from src.optimizer.contracts import (
     DIFF_ADDED,
     DIFF_ADDED_UIDS,
@@ -31,8 +32,11 @@ from src.optimizer.contracts import (
     ROLE_EQUIPPED_TAPE,
     plan_drives,
 )
-from src.optimizer.plan_diff import build_plan_diff
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
+from src.features.allocation.slot_plan_diff import (
+    selected_slot_plan_diff,
+    single_slot_loadout_state,
+)
 from src.services.allocation_lock_service import (
     AllocationLockSnapshot,
     build_allocation_lock_snapshot,
@@ -41,7 +45,7 @@ from src.services.allocation_lock_service import (
 )
 from src.services.saved_state_loadout_bridge import (
     SavedStateLoadoutBridge,
-    resolve_character_id_for_static_role,
+    resolve_character_id_for_allocation_role,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -214,35 +218,17 @@ def _start_allocation_worker(self: Any) -> None:
 def _active_sqlite_loadout_state(
     database_path: str | Path,
 ) -> dict[str, dict[str, Any]]:
-    """Build the diff baseline from active official SQLite plans only."""
+    """Build a baseline only for roles that have exactly one visible slot."""
 
-    state: dict[str, dict[str, Any]] = {}
     with UserDataDao(database_path) as user_dao:
-        for role_name, plan in user_dao.list_active_loadout_plans_by_role().items():
-            tape = None
-            drives = []
-            for assignment in plan.get("assignments") or []:
-                kind = str(assignment.get("kind") or "")
-                try:
-                    uid = f"nte-{'module' if kind == 'module' else 'core'}-{int(assignment['uid_slot'])}-{int(assignment['uid_serial'])}"
-                except (KeyError, TypeError, ValueError):
-                    continue
-                if kind == "core":
-                    tape = {EQUIP_UID: uid}
-                elif kind == "module":
-                    drives.append({EQUIP_UID: uid})
-            state[role_name] = {
-                ROLE_EQUIPPED_TAPE: tape,
-                ROLE_EQUIPPED_DRIVES: drives,
-            }
-    return state
+        return single_slot_loadout_state(user_dao)
 
 
 def _sqlite_allocation_plan_diff(
     database_path: str | Path,
     final_plan: dict[str, Any],
 ) -> dict[str, Any]:
-    """Compare a calculation with the currently displayed SQLite loadouts."""
+    """Compare with a slot only when it is unambiguous before saving."""
 
     return build_plan_diff(_active_sqlite_loadout_state(database_path), final_plan)
 
@@ -275,13 +261,30 @@ def _persistable_plan_diff(
     }
 
 
-def _plan_changed_uids(plan: dict[str, Any]) -> set[str]:
-    """Collect explicit green CHANGE markers from a calculated plan."""
+def _plan_changed_uids(
+    plan: dict[str, Any],
+    role_diff: dict[str, Any] | None,
+) -> set[str]:
+    """Collect change markers only when replacing a non-empty saved slot."""
 
-    changed = {str(uid) for uid in (plan.get(PLAN_CHANGED_UIDS, set()) or ()) if uid}
+    if not bool((role_diff or {}).get(DIFF_CHANGED)):
+        return set()
+    changed = {
+        str(uid)
+        for uid in (plan.get(PLAN_CHANGED_UIDS, set()) or ())
+        if uid
+    }
     for item in [plan.get(PLAN_ASSIGNED_TAPE), *plan_drives(plan)]:
-        value = item.get(EQUIP_IS_CHANGED) if isinstance(item, dict) else getattr(item, EQUIP_IS_CHANGED, False)
-        uid = item.get(EQUIP_UID) if isinstance(item, dict) else getattr(item, EQUIP_UID, "")
+        value = (
+            item.get(EQUIP_IS_CHANGED)
+            if isinstance(item, dict)
+            else getattr(item, EQUIP_IS_CHANGED, False)
+        )
+        uid = (
+            item.get(EQUIP_UID)
+            if isinstance(item, dict)
+            else getattr(item, EQUIP_UID, "")
+        )
         if value and uid:
             changed.add(str(uid))
     return changed
@@ -411,6 +414,51 @@ def _on_exec_error(self: Any, err: str) -> None:
     )
 
 
+def _select_allocation_save_slots(
+    self: Any,
+    user_dao: UserDataDao,
+    static_dao: StaticGameDataDao,
+    snapshot_id: int,
+) -> dict[str, tuple[int, int]] | None:
+    """Choose existing role slots before any calculation plan is persisted."""
+
+    targets: dict[str, tuple[int, int]] = {}
+    for role_name, plan in self.final_plan.items():
+        if not isinstance(plan, dict) or not plan.get(PLAN_VALID):
+            continue
+        character_id = resolve_character_id_for_allocation_role(
+            role_name, static_dao, user_dao, snapshot_id=snapshot_id
+        )
+        slots = user_dao.list_loadout_slots(character_id)
+        if not slots:
+            user_dao.create_loadout_slot(character_id, role_name, slot_key="primary")
+            slots = user_dao.list_loadout_slots(character_id)
+        if len(slots) == 1:
+            slot = slots[0]
+        else:
+            labels = [
+                str(slot["slot_name"])
+                + ("（已锁定）" if (slot.get("current_plan") or {}).get("allocation_locked") else "")
+                for slot in slots
+            ]
+            selected, accepted = QInputDialog.getItem(
+                self.dialog_parent,
+                "选择保存槽位",
+                f"[{role_name}] 的计算结果保存到：",
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return None
+            slot = slots[labels.index(selected)]
+        if (slot.get("current_plan") or {}).get("allocation_locked"):
+            QMessageBox.warning(self.dialog_parent, "保存方案", f"[{role_name}] 选择的槽位已锁定，不能覆盖。")
+            return None
+        targets[role_name] = (character_id, int(slot["slot_id"]))
+    return targets
+
+
 def _save_alloc(self: Any, show_message: bool = True) -> bool:
     if not self.final_plan:
         return False
@@ -427,13 +475,27 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
             if lock_snapshot.inventory_snapshot_id != snapshot_id:
                 raise RuntimeError("计算快照与配装锁定快照不一致，请重新执行计算。")
             verify_allocation_lock_snapshot(user_dao, lock_snapshot)
+            targets = _select_allocation_save_slots(
+                self,
+                user_dao,
+                static_dao,
+                int(snapshot_id),
+            )
+            if targets is None:
+                return False
+            # Selection is made only at save time for multi-slot roles.  Rebuild
+            # the comparison here so slot B never inherits slot A's baseline.
+            selected_slot_diffs = selected_slot_plan_diff(
+                user_dao,
+                self.final_plan,
+                targets,
+            )
+            self.allocation_plan_diff = selected_slot_diffs
             bridge = SavedStateLoadoutBridge(user_dao, static_dao)
             for role_name, plan in self.final_plan.items():
                 if not isinstance(plan, dict) or not plan.get(PLAN_VALID):
                     continue
-                character_id = resolve_character_id_for_static_role(
-                    role_name, static_dao, user_dao, snapshot_id=snapshot_id
-                )
+                character_id, slot_id = targets[role_name]
                 role_diff = (getattr(self, "allocation_plan_diff", {}) or {}).get(role_name, {})
                 bridge.save_role_plan(
                     role_name=role_name,
@@ -448,7 +510,7 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
                         "source_role_name": role_name,
                         "strategy": getattr(self, "_pending_strat", ""),
                         "last_diff": _persistable_plan_diff(role_diff),
-                        "changed_uids": sorted(_plan_changed_uids(plan)),
+                        "changed_uids": sorted(_plan_changed_uids(plan, role_diff)),
                         "assignment_scores": _plan_assignment_scores(
                             role_name,
                             plan,
@@ -458,11 +520,15 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
                         # later presentation pass.
                         "tape_main_values": _plan_tape_main_values(plan),
                     },
+                    slot_id=slot_id,
                 )
                 saved_roles.append(role_name)
         if not saved_roles:
             raise RuntimeError("本次计算没有可保存的有效方案。")
         self._allocation_dirty = False
+        # The saved target slot is now known, so update the visible calculation
+        # comparison with the same baseline that was persisted into the plan.
+        self._render_results(self.final_plan)
         # Active plans are the character-page equipment source.  Refresh both
         # projections immediately so a saved calculation is visible as the
         # role's drive/core context without writing any template/profile data.

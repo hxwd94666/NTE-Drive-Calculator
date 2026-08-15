@@ -1,6 +1,6 @@
 # 核心日志事件目录
 
-本文记录可用于问题检索的稳定事件族。事件名使用英文点分格式，中文说明只用于阅读，不作为程序判断条件。
+事件名使用稳定英文点分格式，中文说明只用于阅读。日志记录业务阶段和安全摘要，不作为数据库事实源。
 
 ## 公共字段
 
@@ -9,53 +9,62 @@
 | `event` | 稳定事件名 |
 | `feature` | 功能域 |
 | `operation_id` | 一次用户操作跨 Controller、worker、Service 和 Integration 的关联 ID |
-| `account_id` | 内部账号 ID；不记录账号显示名称 |
-| `context_generation` | AppContext 账号切换代次 |
-| `snapshot_id` | 固定库存快照 |
-| `job_id` | 装配等持久化任务 ID |
-| `phase` | `started`、`succeeded`、`failed` 或具体阶段 |
+| `account_id` | 内部账号 ID，不记录显示名 |
+| `context_generation` | `AppContext` 账号代次 |
+| `snapshot_id` | 冻结库存快照 |
+| `slot_id` | 配装槽位；涉及方案保存、导入或装配时记录 |
+| `job_id` | 持久任务 ID |
+| `source` | 受控来源枚举，如 `nte_core`、`vision` |
+| `phase` | `started`、`succeeded`、`failed` 或稳定业务阶段 |
 | `duration_ms` | 阶段耗时 |
-| `result` | 安全的结果摘要 |
+| `result` | 脱敏结果摘要 |
 
-未适用字段不写入，不使用虚假空值占位。
+未适用字段不写入，不使用虚假空值。支持标准生命周期的操作通过 `operation_scope()` 自动附加 phase 和
+duration；取消、过期丢弃、待确认和降级使用独立事件，不伪装为 succeeded。
 
 ## 事件族
 
-| 功能 | 事件前缀与关键事件 | 主要排查内容 |
+| 功能 | 事件前缀/关键事件 | 主要排查内容 |
 | --- | --- | --- |
-| 应用 | `application.started`、`application.stopping` | 版本、启动和退出 |
-| 账号 | `account.switch_*` | 阻止、取消、切换阶段、失败和完成 |
-| 数据迁移 | `database.shape_bonus_migration_*` | 旧版额外形状迁移、事务失败 |
-| nte-core 同步 | `inventory_sync.*` | 连接、候选快照、稳定等待、提交、保留策略和停止原因；已有/候选/提交快照记录驱动、空幕、已装备、锁定、角色实例数量与 generation/sequence |
-| 配装计算 | `allocation.*` | 请求、求解、保存、失败和旧 generation 结果丢弃 |
-| 角色 | `role.*` | 索引/详情、配置保存/重置、替换和 dirty 离开决策 |
-| 基础权重 | `basic_weight.*` | 加载、保存、重置和 dirty 离开决策 |
-| 公共额外形状 | `shape_bonus.*` | 公共覆盖保存和恢复发行默认 |
-| 角色图纸 | `blueprint.*` | 生成、失败和旧账号结果丢弃 |
-| 仓库 | `warehouse.*` | 固定快照加载（含驱动、空幕、已装备、锁定和角色实例数量）、规则评估、手工状态计划和 nte-core 写回 |
-| 极速装配 | `equipment_apply.bulk_*` | 任务预检、执行、验证和最终摘要 |
-| 视觉扫描 | `scanning.*` | 冻结依赖、扫描来源和生命周期 |
-| 单件鉴定 | `identification.*` | 输入来源、连续截图和结果生命周期 |
-| 战报 | `battle_report.*` | 采集生命周期、最终摘要持久化、历史恢复和页面状态保存；只记录记录 ID、状态、数量和安全错误，不记录原始摘要或伤害明细 |
-| 环境 | `environment.*` | 游戏检测、nte-core/dwmapi 诊断、插件部署与恢复 |
-| 更新 | `update.*` | 检查、下载请求、取消、失败、完成和安装器启动 |
+| 应用 | `application.*` | 版本、启动、异常和退出 |
+| 账号 | `account.switch_*` | 阻止、停止、generation 切换、重建和完成 |
+| 迁移 | `database.*` | schema、公共形状迁移、事务失败和重试 |
+| 同步 | `inventory_sync.*` | 连接、候选、稳定化、提交、运行时状态增量、保留策略和停止原因 |
+| 扫描 | `scanning.*` | 冻结依赖、捕获驱动、分页、解析、提交与扫描后状态管理 |
+| 计算 | `allocation.*` | 冻结请求、求解、目标槽位、保存、失败和过期丢弃 |
+| 配装槽位 | `loadout_slot.*` | 创建、重命名、归档、当前方案切换与锁冲突 |
+| 角色 | `role.*` | 索引/详情、配置、替换、动态权重与 dirty 决策 |
+| 基础权重 | `basic_weight.*` | 账号权重、自建角色与底盘保存/重置 |
+| 公共额外形状 | `shape_bonus.*` | 公共覆盖保存、迁移和恢复发行默认 |
+| 图纸 | `blueprint.*` | 生成、失败和旧账号结果丢弃 |
+| 仓库 | `warehouse.*` | 固定快照、运行时覆盖、筛选、计划、RPC、待确认和最终状态 |
+| 鉴定 | `identification.*` | 输入来源、热键 owner、识别与展示生命周期 |
+| 极速装配 | `equipment_apply.*` | 槽位预检、下发、完整快照/范围事件确认、重试和摘要 |
+| 自动装配 | `drive_assembly.*` | 页面阶段、输入后端、动作、停止与可见结果 |
+| 倒带 | `rewind.*` | 推荐请求、八槽保存、OCR 阶段、十连计划和停止 |
+| 战报 | `battle_report.*` | capture 生命周期、摘要持久化、历史恢复和保留策略 |
+| 环境 | `environment.*` | Npcap、nte-core、dwmapi、SDK 缓存、pipe、部署与恢复 |
+| 更新 | `update.*` | 检查、下载、取消、失败、完成和安装器启动 |
 
-支持 `started`、`succeeded`、`failed` 的阶段由 `operation_scope()` 自动附加 `phase` 和 `duration_ms`。取消、丢弃和降级事件使用独立名称，不伪装成成功。
+同步与仓库允许记录驱动、卡带、已装备、锁定和角色实例的聚合数量，不记录 UID 列表。战报允许字段包括
+`battle_record_id`、`persistence_status`、`retention_kind`、`inserted`、`changed`、
+`pruned_record_count`、`character_count`、`skill_count` 和 `total_hits`；不记录原始摘要或伤害明细。
 
-战报事件允许的附加字段包括 `battle_record_id`、`persistence_status`、`retention_kind`、
-`inserted`、`changed`、`pruned_record_count`、`character_count`、`skill_count` 和 `total_hits`。不得写入
-`raw_summary_json`、角色 ID 列表、技能列表、完整伤害表或账号数据库路径。
+鼠标扫描报告相关事件只记录 profile、分辨率、预计/捕获数、页数、队列高水位、耗时和安全终止类型。
+扫描后状态管理只记录计划/完成数量与状态迁移聚合，不记录目标索引。
 
 ## 会话文件
 
 - 常驻：`accounts/<account_id>/logs/nte_runtime.log`，INFO 以上；
 - 详细：`accounts/<account_id>/logs/nte_runtime_YYYYMMDD_HHMMSS[_N].log`，DEBUG 以上；
-- 每次重新开启详细日志都创建新文件；
-- 账号切换先结束旧账号会话，再在新账号目录按其设置创建新会话；
+- 每次重新开启详细日志创建新文件；
+- 账号切换先结束旧账号会话，再按新账号设置创建会话；
 - 设置页“清空”只清空界面文本，不删除日志文件。
 
 ## 脱敏边界
 
-禁止记录 Mirror CDK、Token、Cookie、Authorization、带鉴权查询参数的 URL、完整 nte-core RPC payload、OCR 全文、完整背包装备列表、账号显示名称、截图内容和可识别用户的绝对路径。
+日志不写 Mirror CDK、Token、Cookie、Authorization、鉴权查询参数、完整 nte-core RPC、完整背包、UID
+列表、账号显示名、OCR 全文、截图内容、用户绝对路径、窗口标题和可复原业务 payload。
 
-异常进入结构化日志前必须经过统一脱敏，只保留异常类型、安全消息和允许的错误码。相关自动测试入口为 `tests.test_observability_logging` 与 `tests.test_runtime_logging`。
+异常进入结构化日志前经过统一脱敏，只保留异常类型、安全消息和允许的错误码。自动测试入口为
+`tests.test_observability_logging` 与 `tests.test_runtime_logging`。

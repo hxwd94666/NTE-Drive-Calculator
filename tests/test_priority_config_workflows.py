@@ -166,7 +166,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
         selector.selected = ["A", "B", "C", "D"]
@@ -214,7 +214,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.load_roles({"早雾": {}, "达芙蒂尔": {}, "薄荷": {}}, [])
         selector.selected = ["早雾"]
@@ -227,7 +227,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.load_roles(
             {
@@ -248,7 +248,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.load_roles(
             {"A": {}},
@@ -276,7 +276,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.load_roles(
             {
@@ -298,7 +298,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
         selector.selected = ["A", "B", "C", "D"]
@@ -314,7 +314,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         from src.features.allocation.role_selector import RoleSelector
 
-        app = QApplication.instance() or QApplication([])
+        QApplication.instance() or QApplication([])
         selector = RoleSelector()
         selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
         selector.selected = ["A", "B", "C", "D"]

@@ -48,6 +48,10 @@ class AppContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             paths = self.make_paths(root)
+            self.assertEqual(
+                root / "runtime" / "data" / "app_shared.sqlite3",
+                paths.shared_database_path,
+            )
             current = account(paths.data_root, "first")
             calls = []
 

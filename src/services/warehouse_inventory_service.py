@@ -70,7 +70,12 @@ class WarehouseInventoryService:
                 return {"snapshot_id": None, "source": "", "rows": []}
             summary = dao.inventory_snapshot_summary(snapshot_id) or {}
             source = str(summary.get("source") or "")
-            rows = dao.list_inventory_items(snapshot_id)
+            runtime_state_reader = getattr(
+                dao,
+                "list_inventory_items_with_runtime_state",
+                dao.list_inventory_items,
+            )
+            rows = runtime_state_reader(snapshot_id)
             character_names = {
                 int(character["character_id"]): str(
                     character.get("name_zh") or ""
@@ -78,6 +83,9 @@ class WarehouseInventoryService:
                 for character in static_dao.list_characters()
                 if character.get("character_id") is not None
             }
+            summary = dict(summary)
+            summary["equipped_count"] = sum(bool(row.get("equipped")) for row in rows)
+            summary["locked_count"] = sum(bool(row.get("locked")) for row in rows)
             character_ids_by_instance = {
                 (
                     int(mapping["uid_slot"]),

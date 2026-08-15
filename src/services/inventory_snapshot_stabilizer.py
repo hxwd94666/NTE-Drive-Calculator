@@ -240,12 +240,24 @@ class InventorySnapshotStabilizer:
         snapshot: Mapping[str, Any],
         *,
         received_at: float | None = None,
+        required_uids: frozenset[tuple[int, int]] | None = None,
     ) -> SnapshotOfferResult:
         now = self._clock() if received_at is None else float(received_at)
         try:
             message, payload, item_count, uids, fingerprint = _validated_content(snapshot)
         except (TypeError, ValueError) as exc:
             return SnapshotOfferResult("ignored", reason=str(exc))
+
+        # A bulk equipment-apply session is allowed to change item state, but it
+        # must never replace the full inventory with a per-character response.
+        # The guard is supplied by the caller from that session's frozen source
+        # snapshot; it is deliberately not a historical-count heuristic.
+        if required_uids is not None and uids != required_uids:
+            return SnapshotOfferResult(
+                "ignored",
+                item_count=item_count,
+                reason="当前装配会话收到的快照未包含冻结库存的全部装备",
+            )
 
         generation = _integer_or_none(payload.get("generation"))
         sequence = _integer_or_none(payload.get("sequence"))
@@ -319,6 +331,12 @@ class InventorySnapshotStabilizer:
             raise ValueError("只能提交当前已经稳定的候选快照")
         self._committed_fingerprint = candidate.fingerprint
         self._committed_uids = self._candidate_uids
+        self._candidate = None
+        self._candidate_uids = frozenset()
+
+    def discard_pending(self) -> None:
+        """Discard an uncommitted candidate when a scoped sync contract changes."""
+
         self._candidate = None
         self._candidate_uids = frozenset()
 

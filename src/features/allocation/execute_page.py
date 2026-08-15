@@ -30,6 +30,7 @@ def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, s
     _add_scan_mode_options(window, scan_card, scan_help, show_help)
     _build_offline_frame(window, scan_card, offline_help, show_help)
     _build_total_count_frame(window, scan_card)
+    _build_full_scan_driver_frame(window, scan_card)
     build_scan_processing_options(window, scan_card, show_help)
     _build_drone_frame(window, scan_card, drone_help, show_help)
     window.scan_group.idToggled.connect(window._on_scan_change)
@@ -113,6 +114,47 @@ def _build_total_count_frame(window, scan_card):
     scan_card.layout().addWidget(window.total_count_frame)
 
 
+def _build_full_scan_driver_frame(window, scan_card):
+    window.full_scan_driver_frame = QWidget()
+    window.full_scan_driver_frame.setVisible(False)
+    driver_layout = QHBoxLayout(window.full_scan_driver_frame)
+    driver_layout.setContentsMargins(28, 4, 0, 4)
+    driver_layout.setSpacing(10)
+    driver_layout.addWidget(QLabel("操作方式:"))
+    window.full_scan_driver_group = QButtonGroup()
+    prefs = getattr(window, "_ui_preferences", {}) or {}
+    preferred = str(prefs.get("full_scan_capture_driver", "mouse"))
+    if preferred not in {"mouse", "gamepad"}:
+        preferred = "mouse"
+    for button_id, key, text in (
+        (1, "mouse", "鼠标扫描（默认）"),
+        (2, "gamepad", "虚拟手柄扫描（兜底）"),
+    ):
+        rb = QRadioButton(text)
+        rb.setProperty("capture_driver", key)
+        rb.setChecked(key == preferred)
+        window.full_scan_driver_group.addButton(rb, button_id)
+        driver_layout.addWidget(rb)
+
+    def _save_capture_driver(button_id, checked):
+        if not checked:
+            return
+        key = "gamepad" if button_id == 2 else "mouse"
+        preferences = getattr(window, "_ui_preferences", None)
+        if isinstance(preferences, dict):
+            preferences["full_scan_capture_driver"] = key
+            if hasattr(window, "_save_ui_preferences"):
+                window._save_ui_preferences()
+        if hasattr(window, "scan_post_action_btn"):
+            window.scan_post_action_btn.setVisible(key in {"mouse", "gamepad"})
+
+    window.full_scan_driver_group.idToggled.connect(_save_capture_driver)
+    if hasattr(window, "scan_post_action_btn"):
+        window.scan_post_action_btn.setVisible(preferred in {"mouse", "gamepad"})
+    driver_layout.addStretch()
+    scan_card.layout().addWidget(window.full_scan_driver_frame)
+
+
 def build_scan_processing_options(window, scan_card, show_help):
     window.scan_dual_thread_frame = QWidget()
     window.scan_dual_thread_frame.setVisible(False)
@@ -122,7 +164,7 @@ def build_scan_processing_options(window, scan_card, show_help):
     window.scan_dual_thread_check = QCheckBox("双线程处理")
     prefs = getattr(window, "_ui_preferences", {}) or {}
     window.scan_dual_thread_check.setChecked(bool(prefs.get("full_scan_dual_thread_processing", True)))
-    window.scan_amd_compat_check = QCheckBox("AMD实验性兼容")
+    window.scan_amd_compat_check = QCheckBox("异常兼容模式")
     window.scan_amd_compat_check.setChecked(bool(prefs.get("full_scan_amd_compatibility", False)))
 
     def _save_scan_dual_thread_preference(enabled):
@@ -145,7 +187,8 @@ def build_scan_processing_options(window, scan_card, show_help):
         lambda _checked=False, parent=dual_help_btn: show_help(
             parent,
             "双线程处理说明",
-            "· 同时处理截图，速度更快\n· 出现卡顿、重启或异常时请关闭",
+            "· 鼠标与虚拟手柄均边扫描边解析，速度更快\n"
+            "· 使用标准解析线程；出现卡顿、重启或异常时请关闭",
         )
     )
     dual_thread_layout.addWidget(dual_help_btn)
@@ -170,11 +213,11 @@ def build_scan_processing_options(window, scan_card, show_help):
     amd_help_btn.clicked.connect(
         lambda _checked=False, parent=amd_help_btn: show_help(
             parent,
-            "AMD实验性兼容说明",
-            "· 降低扫描和解析负载\n"
-            "· 开启后自动关闭双线程\n"
-            "· AMD 设备全量扫描异常时尝试\n"
-            "· 属于实验功能，效果因设备而异",
+            "异常兼容模式说明",
+            "· 此模式使用低负载串行解析\n"
+            "· 此模式会进一步放慢点击、滚轮和解析节奏\n"
+            "· 开启后关闭双线程处理\n"
+            "· 出现卡顿、回跳或漏扫时使用",
         )
     )
     dual_thread_layout.addWidget(amd_help_btn)

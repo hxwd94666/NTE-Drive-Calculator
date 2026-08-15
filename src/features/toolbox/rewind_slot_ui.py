@@ -258,7 +258,13 @@ class RewindSlotUiMixin:
             )
 
     def _apply_recommendations(self, recommendations: Iterable[RewindShapeRecommendation]) -> None:
-        """Fill only an entirely empty transient plan; saved/manual edits take priority."""
+        """Replace the transient eight slots with the newly generated strategy result.
+
+        A saved plan remains durable until the user explicitly saves again, but
+        pressing Generate is an explicit request to discard the current transient
+        proposal (including any previous strategy's result) and show this
+        strategy's eight slots.
+        """
 
         recommendations = tuple(recommendations)
         recommendations_by_id = {
@@ -269,24 +275,12 @@ class RewindSlotUiMixin:
             recommendations_by_id.get(candidate.shape.shape_id, candidate)
             for candidate in self._replacement_candidates
         )
-        self._editable_slots = [
-            replace(
-                slot,
-                suit_demand=source.suit_demand,
-                owned_count=source.owned_count,
-                priority_score=source.priority_score,
-                quality_gap=source.quality_gap,
-            )
-            if slot is not None
-            and (source := recommendations_by_id.get(slot.shape.shape_id)) is not None
-            else slot
-            for slot in self._editable_slots
-        ]
-        if any(self._editable_slots):
-            return
         expanded = [
             recommendation
             for recommendation in recommendations
             for _ in range(recommendation.quantity)
         ][:REWIND_SLOT_COUNT]
-        self._editable_slots[:len(expanded)] = expanded
+        self._editable_slots = [
+            *expanded,
+            *([None] * (REWIND_SLOT_COUNT - len(expanded))),
+        ]

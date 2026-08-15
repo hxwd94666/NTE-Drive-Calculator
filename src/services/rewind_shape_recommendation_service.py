@@ -45,6 +45,7 @@ class RewindTargetRole:
     character_id: int
     name: str
     default_suit_id: str | None
+    is_custom: bool = False
 
 
 class RewindShapeRecommendationService:
@@ -93,7 +94,7 @@ class RewindShapeRecommendationService:
                 existing = roles_by_name.get(name)
                 if existing is None or _role_picker_order(character) < _role_picker_order(existing):
                     roles_by_name[name] = character
-            return tuple(
+            roles = [
                 RewindTargetRole(
                     character_id=int(character["character_id"]),
                     name=str(character.get("name_zh") or character["character_id"]),
@@ -109,7 +110,26 @@ class RewindShapeRecommendationService:
                     roles_by_name.values(),
                     key=lambda row: str(row.get("name_zh") or row["character_id"]),
                 )
+            ]
+        if self._user_database_path.is_file():
+            with self._user_dao_factory(self._user_database_path) as user_dao:
+                custom_roles = getattr(user_dao, "list_custom_characters", lambda: [])()
+            known_ids = {role.character_id for role in roles}
+            roles.extend(
+                RewindTargetRole(
+                    character_id=character_id,
+                    name=str(role.get("name_zh") or character_id),
+                    default_suit_id=(
+                        str(role["target_suit_id"])
+                        if role.get("target_suit_id")
+                        else None
+                    ),
+                    is_custom=True,
+                )
+                for role in custom_roles
+                if (character_id := int(role["character_id"])) not in known_ids
             )
+        return tuple(sorted(roles, key=lambda role: (role.name, role.character_id)))
 
     def load_owned_shape_counts(self) -> tuple[tuple[str, int], ...]:
         """Count every official drive shape in the current pinned inventory."""
@@ -196,7 +216,37 @@ class RewindShapeRecommendationService:
         score_gaps: Counter[str] = Counter()
         if self._user_database_path.is_file():
             with self._user_dao_factory(self._user_database_path) as user_dao:
-                active_plans = getattr(user_dao, "list_active_loadout_plans_by_role", lambda: {})()
+                for custom in getattr(user_dao, "list_custom_characters", lambda: [])():
+                    character_id = int(custom["character_id"])
+                    role_names[character_id] = str(custom.get("name_zh") or character_id)
+                # This is the sole modern source of recommendation inputs: each
+                # visible current slot is a saved calculation/loadout plan. A role
+                # may own multiple slots and every slot must contribute. Blueprint
+                # candidates are deliberately outside this DAO projection.
+                slot_rows = getattr(user_dao, "list_current_loadout_slot_plans", lambda: [])()
+                active_plans: dict[int, list[dict[str, Any]]] = {}
+                for row in slot_rows:
+                    slot = row.get("slot") or {}
+                    plan = row.get("plan") or {}
+                    character_id = plan.get("character_id") or slot.get("character_id")
+                    if character_id is None:
+                        continue
+                    active_plans.setdefault(int(character_id), []).append(plan)
+                if not active_plans:
+                    legacy_plans = getattr(
+                        user_dao,
+                        "list_active_loadout_plans_by_role",
+                        lambda: {},
+                    )()
+                    for role_name, plan in legacy_plans.items():
+                        character_id = plan.get("character_id")
+                        if character_id is None:
+                            character_id = next(
+                                (key for key, value in role_names.items() if value == role_name),
+                                None,
+                            )
+                        if character_id is not None:
+                            active_plans.setdefault(int(character_id), []).append(plan)
                 selected_ids = set(target_character_ids)
                 if strategy == "focused":
                     selected_ids = {int(value) for value in primary_character_ids}
@@ -239,67 +289,68 @@ class RewindShapeRecommendationService:
                 compatibility_engine: ScoringEngine | None = None
                 for character_id in selected_ids:
                     role_name = role_names.get(character_id, str(character_id))
-                    plan = active_plans.get(role_name)
+                    plans_for_role = active_plans.get(character_id, [])
                     # Both calculated plans and game-loadout imports promoted into a
                     # saved calculation plan are active plan inputs. Blueprints are
                     # never returned by this DAO boundary.
-                    if not plan:
+                    if not plans_for_role:
                         missing_plans.append(role_name)
                         continue
-                    scores = (plan.get("payload") or {}).get("assignment_scores") or {}
-                    items_by_uid = plan_items(plan)
-                    for assignment in plan.get("assignments") or ():
-                        if assignment.get("kind") != "module":
-                            continue
-                        item = items_by_uid.get(_item_uid(assignment))
-                        if item is None:
-                            missing_items.append(role_name)
-                            continue
-                        shape_id = _official_shape_id(
-                            str(item.get("geometry") or ""),
-                            known_shape_ids,
-                        )
-                        if not shape_id:
-                            continue
-                        score_value = scores.get(assignment_score_key(assignment))
-                        if score_value is None:
-                            raw_assignment = assignment.get("raw_assignment")
-                            score_value = (
-                                raw_assignment.get("score")
-                                if isinstance(raw_assignment, dict)
-                                else None
+                    for plan in plans_for_role:
+                        scores = (plan.get("payload") or {}).get("assignment_scores") or {}
+                        items_by_uid = plan_items(plan)
+                        for assignment in plan.get("assignments") or ():
+                            if assignment.get("kind") != "module":
+                                continue
+                            item = items_by_uid.get(_item_uid(assignment))
+                            if item is None:
+                                missing_items.append(role_name)
+                                continue
+                            shape_id = _official_shape_id(
+                                str(item.get("geometry") or ""),
+                                known_shape_ids,
                             )
-                        if score_value is None:
-                            # Plans saved before per-drive scores were persisted
-                            # still contain complete drives and their fixed
-                            # snapshot. Rebuild only this legacy missing field
-                            # with the application's normal scoring rule; newly
-                            # saved plans take the direct persisted-score path.
-                            compatibility_engine = compatibility_engine or ScoringEngine(
-                                user_database_path=self._user_database_path,
+                            if not shape_id:
+                                continue
+                            score_value = scores.get(assignment_score_key(assignment))
+                            if score_value is None:
+                                raw_assignment = assignment.get("raw_assignment")
+                                score_value = (
+                                    raw_assignment.get("score")
+                                    if isinstance(raw_assignment, dict)
+                                    else None
+                                )
+                            if score_value is None:
+                                # Plans saved before per-drive scores were persisted
+                                # still contain complete drives and their fixed
+                                # snapshot. Rebuild only this legacy missing field
+                                # with the application's normal scoring rule; newly
+                                # saved plans take the direct persisted-score path.
+                                compatibility_engine = compatibility_engine or ScoringEngine(
+                                    user_database_path=self._user_database_path,
+                                )
+                                score_value = _legacy_drive_score(
+                                    item,
+                                    role_name=role_name,
+                                    score_area=int(item.get("grid_count") or 0),
+                                    attribute_names=attribute_names,
+                                    engine=compatibility_engine,
+                                )
+                            shape_cells = next(
+                                shape.cell_count for shape in shapes if shape.shape_id == shape_id
                             )
-                            score_value = _legacy_drive_score(
-                                item,
-                                role_name=role_name,
-                                score_area=int(item.get("grid_count") or 0),
-                                attribute_names=attribute_names,
-                                engine=compatibility_engine,
+                            # ``grid_count`` is the scoring area used by the same
+                            # grade thresholds shown in a saved loadout. The score
+                            # itself is the persisted per-drive score; it is never
+                            # recalculated here.
+                            score_area = int(item.get("grid_count") or shape_cells)
+                            gap = max(
+                                0.0,
+                                target_grade_score(target_grade, score_area) - float(score_value),
                             )
-                        shape_cells = next(
-                            shape.cell_count for shape in shapes if shape.shape_id == shape_id
-                        )
-                        # ``grid_count`` is the scoring area used by the same
-                        # grade thresholds shown in a saved loadout.  The score
-                        # itself is the persisted per-drive score; it is never
-                        # recalculated here.
-                        score_area = int(item.get("grid_count") or shape_cells)
-                        gap = max(
-                            0.0,
-                            target_grade_score(target_grade, score_area) - float(score_value),
-                        )
-                        if gap > 0:
-                            shortfalls[shape_id] += 1
-                            score_gaps[shape_id] += gap
+                            if gap > 0:
+                                shortfalls[shape_id] += 1
+                                score_gaps[shape_id] += gap
             if missing_plans:
                 raise ValueError(f"{ '、'.join(missing_plans) } 尚未生成计算方案，请先生成方案。")
             if missing_items:
@@ -317,7 +368,9 @@ class RewindShapeRecommendationService:
             selection_limit=selection_limit,
             proportional=strategy == "focused",
         )
-        if sum(shortfalls.values()) > selection_limit:
+        if strategy == "balanced" and sum(
+            1 for count in shortfalls.values() if count > 0
+        ) > selection_limit:
             notice = "所需驱动超过 8 个，建议降低评分等级或使用随机倒带抽取。"
         elif not recommendations:
             notice = "未找到低于目标评分等级的已装配驱动。"
