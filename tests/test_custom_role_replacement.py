@@ -1,3 +1,4 @@
+# 测试自建角色装备替换。
 """Regression coverage for custom-role generic replacement routing."""
 
 from __future__ import annotations

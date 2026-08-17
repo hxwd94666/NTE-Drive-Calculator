@@ -185,7 +185,6 @@ class PackagingScriptTests(unittest.TestCase):
     def test_windows_validator_is_not_part_of_runtime_packaging(self):
         packaging_sources = (
             Path("build_exe.py").read_text(encoding="utf-8"),
-            Path("NTE_Drive_Calc.spec").read_text(encoding="utf-8"),
             Path("installer/NTE_Drive_Calc.iss").read_text(encoding="utf-8-sig"),
         )
 

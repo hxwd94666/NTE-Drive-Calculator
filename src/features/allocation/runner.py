@@ -33,6 +33,10 @@ from src.optimizer.contracts import (
     plan_drives,
 )
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
+from src.services.allocation_filter_settings import (
+    AllocationFilterSettings,
+    filter_allocation_candidates,
+)
 from src.features.allocation.slot_plan_diff import (
     selected_slot_plan_diff,
     single_slot_loadout_state,
@@ -41,6 +45,7 @@ from src.services.allocation_lock_service import (
     AllocationLockSnapshot,
     build_allocation_lock_snapshot,
     filter_allocation_request_for_locks,
+    selected_fully_locked_roles,
     verify_allocation_lock_snapshot,
 )
 from src.services.saved_state_loadout_bridge import (
@@ -70,6 +75,7 @@ class AllocationRunResult:
     plans: dict[str, Any]
     snapshot_id: int
     lock_snapshot: AllocationLockSnapshot
+    selected_locked_role_names: frozenset[str]
 
 
 def _allocation_paths(window: Any) -> tuple[Path, Path, Path, Path, Path]:
@@ -123,6 +129,7 @@ def _run_allocation(
     priority_groups: Any = None,
     crit_rate_caps: dict[str, Any] | None = None,
     custom_weapons: dict[str, Any] | None = None,
+    filter_settings: AllocationFilterSettings | None = None,
 ) -> Any:
     try:
         database_path, config_dir, user_config_dir, _, static_database_path = _allocation_paths(self)
@@ -138,11 +145,17 @@ def _run_allocation(
                 user_dao,
                 inventory_snapshot_id=projection.snapshot_id,
             )
+        frozen_filter_settings = filter_settings or AllocationFilterSettings()
+        filtered_items = filter_allocation_candidates(
+            projection.items,
+            frozen_filter_settings,
+        )
         unlocked_sel, unlocked_priority_groups = filter_allocation_request_for_locks(
             sel,
             priority_groups,
             lock_snapshot,
         )
+        selected_locked_role_names = selected_fully_locked_roles(sel, lock_snapshot)
         allocation_options = {
             "tape_main_filters": tape_main_filters or {},
             "crit_priority_modes": crit_priority_modes or {},
@@ -153,13 +166,14 @@ def _run_allocation(
         }
         logger.info(
             f"使用官方背包稳定快照 {projection.snapshot_id} 计算："
-            f"候选 {len(projection.items)} 件（其中弃置标记 {projection.discarded_count} 件，仍参与计算）"
+            f"候选 {len(filtered_items)}/{len(projection.items)} 件"
+            f"（其中弃置标记 {projection.discarded_count} 件，符合过滤条件时仍参与计算）"
         )
-        if lock_snapshot.locked_role_names:
+        if selected_locked_role_names:
             logger.info(
-                f"配装锁定已保留 {len(lock_snapshot.locked_role_names)} 个角色、"
+                f"配装锁定已保留 {len(selected_locked_role_names)} 个已选角色、"
                 f"排除 {len(lock_snapshot.reserved_uids)} 件装备："
-                f"{'、'.join(sorted(lock_snapshot.locked_role_names))}"
+                f"{'、'.join(sorted(selected_locked_role_names))}"
             )
         # 求解器只接收本次固定 SQLite 快照的内存投影，不再回退到旧背包 JSON。
         from src.app.facade import NTEAppFacade
@@ -171,7 +185,7 @@ def _run_allocation(
         )
         if unlocked_sel:
             fp, _ = a.execute_allocation_inventory(
-                list(projection.items),
+                list(filtered_items),
                 unlocked_sel,
                 cs,
                 strat,
@@ -185,6 +199,7 @@ def _run_allocation(
             plans=fp,
             snapshot_id=projection.snapshot_id,
             lock_snapshot=lock_snapshot,
+            selected_locked_role_names=selected_locked_role_names,
         )
     except Exception as e:
         import traceback as tb
@@ -206,6 +221,7 @@ def _start_allocation_worker(self: Any) -> None:
             getattr(self, "_pending_priority_groups", None),
             getattr(self, "_pending_crit_rate_caps", {}),
             getattr(self, "_pending_custom_weapons", {}),
+            getattr(self, "_pending_filter_settings", AllocationFilterSettings()),
         ),
         parent=self,
     )
@@ -388,6 +404,7 @@ def _on_done(self: Any, r: Any) -> None:
         self.final_plan = r.plans
         self._pending_allocation_snapshot_id = r.snapshot_id
         self._allocation_lock_snapshot = r.lock_snapshot
+        self._selected_locked_role_names = r.selected_locked_role_names
         self.btn_run.setEnabled(True)
         self.btn_run.setText("⚡  开始计算")
         self._allocation_custom_weapons = dict(getattr(self, "_pending_custom_weapons", {}) or {})
@@ -618,6 +635,7 @@ class AllocationController(QObject):
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id: int | None = None
         self._allocation_lock_snapshot: AllocationLockSnapshot | None = None
+        self._selected_locked_role_names: frozenset[str] = frozenset()
         self._pending_archive_paths: list[Path] = []
         self._pending_strat = ""
         self._pending_sel: list[str] = []
@@ -628,6 +646,7 @@ class AllocationController(QObject):
         self._pending_priority_groups: Any = None
         self._pending_crit_rate_caps: dict[str, Any] = {}
         self._pending_custom_weapons: dict[str, Any] = {}
+        self._pending_filter_settings = AllocationFilterSettings()
         self._allocation_custom_weapons: dict[str, Any] = {}
         self._ui_preferences: dict[str, Any] = {}
 
@@ -646,6 +665,7 @@ class AllocationController(QObject):
         priority_groups: Any,
         crit_rate_caps: dict[str, Any],
         custom_weapons: dict[str, Any],
+        filter_settings: AllocationFilterSettings,
     ) -> None:
         if self.btn_run is None:
             raise RuntimeError("allocation run button has not been bound")
@@ -658,6 +678,8 @@ class AllocationController(QObject):
         self._pending_priority_groups = priority_groups
         self._pending_crit_rate_caps = crit_rate_caps
         self._pending_custom_weapons = custom_weapons
+        filter_settings.validate()
+        self._pending_filter_settings = filter_settings
         _start_allocation_worker(self)
 
     def confirm_recompute(self) -> bool:
@@ -676,6 +698,8 @@ class AllocationController(QObject):
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id = None
         self._allocation_lock_snapshot = None
+        self._selected_locked_role_names = frozenset()
+        self._pending_filter_settings = AllocationFilterSettings()
         self._equipment_presentation.clear()
 
     def _run_allocation(self, *args: Any, **kwargs: Any) -> Any:
@@ -694,11 +718,7 @@ class AllocationController(QObject):
             snapshot_id=self._pending_allocation_snapshot_id,
             strategy=self._pending_strat,
             custom_weapons=self._pending_custom_weapons,
-            locked_role_names=(
-                self._allocation_lock_snapshot.locked_role_names
-                if self._allocation_lock_snapshot is not None
-                else ()
-            ),
+            locked_role_names=self._selected_locked_role_names,
         )
         self._equipment_presentation.render(plan)
 

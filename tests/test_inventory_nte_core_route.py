@@ -10,6 +10,33 @@ import src.features.inventory.equipment_assembly_controller as page_module
 import src.features.inventory.equipment_automatic_assembly_controller as automatic_module
 
 
+def _current_slot_plan(role_name: str, plan: dict) -> dict:
+    """Project a legacy test plan through the current named-slot contract."""
+
+    current_plan = dict(plan)
+    payload = dict(current_plan.get("payload") or {})
+    payload["source_role_name"] = role_name
+    current_plan["payload"] = payload
+    character_id = int(current_plan["character_id"])
+    return {
+        "slot": {
+            "slot_id": character_id,
+            "character_id": character_id,
+            "slot_key": "primary",
+            "slot_name": "默认方案",
+            "is_archived": 0,
+        },
+        "plan": current_plan,
+    }
+
+
+def _slot_with_current_plan(rows: list[dict], slot_id: int) -> dict | None:
+    for row in rows:
+        if int(row["slot"]["slot_id"]) == int(slot_id):
+            return {**row["slot"], "current_plan": row["plan"]}
+    return None
+
+
 class InventoryNteCoreRouteTests(unittest.TestCase):
     def test_fast_apply_runs_resolved_roles_before_reporting_missing_instances(self) -> None:
         class Dao:
@@ -34,8 +61,26 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "assignments": [{"kind": "module"}],
                 }
 
+            def list_current_loadout_slot_plans(self):
+                return [
+                    _current_slot_plan(role_name, self.get_active_loadout_plan_for_role(role_name))
+                    for role_name in ("可装配", "实例缺失")
+                ]
+
+            def get_loadout_slot(self, slot_id):
+                return _slot_with_current_plan(
+                    self.list_current_loadout_slot_plans(),
+                    slot_id,
+                )
+
+            def list_custom_characters(self):
+                return []
+
+            def list_inventory_items(self, _snapshot_id):
+                return [{"uid_slot": 1, "uid_serial": 1}]
+
             def inventory_snapshot_summary(self, _snapshot_id):
-                return {"source": "nte_core"}
+                return {"source": "nte_core", "complete": True}
 
             def create_equipment_apply_job(self, _snapshot_id, prepared):
                 self.prepared = list(prepared)
@@ -147,8 +192,26 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "assignments": [{"kind": "module"}],
                 }
 
+            def list_current_loadout_slot_plans(self):
+                return [
+                    _current_slot_plan(role_name, self.get_active_loadout_plan_for_role(role_name))
+                    for role_name in ("甲", "乙")
+                ]
+
+            def get_loadout_slot(self, slot_id):
+                return _slot_with_current_plan(
+                    self.list_current_loadout_slot_plans(),
+                    slot_id,
+                )
+
+            def list_custom_characters(self):
+                return []
+
+            def list_inventory_items(self, _snapshot_id):
+                return [{"uid_slot": 1, "uid_serial": 1}]
+
             def inventory_snapshot_summary(self, _snapshot_id):
-                return {"source": "nte_core"}
+                return {"source": "nte_core", "complete": True}
 
             def get_sync_settings(self):
                 return {"inventory_settle_seconds": 5.0}
@@ -266,8 +329,23 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "assignments": [{"kind": "module"}],
                 }
 
+            def list_current_loadout_slot_plans(self):
+                return [_current_slot_plan("甲", self.get_active_loadout_plan_for_role("甲"))]
+
+            def get_loadout_slot(self, slot_id):
+                return _slot_with_current_plan(
+                    self.list_current_loadout_slot_plans(),
+                    slot_id,
+                )
+
+            def list_custom_characters(self):
+                return []
+
+            def list_inventory_items(self, _snapshot_id):
+                return [{"uid_slot": 1, "uid_serial": 1}]
+
             def inventory_snapshot_summary(self, _snapshot_id):
-                return {"source": "nte_core"}
+                return {"source": "nte_core", "complete": True}
 
             def get_sync_settings(self):
                 return {"inventory_settle_seconds": 5.0}
@@ -379,8 +457,23 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "assignments": [{"kind": "module"}],
                 }
 
+            def list_current_loadout_slot_plans(self):
+                return [_current_slot_plan("甲", self.get_active_loadout_plan_for_role("甲"))]
+
+            def get_loadout_slot(self, slot_id):
+                return _slot_with_current_plan(
+                    self.list_current_loadout_slot_plans(),
+                    slot_id,
+                )
+
+            def list_custom_characters(self):
+                return []
+
+            def list_inventory_items(self, _snapshot_id):
+                return [{"uid_slot": 1, "uid_serial": 1}]
+
             def inventory_snapshot_summary(self, _snapshot_id):
-                return {"source": "nte_core"}
+                return {"source": "nte_core", "complete": True}
 
             def get_sync_settings(self):
                 return {"inventory_settle_seconds": 5.0}
@@ -452,8 +545,9 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             page_module.EquipmentApplyService = old_service
 
         self.assertEqual(1, ApplyService.last_instance.apply_calls)
-        self.assertEqual("snapshot_timeout", report["snapshot_wait_failure"]["kind"])
-        self.assertEqual(1, report["snapshot_wait_failure"]["attempt"])
+        self.assertTrue(report["full_snapshot_wait_timed_out"])
+        self.assertTrue(report["scoped_snapshot_wait_timed_out"])
+        self.assertIsNone(report["snapshot_wait_failure"])
 
     def test_single_role_routes_to_fast_mode_when_selected(self) -> None:
         calls = []
@@ -551,7 +645,9 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 lambda _self: calls.append("warning") or True
             )
             automatic_module._start_automatic_equipment_assembly = (
-                lambda _self, roles: calls.append(list(roles))
+                lambda _self, roles, *, slot_ids=None: calls.append(
+                    (list(roles), slot_ids)
+                )
             )
             automatic_module._preview_automatic_assemble_role(
                 FakeWindow(),
@@ -562,7 +658,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             automatic_module._confirm_automatic_assembly_duplicate_warning = original_warning
             automatic_module._start_automatic_equipment_assembly = original_start
 
-        self.assertEqual(["warning", ["测试角色"]], calls)
+        self.assertEqual(["warning", (["测试角色"], None)], calls)
 
     def test_duplicate_warning_preference_skips_dialog(self) -> None:
         class FakeWindow:
@@ -592,7 +688,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         worker_calls = []
         try:
             automatic_module._sqlite_automatic_assembly_state = (
-                lambda _path, _roles: {"测试角色": object()}
+                lambda _path, _roles, *, slot_ids=None: {"测试角色": object()}
             )
             automatic_module.QMessageBox.question = (
                 lambda *_args, **_kwargs: automatic_module.QMessageBox.Cancel
@@ -634,8 +730,10 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module._confirm_automatic_assembly_fallback = lambda _window, detail: messages.append(detail) or True
-            page_module._preview_automatic_assemble_role = lambda _window, role_name, *, confirmed: calls.append(
-                (role_name, confirmed)
+            page_module._preview_automatic_assemble_role = (
+                lambda _window, role_name, *, slot_id=None, confirmed: calls.append(
+                    (role_name, slot_id, confirmed)
+                )
             )
             window = SimpleNamespace(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_role(
@@ -648,7 +746,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             page_module._confirm_automatic_assembly_fallback = old_confirm
             page_module._preview_automatic_assemble_role = old_automatic
 
-        self.assertEqual([("视觉角色", True)], calls)
+        self.assertEqual([("视觉角色", None, True)], calls)
         self.assertIn("视觉扫描快照", messages[0])
         self.assertIn("原生 UID", messages[0])
 

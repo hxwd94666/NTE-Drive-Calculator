@@ -171,6 +171,40 @@ class RoleLoadoutSlotTests(unittest.TestCase):
         self.assertEqual(0, released_owner["assignments"][0]["uid_slot"])
         self.assertTrue(released_owner["assignments"][0]["raw_assignment"]["virtual"])
 
+    def test_replacement_keeps_same_character_other_slot_equipment(self) -> None:
+        self.dao.save_loadout_plan(
+            name="主力方案",
+            character_id=1003,
+            assignments=[assignment()],
+            source_snapshot_id=self.snapshot_id,
+            status="saved",
+            is_active=True,
+            payload={"assignment_scores": {"nte-module-22-11": 25.0}},
+        )
+        secondary_slot_id = self.dao.create_loadout_slot(1003, "副本", slot_key="raid")
+
+        self.dao.save_replacement_plan_to_slot(
+            secondary_slot_id,
+            name="副本替换",
+            assignments=[assignment()],
+            source_snapshot_id=self.snapshot_id,
+            status="saved",
+            score=25.0,
+            payload={"assignment_scores": {"nte-module-22-11": 25.0}},
+        )
+
+        slots = self.dao.list_loadout_slots(1003)
+        assignments = [
+            item
+            for slot in slots
+            for item in slot["current_plan"]["assignments"]
+        ]
+        self.assertEqual({(22, 11)}, {
+            (item["uid_slot"], item["uid_serial"])
+            for item in assignments
+        })
+        self.assertTrue(all(item["uid_slot"] > 0 for item in assignments))
+
     def test_replacement_does_not_cross_release_two_visual_snapshots(self) -> None:
         visual_owner_snapshot = self.dao.import_inventory_snapshot(
             snapshot_with_uid(serial=7, slot=8), source="vision"
@@ -297,6 +331,11 @@ class RoleLoadoutSlotTests(unittest.TestCase):
         connection.execute("DROP INDEX idx_role_loadout_slot_character")
         connection.execute("ALTER TABLE loadout_plan DROP COLUMN slot_id")
         connection.execute("DROP TABLE role_loadout_slot")
+        connection.execute("DROP TABLE inventory_item_runtime_state")
+        connection.execute(
+            "ALTER TABLE optimization_preference_substat_behavior "
+            "DROP COLUMN blacklist_zero_weight"
+        )
         connection.execute(
             "CREATE UNIQUE INDEX idx_loadout_plan_active_character "
             "ON loadout_plan(character_id) WHERE is_active = 1"

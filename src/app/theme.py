@@ -10,6 +10,8 @@ from PySide6.QtCore import QObject, QEvent
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMessageBox
 
+from src.app.window_geometry import fit_dialog_to_available_screen
+
 # S/SS and SSS/ACE deliberately use the opposite emphasis tiers.  All scoring
 # surfaces import these shared values so that the grade meaning stays visual
 # consistent between allocation, calculation, identification and replacement.
@@ -57,6 +59,10 @@ QPushButton#btnPrimary:hover{background:#2ea043}
 QPushButton#btnPrimary:disabled{background:#1b3a24;color:#6e7681}
 QPushButton#btnNew{background:#1f6feb;color:#fff;border:1px solid #58a6ff;font-weight:600}
 QPushButton#btnNew:hover{background:#388bfd}
+QPushButton#allocationFilterSettingsButton{background:#1f6feb;color:#fff;border:1px solid #58a6ff;border-radius:6px;font-size:13px;font-weight:600;padding:0 6px}
+QPushButton#allocationFilterSettingsButton:hover{background:#388bfd}
+QPushButton#allocationFilterHelp{background:transparent;border:1px solid #30363d;border-radius:10px;color:#8b949e;font-size:11px;font-weight:700;padding:0;min-width:20px;max-width:20px;min-height:20px;max-height:20px}
+QPushButton#allocationFilterHelp:hover{background:#1f6feb33;color:#58a6ff;border-color:#58a6ff}
 QPushButton#btnDanger{background:#da3633;color:#fff;border:1px solid #f85149}
 QPushButton#btnDanger:hover{background:#f85149}
 QPushButton#btnAction{background:#1f6feb33;color:#58a6ff;border:1px solid #1f6feb;font-size:12px;padding:5px 12px}
@@ -67,6 +73,11 @@ QPushButton#btnHelp:hover{background:#1f6feb33;color:#58a6ff;border-color:#58a6f
 
 QLineEdit,QTextEdit,QSpinBox,QDoubleSpinBox,QComboBox{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:7px 10px}
 QLineEdit:focus,QTextEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QComboBox:focus{border:1px solid #58a6ff}
+QDoubleSpinBox#rewindCustomPercent:enabled{background:#1f6feb33;border-color:#58a6ff}
+QToolButton#rewindPercentStepUp,QToolButton#rewindPercentStepDown{background:#1f6feb33;color:#58a6ff;border:1px solid #58a6ff;border-radius:4px;padding:0;min-width:20px;max-width:20px;min-height:15px;max-height:15px;font-size:10px;font-weight:700}
+QToolButton#rewindPercentStepUp:hover,QToolButton#rewindPercentStepDown:hover{background:#1f6feb66}
+QToolButton#rewindPercentStepUp:pressed,QToolButton#rewindPercentStepDown:pressed{background:#1f6feb66}
+QToolButton#rewindPercentStepUp:disabled,QToolButton#rewindPercentStepDown:disabled{background:transparent;color:#6e7681;border-color:#30363d}
 QComboBox::drop-down{border:none;width:20px}
 QComboBox QAbstractItemView{background:#161b22;border:1px solid #30363d;selection-background-color:#1f6feb33}
 
@@ -409,6 +420,7 @@ class _DialogPolishFilter(QObject):
                 obj.setStyleSheet(current_style_sheet() + "\n" + obj.styleSheet())
             localize_standard_buttons(obj)
             apply_title_bar_theme(obj, theme)
+            fit_dialog_to_available_screen(obj)
         return False
 
 

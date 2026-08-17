@@ -84,6 +84,17 @@ def drop_role_loadout_slots_v15(connection: sqlite3.Connection) -> None:
     )
 
 
+def drop_inventory_runtime_state_v21(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP TABLE IF EXISTS inventory_item_runtime_state")
+
+
+def drop_blacklist_zero_weight_v22(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "ALTER TABLE optimization_preference_substat_behavior "
+        "DROP COLUMN blacklist_zero_weight"
+    )
+
+
 class UserDataDaoSettingsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -161,6 +172,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection = sqlite3.connect(legacy_path)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
+        drop_inventory_runtime_state_v21(connection)
         for table in (
             "character_shape_bonus_preference_property",
             "character_shape_bonus_preference",
@@ -205,6 +217,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection = sqlite3.connect(legacy_path)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
+        drop_inventory_runtime_state_v21(connection)
         for table in (
             "character_shape_bonus_preference_property",
             "character_shape_bonus_preference",
@@ -432,6 +445,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection = sqlite3.connect(legacy_path)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
+        drop_inventory_runtime_state_v21(connection)
         connection.execute("DROP TABLE character_weight_preference_property")
         connection.execute("DROP TABLE character_weight_preference_seed")
         connection.execute("DROP TABLE character_shape_bonus_preference_property")
@@ -475,6 +489,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection = sqlite3.connect(legacy_path)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
+        drop_inventory_runtime_state_v21(connection)
         connection.execute("DROP TABLE optimization_preference_substat_behavior")
         connection.execute("DROP TABLE optimization_preference_substat_blacklist")
         connection.execute("DELETE FROM schema_migration WHERE version >= 11")
@@ -507,6 +522,59 @@ class UserDataDaoSettingsTests(unittest.TestCase):
             )
             self.assertIsNotNone(behavior_table)
 
+    def test_migrates_v21_database_to_blacklist_zero_weight(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_v21.sqlite3"
+        with UserDataDao(legacy_path, account_id="legacy") as initialized:
+            initialized.create_optimization_profile(
+                "existing-v21",
+                allocation_strategy="role_priority",
+                characters=[
+                    {
+                        "character_id": 1003,
+                        "ordinal": 0,
+                        "priority_group": 0,
+                        "suit_requirement_mode": "none",
+                        "property_weights": {},
+                        "substat_priorities": [],
+                        "substat_blacklist": ["AtkAdd"],
+                        "property_limits": {},
+                    }
+                ],
+            )
+        connection = sqlite3.connect(legacy_path)
+        connection.execute(
+            "ALTER TABLE optimization_preference_substat_behavior "
+            "DROP COLUMN blacklist_zero_weight"
+        )
+        connection.execute("DELETE FROM schema_migration WHERE version >= 22")
+        connection.commit()
+        connection.close()
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
+            character = migrated.list_optimization_profiles()[0]["version"]["characters"][0]
+            self.assertFalse(character["blacklist_zero_weight"])
+
+    def test_migrates_v21_database_missing_substat_behavior_table(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_v21_missing_behavior.sqlite3"
+        with UserDataDao(legacy_path, account_id="legacy"):
+            pass
+        connection = sqlite3.connect(legacy_path)
+        connection.execute("DROP TABLE optimization_preference_substat_behavior")
+        connection.execute("DELETE FROM schema_migration WHERE version >= 22")
+        connection.commit()
+        connection.close()
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
+            columns = {
+                row["name"]
+                for row in migrated._db().execute(
+                    "PRAGMA table_info(optimization_preference_substat_behavior)"
+                )
+            }
+            self.assertIn("blacklist_zero_weight", columns)
+
     def test_migrates_v11_database_to_allocation_plan_lock(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v11.sqlite3"
         with UserDataDao(legacy_path, account_id="legacy") as initialized:
@@ -514,6 +582,8 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         connection = sqlite3.connect(legacy_path)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
+        drop_inventory_runtime_state_v21(connection)
+        drop_blacklist_zero_weight_v22(connection)
         connection.execute("DROP INDEX idx_loadout_plan_active_allocation_locked")
         connection.execute("ALTER TABLE loadout_plan DROP COLUMN allocation_locked")
         connection.execute("DELETE FROM schema_migration WHERE version >= 12")
@@ -554,6 +624,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 "property_weights": {"CritDamageBase": 1.5, "AtkAdd": 0.8},
                 "substat_priorities": ["CritDamageBase", "AtkAdd"],
                 "substat_blacklist": ["DefAdd", "HPMaxAdd"],
+                "blacklist_zero_weight": True,
                 "equal_priority": True,
                 "ignore_grade_limit": True,
                 "min_grade_limit": "D",
@@ -591,6 +662,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
             profile["version"]["characters"][0]["substat_blacklist"],
         )
         self.assertTrue(profile["version"]["characters"][0]["equal_priority"])
+        self.assertTrue(profile["version"]["characters"][0]["blacklist_zero_weight"])
         self.assertTrue(
             profile["version"]["characters"][0]["ignore_grade_limit"]
         )

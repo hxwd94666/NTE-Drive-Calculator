@@ -203,6 +203,43 @@ class UserDataInventoryDaoTests(unittest.TestCase):
             self.dao.list_inventory_items_with_runtime_state(snapshot_id)[0]["equipped"]
         )
 
+    def test_command_state_projection_updates_only_known_rows_and_later_event_wins(self) -> None:
+        """A submitted command updates the warehouse projection without moving the snapshot."""
+
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(1, 1), item(2, 2)])
+        )
+        requested = item(1, 1)
+        requested.update({
+            "equipped": True,
+            "equipped_character_id": 1003,
+            "equipped_character_uid": {"slot": 700, "serial": 701},
+            "equipped_placement": {"row": 2, "column": 3},
+        })
+
+        updated = self.dao.apply_inventory_command_state_projection(
+            snapshot_id, [requested]
+        )
+
+        self.assertEqual(1, updated)
+        self.assertEqual(snapshot_id, self.dao.current_inventory_snapshot_id())
+        self.assertTrue(
+            self.dao.list_inventory_items_with_runtime_state(snapshot_id)[0]["equipped"]
+        )
+
+        observed = dict(requested)
+        observed.update({
+            "equipped": False,
+            "equipped_character_id": None,
+            "equipped_character_uid": None,
+            "equipped_placement": None,
+        })
+        self.dao.apply_inventory_runtime_state_delta(snapshot_id, [observed], sequence=1)
+
+        self.assertFalse(
+            self.dao.list_inventory_items_with_runtime_state(snapshot_id)[0]["equipped"]
+        )
+
     def test_inventory_uid_filter_keeps_only_requested_item_and_stats(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [
             item(1, 1), item(2, 2), item(3, 3),

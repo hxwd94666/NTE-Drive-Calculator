@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import Counter
 
+import pytest
+
 from src.domain.rewind_shape_recommendation import (
     RewindPricingRule,
     RewindShape,
@@ -10,6 +12,7 @@ from src.domain.rewind_shape_recommendation import (
     recommend_rewind_shape_quantities,
     recommend_rewind_shapes,
     recommend_score_shortfall_shapes,
+    target_percentage_score,
 )
 from src.services.rewind_shape_recommendation_service import (
     RewindShapeRecommendationService,
@@ -36,6 +39,8 @@ def test_rewind_execution_preferences_persist_only_in_the_current_account(tmp_pa
     first_service.save_preferences(
         {
             "target_character_ids": [1004],
+            "target_threshold_mode": "custom",
+            "target_custom_percent": 90.0,
             "rewind_qualities": ["purple", "gold"],
             "rewind_drive_customization": "enabled",
         }
@@ -43,6 +48,8 @@ def test_rewind_execution_preferences_persist_only_in_the_current_account(tmp_pa
 
     assert first_service.load_preferences() == {
         "target_character_ids": [1004],
+        "target_threshold_mode": "custom",
+        "target_custom_percent": 90.0,
         "rewind_qualities": ["purple", "gold"],
         "rewind_drive_customization": "enabled",
     }
@@ -361,6 +368,218 @@ def test_focused_shortfall_uses_persisted_drive_scores_from_plan_snapshot(tmp_pa
     }
     assert analysis.required_count == 2
     assert 3 in UserDao.requested_snapshots
+
+
+def test_custom_percentage_uses_each_drive_area_without_changing_saved_scores(tmp_path) -> None:
+    """A custom target applies per current slot and never rescales item scores."""
+
+    class StaticDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def list_characters(self):
+            return []
+
+        def list_shapes(self):
+            return [
+                {"shape_id": "EquipmentGeometry_Hen2", "cell_count": 4},
+                {"shape_id": "EquipmentGeometry_Hen3", "cell_count": 3},
+            ]
+
+        def list_equipment_attributes(self):
+            return []
+
+    class UserDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def current_inventory_snapshot_id(self):
+            return 7
+
+        def inventory_snapshot_summary(self, _snapshot_id):
+            return {"source": "vision"}
+
+        def list_inventory_items(self, _snapshot_id, *, kind):
+            assert kind == "module"
+            return [
+                {"uid_slot": 1, "uid_serial": 1, "geometry": "Hen2", "grid_count": 4},
+                {"uid_slot": 2, "uid_serial": 2, "geometry": "Hen3", "grid_count": 3},
+            ]
+
+        def list_current_loadout_slot_plans(self):
+            return [
+                {
+                    "slot": {"character_id": 9001, "slot_key": "primary"},
+                    "plan": {
+                        "character_id": 9001,
+                        "source_snapshot_id": 7,
+                        "payload": {"assignment_scores": {"nte-module-1-1": 36.0}},
+                        "assignments": [{"kind": "module", "uid_slot": 1, "uid_serial": 1}],
+                    },
+                },
+                {
+                    "slot": {"character_id": 9001, "slot_key": "second"},
+                    "plan": {
+                        "character_id": 9001,
+                        "source_snapshot_id": 7,
+                        "payload": {"assignment_scores": {"nte-module-2-2": 26.9}},
+                        "assignments": [{"kind": "module", "uid_slot": 2, "uid_serial": 2}],
+                    },
+                },
+            ]
+
+        def list_custom_characters(self):
+            return [{"character_id": 9001, "name_zh": "自建角色", "target_suit_id": "Suit_Custom"}]
+
+    database_path = tmp_path / "user.sqlite3"
+    database_path.touch()
+    service = RewindShapeRecommendationService(
+        user_database_path=database_path,
+        static_database_path=tmp_path / "static.sqlite3",
+        user_dao_factory=UserDao,
+        static_dao_factory=StaticDao,
+    )
+
+    analysis = service.analyze_for_targets(
+        target_character_ids=(9001,),
+        strategy="balanced",
+        target_grade="ACE",
+        target_custom_percent=90.0,
+    )
+
+    # 4-grid 36.0 equals its 90% goal (40 * .9), while the 3-grid score 26.9
+    # is below its independent 27.0 goal.  The custom character's two slots
+    # must remain independent active-plan inputs.
+    assert analysis.required_count == 1
+    assert analysis.recommendations[0].shape.shape_id == "EquipmentGeometry_Hen3"
+    assert analysis.recommendations[0].quality_gap == pytest.approx(0.1)
+    assert target_percentage_score(90.0, 4) == 36.0
+
+
+def test_custom_percentage_rejects_out_of_range_values() -> None:
+    with pytest.raises(ValueError, match="1.0% 与 100.0%"):
+        target_percentage_score(0.0, 3)
+    with pytest.raises(ValueError, match="1.0% 与 100.0%"):
+        target_percentage_score(100.1, 3)
+
+
+def test_focused_shortfall_reports_eight_slot_capacity_before_claiming_no_low_score_drive(tmp_path) -> None:
+    """Focused mode must distinguish an eight-shape overflow from no plan input."""
+
+    class StaticDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def list_characters(self):
+            return [{"character_id": 1, "name_zh": "角色一"}]
+
+        def list_shapes(self):
+            return [
+                {"shape_id": f"EquipmentGeometry_Shape{index}", "cell_count": 2}
+                for index in range(9)
+            ]
+
+        def list_equipment_attributes(self):
+            return []
+
+    class UserDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def current_inventory_snapshot_id(self):
+            return 9
+
+        def inventory_snapshot_summary(self, snapshot_id):
+            assert snapshot_id == 9
+            return {"source": "nte_core"}
+
+        def list_inventory_items(self, snapshot_id, *, kind):
+            assert snapshot_id == 9
+            assert kind == "module"
+            return [
+                {
+                    "uid_slot": index + 1,
+                    "uid_serial": index + 1,
+                    "geometry": f"Shape{index}",
+                    "grid_count": 2,
+                }
+                for index in range(9)
+            ]
+
+        def list_current_loadout_slot_plans(self):
+            return [
+                {
+                    "slot": {"character_id": 1, "slot_key": "primary"},
+                    "plan": {
+                        "character_id": 1,
+                        "source_snapshot_id": 9,
+                        "payload": {
+                            "assignment_scores": {
+                                f"nte-module-{index + 1}-{index + 1}": 0.0
+                                for index in range(9)
+                            }
+                        },
+                        "assignments": [
+                            {"kind": "module", "uid_slot": index + 1, "uid_serial": index + 1}
+                            for index in range(9)
+                        ],
+                    },
+                }
+            ]
+
+    database_path = tmp_path / "user.sqlite3"
+    database_path.touch()
+    service = RewindShapeRecommendationService(
+        user_database_path=database_path,
+        static_database_path=tmp_path / "static.sqlite3",
+        user_dao_factory=UserDao,
+        static_dao_factory=StaticDao,
+    )
+
+    analysis = service.analyze_for_targets(
+        target_character_ids=(1,),
+        primary_character_ids=(1,),
+        strategy="focused",
+        target_grade="S",
+    )
+
+    assert analysis.required_count == 9
+    assert analysis.recommendations == ()
+    assert analysis.notice == "所需驱动超过 8 个，建议降低评分等级或使用随机倒带抽取。"
+
+    no_shortfall = service.analyze_for_targets(
+        target_character_ids=(1,),
+        primary_character_ids=(1,),
+        strategy="focused",
+        target_grade="D",
+    )
+
+    assert no_shortfall.required_count == 0
+    assert no_shortfall.notice == "已读取所选角色的保存方案；没有低于 D 评分等级的已装配驱动。"
 
 
 def test_target_role_picker_includes_account_custom_roles(tmp_path) -> None:

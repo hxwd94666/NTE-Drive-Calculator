@@ -37,6 +37,7 @@ class WarehouseStateManagementPlan:
     snapshot_id: int
     changes: tuple[dict[str, Any], ...]
     filter_summary: dict[str, int]
+    command_projection_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class WarehouseStateManagementResult:
     after_snapshot_id: int | None = None
     verified: bool = False
     verification_error: str | None = None
+    inventory_reduction_observed: bool = False
 
 
 def _compat_uid(row: Mapping[str, Any]) -> str:
@@ -156,6 +158,7 @@ class WarehouseStateManagementService:
             snapshot_id=snapshot_id,
             changes=tuple(changes),
             filter_summary=dict(evaluation.filter_summary),
+            command_projection_allowed=True,
         )
 
     def plan_manual_changes(
@@ -213,6 +216,7 @@ class WarehouseStateManagementService:
             snapshot_id=snapshot_id,
             changes=tuple(changes),
             filter_summary={},
+            command_projection_allowed=True,
         )
 
     def apply(
@@ -270,6 +274,7 @@ class WarehouseStateManagementService:
                 (row["uid_slot"], row["uid_serial"]): row
                 for row in user_dao.list_inventory_items(plan.snapshot_id)
             }
+            action_snapshot_cursor: int | None = None
             # State RPCs can produce a scoped inventory response.  Keep the
             # current pointer pinned to snapshots containing this frozen full
             # UID set until the write-result reconciliation has completed.
@@ -277,7 +282,22 @@ class WarehouseStateManagementService:
             # the partial response is ignored rather than imported as current.
             begin_guard = getattr(self.sync_service, "begin_full_inventory_guard", None)
             if plan.changes and callable(begin_guard):
-                guard_token = begin_guard(frozenset(current_rows))
+                frozen_uids = frozenset(current_rows)
+                try:
+                    guard_token = begin_guard(
+                        frozen_uids,
+                        source_snapshot_id=plan.snapshot_id,
+                    )
+                except TypeError:
+                    # Keep old test doubles and older sync adapters usable;
+                    # the production service receives the source snapshot and
+                    # can persist only the observed state overlay.
+                    guard_token = begin_guard(frozen_uids)
+                cursor_reader = getattr(
+                    self.sync_service, "scoped_equipment_snapshot_cursor", None,
+                )
+                if callable(cursor_reader):
+                    action_snapshot_cursor = int(cursor_reader())
             applied_changes: list[dict[str, Any]] = []
             total_changes = len(plan.changes)
             try:
@@ -304,8 +324,27 @@ class WarehouseStateManagementService:
                     applied_change = dict(change)
                     applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
                     applied_changes.append(applied_change)
+                if plan.command_projection_allowed and applied_changes:
+                    projector = getattr(
+                        user_dao, "apply_inventory_command_state_projection", None,
+                    )
+                    if callable(projector):
+                        projector(
+                            plan.snapshot_id,
+                            self._command_state_projection(current_rows, applied_changes),
+                        )
             except BaseException:
                 if guard_token is not None:
+                    finish_guard = getattr(self.sync_service, "finish_full_inventory_guard", None)
+                    if callable(finish_guard) and finish_guard(
+                        guard_token,
+                        grace_seconds=90.0,
+                    ):
+                        # A timed-out state RPC can still yield a late partial
+                        # event.  Keep filtering it from the current snapshot
+                        # while allowing the runtime-state overlay to absorb
+                        # only the observed known equipment rows.
+                        raise
                     end_guard = getattr(self.sync_service, "end_full_inventory_guard", None)
                     if callable(end_guard):
                         end_guard(guard_token)
@@ -336,7 +375,31 @@ class WarehouseStateManagementService:
                     progress_callback=progress_callback,
                 )
             )
+            if (
+                plan.command_projection_allowed
+                and after_snapshot_id is None
+                and action_snapshot_cursor is not None
+            ):
+                replaced_snapshot_id = self._replace_with_action_snapshot(
+                    plan,
+                    tuple(applied_changes),
+                    after_cursor=action_snapshot_cursor,
+                )
+                if replaced_snapshot_id is not None:
+                    after_snapshot_id = replaced_snapshot_id
+                    with self.dao_factory(self.database_path) as user_dao:
+                        rows = user_dao.list_inventory_items(replaced_snapshot_id)
+                    verified = self._count_state_mismatches(rows, tuple(applied_changes)) == 0
+                    verification_error = None if verified else verification_error
         finally:
+            reduction_reader = getattr(
+                self.sync_service, "guard_observed_inventory_reduction", None,
+            )
+            inventory_reduction_observed = bool(
+                guard_token is not None
+                and callable(reduction_reader)
+                and reduction_reader(guard_token)
+            )
             if guard_token is not None:
                 end_guard = getattr(self.sync_service, "end_full_inventory_guard", None)
                 if callable(end_guard):
@@ -348,6 +411,7 @@ class WarehouseStateManagementService:
             after_snapshot_id=after_snapshot_id,
             verified=verified,
             verification_error=verification_error,
+            inventory_reduction_observed=inventory_reduction_observed,
         )
 
     def _wait_for_confirmation(
@@ -436,6 +500,60 @@ class WarehouseStateManagementService:
                 progress_callback,
                 f"快照 #{snapshot_id} 尚有 {remaining_mismatches} 件未确认，继续等待…",
             )
+
+    @staticmethod
+    def _command_state_projection(
+        current_rows: Mapping[tuple[int, int], Mapping[str, Any]],
+        changes: list[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Apply only submitted one-key state targets over known snapshot rows."""
+
+        projected: list[dict[str, Any]] = []
+        for change in changes:
+            equipment = change.get("equipment")
+            if not isinstance(equipment, Mapping):
+                continue
+            pair = (int(equipment.get("slot") or 0), int(equipment.get("serial") or 0))
+            row = current_rows.get(pair)
+            if row is None:
+                continue
+            target = str(change.get("target_state") or "")
+            if target not in {"normal", "locked", "discarded"}:
+                continue
+            item = dict(row)
+            item["uid"] = {"slot": pair[0], "serial": pair[1]}
+            item["locked"] = target == "locked"
+            item["discarded"] = target == "discarded"
+            projected.append(item)
+        return projected
+
+    def _replace_with_action_snapshot(
+        self,
+        plan: WarehouseStateManagementPlan,
+        changes: tuple[dict[str, Any], ...],
+        *,
+        after_cursor: int,
+    ) -> int | None:
+        """Replace inventory only from this action's packet covering all targets."""
+
+        waiter = getattr(self.sync_service, "wait_for_action_inventory_snapshot", None)
+        if not callable(waiter):
+            return None
+        required_uids = frozenset(
+            (int(change["equipment"]["slot"]), int(change["equipment"]["serial"]))
+            for change in changes
+            if isinstance(change.get("equipment"), Mapping)
+        )
+        if not required_uids:
+            return None
+        try:
+            packet = waiter(required_uids, after_cursor=after_cursor, timeout=0.0)
+        except TimeoutError:
+            return None
+        with self.dao_factory(self.database_path) as user_dao:
+            if user_dao.current_inventory_snapshot_id() != plan.snapshot_id:
+                return None
+            return int(user_dao.import_inventory_snapshot(packet, source="nte_core"))
 
     @staticmethod
     def _report_progress(

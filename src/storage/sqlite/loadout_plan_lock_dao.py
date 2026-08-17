@@ -152,16 +152,17 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
         )
 
     def assert_allocation_lock_invariants(self) -> None:
-        """Reject historical duplicate ownership between two locked plans."""
+        """Reject locked UID ownership shared by different characters."""
 
         owners: dict[tuple[int, int], int] = {}
         for plan in self.list_allocation_locked_loadout_plans():
+            character_id = int(plan["character_id"])
             for item in plan.get("assignments") or ():
                 uid = (int(item["uid_slot"]), int(item["uid_serial"]))
                 if uid[0] <= 0:
                     continue
-                previous = owners.setdefault(uid, int(plan["plan_id"]))
-                if previous != int(plan["plan_id"]):
+                previous_character_id = owners.setdefault(uid, character_id)
+                if previous_character_id != character_id:
                     raise UserDataValidationError(
                         "两个锁定方案占用了同一装备，无法自动修复；请先解除其中一个方案的锁定"
                     )
@@ -234,6 +235,8 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
         locked_uids: set[tuple[int, int]] = set()
         for plan in self.list_allocation_locked_loadout_plans():
             if int(plan.get("slot_id") or 0) == raw_slot_id:
+                continue
+            if int(plan["character_id"]) == int(slot["character_id"]):
                 continue
             owner_snapshot_id = plan.get("source_snapshot_id")
             if source_snapshot_id is not None and owner_snapshot_id is not None:

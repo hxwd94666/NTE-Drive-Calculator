@@ -1,7 +1,6 @@
 # 编排扫描、解析、文件生命周期与进度回调。
 """Scanning workflow implementation used by ScanningController."""
 
-
 from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
@@ -28,12 +27,10 @@ from src.features.scanning.scan_contracts import (
     offline_scope_replaces_inventory,
     vision_cancel_message,
 )
+from src.features.scanning.post_action_summary import append_state_mismatch_summary
 from src.domain.post_actions import post_actions_enabled, validate_post_action_config
 from src.features.scanning.vision_worker import VisionWorkerThread
-from src.services.full_visual_snapshot_commit import (
-    IncompleteVisionScanError,
-    commit_completed_vision_inventory,
-)
+from src.services.full_visual_snapshot_commit import IncompleteVisionScanError, commit_completed_vision_inventory
 from src.utils.logger import logger
 
 def _page_execute(self):
@@ -165,6 +162,8 @@ def _do_exec(self):
             preference_error,
         )
         return
+    if not parse_only and not self._allocation_filter_settings_are_valid():
+        return
     if not parse_only and not self._confirm_unsaved_allocation_before_recompute():
         return
     post_actions_config = None
@@ -193,6 +192,7 @@ def _do_exec(self):
     self._pending_crit_rate_caps = crc
     self._pending_set_effect_modes = sem
     self._pending_priority_groups = pg
+    self._pending_filter_settings = self._allocation_filter_settings
     self._pending_archive_paths = []
     self._pending_parse_only = parse_only
 
@@ -230,6 +230,7 @@ def _do_exec(self):
             priority_groups=pg,
             crit_rate_caps=crc,
             custom_weapons=cw,
+            filter_settings=self._allocation_filter_settings,
         )
 
 
@@ -455,6 +456,7 @@ def _on_vision_done(self, stats):
             filtered_parts.append(f"类型范围过滤 {int(stats.get('post_action_type_range_filtered_count', 0) or 0)} 件")
         if filtered_parts:
             summary += "\n" + "，".join(filtered_parts) + "。"
+        summary = append_state_mismatch_summary(summary, stats)
     details = []
     if post.get("moved_failed"):
         details.append(f"失败截图已移动到 failed 文件夹 {post['moved_failed']} 张。")
@@ -546,7 +548,7 @@ def _start_scan(self, drone_mode):
     self._scan_worker.scan_done.connect(self._on_scan_done)
     self._scan_worker.error.connect(self._on_scan_error)
     self._start_scan_hotkeys(drone_mode)
-    self.btn_run.setText("⏳  扫描中... (F12 停止)")
+    self.btn_run.setText(f"⏳  扫描中... ({self._hotkey_manager.configuration.stop} 停止)")
     self._scan_worker.start()
 
 
@@ -628,7 +630,7 @@ def _start_gamepad_scan(
     self._gamepad_worker.error.connect(self._on_gamepad_error)
     self._start_scan_hotkeys(capture_driver)
     label = "鼠标" if capture_driver == "mouse" else "手柄"
-    self.btn_run.setText(f"⏳  {label}扫描/解析中... (F12 停止)")
+    self.btn_run.setText(f"⏳  {label}扫描/解析中... ({self._hotkey_manager.configuration.stop} 停止)")
     self._gamepad_worker.start()
 
 

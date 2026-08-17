@@ -11,6 +11,10 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
+from src.domain.crit_threshold import (
+    meets_preference_grade_limit,
+    preference_config_active,
+)
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult
 
@@ -79,8 +83,15 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
         return unique
 
     def _repair_quality_allowed(self, role: str, item: Drive | Tape, config: dict | None) -> bool:
-        del role
-        return not isinstance(item, Drive) or self._item_allowed_for_role(item, config)
+        if not self._item_allowed_for_role(item, config):
+            return False
+        if not preference_config_active(config):
+            return True
+        return meets_preference_grade_limit(
+            float(item.role_scores.get(role, 0.0)),
+            int(item.area or 1),
+            config,
+        )
 
     def _repair_tape_candidates(
         self,

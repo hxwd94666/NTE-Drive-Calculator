@@ -81,7 +81,8 @@ class OnboardingGuide:
 
         image_label = QLabel()
         image_label.setAlignment(Qt.AlignCenter)
-        image_label.setMinimumSize(720, 500)
+        # Let the image yield space to navigation/actions on scaled notebooks.
+        image_label.setMinimumSize(360, 240)
         layout.addWidget(image_label, 1)
 
         index = {"value": 0}

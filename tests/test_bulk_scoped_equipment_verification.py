@@ -1,3 +1,4 @@
+# 测试批量装配局部事件复核。
 """Verify role-scoped residual events without replacing a full snapshot."""
 
 from __future__ import annotations
@@ -185,3 +186,58 @@ def test_dispatched_role_keeps_job_item_id_for_later_scoped_confirmation() -> No
         Dao(), ApplyService(), prepared, 7, applied, [], 99, None
     ) is None
     assert applied[0]["job_item_id"] == 20
+
+
+def test_dispatched_roles_project_target_loadouts_before_any_snapshot_arrives() -> None:
+    class Dao:
+        def __init__(self) -> None:
+            self.projected = []
+
+        def list_inventory_items(self, snapshot_id):
+            assert snapshot_id == 7
+            return [
+                {
+                    "uid_slot": 8, "uid_serial": 9, "kind": "module",
+                    "locked": False, "discarded": False, "equipped": False,
+                    "equipped_character_id": None, "equipped_character_uid": None,
+                    "equipped_placement": None,
+                },
+                {
+                    "uid_slot": 8, "uid_serial": 10, "kind": "module",
+                    "locked": False, "discarded": False, "equipped": True,
+                    "equipped_character_id": 1001,
+                    "equipped_character_uid": {"slot": 1, "serial": 2},
+                    "equipped_placement": {"row": 5, "column": 5},
+                },
+            ]
+
+        def get_loadout_plan(self, plan_id):
+            assert plan_id == 10
+            return {"assignments": [{
+                "uid_slot": 8, "uid_serial": 9, "kind": "module",
+                "target_row": 2, "target_column": 3,
+            }]}
+
+        def apply_inventory_command_state_projection(self, snapshot_id, rows):
+            self.projected.append((snapshot_id, rows))
+            return len(rows)
+
+    dao = Dao()
+    service = BulkEquipmentApplyService("unused.sqlite3", object())
+    updated = service._project_dispatched_loadouts(
+        dao,
+        [{
+            "plan_id": 10,
+            "character_id": 1001,
+            "character_uid": {"slot": 1, "serial": 2},
+        }],
+        snapshot_id=7,
+    )
+
+    assert updated == 2
+    assert dao.projected[0][0] == 7
+    by_uid = {(row["uid"]["slot"], row["uid"]["serial"]): row for row in dao.projected[0][1]}
+    assert by_uid[(8, 9)]["equipped"] is True
+    assert by_uid[(8, 9)]["equipped_character_id"] == 1001
+    assert by_uid[(8, 9)]["equipped_placement"] == {"row": 2, "column": 3}
+    assert by_uid[(8, 10)]["equipped"] is False

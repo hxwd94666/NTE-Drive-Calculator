@@ -50,6 +50,8 @@ def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
     assert service.saved["main_character_ids"] == []
     assert service.saved["strategy"] == "balanced"
     assert service.saved["target_grade"] == "S"
+    assert service.saved["target_threshold_mode"] == "grade"
+    assert service.saved["target_custom_percent"] is None
     assert service.saved["rewind_qualities"] == ["purple", "gold"]
     assert service.saved["rewind_drive_customization"] == "enabled"
     reopened = _RewindRecommendationDialog(service, None)
@@ -57,6 +59,100 @@ def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
         qualities=("purple", "gold"),
         drive_customization="enabled",
     )
+
+
+def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    from src.features.toolbox import page as toolbox_page
+    from src.features.toolbox.page import _RewindRecommendationDialog
+
+    class Service:
+        def __init__(self) -> None:
+            self.saved = {}
+            self.request = None
+
+        def load_preferences(self):
+            return dict(self.saved)
+
+        def save_preferences(self, value):
+            self.saved = dict(value)
+
+        def analyze_for_targets(self, **kwargs):
+            self.request = kwargs
+            return object()
+
+    class ImmediateWorker:
+        def __init__(self, *, target, parent=None) -> None:
+            self.target = target
+            self.parent = parent
+            self.result_ready = type("Signal", (), {"connect": lambda *_args: None})()
+            self.error = type("Signal", (), {"connect": lambda *_args: None})()
+            self.finished = type("Signal", (), {"connect": lambda *_args: None})()
+
+        def start(self) -> None:
+            self.target()
+
+        def deleteLater(self) -> None:
+            pass
+
+    QApplication.instance() or QApplication([])
+    service = Service()
+    dialog = _RewindRecommendationDialog(service, None)
+    assert dialog._custom_percent_input.text() == ""
+    assert dialog._custom_percent_input.width() == 60
+    grade_help = next(
+        button
+        for button in dialog.findChildren(QPushButton, "btnHelp")
+        if "评分等级" in button.toolTip()
+    )
+    shown: dict[str, str] = {}
+    def capture_message(message):
+        shown.update(
+            title=message.windowTitle(),
+            detail=message.text(),
+            icon=message.icon(),
+        )
+        return 0
+
+    monkeypatch.setattr(toolbox_page.QMessageBox, "exec", capture_message)
+    grade_help.click()
+    assert shown["title"] == "自选评分等级说明"
+    assert shown["icon"] == toolbox_page.QMessageBox.Icon.NoIcon
+    assert shown["detail"].splitlines() == [
+        "D：0%", "C：20%", "B：30%", "A：40%", "S：50%", "SS：60%", "SSS：70%", "ACE：80%",
+        "自选：以填写百分比为准",
+    ]
+    dialog._target_character_ids = {1004}
+    dialog._set_custom_target()
+    dialog._custom_percent_input.setValue(90.0)
+
+    assert service.saved["target_threshold_mode"] == "custom"
+    assert service.saved["target_custom_percent"] == 90.0
+    assert dialog._custom_percent_input.isEnabled()
+
+    reopened = _RewindRecommendationDialog(service, None)
+    assert reopened._target_threshold_mode == "custom"
+    assert reopened._custom_percent_input.value() == 90.0
+    assert reopened._custom_percent_input.isEnabled()
+
+    monkeypatch.setattr(toolbox_page, "WorkerThread", ImmediateWorker)
+    dialog._refresh_analysis()
+
+    assert service.request is not None
+    assert service.request["target_grade"] == "S"
+    assert service.request["target_custom_percent"] == 90.0
+
+
+def test_rewind_custom_percentage_spin_buttons_have_theme_contrast() -> None:
+    from src.app.theme import DARK_STYLE
+
+    assert "QDoubleSpinBox#rewindCustomPercent:enabled" in DARK_STYLE
+    assert "QToolButton#rewindPercentStepUp" in DARK_STYLE
+    assert "background:#1f6feb33" in DARK_STYLE
+    assert "border:1px solid #58a6ff" in DARK_STYLE
+    assert "color:#58a6ff" in DARK_STYLE
+    assert "min-width:20px" in DARK_STYLE
 
 
 def test_rewind_execution_dialog_marks_experimental_prerequisite_and_disables_custom_for_blue_only() -> None:
@@ -197,6 +293,87 @@ def test_rewind_execution_replaces_deleted_worker_and_clears_finished_reference(
     worker.finished.emit()
     assert host._rewind_worker is None
     assert worker.deleted
+
+
+def test_rewind_execution_registers_and_releases_the_global_stop_hotkey(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    from src.features.toolbox import rewind_execution_ui
+    from src.features.toolbox.page import _RewindRecommendationDialog
+    from src.features.toolbox.rewind_execution_dialog import RewindExecutionDialog
+
+    class Signal:
+        def __init__(self) -> None:
+            self.callbacks = []
+
+        def connect(self, callback) -> None:
+            self.callbacks.append(callback)
+
+        def emit(self) -> None:
+            for callback in tuple(self.callbacks):
+                callback()
+
+    class FakeWorker:
+        def __init__(self, target, parent=None) -> None:
+            self.target = target
+            self.parent = parent
+            self.result_ready = Signal()
+            self.error = Signal()
+            self.finished = Signal()
+
+        def start(self) -> None:
+            pass
+
+        def deleteLater(self) -> None:
+            pass
+
+    class FakeHotkeys:
+        def __init__(self) -> None:
+            self.configuration = SimpleNamespace(stop="F8")
+            self.active_owner = None
+            self.on_stop = None
+
+        def start(self, *, owner, on_stop) -> None:
+            self.active_owner = owner
+            self.on_stop = on_stop
+
+        def stop(self, *, owner) -> None:
+            if self.active_owner == owner:
+                self.active_owner = None
+
+    class Service:
+        def load_preferences(self):
+            return {}
+
+    QApplication.instance() or QApplication([])
+    host = QWidget()
+    hotkeys = FakeHotkeys()
+    host.global_hotkey_manager = hotkeys
+    dialog = _RewindRecommendationDialog(Service(), host)
+    execution_dialog = RewindExecutionDialog(dialog)
+    assert execution_dialog._stop_hotkey_label() == "F8"
+    dialog._rewind_foreground_settle_seconds = 0
+    captured = {}
+    monkeypatch.setattr(rewind_execution_ui, "WorkerThread", FakeWorker)
+    monkeypatch.setattr(dialog, "_prepare_rewind_game_foreground", lambda: None)
+    monkeypatch.setattr(
+        rewind_execution_ui,
+        "execute_rewind_request",
+        lambda _request, *, should_stop: captured.setdefault("stopped", should_stop()),
+    )
+
+    dialog._start_rewind_execution()
+
+    worker = dialog._rewind_worker
+    assert isinstance(worker, FakeWorker)
+    assert hotkeys.active_owner == "rewind_execution"
+    assert hotkeys.on_stop is not None
+    hotkeys.on_stop()
+    assert worker.target() is True
+    worker.finished.emit()
+    assert hotkeys.active_owner is None
 
 
 def test_rewind_open_prefers_saved_plan_and_replacement_has_all_twelve_shapes() -> None:

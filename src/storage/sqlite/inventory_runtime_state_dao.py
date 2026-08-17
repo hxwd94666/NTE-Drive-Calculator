@@ -1,3 +1,4 @@
+# 读写库存装备运行时状态增量。
 """Store temporary game-state deltas above an immutable inventory snapshot."""
 
 from __future__ import annotations
@@ -19,8 +20,14 @@ class InventoryRuntimeStateDaoMixin(UserDataDaoMixinHost):
         *,
         observed_at_unix_ms: int | None = None,
         sequence: int | None = None,
+        force: bool = False,
     ) -> int:
-        """Merge observed item state only when ``snapshot_id`` is still current."""
+        """Merge item state only when ``snapshot_id`` is still current.
+
+        Normal callers supply observed nte-core state.  A state-changing RPC
+        may use ``force`` for its accepted command projection; the next
+        observed event still wins through its sequence/timestamp ordering.
+        """
 
         frozen_snapshot_id = _integer(snapshot_id, "snapshot_id", minimum=1)
         if not items or self.current_inventory_snapshot_id() != frozen_snapshot_id:
@@ -69,6 +76,7 @@ class InventoryRuntimeStateDaoMixin(UserDataDaoMixinHost):
                 observed,
                 event_sequence,
                 _utc_now(),
+                int(force),
             ))
         if not prepared:
             return 0
@@ -91,7 +99,7 @@ class InventoryRuntimeStateDaoMixin(UserDataDaoMixinHost):
                     observed_at_unix_ms = excluded.observed_at_unix_ms,
                     sequence = excluded.sequence,
                     updated_at_utc = excluded.updated_at_utc
-                WHERE (
+                WHERE ? = 1 OR (
                     excluded.sequence IS NOT NULL
                     AND (
                         inventory_item_runtime_state.sequence IS NULL
@@ -113,6 +121,24 @@ class InventoryRuntimeStateDaoMixin(UserDataDaoMixinHost):
             connection.rollback()
             raise
         return len(prepared)
+
+    def apply_inventory_command_state_projection(
+        self,
+        snapshot_id: int,
+        items: Sequence[Mapping[str, Any]],
+    ) -> int:
+        """Project accepted state-changing commands over known current rows only.
+
+        This updates the warehouse view without adding/removing inventory or
+        advancing the immutable snapshot pointer.  A later nte-core event is
+        still authoritative for the same UID.
+        """
+
+        return self.apply_inventory_runtime_state_delta(
+            snapshot_id,
+            items,
+            force=True,
+        )
 
     def list_inventory_items_with_runtime_state(self, snapshot_id: int) -> list[dict[str, Any]]:
         """Project the current snapshot with non-membership-changing state deltas."""

@@ -10,8 +10,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
-from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
+from src.domain.allocation_rating import loadout_total_grade
 from src.optimizer.contracts import (
     DIFF_ADDED_UIDS,
     DIFF_CHANGED,
@@ -123,7 +123,7 @@ def _render_results(self, plan):
         added_uids = set(role_diff.get(DIFF_ADDED_UIDS, set()) or set())
         changed_uids = set(p.get(PLAN_CHANGED_UIDS, set()) or set()) if isinstance(p, dict) else set()
         total_score = p.get(PLAN_SCORE, 0)
-        total_grade = self._calc_grade(total_score, ALLOCATION_TOTAL_SCORE_AREA)
+        total_grade = loadout_total_grade(total_score)
         gc = GRADE_COLORS.get(total_grade, "#58a6ff")
         gbg = theme_rgba(gc, 0.10)
 

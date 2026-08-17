@@ -147,7 +147,11 @@ def _show_saved_plan_diff_dialog(self, role_name, diff):
 def _clear_all_equipment(self):
     database_path = _equipment_paths(self)[0]
     with UserDataDao(database_path) as dao:
-        slot_rows = getattr(dao, "list_current_loadout_slot_plans", lambda: [])()
+        slot_rows: list[dict[str, Any]] = getattr(
+            dao,
+            "list_current_loadout_slot_plans",
+            lambda: [],
+        )()
         plans = [
             (
                 str((row.get("plan", {}).get("payload") or {}).get("source_role_name") or "未知角色"),

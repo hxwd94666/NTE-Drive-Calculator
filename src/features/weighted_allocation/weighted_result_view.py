@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
-from src.domain.allocation_rating import allocation_grade
+from src.domain.allocation_rating import loadout_total_grade
 from src.features.weighted_allocation.result_equipment_card import (
     result_equipment_card,
 )
@@ -343,7 +343,7 @@ def _role_option_card(
     layout.setSpacing(10)
     core = next((item for item in option.assignments if item.kind == "core"), None)
     modules = [item for item in option.assignments if item.kind == "module"]
-    grade = allocation_grade(option.score, 35)
+    grade = loadout_total_grade(option.score)
     grade_color = GRADE_COLORS.get(grade, "#58a6ff")
     role_header = QHBoxLayout()
     role_header.setSpacing(8)

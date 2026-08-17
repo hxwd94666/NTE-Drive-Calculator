@@ -14,6 +14,7 @@ from typing import Any, Literal
 from src.integrations.nte_core import NteCoreClient
 from src.observability import OperationContext, log_event
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.utils.logger import logger
 
 from .inventory_sync_contracts import InventoryCoreClient
 from .inventory_sync_runtime import prune_raw_captures, run_inventory_sync
@@ -58,6 +59,8 @@ class ScopedEquipmentSnapshot:
     cursor: int
     items: tuple[dict[str, Any], ...]
     uid_pairs: frozenset[tuple[int, int]]
+    event_uid_pairs: frozenset[tuple[int, int]] = frozenset()
+    event_message: dict[str, Any] | None = None
 
 
 StateHandler = Callable[[InventorySyncState], None]
@@ -127,6 +130,11 @@ class InventorySyncService:
         self._snapshot_guard_source_snapshot_id: int | None = None
         self._snapshot_guard_expires_at: float | None = None
         self._snapshot_guard_generation = 0
+        self._snapshot_guard_packet_count = 0
+        self._snapshot_guard_valid_item_count = 0
+        self._snapshot_guard_known_item_count = 0
+        self._snapshot_guard_saw_full_uid_set = False
+        self._snapshot_guard_saw_declared_reduction = False
         self._scoped_snapshot_cursor = 0
         self._scoped_equipment_snapshots: list[ScopedEquipmentSnapshot] = []
         self._pending_runtime_state_deltas: list[tuple[int, tuple[dict[str, Any], ...], int | None, int | None]] = []
@@ -184,6 +192,11 @@ class InventorySyncService:
             self._snapshot_guard_source_snapshot_id = source_snapshot_id
             self._snapshot_guard_expires_at = None
             self._snapshot_guard_generation += 1
+            self._snapshot_guard_packet_count = 0
+            self._snapshot_guard_valid_item_count = 0
+            self._snapshot_guard_known_item_count = 0
+            self._snapshot_guard_saw_full_uid_set = False
+            self._snapshot_guard_saw_declared_reduction = False
         with self._state_condition:
             self._scoped_equipment_snapshots.clear()
             self._pending_runtime_state_deltas.clear()
@@ -193,14 +206,17 @@ class InventorySyncService:
     def end_full_inventory_guard(self, token: object) -> None:
         """Release a previously installed fast-apply full-inventory guard."""
 
+        diagnostic: tuple[int, int, int, bool] | None = None
         with self._snapshot_guard_lock:
             if token is not self._snapshot_guard_token:
                 return
+            diagnostic = self._snapshot_guard_diagnostic_locked()
             self._snapshot_guard_token = None
             self._snapshot_guard_uids = None
             self._snapshot_guard_source_snapshot_id = None
             self._snapshot_guard_expires_at = None
             self._snapshot_guard_generation += 1
+        self._log_guard_diagnostic(diagnostic)
         with self._state_condition:
             self._scoped_equipment_snapshots.clear()
             self._pending_runtime_state_deltas.clear()
@@ -223,6 +239,15 @@ class InventorySyncService:
             self._snapshot_guard_expires_at = float("inf")
         return True
 
+    def guard_observed_inventory_reduction(self, token: object) -> bool:
+        """Return whether this guarded action received a smaller declared count."""
+
+        with self._snapshot_guard_lock:
+            return bool(
+                token is self._snapshot_guard_token
+                and self._snapshot_guard_saw_declared_reduction
+            )
+
     def _full_inventory_guard(self) -> tuple[int, frozenset[tuple[int, int]] | None]:
         with self._snapshot_guard_lock:
             expires_at = self._snapshot_guard_expires_at
@@ -244,17 +269,37 @@ class InventorySyncService:
     ) -> None:
         """Release only a finished guard once its full frozen inventory returns."""
 
+        diagnostic: tuple[int, int, int, bool] | None = None
         with self._snapshot_guard_lock:
             if (
                 self._snapshot_guard_expires_at is None
                 or self._snapshot_guard_uids != expected_uids
             ):
                 return
+            diagnostic = self._snapshot_guard_diagnostic_locked()
             self._snapshot_guard_token = None
             self._snapshot_guard_uids = None
             self._snapshot_guard_source_snapshot_id = None
             self._snapshot_guard_expires_at = None
             self._snapshot_guard_generation += 1
+        self._log_guard_diagnostic(diagnostic)
+
+    def _snapshot_guard_diagnostic_locked(self) -> tuple[int, int, int, bool]:
+        return (
+            self._snapshot_guard_packet_count,
+            self._snapshot_guard_valid_item_count,
+            self._snapshot_guard_known_item_count,
+            self._snapshot_guard_saw_full_uid_set,
+        )
+
+    @staticmethod
+    def _log_guard_diagnostic(diagnostic: tuple[int, int, int, bool] | None) -> None:
+        if diagnostic is None:
+            return
+        logger.info(
+            "快照守卫测试结果：收到背包事件={}，事件内有效装备={}，命中冻结库存={}，完整UID集合={}",
+            *diagnostic,
+        )
 
     def equip_one_key(
         self,
@@ -465,6 +510,70 @@ class InventorySyncService:
                     raise TimeoutError("等待角色装配局部快照超时")
                 self._state_condition.wait(remaining)
 
+    def wait_for_observed_equipment_snapshot(
+        self,
+        required_uids: frozenset[tuple[int, int]],
+        *,
+        after_cursor: int,
+        timeout: float = 30.0,
+    ) -> ScopedEquipmentSnapshot:
+        """Return cached target rows as soon as any post-dispatch target appears."""
+
+        expected = frozenset((int(slot), int(serial)) for slot, serial in required_uids)
+        if not expected:
+            raise ValueError("角色局部复核至少需要一件装备 UID")
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._state_condition:
+            while True:
+                fragments = [
+                    snapshot
+                    for snapshot in self._scoped_equipment_snapshots
+                    if snapshot.cursor > int(after_cursor)
+                ]
+                merged: dict[tuple[int, int], dict[str, Any]] = {}
+                for snapshot in fragments:
+                    for item in snapshot.items:
+                        pair = (int(item["uid"]["slot"]), int(item["uid"]["serial"]))
+                        if pair in expected:
+                            merged[pair] = item
+                if merged:
+                    return ScopedEquipmentSnapshot(
+                        cursor=max(snapshot.cursor for snapshot in fragments),
+                        items=tuple(merged[key] for key in sorted(merged)),
+                        uid_pairs=frozenset(merged),
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("等待角色装配局部快照超时")
+                self._state_condition.wait(remaining)
+
+    def wait_for_action_inventory_snapshot(
+        self,
+        required_uids: frozenset[tuple[int, int]],
+        *,
+        after_cursor: int,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        """Return one action-scoped packet that contains every requested UID."""
+
+        expected = frozenset((int(slot), int(serial)) for slot, serial in required_uids)
+        if not expected:
+            raise ValueError("状态管理快照至少需要一件装备 UID")
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._state_condition:
+            while True:
+                for scoped in self._scoped_equipment_snapshots:
+                    if (
+                        scoped.cursor > int(after_cursor)
+                        and expected.issubset(scoped.event_uid_pairs)
+                        and scoped.event_message is not None
+                    ):
+                        return dict(scoped.event_message)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("等待覆盖全部目标的状态管理快照超时")
+                self._state_condition.wait(remaining)
+
     def _capture_scoped_equipment_snapshot(self, event: Mapping[str, Any]) -> None:
         """Keep guarded subset events for role verification without persisting them."""
 
@@ -476,10 +585,13 @@ class InventorySyncService:
         if not isinstance(payload, Mapping):
             return
         items = payload.get("items")
-        if not isinstance(items, list) or not items:
+        if not isinstance(items, list):
             return
         parsed_items: list[dict[str, Any]] = []
         uid_pairs: set[tuple[int, int]] = set()
+        event_uid_pairs: set[tuple[int, int]] = set()
+        event_items: list[dict[str, Any]] = []
+        valid_item_count = 0
         for item in items:
             if not isinstance(item, Mapping) or not isinstance(item.get("uid"), Mapping):
                 return
@@ -490,6 +602,9 @@ class InventorySyncService:
                 return
             if slot <= 0 or serial <= 0:
                 continue
+            valid_item_count += 1
+            event_uid_pairs.add((slot, serial))
+            event_items.append(dict(item))
             # A scoped response may contain unrelated rows (for example a
             # just-acquired item).  It still supplies useful state for the
             # frozen inventory rows it does contain.  Unknown rows must not
@@ -502,6 +617,19 @@ class InventorySyncService:
             normalized["uid_serial"] = serial
             uid_pairs.add((slot, serial))
             parsed_items.append(normalized)
+        with self._snapshot_guard_lock:
+            if allowed_uids != self._snapshot_guard_uids:
+                return
+            self._snapshot_guard_packet_count += 1
+            self._snapshot_guard_valid_item_count += valid_item_count
+            self._snapshot_guard_known_item_count += len(uid_pairs)
+            self._snapshot_guard_saw_full_uid_set |= uid_pairs == allowed_uids
+            declared_count = payload.get("item_count")
+            self._snapshot_guard_saw_declared_reduction |= (
+                isinstance(declared_count, int)
+                and declared_count >= 0
+                and declared_count < len(allowed_uids)
+            )
         if not uid_pairs:
             return
         with self._state_condition:
@@ -511,6 +639,12 @@ class InventorySyncService:
                     cursor=self._scoped_snapshot_cursor,
                     items=tuple(parsed_items),
                     uid_pairs=frozenset(uid_pairs),
+                    event_uid_pairs=frozenset(event_uid_pairs),
+                    event_message={
+                        "jsonrpc": str(event.get("jsonrpc") or "2.0"),
+                        "method": "event.inventory.snapshot",
+                        "params": {**dict(payload), "items": event_items},
+                    },
                 )
             )
             if source_snapshot_id is not None:
@@ -529,6 +663,14 @@ class InventorySyncService:
             del self._scoped_equipment_snapshots[:-64]
             del self._pending_runtime_state_deltas[:-64]
             self._state_condition.notify_all()
+        logger.info(
+            "快照守卫事件诊断：声明件数={}，冻结件数={}，已知件数={}，完整标记={}，UID集合完整={}",
+            payload.get("item_count"),
+            len(allowed_uids),
+            len(uid_pairs),
+            payload.get("complete") is True,
+            uid_pairs == allowed_uids,
+        )
         if uid_pairs == allowed_uids:
             self._release_finished_guard_for_full_snapshot(allowed_uids)
 

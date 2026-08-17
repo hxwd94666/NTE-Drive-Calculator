@@ -13,6 +13,7 @@ def plan_mismatch(
     core_assignment: dict[str, Any] | None,
     character_id: int,
     character_uid: dict[str, int],
+    ignore_module_placement: bool = False,
 ) -> str | None:
     """返回完整方案与稳定快照的首个具体差异。"""
 
@@ -31,6 +32,7 @@ def plan_mismatch(
         modules=modules,
         character_id=character_id,
         character_uid=character_uid,
+        ignore_placement=ignore_module_placement,
     )
     if mismatch is not None:
         return mismatch
@@ -94,7 +96,7 @@ def scoped_plan_mismatch(
         uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
         item = by_uid.get(uid_pair)
         if item is None:
-            return f"装备 UID {uid_pair} 不在复核快照中"
+            continue
         if not item["equipped"]:
             return f"装备 UID {uid_pair} 未装备"
     return None
@@ -107,6 +109,7 @@ def module_plan_mismatch(
     character_id: int,
     character_uid: dict[str, int],
     allow_missing_placement: bool = False,
+    ignore_placement: bool = False,
 ) -> str | None:
     """复核仅含驱动的方案，不要求更改角色当前卡带。"""
 
@@ -132,6 +135,8 @@ def module_plan_mismatch(
                 f"驱动 UID {uid_pair} 的角色实例不一致："
                 f"实际 {item['equipped_character_uid']}，目标 {character_uid}"
             )
+        if ignore_placement:
+            continue
         actual_placement = item["equipped_placement"]
         if actual_placement is None and allow_missing_placement:
             # Equipment residual packets reliably identify the equipped item

@@ -85,6 +85,9 @@ def execute_rewind_request(
     """Select each difficulty, read its balance, and spend its complete tens."""
 
     _validate_rewind_request(request)
+    stop_checker = should_stop or f12_stop_checker()
+    if stop_checker():
+        raise RuntimeError("倒带执行已停止")
     _image, rect = capture()
     relative = map_rewind_controls(screen_size=(rect.width, rect.height))
     controls = _absolute_controls(relative, rect)
@@ -98,10 +101,6 @@ def execute_rewind_request(
     enable_randomization = getattr(action_backend, "enable_randomization", None)
     if callable(enable_randomization):
         enable_randomization()
-    f12_checker = f12_stop_checker()
-    stop_checker = lambda: bool(
-        (should_stop is not None and should_stop()) or f12_checker()
-    )
     executed = 0
     total_currency = 0
     total_ten_draws = 0

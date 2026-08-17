@@ -151,9 +151,30 @@ class ScoringEngine:
             if user_dao is not None:
                 user_dao.close()
 
-    def max_theoretical_weight(self, weights: Mapping[str, float]) -> float:
+    def _stat_identity(self, stat_name: str) -> str:
+        raw = str(stat_name or "").strip()
+        normalized = self.stat_catalog.normalize_stat_name(raw, is_percent="%" in raw)
+        return self.stat_catalog.flexible_weight_name(normalized or raw)
+
+    def _uses_zero_weight(self, stat_name: str, zero_weight_stats: Mapping[str, object] | set[str] | tuple[str, ...] | list[str] | None) -> bool:
+        if not zero_weight_stats:
+            return False
+        target = self._stat_identity(stat_name)
+        return any(target == self._stat_identity(str(value)) for value in zero_weight_stats)
+
+    def max_theoretical_weight(
+        self,
+        weights: Mapping[str, float],
+        *,
+        zero_weight_stats: Mapping[str, object] | set[str] | tuple[str, ...] | list[str] | None = None,
+    ) -> float:
         if not weights: return 1.0
-        valid_sub_weights = [w for name, w in weights.items() if not any(kw in name for kw in self.main_only_keywords)]
+        valid_sub_weights = [
+            w
+            for name, w in weights.items()
+            if not any(kw in name for kw in self.main_only_keywords)
+            and not self._uses_zero_weight(name, zero_weight_stats)
+        ]
         sorted_weights = sorted(valid_sub_weights, reverse=True)
         max_sub_weight = sum(sorted_weights[:4])
         return max_sub_weight if max_sub_weight > 0 else 1.0
@@ -184,9 +205,21 @@ class ScoringEngine:
                     return w
         return 0.0
 
-    def calculate_drive_score(self, drive: Drive, weights: Dict[str, float], max_weight: float) -> float:
+    def calculate_drive_score(
+        self,
+        drive: Drive,
+        weights: Dict[str, float],
+        max_weight: float,
+        *,
+        zero_weight_stats: Mapping[str, object] | set[str] | tuple[str, ...] | list[str] | None = None,
+    ) -> float:
         if max_weight <= 0: return 0.0
-        actual_weight = sum(self.flexible_weight(stat_name, weights) for stat_name in drive.sub_stats.keys())
+        actual_weight = sum(
+            0.0
+            if self._uses_zero_weight(stat_name, zero_weight_stats)
+            else self.flexible_weight(stat_name, weights)
+            for stat_name in drive.sub_stats.keys()
+        )
         if actual_weight <= 0: return 0.0
 
         quality_coef = self.quality_map.get(drive.quality, 1.0)
@@ -304,10 +337,25 @@ class ScoringEngine:
 
             for role_name, role_data in self.roles_db.items():
                 weights = role_data.get("weights", {})
-                max_weight = self.max_theoretical_weight(weights)
+                role_config = crit_priority_modes.get(role_name)
+                zero_weight_stats = (
+                    role_config.get("blacklist", ())
+                    if isinstance(role_config, dict)
+                    and role_config.get("blacklist_zero_weight")
+                    else ()
+                )
+                max_weight = self.max_theoretical_weight(
+                    weights,
+                    zero_weight_stats=zero_weight_stats,
+                )
 
                 if isinstance(item, Drive):
-                    score = self.calculate_drive_score(item, weights, max_weight)
+                    score = self.calculate_drive_score(
+                        item,
+                        weights,
+                        max_weight,
+                        zero_weight_stats=zero_weight_stats,
+                    )
                 else:
                     main_weights = role_data["main_weights"] if "main_weights" in role_data else None
                     score = self.calculate_cartridge_score(item, weights, max_weight, main_weights)
@@ -344,9 +392,16 @@ class ScoringEngine:
                 isinstance(role_priority_config, dict)
                 and bool(role_priority_config.get("stats"))
             )
+            blacklist_zero_weight = (
+                isinstance(role_priority_config, dict)
+                and bool(role_priority_config.get("blacklist_zero_weight"))
+            )
             buckets: Dict[str, List[Drive]] = {}
             for d in valid_drives:
-                if self._item_matches_stat_blacklist(d, role_priority_config):
+                if (
+                    self._item_matches_stat_blacklist(d, role_priority_config)
+                    and not blacklist_zero_weight
+                ):
                     continue
                 priority_rank = self._priority_rank_for_item(role_name, d, role_priority_config)
                 if role_has_stat_priority or d.role_scores[role_name] > 0 or priority_rank > (0, 0):

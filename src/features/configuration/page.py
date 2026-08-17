@@ -384,13 +384,18 @@ def _add_custom_board(window, role_name, role_data, form_layout):
             button.setFixedSize(34, 30)
             def refresh(target=button, value=cell):
                 target.setText("")
-                target.setStyleSheet(
+                base_style = (
                     "QPushButton{background:#1f6feb;border:1px solid #58a6ff;"
                     "border-radius:6px;} QPushButton:hover{background:#388bfd;}"
                     if value["is_enabled"]
                     else "QPushButton{background:#161b22;border:1px solid #30363d;"
                     "border-radius:6px;} QPushButton:hover{background:#21262d;}"
                 )
+                # Inline styles are refreshed after a global theme switch.
+                # Keep the dark-theme source so an unselected cell does not
+                # retain its black-theme fill after switching to white.
+                target.setProperty("_nte_base_style", base_style)
+                target.setStyleSheet(themed_style(base_style))
             def toggle(_checked=False, value=cell, refresh_callback=refresh):
                 if not value["is_enabled"] and enabled_count() >= 20:
                     # A custom chassis has exactly 20 playable cells.  Prevent
@@ -630,7 +635,10 @@ def save_single_extra_shape_bonus(window, rn, property_id, value, data):
 
 def save_role_weight_value(window, rn, key, value, data, config_dir, weight_field="weights"):
     if rn in data and key in data[rn].get(weight_field, {}):
-        data[rn][weight_field][key] = round(float(value), 3)
+        normalized_value = round(float(value), 3)
+        if data[rn][weight_field][key] == normalized_value:
+            return
+        data[rn][weight_field][key] = normalized_value
         if getattr(window, "_current_config_name", "") == _ACCOUNT_WEIGHT_CONFIG:
             window._config_dirty_character_ids.add(int(data[rn]["character_id"]))
         save_config_data(window, data, config_dir)

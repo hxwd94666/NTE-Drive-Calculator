@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from src.domain.stat_catalog import StatCatalog
 from src.integrations.bundled_resources import bundled_config_dir
@@ -136,7 +137,7 @@ def graduation_benchmark_damage(detail: dict) -> float | None:
         "equipment_contexts": {
             **(detail.get("equipment_contexts") or {}),
             "graduation": {
-                "title": "毕业基准",
+                "title": "直伤毕业基准",
                 "available": True,
                 "items": template.get("equipment") or (),
             },
@@ -189,8 +190,8 @@ def graduation_tooltip(detail: dict) -> str:
     template = graduation_template_with_weight_substats(detail) or {}
     equipment = template.get("equipment") or ()
     if not isinstance(equipment, (list, tuple)):
-        return "毕业基准尚未生成。"
-    core = next(
+        return "直伤毕业基准尚未生成。"
+    core: dict[str, Any] = next(
         (
             item
             for item in equipment
@@ -198,7 +199,7 @@ def graduation_tooltip(detail: dict) -> str:
         ),
         {},
     )
-    main = next(iter(core.get("main_stats") or ()), {})
+    main: dict[str, Any] = next(iter(core.get("main_stats") or ()), {})
     main_text = _stat_text(detail, main) if main else "未记录"
     aggregated_substats: dict[tuple[str, bool], dict] = {}
     for item in equipment:
@@ -222,11 +223,12 @@ def graduation_tooltip(detail: dict) -> str:
         for index in range(0, len(substat_text), 3)
     ]
     lines = [
-        "毕业基准（满级角色、满级精1专属弧盘）：",
+        "直伤毕业基准（满级角色、满级专武）：",
         f"卡带主词条：{main_text}",
         "毕业副词条：" + (substat_lines[0] if substat_lines else "未记录"),
     ]
     lines.extend(f"　　　　　{line}" for line in substat_lines[1:])
+    lines.append("仅输出角色有效，且只计算直伤，未统计机制伤害和拐力。")
     return "\n".join(lines)
 
 

@@ -413,6 +413,73 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
 
         self.assertEqual([False], [call["cloud_nte_mode"] for call in calls])
 
+    def test_automatic_assembly_uses_configured_global_stop_hotkey(self):
+        import src.features.inventory.equipment_automatic_assembly_controller as page_module
+
+        class Signal:
+            def connect(self, _callback):
+                return None
+
+        class FakeWorker:
+            def __init__(self, *, target, parent):
+                self.target = target
+                self.parent = parent
+                self.result_ready = Signal()
+                self.error = Signal()
+
+            def start(self):
+                return None
+
+        class Hotkeys:
+            def __init__(self):
+                self.configuration = SimpleNamespace(stop="F8")
+                self.active_owner = None
+                self.stop_callback = None
+
+            def start(self, *, owner, on_stop):
+                self.active_owner = owner
+                self.stop_callback = on_stop
+
+            def stop(self, *, owner):
+                if owner == self.active_owner:
+                    self.active_owner = None
+
+        calls = []
+        old_worker = page_module.WorkerThread
+        old_state = page_module._sqlite_automatic_assembly_state
+        old_aliases = page_module._prompt_protagonist_alias_if_needed
+        old_question = page_module.QMessageBox.question
+        old_execute = page_module.execute_selected_role_from_current_game_page
+        old_paths = page_module._assembly_runtime_paths
+        try:
+            page_module.WorkerThread = FakeWorker
+            page_module._sqlite_automatic_assembly_state = lambda *_args, **_kwargs: {"角色": {}}
+            page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
+            page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Ok
+            page_module.execute_selected_role_from_current_game_page = (
+                lambda *_args, **kwargs: calls.append(kwargs)
+            )
+            page_module._assembly_runtime_paths = lambda _window: (Path("templates"), Path("record"))
+
+            hotkeys = Hotkeys()
+            window = SimpleNamespace(
+                user_database_path="unused.sqlite3",
+                global_hotkey_manager=hotkeys,
+            )
+            page_module._start_automatic_equipment_assembly(window, ["角色"])
+            self.assertEqual("automatic_equipment_apply", hotkeys.active_owner)
+            hotkeys.stop_callback()
+            window._automatic_equipment_apply_worker.target()
+        finally:
+            page_module.WorkerThread = old_worker
+            page_module._sqlite_automatic_assembly_state = old_state
+            page_module._prompt_protagonist_alias_if_needed = old_aliases
+            page_module.QMessageBox.question = old_question
+            page_module.execute_selected_role_from_current_game_page = old_execute
+            page_module._assembly_runtime_paths = old_paths
+
+        self.assertTrue(calls[0]["should_stop"]())
+
     def test_single_role_f12_stop_restores_equipment_page_before_dialog(self):
         from src.features.inventory.page import _return_to_equipment_after_assembly
 

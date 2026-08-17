@@ -12,7 +12,15 @@ import mss
 import mss.tools
 import numpy as np
 
-from src.scanner.window_capture import capture_foreground_window, game_content_rect
+from src.integrations.vision.mouse_scan_input import (
+    PyAutoGuiMouseScanInput,
+    inventory_top_reset_swipe_points,
+)
+from src.scanner.window_capture import (
+    capture_foreground_window,
+    game_content_rect,
+    get_foreground_client_rect,
+)
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -158,6 +166,7 @@ class GamepadScanner:
         self.cols = 7
         self._closed = False
         self.action_profile = DEFAULT_SCAN_PROFILE
+        self._inventory_reset_input: PyAutoGuiMouseScanInput | None = None
 
         logger.info("正在连接虚拟 Xbox 360 手柄...")
         try:
@@ -195,7 +204,7 @@ class GamepadScanner:
 
     def emergency_stop(self):
         logger.error("\n" + "!" * 50)
-        logger.error("接收到 F12 指令，已紧急停止")
+        logger.error("接收到全局停止键指令，已紧急停止")
         logger.error("!" * 50)
         self._stopped = True
 
@@ -215,6 +224,25 @@ class GamepadScanner:
         if os.path.exists(self.capture_dir):
             shutil.rmtree(self.capture_dir, ignore_errors=True)
         os.makedirs(self.capture_dir, exist_ok=True)
+
+    def _drag_inventory_list_to_top(self) -> None:
+        """Run the mouse list reset before the established gamepad scan path."""
+
+        if self._stopped:
+            return
+        input_driver = getattr(self, "_inventory_reset_input", None)
+        if input_driver is None:
+            input_driver = PyAutoGuiMouseScanInput()
+            self._inventory_reset_input = input_driver
+        rect = get_foreground_client_rect()
+        left, top, width, height = game_content_rect(rect.width, rect.height)
+        start, end = inventory_top_reset_swipe_points(
+            left=rect.left + left,
+            top=rect.top + top,
+            width=width,
+            height=height,
+        )
+        input_driver.drag(start, end, hold_seconds=0.3, duration_seconds=0.6)
 
     def _commit_temp_output(self):
         self._clear_output_images()
@@ -702,6 +730,9 @@ class GamepadScanner:
         if not 0 < total_drives <= self.MAX_INVENTORY_COUNT:
             raise ValueError(f"库存数量必须在 1-{self.MAX_INVENTORY_COUNT} 之间。")
 
+        self._drag_inventory_list_to_top()
+        if self._stopped:
+            return 0
         logger.info("\n====== 发送撞墙唤醒信号 ======")
         self.push_left_joystick(-1.0, 0.0)
         time.sleep(profile.wall_wake_settle_seconds)

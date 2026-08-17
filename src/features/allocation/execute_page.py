@@ -266,6 +266,25 @@ def _build_priority_card(window, layout, role_selector_cls):
 
 def _build_strategy_card(window, layout):
     strategy_card = window._card("第三步 · 分配策略")
+    title_item = strategy_card.layout().takeAt(0)
+    title_label = title_item.widget() if title_item is not None else None
+    if title_label is None:
+        title_label = QLabel("第三步 · 分配策略")
+        title_label.setObjectName("cardTitle")
+    header = QHBoxLayout()
+    header.setSpacing(0)
+    header.addWidget(title_label)
+    header.addSpacing(max(1, title_label.fontMetrics().horizontalAdvance("　") // 2))
+    window.allocation_filter_settings_button = QPushButton("设置")
+    window.allocation_filter_settings_button.setObjectName("allocationFilterSettingsButton")
+    window.allocation_filter_settings_button.setFixedSize(54, 28)
+    window.allocation_filter_settings_button.clicked.connect(
+        window._open_allocation_filter_settings
+    )
+    header.addWidget(window.allocation_filter_settings_button)
+    header.addStretch(1)
+    strategy_card.layout().addLayout(header)
+
     window.strategy_group = QButtonGroup()
     strategy_options = [
         "角色优先 — 按角色顺序配装，优先照顾前排角色",

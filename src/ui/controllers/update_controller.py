@@ -19,6 +19,7 @@ from src.app.constants import (
     GITHUB_HOME_URL,
     GITHUB_LATEST_RELEASE_URL,
     GITHUB_RELEASES_URL,
+    MIRROR_PROJECT_URL,
     MIRROR_UPDATE_API,
     SUPPORT_US_URL,
 )
@@ -230,6 +231,25 @@ def _on_mirror_download_ready(self, info):
     )
     url = str(info.get("url") or "").strip()
     if url:
+        latest = str(info.get("latest") or "").strip()
+        if not _mirror_download_version_is_available(latest, APP_VERSION):
+            log_event(
+                "WARNING",
+                "update.download_historical_version_blocked",
+                "Mirror 返回的版本低于当前版本",
+                operation,
+                current_version=APP_VERSION,
+                latest_version=latest,
+            )
+            if hasattr(self, "_mirror_download_btn"):
+                self._mirror_download_btn.setEnabled(True)
+            self._update_status.setText("当前已是最新版本，无法下载历史旧版本。")
+            QMessageBox.information(
+                self,
+                "Mirror 下载",
+                "当前版本高于 Mirror 可下载版本，已是最新版本，无法下载历史旧版本。",
+            )
+            return
         log_event(
             "INFO",
             "update.download_url_received",
@@ -248,11 +268,11 @@ def _on_mirror_download_ready(self, info):
     )
     if hasattr(self, "_mirror_download_btn"):
         self._mirror_download_btn.setEnabled(True)
-    self._update_status.setText("未获取到 Mirror 下载地址。")
-    detail = info.get("message") or info.get("error") or "请确认 CDK 有效，且存在可下载的新版本。"
-    QMessageBox.information(
-        self, "Mirror 下载",
-        "未获取到下载地址。请确认 CDK 有效，且存在可下载的新版本。\n\n" + str(detail),
+    self._update_status.setText("未获取到 Mirror 下载地址，可前往项目页面尝试下载。")
+    _show_mirror_project_download_dialog(
+        self,
+        "未获取到 Mirror 下载地址。请确认 CDK 有效，且存在可下载的新版本；"
+        "若仍无法下载，可前往下方项目页面尝试下载。",
     )
 
 
@@ -345,8 +365,11 @@ def _on_mirror_installer_download_error(self, error):
         operation,
         error=message,
     )
-    self._update_status.setText("Mirror 下载失败。")
-    QMessageBox.warning(self, "Mirror 下载", "下载或启动安装程序失败，请稍后重试。\n\n" + message)
+    self._update_status.setText("Mirror 下载失败，可前往项目页面尝试下载。")
+    _show_mirror_project_download_dialog(
+        self,
+        "下载或启动安装程序失败，请稍后重试；若仍失败，可前往下方项目页面尝试下载。",
+    )
 
 
 def _launch_mirror_installer(self, path):
@@ -386,12 +409,7 @@ def _show_mirror_cdk_required_dialog(self):
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 16, 18, 16)
     layout.setSpacing(10)
-    message = QLabel(
-        "请先填写 Mirror CDK 后再下载。<br><br>"
-        "可前往 Mirror 酱获取 CDK："
-        '<a href="https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&amp;channel=stable">'
-        "https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&amp;channel=stable</a>"
-    )
+    message = QLabel("请先填写 Mirror CDK 后再下载。<br><br>" + _mirror_project_link_text("获取 CDK"))
     message.setWordWrap(True)
     message.setTextFormat(Qt.TextFormat.RichText)
     message.setOpenExternalLinks(True)
@@ -399,6 +417,44 @@ def _show_mirror_cdk_required_dialog(self):
         Qt.TextInteractionFlag.TextBrowserInteraction
     )
     layout.addWidget(message)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok)
+    buttons.accepted.connect(dialog.accept)
+    layout.addWidget(buttons)
+    dialog.exec()
+
+
+def _mirror_project_link_text(action: str) -> str:
+    """Return the visible, clickable Mirror project link used by download dialogs."""
+    return (
+        f"可前往 Mirror 项目页面{action}："
+        f'<a href="{MIRROR_PROJECT_URL}">{MIRROR_PROJECT_URL}</a>'
+    )
+
+
+def _mirror_download_version_is_available(latest: str, current: str) -> bool:
+    """Allow the current release or a newer release, never a historical one."""
+    return bool(latest) and not is_newer_version(current, latest)
+
+
+def _show_mirror_project_download_dialog(self: Any, summary: str) -> None:
+    """Show a download failure with a direct, browser-openable Mirror link."""
+    dialog = QDialog(self)
+    dialog.setWindowTitle("Mirror 下载")
+    dialog.setMinimumWidth(460)
+    if hasattr(self, "_current_style_sheet"):
+        dialog.setStyleSheet(self._current_style_sheet())
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(18, 16, 18, 16)
+    layout.setSpacing(10)
+    message = QLabel(summary)
+    message.setWordWrap(True)
+    layout.addWidget(message)
+    link = QLabel(_mirror_project_link_text("尝试下载"))
+    link.setWordWrap(True)
+    link.setTextFormat(Qt.TextFormat.RichText)
+    link.setOpenExternalLinks(True)
+    link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+    layout.addWidget(link)
     buttons = QDialogButtonBox(QDialogButtonBox.Ok)
     buttons.accepted.connect(dialog.accept)
     layout.addWidget(buttons)

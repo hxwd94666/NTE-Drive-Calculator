@@ -698,7 +698,11 @@ def _on_warehouse_state_applied(self, result):
         f"取消弃置 {summary['discard_clear_count']} 件，"
         f"取消锁定 {summary['lock_clear_count']} 件。"
     )
-    if getattr(result, "verified", False):
+    if getattr(result, "inventory_reduction_observed", False):
+        result_message += (
+            "\n\n检测到库存减少；如游戏内未分解库存，请重新在游戏登录页面背包同步。"
+        )
+    if getattr(result, "verified", False) and not getattr(result, "inventory_reduction_observed", False):
         result_message += (
             f"\n\n已通过游戏返回的新稳定快照 "
             f"#{after_snapshot_id} 确认，仓库将自动刷新。"
@@ -709,13 +713,14 @@ def _on_warehouse_state_applied(self, result):
             result_message,
         )
     else:
-        result_message += (
-            "\n\n修改指令已经提交，但尚未从游戏快照完整确认。"
-            f"\n{getattr(result, 'verification_error', None) or '等待后续背包快照确认。'}"
-        )
+        if not getattr(result, "verified", False):
+            result_message += (
+                "\n\n修改指令已经提交，但尚未从游戏快照完整确认。"
+                f"\n{getattr(result, 'verification_error', None) or '等待后续背包快照确认。'}"
+            )
         QMessageBox.warning(
             self,
-            "仓库状态待确认",
+            "检测到库存减少" if getattr(result, "inventory_reduction_observed", False) else "仓库状态待确认",
             result_message,
         )
     self._warehouse_pending_state_changes = {}

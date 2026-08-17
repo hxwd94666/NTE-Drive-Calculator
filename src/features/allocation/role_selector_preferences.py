@@ -33,6 +33,7 @@ from src.features.allocation.priority_groups import (
 )
 from src.solver.set_effects import FOUR_PIECE, NO_EFFECT, SET_EFFECT_MODES, TWO_PIECE, normalize_set_effect_mode
 from src.features.allocation.role_selector_help import (
+    CRIT_RATE_CAP_HELP,
     CRIT_THRESHOLD_HELP,
     SET_EFFECT_HELP,
     STAT_PRIORITY_HELP,
@@ -190,6 +191,10 @@ class RoleSelectorPreferencesMixin:
         stat_option_row.setSpacing(16)
         stat_equal = QCheckBox("副词条优先级一致")
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
+        blacklist_zero_weight = QCheckBox("黑名单为零权重")
+        blacklist_zero_weight.setChecked(
+            bool(current_stat_cfg.get("blacklist_zero_weight", False))
+        )
         ignore_grade_limit = QCheckBox("不限制评分等级")
         ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
         grade_label = QLabel("最低生效等级")
@@ -203,6 +208,7 @@ class RoleSelectorPreferencesMixin:
         grade_combo.setEnabled(not ignore_grade_limit.isChecked())
         stat_option_row.addWidget(stat_equal)
         stat_option_row.addWidget(ignore_grade_limit)
+        stat_option_row.addWidget(blacklist_zero_weight)
         stat_option_row.addWidget(grade_label)
         stat_option_row.addWidget(grade_combo)
         stat_option_row.addWidget(help_btn)
@@ -281,6 +287,13 @@ class RoleSelectorPreferencesMixin:
         weapon_combo.currentTextChanged.connect(apply_weapon_cap)
         crit_row.addWidget(crit_cap_edit, 1)
         crit_row.addWidget(QLabel("%"))
+        crit_cap_help = QPushButton("?")
+        crit_cap_help.setObjectName("btnHelp")
+        crit_cap_help.setFixedSize(24, 24)
+        crit_cap_help.clicked.connect(
+            lambda: self._show_help("暴击率上限", CRIT_RATE_CAP_HELP)
+        )
+        crit_row.addWidget(crit_cap_help)
         effect_layout.addLayout(crit_row)
         layout.addWidget(effect_box)
 
@@ -309,6 +322,7 @@ class RoleSelectorPreferencesMixin:
                 ignore_grade_limit.isChecked(),
                 grade_combo.currentData(),
                 crit_threshold_edit.text().strip(),
+                blacklist_zero_weight=blacklist_zero_weight.isChecked(),
             )
             cap_text = crit_cap_edit.text().strip()
             if cap_text or not selected_weapon:

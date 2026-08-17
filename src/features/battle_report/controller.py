@@ -86,6 +86,7 @@ class BattleReportController(QObject):
         self._frozen_generation: int | None = None
         self._resume_inventory = False
         self._closing = False
+        self._overlay_capture_active = False
         self._latest_state = EMPTY_BATTLE_CAPTURE_STATE
         self._page.start_requested.connect(self.start)
         self._page.stop_requested.connect(self.stop)
@@ -135,6 +136,7 @@ class BattleReportController(QObject):
                     f"停止背包同步失败，未启动战报采集：{error}",
                 )
                 return
+        self._overlay_capture_active = True
         self._overlay.clear_summary()
         if self._page.overlay_toggle.isChecked():
             self._overlay.show_overlay()
@@ -169,6 +171,8 @@ class BattleReportController(QObject):
         service.start()
 
     def stop(self) -> None:
+        self._overlay_capture_active = False
+        self._overlay.hide()
         service = self._service
         if service is not None:
             service.request_stop()
@@ -181,6 +185,7 @@ class BattleReportController(QObject):
             service.close()
         self._service = None
         self._resume_inventory = False
+        self._overlay_capture_active = False
         history_dialog = self._history_dialog
         if history_dialog is not None:
             history_dialog.reject()
@@ -203,6 +208,7 @@ class BattleReportController(QObject):
         self._page.update_state(EMPTY_BATTLE_CAPTURE_STATE)
         self._overlay.clear_summary()
         self._overlay.hide()
+        self._overlay_capture_active = False
         self._frozen_account_id = None
         self._frozen_generation = None
         self._resume_inventory = False
@@ -220,9 +226,15 @@ class BattleReportController(QObject):
         self._page.update_state(state)
         if state.summary is not None:
             self._overlay.update_summary(state.summary)
-        if state.running and self._page.overlay_toggle.isChecked():
+        if (
+            state.running
+            and self._overlay_capture_active
+            and self._page.overlay_toggle.isChecked()
+        ):
             self._overlay.show_overlay()
         if state.phase in {"stopped", "error"}:
+            self._overlay_capture_active = False
+            self._overlay.hide()
             self._service = None
             if state.battle_record_id is not None:
                 self._save_detail_scope(self._page.detail_scope())
@@ -240,7 +252,7 @@ class BattleReportController(QObject):
             self._start_inventory_sync()
 
     def _set_overlay_visible(self, visible: bool) -> None:
-        if visible and (self.is_running() or self._latest_state.summary is not None):
+        if visible and self._overlay_capture_active and self.is_running():
             self._overlay.show_overlay()
         else:
             self._overlay.hide()
@@ -465,6 +477,7 @@ class BattleReportController(QObject):
         self._page.update_state(EMPTY_BATTLE_CAPTURE_STATE)
         self._overlay.clear_summary()
         self._overlay.hide()
+        self._overlay_capture_active = False
         self._restore_last_history()
 
     def _refresh_history_dialog(self) -> None:
@@ -503,6 +516,7 @@ class BattleReportController(QObject):
         self._page.update_state(state)
         self._page.set_detail_scope(stored.detail_scope)
         self._overlay.update_summary(stored.summary)
+        self._overlay_capture_active = False
         self._overlay.hide()
 
     def _show_history_error(self, title: str, error: Exception) -> None:

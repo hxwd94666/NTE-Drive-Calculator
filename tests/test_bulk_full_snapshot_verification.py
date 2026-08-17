@@ -1,3 +1,4 @@
+# 测试批量装配完整快照复核。
 """Full inventory snapshots are preferred over residual post-apply events."""
 
 from __future__ import annotations

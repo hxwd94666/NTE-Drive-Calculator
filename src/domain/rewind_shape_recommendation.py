@@ -307,6 +307,20 @@ def target_grade_score(grade: str, area: int) -> float:
     return GRADE_RATIOS.get(str(grade).upper(), GRADE_RATIOS["S"]) * max(1, area) * 10.0
 
 
+def target_percentage_score(percent: float, area: int) -> float:
+    """Return a per-drive rewind threshold from a user-selected score percentage."""
+
+    if isinstance(percent, bool):
+        raise ValueError("自选评分百分比必须介于 1.0% 与 100.0% 之间。")
+    try:
+        normalized_percent = float(percent)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("自选评分百分比必须介于 1.0% 与 100.0% 之间。") from exc
+    if not 1.0 <= normalized_percent <= 100.0:
+        raise ValueError("自选评分百分比必须介于 1.0% 与 100.0% 之间。")
+    return normalized_percent / 100.0 * max(1, area) * 10.0
+
+
 def _allocate_ratio_repeats(
     selected: Counter[str],
     *,

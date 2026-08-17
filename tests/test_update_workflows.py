@@ -16,6 +16,7 @@ class UpdateWorkflowTests(unittest.TestCase):
             GITHUB_HOME_URL,
             GITHUB_LATEST_RELEASE_URL,
             GROUP_CHAT_NOTICE,
+            MIRROR_PROJECT_URL,
             SUPPORT_US_URL,
         )
         from src.ui.controllers import update_controller
@@ -41,9 +42,36 @@ class UpdateWorkflowTests(unittest.TestCase):
             GITHUB_LATEST_RELEASE_URL,
         )
         self.assertEqual("https://afdian.com/a/hxwd94666", SUPPORT_US_URL)
+        self.assertEqual(
+            "https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&channel=stable",
+            MIRROR_PROJECT_URL,
+        )
         with patch.object(update_controller.QMessageBox, "information") as information:
             update_controller._show_group_chat_notice(window)
         information.assert_called_once_with(window, "加入群聊", GROUP_CHAT_NOTICE)
+
+    def test_mirror_download_failure_link_opens_the_project_page(self):
+        from src.app.constants import MIRROR_PROJECT_URL
+        from src.ui.controllers import update_controller
+
+        link_text = update_controller._mirror_project_link_text("尝试下载")
+
+        self.assertIn("Mirror 项目页面尝试下载", link_text)
+        self.assertIn(f'href="{MIRROR_PROJECT_URL}"', link_text)
+        self.assertIn(MIRROR_PROJECT_URL, link_text)
+
+    def test_mirror_download_only_allows_current_or_newer_release(self):
+        from src.ui.controllers import update_controller
+
+        self.assertTrue(
+            update_controller._mirror_download_version_is_available("v2.1.0", "v2.1.0")
+        )
+        self.assertTrue(
+            update_controller._mirror_download_version_is_available("v2.1.1", "v2.1.0")
+        )
+        self.assertFalse(
+            update_controller._mirror_download_version_is_available("v2.0.9", "v2.1.0")
+        )
 
     def test_update_check_default_timeout_is_short(self):
         from src.features.settings import updates

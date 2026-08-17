@@ -8,12 +8,19 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QPushButton, QWidget
+from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton, QWidget
 
 from src.app.context import AppContext
 from src.features.allocation.runner import AllocationController
+from src.features.allocation.filter_settings_dialog import AllocationFilterSettingsDialog
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.ui.equipment_presentation import EquipmentPresentation
+from src.services.allocation_filter_settings import (
+    AllocationFilterSettings,
+    AllocationFilterSettingsService,
+    AllocationFilterValidationError,
+)
+from src.utils.logger import logger
 from src.features.scanning.file_workflow import (
     delete_paths as _delete_paths,
     matching_scope_files as _matching_scope_files,
@@ -160,6 +167,8 @@ class ScanningController(QObject):
         self._pending_crit_rate_caps: dict[str, Any] = {}
         self._pending_set_effect_modes: dict[str, Any] = {}
         self._pending_priority_groups: Any = None
+        self._pending_filter_settings = AllocationFilterSettings()
+        self._allocation_filter_settings = AllocationFilterSettings()
         self._ui_preferences: dict[str, Any] = {}
         self._allocation_controller = AllocationController(
             app_context=app_context,
@@ -175,6 +184,7 @@ class ScanningController(QObject):
         if self._page is not None:
             return self._page
         self._ui_preferences = self._preferences_provider()
+        self._reload_allocation_filter_settings()
         self._page = _page_execute(self)
         self._equipment_presentation.bind_widgets(
             result_card=self.result_card,
@@ -218,7 +228,71 @@ class ScanningController(QObject):
         self._scan_dependencies = None
         self._ui_preferences = self._preferences_provider()
         self._reload_full_scan_preference_widgets()
+        self._reload_allocation_filter_settings()
         self._allocation_controller.reset_account_state()
+
+    def _reload_allocation_filter_settings(self) -> None:
+        service = AllocationFilterSettingsService(
+            self.app_context.account.user_database_path
+        )
+        try:
+            self._allocation_filter_settings = service.load()
+        except AllocationFilterValidationError as exc:
+            self._allocation_filter_settings = AllocationFilterSettings()
+            logger.warning(f"账号分配过滤设置无效，已使用默认值: {exc}")
+        self._update_allocation_filter_summary()
+
+    def _open_allocation_filter_settings(self) -> None:
+        dialog = AllocationFilterSettingsDialog(
+            self._allocation_filter_settings,
+            self.dialog_parent,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        settings = dialog.settings()
+        try:
+            AllocationFilterSettingsService(
+                self.app_context.account.user_database_path
+            ).save(settings)
+        except Exception as exc:
+            QMessageBox.warning(
+                self.dialog_parent,
+                "保存过滤设置失败",
+                str(exc),
+            )
+            return
+        self._allocation_filter_settings = settings
+        self._update_allocation_filter_summary()
+
+    def _allocation_filter_settings_are_valid(self) -> bool:
+        try:
+            self._allocation_filter_settings.validate()
+        except AllocationFilterValidationError as exc:
+            QMessageBox.warning(
+                self.dialog_parent,
+                "过滤设置无效",
+                str(exc),
+            )
+            return False
+        return True
+
+    def _update_allocation_filter_summary(self) -> None:
+        label = getattr(self, "allocation_filter_summary", None)
+        if label is None:
+            return
+        quality_names = {"Blue": "蓝色", "Purple": "紫色", "Gold": "金色"}
+        type_names = {"tape": "卡带", "drive": "驱动"}
+        qualities = "、".join(
+            quality_names[value]
+            for value in ("Blue", "Purple", "Gold")
+            if value in self._allocation_filter_settings.qualities
+        ) or "未选择"
+        item_types = "、".join(
+            type_names[value]
+            for value in ("tape", "drive")
+            if value in self._allocation_filter_settings.item_types
+        ) or "未选择"
+        label.setText(f"过滤设置：品质 {qualities}；类型 {item_types}")
 
     def _start_scan_hotkeys(self, mode: str) -> None:
         """Bind this scan session without exposing hotkeys to other features."""
@@ -298,6 +372,7 @@ class ScanningController(QObject):
             priority_groups=self._pending_priority_groups,
             crit_rate_caps=self._pending_crit_rate_caps,
             custom_weapons=self._pending_custom_weapons,
+            filter_settings=self._pending_filter_settings,
         )
 
     def _save_alloc(self, show_message: bool = True) -> bool:

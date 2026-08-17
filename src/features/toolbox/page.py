@@ -10,8 +10,10 @@ from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QAbstractSpinBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -54,6 +56,20 @@ class ToolboxDependencies:
 class _RewindUiCatalog:
     roles: tuple[RewindTargetRole, ...]
     owned_shape_counts: tuple[tuple[str, int], ...]
+
+
+def _preference_custom_percent(value: object) -> float | None:
+    """Read a persisted optional custom rewind threshold without trusting old data."""
+
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, (str, int, float)):
+        return None
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        return None
+    return percent if 1.0 <= percent <= 100.0 else None
 
 
 class ToolboxPage:
@@ -269,6 +285,12 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         self._main_character_ids = {int(value) for value in preferences.get("main_character_ids", ())}
         self._strategy_key = str(preferences.get("strategy", self._strategy_key))
         self._target_grade = str(preferences.get("target_grade", "S"))
+        self._target_threshold_mode = str(preferences.get("target_threshold_mode", "grade"))
+        self._target_custom_percent = _preference_custom_percent(
+            preferences.get("target_custom_percent"),
+        )
+        if self._target_threshold_mode not in {"grade", "custom"}:
+            self._target_threshold_mode = "grade"
         self._roles_worker: WorkerThread | None = None
         self._analysis_worker: WorkerThread | None = None
         self._analysis_token: object | None = None
@@ -381,11 +403,60 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
             button = QPushButton(grade)
             button.setObjectName("rewindStrategy")
             button.setCheckable(True)
-            button.setChecked(grade == self._target_grade)
+            button.setChecked(self._target_threshold_mode == "grade" and grade == self._target_grade)
             button.clicked.connect(lambda _checked=False, value=grade: self._set_target_grade(value))
             self._grade_group.addButton(button)
             self._grade_buttons[grade] = button
             grade_row.addWidget(button)
+        self._custom_target_button = QPushButton("自选")
+        self._custom_target_button.setObjectName("rewindStrategy")
+        self._custom_target_button.setCheckable(True)
+        self._custom_target_button.setChecked(self._target_threshold_mode == "custom")
+        self._custom_target_button.clicked.connect(self._set_custom_target)
+        self._grade_group.addButton(self._custom_target_button)
+        grade_row.addWidget(self._custom_target_button)
+        self._custom_percent_input = QDoubleSpinBox()
+        self._custom_percent_input.setObjectName("rewindCustomPercent")
+        self._custom_percent_input.setRange(0.0, 100.0)
+        self._custom_percent_input.setDecimals(1)
+        self._custom_percent_input.setSingleStep(0.1)
+        self._custom_percent_input.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self._custom_percent_input.setSpecialValueText("")
+        self._custom_percent_input.setSuffix("%" if self._target_custom_percent is not None else "")
+        self._custom_percent_input.setFixedWidth(60)
+        self._custom_percent_input.setValue(self._target_custom_percent or 0.0)
+        if self._target_custom_percent is None:
+            self._custom_percent_input.lineEdit().clear()
+        self._custom_percent_input.valueChanged.connect(self._set_custom_percent)
+        percent_control = QWidget()
+        percent_control.setFixedWidth(82)
+        percent_layout = QHBoxLayout(percent_control)
+        percent_layout.setContentsMargins(0, 0, 0, 0)
+        percent_layout.setSpacing(2)
+        percent_layout.addWidget(self._custom_percent_input)
+        percent_steps = QVBoxLayout()
+        percent_steps.setContentsMargins(0, 0, 0, 0)
+        percent_steps.setSpacing(2)
+        self._custom_percent_step_up = QToolButton()
+        self._custom_percent_step_up.setObjectName("rewindPercentStepUp")
+        self._custom_percent_step_up.setText("▲")
+        self._custom_percent_step_up.setToolTip("增加 0.1%")
+        self._custom_percent_step_up.clicked.connect(self._custom_percent_input.stepUp)
+        self._custom_percent_step_down = QToolButton()
+        self._custom_percent_step_down.setObjectName("rewindPercentStepDown")
+        self._custom_percent_step_down.setText("▼")
+        self._custom_percent_step_down.setToolTip("减少 0.1%")
+        self._custom_percent_step_down.clicked.connect(self._custom_percent_input.stepDown)
+        percent_steps.addWidget(self._custom_percent_step_up)
+        percent_steps.addWidget(self._custom_percent_step_down)
+        percent_layout.addLayout(percent_steps)
+        self._set_custom_percent_controls_enabled(self._target_threshold_mode == "custom")
+        grade_row.addWidget(percent_control)
+        grade_help_button = QPushButton("?")
+        grade_help_button.setObjectName("btnHelp")
+        grade_help_button.setToolTip("查看评分等级对应的目标百分比")
+        grade_help_button.clicked.connect(self._show_grade_help)
+        grade_row.addWidget(grade_help_button)
         grade_row.addStretch(1)
         self._generate_button = QPushButton("生成方案")
         self._generate_button.setObjectName("btnPrimary")
@@ -441,10 +512,35 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         self._save_preferences()
 
     def _set_target_grade(self, grade: str) -> None:
+        self._target_threshold_mode = "grade"
         self._target_grade = grade
         for value, button in self._grade_buttons.items():
             button.setChecked(value == grade)
+        self._custom_target_button.setChecked(False)
+        self._set_custom_percent_controls_enabled(False)
         self._save_preferences()
+
+    def _set_custom_target(self, _checked: bool = False) -> None:
+        self._target_threshold_mode = "custom"
+        for button in self._grade_buttons.values():
+            button.setChecked(False)
+        self._custom_target_button.setChecked(True)
+        self._set_custom_percent_controls_enabled(True)
+        self._custom_percent_input.setFocus()
+        self._save_preferences()
+
+    def _set_custom_percent(self, value: float) -> None:
+        self._target_custom_percent = float(value) if value >= 1.0 else None
+        self._custom_percent_input.setSuffix("%" if self._target_custom_percent is not None else "")
+        if self._target_custom_percent is None:
+            self._custom_percent_input.lineEdit().clear()
+        if self._target_threshold_mode == "custom":
+            self._save_preferences()
+
+    def _set_custom_percent_controls_enabled(self, enabled: bool) -> None:
+        self._custom_percent_input.setEnabled(enabled)
+        self._custom_percent_step_up.setEnabled(enabled)
+        self._custom_percent_step_down.setEnabled(enabled)
 
     def _strategy_value(self) -> str:
         return self._strategy_key
@@ -527,6 +623,8 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
                 "main_character_ids": sorted(self._main_character_ids),
                 "strategy": self._strategy_key,
                 "target_grade": self._target_grade,
+                "target_threshold_mode": self._target_threshold_mode,
+                "target_custom_percent": self._target_custom_percent,
                 "rewind_qualities": list(self._rewind_options.qualities),
                 "rewind_drive_customization": self._rewind_options.drive_customization,
             })
@@ -553,7 +651,29 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
             "· 少角冲分：只看冲分角色，优先补缺分更多的驱动",
         )
 
+    def _show_grade_help(self) -> None:
+        message = QMessageBox(self)
+        message.setWindowTitle("自选评分等级说明")
+        message.setIcon(QMessageBox.Icon.NoIcon)
+        message.setText(
+            "D：0%\n"
+            "C：20%\n"
+            "B：30%\n"
+            "A：40%\n"
+            "S：50%\n"
+            "SS：60%\n"
+            "SSS：70%\n"
+            "ACE：80%\n"
+            "自选：以填写百分比为准",
+        )
+        message.exec()
+
     def _refresh_analysis(self) -> None:
+        if self._target_threshold_mode == "custom" and self._target_custom_percent is None:
+            message = "请选择自选评分百分比（1.0%～100.0%）。"
+            QMessageBox.warning(self, "生成推荐", message)
+            self._render_message("未生成推荐", message)
+            return
         token = object()
         self._analysis_token = token
         self._generate_button.setEnabled(False)
@@ -569,6 +689,11 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
                 primary_character_ids=primary_ids,
                 selection_limit=8,
                 target_grade=self._target_grade,
+                target_custom_percent=(
+                    self._target_custom_percent
+                    if self._target_threshold_mode == "custom"
+                    else None
+                ),
             ),
             parent=self,
         )

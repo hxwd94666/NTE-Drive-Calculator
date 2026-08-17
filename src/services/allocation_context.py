@@ -166,6 +166,7 @@ class AllocationRolePreference:
     property_limits: tuple[PropertyLimit, ...]
     equipment: RoleEquipmentConstraints
     substat_blacklist: tuple[str, ...] = ()
+    blacklist_zero_weight: bool = False
     equal_substat_priority: bool = False
     ignore_grade_limit: bool = False
     min_grade_limit: str = "A"
@@ -512,6 +513,7 @@ def _role_preference(
             _official_attribute_id(property_id, known_attribute_ids, "副词条黑名单 property_id")
             for property_id in row.get("substat_blacklist") or ()
         ),
+        blacklist_zero_weight=bool(row.get("blacklist_zero_weight", False)),
         equal_substat_priority=bool(row.get("equal_priority", False)),
         ignore_grade_limit=bool(row.get("ignore_grade_limit", False)),
         min_grade_limit=str(row.get("min_grade_limit") or "A").upper(),

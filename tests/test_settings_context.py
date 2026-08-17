@@ -120,6 +120,18 @@ class SettingsContextTests(unittest.TestCase):
         self.assertIn('QLabel("云异环模式：正在开发中")', source)
         self.assertNotIn('QLabel("云异环：正在开发中', source)
 
+    def test_capture_device_placeholder_warns_against_manual_input(self):
+        source = Path("src/features/settings/page.py").read_text(encoding="utf-8")
+        self.assertIn(
+            'setPlaceholderText("特殊情况所需，请勿随意填写此空")',
+            source,
+        )
+
+    def test_protagonist_name_editor_uses_an_eight_character_width(self):
+        source = Path("src/features/settings/page.py").read_text(encoding="utf-8")
+        self.assertIn('horizontalAdvance("零" * 8) + 36', source)
+        self.assertIn("_protagonist_game_name_edit.setFixedWidth(protagonist_name_width)", source)
+
     def test_account_switch_does_not_reload_or_apply_theme(self):
         tree = ast.parse(
             Path("src/ui/app.py").read_text(encoding="utf-8"),

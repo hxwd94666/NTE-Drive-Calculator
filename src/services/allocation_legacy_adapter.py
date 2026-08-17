@@ -135,9 +135,19 @@ def score_allocation_candidate(
     names = _attribute_names(context)
     weights = _weights(role, names, main=False)
     scoring = ScoringEngine()
-    max_weight = scoring.max_theoretical_weight(weights)
+    zero_weight_stats = (
+        [names.get(property_id, property_id) for property_id in role.substat_blacklist]
+        if role.blacklist_zero_weight
+        else ()
+    )
+    max_weight = scoring.max_theoretical_weight(weights, zero_weight_stats=zero_weight_stats)
     if isinstance(item, Drive):
-        return float(scoring.calculate_drive_score(item, weights, max_weight))
+        return float(scoring.calculate_drive_score(
+            item,
+            weights,
+            max_weight,
+            zero_weight_stats=zero_weight_stats,
+        ))
     return float(scoring.calculate_cartridge_score(
         item,
         weights,
@@ -188,6 +198,7 @@ def _role_config(
             priority_names
             or blacklist_names
             or role.equal_substat_priority
+            or role.blacklist_zero_weight
             or role.ignore_grade_limit
             or role.min_grade_limit != "A"
             or role.crit_threshold is not None
@@ -195,6 +206,7 @@ def _role_config(
             crit_priority_modes[key] = {
                 "stats": priority_names,
                 "blacklist": blacklist_names,
+                "blacklist_zero_weight": role.blacklist_zero_weight,
                 "equal_priority": role.equal_substat_priority,
                 "ignore_grade_limit": role.ignore_grade_limit,
                 "min_grade_limit": role.min_grade_limit,

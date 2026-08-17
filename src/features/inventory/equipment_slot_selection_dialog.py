@@ -1,3 +1,4 @@
+# 提供配装槽位选择对话框。
 """Shared named-slot chooser for multi-role equipment assembly."""
 
 from __future__ import annotations

@@ -162,7 +162,11 @@ class BaseDispatchStrategy:
         return any(self._item_has_stat(item, stat_key) for stat_key in blacklist)
 
     def _item_allowed_for_role(self, item, config) -> bool:
-        return not self._item_matches_stat_blacklist(item, config)
+        cfg = self._stat_priority_config(config)
+        return bool(
+            cfg.get("blacklist_zero_weight")
+            or not self._item_matches_stat_blacklist(item, cfg)
+        )
 
     def _covered_stat_count(self, item, stats: list[str]) -> int:
         return sum(1 for stat_key in stats if self._item_has_stat(item, stat_key))

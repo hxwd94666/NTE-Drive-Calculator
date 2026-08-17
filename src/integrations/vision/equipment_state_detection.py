@@ -1,3 +1,4 @@
+# 识别视觉扫描中的装备状态。
 """Lightweight visual detection for equipment state controls."""
 
 from __future__ import annotations

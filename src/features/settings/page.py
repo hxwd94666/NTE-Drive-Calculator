@@ -113,7 +113,7 @@ def _build_sync_card(window):
     form.addRow("历史快照保留:", window._snapshot_retention_spin)
 
     window._sync_capture_device_edit = QLineEdit()
-    window._sync_capture_device_edit.setPlaceholderText("留空表示自动选择网卡")
+    window._sync_capture_device_edit.setPlaceholderText("特殊情况所需，请勿随意填写此空")
     window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
     form.addRow("抓取网卡:", window._sync_capture_device_edit)
 
@@ -330,6 +330,10 @@ def build_settings_page(
     protagonist_row.addWidget(QLabel("主角游戏名:"))
     window._protagonist_game_name_edit = QLineEdit()
     window._protagonist_game_name_edit.setPlaceholderText("零在游戏内显示的玩家名字")
+    protagonist_name_width = (
+        window._protagonist_game_name_edit.fontMetrics().horizontalAdvance("零" * 8) + 36
+    )
+    window._protagonist_game_name_edit.setFixedWidth(protagonist_name_width)
     window._protagonist_game_name_edit.setText(
         str((getattr(window, "_ui_preferences", {}) or {}).get("protagonist_game_name") or "")
     )
@@ -347,7 +351,8 @@ def build_settings_page(
         window._save_ui_preferences()
 
     window._protagonist_game_name_edit.editingFinished.connect(save_protagonist_name)
-    protagonist_row.addWidget(window._protagonist_game_name_edit, 1)
+    protagonist_row.addWidget(window._protagonist_game_name_edit)
+    protagonist_row.addStretch()
     log_card.layout().addLayout(protagonist_row)
 
     theme_row = QHBoxLayout()
@@ -582,7 +587,7 @@ def build_settings_page(
             "border-radius:6px;padding:5px 10px"
         )
     )
-    toolkit_desc = QLabel("提供协议解析核心代码以及装配插件支持")
+    toolkit_desc = QLabel("提供协议解析核心程序以及装配插件支持")
     toolkit_desc.setStyleSheet(
         themed_style(
             "color:#c9d1d9;background:#161b22;"

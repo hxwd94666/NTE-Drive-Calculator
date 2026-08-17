@@ -13,7 +13,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 class GraduationRuntimeParityTests(unittest.TestCase):
-    def test_tooltip_keeps_the_original_benchmark_explanation(self) -> None:
+    def test_tooltip_describes_the_direct_damage_benchmark_scope(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             user_database = Path(temporary_directory) / "graduation-tooltip.sqlite3"
             with UserDataDao(user_database, account_id="graduation-tooltip"):
@@ -32,10 +32,13 @@ class GraduationRuntimeParityTests(unittest.TestCase):
 
         tooltip = _graduation_tooltip(detail)
         self.assertTrue(
-            tooltip.startswith("毕业基准（满级角色、满级精1专属弧盘）：")
+            tooltip.startswith("直伤毕业基准（满级角色、满级专武）：")
         )
         self.assertIn("卡带主词条：", tooltip)
         self.assertIn("毕业副词条：", tooltip)
+        self.assertTrue(
+            tooltip.endswith("仅输出角色有效，且只计算直伤，未统计机制伤害和拐力。")
+        )
 
     def test_static_benchmark_matches_runtime_default_weight_calculation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

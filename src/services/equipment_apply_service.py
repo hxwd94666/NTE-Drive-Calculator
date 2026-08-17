@@ -411,6 +411,7 @@ class EquipmentApplyService:
         target_character_id: int | None = None,
         stable_snapshot_id: int,
         exact_loadout: bool = False,
+        ignore_module_placement: bool = False,
     ) -> str | None:
         """只检查稳定快照，不发送任何装备或卸装指令。"""
 
@@ -437,12 +438,14 @@ class EquipmentApplyService:
                 core_assignment=cores[0] if cores else None,
                 character_id=effective_character_id,
                 character_uid=resolved_character_uid,
+                ignore_module_placement=ignore_module_placement,
             )
         return module_plan_mismatch(
             items=items,
             modules=modules,
             character_id=effective_character_id,
             character_uid=resolved_character_uid,
+            ignore_placement=ignore_module_placement,
         )
 
     def plan_equipment_uid_pairs(self, plan_id: int) -> frozenset[tuple[int, int]]:

@@ -1,3 +1,4 @@
+# 执行批量极速装配后的快照复核与重试。
 """Complete-snapshot-first post-checking for bulk equipment apply."""
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ def postcheck_and_repair(
                 sync_service,
                 apply_service,
                 pending,
-                stable_snapshot_id,
+                after_snapshot_id,
                 attempt,
                 output["repair_errors"],
             )
@@ -88,9 +89,15 @@ def postcheck_and_repair(
         )
         if full_snapshot_id is not None:
             after_snapshot_id = full_snapshot_id
-            output["postcheck_snapshot_id"] = full_snapshot_id
+            if output["postcheck_snapshot_id"] is None:
+                output["postcheck_snapshot_id"] = full_snapshot_id
             if attempt > 1:
                 output["postrepair_snapshot_id"] = full_snapshot_id
+            logger.info(
+                "极速装配第 {} 轮收到完整背包快照，开始精确复核 {} 个角色",
+                attempt,
+                len(pending),
+            )
             pending = verify_complete_snapshot(
                 user_dao,
                 apply_service,
@@ -101,6 +108,7 @@ def postcheck_and_repair(
                 bool(row.get("full_snapshot_verified")) for row in applied
             )
             if not pending:
+                logger.info("极速装配完整快照复核通过")
                 return output
             if attempt == max_attempts:
                 append_final_mismatch_errors(output["repair_errors"], pending, attempt)
@@ -108,6 +116,7 @@ def postcheck_and_repair(
             continue
 
         output["full_snapshot_wait_timed_out"] = True
+        logger.info("极速装配第 {} 轮未收到完整背包快照，转入局部事件兜底复核", attempt)
         pending = verify_scoped_equipment_events(
             sync_service,
             user_dao,
@@ -192,6 +201,7 @@ def verify_complete_snapshot(
                 character_uid=row["character_uid"],
                 target_character_id=row["character_id"],
                 exact_loadout=True,
+                ignore_module_placement=True,
                 stable_snapshot_id=snapshot_id,
             )
         except Exception as exc:
@@ -239,7 +249,9 @@ def verify_scoped_equipment_events(
     *,
     timeout: float,
 ) -> list[dict]:
-    waiter = getattr(sync_service, "wait_for_equipment_snapshot", None)
+    waiter = getattr(sync_service, "wait_for_observed_equipment_snapshot", None)
+    if not callable(waiter):
+        waiter = getattr(sync_service, "wait_for_equipment_snapshot", None)
     verifier = getattr(apply_service, "verify_plan_in_items", None)
     if not callable(waiter) or not callable(verifier):
         return pending
@@ -258,6 +270,11 @@ def verify_scoped_equipment_events(
                 timeout=max(0.0, deadline - time.monotonic()),
             )
             row["scoped_event_observed"] = True
+            _log_scoped_equipment_snapshot(
+                role_name=str(row["role_name"]),
+                required_uids=required_uids,
+                items=list(scoped_snapshot.items),
+            )
             mismatch = verifier(
                 row["plan_id"],
                 items=list(scoped_snapshot.items),
@@ -267,6 +284,11 @@ def verify_scoped_equipment_events(
                 fragment_only=True,
             )
         except TimeoutError:
+            logger.info(
+                "极速装配局部事件诊断：角色={}，目标件={}，本轮未收到包含目标装备的局部事件",
+                row["role_name"],
+                len(required_uids),
+            )
             unresolved.append(row)
             continue
         except Exception as exc:
@@ -290,6 +312,32 @@ def verify_scoped_equipment_events(
             verified=True,
         )
     return unresolved
+
+
+def _log_scoped_equipment_snapshot(
+    *,
+    role_name: str,
+    required_uids: frozenset[tuple[int, int]],
+    items: list[dict],
+) -> None:
+    """Emit field-presence diagnostics without serializing equipment UIDs."""
+
+    by_uid = {
+        (int(item.get("uid", {}).get("slot") or 0), int(item.get("uid", {}).get("serial") or 0)): item
+        for item in items
+        if isinstance(item.get("uid"), dict)
+    }
+    planned_items = [by_uid[pair] for pair in required_uids if pair in by_uid]
+    logger.info(
+        "极速装配局部事件诊断：角色={}，目标件={}，已回传={}，已装备={}，含角色ID={}，含角色实例={}，含格位={}",
+        role_name,
+        len(required_uids),
+        len(planned_items),
+        sum(item.get("equipped") is True for item in planned_items),
+        sum(isinstance(item.get("equipped_character_id"), int) for item in planned_items),
+        sum(isinstance(item.get("equipped_character_uid"), dict) for item in planned_items),
+        sum(isinstance(item.get("equipped_placement"), dict) for item in planned_items),
+    )
 
 
 def dispatch_retry_attempt(

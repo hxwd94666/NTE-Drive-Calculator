@@ -146,7 +146,7 @@ class LoadoutPlanWriteDaoMixin(UserDataDaoMixinHost):
         now: str,
         preferred_plan_ids: set[int] | None = None,
     ) -> int:
-        """Keep one owner per native UID while preserving non-conflicting items."""
+        """Keep one character owner per native UID while preserving alternatives."""
 
         connection = self._db()
         preferred = preferred_plan_ids or set()
@@ -170,12 +170,13 @@ class LoadoutPlanWriteDaoMixin(UserDataDaoMixinHost):
         }
         for plan in active_plans:
             plan_id = int(plan["plan_id"])
+            character_id = int(plan["character_id"])
             for item in plan["assignments"]:
                 uid = (int(item["uid_slot"]), int(item["uid_serial"]))
                 if uid[0] == 0:
                     continue
-                owner = uid_owner.setdefault(uid, plan_id)
-                if owner != plan_id:
+                owner_character_id = uid_owner.setdefault(uid, character_id)
+                if owner_character_id != character_id:
                     removed_by_plan.setdefault(plan_id, set()).add(uid)
 
         for plan_id, removed_uids in removed_by_plan.items():
@@ -292,7 +293,7 @@ class LoadoutPlanWriteDaoMixin(UserDataDaoMixinHost):
                 WHERE plan.is_active = 1
                   AND item.uid_slot > 0
                 GROUP BY item.uid_slot, item.uid_serial
-                HAVING COUNT(*) > 1
+                HAVING COUNT(DISTINCT plan.character_id) > 1
                 LIMIT 1
                 """
             ).fetchone()
@@ -692,7 +693,7 @@ class LoadoutPlanWriteDaoMixin(UserDataDaoMixinHost):
                 WHERE plan.is_active = 1
                   AND item.uid_slot > 0
                 GROUP BY item.uid_slot, item.uid_serial
-                HAVING COUNT(*) > 1
+                HAVING COUNT(DISTINCT plan.character_id) > 1
                 LIMIT 1
                 """
             ).fetchone()

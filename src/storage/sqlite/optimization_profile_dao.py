@@ -82,6 +82,7 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
 
             equal_priority = row.get("equal_priority", False)
             ignore_grade_limit = row.get("ignore_grade_limit", False)
+            blacklist_zero_weight = row.get("blacklist_zero_weight", False)
             if not isinstance(equal_priority, bool):
                 raise UserDataValidationError(
                     f"characters[{index}].equal_priority 必须是布尔值"
@@ -89,6 +90,10 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
             if not isinstance(ignore_grade_limit, bool):
                 raise UserDataValidationError(
                     f"characters[{index}].ignore_grade_limit 必须是布尔值"
+                )
+            if not isinstance(blacklist_zero_weight, bool):
+                raise UserDataValidationError(
+                    f"characters[{index}].blacklist_zero_weight 必须是布尔值"
                 )
             min_grade_limit = str(row.get("min_grade_limit") or "A").upper()
             if min_grade_limit not in cls._GRADE_LIMITS:
@@ -136,6 +141,7 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
                 "property_weights": weights,
                 "substat_priorities": priorities,
                 "substat_blacklist": blacklist,
+                "blacklist_zero_weight": blacklist_zero_weight,
                 "equal_priority": equal_priority,
                 "ignore_grade_limit": ignore_grade_limit,
                 "min_grade_limit": min_grade_limit,
@@ -190,7 +196,7 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
                 )
             ]
             behavior = self._one(
-                """SELECT equal_priority, ignore_grade_limit, min_grade_limit,
+                """SELECT equal_priority, ignore_grade_limit, blacklist_zero_weight, min_grade_limit,
                           crit_threshold
                    FROM optimization_preference_substat_behavior
                    WHERE profile_version_id = ? AND character_id = ?""",
@@ -203,6 +209,9 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
                 behavior["ignore_grade_limit"]
                 if behavior is not None
                 else character["substat_priorities"]
+            )
+            character["blacklist_zero_weight"] = bool(
+                behavior["blacklist_zero_weight"] if behavior is not None else False
             )
             character["min_grade_limit"] = (
                 str(behavior["min_grade_limit"]) if behavior is not None else "A"
@@ -289,13 +298,14 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
             connection.execute(
                 """INSERT INTO optimization_preference_substat_behavior(
                        profile_version_id, character_id, equal_priority,
-                       ignore_grade_limit, min_grade_limit, crit_threshold
-                   ) VALUES (?, ?, ?, ?, ?, ?)""",
+                       ignore_grade_limit, blacklist_zero_weight, min_grade_limit, crit_threshold
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     profile_version_id,
                     character["character_id"],
                     int(character["equal_priority"]),
                     int(character["ignore_grade_limit"]),
+                    int(character["blacklist_zero_weight"]),
                     character["min_grade_limit"],
                     character["crit_threshold"],
                 ),

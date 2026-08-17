@@ -1,3 +1,4 @@
+# 测试装配任务的稳定快照约束。
 """Stable snapshot pinning must not depend on delayed UI-state projection."""
 
 from types import SimpleNamespace

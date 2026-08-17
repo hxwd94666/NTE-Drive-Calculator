@@ -132,7 +132,7 @@ class DroneScanner:
 
     def emergency_stop(self):
         logger.error("\n" + "!" * 50)
-        logger.error("接收到 F12 指令，已紧急停止")
+        logger.error("接收到全局停止键指令，已紧急停止")
         logger.error("!" * 50)
         self._stopped = True
 

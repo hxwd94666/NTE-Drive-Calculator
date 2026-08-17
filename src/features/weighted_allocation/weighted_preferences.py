@@ -193,6 +193,7 @@ def _apply_weighted_persisted_preferences(
             ),
             "substat_priorities": list(row.get("substat_priorities") or ()),
             "substat_blacklist": list(row.get("substat_blacklist") or ()),
+            "blacklist_zero_weight": bool(row.get("blacklist_zero_weight", False)),
             "equal_priority": bool(row.get("equal_priority", False)),
             "ignore_grade_limit": bool(row.get("ignore_grade_limit", False)),
             "min_grade_limit": str(row.get("min_grade_limit") or "A"),
@@ -328,6 +329,9 @@ def _selection_rows(window) -> list[dict[str, Any]]:
             "property_weights": weights,
             "substat_priorities": priorities,
             "substat_blacklist": blacklist,
+            "blacklist_zero_weight": bool(
+                preference.get("blacklist_zero_weight", False)
+            ),
             "equal_priority": bool(preference.get("equal_priority", False)),
             "ignore_grade_limit": bool(
                 preference.get("ignore_grade_limit", False)
@@ -478,6 +482,10 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     stat_options.setSpacing(12)
     equal_priority = QCheckBox("副词条优先级一致")
     equal_priority.setChecked(bool(current.get("equal_priority", False)))
+    blacklist_zero_weight = QCheckBox("黑名单为零权重")
+    blacklist_zero_weight.setChecked(
+        bool(current.get("blacklist_zero_weight", False))
+    )
     ignore_grade_limit = QCheckBox("不限制评分等级")
     ignore_grade_limit.setChecked(bool(current.get("ignore_grade_limit", False)))
     min_grade_label = QLabel("最低生效等级：")
@@ -501,6 +509,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     )
     stat_options.addWidget(equal_priority)
     stat_options.addWidget(ignore_grade_limit)
+    stat_options.addWidget(blacklist_zero_weight)
     stat_options.addWidget(min_grade_label)
     stat_options.addWidget(min_grade_combo)
     stat_options.addWidget(stat_help)
@@ -512,7 +521,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     )
     stats_layout.addLayout(stat_options)
     priority_tip = QLabel(
-        "副词条黑名单最先从驱动候选池硬过滤，不淘汰卡带；"
+        "副词条黑名单默认最先从驱动候选池硬过滤，不淘汰卡带；开启“黑名单为零权重”后改为在驱动 Top-K 评分中按 0 分计算；"
         "套装与卡带主词条随后硬过滤；"
         "副词条自选先使用连续前缀的最深候选池，"
         "组合无解时逐层放宽，最后回到完整候选池。"
@@ -592,6 +601,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
             "core_main_property_id": main_by_label.get(selected_main[0]) if selected_main else None,
             "substat_priorities": [substat_by_label[label] for label in selected_substats],
             "substat_blacklist": [substat_by_label[label] for label in selected_blacklist],
+            "blacklist_zero_weight": blacklist_zero_weight.isChecked(),
             "equal_priority": equal_priority.isChecked(),
             "ignore_grade_limit": ignore_grade_limit.isChecked(),
             "min_grade_limit": str(min_grade_combo.currentData() or "A"),

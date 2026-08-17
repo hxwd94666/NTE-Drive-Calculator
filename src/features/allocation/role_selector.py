@@ -487,10 +487,12 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         ignore_grade_limit=False,
         min_grade_limit="A",
         crit_threshold=None,
+        blacklist_zero_weight=False,
     ):
         payload = {
             "stats": stats or [],
             "blacklist": blacklist or [],
+            "blacklist_zero_weight": blacklist_zero_weight,
             "equal_priority": equal_priority,
             "ignore_grade_limit": ignore_grade_limit,
             "min_grade_limit": min_grade_limit,

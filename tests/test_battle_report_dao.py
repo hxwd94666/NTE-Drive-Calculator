@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from src.storage.sqlite import user_data_base
 from src.storage.sqlite.user_data_dao import (
     BATTLE_REPORT_MAX_MANUAL_RECORDS,
     BATTLE_REPORT_MAX_RECORDS,
+    SCHEMA_VERSION,
     UserDataDao,
     UserDataValidationError,
 )
@@ -201,22 +203,19 @@ class BattleReportDaoTests(unittest.TestCase):
 
     def test_existing_v12_database_migrates_to_battle_report_tables(self) -> None:
         legacy_path = Path(self.temporary.name) / "legacy_v12.sqlite3"
-        with UserDataDao(
-            legacy_path,
-            account_id="legacy",
-            account_name="旧账号",
-        ):
-            pass
-        connection = sqlite3.connect(legacy_path)
-        connection.execute("DROP TABLE battle_report_page_state")
-        connection.execute("DROP TABLE battle_record_retention")
-        connection.execute("DROP TABLE battle_record")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 13")
-        connection.commit()
-        connection.close()
+        with patch.object(user_data_base, "SCHEMA_VERSION", 12):
+            with UserDataDao(
+                legacy_path,
+                account_id="legacy",
+                account_name="旧账号",
+            ) as legacy:
+                version = legacy._db().execute(
+                    "SELECT MAX(version) FROM schema_migration"
+                ).fetchone()[0]
+                self.assertEqual(12, version)
 
         with UserDataDao(legacy_path) as migrated:
-            self.assertEqual(14, migrated.summary()["schema_version"])
+            self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
             tables = {
                 str(row[0])
                 for row in migrated._db().execute(

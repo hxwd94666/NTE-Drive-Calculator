@@ -1,3 +1,4 @@
+# 提供 Windows 窗口捕获诊断。
 """Read-only Windows facts that explain nte-core capture enumeration failures."""
 
 from __future__ import annotations

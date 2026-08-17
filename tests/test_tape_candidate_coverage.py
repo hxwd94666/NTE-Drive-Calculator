@@ -485,6 +485,60 @@ class TapeCandidateCoverageTests(unittest.TestCase):
         self.assertEqual(-10000.0, ranking_matrix[0, 0])
         self.assertEqual(1.0, profit_matrix[0, 1])
 
+    def test_blacklist_zero_weight_keeps_drive_and_zeros_only_that_stat(self) -> None:
+        engine = ScoringEngine(
+            roles_db={"A": {"weights": {"wanted": 1.0, "blocked": 100.0}}}
+        )
+        mixed_drive = Drive(
+            uid="mixed-drive",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"wanted": 1.0, "blocked": 1.0},
+        )
+        blocked_only_drive = Drive(
+            uid="blocked-only-drive",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"blocked": 1.0},
+        )
+        config = {"blacklist": ["blocked"], "blacklist_zero_weight": True}
+
+        result = engine.evaluate_global_inventory(
+            [mixed_drive, blocked_only_drive],
+            crit_priority_modes={"A": config},
+        )
+
+        self.assertEqual(20.0, mixed_drive.role_scores["A"])
+        self.assertEqual(0.0, blocked_only_drive.role_scores["A"])
+        self.assertEqual(["mixed-drive"], [drive.uid for drive in result["drives"]])
+
+        strategy = RolePriorityStrategy(
+            {"A": {"default_set": "Set"}},
+            {"Set": {"shapes": []}},
+            {},
+        )
+        mixed_drive.role_scores = {"A": 20.0}
+        allowed_drive = Drive(
+            uid="allowed-drive",
+            quality="Gold",
+            area=2,
+            shape_id="H_2",
+            main_stats={"攻击力": 1.0, "生命值": 1.0},
+            sub_stats={"wanted": 1.0},
+            role_scores={"A": 1.0},
+        )
+        picked = strategy._pick_best_drive(
+            "A",
+            [(0, mixed_drive), (1, allowed_drive)],
+            config,
+        )
+        self.assertIsNotNone(picked)
+        self.assertEqual("mixed-drive", picked[1].uid)
+
     def test_seven_strict_roles_keep_seven_distinct_shared_tape_candidates(self) -> None:
         role_names = [f"R{index}" for index in range(7)]
         roles = {

@@ -1,3 +1,4 @@
+# 测试 Windows 窗口捕获诊断。
 """Tests for the read-only Windows capture environment probe."""
 
 from __future__ import annotations

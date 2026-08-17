@@ -9,10 +9,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QToolButton
+from PySide6.QtWidgets import QApplication, QPushButton, QToolButton
 
 from src.features.scanning.post_action_dialog import (
     RoleScopeDialog,
+    ScanPostActionDialog,
     _load_role_options,
 )
 
@@ -53,6 +54,16 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             self.assertTrue(dialog.role_cards[0][0].isChecked())
             self.assertEqual("已选1名", dialog.count_label.text())
             dialog.close()
+
+    def test_post_action_module_toggles_use_in_progress_labels(self):
+        enabled = QPushButton()
+        disabled = QPushButton()
+
+        ScanPostActionDialog._style_toggle_button(None, enabled, True)
+        ScanPostActionDialog._style_toggle_button(None, disabled, False)
+
+        self.assertEqual("开启中", enabled.text())
+        self.assertEqual("关闭中", disabled.text())
 
     def test_custom_role_is_rendered_as_a_text_only_card(self):
         dialog = RoleScopeDialog(None, [(900001, "自建角色", "")], [900001])

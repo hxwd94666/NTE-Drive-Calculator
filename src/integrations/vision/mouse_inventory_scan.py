@@ -24,6 +24,7 @@ from src.integrations.vision.mouse_scan_input import (
     MouseInputRandomization as MouseInputRandomization,
     MouseScanInput,
     PyAutoGuiMouseScanInput,
+    inventory_top_reset_swipe_points,
 )
 from src.integrations.vision.mouse_scan_grid import (
     MouseGridOccupancy,
@@ -35,10 +36,10 @@ from src.integrations.vision.mouse_scan_capture import (
     MouseFrameProvider,
 )
 from src.integrations.vision.mouse_scan_telemetry import MouseScanPageMetric, MouseScanTelemetry
+from src.integrations.vision.mouse_state_sync import MouseStateSyncResult
 from src.scanner.window_capture import WindowRect, game_content_rect
 from src.utils.logger import logger
 from src.utils.perf import log_perf
-
 
 def _round_half_up(value: float) -> int:
     return int(math.floor(float(value) + 0.5))
@@ -132,11 +133,13 @@ class MouseInventoryLayout:
         )
 
     def page_slots(self, total_items: int) -> tuple[tuple[MouseScanSlot, ...], ...]:
-        """Build ordered pages: four rows initially, then three new rows.
+        """Build a count-frozen capture plan with a bottom-aligned final page.
 
         Scrolling moves the previously scanned fourth row into the first
         visible row.  Later pages therefore skip row zero and capture rows one
-        through three.
+        through three.  The game's final partial viewport snaps to the grid
+        bottom instead of preserving that overlap.  The supplied inventory
+        total determines those final coordinates without frame-wide detection.
         """
 
         total = int(total_items)
@@ -147,11 +150,14 @@ class MouseInventoryLayout:
         page = 0
         while next_index <= total:
             start_row = 0 if page == 0 else 1
+            capacity = (self.visible_rows - start_row) * self.columns
+            remaining = total - next_index + 1
+            if remaining <= capacity:
+                pages.append(self._bottom_aligned_final_slots(total, next_index, page))
+                break
             page_slots: list[MouseScanSlot] = []
             for row in range(start_row, self.visible_rows):
                 for column in range(self.columns):
-                    if next_index > total:
-                        break
                     page_slots.append(
                         MouseScanSlot(
                             index=next_index,
@@ -161,11 +167,30 @@ class MouseInventoryLayout:
                         )
                     )
                     next_index += 1
-                if next_index > total:
-                    break
             pages.append(tuple(page_slots))
             page += 1
         return tuple(pages)
+
+    def _bottom_aligned_final_slots(
+        self,
+        total_items: int,
+        first_index: int,
+        page: int,
+    ) -> tuple[MouseScanSlot, ...]:
+        """Map the remaining logical items into the terminal four-row viewport."""
+
+        total_rows = math.ceil(int(total_items) / self.columns)
+        first_visible_row = max(0, total_rows - self.visible_rows)
+        slots: list[MouseScanSlot] = []
+        for index in range(int(first_index), int(total_items) + 1):
+            item_row, column = divmod(index - 1, self.columns)
+            row = item_row - first_visible_row
+            if not 0 <= row < self.visible_rows:
+                raise ValueError("末页计划超出可见库存网格")
+            slots.append(
+                MouseScanSlot(index=index, page=page, row=row, column=column)
+            )
+        return tuple(slots)
 
     def nearest_visible_row(self, center_y: float, target_width: int, target_height: int) -> int:
         """Return the closest visible grid row for a tracked item center."""
@@ -357,6 +382,8 @@ class MouseInventoryScanner:
         self._row_offset_px = 0
 
         self._sleep(self.TAKEOVER_COUNTDOWN_SECONDS)
+        initial = self._capture_frame(freeze=True)
+        self._drag_inventory_list_to_top(initial)
         initial = self._capture_frame(freeze=True)
         self.layout, preflight = self.layout.calibrate_initial_frame(initial.image, total)
         telemetry = MouseScanTelemetry(
@@ -612,6 +639,29 @@ class MouseInventoryScanner:
         current_frame = self._capture_frame()
         return current_frame, 0, 0, False
 
+    def _drag_inventory_list_to_top(self, frame: MouseCapturedFrame) -> None:
+        """Reset the list with the incremental scanner's swipe in reverse."""
+
+        if self._stopped:
+            raise MouseInventoryScanError("扫描已停止")
+        left, top, width, height = game_content_rect(
+            frame.rect.width,
+            frame.rect.height,
+            (self.layout.base_width, self.layout.base_height),
+        )
+        start, end = inventory_top_reset_swipe_points(
+            left=frame.rect.left + left,
+            top=frame.rect.top + top,
+            width=width,
+            height=height,
+        )
+        self._input.drag(
+            start,
+            end,
+            hold_seconds=0.3,
+            duration_seconds=0.6,
+        )
+
     @classmethod
     def _scroll_amounts_for_flip(cls, flip_number: int) -> tuple[int, ...]:
         if int(flip_number) <= 0:
@@ -666,7 +716,7 @@ class MouseInventoryScanner:
         total_drives: int,
         state_changes: list[dict],
         action_mode: str = "default",
-    ) -> int:
+    ) -> MouseStateSyncResult:
         del action_mode
         from src.integrations.vision.mouse_state_sync import MouseEquipmentStateSync
         from src.integrations.vision.equipment_state_detection import right_panel_button_state_from_image
@@ -697,9 +747,9 @@ class MouseInventoryScanner:
         ]
         if roi.size == 0:
             return False
-        b = roi[:, :, 0].astype(np.int16)
-        g = roi[:, :, 1].astype(np.int16)
-        r = roi[:, :, 2].astype(np.int16)
+        b: np.ndarray = roi[:, :, 0].astype(np.int16)
+        g: np.ndarray = roi[:, :, 1].astype(np.int16)
+        r: np.ndarray = roi[:, :, 2].astype(np.int16)
         fraction = float(((r > 150) & (b > 105) & (g < 125) & ((r - g) > 55) & ((b - g) > 25)).mean())
         return fraction >= self.SELECTED_PINK_FRACTION
 

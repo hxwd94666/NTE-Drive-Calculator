@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,8 +13,9 @@ from src.services.full_visual_snapshot_commit import (
     commit_completed_vision_inventory,
 )
 from src.services.vision_inventory_snapshot import import_vision_inventory
+from src.storage.sqlite import user_data_base
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
-from src.storage.sqlite.user_data_dao import UserDataDao
+from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao
 
 
 STATIC_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "game_static.sqlite3"
@@ -113,55 +113,44 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         self.assertEqual("gamepad", self.user_dao.raw_snapshot(gamepad_snapshot_id)["capture_driver"])
 
     def test_v14_migration_preserves_existing_visual_snapshot_and_foreign_keys(self) -> None:
-        legacy_snapshot_id = self.user_dao.import_inventory_snapshot(
-            {"complete": True, "item_count": 0, "items": []},
-            source="gamepad",
-        )
         self.user_dao.close()
-        connection = sqlite3.connect(self.database_path)
-        try:
-            connection.execute("PRAGMA foreign_keys = OFF")
-            connection.executescript(
-                """
-                DROP VIEW current_inventory_item;
-                CREATE TABLE inventory_snapshot_v13 (
-                    snapshot_id INTEGER PRIMARY KEY,
-                    source TEXT NOT NULL CHECK (source IN ('nte_core', 'gamepad', 'import')),
-                    generation INTEGER,
-                    sequence INTEGER,
-                    observed_at_unix_ms INTEGER,
-                    captured_at_utc TEXT NOT NULL,
-                    complete INTEGER NOT NULL CHECK (complete IN (0, 1)),
-                    declared_item_count INTEGER NOT NULL CHECK (declared_item_count >= 0),
-                    stored_item_count INTEGER NOT NULL CHECK (stored_item_count >= 0),
-                    protocol_version INTEGER,
-                    raw_snapshot_json TEXT NOT NULL,
-                    is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0, 1)),
-                    created_at_utc TEXT NOT NULL,
-                    CHECK (complete = 0 OR declared_item_count = stored_item_count)
-                );
-                INSERT INTO inventory_snapshot_v13 SELECT * FROM inventory_snapshot;
-                DROP TABLE inventory_snapshot;
-                ALTER TABLE inventory_snapshot_v13 RENAME TO inventory_snapshot;
-                CREATE UNIQUE INDEX idx_inventory_snapshot_one_current
-                    ON inventory_snapshot(is_current) WHERE is_current = 1;
-                CREATE INDEX idx_inventory_snapshot_captured
-                    ON inventory_snapshot(captured_at_utc DESC, snapshot_id DESC);
-                CREATE VIEW current_inventory_item AS
-                    SELECT item.* FROM inventory_item AS item
-                    JOIN inventory_snapshot AS snapshot USING (snapshot_id)
-                    WHERE snapshot.is_current = 1;
-                DELETE FROM schema_migration WHERE version = 14;
-                """
-            )
-        finally:
-            connection.close()
+        self.database_path.unlink()
+        with patch.object(user_data_base, "SCHEMA_VERSION", 13):
+            with UserDataDao(
+                self.database_path,
+                account_id="vision-v13-test",
+            ) as legacy:
+                legacy_snapshot_id = legacy.import_inventory_snapshot(
+                    {"complete": True, "item_count": 0, "items": []},
+                    source="gamepad",
+                )
+                version = legacy._db().execute(
+                    "SELECT MAX(version) FROM schema_migration"
+                ).fetchone()[0]
+                self.assertEqual(13, version)
 
         self.user_dao = UserDataDao(self.database_path)
-        self.assertEqual(legacy_snapshot_id, self.user_dao.current_inventory_snapshot_id())
-        self.assertEqual([], self.user_dao._db().execute("PRAGMA foreign_key_check").fetchall())
-        vision_snapshot_id = import_vision_inventory(self.database_path, [], capture_driver="mouse")
-        self.assertEqual(vision_snapshot_id, self.user_dao.current_inventory_snapshot_id())
+        self.assertEqual(
+            SCHEMA_VERSION,
+            self.user_dao.summary()["schema_version"],
+        )
+        self.assertEqual(
+            legacy_snapshot_id,
+            self.user_dao.current_inventory_snapshot_id(),
+        )
+        self.assertEqual(
+            [],
+            self.user_dao._db().execute("PRAGMA foreign_key_check").fetchall(),
+        )
+        vision_snapshot_id = import_vision_inventory(
+            self.database_path,
+            [],
+            capture_driver="mouse",
+        )
+        self.assertEqual(
+            vision_snapshot_id,
+            self.user_dao.current_inventory_snapshot_id(),
+        )
 
     def test_latest_complete_snapshot_wins_regardless_of_source(self) -> None:
         nte_snapshot_id = self.user_dao.import_inventory_snapshot(

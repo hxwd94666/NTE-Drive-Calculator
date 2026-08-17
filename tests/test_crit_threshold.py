@@ -123,6 +123,12 @@ class CritThresholdDomainTests(unittest.TestCase):
             config,
         )
         self.assertTrue(preference_config_active(config))
+        zero_weight_config = persistable_stat_priority_config(
+            {"blacklist": ["攻击力%"], "blacklist_zero_weight": True},
+            allowed_stats=ALLOWED,
+            dedupe_stats=True,
+        )
+        self.assertTrue(zero_weight_config["blacklist_zero_weight"])
 
     def test_loadout_crit_total_sums_tape_drives_and_extra_buff(self):
         role_data = {

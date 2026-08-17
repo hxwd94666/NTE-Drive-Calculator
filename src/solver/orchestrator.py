@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import List, Dict
 
-from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
+from src.domain.allocation_rating import loadout_total_grade
 from src.integrations.bundled_resources import bundled_config_dir
 from src.optimizer.contracts import PLAN_CUSTOM_WEAPON
 from src.domain.equipment_normalizer import normalize_equipment_item
@@ -309,7 +309,7 @@ class NTEPipelineOrchestrator:
                 logger.error(f"角色 [{role}] 分配失败: 无法凑齐合法图纸。\n")
                 continue
 
-            grade = scoring_engine.get_grade_tag(plan['score'], area=ALLOCATION_TOTAL_SCORE_AREA)
+            grade = loadout_total_grade(plan['score'])
             used_set = custom_sets.get(role, self.roles_db[role]["default_set"])
 
             BoardVisualizer.display_final_plan(role_name=role, plan=plan, default_set=used_set, grade=grade)

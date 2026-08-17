@@ -7,10 +7,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QBoxLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.app.window_geometry import fit_dialog_to_available_screen
 from src.features.inventory.warehouse_result_card import WarehouseResultCard
 
 
@@ -129,7 +131,10 @@ def show_equipment_replacement_dialog(
     dialog = QDialog(parent)
     dialog.setObjectName("equipmentReplacementDialog")
     dialog.setWindowTitle(title)
-    dialog.resize(REPLACEMENT_DIALOG_WIDTH, REPLACEMENT_DIALOG_HEIGHT)
+    fitted_size = fit_dialog_to_available_screen(
+        dialog,
+        QSize(REPLACEMENT_DIALOG_WIDTH, REPLACEMENT_DIALOG_HEIGHT),
+    )
     root = QVBoxLayout(dialog)
     root.setSpacing(10)
 
@@ -206,12 +211,26 @@ def show_equipment_replacement_dialog(
     selected_host_layout.addWidget(selected_placeholder)
     selected_column.addWidget(selected_host)
     comparison_layout.addLayout(selected_column)
-    root.addWidget(comparison_group)
+    comparison_scroll = QScrollArea(dialog)
+    comparison_scroll.setObjectName("equipmentReplacementComparisonScroll")
+    comparison_scroll.setWidgetResizable(True)
+    comparison_scroll.setFrameShape(QFrame.NoFrame)
+    comparison_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    comparison_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    comparison_scroll.setMinimumHeight(
+        min(310, max(140, fitted_size.height() * 38 // 100))
+    )
+    comparison_scroll.setWidget(comparison_group)
+    root.addWidget(comparison_scroll)
 
     candidate_group = QGroupBox(f"候选装备 ({len(candidates)}个)")
     candidate_group.setObjectName("equipmentReplacementCandidateGroup")
     candidate_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-    candidate_group.setMinimumHeight(390)
+    # The card list owns its own scrollbar, so it may yield vertical space to
+    # the comparison and bottom action row on scaled notebook screens.
+    candidate_group.setMinimumHeight(
+        min(120, max(60, fitted_size.height() // 5))
+    )
     candidate_layout = QVBoxLayout(candidate_group)
     scroll = QScrollArea(candidate_group)
     scroll.setWidgetResizable(True)
@@ -280,6 +299,18 @@ def show_equipment_replacement_dialog(
         )
         confirm.setEnabled(True)
 
+    candidate_columns = max(
+        1,
+        min(
+            REPLACEMENT_CANDIDATE_COLUMNS,
+            (
+                fitted_size.width()
+                - REPLACEMENT_DIALOG_CHROME_WIDTH
+                + REPLACEMENT_CANDIDATE_GAP
+            )
+            // (WarehouseResultCard.CARD_SIZE.width() + REPLACEMENT_CANDIDATE_GAP),
+        ),
+    )
     for index, choice in enumerate(candidates):
         card = WarehouseResultCard(
             choice.item_view,
@@ -294,11 +325,11 @@ def show_equipment_replacement_dialog(
         candidate_widgets[choice.key] = card
         grid.addWidget(
             card,
-            index // REPLACEMENT_CANDIDATE_COLUMNS,
-            index % REPLACEMENT_CANDIDATE_COLUMNS,
+            index // candidate_columns,
+            index % candidate_columns,
             Qt.AlignLeft | Qt.AlignTop,
         )
-    grid.setColumnStretch(REPLACEMENT_CANDIDATE_COLUMNS, 1)
+    grid.setColumnStretch(candidate_columns, 1)
     scroll.setWidget(content)
     candidate_layout.addWidget(scroll)
     root.addWidget(candidate_group, 1)
@@ -323,4 +354,5 @@ def show_equipment_replacement_dialog(
         dialog.accept()
 
     confirm.clicked.connect(commit)
+    fit_dialog_to_available_screen(dialog, fitted_size)
     return dialog.exec() == QDialog.Accepted

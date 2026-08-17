@@ -220,7 +220,7 @@ class ScanPostActionDialog(QDialog):
         self._build_ui()
 
     def _style_toggle_button(self, button: QPushButton, checked: bool) -> None:
-        button.setText("开启" if checked else "关闭")
+        button.setText("开启中" if checked else "关闭中")
         if checked:
             button.setStyleSheet(
                 "QPushButton{background:#238636;color:#fff;border:1px solid #2ea043;"

@@ -1,3 +1,4 @@
+# 测试装备装配结果复核。
 """Verify complete and residual equipment-event comparison semantics."""
 
 from __future__ import annotations
@@ -76,3 +77,37 @@ def test_scoped_verification_accepts_residual_equipment_without_placement() -> N
         character_id=1003,
         character_uid=target_uid,
     ) is None
+
+
+def test_complete_verification_can_ignore_module_grid_position() -> None:
+    target_uid = {"slot": 700, "serial": 701}
+    modules = [{"uid_serial": 1, "uid_slot": 8, "target_row": 1, "target_column": 2}]
+
+    assert plan_mismatch(
+        items=[_item(1, character_id=1003, character_uid=target_uid, row=5, column=5)],
+        modules=modules,
+        core_assignment=None,
+        character_id=1003,
+        character_uid=target_uid,
+        ignore_module_placement=True,
+    ) is None
+
+
+def test_scoped_verification_retries_only_for_a_seen_unequipped_target_item() -> None:
+    target_uid = {"slot": 700, "serial": 701}
+    modules = [
+        {"uid_serial": 1, "uid_slot": 8, "target_row": 1, "target_column": 2},
+        {"uid_serial": 2, "uid_slot": 8, "target_row": 2, "target_column": 2},
+    ]
+    seen_equipped = _item(1, character_id=1003, character_uid=target_uid, row=1, column=2)
+    seen_unequipped = dict(seen_equipped)
+    seen_unequipped["equipped"] = False
+
+    assert scoped_plan_mismatch(
+        items=[seen_equipped], modules=modules, core_assignment=None,
+        character_id=1003, character_uid=target_uid,
+    ) is None
+    assert scoped_plan_mismatch(
+        items=[seen_unequipped], modules=modules, core_assignment=None,
+        character_id=1003, character_uid=target_uid,
+    ) == "装备 UID (1, 8) 未装备"

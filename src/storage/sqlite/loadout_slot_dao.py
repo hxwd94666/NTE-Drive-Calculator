@@ -302,11 +302,13 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
         score: float | None = None,
         payload: Mapping[str, Any] | None = None,
     ) -> int:
-        """Save one optimized slot and release any compatible prior owners.
+        """Save one optimized slot and release compatible other-role owners.
 
-        A replacement candidate can be borrowed from another current slot.
-        Its former slot receives a same-position virtual placeholder in the
-        same transaction, rather than retaining a duplicate physical item.
+        A replacement candidate can be borrowed from another role's current
+        slot. Its former slot receives a same-position virtual placeholder in
+        the same transaction, rather than retaining a duplicate physical item.
+        Multiple slots of the same role are alternative loadouts, so they may
+        retain references to the same physical item.
         Visual UID fields are local to their scan snapshot; only same visual
         snapshots (or two native nte-core snapshots) are considered the same
         item.
@@ -345,6 +347,8 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
             owner_slot = row["slot"]
             owner_plan = row["plan"]
             if int(owner_slot["slot_id"]) == int(slot_id):
+                continue
+            if int(owner_slot["character_id"]) == int(target_slot["character_id"]):
                 continue
             owner_snapshot_id = owner_plan.get("source_snapshot_id")
             if owner_snapshot_id is None:

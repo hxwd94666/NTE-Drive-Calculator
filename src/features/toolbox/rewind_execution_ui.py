@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import time
+import threading
 from typing import Any
 
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from src.app.workers import WorkerThread
 from src.features.drive_assembly.rewind_execution import (
@@ -18,6 +18,7 @@ from src.features.toolbox.rewind_execution_dialog import RewindExecutionDialog
 
 class RewindExecutionUiMixin:
     _rewind_foreground_settle_seconds = 1.0
+    _rewind_hotkey_owner = "rewind_execution"
 
     def _save_plan(self) -> None:
         if not self._slots_complete():
@@ -58,18 +59,37 @@ class RewindExecutionUiMixin:
             drive_customization=self._rewind_options.drive_customization,
             shape_ids=self._saved_rewind_shape_ids,
         )
+        hotkey_manager = self._rewind_hotkey_manager()
+        active_owner = getattr(hotkey_manager, "active_owner", None)
+        if active_owner not in (None, self._rewind_hotkey_owner):
+            QMessageBox.information(
+                self,
+                "进行倒带",
+                "当前全局停止键正由其他任务使用，请先停止该任务后再进行倒带。",
+            )
+            return
+        stop_requested = threading.Event()
+        if hotkey_manager is not None:
+            hotkey_manager.start(
+                owner=self._rewind_hotkey_owner,
+                on_stop=stop_requested.set,
+            )
         self._start_rewind_button.setEnabled(False)
         self._start_rewind_button.setText("倒带中…")
         self._prepare_rewind_game_foreground()
 
         def run() -> object:
-            time.sleep(self._rewind_foreground_settle_seconds)
-            return execute_rewind_request(request)
+            stop_requested.wait(self._rewind_foreground_settle_seconds)
+            return execute_rewind_request(
+                request,
+                should_stop=stop_requested.is_set,
+            )
 
         worker = WorkerThread(target=run, parent=self)
         self._rewind_worker = worker
         worker.result_ready.connect(self._on_rewind_complete)
         worker.error.connect(self._on_rewind_error)
+        worker.finished.connect(self._stop_rewind_hotkeys)
         worker.finished.connect(lambda: self._release_rewind_worker(worker))
         worker.finished.connect(worker.deleteLater)
         worker.start()
@@ -77,6 +97,17 @@ class RewindExecutionUiMixin:
     def _release_rewind_worker(self, worker: WorkerThread) -> None:
         if self._rewind_worker is worker:
             self._rewind_worker = None
+
+    def _rewind_hotkey_manager(self) -> Any | None:
+        parent_getter = getattr(self, "parentWidget", None)
+        parent = parent_getter() if callable(parent_getter) else None
+        host = parent.window() if parent is not None else None
+        return getattr(host, "global_hotkey_manager", None)
+
+    def _stop_rewind_hotkeys(self) -> None:
+        hotkey_manager = self._rewind_hotkey_manager()
+        if hotkey_manager is not None:
+            hotkey_manager.stop(owner=self._rewind_hotkey_owner)
 
     def _on_rewind_complete(self, report: Any) -> None:
         self._restore_rewind_window()
@@ -100,7 +131,8 @@ class RewindExecutionUiMixin:
         self._start_rewind_button.setToolTip(message)
 
     def _prepare_rewind_game_foreground(self) -> None:
-        parent = self.parentWidget()
+        parent_getter = getattr(self, "parentWidget", None)
+        parent = parent_getter() if callable(parent_getter) else None
         host = parent.window() if parent is not None else None
         if host is None or host is self:
             self._rewind_minimized_host = None

@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
-from src.domain.allocation_rating import allocation_grade
+from src.domain.allocation_rating import allocation_grade, loadout_total_grade
 from src.optimizer.contracts import (
     EQUIP_GRADE,
     EQUIP_MAIN_STATS,
@@ -72,8 +71,5 @@ def score_equipment_display_state(
 
     total = round(sum(scores.values()), 6)
     state[ROLE_TOTAL_SCORE] = total
-    state[ROLE_TOTAL_GRADE] = allocation_grade(
-        total,
-        ALLOCATION_TOTAL_SCORE_AREA,
-    )
+    state[ROLE_TOTAL_GRADE] = loadout_total_grade(total)
     return total, scores

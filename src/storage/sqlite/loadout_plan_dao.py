@@ -71,16 +71,16 @@ class LoadoutPlanDaoMixin(LoadoutPlanWriteDaoMixin):
         )
 
     def get_active_loadout_plan_for_role(self, role_name: str) -> dict[str, Any] | None:
-        """返回指定显示角色名当前可执行的 SQLite 方案。"""
+        """返回指定显示角色名当前槽位中的可执行 SQLite 方案。"""
 
         raw_role_name = str(role_name).strip()
         if not raw_role_name:
             raise UserDataValidationError("角色名称不能为空")
         return next(
             (
-                plan
-                for plan in self.list_loadout_plans()
-                if plan["is_active"]
+                plan_row["plan"]
+                for plan_row in self.list_current_loadout_slot_plans()
+                if isinstance((plan := plan_row.get("plan")), Mapping)
                 and isinstance(plan.get("payload"), Mapping)
                 and plan["payload"].get("schema") in _ACTIVE_ROLE_PLAN_SCHEMAS
                 and plan["payload"].get("source_role_name") == raw_role_name
@@ -89,34 +89,42 @@ class LoadoutPlanDaoMixin(LoadoutPlanWriteDaoMixin):
         )
 
     def list_active_loadout_plans_by_role(self) -> dict[str, dict[str, Any]]:
-        """返回当前所有带显示角色名的可执行 SQLite 方案。"""
+        """返回所有可见当前槽位中带显示角色名的可执行 SQLite 方案。"""
 
         plans: dict[str, dict[str, Any]] = {}
-        for plan in self.list_loadout_plans():
+        for plan_row in self.list_current_loadout_slot_plans():
+            plan = plan_row.get("plan")
+            if not isinstance(plan, Mapping):
+                continue
             payload = plan.get("payload")
             role_name = payload.get("source_role_name") if isinstance(payload, Mapping) else None
             if (
-                plan["is_active"]
-                and isinstance(payload, Mapping)
+                isinstance(payload, Mapping)
                 and payload.get("schema") in _ACTIVE_ROLE_PLAN_SCHEMAS
                 and isinstance(role_name, str)
                 and role_name.strip()
             ):
-                plans.setdefault(role_name, plan)
+                plans.setdefault(role_name, dict(plan))
         return plans
 
     def list_active_loadout_equipment_owners(self) -> list[dict[str, Any]]:
-        """Return real native UIDs and their owners from active saved plans."""
+        """Return real native UIDs from every visible slot's current plan.
+
+        ``loadout_plan.is_active`` is a legacy history flag and is not the
+        ownership source after named slots were introduced.  In particular, a
+        deleted current plan can leave an older immutable plan in history.
+        Only ``role_loadout_slot.current_plan_id`` may reserve an item.
+        """
 
         return self._rows(
             """
             SELECT item.uid_slot, item.uid_serial, item.kind,
-                   plan.plan_id, plan.character_id
+                   plan.plan_id, plan.character_id, slot.slot_id, slot.slot_name
             FROM loadout_plan_item AS item
-            JOIN loadout_plan AS plan USING(plan_id)
-            WHERE plan.is_active = 1
-              AND item.uid_slot > 0
-            ORDER BY plan.updated_at_utc DESC, plan.plan_id DESC, item.ordinal
+            JOIN role_loadout_slot AS slot ON slot.current_plan_id = item.plan_id
+            JOIN loadout_plan AS plan ON plan.plan_id = item.plan_id
+            WHERE slot.is_archived = 0 AND item.uid_slot > 0
+            ORDER BY slot.updated_at_utc DESC, slot.slot_id DESC, item.ordinal
             """
         )
 

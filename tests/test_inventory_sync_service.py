@@ -122,6 +122,69 @@ class FailingCaptureCoreClient(FakeCoreClient):
 
 
 class InventorySyncServiceTests(unittest.TestCase):
+    def test_guard_diagnostic_reports_when_no_inventory_event_arrives(self) -> None:
+        """A guarded state operation must distinguish no packet from a subset packet."""
+
+        service = InventorySyncService("unused.sqlite3")
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+
+        with patch("src.services.inventory_sync_service.logger.info") as info:
+            service.end_full_inventory_guard(guard)
+
+        info.assert_called_once_with(
+            "快照守卫测试结果：收到背包事件={}，事件内有效装备={}，命中冻结库存={}，完整UID集合={}",
+            0,
+            0,
+            0,
+            False,
+        )
+
+    def test_guard_diagnostic_keeps_subset_evidence_separate_from_full_inventory(self) -> None:
+        """A non-empty scoped packet is observable but never evidence for pointer replacement."""
+
+        service = InventorySyncService("unused.sqlite3")
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+        service._on_inventory_event(snapshot(item(1), sequence=4))
+
+        with patch("src.services.inventory_sync_service.logger.info") as info:
+            service.end_full_inventory_guard(guard)
+
+        self.assertEqual(
+            (
+                "快照守卫测试结果：收到背包事件={}，事件内有效装备={}，命中冻结库存={}，完整UID集合={}",
+                1,
+                1,
+                1,
+                False,
+            ),
+            info.call_args.args,
+        )
+
+    def test_guard_records_smaller_declared_inventory_count_for_one_key_warning(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+
+        service._on_inventory_event(snapshot(item(1), sequence=4))
+
+        self.assertTrue(service.guard_observed_inventory_reduction(guard))
+        service.end_full_inventory_guard(guard)
+
+    def test_one_key_action_snapshot_requires_one_packet_covering_every_target(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        service._on_inventory_event(snapshot(item(1), item(2), sequence=4))
+        action_snapshot = service.wait_for_action_inventory_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.01,
+        )
+
+        self.assertEqual("event.inventory.snapshot", action_snapshot["method"])
+        self.assertEqual(2, len(action_snapshot["params"]["items"]))
+        service.end_full_inventory_guard(guard)
+
     def test_guarded_role_subset_event_is_available_only_for_memory_verification(self) -> None:
         service = InventorySyncService("unused.sqlite3")
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
@@ -162,6 +225,21 @@ class InventorySyncServiceTests(unittest.TestCase):
 
         self.assertEqual({(8, 1), (8, 2)}, scoped.uid_pairs)
         self.assertEqual(2, len(scoped.items))
+        service.end_full_inventory_guard(guard)
+
+    def test_observed_equipment_event_returns_seen_target_without_waiting_for_full_plan(self) -> None:
+        service = InventorySyncService("unused.sqlite3")
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        service._on_inventory_event(snapshot(item(1), sequence=4))
+        scoped = service.wait_for_observed_equipment_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.01,
+        )
+
+        self.assertEqual({(8, 1)}, scoped.uid_pairs)
         service.end_full_inventory_guard(guard)
 
     def test_finished_guard_blocks_late_subset_until_full_inventory_returns(self) -> None:

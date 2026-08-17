@@ -156,3 +156,13 @@ def filter_allocation_request_for_locks(
         if group:
             filtered_groups.append(group)
     return selected, filtered_groups
+
+
+def selected_fully_locked_roles(
+    selected_roles: list[str],
+    snapshot: AllocationLockSnapshot,
+) -> frozenset[str]:
+    """Return only fully locked roles included in this calculation request."""
+
+    selected = {str(role) for role in selected_roles if str(role).strip()}
+    return frozenset(snapshot.locked_role_names.intersection(selected))

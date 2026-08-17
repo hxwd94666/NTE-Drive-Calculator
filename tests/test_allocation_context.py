@@ -113,6 +113,7 @@ class AllocationContextTests(unittest.TestCase):
                     "property_weights": {"CritDamageBase": 1.5, "AtkAdd": 0.8},
                     "substat_priorities": ["CritDamageBase", "AtkAdd"],
                     "substat_blacklist": ["AtkAdd"],
+                    "blacklist_zero_weight": True,
                     "equal_priority": True,
                     "ignore_grade_limit": True,
                     "min_grade_limit": "D",
@@ -162,6 +163,7 @@ class AllocationContextTests(unittest.TestCase):
             context.roles[0].property_weights,
         )
         self.assertEqual(("AtkAdd",), context.roles[0].substat_blacklist)
+        self.assertTrue(context.roles[0].blacklist_zero_weight)
         self.assertTrue(context.roles[0].equal_substat_priority)
         self.assertTrue(context.roles[0].ignore_grade_limit)
         self.assertEqual("D", context.roles[0].min_grade_limit)

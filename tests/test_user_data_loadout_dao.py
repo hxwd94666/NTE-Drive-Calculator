@@ -416,6 +416,51 @@ class UserDataLoadoutDaoTests(unittest.TestCase):
         self.assertIsNone(self.dao.get_active_loadout_plan_for_role("早雾"))
         self.assertFalse(self.dao.get_loadout_plan(plan_id)["is_active"])
 
+    def test_deleted_current_plan_does_not_leave_historical_items_reserved(self) -> None:
+        """Only a visible slot's current plan may reserve incremental candidates."""
+
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [
+            item(11, 22, "core"),
+            item(12, 23, "core"),
+        ]))
+        self.dao.save_loadout_plan(
+            name="旧导入方案",
+            character_id=1003,
+            source_snapshot_id=snapshot_id,
+            is_active=True,
+            assignments=[{
+                "uid_serial": 11, "uid_slot": 22, "kind": "core",
+            }],
+            payload={
+                "source_role_name": "早雾",
+                "schema": "game-observed-loadout-v1",
+            },
+        )
+        primary_slot_id = self.dao.list_loadout_slots(1003)[0]["slot_id"]
+        current_plan_id = self.dao.save_plan_to_slot(
+            primary_slot_id,
+            name="当前计算方案",
+            source_snapshot_id=snapshot_id,
+            assignments=[{
+                "uid_serial": 12, "uid_slot": 23, "kind": "core",
+            }],
+            payload={
+                "source_role_name": "早雾",
+                "schema": "allocation-official-snapshot-v1",
+            },
+        )
+
+        self.assertEqual(
+            [(23, 12)],
+            [
+                (row["uid_slot"], row["uid_serial"])
+                for row in self.dao.list_active_loadout_equipment_owners()
+            ],
+        )
+        self.assertTrue(self.dao.deactivate_loadout_plan(current_plan_id))
+        self.assertEqual([], self.dao.list_active_loadout_equipment_owners())
+        self.assertEqual({}, self.dao.list_active_loadout_plans_by_role())
+
     def test_prunes_only_snapshots_not_current_recent_or_referenced_by_plan(self) -> None:
         first_id = self.dao.import_inventory_snapshot(snapshot(1, [item(1, 1)]))
         second_id = self.dao.import_inventory_snapshot(snapshot(2, [item(2, 2)]))

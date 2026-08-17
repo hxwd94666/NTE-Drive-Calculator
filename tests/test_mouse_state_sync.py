@@ -1,3 +1,4 @@
+# 测试鼠标扫描状态同步。
 from __future__ import annotations
 
 import tempfile
@@ -138,14 +139,14 @@ class MouseStateSyncTests(unittest.TestCase):
             )
             report = Path(tmp, "mouse_state_sync_last_report.json").read_text(encoding="utf-8")
 
-        self.assertEqual(1, applied)
+        self.assertEqual(1, applied.applied_count)
         self.assertIn('"status": "complete"', report)
         self.assertEqual(
             [120, 280, 120, 280, 280, 280, 280, 280],
             [amount for _position, amount in scanner._input.scrolls],
         )
 
-    def test_stale_current_state_stops_before_clicking_an_action(self) -> None:
+    def test_stale_current_state_is_skipped_without_clicking_an_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             scanner = self.Scanner(["discarded"], tmp)
             sync = MouseEquipmentStateSync(
@@ -153,14 +154,34 @@ class MouseStateSyncTests(unittest.TestCase):
                 state_detector=lambda _image: next(scanner.states),
                 sleep_fn=lambda _seconds: None,
             )
-            with self.assertRaisesRegex(RuntimeError, "画面为 discarded.*计划为 normal"):
-                sync.sync(
-                    7,
-                    [{"index": 1, "current_state": "normal", "target_state": "locked"}],
-                )
+            result = sync.sync(
+                7,
+                [{"index": 1, "current_state": "normal", "target_state": "locked"}],
+            )
             report = Path(tmp, "mouse_state_sync_last_report.json").read_text(encoding="utf-8")
+        self.assertEqual(0, result.applied_count)
+        self.assertEqual(1, len(result.state_mismatches))
+        self.assertEqual("discarded", result.state_mismatches[0].detected_state)
         self.assertEqual(1, len(scanner._input.clicks))
-        self.assertIn('"status": "error"', report)
+        self.assertIn('"status": "complete_with_skips"', report)
+        self.assertIn('"index": 1', report)
+
+    def test_state_mismatch_does_not_stop_later_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scanner = self.Scanner(["discarded", "normal", "locked"], tmp)
+            sync = self._sync(scanner, state_detector=lambda _image: next(scanner.states), sleep_fn=lambda _seconds: None)
+            sync._click_ratio = lambda frame, _ratio: frame
+
+            result = sync.sync(
+                7,
+                [
+                    {"index": 2, "current_state": "normal", "target_state": "locked"},
+                    {"index": 1, "current_state": "normal", "target_state": "locked"},
+                ],
+            )
+
+        self.assertEqual(1, result.applied_count)
+        self.assertEqual([2], [item.index for item in result.state_mismatches])
 
     def test_lock_to_discard_waits_then_confirms_and_verifies(self) -> None:
         scanner = self.Scanner(["discarded"])

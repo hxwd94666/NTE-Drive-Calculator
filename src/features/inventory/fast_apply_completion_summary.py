@@ -1,3 +1,4 @@
+# 汇总极速装配完成结果与提示。
 """Compact, actionable summaries for the fast-equipment completion dialog."""
 
 from __future__ import annotations

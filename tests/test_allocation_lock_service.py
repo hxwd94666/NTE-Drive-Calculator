@@ -8,6 +8,7 @@ from pathlib import Path
 from src.services.allocation_lock_service import (
     build_allocation_lock_snapshot,
     filter_allocation_request_for_locks,
+    selected_fully_locked_roles,
     verify_allocation_lock_snapshot,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
@@ -139,6 +140,14 @@ class AllocationLockServiceTests(unittest.TestCase):
             inventory_snapshot_id=snapshot_id,
         )
         self.assertEqual(frozenset({"早雾"}), all_slots_locked.locked_role_names)
+        self.assertEqual(
+            frozenset({"早雾"}),
+            selected_fully_locked_roles(["千秋", "早雾"], all_slots_locked),
+        )
+        self.assertEqual(
+            frozenset(),
+            selected_fully_locked_roles(["千秋"], all_slots_locked),
+        )
 
     def test_lock_accepts_missing_core_and_rejects_virtual_assignments(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(
@@ -177,6 +186,24 @@ class AllocationLockServiceTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(UserDataValidationError, "虚拟"):
             self.dao.set_allocation_lock(virtual_plan, True)
+
+    def test_same_character_locked_slots_can_share_equipment(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(
+            snapshot(1, [item(11, 22), item(12, 23, "core")])
+        )
+        primary_plan_id = self._save_lockable_plan(snapshot_id)
+        self.assertTrue(self.dao.set_allocation_lock(primary_plan_id, True))
+        secondary_slot_id = self.dao.create_loadout_slot(1003, "副本", slot_key="raid")
+        secondary_plan_id = self.dao.save_plan_to_slot(
+            secondary_slot_id,
+            name="早雾副本方案",
+            source_snapshot_id=snapshot_id,
+            assignments=[_module(11, 22), _core(12, 23)],
+            payload=_official_payload("早雾"),
+        )
+
+        self.assertTrue(self.dao.set_allocation_lock(secondary_plan_id, True))
+        self.dao.assert_allocation_lock_invariants()
 
     def test_imported_game_plan_is_a_lockable_calculation_reservation(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(

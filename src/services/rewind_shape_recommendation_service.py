@@ -15,6 +15,7 @@ from src.domain.rewind_shape_recommendation import (
     RewindShapeRecommendation,
     recommend_score_shortfall_shapes,
     target_grade_score,
+    target_percentage_score,
 )
 from src.domain.loadout_plan_scores import assignment_score_key
 from src.optimizer.scoring import ScoringEngine
@@ -163,11 +164,13 @@ class RewindShapeRecommendationService:
         primary_character_id: int | None = None,
         selection_limit: int = 8,
         target_grade: str = "S",
+        target_custom_percent: float | None = None,
     ) -> RewindShapeAnalysis:
         if strategy not in {"balanced", "focused"}:
             raise ValueError(f"unknown rewind strategy: {strategy}")
         if not target_character_ids:
             raise ValueError("请先选择培养角色，再生成推荐。")
+        target_label = _target_label(target_grade, target_custom_percent)
         role_names: dict[int, str] = {}
         with self._static_dao_factory(self._static_database_path) as static_dao:
             role_names = {
@@ -344,10 +347,12 @@ class RewindShapeRecommendationService:
                             # itself is the persisted per-drive score; it is never
                             # recalculated here.
                             score_area = int(item.get("grid_count") or shape_cells)
-                            gap = max(
-                                0.0,
-                                target_grade_score(target_grade, score_area) - float(score_value),
+                            threshold = (
+                                target_percentage_score(target_custom_percent, score_area)
+                                if target_custom_percent is not None
+                                else target_grade_score(target_grade, score_area)
                             )
+                            gap = max(0.0, threshold - float(score_value))
                             if gap > 0:
                                 shortfalls[shape_id] += 1
                                 score_gaps[shape_id] += gap
@@ -368,12 +373,19 @@ class RewindShapeRecommendationService:
             selection_limit=selection_limit,
             proportional=strategy == "focused",
         )
-        if strategy == "balanced" and sum(
-            1 for count in shortfalls.values() if count > 0
-        ) > selection_limit:
-            notice = "所需驱动超过 8 个，建议降低评分等级或使用随机倒带抽取。"
+        positive_shortfall_shape_count = sum(
+            1 for score_gap in score_gaps.values() if score_gap > 0
+        )
+        if positive_shortfall_shape_count > selection_limit:
+            notice = (
+                f"所需驱动超过 {selection_limit} 个，"
+                "建议降低评分等级或使用随机倒带抽取。"
+            )
         elif not recommendations:
-            notice = "未找到低于目标评分等级的已装配驱动。"
+            notice = (
+                "已读取所选角色的保存方案；"
+                f"没有低于{target_label}的已装配驱动。"
+            )
         benefit = sum(row.priority_score * row.quantity for row in recommendations)
         cost = sum(pricing_rule.cost_for_quantity(row.quantity) for row in recommendations)
         labels = {"balanced": "全面均衡", "focused": "少角冲分"}
@@ -394,6 +406,15 @@ class RewindShapeRecommendationService:
                 for shape in shapes
             ),
         )
+
+
+def _target_label(target_grade: str, target_custom_percent: float | None) -> str:
+    """Format and validate the threshold name shown in rewind analysis notices."""
+
+    if target_custom_percent is None:
+        return f" {target_grade.upper()} 评分等级"
+    target_percentage_score(target_custom_percent, 1)
+    return f"自选 {float(target_custom_percent):g}% 目标"
 
 
 def _official_shape_id(value: str, known_shape_ids: set[str]) -> str:

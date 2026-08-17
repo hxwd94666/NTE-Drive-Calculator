@@ -1,3 +1,4 @@
+# 测试具名配装槽位选择服务。
 """Public behavior tests for explicit role-loadout slot selection."""
 
 from __future__ import annotations

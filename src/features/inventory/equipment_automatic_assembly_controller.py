@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -189,17 +190,32 @@ def _start_automatic_equipment_assembly(
         protagonist_names
     ) and not aliases:
         return
+    hotkey_manager = getattr(window, "global_hotkey_manager", None)
+    configuration = getattr(hotkey_manager, "configuration", None)
+    stop_hotkey = str(getattr(configuration, "stop", "全局停止键"))
     confirmation = QMessageBox.question(
         window,
         "自动装配准备",
         "将模拟游戏内操作逐步装配。请在 3 秒内切换到游戏的角色详情页，"
-        "并保持游戏窗口可见；执行期间可按 F12 停止。\n\n"
+        f"并保持游戏窗口可见；执行期间可按设置中的全局停止键（{stop_hotkey}）停止。\n\n"
         "请保证游戏里的 C 键角色页面已打开，且游戏分辨率为 1080p 或 2K。",
         QMessageBox.Ok | QMessageBox.Cancel,
         QMessageBox.Cancel,
     )
     if confirmation != QMessageBox.Ok:
         return
+    hotkey_owner = "automatic_equipment_apply"
+    active_hotkey_owner = getattr(hotkey_manager, "active_owner", None)
+    if active_hotkey_owner not in (None, hotkey_owner):
+        QMessageBox.information(
+            window,
+            "自动装配",
+            "当前全局停止键正由其他任务使用，请先停止该任务后再开始自动装配。",
+        )
+        return
+    stop_requested = threading.Event()
+    if hotkey_manager is not None:
+        hotkey_manager.start(owner=hotkey_owner, on_stop=stop_requested.set)
     show_minimized = getattr(window, "showMinimized", None)
     if callable(show_minimized):
         show_minimized()
@@ -214,6 +230,7 @@ def _start_automatic_equipment_assembly(
                 record_root=record_root,
                 role_name_aliases=aliases,
                 cloud_nte_mode=cloud_nte_mode,
+                should_stop=stop_requested.is_set,
             )
         return execute_all_roles_from_current_game_page(
             state,
@@ -221,12 +238,15 @@ def _start_automatic_equipment_assembly(
             record_root=record_root,
             role_name_aliases=aliases,
             cloud_nte_mode=cloud_nte_mode,
+            should_stop=stop_requested.is_set,
         )
 
     worker = WorkerThread(target=run, parent=window)
     window._automatic_equipment_apply_worker = worker
 
     def on_result(report: object) -> None:
+        if hotkey_manager is not None:
+            hotkey_manager.stop(owner=hotkey_owner)
         _return_to_equipment_after_assembly(window)
         title, message, completed = _assembly_report_dialog(
             "自动装配",
@@ -243,6 +263,8 @@ def _start_automatic_equipment_assembly(
             refresh()
 
     def on_error(message: str) -> None:
+        if hotkey_manager is not None:
+            hotkey_manager.stop(owner=hotkey_owner)
         _return_to_equipment_after_assembly(window)
         QMessageBox.critical(
             window,
@@ -306,7 +328,7 @@ def _preview_automatic_assemble_role(
             "自动装配",
             f"将模拟游戏内操作逐步装配 [{role_name}]。\n\n"
             "不需要装备插件，但需切换到游戏角色详情页，耗时更长；"
-            "执行期间可按 F12 停止。是否继续？",
+            "执行期间可按设置中的全局停止键停止。是否继续？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -372,7 +394,7 @@ def _preview_automatic_assemble_all_roles(
         "自动装配",
         f"将模拟游戏内操作，依次装配 {len(selected_slot_ids)} 个角色。\n\n"
         "无需装备插件，但需切换到游戏角色详情页，耗时更长；"
-        "执行期间可按 F12 停止。是否继续？",
+        "执行期间可按设置中的全局停止键停止。是否继续？",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )

@@ -46,7 +46,8 @@ class RewindExecutionDialog(QDialog):
         root.setSpacing(12)
         prerequisite = QLabel(
             "使用前请提前打开游戏内的倒带页面。此功能仍处于实验性开发阶段，"
-            "当前缺少实机测试条件，不保证可以使用。"
+            "当前缺少实机测试条件，不保证可以使用。执行期间可按设置中的全局停止键"
+            f"（{self._stop_hotkey_label()}）停止。"
         )
         prerequisite.setObjectName("rewindExperimentalNotice")
         prerequisite.setWordWrap(True)
@@ -112,6 +113,16 @@ class RewindExecutionDialog(QDialog):
         cancel.clicked.connect(self.reject)
         root.addWidget(buttons)
         self._sync_customization_availability()
+
+    def _stop_hotkey_label(self) -> str:
+        parent = self.parentWidget()
+        while parent is not None:
+            manager = getattr(parent, "global_hotkey_manager", None)
+            configuration = getattr(manager, "configuration", None)
+            if configuration is not None:
+                return str(getattr(configuration, "stop", "全局停止键"))
+            parent = parent.parentWidget()
+        return "全局停止键"
 
     @staticmethod
     def _tile(label: str, tone: str, *, checked: bool) -> QPushButton:

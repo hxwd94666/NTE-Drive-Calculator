@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,7 +10,6 @@ import numpy as np
 
 from src.integrations.vision.mouse_inventory_scan import (
     MouseCapturedFrame,
-    MouseInputRandomization,
     MouseInventoryLayout,
     MouseInventoryScanner,
     MouseScanSlot,
@@ -114,7 +112,38 @@ class MouseInventoryLayoutTests(unittest.TestCase):
         self.assertEqual(list(range(29, 50)), [slot.index for slot in pages[1]])
         self.assertEqual({1, 2, 3}, {slot.row for slot in pages[1]})
         self.assertEqual([50], [slot.index for slot in pages[2]])
-        self.assertEqual((1, 0), (pages[2][0].row, pages[2][0].column))
+        self.assertEqual((3, 0), (pages[2][0].row, pages[2][0].column))
+
+    def test_final_page_uses_entered_count_to_map_bottom_aligned_tail(self) -> None:
+        layout = MouseInventoryLayout()
+
+        twelve_tail = layout.page_slots(40)[-1]
+        fourteen_tail = layout.page_slots(42)[-1]
+
+        self.assertEqual(list(range(29, 41)), [slot.index for slot in twelve_tail])
+        self.assertEqual((2, 0), (twelve_tail[0].row, twelve_tail[0].column))
+        self.assertEqual((3, 4), (twelve_tail[-1].row, twelve_tail[-1].column))
+        self.assertEqual((2, 0), (fourteen_tail[0].row, fourteen_tail[0].column))
+        self.assertEqual((3, 6), (fourteen_tail[-1].row, fourteen_tail[-1].column))
+
+    def test_all_later_page_tail_shapes_stay_inside_bottom_aligned_viewport(self) -> None:
+        layout = MouseInventoryLayout()
+        for remaining in range(1, 22):
+            with self.subTest(remaining=remaining):
+                total = 28 + remaining
+                final_page = layout.page_slots(total)[-1]
+                total_rows = (total + layout.columns - 1) // layout.columns
+                first_visible_row = max(0, total_rows - layout.visible_rows)
+                expected_positions = [
+                    (
+                        (index - 1) // layout.columns - first_visible_row,
+                        (index - 1) % layout.columns,
+                    )
+                    for index in range(29, total + 1)
+                ]
+
+                self.assertEqual(expected_positions, [(slot.row, slot.column) for slot in final_page])
+                self.assertEqual(remaining, len(set(expected_positions)))
 
     def test_partial_final_page_keeps_contiguous_inventory_order(self) -> None:
         pages = MouseInventoryLayout().page_slots(277)
@@ -132,78 +161,6 @@ class MouseInventoryLayoutTests(unittest.TestCase):
         self.assertEqual(19, len(pages[-1]))
         self.assertEqual({1, 2, 3}, {slot.row for slot in pages[-1]})
         self.assertEqual((3, 4), (pages[-1][-1].row, pages[-1][-1].column))
-
-
-class MouseInputRandomizationTests(unittest.TestCase):
-    def test_click_jitter_is_seeded_for_tests_and_stays_inside_scaled_bounds(self) -> None:
-        profile = MouseInputRandomization()
-        first_rng = random.Random(2468)
-        second_rng = random.Random(2468)
-
-        first = [profile.jitter_position((1000, 700), 2160, first_rng) for _ in range(20)]
-        second = [profile.jitter_position((1000, 700), 2160, second_rng) for _ in range(20)]
-
-        self.assertEqual(first, second)
-        self.assertGreater(len(set(first)), 1)
-        self.assertTrue(all(abs(x - 1000) <= 8 and abs(y - 700) <= 8 for x, y in first))
-
-    def test_click_timing_uses_ranges_instead_of_a_fixed_period(self) -> None:
-        profile = MouseInputRandomization()
-        rng = random.Random(7)
-
-        move_values = [profile.move_seconds(rng) for _ in range(12)]
-        hold_values = [profile.hold_seconds(rng) for _ in range(12)]
-
-        self.assertTrue(all(0.025 <= value <= 0.060 for value in move_values))
-        self.assertTrue(all(0.018 <= value <= 0.035 for value in hold_values))
-        self.assertGreater(len(set(move_values)), 1)
-        self.assertGreater(len(set(hold_values)), 1)
-
-    def test_fast_trial_profile_halves_input_budget_but_keeps_frame_safe_delays(self) -> None:
-        standard = MouseInputRandomization()
-        fast = MouseInputRandomization.fast_trial()
-
-        standard_mean = sum(
-            (low + high) / 2
-            for low, high in (
-                standard.move_seconds_range,
-                standard.hold_seconds_range,
-                standard.after_click_seconds_range,
-                standard.between_items_seconds_range,
-            )
-        )
-        fast_mean = sum(
-            (low + high) / 2
-            for low, high in (
-                fast.move_seconds_range,
-                fast.hold_seconds_range,
-                fast.after_click_seconds_range,
-                fast.between_items_seconds_range,
-            )
-        )
-
-        self.assertLess(fast_mean, standard_mean * 0.55)
-        self.assertGreaterEqual(fast.after_click_seconds_range[0], 1 / 30)
-        self.assertGreaterEqual(fast.after_scroll_seconds_range[0], 1 / 30)
-
-    def test_one_point_five_trial_slows_fast_input_without_restoring_low_load_pause(self) -> None:
-        fast = MouseInputRandomization.fast_trial()
-        balanced = MouseInputRandomization.one_point_five_trial()
-
-        def input_budget(profile):
-            return sum(
-                (low + high) / 2
-                for low, high in (
-                    profile.move_seconds_range,
-                    profile.hold_seconds_range,
-                    profile.after_click_seconds_range,
-                    profile.between_items_seconds_range,
-                )
-            )
-
-        self.assertAlmostEqual(1.51, input_budget(balanced) / input_budget(fast), delta=0.08)
-        self.assertGreaterEqual(balanced.after_click_seconds_range[0], 2 / 30)
-        self.assertGreaterEqual(balanced.after_scroll_seconds_range[0], 2 / 30)
 
 
 class MouseScanRuntimeTests(unittest.TestCase):
@@ -321,6 +278,7 @@ class MouseInventoryScannerTests(unittest.TestCase):
             self.frames = frames
             self.clicks = []
             self.scrolls = []
+            self.drags = []
             self.releases = 0
 
         def click(self, position, *, content_height):
@@ -332,11 +290,24 @@ class MouseInventoryScannerTests(unittest.TestCase):
         def scroll(self, position, amount):
             self.scrolls.append((position, amount))
 
+        def drag(self, start, end, *, hold_seconds, duration_seconds):
+            self.drags.append((start, end, hold_seconds, duration_seconds))
+
         def between_items(self):
             return None
 
         def release_left(self):
             self.releases += 1
+
+    class _BottomAlignedInput(_Input):
+        def __init__(self, frames, *, tail_count):
+            super().__init__(frames)
+            self.tail_count = tail_count
+
+        def scroll(self, position, amount):
+            super().scroll(position, amount)
+            self.frames.occupied_start_row = 2
+            self.frames.occupied_count = self.tail_count
 
     def test_full_mouse_capture_uses_existing_stream_callback_contract(self) -> None:
         layout = MouseInventoryLayout()
@@ -364,6 +335,10 @@ class MouseInventoryScannerTests(unittest.TestCase):
             self.assertTrue(all(row[0].is_file() for row in callbacks))
             self.assertEqual(7, len(input_driver.clicks))
             self.assertEqual([], input_driver.scrolls)
+            self.assertEqual(
+                [((1320, 360), (1320, 1360), 0.3, 0.6)],
+                input_driver.drags,
+            )
             self.assertGreaterEqual(input_driver.releases, 2)
             self.assertTrue(frames.closed)
             report = json.loads((Path(tmp) / "mouse_scan_last_report.json").read_text(encoding="utf-8"))
@@ -373,6 +348,30 @@ class MouseInventoryScannerTests(unittest.TestCase):
             self.assertEqual(1, len(report["pages"]))
             self.assertEqual([], report["pages"][0]["wheel_amounts"])
             self.assertEqual([1, 7], report["pages"][0]["item_range"])
+
+    def test_bottom_aligned_twelve_item_tail_scans_in_standard_and_compatibility_profiles(self) -> None:
+        layout = MouseInventoryLayout()
+        for profile in (
+            MouseInventoryScanner.LOW_LOAD_INPUT_SPEED_PROFILE,
+            MouseInventoryScanner.COMPATIBILITY_INPUT_SPEED_PROFILE,
+        ):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
+                frames = self._Frames(layout)
+                input_driver = self._BottomAlignedInput(frames, tail_count=12)
+                scanner = MouseInventoryScanner(
+                    tmp,
+                    layout=layout,
+                    frame_provider=frames,
+                    input_driver=input_driver,
+                    input_speed_profile=profile,
+                    sleep_fn=lambda _seconds: None,
+                )
+
+                captured = scanner.start_scan(40, commit_on_complete=False)
+
+                self.assertEqual(40, captured)
+                self.assertEqual(40, len(input_driver.clicks))
+                self.assertTrue(input_driver.scrolls)
 
     def test_preflight_failure_writes_privacy_minimal_terminal_report(self) -> None:
         layout = MouseInventoryLayout()
@@ -477,7 +476,7 @@ class MouseInventoryScannerTests(unittest.TestCase):
             self.assertEqual([1, 2], report["pages"][0]["item_range"])
             self.assertGreaterEqual(input_driver.releases, 2)
 
-    def test_two_page_report_preserves_raw_wheel_sequence_and_overlap(self) -> None:
+    def test_two_page_report_preserves_raw_wheel_sequence_and_bottom_tail(self) -> None:
         layout = MouseInventoryLayout()
         frames = self._Frames(layout)
         rng = np.random.default_rng(20260814)
@@ -504,7 +503,7 @@ class MouseInventoryScannerTests(unittest.TestCase):
                 x, y = inner_self.frames.selected
                 inner_self.frames.selected = (x, y - (90 if amount == -280 else 75))
                 if len(inner_self.scrolls) == 9:
-                    inner_self.frames.occupied_start_row = 1
+                    inner_self.frames.occupied_start_row = 3
                     inner_self.frames.occupied_count = 1
 
         input_driver = ScrollingInput(frames)

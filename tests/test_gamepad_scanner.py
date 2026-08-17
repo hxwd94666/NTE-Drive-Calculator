@@ -271,6 +271,8 @@ class GamepadScannerTests(unittest.TestCase):
         scanner.push_left_joystick = lambda x, y: moves.append((x, y))
         scanner._prepare_temp_output = lambda: None
         scanner._commit_temp_output = lambda: commits.append(True)
+        reset_swipes = []
+        scanner._drag_inventory_list_to_top = lambda: reset_swipes.append(True)
 
         frames = [FakeScreenshot(1), FakeScreenshot(1)]
 
@@ -296,6 +298,7 @@ class GamepadScannerTests(unittest.TestCase):
         self.assertEqual(2, len(writes))
         self.assertEqual(1, len(right_moves))
         self.assertEqual([True], commits)
+        self.assertEqual([True], reset_swipes)
 
     def test_start_scan_can_notify_captures_before_deferred_commit(self):
         from src.scanner import gamepad_controller
@@ -318,6 +321,8 @@ class GamepadScannerTests(unittest.TestCase):
             scanner._stopped = False
             scanner.cols = 7
             scanner.push_left_joystick = lambda *_args, **_kwargs: None
+            reset_swipes = []
+            scanner._drag_inventory_list_to_top = lambda: reset_swipes.append(True)
 
             original_capture = gamepad_controller.capture_foreground_window
             original_save_png = gamepad_controller._save_png
@@ -348,6 +353,29 @@ class GamepadScannerTests(unittest.TestCase):
             notifications,
         )
         self.assertEqual([], commits)
+        self.assertEqual([True], reset_swipes)
+
+    def test_gamepad_list_reset_swipe_matches_reversed_incremental_motion(self):
+        from src.scanner import gamepad_controller
+        from src.scanner.window_capture import WindowRect
+
+        scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner._stopped = False
+        drags = []
+        scanner._inventory_reset_input = SimpleNamespace(
+            drag=lambda start, end, **kwargs: drags.append((start, end, kwargs))
+        )
+        original_rect = gamepad_controller.get_foreground_client_rect
+        gamepad_controller.get_foreground_client_rect = lambda: WindowRect(40, 60, 2600, 1500)
+        try:
+            scanner._drag_inventory_list_to_top()
+        finally:
+            gamepad_controller.get_foreground_client_rect = original_rect
+
+        self.assertEqual(
+            [((1320, 360), (1320, 1360), {"hold_seconds": 0.3, "duration_seconds": 0.6})],
+            drags,
+        )
 
     def test_sync_equipment_state_menu_sequences(self):
         from src.scanner import gamepad_controller

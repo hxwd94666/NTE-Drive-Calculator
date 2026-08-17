@@ -1,3 +1,4 @@
+# 执行鼠标扫描后的装备状态同步。
 """Mouse-driven equipment state synchronization after a full visual scan."""
 
 from __future__ import annotations
@@ -6,6 +7,7 @@ import json
 import os
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -23,6 +25,24 @@ from src.utils.logger import logger
 
 
 EQUIPMENT_STATES = {"normal", "locked", "discarded"}
+
+
+@dataclass(frozen=True)
+class MouseStateMismatch:
+    """One fixed-plan row whose live status must not be changed automatically."""
+
+    index: int
+    expected_state: str
+    detected_state: str
+    target_state: str
+
+
+@dataclass(frozen=True)
+class MouseStateSyncResult:
+    """Verified state changes plus rows skipped because their live state changed."""
+
+    applied_count: int
+    state_mismatches: tuple[MouseStateMismatch, ...] = ()
 
 
 class MouseStateScanner(Protocol):
@@ -61,7 +81,7 @@ class MouseEquipmentStateSync:
         self.identity_verifier = identity_verifier or self._reference_panel_matches
         self.sleep_fn = sleep_fn
 
-    def sync(self, total_items: int, state_changes: list[dict[str, Any]]) -> int:
+    def sync(self, total_items: int, state_changes: list[dict[str, Any]]) -> MouseStateSyncResult:
         started = time.perf_counter()
         total = int(total_items)
         changes = self._validated_changes(total, state_changes)
@@ -72,8 +92,9 @@ class MouseEquipmentStateSync:
                 applied=0,
                 started=started,
                 transitions={},
+                state_mismatches=(),
             )
-            return 0
+            return MouseStateSyncResult(applied_count=0)
 
         pages = self.scanner.layout.page_slots(total)
         by_index = {slot.index: slot for page in pages for slot in page}
@@ -81,6 +102,7 @@ class MouseEquipmentStateSync:
         frame = self.scanner._capture_frame()
         applied = 0
         transitions: dict[str, int] = {}
+        state_mismatches: list[MouseStateMismatch] = []
         try:
             initial_last_slot = pages[-1][-1]
             if self.scanner._wait_for_selected_panel(initial_last_slot, 0) is None:
@@ -100,10 +122,18 @@ class MouseEquipmentStateSync:
                 detected = self.state_detector(frame.image)
                 expected_current = str(change["current_state"])
                 if detected != expected_current:
-                    raise RuntimeError(
-                        f"第 {slot.index} 件状态与固定计划不一致："
+                    mismatch = MouseStateMismatch(
+                        index=slot.index,
+                        expected_state=expected_current,
+                        detected_state=detected,
+                        target_state=str(change["target_state"]),
+                    )
+                    state_mismatches.append(mismatch)
+                    logger.warning(
+                        f"[鼠标状态管理] 跳过 raw_drive_{slot.index:04d}: "
                         f"画面为 {detected}，计划为 {expected_current}"
                     )
+                    continue
                 target = str(change["target_state"])
                 frame = self._apply_transition(frame, detected, target)
                 frame, verified = self._wait_for_state(frame, target)
@@ -126,17 +156,22 @@ class MouseEquipmentStateSync:
                 applied=applied,
                 started=started,
                 transitions=transitions,
+                state_mismatches=tuple(state_mismatches),
                 failure_type=type(exc).__name__,
             )
             raise
         self._write_report(
-            status="complete",
+            status="complete_with_skips" if state_mismatches else "complete",
             requested=len(changes),
             applied=applied,
             started=started,
             transitions=transitions,
+            state_mismatches=tuple(state_mismatches),
         )
-        return applied
+        return MouseStateSyncResult(
+            applied_count=applied,
+            state_mismatches=tuple(state_mismatches),
+        )
 
     @staticmethod
     def _validated_changes(total: int, state_changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -243,15 +278,25 @@ class MouseEquipmentStateSync:
         applied: int,
         started: float,
         transitions: dict[str, int],
+        state_mismatches: tuple[MouseStateMismatch, ...],
         failure_type: str | None = None,
     ) -> None:
         payload: dict[str, Any] = {
-            "schema": "mouse-equipment-state-sync-report-v1",
+            "schema": "mouse-equipment-state-sync-report-v2",
             "status": status,
             "requested": int(requested),
             "applied": int(applied),
             "transitions": dict(sorted(transitions.items())),
             "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 3),
+            "state_mismatches": [
+                {
+                    "index": mismatch.index,
+                    "expected_state": mismatch.expected_state,
+                    "detected_state": mismatch.detected_state,
+                    "target_state": mismatch.target_state,
+                }
+                for mismatch in state_mismatches
+            ],
         }
         if failure_type:
             payload["failure_type"] = failure_type

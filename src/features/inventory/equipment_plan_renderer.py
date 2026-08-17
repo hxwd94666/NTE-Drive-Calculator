@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import (
     GRADE_COLORS,
     current_theme_name,
@@ -31,7 +30,7 @@ from src.app.theme import (
     theme_rgba,
     themed_style,
 )
-from src.domain.allocation_rating import allocation_grade
+from src.domain.allocation_rating import allocation_grade, loadout_total_grade
 from src.optimizer.contracts import (
     DIFF_CHANGED,
     EQUIP_GRADE,
@@ -258,10 +257,10 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     tape_data = rd.get(ROLE_EQUIPPED_TAPE)
     if is_sqlite_plan and not _saved_plan_requires_score_recalculation(rd):
         total_score = float(rd.get(ROLE_TOTAL_SCORE, 0.0) or 0.0)
-        total_grade = allocation_grade(total_score, ALLOCATION_TOTAL_SCORE_AREA)
+        total_grade = loadout_total_grade(total_score)
     elif not is_sqlite_plan and ROLE_TOTAL_SCORE in rd and rd.get(ROLE_TOTAL_GRADE):
         total_score = float(rd.get(ROLE_TOTAL_SCORE, 0.0) or 0.0)
-        total_grade = str(rd.get(ROLE_TOTAL_GRADE) or "D")
+        total_grade = loadout_total_grade(total_score)
     else:
         if tape_data:
             t_q = tape_data.get(EQUIP_QUALITY, "Gold")
@@ -278,7 +277,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                 d_q,
             )
             total_score += d_s
-        total_grade = allocation_grade(total_score, ALLOCATION_TOTAL_SCORE_AREA)
+        total_grade = loadout_total_grade(total_score)
     gc = GRADE_COLORS.get(total_grade, "#58a6ff")
     gbg = theme_rgba(gc, 0.10)
     header_height = 34

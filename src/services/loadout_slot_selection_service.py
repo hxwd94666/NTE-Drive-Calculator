@@ -1,3 +1,4 @@
+# 解析并校验具名配装槽位选择。
 """Resolve explicit multi-loadout selections for apply and presentation flows."""
 
 from __future__ import annotations

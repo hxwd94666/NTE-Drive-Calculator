@@ -66,3 +66,4 @@ nte_capture*.json
 # Temporary OCR and scan artifacts
 *.log
 *.tmp
+/.codex/

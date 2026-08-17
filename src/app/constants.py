@@ -10,6 +10,7 @@ GITHUB_HOME_URL = "https://github.com/hxwd94666/NTE-Drive-Calculator"
 GITHUB_RELEASES_URL = GITHUB_HOME_URL + "/releases"
 GITHUB_LATEST_RELEASE_URL = GITHUB_RELEASES_URL + "/latest"
 MIRROR_UPDATE_API = "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest"
+MIRROR_PROJECT_URL = "https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&channel=stable"
 BILIBILI_HOME_URL = "https://b23.tv/nXJGdh3"
 SUPPORT_US_URL = "https://afdian.com/a/hxwd94666"
 GROUP_CHAT_NOTICE = (

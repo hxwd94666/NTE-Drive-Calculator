@@ -84,6 +84,24 @@ def test_currency_parser_uses_largest_numeric_ocr_fragment() -> None:
     assert parse_rewind_currency(["none"]) is None
 
 
+def test_rewind_execution_honors_an_explicit_stop_before_capturing() -> None:
+    captured = False
+
+    def capture():
+        nonlocal captured
+        captured = True
+        return _capture()
+
+    with pytest.raises(RuntimeError, match="倒带执行已停止"):
+        execute_rewind_request(
+            RewindExecutionRequest(),
+            capture=capture,
+            should_stop=lambda: True,
+        )
+
+    assert not captured
+
+
 def test_random_rewind_spends_only_complete_tens_and_double_escapes_each_result() -> None:
     backend = _Backend()
     report = execute_rewind_request(

@@ -14,6 +14,26 @@ def _round_half_up(value: float) -> int:
     return int(math.floor(float(value) + 0.5))
 
 
+def inventory_top_reset_swipe_points(
+    *,
+    left: int,
+    top: int,
+    width: int,
+    height: int,
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Return the count-independent top-to-bottom list-reset swipe points.
+
+    The incremental scanner uses the reverse bottom-to-top motion.  Full scans
+    drag from the matching upper point to the lower point once before their
+    existing navigation begins.
+    """
+
+    center_x = int(left) + max(1, int(width)) // 2
+    start_y = int(top) + _round_half_up(max(1, int(height)) * 300 / 1440)
+    end_y = int(top) + _round_half_up(max(1, int(height)) * 1300 / 1440)
+    return (center_x, start_y), (center_x, end_y)
+
+
 @dataclass(frozen=True)
 class MouseInputRandomization:
     """Bounded timing and pixel jitter for one mouse scan session."""
@@ -110,6 +130,15 @@ class MouseScanInput(Protocol):
 
     def scroll(self, position: tuple[int, int], amount: int) -> None: ...
 
+    def drag(
+        self,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        *,
+        hold_seconds: float,
+        duration_seconds: float,
+    ) -> None: ...
+
     def release_left(self) -> None: ...
 
 
@@ -168,6 +197,35 @@ class PyAutoGuiMouseScanInput:
         # moving to the scroll anchor only once for the nine-command sequence.
         ctypes.windll.user32.mouse_event(0x0800, 0, 0, int(amount), 0)
         self._sleep(self._randomization.after_scroll_seconds(self._rng))
+
+    def drag(
+        self,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        *,
+        hold_seconds: float,
+        duration_seconds: float,
+    ) -> None:
+        """Perform one deliberate list-reset drag without click jitter."""
+
+        self._last_scroll_position = None
+        self._pyautogui.mouseUp(button="left", **self._pause_kwargs())
+        self._pyautogui.moveTo(
+            *start,
+            duration=0.15,
+            **self._pause_kwargs(),
+        )
+        self._pyautogui.mouseDown(button="left", **self._pause_kwargs())
+        try:
+            self._sleep(float(hold_seconds))
+            self._pyautogui.moveTo(
+                *end,
+                duration=float(duration_seconds),
+                **self._pause_kwargs(),
+            )
+            self._sleep(0.3)
+        finally:
+            self._pyautogui.mouseUp(button="left", **self._pause_kwargs())
 
     def between_items(self) -> None:
         self._sleep(self._randomization.between_items_seconds(self._rng))

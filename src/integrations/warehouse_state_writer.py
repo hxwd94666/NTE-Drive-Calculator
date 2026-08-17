@@ -45,9 +45,18 @@ class LiveInventorySync(Protocol):
     def begin_full_inventory_guard(
         self,
         item_uids: frozenset[tuple[int, int]],
+        *,
+        source_snapshot_id: int | None = None,
     ) -> object: ...
 
     def end_full_inventory_guard(self, token: object) -> None: ...
+
+    def finish_full_inventory_guard(
+        self,
+        token: object,
+        *,
+        grace_seconds: float,
+    ) -> bool: ...
 
 
 class WarehouseStateWriter:

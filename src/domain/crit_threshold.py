@@ -111,6 +111,7 @@ def normalize_preference_config(config: dict | None) -> dict:
     return {
         "stats": stats,
         "blacklist": blacklist,
+        "blacklist_zero_weight": bool(config.get("blacklist_zero_weight", False)),
         "equal_priority": bool(config.get("equal_priority", False)),
         "ignore_grade_limit": bool(config.get("ignore_grade_limit", False)),
         "min_grade_limit": min_grade,
@@ -165,6 +166,7 @@ def preference_config_active(config: dict | None) -> bool:
     return bool(
         normalized.get("stats")
         or normalized.get("blacklist")
+        or normalized.get("blacklist_zero_weight")
         or normalized.get("equal_priority")
         or normalized.get("ignore_grade_limit")
         or str(normalized.get("min_grade_limit", "A")).upper() != "A"
@@ -223,6 +225,7 @@ def _stat_priority_should_persist(normalized: dict, *, crit_floor_configured: bo
     return bool(
         normalized.get("stats")
         or normalized.get("blacklist")
+        or normalized.get("blacklist_zero_weight")
         or has_custom_grade
         or crit_floor_configured
         or normalized.get("equal_priority")
@@ -250,6 +253,7 @@ def persistable_stat_priority_config(
     payload = {
         "stats": stats,
         "blacklist": blacklist,
+        "blacklist_zero_weight": bool(cfg.get("blacklist_zero_weight", False)),
         "equal_priority": bool(cfg.get("equal_priority", False)),
         "ignore_grade_limit": bool(cfg.get("ignore_grade_limit", False)),
         "min_grade_limit": cfg.get("min_grade_limit", "A"),
@@ -270,6 +274,8 @@ def persistable_stat_priority_config(
     }
     if normalized["blacklist"]:
         result["blacklist"] = normalized["blacklist"]
+    if normalized["blacklist_zero_weight"]:
+        result["blacklist_zero_weight"] = True
     if crit_floor_configured:
         result["crit_threshold"] = int(normalized["crit_threshold"])
     return result

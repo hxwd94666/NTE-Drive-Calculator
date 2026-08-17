@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import current_style_sheet, themed_style
+from src.domain.allocation_rating import loadout_total_grade
 from src.features.allocation.bonus_summary import (
     collect_added_uids,
     split_loadout_sources,
@@ -574,7 +575,7 @@ def _saved_equipment_score_total(self, role_name, role_state):
         if isinstance(drive, dict):
             total += float(drive.get(EQUIP_SCORE, 0.0) or 0.0)
     role_state[ROLE_TOTAL_SCORE] = round(total, 2)
-    role_state[ROLE_TOTAL_GRADE] = self._calc_grade(total, ALLOCATION_TOTAL_SCORE_AREA)
+    role_state[ROLE_TOTAL_GRADE] = loadout_total_grade(total)
     role_state[ROLE_SCORE_AREA] = ALLOCATION_TOTAL_SCORE_AREA
 
 
