@@ -11,6 +11,7 @@ from src.integrations.mod_loader import (
     ModLoaderRuntimeError,
     ModLoaderRuntimeSnapshot,
     _managed_stop_event_name,
+    game_launcher_executable,
     packaged_mod_loader,
 )
 from src.services.equipment_plugin_deployment import (
@@ -27,6 +28,7 @@ class _FakeRuntime:
     def __init__(self, *, phase: str = "stopped") -> None:
         self.phase = phase
         self.started_payload: Path | None = None
+        self.started_launcher: Path | None = None
         self.stop_calls: list[int] = []
 
     def snapshot(self, *, payload_path):
@@ -37,8 +39,9 @@ class _FakeRuntime:
             123 if self.phase == "running" else None,
         )
 
-    def start(self, *, payload_path):
+    def start(self, *, payload_path, launcher_path):
         self.started_payload = Path(payload_path)
+        self.started_launcher = Path(launcher_path)
         self.phase = "running"
         return self.snapshot(payload_path=payload_path)
 
@@ -53,7 +56,7 @@ class _FakeRuntime:
 
 
 class _FailingRuntime(_FakeRuntime):
-    def start(self, *, payload_path):
+    def start(self, *, payload_path, launcher_path):
         raise ModLoaderRuntimeError("launch failed")
 
 
@@ -61,22 +64,31 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        plugin = self.root / "third_party" / "mods-plugin" / "bin" / "dwmapi.dll"
-        plugin.parent.mkdir(parents=True)
-        plugin.write_bytes(MOD_PLUGIN_SIGNATURE + b":0.4.1")
+        self.plugin = (
+            self.root / "third_party" / "mods-plugin" / "bin" / "dwmapi.dll"
+        )
+        self.plugin.parent.mkdir(parents=True)
+        self.plugin.write_bytes(MOD_PLUGIN_SIGNATURE + b":0.4.1")
         workspace = self.root / "third_party" / "mods-plugin" / "workspace"
         for relative in MOD_WORKSPACE_FILES:
             target = workspace / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("test\n", encoding="utf-8")
-        self.game = self.root / "game" / "HTGame.exe"
-        self.game.parent.mkdir()
+        self.install_root = self.root / "games" / "Neverness To Everness"
+        self.launcher = self.install_root / "NTELauncher.exe"
+        self.launcher.parent.mkdir(parents=True)
+        self.launcher.write_bytes(b"launcher")
+        self.game = (
+            self.install_root / "Client" / "WindowsNoEditor" / "HT"
+            / "Binaries" / "Win64" / "HTGame.exe"
+        )
+        self.game.parent.mkdir(parents=True)
         self.game.write_bytes(b"game")
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_packaged_loader_accepts_the_audited_component_layout(self) -> None:
+    def test_packaged_loader_accepts_a_user_replacement_without_hash_pin(self) -> None:
         loader = (
             self.root
             / "third_party"
@@ -87,13 +99,7 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
         loader.parent.mkdir(parents=True)
         loader.write_bytes(b"loader")
 
-        with patch(
-            "src.integrations.mod_loader._file_sha256",
-            return_value=(
-                "398039f5314d8e0843e0df2f144e7081a3e2bbe9879afb68a671c9e360af9c80"
-            ),
-        ):
-            self.assertEqual(packaged_mod_loader(self.root), loader.resolve())
+        self.assertEqual(packaged_mod_loader(self.root), loader.resolve())
 
     def test_managed_stop_event_matches_upstream_control_contract(self) -> None:
         self.assertEqual(
@@ -104,18 +110,81 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             "Local\\NTE-DPS-TOOL-ModLoader-0000123400abcdef",
         )
 
-    def test_loader_refuses_to_start_while_proxy_dll_exists(self) -> None:
-        (self.game.parent / "dwmapi.dll").write_bytes(b"proxy")
+    def test_launcher_is_resolved_from_the_selected_game_installation(self) -> None:
+        self.assertEqual(
+            game_launcher_executable(self.game),
+            self.launcher.resolve(),
+        )
+
+    def test_launcher_resolution_rejects_a_nonstandard_game_layout(self) -> None:
+        unrelated_game = self.root / "other" / "HTGame.exe"
+        unrelated_game.parent.mkdir()
+        unrelated_game.write_bytes(b"game")
+
+        with self.assertRaisesRegex(ModLoaderRuntimeError, "官方 Client 目录结构"):
+            game_launcher_executable(unrelated_game)
+
+    def test_loader_backs_up_and_removes_an_unknown_proxy_before_start(self) -> None:
+        proxy = self.game.parent / "dwmapi.dll"
+        old_proxy = MOD_PLUGIN_SIGNATURE + b":old-release"
+        proxy.write_bytes(old_proxy)
+        runtime = _FakeRuntime()
+        service = ModPluginLoadingService(
+            application_root=self.root,
+            runtime=runtime,
+        )
+        backup_root = self.root / "account" / "equipment_plugin_backups"
+
+        with patch(
+            "src.services.equipment_plugin_deployment._register_mod_workspace",
+            return_value=(False, None),
+        ), patch(
+            "src.services.mod_plugin_loading_service.mod_workspace_registry_snapshot",
+            return_value=(False, None),
+        ), patch(
+            "src.services.mod_plugin_loading_service.probe_mod_plugin_msvc_runtime",
+            return_value={"supported": True, "ready": True, "files": {}},
+        ):
+            result = service.start_loader(
+                game_executable_path=self.game,
+                writable_workspace_path=self.root / "writable-mods",
+                proxy_backup_directory=backup_root,
+            )
+
+        self.assertFalse(proxy.exists())
+        self.assertIsNotNone(result.removed_proxy)
+        self.assertFalse(result.removed_proxy.known)
+        self.assertEqual(result.removed_proxy.backup_path.read_bytes(), old_proxy)
+
+    def test_loader_directly_removes_the_current_packaged_proxy(self) -> None:
+        proxy = self.game.parent / "dwmapi.dll"
+        proxy.write_bytes(self.plugin.read_bytes())
         service = ModPluginLoadingService(
             application_root=self.root,
             runtime=_FakeRuntime(),
         )
+        backup_root = self.root / "account" / "equipment_plugin_backups"
 
-        with self.assertRaisesRegex(ModPluginLoadingError, "仍存在 dwmapi.dll"):
-            service.start_loader(
+        with patch(
+            "src.services.equipment_plugin_deployment._register_mod_workspace",
+            return_value=(False, None),
+        ), patch(
+            "src.services.mod_plugin_loading_service.mod_workspace_registry_snapshot",
+            return_value=(False, None),
+        ), patch(
+            "src.services.mod_plugin_loading_service.probe_mod_plugin_msvc_runtime",
+            return_value={"supported": True, "ready": True, "files": {}},
+        ):
+            result = service.start_loader(
                 game_executable_path=self.game,
                 writable_workspace_path=self.root / "writable-mods",
+                proxy_backup_directory=backup_root,
             )
+
+        self.assertFalse(proxy.exists())
+        self.assertTrue(result.removed_proxy.known)
+        self.assertIsNone(result.removed_proxy.backup_path)
+        self.assertFalse(backup_root.exists())
 
     def test_loader_prepares_workspace_and_starts_audited_payload(self) -> None:
         runtime = _FakeRuntime()
@@ -141,6 +210,7 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             result = service.start_loader(
                 game_executable_path=self.game,
                 writable_workspace_path=writable,
+                proxy_backup_directory=self.root / "backups",
             )
             service.stop_loader()
 
@@ -149,6 +219,7 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             runtime.started_payload,
             (self.root / "third_party" / "mods-plugin" / "bin" / "dwmapi.dll").resolve(),
         )
+        self.assertEqual(runtime.started_launcher, self.launcher.resolve())
         self.assertTrue((writable / "nte-mods.enabled").is_file())
         restore_workspace.assert_called_once_with(
             workspace_path=writable.resolve(),
@@ -162,6 +233,9 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             runtime=_FailingRuntime(),
         )
         writable = self.root / "writable-mods"
+        proxy = self.game.parent / "dwmapi.dll"
+        proxy.write_bytes(b"unknown legacy proxy")
+        backup_root = self.root / "account" / "equipment_plugin_backups"
 
         with patch(
             "src.services.equipment_plugin_deployment._register_mod_workspace",
@@ -180,8 +254,11 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
                 service.start_loader(
                     game_executable_path=self.game,
                     writable_workspace_path=writable,
+                    proxy_backup_directory=backup_root,
                 )
 
+        self.assertEqual(proxy.read_bytes(), b"unknown legacy proxy")
+        self.assertEqual(len(list(backup_root.glob("*.bak"))), 1)
         restore_workspace.assert_called_once_with(
             workspace_path=writable.resolve(),
             previous_value="C:\\previous-mods",

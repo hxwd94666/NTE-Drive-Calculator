@@ -6,7 +6,6 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
-import hashlib
 import os
 from pathlib import Path
 import secrets
@@ -15,7 +14,7 @@ import threading
 
 MOD_LOADER_FILENAME = "nte-mod-loader.exe"
 MOD_LOADER_ENV = "NTE_MOD_LOADER_EXE"
-MOD_LOADER_SHA256 = "398039f5314d8e0843e0df2f144e7081a3e2bbe9879afb68a671c9e360af9c80"
+MOD_LOADER_LAUNCHER_ENV = "NTE_MOD_LOADER_LAUNCHER"
 PACKAGED_MOD_LOADER_RELATIVE_PATH = (
     Path("third_party") / "mod-loader" / "bin" / MOD_LOADER_FILENAME
 )
@@ -27,6 +26,15 @@ _WAIT_TIMEOUT = 0x00000102
 _WAIT_FAILED = 0xFFFFFFFF
 _ERROR_CANCELLED = 1223
 MOD_LOADER_STOP_TIMEOUT_MS = 15_000
+_LAUNCHER_NAMES = ("NTELauncher.exe", "NTEGlobalLauncher.exe")
+_GAME_EXECUTABLE_RELATIVE_PARTS = (
+    "Client",
+    "WindowsNoEditor",
+    "HT",
+    "Binaries",
+    "Win64",
+    "HTGame.exe",
+)
 
 
 class ModLoaderRuntimeError(RuntimeError):
@@ -62,14 +70,6 @@ class _ShellExecuteInfoW(ctypes.Structure):
     )
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _managed_stop_event_name(
     *,
     process_id: int,
@@ -85,7 +85,7 @@ def _managed_stop_event_name(
 
 
 def packaged_mod_loader(application_root: str | Path) -> Path:
-    """Resolve the audited loader in source and PyInstaller layouts."""
+    """Resolve a replaceable loader in source and PyInstaller layouts."""
 
     root = Path(application_root).resolve()
     configured = os.environ.get(MOD_LOADER_ENV)
@@ -96,20 +96,41 @@ def packaged_mod_loader(application_root: str | Path) -> Path:
     )
     for candidate in candidates:
         if candidate is not None and candidate.is_file():
-            try:
-                digest = _file_sha256(candidate)
-            except OSError as exc:
-                raise ModLoaderRuntimeError(
-                    f"无法校验 {MOD_LOADER_FILENAME}：{candidate}"
-                ) from exc
-            if digest != MOD_LOADER_SHA256:
-                raise ModLoaderRuntimeError(
-                    f"{MOD_LOADER_FILENAME} SHA-256 与发行记录不一致：{candidate}"
-                )
             return candidate.resolve()
     checked = "、".join(str(candidate) for candidate in candidates if candidate)
     raise ModLoaderRuntimeError(
-        f"未找到 {MOD_LOADER_FILENAME}；已检查：{checked}"
+        f"未找到 {MOD_LOADER_FILENAME}；已检查：{checked}。"
+        "可以把可信来源的同名 Loader 放回应用目录后重试"
+    )
+
+
+def game_launcher_executable(game_executable_path: str | Path) -> Path:
+    """Resolve a trusted launcher from the user-selected HTGame installation."""
+
+    game = Path(game_executable_path).expanduser().resolve()
+    if not game.is_file() or game.name.casefold() != "htgame.exe":
+        raise ModLoaderRuntimeError("未选择有效的 HTGame.exe，无法定位官方启动器")
+    expected_tail = tuple(
+        part.casefold() for part in _GAME_EXECUTABLE_RELATIVE_PARTS
+    )
+    actual_tail = tuple(
+        part.casefold() for part in game.parts[-len(expected_tail):]
+    )
+    if actual_tail != expected_tail:
+        raise ModLoaderRuntimeError(
+            "所选 HTGame.exe 不符合官方 Client 目录结构，无法建立受信启动器根"
+        )
+    install_root = game.parents[len(_GAME_EXECUTABLE_RELATIVE_PARTS) - 1]
+    candidates = [install_root / name for name in _LAUNCHER_NAMES]
+    candidates.extend(
+        install_root / "NTELauncher" / name
+        for name in _LAUNCHER_NAMES
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    raise ModLoaderRuntimeError(
+        "所选 HTGame.exe 的安装根中未找到官方启动器，请修复游戏安装或重新选择游戏"
     )
 
 
@@ -159,13 +180,25 @@ class ModLoaderRuntime:
                 self._process_id if running else None,
             )
 
-    def start(self, *, payload_path: str | Path) -> ModLoaderRuntimeSnapshot:
+    def start(
+        self,
+        *,
+        payload_path: str | Path,
+        launcher_path: str | Path,
+    ) -> ModLoaderRuntimeSnapshot:
         if os.name != "nt":
             raise ModLoaderRuntimeError("Mod Loader 仅支持 Windows")
         loader = packaged_mod_loader(self._application_root)
         payload = Path(payload_path).resolve()
         if not payload.is_file():
             raise ModLoaderRuntimeError(f"Mod Loader payload 不存在：{payload}")
+        launcher = Path(launcher_path).expanduser().resolve()
+        if (
+            not launcher.is_file()
+            or launcher.name.casefold()
+            not in {name.casefold() for name in _LAUNCHER_NAMES}
+        ):
+            raise ModLoaderRuntimeError("未找到可交给 Mod Loader 的官方启动器")
 
         with self._lock:
             if self._refresh_running_locked():
@@ -207,16 +240,28 @@ class ModLoaderRuntime:
             shell_execute = shell32.ShellExecuteExW
             shell_execute.argtypes = (ctypes.POINTER(_ShellExecuteInfoW),)
             shell_execute.restype = wintypes.BOOL
-            if not shell_execute(ctypes.byref(execution)) or not execution.hProcess:
-                error_code = ctypes.get_last_error()
+            previous_launcher = os.environ.get(MOD_LOADER_LAUNCHER_ENV)
+            os.environ[MOD_LOADER_LAUNCHER_ENV] = str(launcher)
+            launch_error = 0
+            try:
+                launched = bool(shell_execute(ctypes.byref(execution)))
+                if not launched or not execution.hProcess:
+                    launch_error = ctypes.get_last_error()
+            finally:
+                if previous_launcher is None:
+                    os.environ.pop(MOD_LOADER_LAUNCHER_ENV, None)
+                else:
+                    os.environ[MOD_LOADER_LAUNCHER_ENV] = previous_launcher
+            if not launched or not execution.hProcess:
                 close_handle = kernel32.CloseHandle
                 close_handle.argtypes = (wintypes.HANDLE,)
                 close_handle.restype = wintypes.BOOL
                 close_handle(event_handle)
-                if error_code == _ERROR_CANCELLED:
+                if launch_error == _ERROR_CANCELLED:
                     raise ModLoaderRuntimeError("用户取消了 Mod Loader 管理员授权")
                 raise ModLoaderRuntimeError(
-                    f"无法启动 Mod Loader，Windows 错误 {error_code}"
+                    f"无法启动 Mod Loader，Windows 错误 {launch_error}。"
+                    f"可以用可信来源的 {MOD_LOADER_FILENAME} 覆盖现有文件后重试"
                 )
 
             get_process_id = kernel32.GetProcessId

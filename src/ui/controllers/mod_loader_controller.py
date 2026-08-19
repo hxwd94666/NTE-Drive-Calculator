@@ -117,9 +117,13 @@ def start_equipment_mod_loader(window: Any) -> None:
         "确认启动备用 Mod Loader",
         "备用 Loader 会请求管理员权限，监控官方启动器，并在 HTGame.exe 创建时加载"
         "打包的 dwmapi.dll。它不会把 DLL 写入游戏目录。\n\n"
-        "请先通过代理方式的“还原游戏目录”移除本程序部署的 dwmapi.dll；"
-        "两个加载方式不能同时启用。停止 Loader 时，本次会话中已注入的官方启动器"
-        "可能被同步结束。\n\n是否继续？",
+        "Loader 文件允许用户自行替换，程序不会校验固定 SHA-256；替换后的 EXE 仍会"
+        "以管理员权限运行，请只使用可信来源。\n\n"
+        "启动前会自动检查游戏目录：本程序已知的代理 DLL 会直接移除；旧版或"
+        "来源未知的 dwmapi.dll 会先备份到当前账号存储目录并校验，再从游戏目录"
+        "移除。任一步失败都不会启动 Loader。\n\n"
+        "请先关闭游戏和官方启动器。停止 Loader 时，本次会话中已注入的官方"
+        "启动器可能被同步结束。\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     ) != QMessageBox.Yes:
@@ -133,10 +137,32 @@ def start_equipment_mod_loader(window: Any) -> None:
         game_executable_configured=bool(executable),
     )
     try:
+        preferences = window._ui_preferences
         result = window._mod_plugin_loading_service.start_loader(
             game_executable_path=executable,
             writable_workspace_path=(
                 window.app_context.paths.config_dir / "mods-plugin"
+            ),
+            proxy_backup_directory=(
+                window.app_context.account.account_data_root
+                / "equipment_plugin_backups"
+            ),
+            recorded_proxy_sha256=str(
+                preferences.get("equipment_plugin_deployed_sha256") or ""
+            ),
+            recorded_proxy_workspace_path=(
+                preferences.get("equipment_plugin_workspace") or None
+            ),
+            recorded_proxy_registry_value_before=(
+                preferences.get(
+                    "equipment_plugin_workspace_registry_value_before"
+                )
+                or None
+            ),
+            recorded_proxy_registry_value_existed=bool(
+                preferences.get(
+                    "equipment_plugin_workspace_registry_value_existed"
+                )
             ),
         )
         window._ui_preferences.update({
@@ -144,21 +170,46 @@ def start_equipment_mod_loader(window: Any) -> None:
             "equipment_plugin_loading_method": "loader",
             "equipment_plugin_risk_acknowledged": True,
             "equipment_plugin_workspace": str(result.workspace_path),
+            "equipment_plugin_backup_path": "",
+            "equipment_plugin_deployed_sha256": "",
+            "equipment_plugin_workspace_registry_value_before": "",
+            "equipment_plugin_workspace_registry_value_existed": False,
         })
         window._save_ui_preferences()
         log_event(
             "INFO",
             "environment.mod_loader_start_succeeded",
-            "备用 Mod Loader 已启动",
+            "备用 Mod Loader 监控进程已启动",
             operation,
             loader_process_started=bool(result.runtime.process_id),
+            local_proxy_removed=bool(result.removed_proxy),
+            local_proxy_known=(
+                result.removed_proxy.known
+                if result.removed_proxy is not None
+                else None
+            ),
+            local_proxy_backup_created=bool(
+                result.removed_proxy is not None
+                and result.removed_proxy.backup_path is not None
+            ),
         )
         window._refresh_equipment_plugin_status()
+        proxy_message = ""
+        if result.removed_proxy is not None:
+            if result.removed_proxy.backup_path is None:
+                proxy_message = "\n\n已移除游戏目录中本程序已知的代理 DLL。"
+            else:
+                proxy_message = (
+                    "\n\n检测到旧版或未知 DLL，已备份并移出游戏目录：\n"
+                    + str(result.removed_proxy.backup_path)
+                )
         QMessageBox.information(
             window,
-            "Mod Loader 已启动",
-            "Loader 正在等待官方启动器。请正常启动游戏，然后使用“诊断 dwmapi”"
-            "确认 nte-mods-plugin-v7 管道已经出现。",
+            "Mod Loader 监控已启动",
+            "已向 Loader 明确提供当前游戏安装中的官方启动器。Loader 进程运行"
+            "不等于游戏插件已经加载；请正常启动游戏，然后使用“诊断 dwmapi”"
+            "确认 nte-mods-plugin-v7 管道出现。"
+            + proxy_message,
         )
     except (EquipmentPluginDeploymentError, ModPluginLoadingError) as exc:
         log_event(

@@ -8,5 +8,5 @@
 | Simple Manual Map Injector | `native/nte-mod-loader/third_party/manualmap` | MIT |
 
 对应许可证正文来自上游源码提交
-`385f5de4b70e3ae3dfb01a17ef735c36a202b2e3`，已保存为
+`12ef5e865bbfb843f1814fd9c9d4b470034c5841`，已保存为
 `licenses/MinHook-LICENSE.txt` 与 `licenses/ManualMap-LICENSE.txt`。本目录的摘要不替代许可证正文。

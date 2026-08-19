@@ -92,8 +92,8 @@
 
 ### 1.7 已确认的 nte-core 逐击 contract
 
-本项目随附的 nte-core 0.4.0 与上游 0.4.1 在本节相关代码和协议上没有差异。`core.hello` 已正式声明
-`battle_record_v1`、`battle_axis_v1` 和 `battle_timeline_v1`，因此逐击第一阶段不需要等待新上游版本：
+本项目随附的 nte-core 0.4.1 已正式声明 `battle_record_v1`、`battle_axis_v1` 和
+`battle_timeline_v1`，因此逐击第一阶段不需要等待新上游版本：
 
 - `battle.get_record` 返回进程内稳定记录 ID、generation、完成状态、起止时间、时停区间、摘要、质量和
   逐击完整性；

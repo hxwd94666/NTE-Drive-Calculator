@@ -135,7 +135,8 @@ def _refresh_equipment_plugin_status(self):
         )
     if loader_snapshot is not None and loader_snapshot.phase == "running":
         plugin_label.setText(
-            "Mod Loader 正在运行，等待或已经完成游戏注入；请通过诊断确认 IPC 管道。"
+            "Mod Loader 监控进程正在运行；只有诊断确认装备 IPC 管道存在，"
+            "才表示游戏插件已经加载。"
         )
     elif not executable.text().strip():
         plugin_label.setText("尚未选择 HTGame.exe")
@@ -170,6 +171,8 @@ def _select_equipment_plugin_game_executable(self):
     )
     if selected:
         self._equipment_plugin_game_executable_edit.setText(selected)
+        self._ui_preferences["equipment_plugin_game_executable"] = selected
+        self._save_ui_preferences()
         self._refresh_equipment_plugin_status()
 
 
@@ -184,6 +187,15 @@ def _detect_equipment_plugin_game_executable(self):
     worker = WorkerThread(target=find_game_executables, parent=self)
     self._equipment_plugin_detection_worker = worker
     operation = _new_environment_operation(self, "game_detection")
+    frozen_account_id = self.app_context.account.active_account_id
+    frozen_generation = self.app_context.generation
+
+    def context_is_current() -> bool:
+        return (
+            self.app_context.account.active_account_id == frozen_account_id
+            and self.app_context.generation == frozen_generation
+        )
+
     log_event(
         "INFO",
         "environment.game_detection_started",
@@ -195,6 +207,14 @@ def _detect_equipment_plugin_game_executable(self):
         if button is not None:
             button.setEnabled(True)
             button.setText("自动检测")
+        if not context_is_current():
+            log_event(
+                "INFO",
+                "environment.game_detection_discarded",
+                "账号上下文已变化，丢弃自动检测结果",
+                operation,
+            )
+            return
         choices = [str(path) for path in candidates]
         log_event(
             "INFO",
@@ -207,7 +227,8 @@ def _detect_equipment_plugin_game_executable(self):
             QMessageBox.information(
                 self,
                 "检测游戏位置",
-                "未自动找到 HTGame.exe。你可以手动填写或选择文件，定位步骤如下：\n\n"
+                "已检查异环安装注册表和常见游戏库目录，但未找到 HTGame.exe。"
+                "你可以手动填写或选择文件，定位步骤如下：\n\n"
                 "1. 右键点击桌面游戏图标，选择“打开文件所在位置”。\n"
                 "2. 进入 Client\\WindowsNoEditor\\HT\\Binaries\\Win64，找到 HTGame.exe。\n"
                 "3. 右键点击 HTGame.exe，选择“复制文件地址”，再粘贴到游戏主程序方框。",
@@ -222,12 +243,25 @@ def _detect_equipment_plugin_game_executable(self):
             if not accepted:
                 return
         self._equipment_plugin_game_executable_edit.setText(selected)
+        self._ui_preferences["equipment_plugin_game_executable"] = selected
+        self._save_ui_preferences()
         self._refresh_equipment_plugin_status()
+        self._equipment_plugin_status_label.setText(
+            f"已自动找到并保存游戏主程序：{selected}"
+        )
 
     def failed(error):
         if button is not None:
             button.setEnabled(True)
             button.setText("自动检测")
+        if not context_is_current():
+            log_event(
+                "INFO",
+                "environment.game_detection_discarded",
+                "账号上下文已变化，丢弃自动检测错误",
+                operation,
+            )
+            return
         log_event(
             "ERROR",
             "environment.game_detection_failed",
