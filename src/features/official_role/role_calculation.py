@@ -97,9 +97,6 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
     likeability = editor.get("likeability_level_10")
     if likeability is not None:
         profile["likeability_level_10_enabled"] = likeability.isChecked()
-    selected_skill = editor.get("selected_skill")
-    if selected_skill is not None:
-        profile["selected_skill_id"] = selected_skill.currentData()
     if editor.get("skill_levels") is not None:
         profile["skill_levels"] = dict(editor["skill_levels"])
     fork = editor.get("fork")

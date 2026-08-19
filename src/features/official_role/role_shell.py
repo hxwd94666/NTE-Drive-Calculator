@@ -136,7 +136,8 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
                     fork_id=fork_id,
                     fork_level=editor["fork_level"].value() if fork_id else None,
                     fork_refinement_level=(int(editor["refinement"].currentData() or 1) if fork_id else None),
-                    selected_skill_id=_selected_combo_data(editor["selected_skill"]),
+                    # 兼容账号 schema；角色页计算不再读取这个历史指针。
+                    selected_skill_id=detail["profile"].get("selected_skill_id"),
                     skill_levels=dict(editor["skill_levels"]),
                     ordinal=int(detail["profile"].get("ordinal") or 0),
                 )

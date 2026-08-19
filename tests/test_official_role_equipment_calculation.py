@@ -33,6 +33,51 @@ def _direct_input() -> DirectDamageInput:
 
 
 class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
+    def test_role_panel_uses_fixed_attack_hit_and_character_element(self) -> None:
+        detail = {
+            "profile": {
+                "character_level": 80,
+                "breakthrough_stage": 6,
+                "selected_skill_id": "GA_HP_Skill",
+            },
+            "growth_rows": [{
+                "level": 80,
+                "breakthrough_stage": 6,
+                "hp_base": 1000.0,
+                "atk_base": 200.0,
+                "def_base": 100.0,
+            }],
+            "character": {"element_type": "Element_CHAOS"},
+            "skills": [{
+                "skill_id": "GA_HP_Skill",
+                "damage_entries": [{"hp_rate_base": [5.0]}],
+            }],
+            "attributes": {
+                "DamageUpChaosBase": {"show_percent": True},
+            },
+            "equipment_contexts": {
+                "current": {
+                    "items": [{
+                        "kind": "core",
+                        "main_stats": ({
+                            "property_id": "DamageUpChaosBase",
+                            "value": 0.20,
+                            "percent": True,
+                        },),
+                        "sub_stats": (),
+                    }],
+                },
+            },
+        }
+
+        values = role_service._role_panel_damage_inputs(detail, "current")
+
+        self.assertEqual(1, len(values))
+        self.assertEqual(DamageScalingStat.ATTACK, values[0].scaling_stat)
+        self.assertEqual(1.0, values[0].skill_multiplier)
+        self.assertEqual(200.0, values[0].attack_base)
+        self.assertIn(0.20, values[0].damage_increases)
+
     def test_visual_snapshot_items_keep_unknown_level_for_role_cards(self) -> None:
         items = [{"uid_slot": 1, "uid_serial": 2}]
 

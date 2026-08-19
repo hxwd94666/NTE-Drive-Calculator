@@ -375,9 +375,9 @@ def _damage_multiplier_row(
     if scaling_name == "攻击力" and coefficient is not None:
         multiplier *= float(coefficient)
     return (
-        str(damage.get("damage_id") or "倍率项"),
+        str(damage.get("display_name_zh") or damage.get("damage_id") or "倍率项"),
         scaling_name,
-        str(damage.get("damage_type") or ""),
+        str(damage.get("damage_type_name_zh") or damage.get("damage_type") or ""),
         f"{multiplier * 100:.2f}%".replace(".00%", "%"),
     )
 
@@ -401,11 +401,11 @@ def _show_skill_detail(
     }
     delta = awaken_skill_level_delta(profile, detail.get("awakenings") or (), skill_id)
     effective_level = base_level + delta
-    rows = [
-        row
-        for damage in skill.get("damage_entries") or ()
-        if (row := _damage_multiplier_row(damage, effective_level)) is not None
-    ]
+    rows = []
+    for damage in skill.get("damage_entries") or ():
+        row = _damage_multiplier_row(damage, effective_level)
+        if row is not None:
+            rows.append((damage, row))
     dialog = QDialog(window)
     dialog.setWindowTitle(f"{_skill_name(skill)} - 技能倍率详情")
     dialog_layout = QVBoxLayout(dialog)
@@ -420,9 +420,14 @@ def _show_skill_detail(
     table.verticalHeader().setVisible(False)
     table.setEditTriggers(QTableWidget.NoEditTriggers)
     table.setSelectionBehavior(QTableWidget.SelectRows)
-    for row_index, values in enumerate(rows):
+    for row_index, (damage, values) in enumerate(rows):
         for column_index, value in enumerate(values):
-            table.setItem(row_index, column_index, QTableWidgetItem(value))
+            item = QTableWidgetItem(value)
+            if column_index == 0:
+                item.setToolTip(str(damage.get("damage_id") or ""))
+            elif column_index == 2:
+                item.setToolTip(str(damage.get("damage_type") or ""))
+            table.setItem(row_index, column_index, item)
     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
     for column in range(1, 4):
         table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
@@ -446,15 +451,6 @@ def _build_skill_group(
     group = QGroupBox("技能")
     group.setObjectName("officialRoleSkillGroup")
     layout = QVBoxLayout(group)
-    representative = QHBoxLayout()
-    representative.addWidget(QLabel("直伤计算技能:"))
-    skill_combo = NoWheelComboBox()
-    for skill in detail.get("skills") or ():
-        skill_combo.addItem(_skill_name(skill), skill.get("skill_id"))
-    selected_index = skill_combo.findData(profile.get("selected_skill_id"))
-    skill_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
-    representative.addWidget(skill_combo, 1)
-    layout.addLayout(representative)
 
     skill_levels = {
         str(key): int(value)
@@ -502,7 +498,6 @@ def _build_skill_group(
         level.valueChanged.connect(level_changed)
 
     editor.update({
-        "selected_skill": skill_combo,
         "skill_levels": skill_levels,
     })
 
@@ -537,11 +532,6 @@ def _build_skill_group(
     if refresh_awakening is not None:
         refresh_awakening()
 
-    def selected_skill_changed(*_args) -> None:
-        _mark_dirty(window, character_id)
-        _refresh_role_calculations(editor)
-
-    skill_combo.currentIndexChanged.connect(selected_skill_changed)
     return group
 
 

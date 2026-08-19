@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -23,9 +22,7 @@ from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
     DirectDamageInput,
-    skill_tier_for_effective_level,
 )
-from src.services.official_role_awakening_service import awaken_skill_level_delta
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.official_role_labels import _property_label
 
@@ -456,7 +453,11 @@ def _element_damage_property(element_type: str) -> str | None:
     return ELEMENT_DAMAGE_PROPERTY_BY_TYPE.get(suffix)
 
 
-def _damage_inputs(detail: Mapping[str, Any], context_key: str) -> tuple[DirectDamageInput, ...]:
+def _role_panel_damage_inputs(
+    detail: Mapping[str, Any], context_key: str,
+) -> tuple[DirectDamageInput, ...]:
+    """Return one 100% attack hit using the role's own element and panel."""
+
     if context_key == "theory":
         return ()
     profile = detail.get("profile") or {}
@@ -471,20 +472,8 @@ def _damage_inputs(detail: Mapping[str, Any], context_key: str) -> tuple[DirectD
         ),
         None,
     )
-    selected_skill_id = profile.get("selected_skill_id")
-    skill = next(
-        (row for row in detail.get("skills") or () if row.get("skill_id") == selected_skill_id),
-        None,
-    )
-    if growth is None or skill is None:
+    if growth is None:
         return ()
-    base_skill_level = int((profile.get("skill_levels") or {}).get(selected_skill_id, 1))
-    awakening_delta = awaken_skill_level_delta(
-        profile,
-        detail.get("awakenings") or (),
-        str(selected_skill_id or ""),
-    )
-    tier = skill_tier_for_effective_level(base_skill_level + awakening_delta)
     _fork_stats, _equipment_stats, stats = _property_stats_by_source(detail, context_key)
     element_property = _element_damage_property(
         str((detail.get("character") or {}).get("element_type") or "")
@@ -494,55 +483,28 @@ def _damage_inputs(detail: Mapping[str, Any], context_key: str) -> tuple[DirectD
         for property_id in ("DamageUpGeneralBase", "DamageUpGeneralAdd", element_property)
         if property_id
     )
-    inputs = []
-    for damage in skill.get("damage_entries") or ():
-        arrays = (
-            (DamageScalingStat.ATTACK, damage.get("atk_rate_base") or ()),
-            (DamageScalingStat.HEALTH, damage.get("hp_rate_base") or ()),
-            (DamageScalingStat.DEFENSE, damage.get("def_rate_base") or ()),
-        )
-        scaling, values = next(((kind, values) for kind, values in arrays if values), (None, ()))
-        if scaling is None:
-            continue
-        index = min(tier, len(values) - 1)
-        multiplier = float(values[index])
-        coefficient = damage.get("modifier_atk_rate_base_coefficient")
-        if scaling is DamageScalingStat.ATTACK and coefficient is not None:
-            multiplier *= float(coefficient)
-        inputs.append(
-            DirectDamageInput(
-                skill_multiplier=multiplier,
-                scaling_stat=scaling,
-                attack_base=float(growth.get("atk_base") or 0.0) + stats.get("AtkBase", 0.0),
-                attack_up=stats.get("AtkUp", 0.0),
-                attack_add=stats.get("AtkAdd", 0.0),
-                health_base=float(growth.get("hp_base") or 0.0) + stats.get("HPMaxBase", 0.0),
-                health_up=stats.get("HPMaxUp", 0.0),
-                health_add=stats.get("HPMaxAdd", 0.0),
-                defense_base=float(growth.get("def_base") or 0.0) + stats.get("DefBase", 0.0),
-                defense_up=stats.get("DefUp", 0.0),
-                defense_add=stats.get("DefAdd", 0.0),
-                character_level=float(profile.get("character_level") or 80),
-                enemy_level=80.0,
-                crit_rate=0.05 + stats.get("CritBase", 0.0) + stats.get("CritAdd", 0.0),
-                crit_damage=0.50 + stats.get("CritDamageBase", 0.0) + stats.get("CritDamageAdd", 0.0),
-                defense_penetration=stats.get("DefIgnore", 0.0),
-                defense_reduction=0.0,
-                damage_increases=damage_increases,
-            )
-        )
-    return tuple(inputs)
-
-
-def _role_panel_damage_inputs(
-    detail: Mapping[str, Any], context_key: str,
-) -> tuple[DirectDamageInput, ...]:
-    """Return one representative hit normalized to a 100% skill multiplier."""
-
-    inputs = _damage_inputs(detail, context_key)
-    if not inputs:
-        return ()
-    return (replace(inputs[0], skill_multiplier=1.0),)
+    return (
+        DirectDamageInput(
+            skill_multiplier=1.0,
+            scaling_stat=DamageScalingStat.ATTACK,
+            attack_base=float(growth.get("atk_base") or 0.0) + stats.get("AtkBase", 0.0),
+            attack_up=stats.get("AtkUp", 0.0),
+            attack_add=stats.get("AtkAdd", 0.0),
+            health_base=float(growth.get("hp_base") or 0.0) + stats.get("HPMaxBase", 0.0),
+            health_up=stats.get("HPMaxUp", 0.0),
+            health_add=stats.get("HPMaxAdd", 0.0),
+            defense_base=float(growth.get("def_base") or 0.0) + stats.get("DefBase", 0.0),
+            defense_up=stats.get("DefUp", 0.0),
+            defense_add=stats.get("DefAdd", 0.0),
+            character_level=float(profile.get("character_level") or 80),
+            enemy_level=80.0,
+            crit_rate=0.05 + stats.get("CritBase", 0.0) + stats.get("CritAdd", 0.0),
+            crit_damage=0.50 + stats.get("CritDamageBase", 0.0) + stats.get("CritDamageAdd", 0.0),
+            defense_penetration=stats.get("DefIgnore", 0.0),
+            defense_reduction=0.0,
+            damage_increases=damage_increases,
+        ),
+    )
 
 
 def _total_direct_damage(inputs: tuple[DirectDamageInput, ...]) -> float:

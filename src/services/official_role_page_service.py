@@ -360,10 +360,25 @@ def load_official_role_detail(
         skills = static_dao.list_character_skills(character_id)
         skill_name_renderer = SkillNameRenderingService.from_static_dao(static_dao)
         for skill in skills:
+            skill_id = str(skill.get("skill_id") or "")
             skill["display_name_zh"] = skill_name_renderer.render_ability_name(
-                str(skill.get("skill_id") or ""),
-                fallback=str(skill.get("skill_id") or "技能"),
+                skill_id,
+                fallback=skill_id or "技能",
             )
+            for damage in skill.get("damage_entries") or ():
+                damage_id = str(damage.get("damage_id") or "")
+                damage_type = str(damage.get("damage_type") or "")
+                damage["display_name_zh"] = (
+                    skill_name_renderer.resolve_damage_name(
+                        damage_id,
+                        ability_id=skill_id,
+                    )
+                    or damage_id
+                    or "倍率项"
+                )
+                damage["damage_type_name_zh"] = (
+                    skill_name_renderer.render_damage_type_name(damage_type)
+                )
         awakenings = static_dao.list_character_awaken_effects(character_id)
         likeability_bonus = static_dao.get_character_likeability_bonus(character_id)
         forks = _compatible_forks(character, static_dao.list_fork_templates())

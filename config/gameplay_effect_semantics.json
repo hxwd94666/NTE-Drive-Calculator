@@ -1,0 +1,501 @@
+{
+  "format_version": 1,
+  "effects": {
+    "GE_ActorReaction_1_Damage": {
+      "attack_type": "创生花",
+      "show_parent_ability": false,
+      "damage_name_en": "Blossom Damage",
+      "damage_name_zh": "创生花",
+      "damage_name_ja": "創生花"
+    },
+    "GE_ActorReaction_1_1019_Damage": {
+      "ability": "GA_Oneiroi_Passive_1",
+      "attack_type": "创生花",
+      "show_parent_ability": true,
+      "damage_name_en": "Replica Vita Pistil",
+      "damage_name_zh": "复制创生花",
+      "damage_name_ja": "複製創生花"
+    },
+    "GE_Nanally010_Lv1_Damage": {
+      "owner_character_id": 1010,
+      "ability": "GA_Nanally_Passive_2",
+      "attack_type": "Passive Damage",
+      "damage_name_en": "Esper Cycle Follow-up Attack",
+      "damage_name_zh": "异能环合追加攻击",
+      "damage_name_ja": "異能連環追加攻撃"
+    },
+    "GE_Nanally010_Lv3_Damage": {
+      "owner_character_id": 1010,
+      "attack_type": "Awakening Damage",
+      "show_parent_ability": false,
+      "damage_name_en": "Awakening Follow-up Attack",
+      "damage_name_zh": "觉醒追加攻击",
+      "damage_name_ja": "覚醒追加攻撃"
+    },
+    "GE_Player_Nanally_UltraSkill1_Damage": {
+      "owner_character_id": 1010
+    },
+    "GE_Player_Nanally_UltraSkill2_Damage": {
+      "owner_character_id": 1010
+    },
+    "GE_Player_Nanally_UltraSkill3_Damage": {
+      "owner_character_id": 1010
+    },
+    "GE_Player_Nanally_ExtraAtk1_Damage": {
+      "owner_character_id": 1010,
+      "show_parent_ability": false,
+      "damage_name_en": "Heavy Hitter (1st Instance, Hit 1)",
+      "damage_name_zh": "重拳出击（第1段·伤害1）",
+      "damage_name_ja": "渾身の一撃（1段目・ダメージ1）"
+    },
+    "GE_Player_Nanally_ExtraAtk2_Damage": {
+      "owner_character_id": 1010,
+      "show_parent_ability": false,
+      "damage_name_en": "Heavy Hitter (1st Instance, Hit 2)",
+      "damage_name_zh": "重拳出击（第1段·伤害2）",
+      "damage_name_ja": "渾身の一撃（1段目・ダメージ2）"
+    },
+    "GE_Player_Nanally_ExtraAtkIntro1_Damage": {
+      "owner_character_id": 1010,
+      "show_parent_ability": false,
+      "damage_name_en": "Heavy Hitter (2nd Instance, Hit 1)",
+      "damage_name_zh": "重拳出击（第2段·伤害1）",
+      "damage_name_ja": "渾身の一撃（2段目・ダメージ1）"
+    },
+    "GE_Player_Nanally_ExtraAtkIntro2_Damage": {
+      "owner_character_id": 1010,
+      "show_parent_ability": false,
+      "damage_name_en": "Heavy Hitter (2nd Instance, Hit 2)",
+      "damage_name_zh": "重拳出击（第2段·伤害2）",
+      "damage_name_ja": "渾身の一撃（2段目・ダメージ2）"
+    },
+    "GE_Player_Nanally_ExtraAtkOutro1_Damage": {
+      "owner_character_id": 1010,
+      "show_parent_ability": false,
+      "damage_name_en": "Heavy Hitter (3rd Instance)",
+      "damage_name_zh": "重拳出击（第3段）",
+      "damage_name_ja": "渾身の一撃（3段目）"
+    },
+    "GE_Player_Kuhara_BudBoom_Damage": {
+      "owner_character_id": 1055,
+      "attack_type": "Special Damage",
+      "show_parent_ability": false,
+      "damage_name_zh": "致约清算",
+      "damage_name_en": "致约清算",
+      "damage_name_ja": "致约清算"
+    },
+    "GE_Player_Kuhara_BudEnd_Damage": {
+      "owner_character_id": 1055,
+      "attack_type": "Special Damage",
+      "show_parent_ability": false,
+      "damage_name_zh": "致约清算",
+      "damage_name_en": "致约清算",
+      "damage_name_ja": "致约清算"
+    },
+    "GE_Player_Kuhara_Seed_Damage": {
+      "owner_character_id": 1055,
+      "attack_type": "Special Damage",
+      "show_parent_ability": false,
+      "damage_name_en": "Lethal Rose Pact Damage",
+      "damage_name_zh": "致命玫约持续伤害",
+      "damage_name_ja": "致命的な薔薇の誓約継続ダメージ"
+    },
+    "GE_Player_Kuhara_SeedReaction_Damage": {
+      "owner_character_id": 1055,
+      "ability": "GA_Kuhara_Passive_2",
+      "attack_type": "Passive Damage",
+      "damage_name_en": "Additional Settlement",
+      "damage_name_zh": "追加清算",
+      "damage_name_ja": "追加清算"
+    },
+    "GE_Player_Lacrimosa_B_Melee3_Explode_Damage": {
+      "damage_name_en": "Projectile Explosion",
+      "damage_name_zh": "子弹爆炸",
+      "damage_name_ja": "弾丸爆発"
+    },
+    "GE_Player_Lacrimosa_Blood_Damage": {
+      "ability": "GA_Lacrimosa_Melee",
+      "attack_type": "Special Damage",
+      "show_parent_ability": false,
+      "damage_name_zh": "噩梦",
+      "owner_character_id": 1004,
+      "damage_name_en": "噩梦",
+      "damage_name_ja": "噩梦"
+    },
+    "GE_Player_Lacrimosa_Blood_Damage_LV6": {
+      "ability": "GA_Lacrimosa_Melee",
+      "attack_type": "Special Damage",
+      "show_parent_ability": false,
+      "damage_name_zh": "「噩梦」",
+      "damage_name_en": "Nightmare",
+      "damage_name_ja": "「悪夢」",
+      "owner_character_id": 1004
+    },
+    "GE_Player_Shinku_ReactionAOE_Damage": {
+      "owner_character_id": 1076,
+      "ability": "GA_Shinku_Passive_1",
+      "attack_type": "Passive Damage",
+      "damage_name_en": "Charge Enhancement AoE",
+      "damage_name_zh": "盈蓄强化范围伤害",
+      "damage_name_ja": "充蓄強化範囲ダメージ"
+    },
+    "GE_Player_Shinku_WatchEx_Damage": {
+      "owner_character_id": 1076,
+      "ability": "GA_Shinku_Passive_3",
+      "attack_type": "Passive Damage",
+      "damage_name_en": "Instant Strike Bonus",
+      "damage_name_zh": "即瞬猛袭追加伤害",
+      "damage_name_ja": "刹那の猛撃追加ダメージ"
+    },
+    "GE_Player_Shinku_Watch_Damage": {
+      "owner_character_id": 1076,
+      "ability": "GA_Shinku_Passive_3",
+      "attack_type": "Passive Damage",
+      "show_parent_ability": false,
+      "damage_name_zh": "威慑凝视",
+      "damage_name_en": "威慑凝视",
+      "damage_name_ja": "威慑凝视"
+    },
+    "GE_Player_Skia_ShadowAtk1_Damage": {
+      "owner_character_id": 1008,
+      "damage_name_en": "Fang Thrust (2 Stacks)",
+      "damage_name_zh": "兽牙影刺（2层）",
+      "damage_name_ja": "影獣牙突（2スタック）"
+    },
+    "GE_Player_Skia_ShadowAtk2_Damage": {
+      "owner_character_id": 1008,
+      "damage_name_en": "Fang Thrust (3 Stacks)",
+      "damage_name_zh": "兽牙影刺（3层）",
+      "damage_name_ja": "影獣牙突（3スタック）"
+    },
+    "GE_Player_Skia_ShadowAtk_Damage": {
+      "owner_character_id": 1008,
+      "show_parent_ability": false,
+      "damage_name_zh": "兽牙影刺",
+      "damage_name_en": "兽牙影刺",
+      "damage_name_ja": "兽牙影刺"
+    },
+    "GE_Player_Zankou_DotDamage": {
+      "owner_character_id": 1036,
+      "show_parent_ability": false,
+      "damage_name_zh": "蚀心",
+      "damage_name_en": "蚀心",
+      "damage_name_ja": "蚀心"
+    },
+    "GE_Player_Zankou_DotUltraDamage": {
+      "owner_character_id": 1036,
+      "show_parent_ability": false,
+      "damage_name_zh": "鸩火",
+      "damage_name_en": "鸩火",
+      "damage_name_ja": "鸩火"
+    },
+    "Buff_Reaction_5_new": {
+      "show_parent_ability": false,
+      "damage_name_zh": "浊燃",
+      "damage_name_en": "Scorch",
+      "damage_name_ja": "濁燃"
+    },
+    "Buff_Reaction_4_new": {
+      "show_parent_ability": false,
+      "damage_name_zh": "黯星",
+      "damage_name_en": "Nova",
+      "damage_name_ja": "暗星"
+    },
+    "Buff_Reaction_5_new_1036": {
+      "show_parent_ability": false,
+      "damage_name_zh": "浊燃",
+      "damage_name_en": "浊燃",
+      "damage_name_ja": "浊燃"
+    },
+    "GE_Player_Mitsuki_Skill_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "华彩",
+      "owner_character_id": 1070,
+      "damage_name_en": "华彩",
+      "damage_name_ja": "华彩"
+    },
+    "GE_Player_Lacrimosa_Skill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "起床气加载中",
+      "owner_character_id": 1004,
+      "damage_name_en": "起床气加载中",
+      "damage_name_ja": "起床气加载中"
+    },
+    "GE_Player_Lacrimosa_UltraSkillModB_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "货车",
+      "owner_character_id": 1004,
+      "damage_name_en": "货车",
+      "damage_name_ja": "货车"
+    },
+    "GE_Player_Lacrimosa_UltraSkillModB2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "货车",
+      "owner_character_id": 1004,
+      "damage_name_en": "货车",
+      "damage_name_ja": "货车"
+    },
+    "GE_Player_Lacrimosa_UltraSkillModB3_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "货车",
+      "owner_character_id": 1004,
+      "damage_name_en": "货车",
+      "damage_name_ja": "货车"
+    },
+    "GE_Player_Lacrimosa_UltraSkill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "汽车",
+      "owner_character_id": 1004,
+      "damage_name_en": "汽车",
+      "damage_name_ja": "汽车"
+    },
+    "GE_Player_Lacrimosa_UltraSkill2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "汽车",
+      "owner_character_id": 1004,
+      "damage_name_en": "汽车",
+      "damage_name_ja": "汽车"
+    },
+    "GE_Player_Cang_AirAttack_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "于风中",
+      "damage_name_en": "于风中",
+      "damage_name_ja": "于风中"
+    },
+    "GE_Player_Cang_Skill_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "天地之心",
+      "damage_name_en": "天地之心",
+      "damage_name_ja": "天地之心"
+    },
+    "GE_Player_Chiichan073_Skill1_1Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "空仓",
+      "owner_character_id": 1073,
+      "damage_name_en": "空仓",
+      "damage_name_ja": "空仓"
+    },
+    "GE_Player_Chiichan073_Skill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "空仓",
+      "owner_character_id": 1073,
+      "damage_name_en": "空仓",
+      "damage_name_ja": "空仓"
+    },
+    "GE_Player_Chiichan073_Skill3_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "满仓",
+      "owner_character_id": 1073,
+      "damage_name_en": "满仓",
+      "damage_name_ja": "满仓"
+    },
+    "GE_Player_Chiichan073_Skill4_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "满仓",
+      "owner_character_id": 1073,
+      "damage_name_en": "满仓",
+      "damage_name_ja": "满仓"
+    },
+    "GE_Player_Oneiroi_Branch5_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "清明梦",
+      "owner_character_id": 1075,
+      "damage_name_en": "清明梦",
+      "damage_name_ja": "清明梦"
+    },
+    "GE_Player_Shinku_UltraSkill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "极轨终结：沸血赤红",
+      "damage_name_en": "极轨终结：沸血赤红",
+      "damage_name_ja": "极轨终结：沸血赤红"
+    },
+    "GE_Player_Shinku_UltraSkill2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "极轨终结：沸血赤红",
+      "damage_name_en": "极轨终结：沸血赤红",
+      "damage_name_ja": "极轨终结：沸血赤红"
+    },
+    "GE_Player_Shinku_UltraSkill3_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "极轨终结：沸血赤红",
+      "damage_name_en": "极轨终结：沸血赤红",
+      "damage_name_ja": "极轨终结：沸血赤红"
+    },
+    "GE_Player_Shinku_UltraSkill4_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "极轨终结：沸血赤红",
+      "damage_name_en": "极轨终结：沸血赤红",
+      "damage_name_ja": "极轨终结：沸血赤红"
+    },
+    "GE_Player_Shinku_UltraSkill5_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "极轨终结：沸血赤红",
+      "damage_name_en": "极轨终结：沸血赤红",
+      "damage_name_ja": "极轨终结：沸血赤红"
+    },
+    "GE_Player_Shinku_UltraSkill_Rage_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "极轨终结：处决的龙炎",
+      "damage_name_en": "极轨终结：处决的龙炎",
+      "damage_name_ja": "极轨终结：处决的龙炎"
+    },
+    "GE_Player_Shinku_UltraSkill2_Rage_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "极轨终结：处决的龙炎",
+      "damage_name_en": "极轨终结：处决的龙炎",
+      "damage_name_ja": "极轨终结：处决的龙炎"
+    },
+    "GE_Player_Zankou_Branch1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "绰影",
+      "damage_name_en": "绰影",
+      "damage_name_ja": "绰影"
+    },
+    "GE_Player_Zankou_Branch3_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "绰影",
+      "damage_name_en": "绰影",
+      "damage_name_ja": "绰影"
+    },
+    "GE_Player_Zankou_MagicBranch1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "落月",
+      "damage_name_en": "落月",
+      "damage_name_ja": "落月"
+    },
+    "GE_Player_Zankou_MagicBranch2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "落月",
+      "damage_name_en": "落月",
+      "damage_name_ja": "落月"
+    },
+    "GE_Player_Zankou_MagicBranch3_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "落月",
+      "damage_name_en": "落月",
+      "damage_name_ja": "落月"
+    },
+    "GE_Player_Zankou_MagicBranch4_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "落月",
+      "damage_name_en": "落月",
+      "damage_name_ja": "落月"
+    },
+    "GE_Player_Zankou_Skill2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "绯影闪",
+      "damage_name_en": "绯影闪",
+      "damage_name_ja": "绯影闪"
+    },
+    "GE_Player_Zankou_Skill2_1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "绯影闪",
+      "damage_name_en": "绯影闪",
+      "damage_name_ja": "绯影闪"
+    },
+    "GE_Player_Zankou_Skill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "绯影闪",
+      "damage_name_en": "绯影闪",
+      "damage_name_ja": "绯影闪"
+    },
+    "GE_Player_Zankou_Skill1_1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "绯影闪",
+      "damage_name_en": "绯影闪",
+      "damage_name_ja": "绯影闪"
+    },
+    "GE_Player_Zankou_Skill4_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "离魂错",
+      "damage_name_en": "离魂错",
+      "damage_name_ja": "离魂错"
+    },
+    "GE_Player_Zankou_Skill4_1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "离魂错",
+      "damage_name_en": "离魂错",
+      "damage_name_ja": "离魂错"
+    },
+    "GE_Player_Zankou_Skill4_2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "离魂错",
+      "damage_name_en": "离魂错",
+      "damage_name_ja": "离魂错"
+    },
+    "GE_Player_Zankou_Skill3_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "离魂错",
+      "damage_name_en": "离魂错",
+      "damage_name_ja": "离魂错"
+    },
+    "GE_Player_Zankou_Skill3_1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "离魂错",
+      "damage_name_en": "离魂错",
+      "damage_name_ja": "离魂错"
+    },
+    "GE_Player_Zankou_Skill3_2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "离魂错",
+      "damage_name_en": "离魂错",
+      "damage_name_ja": "离魂错"
+    },
+    "GE_Player_Zankou_QTE_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "饲火",
+      "damage_name_en": "饲火",
+      "damage_name_ja": "饲火"
+    },
+    "GE_Player_Zankou_UltraSkill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "焚天烬灭舞",
+      "damage_name_en": "焚天烬灭舞",
+      "damage_name_ja": "焚天烬灭舞"
+    },
+    "GE_Player_Zankou_UltraSkill2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "焚天烬灭舞",
+      "damage_name_en": "焚天烬灭舞",
+      "damage_name_ja": "焚天烬灭舞"
+    },
+    "GE_Player_Zankou_ForceUltraSkill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "焚天烬灭舞",
+      "damage_name_en": "焚天烬灭舞",
+      "damage_name_ja": "焚天烬灭舞"
+    },
+    "GE_Player_Zankou_ForceUltraSkill2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "焚天烬灭舞",
+      "damage_name_en": "焚天烬灭舞",
+      "damage_name_ja": "焚天烬灭舞"
+    },
+    "GE_Player_Zankou_MagicUltraSkill1_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "血宴入梦时",
+      "damage_name_en": "血宴入梦时",
+      "damage_name_ja": "血宴入梦时"
+    },
+    "GE_Player_Zankou_MagicUltraSkill2_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "血宴入梦时",
+      "damage_name_en": "血宴入梦时",
+      "damage_name_ja": "血宴入梦时"
+    },
+    "GE_Player_Radio072_Branch_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "普通攻击：恶灵大巴掌",
+      "owner_character_id": 1091,
+      "damage_name_en": "普通攻击：恶灵大巴掌",
+      "damage_name_ja": "普通攻击：恶灵大巴掌"
+    },
+    "GE_Player_Radio072_QTE_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "恶灵左直拳！",
+      "owner_character_id": 1091,
+      "damage_name_en": "恶灵左直拳！",
+      "damage_name_ja": "恶灵左直拳！"
+    }
+  }
+}
