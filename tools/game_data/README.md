@@ -100,6 +100,10 @@ python tools/game_data/sync_recommended_weights.py `
 `DT_CharacterAbilityEffectConfig.json` 有对应记录，还会写入技能标签和 Gameplay Effect 资源路径；
 未配置技能表的角色不会阻断整库构建。
 
+`LevelsCostItems` 的 1–9 行表示九次升级要求，运行时技能基础等级范围为 1–10。三觉共鸣中正式
+`SkillLevel` 修改可把生效等级提升到 11；六觉没有该修改。Ability 中文名来自培养/技能说明目录，应用只在
+展示 service 中解析，GA/GE 稳定标识继续用于存储、计算和战报。
+
 `DataTable/skill/DT_SkillDamageData.json` 的伤害执行记录和
 `DT_SkillDamageGameplayModifyData.json` 的攻击倍率修正也会写入静态库。它们只按
 `GAName` 关联既有技能，保留等级数组、元素和破坏参数；构建器与 DAO 均不计算直接伤害。

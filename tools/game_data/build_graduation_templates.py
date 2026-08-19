@@ -211,7 +211,7 @@ def _template_profile(detail: Mapping[str, Any]) -> dict[str, Any]:
             and int(row.get("required_awaken_level") or 0) <= 6
         ]
         if levels:
-            skill_levels[str(skill.get("skill_id"))] = max(levels)
+            skill_levels[str(skill.get("skill_id"))] = max(levels) + 1
     profile.update({
         "character_level": int(growth["level"]),
         "breakthrough_stage": max_stage,

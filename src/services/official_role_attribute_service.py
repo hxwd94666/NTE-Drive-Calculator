@@ -100,7 +100,7 @@ def _default_profile(
             and int(row.get("required_awaken_level") or 0) <= 6
         ]
         if available:
-            skill_levels[str(skill["skill_id"])] = max(available)
+            skill_levels[str(skill["skill_id"])] = max(available) + 1
     exclusive_ids = {
         str(value) for value in (selected_fork or {}).get("exclusive_character_ids") or []
     }
@@ -108,12 +108,8 @@ def _default_profile(
         "character_id": int(character["character_id"]),
         "character_level": int(growth["level"]),
         "breakthrough_stage": int(growth["breakthrough_stage"]),
-        "awakening_level": 6,
-        "selected_awaken_effect_ids": [
-            str(effect["effect_id"])
-            for effect in awakenings
-            if str(effect.get("awaken_type") or "") == "Awaken_Effect"
-        ],
+        "awakening_level": 0,
+        "selected_awaken_effect_ids": [],
         "awakening_selection_initialized": True,
         "likeability_level_10_enabled": True,
         "fork_id": selected_fork.get("fork_id") if selected_fork else None,

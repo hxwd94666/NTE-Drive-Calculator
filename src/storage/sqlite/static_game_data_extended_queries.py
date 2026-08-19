@@ -382,6 +382,26 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
         ability["level_hints"] = hints
         return ability
 
+    def list_gameplay_ability_names(self) -> list[dict[str, Any]]:
+        """Return stable ability IDs and official Chinese display names."""
+
+        return self._rows(
+            """
+            SELECT ability_id, name_zh
+            FROM gameplay_ability_catalog ORDER BY ability_id
+            """
+        )
+
+    def list_skill_damage_name_bindings(self) -> list[dict[str, Any]]:
+        """Return stable GameplayEffect-to-ability identities for presentation."""
+
+        return self._rows(
+            """
+            SELECT damage_id, ability_id
+            FROM skill_damage ORDER BY damage_id
+            """
+        )
+
     def get_gameplay_effect(
         self,
         *,

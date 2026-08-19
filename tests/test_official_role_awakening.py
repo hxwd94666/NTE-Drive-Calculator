@@ -4,6 +4,7 @@ import unittest
 from src.services.official_role_awakening_service import (
     active_awaken_effects,
     awaken_skill_level_delta,
+    render_awaken_effect_description,
     resolve_awakening_profile,
 )
 
@@ -54,3 +55,26 @@ class OfficialRoleAwakeningTests(unittest.TestCase):
         )
         self.assertEqual(1, awaken_skill_level_delta(profile, _effects(), "Skill"))
         self.assertEqual(0, awaken_skill_level_delta(profile, _effects(), "Ultra"))
+
+    def test_description_uses_base_level_ten_and_three_effect_bonus(self):
+        effects = _effects()
+        effect = {
+            "description_zh": "当前技能等级下提升至<NumGreen>{0}%</>。",
+            "description_damage_entries": [{
+                "ability_id": "Skill",
+                "atk_rate_base": [index / 10 for index in range(1, 13)],
+                "def_rate_base": [],
+                "hp_rate_base": [],
+                "modifier_atk_rate_base_coefficient": None,
+            }],
+        }
+        profile = {
+            "skill_levels": {"Skill": 10},
+            "awakening_selection_initialized": True,
+            "selected_awaken_effect_ids": ["Effect1", "Effect4", "Effect6"],
+        }
+
+        self.assertEqual(
+            "当前技能等级下提升至<NumGreen>110%</>。",
+            render_awaken_effect_description(effect, profile, effects),
+        )

@@ -474,6 +474,11 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
             effect["modify_data"] = json.loads(effect.pop("modify_data_json"))
             effect["gameplay_effect_ids"] = json.loads(effect.pop("gameplay_effect_ids_json"))
             effect["skill_level_bonuses"] = bonuses_by_effect.get(effect["effect_id"], [])
+            effect["description_damage_entries"] = [
+                damage
+                for damage_id in effect["gameplay_effect_ids"]
+                if (damage := self.get_skill_damage(str(damage_id))) is not None
+            ]
         return effects
 
     def get_character_panel_growth(

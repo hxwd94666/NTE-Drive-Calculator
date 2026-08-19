@@ -27,7 +27,10 @@ from PySide6.QtWidgets import (
 
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.services.damage_calculation_service import skill_tier_for_effective_level
-from src.services.official_role_awakening_service import awaken_skill_level_delta
+from src.services.official_role_awakening_service import (
+    awaken_skill_level_delta,
+    render_awaken_effect_description,
+)
 from src.services.official_role_page_service import (
     calculate_official_role_margins,
 )
@@ -242,6 +245,7 @@ def _build_awakening_group(
         for effect_id in detail["profile"].get("selected_awaken_effect_ids") or ()
     }
     checks: dict[str, QCheckBox] = {}
+    description_labels: list[tuple[dict, QLabel]] = []
     normal_effects = [
         effect
         for effect in detail.get("awakenings") or ()
@@ -263,9 +267,10 @@ def _build_awakening_group(
         description.setContentsMargins(24, 0, 8, 2)
         description.setStyleSheet("color:#8b949e;")
         layout.addWidget(description)
+        description_labels.append((effect, description))
         checks[effect_id] = check
 
-    resonance_labels: list[tuple[int, QLabel]] = []
+    resonance_labels: list[tuple[dict, int, QLabel]] = []
     if resonance_effects:
         resonance_title = QLabel("觉醒共鸣")
         resonance_title.setStyleSheet("font-weight:bold;color:#58a6ff;margin-top:4px;")
@@ -275,31 +280,58 @@ def _build_awakening_group(
         if threshold is None:
             continue
         title = str(effect.get("title_zh") or f"{threshold} 觉效果")
-        description = _plain_effect_text(effect.get("description_zh")) or "暂无效果说明"
         label = QLabel()
         label.setWordWrap(True)
         label.setContentsMargins(8, 0, 8, 0)
         label.setProperty("resonance_title", title)
-        label.setProperty("resonance_description", description)
-        resonance_labels.append((threshold, label))
+        resonance_labels.append((effect, threshold, label))
         layout.addWidget(label)
 
     editor["awakening_checks"] = checks
 
+    def current_profile() -> dict:
+        return {
+            **detail["profile"],
+            "skill_levels": dict(
+                editor.get("skill_levels")
+                or detail["profile"].get("skill_levels")
+                or {}
+            ),
+            "selected_awaken_effect_ids": [
+                effect_id
+                for effect_id, check in checks.items()
+                if check.isChecked()
+            ],
+            "awakening_selection_initialized": True,
+        }
+
+    def rendered_description(effect: dict) -> str:
+        rendered = render_awaken_effect_description(
+            effect,
+            current_profile(),
+            detail.get("awakenings") or (),
+        )
+        return _plain_effect_text(rendered) or "暂无效果说明"
+
+    def refresh_descriptions() -> None:
+        for effect, label in description_labels:
+            label.setText(rendered_description(effect))
+
     def refresh_resonance() -> None:
         selected_count = sum(check.isChecked() for check in checks.values())
-        for threshold, label in resonance_labels:
+        for effect, threshold, label in resonance_labels:
             active = selected_count >= threshold
             state = "已激活" if active else f"未激活（需要 {threshold} 个觉醒）"
             label.setText(
                 f"{state}｜{label.property('resonance_title')}\n"
-                f"{label.property('resonance_description')}"
+                f"{rendered_description(effect)}"
             )
             label.setStyleSheet(
                 "color:#3fb950;font-weight:600;" if active else "color:#8b949e;"
             )
 
     def selection_changed(*_args) -> None:
+        refresh_descriptions()
         refresh_resonance()
         _mark_dirty(window, character_id)
         for callback in tuple(editor.get("awakening_refreshers") or ()):
@@ -308,13 +340,18 @@ def _build_awakening_group(
 
     for check in checks.values():
         check.toggled.connect(selection_changed)
+    editor["refresh_awakening_descriptions"] = refresh_descriptions
+    refresh_descriptions()
     refresh_resonance()
     return group
 
 
 def _skill_name(skill: dict) -> str:
-    labels = {1: "普攻", 2: "战技", 3: "终结技", 4: "QTE"}
-    return labels.get(int(skill.get("ability_index") or 0), str(skill.get("skill_id") or "技能"))
+    return str(
+        skill.get("display_name_zh")
+        or skill.get("skill_id")
+        or "技能"
+    )
 
 
 def _damage_multiplier_row(
@@ -427,7 +464,7 @@ def _build_skill_group(
     for skill in detail.get("skills") or ():
         skill_id = str(skill.get("skill_id") or "")
         levels = [int(row.get("level") or 0) for row in skill.get("levels") or ()]
-        maximum = max(levels, default=1)
+        maximum = max(levels, default=0) + 1
         skill_levels.setdefault(skill_id, maximum)
         row = QHBoxLayout()
         name = QLabel(_skill_name(skill))
@@ -456,6 +493,9 @@ def _build_skill_group(
         def level_changed(value: int, target_id: str = skill_id) -> None:
             skill_levels[target_id] = int(value)
             refresh_effective_levels()
+            refresh_awakening = editor.get("refresh_awakening_descriptions")
+            if refresh_awakening is not None:
+                refresh_awakening()
             _mark_dirty(window, character_id)
             _refresh_role_calculations(editor)
 
@@ -484,12 +524,18 @@ def _build_skill_group(
                 detail.get("awakenings") or (),
                 skill_id,
             )
+            effective_level = skill_levels[skill_id] + delta
             effective_labels[skill_id].setText(
-                f"生效 {skill_levels[skill_id] + delta} 级" if delta else ""
+                f"生效 {effective_level} 级（3觉 +1）"
+                if delta
+                else f"生效 {effective_level} 级"
             )
 
     editor.setdefault("awakening_refreshers", []).append(refresh_effective_levels)
     refresh_effective_levels()
+    refresh_awakening = editor.get("refresh_awakening_descriptions")
+    if refresh_awakening is not None:
+        refresh_awakening()
 
     def selected_skill_changed(*_args) -> None:
         _mark_dirty(window, character_id)

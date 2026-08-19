@@ -19,6 +19,7 @@ from src.services.equipment_level_projection_service import (
 from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
 from src.services.inventory_source_capabilities import is_visual_inventory_source
 from src.services.official_role_awakening_service import resolve_awakening_profile
+from src.services.skill_name_rendering_service import SkillNameRenderingService
 from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
@@ -357,6 +358,12 @@ def load_official_role_detail(
             raise ValueError(f"官方角色不存在：{character_id}")
         growth_rows = static_dao.list_character_panel_growth(character_id)
         skills = static_dao.list_character_skills(character_id)
+        skill_name_renderer = SkillNameRenderingService.from_static_dao(static_dao)
+        for skill in skills:
+            skill["display_name_zh"] = skill_name_renderer.render_ability_name(
+                str(skill.get("skill_id") or ""),
+                fallback=str(skill.get("skill_id") or "技能"),
+            )
         awakenings = static_dao.list_character_awaken_effects(character_id)
         likeability_bonus = static_dao.get_character_likeability_bonus(character_id)
         forks = _compatible_forks(character, static_dao.list_fork_templates())

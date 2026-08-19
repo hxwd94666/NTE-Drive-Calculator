@@ -7,6 +7,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.services.damage_calculation_service import skill_tier_for_effective_level
+
 
 _RESONANCE_SUFFIX = re.compile(r"(?:^|_)(\d+)$")
 
@@ -89,3 +91,53 @@ def resolve_awakening_profile(
         "selected_awaken_effect_ids": list(selected),
         "awakening_selection_initialized": True,
     }
+
+
+def _description_damage_value(
+    damage: Mapping[str, Any],
+    profile: Mapping[str, Any],
+    awakenings: Sequence[Mapping[str, Any]],
+) -> float | None:
+    ability_id = str(damage.get("ability_id") or "")
+    if not ability_id:
+        return None
+    base_level = int((profile.get("skill_levels") or {}).get(ability_id, 1))
+    effective_level = base_level + awaken_skill_level_delta(
+        profile,
+        awakenings,
+        ability_id,
+    )
+    choices = (
+        ("attack", damage.get("atk_rate_base") or ()),
+        ("health", damage.get("hp_rate_base") or ()),
+        ("defense", damage.get("def_rate_base") or ()),
+    )
+    scaling, values = next(
+        ((scaling, values) for scaling, values in choices if values),
+        ("", ()),
+    )
+    if not values:
+        return None
+    tier = min(skill_tier_for_effective_level(effective_level), len(values) - 1)
+    value = float(values[tier])
+    coefficient = damage.get("modifier_atk_rate_base_coefficient")
+    if scaling == "attack" and coefficient is not None:
+        value *= float(coefficient)
+    return value * 100.0
+
+
+def render_awaken_effect_description(
+    effect: Mapping[str, Any],
+    profile: Mapping[str, Any],
+    awakenings: Sequence[Mapping[str, Any]],
+) -> str:
+    """Render official numbered placeholders from linked damage tier arrays."""
+
+    description = str(effect.get("description_zh") or "")
+    for ordinal, damage in enumerate(effect.get("description_damage_entries") or ()):
+        value = _description_damage_value(damage, profile, awakenings)
+        if value is None:
+            continue
+        shown = f"{value:.6f}".rstrip("0").rstrip(".")
+        description = description.replace("{" + str(ordinal) + "}", shown)
+    return description
