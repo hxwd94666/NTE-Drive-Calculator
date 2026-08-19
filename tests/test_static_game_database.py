@@ -30,6 +30,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "017_game_static_combat_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "018_game_static_character_likeability.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -369,7 +370,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(17, schema_version)
+        self.assertEqual(18, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         # The role-template DAO adds official ID 1051 as the default avatar

@@ -216,6 +216,13 @@ def _template_profile(detail: Mapping[str, Any]) -> dict[str, Any]:
         "character_level": int(growth["level"]),
         "breakthrough_stage": max_stage,
         "awakening_level": 6,
+        "selected_awaken_effect_ids": [
+            str(effect.get("effect_id"))
+            for effect in detail.get("awakenings") or ()
+            if str(effect.get("awaken_type") or "") == "Awaken_Effect"
+        ],
+        "awakening_selection_initialized": True,
+        "likeability_level_10_enabled": bool(detail.get("likeability_bonus")),
         "skill_levels": skill_levels,
     })
     if profile.get("fork_id"):

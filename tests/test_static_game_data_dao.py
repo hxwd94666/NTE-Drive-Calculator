@@ -29,6 +29,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "017_game_static_combat_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "018_game_static_character_likeability.sql",
 )
 
 
@@ -55,6 +56,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (15, '2026-07-23')")
         connection.execute("INSERT INTO schema_migration VALUES (16, '2026-07-23')")
         connection.execute("INSERT INTO schema_migration VALUES (17, '2026-08-19')")
+        connection.execute("INSERT INTO schema_migration VALUES (18, '2026-08-20')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
         )
@@ -171,6 +173,14 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute(
             "INSERT INTO equipment_attribute VALUES "
             "('Attr1', '属性', NULL, NULL, 'Type', 0, 1, 1, 1.0, NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_likeability_bonus VALUES "
+            "(1001, 10, 'likeatt_1001', 1, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_likeability_bonus_property VALUES "
+            "(1001, 0, 'Attr1', 0.04, 'EGameplayModOp::Additive', 1)"
         )
         connection.execute(
             "INSERT INTO equipment_shape VALUES "
@@ -364,6 +374,21 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.assertEqual(effects[0]["skill_level_bonuses"], [
             {"ordinal": 0, "skill_id": "Skill1", "level_delta": 1}
         ])
+
+    def test_character_likeability_bonus_is_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            bonus = dao.get_character_likeability_bonus(1001)
+        self.assertEqual(10, bonus["required_level"])
+        self.assertEqual(
+            [{
+                "ordinal": 0,
+                "property_id": "Attr1",
+                "value": 0.04,
+                "modifier_operation": "EGameplayModOp::Additive",
+                "source_row_id": 1,
+            }],
+            bonus["properties"],
+        )
 
     def test_character_panel_growth_is_queryable_by_breakthrough_stage(self):
         with StaticGameDataDao(self.database_path) as dao:

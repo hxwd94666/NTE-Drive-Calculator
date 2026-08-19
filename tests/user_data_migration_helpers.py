@@ -5,6 +5,12 @@ import sqlite3
 
 
 def drop_battle_axis_v23(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP TABLE character_profile_awaken_effect")
+    for column in (
+        "awakening_selection_initialized",
+        "likeability_level_10_enabled",
+    ):
+        connection.execute(f"ALTER TABLE character_profile DROP COLUMN {column}")
     for table in (
         "battle_equipment_stat_snapshot",
         "battle_equipment_snapshot",

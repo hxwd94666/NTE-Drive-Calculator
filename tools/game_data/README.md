@@ -29,7 +29,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v17
+## 构建静态 SQLite v18
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -86,6 +86,10 @@ python tools/game_data/sync_recommended_weights.py `
 可选觉醒、三/六觉共鸣、名称/描述/图标、Buff 引用和明确的技能等级加成都会进入静态库。
 用户拥有的副本数和实际激活的觉醒属于账号私有计算配置，不写入发行静态库。
 
+`DT_LikeabilityRoleData.json` 中每个角色的 10 级映射会关联
+`DT_LikeabilityModifyData.json`，只接受无条件、加法且属于正式属性目录的修改项，写入 schema v18
+好感度表。角色页保存账号是否启用，不把静态属性值复制进账号库。
+
 角色基础成长由 `DT_Character.ElementData.PropModifyID` 关联
 `DT_PlayerPackData.json` 的 `*_base` 行与 `DT_PlayerModifyPackData.json` 的
 `*_lv_1..80`、`*_stage_1..6` 累计修改行生成。构建器为每位角色输出 86 条有效状态：
@@ -103,11 +107,11 @@ python tools/game_data/sync_recommended_weights.py `
 `character_overrides.json` 中标记为 `combat_transformation` 的记录只保留官方角色目录和
 规范角色关联；它们共用规范角色的属性与养成，不能生成独立的成长、觉醒或普通技能目录。
 
-schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级变体和 Abyss 关卡绑定；schema v11 新增带来源标记的角色推荐权重；schema v12 新增构建期固定的逐角色直伤毕业模板；schema v13–v16 新增设置默认、额外形状和弧盘精炼参数；schema v17 新增培养指南、技能说明、GameplayEffect 索引、怪物别名和装备效果来源。
+schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级变体和 Abyss 关卡绑定；schema v11 新增带来源标记的角色推荐权重；schema v12 新增构建期固定的逐角色直伤毕业模板；schema v13–v16 新增设置默认、额外形状和弧盘精炼参数；schema v17 新增培养指南、技能说明、GameplayEffect 索引、怪物别名和装备效果来源；schema v18 新增角色好感度 10 级属性加成。
 `DT_MonsterPackData_FT` 与 `FT_` 表示 999 夜子玩法；Abyss 的 `AttributeID` 全部关联普通
 `DT_MonsterPackData`，不能按文件名或前缀推断场景。
 
-新 SQLite DAO、角色页和 nte-core 同步链路只使用 v17 数据库与原始游戏/nte-core ID，不经过旧格式转换。
+新 SQLite DAO、角色页和 nte-core 同步链路只使用 v18 数据库与原始游戏/nte-core ID，不经过旧格式转换。
 
 ## 查询静态数据库
 

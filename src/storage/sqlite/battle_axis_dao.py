@@ -550,7 +550,11 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     str(profile.get("profile_source") or "unknown"),
                     int(profile.get("character_level") or 80),
                     int(profile.get("breakthrough_stage") or 6),
-                    int(profile.get("awakening_level") or 6),
+                    int(
+                        6
+                        if profile.get("awakening_level") is None
+                        else profile["awakening_level"]
+                    ),
                     _optional_text(profile.get("fork_id")),
                     profile.get("fork_level"),
                     profile.get("fork_refinement_level"),

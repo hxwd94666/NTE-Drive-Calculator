@@ -8,7 +8,7 @@ from typing import Any
 
 from .protocols import StaticDataDaoMixinHost
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 _DEFAULT_LOGICAL_CHARACTER_IDS = {
     "protagonist": 1051,
@@ -26,6 +26,8 @@ SUMMARY_TABLES = (
     "character_annotation",
     "character_awaken_effect",
     "character_awaken_skill_level_bonus",
+    "character_likeability_bonus",
+    "character_likeability_bonus_property",
     "character_panel_growth",
     "character_skill",
     "character_skill_level",
@@ -715,3 +717,29 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
         if row is None or row["payload_json"] is None:
             return None
         return json.loads(row["payload_json"])
+
+    def get_character_likeability_bonus(
+        self,
+        character_id: int,
+    ) -> dict[str, Any] | None:
+        bonus = self._one(
+            """
+            SELECT character_id, required_level, modify_data_id,
+                   source_row_id, modifier_source_row_id
+            FROM character_likeability_bonus
+            WHERE character_id = ?
+            """,
+            (int(character_id),),
+        )
+        if bonus is None:
+            return None
+        bonus["properties"] = self._rows(
+            """
+            SELECT ordinal, property_id, value, modifier_operation,
+                   source_row_id
+            FROM character_likeability_bonus_property
+            WHERE character_id = ? ORDER BY ordinal
+            """,
+            (int(character_id),),
+        )
+        return bonus

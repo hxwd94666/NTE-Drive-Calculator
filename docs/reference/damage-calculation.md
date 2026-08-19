@@ -16,7 +16,7 @@ Python API 的百分比使用小数，例如 `20%` 写为 `0.20`。
 3. **待确认映射**：官方文件有原始数组，但没有足够证据把数组档位直接解释为具体角色或技能
    等级。此类数据只保存 `source_tier`，不猜测等级。
 
-发行数据库为 `data/game_static.sqlite3`，当前整体 schema 为 v17。战斗基础表最初由静态迁移 v3 引入，
+发行数据库为 `data/game_static.sqlite3`，当前整体 schema 为 v18。战斗基础表最初由静态迁移 v3 引入，
 当前计算读取下列表：
 
 - `combat_level_curve`、`combat_level_curve_point`：倾陷确切等级曲线与环合官方档位。
@@ -232,9 +232,9 @@ SQLite 原始数组仍保留官方 `source_tier`，不改写成推导后的等�
 ### 技能倍率的 15 档
 
 每个伤害 GE 在 `DT_SkillDamageData` 中保存攻击、生命、防御倍率数组。15 档数组按
-`有效技能等级 - 1` 取值，超过数组末档时钳制到末档。有效技能等级不是直接相加觉醒等级：
-当前确认规则为基础技能等级，加上“觉醒等级达到 3 时全技能 +1”。因此基础 10 级、三重觉醒
-的技能取第 11 档（下标 10）；其他觉醒效果仍由调用方提供，避免未经确认的推断。
+`有效技能等级 - 1` 取值，超过数组末档时钳制到末档。角色页的有效技能等级不是直接相加觉醒数量，而是
+基础技能等级加上当前具体觉醒选择所激活的 `character_awaken_skill_level_bonus`。三/六觉共鸣只在普通
+觉醒勾选数达到门槛时激活；未结构化为技能等级修改的说明文本不参与倍率档位，避免从文案猜数值。
 
 上游导出中的源数据路径（导出目录不属于仓库）：
 
@@ -269,7 +269,7 @@ SDK 结构为 `FSkillDamageExecutionData`，位于：
 静态迁移 v4 引入 `monster_instance_profile` 与 `monster_instance_profile_variant`，保留怪物实例到属性包
 以及世界/副本/深渊等级变体的原始绑定；静态迁移 v5 引入 `abyss_level`、
 `abyss_level_monster_spawn` 与 `abyss_monster_pool_entry`，导入 Abyss 关卡、波次、怪物池和属性包关系。
-这些表继续保留在当前静态 schema v17 中。
+这些表继续保留在当前静态 schema v18 中。
 该链路仅以 `HT/Content/DataAssets/DataAssetSet/Abyss` 的专用配置为准：`AbyssCloneLevelDataTable`
 → `MonsterPoolID` → `DT_AbyssMonsterPool` → `AttributeID` → `DT_MonsterPackData`。当前 366 个
 唯一 `AttributeID` 均命中普通属性包。`FT_` 是 999 夜子玩法前缀，不表示轨外之境或 Abyss 场景，

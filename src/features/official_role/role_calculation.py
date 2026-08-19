@@ -85,9 +85,18 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
         level, breakthrough = growth
         profile["character_level"] = int(level)
         profile["breakthrough_stage"] = int(breakthrough)
-    awakening = editor.get("awakening")
-    if awakening is not None:
-        profile["awakening_level"] = awakening.value()
+    awakening_checks = editor.get("awakening_checks") or {}
+    selected_awaken_effect_ids = [
+        effect_id
+        for effect_id, check in awakening_checks.items()
+        if check.isChecked()
+    ]
+    profile["awakening_level"] = len(selected_awaken_effect_ids)
+    profile["selected_awaken_effect_ids"] = selected_awaken_effect_ids
+    profile["awakening_selection_initialized"] = True
+    likeability = editor.get("likeability_level_10")
+    if likeability is not None:
+        profile["likeability_level_10_enabled"] = likeability.isChecked()
     selected_skill = editor.get("selected_skill")
     if selected_skill is not None:
         profile["selected_skill_id"] = selected_skill.currentData()

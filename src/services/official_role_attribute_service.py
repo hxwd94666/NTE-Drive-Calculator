@@ -23,9 +23,9 @@ from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
     DirectDamageInput,
-    effective_skill_level,
     skill_tier_for_effective_level,
 )
+from src.services.official_role_awakening_service import awaken_skill_level_delta
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.official_role_labels import _property_label
 
@@ -80,6 +80,7 @@ def _default_profile(
     growth_rows: list[dict[str, Any]],
     forks: list[dict[str, Any]],
     skills: list[dict[str, Any]],
+    awakenings: list[dict[str, Any]],
     ordinal: int,
 ) -> dict[str, Any]:
     growth = _maximum_growth(growth_rows)
@@ -108,6 +109,13 @@ def _default_profile(
         "character_level": int(growth["level"]),
         "breakthrough_stage": int(growth["breakthrough_stage"]),
         "awakening_level": 6,
+        "selected_awaken_effect_ids": [
+            str(effect["effect_id"])
+            for effect in awakenings
+            if str(effect.get("awaken_type") or "") == "Awaken_Effect"
+        ],
+        "awakening_selection_initialized": True,
+        "likeability_level_10_enabled": True,
         "fork_id": selected_fork.get("fork_id") if selected_fork else None,
         "fork_level": max(fork_levels) if fork_levels else None,
         "fork_refinement_level": (
@@ -218,6 +226,17 @@ def _fork_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
     return totals
 
 
+def _likeability_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
+    profile = detail.get("profile") or {}
+    if not bool(profile.get("likeability_level_10_enabled")):
+        return {}
+    return {
+        str(row.get("property_id") or ""): float(row.get("value") or 0.0)
+        for row in (detail.get("likeability_bonus") or {}).get("properties") or ()
+        if str(row.get("property_id") or "")
+    }
+
+
 def calculate_official_role_attribute_summaries(
     detail: Mapping[str, Any],
     items: Iterable[Any],
@@ -247,6 +266,8 @@ def calculate_official_role_attribute_summaries(
         for total in equipment_totals
     )
     combined = _fork_property_stats(detail)
+    for property_id, value in _likeability_property_stats(detail).items():
+        combined[property_id] = combined.get(property_id, 0.0) + value
     for total in equipment_totals:
         combined[total.property_id] = (
             combined.get(total.property_id, 0.0) + float(total.value)
@@ -427,6 +448,8 @@ def _property_stats_by_source(
         detail, _context_calculation_items(context),
     )
     totals = dict(fork_stats)
+    for property_id, value in _likeability_property_stats(detail).items():
+        totals[property_id] = totals.get(property_id, 0.0) + value
     for property_id, value in equipment_stats.items():
         totals[property_id] = totals.get(property_id, 0.0) + value
     return fork_stats, equipment_stats, totals
@@ -460,9 +483,12 @@ def _damage_inputs(detail: Mapping[str, Any], context_key: str) -> tuple[DirectD
     if growth is None or skill is None:
         return ()
     base_skill_level = int((profile.get("skill_levels") or {}).get(selected_skill_id, 1))
-    tier = skill_tier_for_effective_level(
-        effective_skill_level(base_skill_level, int(profile.get("awakening_level") or 0))
+    awakening_delta = awaken_skill_level_delta(
+        profile,
+        detail.get("awakenings") or (),
+        str(selected_skill_id or ""),
     )
+    tier = skill_tier_for_effective_level(base_skill_level + awakening_delta)
     _fork_stats, _equipment_stats, stats = _property_stats_by_source(detail, context_key)
     element_property = _element_damage_property(
         str((detail.get("character") or {}).get("element_type") or "")

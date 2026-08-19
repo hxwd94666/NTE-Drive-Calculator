@@ -67,6 +67,7 @@ class StaticDatabaseBuilder(
         self.connection.execute("INSERT INTO schema_migration VALUES (15, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (16, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (17, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (18, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
@@ -83,6 +84,7 @@ class StaticDatabaseBuilder(
         self._import_monster_instance_profiles()
         self._import_abyss_bindings()
         self._import_equipment_attributes()
+        self._import_character_likeability_bonuses()
         self._import_equipment_shapes()
         self._import_equipment_suits()
         self._import_equipment_items()

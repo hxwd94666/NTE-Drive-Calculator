@@ -34,7 +34,12 @@ from .role_calculation import (
     _selected_growth,
 )
 from .role_equipment import _build_drive_summary_group
-from .role_growth import _build_base_group, _build_fork_group
+from .role_growth import (
+    _build_awakening_group,
+    _build_base_group,
+    _build_fork_group,
+    _build_skill_group,
+)
 from .role_weights import _build_weight_group
 
 __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
@@ -83,6 +88,8 @@ def _populate_role_tab(window, scroll: QScrollArea, character_id: int) -> None:
     form.setSpacing(15)
     form.setContentsMargins(15, 15, 15, 15)
     form.addWidget(_build_base_group(window, character_id, detail, editor))
+    form.addWidget(_build_awakening_group(window, character_id, detail, editor))
+    form.addWidget(_build_skill_group(window, character_id, detail, editor))
     form.addWidget(_build_margin_group(window, character_id, detail, editor))
     form.addWidget(_build_fork_group(window, character_id, detail, editor))
     form.addWidget(_build_drive_summary_group(window, detail, editor))
@@ -111,12 +118,21 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
             if growth is None:
                 raise ValueError("角色等级不在官方成长数据范围内")
             fork_id = _selected_combo_data(editor["fork"])
+            selected_awaken_effect_ids = tuple(
+                effect_id
+                for effect_id, check in editor["awakening_checks"].items()
+                if check.isChecked()
+            )
             updates.append(
                 OfficialRoleProfileUpdate(
                     character_id=character_id,
                     character_level=int(growth[0]),
                     breakthrough_stage=int(growth[1]),
-                    awakening_level=editor["awakening"].value(),
+                    awakening_level=len(selected_awaken_effect_ids),
+                    selected_awaken_effect_ids=selected_awaken_effect_ids,
+                    likeability_level_10_enabled=editor[
+                        "likeability_level_10"
+                    ].isChecked(),
                     fork_id=fork_id,
                     fork_level=editor["fork_level"].value() if fork_id else None,
                     fork_refinement_level=(int(editor["refinement"].currentData() or 1) if fork_id else None),

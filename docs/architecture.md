@@ -69,10 +69,10 @@ Domain / Optimizer       DAO / Integration
 
 | 数据域 | 路径 | 当前 schema | 所有权 |
 | --- | --- | ---: | --- |
-| 发行静态 | `data/game_static.sqlite3` | 17 | 官方目录、成长、培养、技能、伤害、效果、推荐权重和毕业模板；运行时只读 |
+| 发行静态 | `data/game_static.sqlite3` | 18 | 官方目录、成长、好感度、觉醒、技能、伤害、效果、推荐权重和毕业模板；运行时只读 |
 | 公共共享 | `data/app_shared.sqlite3` | 2 | 官方角色额外形状的发行基线与跨账号覆盖 |
 | 应用全局 | `config/global_ui_preferences.json` | JSON | 跨账号主题 |
-| 账号私有 | `accounts/<account_id>/user_data.sqlite3` | 23 | 快照、权重、自建角色、偏好、配装槽位、锁、任务、逐击和战报配装副本 |
+| 账号私有 | `accounts/<account_id>/user_data.sqlite3` | 24 | 快照、角色好感度/觉醒选择、权重、自建角色、偏好、配装槽位、锁、任务、逐击和战报配装副本 |
 
 读取优先级为账号显式配置、允许共享的公共覆盖、发行默认。官方额外形状可跨账号；自建角色、基础权重、
 计算偏好、倒带偏好、方案、锁和任务只属于当前账号。schema 迁移只追加。

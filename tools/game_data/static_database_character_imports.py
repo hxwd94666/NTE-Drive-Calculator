@@ -202,6 +202,95 @@ class CharacterImportMixin:
                         (character_id, effect_id, skill_ordinal, skill_id, level_delta),
                     )
 
+    def _import_character_likeability_bonuses(self) -> None:
+        """Import the formal level-ten panel bonus for each supported role."""
+
+        known_attributes = {
+            str(row[0])
+            for row in self.connection.execute(
+                "SELECT attribute_id FROM equipment_attribute"
+            )
+        }
+        character_ids = [
+            int(row[0])
+            for row in self.connection.execute(
+                "SELECT character_id FROM character ORDER BY character_id"
+            )
+        ]
+        role_rows = self.rows["likeability_roles"]
+        modify_rows = self.rows["likeability_modify"]
+        for character_id in character_ids:
+            role = role_rows.get(str(character_id))
+            if not isinstance(role, dict):
+                continue
+            level_map = role.get("MapModifyData") or []
+            if not isinstance(level_map, list):
+                raise StaticDatabaseError(f"角色好感度等级映射无效：{character_id}")
+            level_ten = [
+                row
+                for row in level_map
+                if isinstance(row, dict) and str(row.get("Key")) == "10"
+            ]
+            if not level_ten:
+                continue
+            if len(level_ten) != 1:
+                raise StaticDatabaseError(f"角色存在重复好感度 10 级加成：{character_id}")
+            modify_data_id = str(level_ten[0].get("Value") or "").strip()
+            modifier = modify_rows.get(modify_data_id)
+            if not modify_data_id or not isinstance(modifier, dict):
+                raise StaticDatabaseError(
+                    f"角色好感度 10 级修改包不存在：{character_id}/{modify_data_id}"
+                )
+            if modifier.get("ConditionArray") != []:
+                raise StaticDatabaseError(
+                    f"角色好感度 10 级修改包存在未建模条件：{modify_data_id}"
+                )
+            modifiers = modifier.get("ModifyData")
+            if not isinstance(modifiers, list) or not modifiers:
+                raise StaticDatabaseError(f"角色好感度修改包为空：{modify_data_id}")
+            role_source = self.source_row_id("likeability_roles", str(character_id))
+            modifier_source = self.source_row_id(
+                "likeability_modify",
+                modify_data_id,
+            )
+            self.connection.execute(
+                "INSERT INTO character_likeability_bonus VALUES (?,?,?,?,?)",
+                (character_id, 10, modify_data_id, role_source, modifier_source),
+            )
+            seen_properties: set[str] = set()
+            for ordinal, row in enumerate(modifiers):
+                if not isinstance(row, dict):
+                    raise StaticDatabaseError(f"角色好感度修改项无效：{modify_data_id}")
+                property_id = str(row.get("PropName") or "").strip()
+                value = row.get("PropValue")
+                operation = str(row.get("ModifierOp") or "").strip()
+                if (
+                    property_id not in known_attributes
+                    or property_id in seen_properties
+                    or isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    or operation != ADDITIVE_MODIFIER_OPERATION
+                ):
+                    raise StaticDatabaseError(
+                        f"角色好感度修改项无法标准化：{modify_data_id}/{property_id}"
+                    )
+                seen_properties.add(property_id)
+                self.connection.execute(
+                    """
+                    INSERT INTO character_likeability_bonus_property
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        character_id,
+                        ordinal,
+                        property_id,
+                        float(value),
+                        operation,
+                        modifier_source,
+                    ),
+                )
+
     @staticmethod
     def _character_panel_values(row: Any, row_key: str) -> dict[str, float]:
         if not isinstance(row, dict):

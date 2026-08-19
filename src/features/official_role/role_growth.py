@@ -3,23 +3,31 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import re
+
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDoubleSpinBox,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from src.app.window_geometry import fit_dialog_to_available_screen
+from src.services.damage_calculation_service import skill_tier_for_effective_level
+from src.services.official_role_awakening_service import awaken_skill_level_delta
 from src.services.official_role_page_service import (
     calculate_official_role_margins,
 )
@@ -102,14 +110,6 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     level_row.addWidget(level_label)
     growth_combo.setFixedWidth(72)
     level_row.addWidget(growth_combo)
-    help_button = QPushButton("?")
-    help_button.setObjectName("btnHelp")
-    help_button.setFixedSize(22, 22)
-    help_button.setStyleSheet(
-        "QPushButton#btnHelp{background:#58a6ff;color:white;border-radius:8px;font-weight:bold;"
-        "font-size:10px;border:none;padding:0}QPushButton#btnHelp:hover{background:#1f6feb}"
-    )
-    level_row.addWidget(help_button)
     left_layout.addLayout(level_row)
     left_layout.addStretch()
     content.addWidget(left)
@@ -118,23 +118,36 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     right_layout = QVBoxLayout(right)
     right_layout.setContentsMargins(0, 0, 0, 0)
     right_layout.setSpacing(8)
-    awakening = NoWheelSpinBox()
-    awakening.setRange(0, 6)
-    awakening.setValue(int(profile["awakening_level"]))
-    skill_combo = NoWheelComboBox()
-    for skill in detail["skills"]:
-        skill_combo.addItem(str(skill["skill_id"]), skill["skill_id"])
-    skill_index = skill_combo.findData(profile.get("selected_skill_id"))
-    skill_combo.setCurrentIndex(skill_index if skill_index >= 0 else 0)
+    likeability_bonus = detail.get("likeability_bonus") or {}
+    likeability_properties = {
+        str(row.get("property_id") or ""): float(row.get("value") or 0.0)
+        for row in likeability_bonus.get("properties") or ()
+        if str(row.get("property_id") or "")
+    }
+    likeability_parts = [
+        f"{_attribute_name(detail, property_id)} {_display_property_value(detail, property_id, value)}"
+        for property_id, value in likeability_properties.items()
+    ]
+    likeability = QCheckBox(
+        "好感度 10 级" + (f"（{'、'.join(likeability_parts)}）" if likeability_parts else "")
+    )
+    likeability.setChecked(
+        bool(profile.get("likeability_level_10_enabled"))
+        and bool(likeability_properties)
+    )
+    likeability.setEnabled(bool(likeability_properties))
+    if not likeability_properties:
+        likeability.setToolTip("当前静态资料未提供该角色的好感度 10 级属性。")
+    right_layout.addWidget(likeability)
 
     stats_grid = QGridLayout()
     stats_grid.setHorizontalSpacing(14)
     stats_grid.setVerticalSpacing(8)
     stat_values = {}
     stat_specs = (
-        ("生命白值", "hp_base"),
-        ("攻击力白值", "atk_base"),
-        ("防御力白值", "def_base"),
+        ("角色生命值", "hp_base"),
+        ("角色攻击力", "atk_base"),
+        ("角色防御力", "def_base"),
         ("暴击率%", "crit_rate"),
         ("暴击伤害%", "crit_damage"),
     )
@@ -168,74 +181,321 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
             key=lambda row: int(row.get("breakthrough_stage") or 0),
             default={},
         )
-        stat_values["hp_base"].setValue(float(selected.get("hp_base") or 0))
-        stat_values["atk_base"].setValue(float(selected.get("atk_base") or 0))
-        stat_values["def_base"].setValue(float(selected.get("def_base") or 0))
-        stat_values["crit_rate"].setValue(5.0)
-        stat_values["crit_damage"].setValue(50.0)
+        bonus = likeability_properties if likeability.isChecked() else {}
+        hp_base = float(selected.get("hp_base") or 0)
+        atk_base = float(selected.get("atk_base") or 0)
+        def_base = float(selected.get("def_base") or 0)
+        stat_values["hp_base"].setValue(
+            hp_base * (1.0 + bonus.get("HPMaxUp", 0.0)) + bonus.get("HPMaxAdd", 0.0)
+        )
+        stat_values["atk_base"].setValue(
+            atk_base * (1.0 + bonus.get("AtkUp", 0.0)) + bonus.get("AtkAdd", 0.0)
+        )
+        stat_values["def_base"].setValue(
+            def_base * (1.0 + bonus.get("DefUp", 0.0)) + bonus.get("DefAdd", 0.0)
+        )
+        stat_values["crit_rate"].setValue(5.0 + bonus.get("CritBase", 0.0) * 100.0)
+        stat_values["crit_damage"].setValue(
+            50.0 + bonus.get("CritDamageBase", 0.0) * 100.0
+        )
 
     update_stats()
     growth_combo.valueChanged.connect(update_stats)
 
-    pointer_dialog = QDialog(window)
-    pointer_dialog.setWindowTitle(f"{character.get('name_zh') or character_id} - 养成指针")
-    pointer_dialog.resize(520, 240)
-    pointer_layout = QVBoxLayout(pointer_dialog)
-    pointer_form = QFormLayout()
-    pointer_form.addRow("觉醒等级", awakening)
-    pointer_form.addRow("直伤技能", skill_combo)
-    skill_level = NoWheelSpinBox()
-    skill_level.setMinimum(1)
-    pointer_form.addRow("技能等级", skill_level)
-    pointer_layout.addLayout(pointer_form)
-    pointer_note = QLabel("角色等级与突破在主页面左侧选择；其余技能等级会继续保留在账号数据库中。")
-    pointer_note.setWordWrap(True)
-    pointer_layout.addWidget(pointer_note)
-    pointer_close = QPushButton("关闭")
-    pointer_close.clicked.connect(pointer_dialog.accept)
-    pointer_layout.addWidget(pointer_close)
-    help_button.setToolTip("设置觉醒和直伤技能")
-    help_button.clicked.connect(pointer_dialog.exec)
-
-    skills_by_id = {str(skill["skill_id"]): skill for skill in detail["skills"]}
-    skill_levels = {str(key): int(value) for key, value in (profile.get("skill_levels") or {}).items()}
-    skill_state = {"current": str(skill_combo.currentData() or "")}
-
-    def refresh_skill_level() -> None:
-        skill_id = str(skill_combo.currentData() or "")
-        skill = skills_by_id.get(skill_id, {})
-        levels = [int(row["level"]) for row in skill.get("levels") or ()]
-        maximum = max(levels) if levels else 1
-        skill_level.blockSignals(True)
-        skill_level.setRange(1, maximum)
-        skill_level.setValue(int(skill_levels.get(skill_id, maximum)))
-        skill_level.blockSignals(False)
-        skill_state["current"] = skill_id
-
-    def commit_skill_level(value: int) -> None:
-        skill_levels[skill_state["current"]] = int(value)
-        _mark_dirty(window, character_id)
-        _refresh_role_calculations(editor)
-
-    refresh_skill_level()
-    skill_combo.currentIndexChanged.connect(refresh_skill_level)
-    skill_level.valueChanged.connect(commit_skill_level)
-
     editor.update({
         "growth": growth_combo,
         "growth_rows": growth_rows,
-        "awakening": awakening,
-        "selected_skill": skill_combo,
-        "skill_levels": skill_levels,
+        "likeability_level_10": likeability,
     })
 
     def mark_and_refresh(*_args) -> None:
         _mark_dirty(window, character_id)
         _refresh_role_calculations(editor)
 
-    for widget in (growth_combo, awakening, skill_combo):
-        signal = getattr(widget, "currentIndexChanged", None) or widget.valueChanged
-        signal.connect(mark_and_refresh)
+    growth_combo.valueChanged.connect(mark_and_refresh)
+    likeability.toggled.connect(update_stats)
+    likeability.toggled.connect(mark_and_refresh)
+    return group
+
+
+def _plain_effect_text(value: object) -> str:
+    return re.sub(r"<[^>]*>", "", str(value or "")).strip()
+
+
+def _resonance_threshold(effect: dict) -> int | None:
+    match = re.search(r"(?:^|_)(\d+)$", str(effect.get("effect_id") or ""))
+    return int(match.group(1)) if match is not None else None
+
+
+def _build_awakening_group(
+    window,
+    character_id: int,
+    detail: dict,
+    editor: dict,
+) -> QGroupBox:
+    group = QGroupBox("人物觉醒")
+    group.setObjectName("officialRoleAwakeningGroup")
+    layout = QVBoxLayout(group)
+    layout.setSpacing(8)
+    selected_ids = {
+        str(effect_id)
+        for effect_id in detail["profile"].get("selected_awaken_effect_ids") or ()
+    }
+    checks: dict[str, QCheckBox] = {}
+    normal_effects = [
+        effect
+        for effect in detail.get("awakenings") or ()
+        if str(effect.get("awaken_type") or "") == "Awaken_Effect"
+    ]
+    resonance_effects = [
+        effect
+        for effect in detail.get("awakenings") or ()
+        if str(effect.get("awaken_type") or "") == "Awaken_Resonance"
+    ]
+    for index, effect in enumerate(normal_effects, start=1):
+        effect_id = str(effect.get("effect_id") or "")
+        title = str(effect.get("title_zh") or f"觉醒 {index}")
+        check = QCheckBox(f"{index}. {title}")
+        check.setChecked(effect_id in selected_ids)
+        layout.addWidget(check)
+        description = QLabel(_plain_effect_text(effect.get("description_zh")) or "暂无效果说明")
+        description.setWordWrap(True)
+        description.setContentsMargins(24, 0, 8, 2)
+        description.setStyleSheet("color:#8b949e;")
+        layout.addWidget(description)
+        checks[effect_id] = check
+
+    resonance_labels: list[tuple[int, QLabel]] = []
+    if resonance_effects:
+        resonance_title = QLabel("觉醒共鸣")
+        resonance_title.setStyleSheet("font-weight:bold;color:#58a6ff;margin-top:4px;")
+        layout.addWidget(resonance_title)
+    for effect in resonance_effects:
+        threshold = _resonance_threshold(effect)
+        if threshold is None:
+            continue
+        title = str(effect.get("title_zh") or f"{threshold} 觉效果")
+        description = _plain_effect_text(effect.get("description_zh")) or "暂无效果说明"
+        label = QLabel()
+        label.setWordWrap(True)
+        label.setContentsMargins(8, 0, 8, 0)
+        label.setProperty("resonance_title", title)
+        label.setProperty("resonance_description", description)
+        resonance_labels.append((threshold, label))
+        layout.addWidget(label)
+
+    editor["awakening_checks"] = checks
+
+    def refresh_resonance() -> None:
+        selected_count = sum(check.isChecked() for check in checks.values())
+        for threshold, label in resonance_labels:
+            active = selected_count >= threshold
+            state = "已激活" if active else f"未激活（需要 {threshold} 个觉醒）"
+            label.setText(
+                f"{state}｜{label.property('resonance_title')}\n"
+                f"{label.property('resonance_description')}"
+            )
+            label.setStyleSheet(
+                "color:#3fb950;font-weight:600;" if active else "color:#8b949e;"
+            )
+
+    def selection_changed(*_args) -> None:
+        refresh_resonance()
+        _mark_dirty(window, character_id)
+        for callback in tuple(editor.get("awakening_refreshers") or ()):
+            callback()
+        _refresh_role_calculations(editor)
+
+    for check in checks.values():
+        check.toggled.connect(selection_changed)
+    refresh_resonance()
+    return group
+
+
+def _skill_name(skill: dict) -> str:
+    labels = {1: "普攻", 2: "战技", 3: "终结技", 4: "QTE"}
+    return labels.get(int(skill.get("ability_index") or 0), str(skill.get("skill_id") or "技能"))
+
+
+def _damage_multiplier_row(
+    damage: dict,
+    effective_level: int,
+) -> tuple[str, str, str, str] | None:
+    choices = (
+        ("攻击力", damage.get("atk_rate_base") or ()),
+        ("生命值", damage.get("hp_rate_base") or ()),
+        ("防御力", damage.get("def_rate_base") or ()),
+    )
+    scaling_name, values = next(
+        ((name, values) for name, values in choices if values),
+        ("", ()),
+    )
+    if not values:
+        return None
+    tier = min(skill_tier_for_effective_level(effective_level), len(values) - 1)
+    multiplier = float(values[tier])
+    coefficient = damage.get("modifier_atk_rate_base_coefficient")
+    if scaling_name == "攻击力" and coefficient is not None:
+        multiplier *= float(coefficient)
+    return (
+        str(damage.get("damage_id") or "倍率项"),
+        scaling_name,
+        str(damage.get("damage_type") or ""),
+        f"{multiplier * 100:.2f}%".replace(".00%", "%"),
+    )
+
+
+def _show_skill_detail(
+    window,
+    detail: dict,
+    editor: dict,
+    skill: dict,
+) -> None:
+    skill_id = str(skill.get("skill_id") or "")
+    base_level = int((editor.get("skill_levels") or {}).get(skill_id, 1))
+    profile = {
+        **detail["profile"],
+        "selected_awaken_effect_ids": [
+            effect_id
+            for effect_id, check in (editor.get("awakening_checks") or {}).items()
+            if check.isChecked()
+        ],
+        "awakening_selection_initialized": True,
+    }
+    delta = awaken_skill_level_delta(profile, detail.get("awakenings") or (), skill_id)
+    effective_level = base_level + delta
+    rows = [
+        row
+        for damage in skill.get("damage_entries") or ()
+        if (row := _damage_multiplier_row(damage, effective_level)) is not None
+    ]
+    dialog = QDialog(window)
+    dialog.setWindowTitle(f"{_skill_name(skill)} - 技能倍率详情")
+    dialog_layout = QVBoxLayout(dialog)
+    summary = QLabel(
+        f"基础等级 {base_level}"
+        + (f" + 觉醒 {delta} = 生效等级 {effective_level}" if delta else "")
+    )
+    summary.setStyleSheet("font-weight:bold;color:#58a6ff;")
+    dialog_layout.addWidget(summary)
+    table = QTableWidget(len(rows), 4)
+    table.setHorizontalHeaderLabels(("倍率项", "倍率属性", "伤害类型", "当前倍率"))
+    table.verticalHeader().setVisible(False)
+    table.setEditTriggers(QTableWidget.NoEditTriggers)
+    table.setSelectionBehavior(QTableWidget.SelectRows)
+    for row_index, values in enumerate(rows):
+        for column_index, value in enumerate(values):
+            table.setItem(row_index, column_index, QTableWidgetItem(value))
+    table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+    for column in range(1, 4):
+        table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
+    dialog_layout.addWidget(table)
+    if not rows:
+        dialog_layout.addWidget(QLabel("当前静态资料没有可展示的技能倍率。"))
+    close = QPushButton("关闭")
+    close.clicked.connect(dialog.accept)
+    dialog_layout.addWidget(close)
+    fit_dialog_to_available_screen(dialog, QSize(820, 560))
+    dialog.exec()
+
+
+def _build_skill_group(
+    window,
+    character_id: int,
+    detail: dict,
+    editor: dict,
+) -> QGroupBox:
+    profile = detail["profile"]
+    group = QGroupBox("技能")
+    group.setObjectName("officialRoleSkillGroup")
+    layout = QVBoxLayout(group)
+    representative = QHBoxLayout()
+    representative.addWidget(QLabel("直伤计算技能:"))
+    skill_combo = NoWheelComboBox()
+    for skill in detail.get("skills") or ():
+        skill_combo.addItem(_skill_name(skill), skill.get("skill_id"))
+    selected_index = skill_combo.findData(profile.get("selected_skill_id"))
+    skill_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+    representative.addWidget(skill_combo, 1)
+    layout.addLayout(representative)
+
+    skill_levels = {
+        str(key): int(value)
+        for key, value in (profile.get("skill_levels") or {}).items()
+    }
+    effective_labels: dict[str, QLabel] = {}
+    for skill in detail.get("skills") or ():
+        skill_id = str(skill.get("skill_id") or "")
+        levels = [int(row.get("level") or 0) for row in skill.get("levels") or ()]
+        maximum = max(levels, default=1)
+        skill_levels.setdefault(skill_id, maximum)
+        row = QHBoxLayout()
+        name = QLabel(_skill_name(skill))
+        name.setMinimumWidth(64)
+        row.addWidget(name)
+        row.addWidget(QLabel("等级:"))
+        level = NoWheelSpinBox()
+        level.setRange(1, maximum)
+        level.setValue(skill_levels[skill_id])
+        level.setFixedWidth(72)
+        row.addWidget(level)
+        effective = QLabel()
+        effective.setStyleSheet("color:#8b949e;")
+        effective_labels[skill_id] = effective
+        row.addWidget(effective)
+        row.addStretch()
+        detail_button = QPushButton("详情")
+        detail_button.clicked.connect(
+            lambda _checked=False, target=skill: _show_skill_detail(
+                window, detail, editor, target
+            )
+        )
+        row.addWidget(detail_button)
+        layout.addLayout(row)
+
+        def level_changed(value: int, target_id: str = skill_id) -> None:
+            skill_levels[target_id] = int(value)
+            refresh_effective_levels()
+            _mark_dirty(window, character_id)
+            _refresh_role_calculations(editor)
+
+        level.valueChanged.connect(level_changed)
+
+    editor.update({
+        "selected_skill": skill_combo,
+        "skill_levels": skill_levels,
+    })
+
+    def refresh_effective_levels() -> None:
+        selected = [
+            effect_id
+            for effect_id, check in (editor.get("awakening_checks") or {}).items()
+            if check.isChecked()
+        ]
+        calculation_profile = {
+            **profile,
+            "selected_awaken_effect_ids": selected,
+            "awakening_selection_initialized": True,
+        }
+        for skill in detail.get("skills") or ():
+            skill_id = str(skill.get("skill_id") or "")
+            delta = awaken_skill_level_delta(
+                calculation_profile,
+                detail.get("awakenings") or (),
+                skill_id,
+            )
+            effective_labels[skill_id].setText(
+                f"生效 {skill_levels[skill_id] + delta} 级" if delta else ""
+            )
+
+    editor.setdefault("awakening_refreshers", []).append(refresh_effective_levels)
+    refresh_effective_levels()
+
+    def selected_skill_changed(*_args) -> None:
+        _mark_dirty(window, character_id)
+        _refresh_role_calculations(editor)
+
+    skill_combo.currentIndexChanged.connect(selected_skill_changed)
     return group
 
 

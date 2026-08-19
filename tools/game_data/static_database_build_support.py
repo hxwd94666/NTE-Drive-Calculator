@@ -61,9 +61,10 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "017_game_static_combat_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "018_game_static_character_likeability.sql",
 )
-SCHEMA_VERSION = 17
-IMPORTER_VERSION = 17
+SCHEMA_VERSION = 18
+IMPORTER_VERSION = 18
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -107,6 +108,8 @@ TABLE_PATHS = {
     "monster_manual": "DataTable/DT_MonsterManualConfig.json",
     "equipment_modify": "DataTable/PackData/ModifyData/DT_EquipmentModifyData.json",
     "equipment_buff_curves": "DataTable/Equipment/CT_Equipmentbuff.json",
+    "likeability_roles": "DataTable/LikeabilitySystem/DT_LikeabilityRoleData.json",
+    "likeability_modify": "DataTable/PackData/ModifyData/DT_LikeabilityModifyData.json",
 }
 
 REACTION_CONSTANT_METADATA = {

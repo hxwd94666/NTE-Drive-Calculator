@@ -17,6 +17,7 @@ from src.domain.battle_report import (
 )
 from src.observability import OperationContext
 from src.observability.operation import log_event
+from src.services.official_role_awakening_service import resolve_awakening_profile
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
 
@@ -93,7 +94,10 @@ class BattleReportPersistenceService:
         profiles: dict[int, dict[str, Any]] = {}
         for template in static_dao.list_character_graduation_templates():
             character_id = int(template["character_id"])
-            profile = dict(template.get("profile") or {})
+            profile = resolve_awakening_profile(
+                dict(template.get("profile") or {}),
+                static_dao.list_character_awaken_effects(character_id),
+            )
             profile["character_id"] = character_id
             profile["profile_source"] = "official_graduation"
             profiles[character_id] = profile
@@ -101,7 +105,10 @@ class BattleReportPersistenceService:
             character_id = int(saved["character_id"])
             if character_id not in profiles:
                 continue
-            profile = dict(saved)
+            profile = resolve_awakening_profile(
+                dict(saved),
+                static_dao.list_character_awaken_effects(character_id),
+            )
             profile["profile_source"] = "account_role_page"
             profiles[character_id] = profile
         return profiles

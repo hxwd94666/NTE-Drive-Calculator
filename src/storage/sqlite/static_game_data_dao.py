@@ -12,7 +12,7 @@ from types import TracebackType
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 _DEFAULT_LOGICAL_CHARACTER_IDS = {
     "protagonist": 1051,
@@ -30,6 +30,8 @@ SUMMARY_TABLES = (
     "character_annotation",
     "character_awaken_effect",
     "character_awaken_skill_level_bonus",
+    "character_likeability_bonus",
+    "character_likeability_bonus_property",
     "character_panel_growth",
     "character_skill",
     "character_skill_level",
@@ -137,7 +139,7 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
 from src.storage.sqlite.static_game_data_extended_queries import StaticGameDataExtendedQueriesMixin
 
 class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
-    """面向 schema v17 静态数据库的轻量查询边界。
+    """面向 schema v18 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """

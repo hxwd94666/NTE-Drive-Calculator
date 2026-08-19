@@ -3,13 +3,13 @@
   "database": {
     "filename": "game_static.sqlite3",
     "dataset_id": "test_server_20260819",
-    "schema_version": 17,
-    "sha256": "AEED0866B5E890FFF8859B2B6F154B72858D7D863A7C4D86E473250CA3467F6B",
-    "generated_at_utc": "2026-08-19T16:15:03+00:00",
+    "schema_version": 18,
+    "sha256": "1107725B39EDE854F1B3D0433ED5C0A87CC8C329369B6135EBA6DB2A12622CB2",
+    "generated_at_utc": "2026-08-19T17:11:36+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_static_database.py",
-    "importer_version": 17
+    "importer_version": 18
   }
 }

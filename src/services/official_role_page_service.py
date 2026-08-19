@@ -18,6 +18,7 @@ from src.services.equipment_level_projection_service import (
 )
 from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
 from src.services.inventory_source_capabilities import is_visual_inventory_source
+from src.services.official_role_awakening_service import resolve_awakening_profile
 from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
@@ -357,11 +358,15 @@ def load_official_role_detail(
         growth_rows = static_dao.list_character_panel_growth(character_id)
         skills = static_dao.list_character_skills(character_id)
         awakenings = static_dao.list_character_awaken_effects(character_id)
+        likeability_bonus = static_dao.get_character_likeability_bonus(character_id)
         forks = _compatible_forks(character, static_dao.list_fork_templates())
         saved_profile = user_dao.get_character_profile(character_id)
         profile = dict(saved_profile) if saved_profile else _default_profile(
-            character, growth_rows, forks, skills, 0
+            character, growth_rows, forks, skills, awakenings, 0
         )
+        if saved_profile is None:
+            profile["likeability_level_10_enabled"] = likeability_bonus is not None
+        profile = resolve_awakening_profile(profile, awakenings)
         profile["persisted"] = saved_profile is not None
         current_items: list[dict[str, Any]] = []
         saved_plan: Mapping[str, Any] | None = None
@@ -584,6 +589,7 @@ def load_official_role_detail(
         "growth_rows": growth_rows,
         "skills": skills,
         "awakenings": awakenings,
+        "likeability_bonus": likeability_bonus,
         "forks": forks,
         "equipment_plan": equipment_plan,
         "shape_bonus": shape_bonus,

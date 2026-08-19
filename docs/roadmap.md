@@ -150,7 +150,7 @@
 
 ## 5. 测试服资源收尾
 
-静态 schema v17 已包含角色 1036、1072 的目录、成长、技能、觉醒、培养指南、推荐权重和毕业模板。
+静态 schema v18 已包含角色 1036、1072 的目录、成长、好感度 10 级、技能、觉醒、培养指南、推荐权重和毕业模板。
 角色 1072 的确认权重和首选 `fork_GoldRecord` 已进入发行库。新增武器
 `fork_DemonBlade`、`fork_GoldRecord` 的图标仍在 `assets/game_ui/manifest.json` 中显式标为
 `unresolved_assets`。取得正式导出后重新运行资源构建与 `tests.test_game_ui_assets`，不使用相似图替代。

@@ -402,6 +402,8 @@ class CombatImportMixin:
             "character_annotation",
             "character_awaken_effect",
             "character_awaken_skill_level_bonus",
+            "character_likeability_bonus",
+            "character_likeability_bonus_property",
             "character_panel_growth",
             "character_skill",
             "character_skill_level",
