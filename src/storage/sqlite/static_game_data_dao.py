@@ -12,7 +12,7 @@ from types import TracebackType
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 _DEFAULT_LOGICAL_CHARACTER_IDS = {
     "protagonist": 1051,
@@ -63,6 +63,22 @@ SUMMARY_TABLES = (
     "fork_type",
     "fork_item",
     "fork_refinement_parameter_value",
+    "character_cultivation_guide",
+    "character_cultivation_fork_recommendation",
+    "character_cultivation_attribute_recommendation",
+    "character_cultivation_stage",
+    "character_cultivation_stage_skill",
+    "gameplay_ability_catalog",
+    "gameplay_ability_description",
+    "gameplay_ability_level_hint",
+    "gameplay_effect_catalog",
+    "monster_catalog",
+    "monster_identifier_alias",
+    "equipment_modify_pack",
+    "equipment_modify_value",
+    "equipment_buff_curve",
+    "equipment_buff_curve_point",
+    "combat_effect_definition",
 )
 
 
@@ -121,7 +137,7 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
 from src.storage.sqlite.static_game_data_extended_queries import StaticGameDataExtendedQueriesMixin
 
 class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
-    """面向 schema v16 静态数据库的轻量查询边界。
+    """面向 schema v17 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """

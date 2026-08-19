@@ -34,6 +34,11 @@ class BattleReportHistoryService:
             account_id=str(dependencies.account_id),
             user_database_path=Path(dependencies.user_database_path).resolve(),
             generation=int(dependencies.generation),
+            static_database_path=(
+                None
+                if dependencies.static_database_path is None
+                else Path(dependencies.static_database_path).resolve()
+            ),
         )
         self._context_is_current = context_is_current
 

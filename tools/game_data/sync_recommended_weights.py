@@ -148,6 +148,7 @@ def update_static_database(
     try:
         shutil.copy2(database_path, temporary)
         with closing(sqlite3.connect(temporary)) as connection:
+            connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
             _ensure_schema(connection)
             connection.commit()
@@ -157,6 +158,22 @@ def update_static_database(
                     "SELECT character_id FROM equipment_plan ORDER BY character_id"
                 )
             ]
+            existing_recommendations = {
+                int(row["character_id"]): dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM character_weight_recommendation"
+                )
+            }
+            existing_properties: dict[int, list[dict]] = {}
+            for row in connection.execute(
+                """
+                SELECT * FROM character_weight_recommendation_property
+                ORDER BY character_id, ordinal
+                """
+            ):
+                existing_properties.setdefault(int(row["character_id"]), []).append(
+                    dict(row)
+                )
             recommendations = parse_workshop_recommendations(records, character_ids)
             known_properties = {
                 str(row[0])
@@ -172,6 +189,15 @@ def update_static_database(
             for character_id in character_ids:
                 recommendation = recommendations[character_id]
                 source_kind = str(recommendation["source_kind"])
+                retained_fallback = source_kind == "default"
+                if retained_fallback:
+                    existing = existing_recommendations.get(character_id)
+                    if existing is None or not existing_properties.get(character_id):
+                        raise RuntimeError(
+                            f"角色 {character_id} 缺少构建期推荐回退"
+                        )
+                    recommendation = existing
+                    source_kind = str(existing["source_kind"])
                 if source_kind == "workshop_api":
                     source_kind = api_source_kind
                 api_count += int(source_kind == "workshop_api")
@@ -185,15 +211,25 @@ def update_static_database(
                     (
                         character_id, source_kind,
                         recommendation.get("source_item_id"),
-                        recommendation.get("source_name"), now,
+                        recommendation.get("source_name"),
+                        (
+                            recommendation.get("source_updated_at_utc")
+                            if retained_fallback
+                            else now
+                        ),
                     ),
+                )
+                property_source = (
+                    existing_properties[character_id]
+                    if retained_fallback
+                    else recommendation.get("properties") or ()
                 )
                 rows = [
                     (
                         character_id, str(row["property_id"]), float(row["weight"]),
                         float(row["main_weight"]), int(row["ordinal"]),
                     )
-                    for row in recommendation.get("properties") or ()
+                    for row in property_source
                     if str(row["property_id"]) in known_properties
                 ]
                 if not rows:
@@ -234,6 +270,166 @@ def update_static_database(
         raise
 
 
+def reuse_static_database_recommendations(
+    database_path: Path,
+    source_database_path: Path,
+    *,
+    config_dir: Path = ROOT / "config",
+    manifest_path: Path | None = None,
+) -> dict[str, int | str]:
+    """Carry forward only attributed workshop rows from a prior release.
+
+    Missing characters deliberately retain the newly built role-aware fallback.
+    This is an offline release operation, not a substitute for claiming fresh API
+    data.
+    """
+
+    database_path = Path(database_path).expanduser().resolve()
+    source_database_path = Path(source_database_path).expanduser().resolve()
+    if not database_path.is_file() or not source_database_path.is_file():
+        raise FileNotFoundError("当前或上一发行静态数据库不存在")
+    original_sha256 = file_sha256(database_path)
+    handle, temporary_name = tempfile.mkstemp(
+        prefix=f".{database_path.name}.", suffix=".tmp", dir=database_path.parent,
+    )
+    os.close(handle)
+    temporary = Path(temporary_name)
+    try:
+        shutil.copy2(database_path, temporary)
+        with (
+            closing(sqlite3.connect(temporary)) as connection,
+            closing(sqlite3.connect(
+                f"{source_database_path.as_uri()}?mode=ro",
+                uri=True,
+            )) as source,
+        ):
+            connection.row_factory = sqlite3.Row
+            source.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            _ensure_schema(connection)
+            _ensure_schema(source)
+            character_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    "SELECT character_id FROM equipment_plan ORDER BY character_id"
+                )
+            ]
+            current_rows = {
+                int(row["character_id"]): dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM character_weight_recommendation"
+                )
+            }
+            current_properties: dict[int, list[dict]] = {}
+            for row in connection.execute(
+                """
+                SELECT * FROM character_weight_recommendation_property
+                ORDER BY character_id, ordinal
+                """
+            ):
+                current_properties.setdefault(int(row["character_id"]), []).append(
+                    dict(row)
+                )
+            reusable_rows = {
+                int(row["character_id"]): dict(row)
+                for row in source.execute(
+                    """
+                    SELECT * FROM character_weight_recommendation
+                    WHERE source_kind IN ('workshop_api', 'workshop_cache')
+                    """
+                )
+                if int(row["character_id"]) in character_ids
+            }
+            reusable_properties: dict[int, list[dict]] = {}
+            for row in source.execute(
+                """
+                SELECT property.*
+                FROM character_weight_recommendation_property AS property
+                JOIN character_weight_recommendation AS recommendation
+                  USING (character_id)
+                WHERE recommendation.source_kind IN (
+                    'workshop_api', 'workshop_cache'
+                )
+                ORDER BY property.character_id, property.ordinal
+                """
+            ):
+                character_id = int(row["character_id"])
+                if character_id in character_ids:
+                    reusable_properties.setdefault(character_id, []).append(dict(row))
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM character_weight_recommendation_property")
+            connection.execute("DELETE FROM character_weight_recommendation")
+            reused_count = 0
+            property_count = 0
+            for character_id in character_ids:
+                recommendation = reusable_rows.get(character_id) or current_rows[character_id]
+                properties = (
+                    reusable_properties.get(character_id)
+                    or current_properties[character_id]
+                )
+                reused_count += int(character_id in reusable_rows)
+                connection.execute(
+                    """
+                    INSERT INTO character_weight_recommendation(
+                        character_id, source_kind, source_item_id, source_name,
+                        source_updated_at_utc
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        character_id,
+                        recommendation["source_kind"],
+                        recommendation["source_item_id"],
+                        recommendation["source_name"],
+                        recommendation["source_updated_at_utc"],
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO character_weight_recommendation_property(
+                        character_id, property_id, weight, main_weight, ordinal
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            character_id,
+                            row["property_id"],
+                            row["weight"],
+                            row["main_weight"],
+                            row["ordinal"],
+                        )
+                        for row in properties
+                    ],
+                )
+                property_count += len(properties)
+            violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise RuntimeError(f"静态数据库外键检查失败：{violations[:3]}")
+            connection.commit()
+            graduation_count = populate_graduation_templates(
+                connection,
+                database_path=temporary,
+                config_dir=Path(config_dir).expanduser().resolve(),
+            )
+        install_mode = _install_database_candidate(
+            temporary,
+            database_path,
+            original_sha256=original_sha256,
+        )
+        if manifest_path is not None:
+            write_static_manifest(database_path, manifest_path)
+        return {
+            "character_count": len(character_ids),
+            "reused_count": reused_count,
+            "default_count": len(character_ids) - reused_count,
+            "property_count": property_count,
+            "graduation_count": graduation_count,
+            "install_mode": install_mode,
+        }
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=ROOT / "data" / "game_static.sqlite3")
@@ -243,7 +439,36 @@ def main() -> int:
     parser.add_argument("--optional", action="store_true")
     parser.add_argument("--prompt-key", action="store_true")
     parser.add_argument("--fallback-normal", action="store_true")
+    parser.add_argument(
+        "--reuse-database",
+        type=Path,
+        help="离线沿用上一发行库中带来源的工坊权重，缺失角色保留新回退",
+    )
     args = parser.parse_args()
+    if args.reuse_database is not None:
+        try:
+            manifest_path = args.manifest
+            adjacent_manifest = args.database.expanduser().resolve().with_name(
+                "manifest.json"
+            )
+            if manifest_path is None and adjacent_manifest.is_file():
+                manifest_path = adjacent_manifest
+            summary = reuse_static_database_recommendations(
+                args.database,
+                args.reuse_database,
+                config_dir=args.config_dir,
+                manifest_path=manifest_path,
+            )
+        except Exception as exc:
+            build_cli.fail(f"沿用静态角色权重失败：{exc}")
+            return 1
+        build_cli.ok(
+            "静态角色权重已离线沿用"
+            f"（工坊={summary['reused_count']}，新回退={summary['default_count']}，"
+            f"词条={summary['property_count']}，毕业模板={summary['graduation_count']}，"
+            f"写入={summary['install_mode']}）"
+        )
+        return 0
     api_key, source = resolve_api_key(
         args.env_file,
         prompt_when_missing=args.prompt_key,

@@ -15,12 +15,14 @@ from tools.game_data.static_database_build_support import *
 from tools.game_data.static_database_character_imports import CharacterImportMixin
 from tools.game_data.static_database_equipment_imports import EquipmentImportMixin
 from tools.game_data.static_database_combat_imports import CombatImportMixin
+from tools.game_data.static_database_catalog_imports import CatalogImportMixin
 
 
 class StaticDatabaseBuilder(
     CharacterImportMixin,
     EquipmentImportMixin,
     CombatImportMixin,
+    CatalogImportMixin,
 ):
     def __init__(
         self,
@@ -64,6 +66,7 @@ class StaticDatabaseBuilder(
         self.connection.execute("INSERT INTO schema_migration VALUES (14, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (15, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (16, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (17, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
@@ -87,6 +90,7 @@ class StaticDatabaseBuilder(
         self._import_equipment_plans()
         self._import_default_character_weights()
         self._import_forks()
+        self._import_combat_catalogs()
         violations = [tuple(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
         if violations:
             raise StaticDatabaseError(f"发现外键错误：{violations[:10]}")

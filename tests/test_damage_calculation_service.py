@@ -14,7 +14,9 @@ from src.services.damage_calculation_service import (
     DotDamageInput,
     ToppleDamageInput,
     RingCharacter,
+    WeaveFollowupDamageInput,
     calculate_ring_amplification,
+    calculate_weave_strength_multiplier,
     calculate_ring_strength_multiplier,
     calculate_weave_followup_damage,
     effective_skill_level,
@@ -189,8 +191,25 @@ class DamageCalculationServiceTests(unittest.TestCase):
     def test_dissonance_and_weave_use_confirmed_project_defaults(self):
         self.assertAlmostEqual(7.5, DamageCalculationService.calculate_dissonance_topple_reduction(50))
         self.assertAlmostEqual(
-            100.0 * 0.20 * (24 * 120 / 300),
+            100.0 * (1.20 * (1 + 0.20 * 120 / 300) - 1),
             calculate_weave_followup_damage(100.0, 120),
+        )
+        self.assertAlmostEqual(
+            1 + 0.20 * 120 / 300,
+            calculate_weave_strength_multiplier(120),
+        )
+        result = DamageCalculationService.calculate_weave_followup(
+            WeaveFollowupDamageInput(
+                actual_damage=100.0,
+                damage_attribute="nature",
+                ring_strength=120,
+                special_multipliers=(1.5, 0.8),
+            )
+        )
+        self.assertEqual("nature", result.damage_attribute)
+        self.assertAlmostEqual(
+            100.0 * (1.20 * (1 + 0.20 * 120 / 300) - 1) * 1.5 * 0.8,
+            result.damage,
         )
 
 

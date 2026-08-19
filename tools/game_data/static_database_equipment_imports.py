@@ -230,9 +230,22 @@ class EquipmentImportMixin:
                 )
 
     def _import_default_character_weights(self) -> None:
-        """Seed every playable role; the developer API sync replaces available rows."""
+        """Seed role-aware fallbacks; the developer API replaces available rows.
+
+        The official plan provides an ordered recommendation, not numeric weights.
+        Keep that order, reuse only established percentage-stat weights and leave
+        incomparable flat stats out of the score fallback.
+        """
 
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        override_path = (
+            PROJECT_ROOT / "tools" / "game_data" / "character_weight_overrides.json"
+        )
+        overrides = json.loads(override_path.read_text(encoding="utf-8"))
+        if not isinstance(overrides, dict):
+            raise StaticDatabaseError("角色推荐权重覆盖必须是对象")
+        established_weights = dict(DEFAULT_RECOMMENDED_WEIGHTS)
+        elemental_weight = established_weights["DamageUpGeneralBase"]
         character_ids = [
             int(row[0])
             for row in self.connection.execute(
@@ -240,9 +253,57 @@ class EquipmentImportMixin:
             )
         ]
         for character_id in character_ids:
+            override = overrides.get(str(character_id))
+            ordered_properties = [
+                str(row[0])
+                for row in self.connection.execute(
+                    """
+                    SELECT attribute_id
+                    FROM equipment_plan_recommended_attribute
+                    WHERE character_id = ?
+                    ORDER BY ordinal
+                    """,
+                    (character_id,),
+                )
+            ]
+            if override is not None:
+                if not isinstance(override, dict):
+                    raise StaticDatabaseError(f"角色 {character_id} 推荐权重覆盖无效")
+                fallback_rows = [
+                    (str(row["property_id"]), float(row["weight"]))
+                    for row in override.get("properties") or ()
+                ]
+                if not fallback_rows or len({row[0] for row in fallback_rows}) != len(
+                    fallback_rows
+                ):
+                    raise StaticDatabaseError(f"角色 {character_id} 推荐权重覆盖为空或重复")
+                source_name = str(
+                    override.get("source_name") or "confirmed_role_override"
+                )
+            else:
+                fallback_rows = []
+                for property_id in ordered_properties:
+                    weight = established_weights.get(property_id)
+                    if (
+                        weight is None
+                        and property_id.startswith("DamageUp")
+                        and property_id.endswith("Base")
+                    ):
+                        weight = elemental_weight
+                    if weight is not None and property_id not in {
+                        item[0] for item in fallback_rows
+                    }:
+                        fallback_rows.append((property_id, float(weight)))
+                for property_id, weight in DEFAULT_RECOMMENDED_WEIGHTS:
+                    if property_id not in {item[0] for item in fallback_rows}:
+                        fallback_rows.append((property_id, float(weight)))
+                source_name = "official_plan_fallback"
             self.connection.execute(
-                "INSERT INTO character_weight_recommendation VALUES (?, 'default', NULL, NULL, ?)",
-                (character_id, now),
+                """
+                INSERT INTO character_weight_recommendation
+                VALUES (?, 'default', NULL, ?, ?)
+                """,
+                (character_id, source_name, now),
             )
             self.connection.executemany(
                 """INSERT INTO character_weight_recommendation_property(
@@ -250,6 +311,6 @@ class EquipmentImportMixin:
                    ) VALUES (?, ?, ?, ?, ?)""",
                 [
                     (character_id, property_id, weight, weight, ordinal)
-                    for ordinal, (property_id, weight) in enumerate(DEFAULT_RECOMMENDED_WEIGHTS)
+                    for ordinal, (property_id, weight) in enumerate(fallback_rows)
                 ],
             )

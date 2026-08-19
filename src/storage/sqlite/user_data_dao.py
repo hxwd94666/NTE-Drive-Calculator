@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from .account_data_dao import AccountDataDaoMixin
 from .battle_report_dao import BattleReportDaoMixin
+from .battle_axis_dao import BattleAxisDaoMixin
 from .custom_character_dao import CustomCharacterDaoMixin
 from .equipment_apply_job_dao import EquipmentApplyJobDaoMixin
 from .inventory_snapshot_dao import InventorySnapshotDaoMixin
@@ -34,6 +35,7 @@ from .user_data_support import (
 class UserDataDao(
     CustomCharacterDaoMixin,
     AccountDataDaoMixin,
+    BattleAxisDaoMixin,
     BattleReportDaoMixin,
     OptimizationProfileDaoMixin,
     InventoryRuntimeStateDaoMixin,

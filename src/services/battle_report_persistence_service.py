@@ -17,6 +17,7 @@ from src.domain.battle_report import (
 )
 from src.observability import OperationContext
 from src.observability.operation import log_event
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
 
 
@@ -25,6 +26,7 @@ class BattleReportPersistenceDependencies:
     account_id: str
     user_database_path: Path
     generation: int
+    static_database_path: Path | None = None
 
 
 BattleReportContextGuard = Callable[[BattleReportPersistenceDependencies], bool]
@@ -46,9 +48,93 @@ class BattleReportPersistenceService:
             account_id=str(dependencies.account_id),
             user_database_path=Path(dependencies.user_database_path).resolve(),
             generation=int(dependencies.generation),
+            static_database_path=(
+                None
+                if dependencies.static_database_path is None
+                else Path(dependencies.static_database_path).resolve()
+            ),
         )
         self._context_is_current = context_is_current
         self._operation_context = operation_context
+
+    def begin_capture(
+        self,
+        *,
+        capture_operation_id: str,
+        captured_at_utc: str,
+    ) -> None:
+        """Create durable axis staging without choosing the post-battle build yet."""
+
+        dependencies = self._dependencies
+        if not self._context_is_current(dependencies):
+            raise UserDataError("战报账号上下文已经变化")
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            database_profile = user_dao.profile()
+            if str(database_profile["account_id"]) != dependencies.account_id:
+                raise UserDataError("战报目标数据库与冻结账号不一致")
+            if not self._context_is_current(dependencies):
+                raise UserDataError("战报账号上下文已经变化")
+            user_dao.begin_battle_axis_capture(
+                capture_operation_id=capture_operation_id,
+                captured_at_utc=captured_at_utc,
+                account_generation=dependencies.generation,
+            )
+
+    @staticmethod
+    def _load_effective_profiles(
+        *,
+        static_dao: StaticGameDataDao,
+        user_dao: UserDataDao,
+    ) -> dict[int, dict[str, Any]]:
+        profiles: dict[int, dict[str, Any]] = {}
+        for template in static_dao.list_character_graduation_templates():
+            character_id = int(template["character_id"])
+            profile = dict(template.get("profile") or {})
+            profile["character_id"] = character_id
+            profile["profile_source"] = "official_graduation"
+            profiles[character_id] = profile
+        for saved in user_dao.list_character_profiles(include_inactive=True):
+            character_id = int(saved["character_id"])
+            if character_id not in profiles:
+                continue
+            profile = dict(saved)
+            profile["profile_source"] = "account_role_page"
+            profiles[character_id] = profile
+        return profiles
+
+    def append_axis_page(
+        self,
+        *,
+        capture_operation_id: str,
+        page: Mapping[str, Any],
+    ) -> None:
+        dependencies = self._dependencies
+        if not self._context_is_current(dependencies):
+            raise UserDataError("战报账号上下文已经变化")
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            user_dao.append_battle_axis_page(
+                capture_operation_id=capture_operation_id,
+                page=page,
+            )
+
+    def discard_capture(self, *, capture_operation_id: str) -> None:
+        dependencies = self._dependencies
+        if not dependencies.user_database_path.is_file():
+            return
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            user_dao.discard_battle_axis_capture(capture_operation_id)
 
     def finalize_summary(
         self,
@@ -58,10 +144,13 @@ class BattleReportPersistenceService:
         capture_operation_id: str,
         captured_at_utc: str,
         finalized_at_utc: str,
+        raw_record_payload: Mapping[str, Any] | None = None,
     ) -> BattleSummaryPersistenceOutcome:
         if summary.total_damage <= 0 and summary.total_hits <= 0:
+            self.discard_capture(capture_operation_id=capture_operation_id)
             return BattleSummaryPersistenceOutcome(status="skipped_empty")
         if not self._context_is_current(self._dependencies):
+            self.discard_capture(capture_operation_id=capture_operation_id)
             return BattleSummaryPersistenceOutcome(status="discarded_stale")
 
         try:
@@ -92,6 +181,28 @@ class BattleReportPersistenceService:
                 raise UserDataError("战报目标数据库与冻结账号不一致")
             if not self._context_is_current(dependencies):
                 return BattleSummaryPersistenceOutcome(status="discarded_stale")
+            capture_state = user_dao.battle_axis_capture_state(capture_operation_id)
+            post_battle_build: dict[str, Any] | None = None
+            if capture_state is not None:
+                if dependencies.static_database_path is None:
+                    raise UserDataError("战报采集缺少静态数据库路径")
+                snapshot_id = user_dao.latest_native_inventory_snapshot_id()
+                if snapshot_id is None:
+                    raise UserDataError("战后没有可保存的完整游戏原生背包快照")
+                with StaticGameDataDao(dependencies.static_database_path) as static_dao:
+                    static_summary = static_dao.summary()
+                    dataset = dict(static_summary.get("dataset") or {})
+                    post_battle_build = {
+                        "snapshot_id": snapshot_id,
+                        "dataset_id": str(dataset.get("dataset_id") or "") or None,
+                        "static_schema_version": int(static_summary["schema_version"]),
+                        "profiles": self._load_effective_profiles(
+                            static_dao=static_dao,
+                            user_dao=user_dao,
+                        ),
+                    }
+                if not self._context_is_current(dependencies):
+                    return BattleSummaryPersistenceOutcome(status="discarded_stale")
             result = user_dao.insert_auto_summary_snapshot(
                 capture_operation_id=capture_operation_id,
                 combat_context_kind=(
@@ -119,6 +230,26 @@ class BattleReportPersistenceService:
                 raw_summary_json=raw_json,
                 raw_summary_sha256=raw_sha256,
             )
+            if post_battle_build is not None:
+                user_dao.finalize_battle_axis_capture(
+                    capture_operation_id=capture_operation_id,
+                    battle_record_id=int(result["record"]["battle_record_id"]),
+                    record=raw_record_payload,
+                    observed_characters=self._observed_characters(summary),
+                    source_inventory_snapshot_id=int(post_battle_build["snapshot_id"]),
+                    static_dataset_id=cast(
+                        str | None,
+                        post_battle_build["dataset_id"],
+                    ),
+                    static_schema_version=int(
+                        post_battle_build["static_schema_version"]
+                    ),
+                    character_profiles=cast(
+                        Mapping[int, Mapping[str, Any]],
+                        post_battle_build["profiles"],
+                    ),
+                    finalized_at_utc=finalized_at_utc,
+                )
 
         record = result["record"]
         record_id = int(record["battle_record_id"])
@@ -166,3 +297,18 @@ class BattleReportPersistenceService:
             if half is not None:
                 append(half.characters)
         return tuple(ordered)
+
+    @staticmethod
+    def _observed_characters(summary: BattleSummary) -> dict[int, str]:
+        observed: dict[int, str] = {}
+        for characters in (
+            summary.characters,
+            *(
+                half.characters
+                for half in (summary.abyss.first_half, summary.abyss.second_half)
+                if half is not None
+            ),
+        ):
+            for character in characters:
+                observed.setdefault(int(character.character_id), character.name)
+        return observed

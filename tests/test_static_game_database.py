@@ -29,6 +29,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "014_game_static_character_shape_bonus.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "017_game_static_combat_catalog.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -46,6 +47,83 @@ def load_builder_module():
 
 
 class StaticGameDatabaseTests(unittest.TestCase):
+    def test_lingke_uses_nature_ordered_fallback_and_official_first_fork(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            role = connection.execute(
+                """
+                SELECT character.element_type, character.group_type,
+                       recommendation.source_kind, recommendation.source_name,
+                       template.fork_id
+                FROM character
+                JOIN character_weight_recommendation AS recommendation
+                  USING (character_id)
+                JOIN character_graduation_template AS template USING (character_id)
+                WHERE character.character_id = 1072
+                """
+            ).fetchone()
+            weights = connection.execute(
+                """
+                SELECT property_id, weight
+                FROM character_weight_recommendation_property
+                WHERE character_id = 1072 ORDER BY ordinal
+                """
+            ).fetchall()
+            forks = connection.execute(
+                """
+                SELECT fork_id
+                FROM character_cultivation_fork_recommendation
+                WHERE character_id = 1072 ORDER BY ordinal
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            (
+                "ECharacterElementType::CHARACTER_ELEMENT_TYPE_NATURE",
+                "ECharacterGroupType::CHARACTER_GROUP_TYPE_THREE",
+                "default",
+                "confirmed_role_override",
+                "fork_GoldRecord",
+            ),
+            role,
+        )
+        self.assertEqual(
+            [
+                ("DamageUpNatureBase", 1.25),
+                ("CritBase", 1.0),
+                ("CritDamageBase", 0.9),
+                ("AtkUp", 0.4),
+                ("DamageUpGeneralBase", 0.9),
+            ],
+            weights,
+        )
+        self.assertEqual([("fork_GoldRecord",), ("fork_oulaquantao",)], forks)
+
+    def test_worldrain_has_all_five_refinement_descriptions(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            row = connection.execute(
+                """
+                SELECT item.star_pack_id, item.max_star,
+                       COUNT(level.star_level),
+                       SUM(level.description_zh IS NOT NULL)
+                FROM fork_item AS item
+                JOIN fork_star_level AS level
+                  ON level.star_pack_id = item.star_pack_id
+                WHERE item.fork_id = 'fork_worldrain'
+                GROUP BY item.fork_id
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            ("upgradestar_pack_fork_Worldrain", 5, 5, 5),
+            row,
+        )
+
     def test_release_shape_defaults_can_seed_a_rebuilt_database(self):
         from tools.game_data.build_graduation_templates import (
             populate_logical_character_shape_bonuses,
@@ -291,7 +369,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(16, schema_version)
+        self.assertEqual(17, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         # The role-template DAO adds official ID 1051 as the default avatar

@@ -134,6 +134,27 @@ class RingCharacter:
 
 
 @dataclass(frozen=True)
+class WeaveFollowupDamageInput:
+    """覆纹追加伤害输入；伤害属性继承触发它的直伤。"""
+
+    actual_damage: float
+    damage_attribute: str
+    ring_strength: float
+    special_multipliers: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
+class WeaveFollowupDamageResult:
+    """覆纹追加伤害及其属性和乘区明细。"""
+
+    damage: float
+    damage_attribute: str
+    ring_strength_multiplier: float
+    followup_multiplier: float
+    special_multiplier: float
+
+
+@dataclass(frozen=True)
 class DarkStarState:
     """Legacy owner set retained for callers that only need duplicate detection."""
 
@@ -326,6 +347,34 @@ class DamageCalculationService:
         """Project-default Dissonance reduction: 15% of target maximum topple value."""
         return calculate_dissonance_topple_reduction(enemy_topple_limit)
 
+    @staticmethod
+    def calculate_weave_followup(
+        values: WeaveFollowupDamageInput,
+    ) -> WeaveFollowupDamageResult:
+        """Calculate 覆纹 and retain the triggering direct hit's attribute."""
+
+        damage_attribute = str(values.damage_attribute).strip()
+        if not damage_attribute:
+            raise ValueError("覆纹必须继承触发直伤的伤害属性。")
+        strength_multiplier = calculate_weave_strength_multiplier(
+            values.ring_strength
+        )
+        followup_multiplier = 1.20 * strength_multiplier - 1.0
+        special_multiplier = calculate_special_multiplier(
+            values.special_multipliers
+        )
+        return WeaveFollowupDamageResult(
+            damage=calculate_weave_followup_damage(
+                values.actual_damage,
+                values.ring_strength,
+                values.special_multipliers,
+            ),
+            damage_attribute=damage_attribute,
+            ring_strength_multiplier=strength_multiplier,
+            followup_multiplier=followup_multiplier,
+            special_multiplier=special_multiplier,
+        )
+
 
 def calculate_attribute_value(base: float, increase: float, additive: float) -> float:
     """Calculate attack, health, or defense: base × (1 + increase) + additive."""
@@ -400,10 +449,27 @@ def calculate_ring_strength_multiplier(ring_strength: float) -> float:
 
 
 def calculate_ring_amplification(ring_strength: float) -> float:
-    """Calculate 覆纹/浸染的 24 × strength / (strength + 180) factor."""
+    """Calculate 浸染的 24 × strength / (strength + 180) factor."""
     if ring_strength < 0:
         raise ValueError("环合强度不能为负数。")
     return 24 * ring_strength / (ring_strength + 180)
+
+
+def calculate_weave_strength_multiplier(ring_strength: float) -> float:
+    """Calculate 覆纹's 1 + 20% × strength / (strength + 180) zone."""
+    if ring_strength < 0:
+        raise ValueError("环合强度不能为负数。")
+    return 1 + 0.20 * ring_strength / (ring_strength + 180)
+
+
+def calculate_special_multiplier(multipliers: tuple[float, ...]) -> float:
+    """Multiply already-normalized special zones used after the 覆纹 bracket."""
+    result = 1.0
+    for multiplier in multipliers:
+        if multiplier < 0:
+            raise ValueError("特殊乘区不能为负数。")
+        result *= multiplier
+    return result
 
 
 def calculate_dissonance_topple_reduction(enemy_topple_limit: float) -> float:
@@ -451,11 +517,21 @@ def effective_skill_level(base_skill_level: int, awakening_level: int) -> int:
     return base_skill_level + int(awakening_level >= 3)
 
 
-def calculate_weave_followup_damage(actual_damage: float, ring_strength: float) -> float:
-    """Calculate Weave's expiry follow-up from the already dealt actual damage value."""
+def calculate_weave_followup_damage(
+    actual_damage: float,
+    ring_strength: float,
+    special_multipliers: tuple[float, ...] = (),
+) -> float:
+    """Calculate Weave from actual direct damage and any extra special zones."""
     if actual_damage < 0:
         raise ValueError("覆纹记录的实际伤害不能为负数。")
-    return actual_damage * 0.20 * calculate_ring_amplification(ring_strength)
+    strength_multiplier = calculate_weave_strength_multiplier(ring_strength)
+    followup_multiplier = 1.20 * strength_multiplier - 1.0
+    return (
+        actual_damage
+        * followup_multiplier
+        * calculate_special_multiplier(special_multipliers)
+    )
 
 
 def calculate_topple_strength_multiplier(

@@ -149,6 +149,7 @@ class BattleReportController(QObject):
             account_id=account.active_account_id,
             user_database_path=account.user_database_path,
             generation=self._app_context.generation,
+            static_database_path=self._app_context.paths.static_database_path,
         )
         self._history_service = self._history_factory(persistence_dependencies)
         self._history_restored_generation = self._app_context.generation
@@ -268,6 +269,7 @@ class BattleReportController(QObject):
             account_id=account.active_account_id,
             user_database_path=account.user_database_path,
             generation=generation,
+            static_database_path=self._app_context.paths.static_database_path,
         )
         history_service = self._history_factory(dependencies)
         try:
@@ -501,6 +503,7 @@ class BattleReportController(QObject):
             account_id=account.active_account_id,
             user_database_path=account.user_database_path,
             generation=generation,
+            static_database_path=self._app_context.paths.static_database_path,
         )
         history_service = self._history_factory(dependencies)
         self._history_service = history_service

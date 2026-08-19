@@ -296,7 +296,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     fork_combo.addItem("未装备弧盘", None)
     for fork in detail["forks"]:
         exclusive = str(character_id) in {str(value) for value in fork.get("exclusive_character_ids") or []}
-        suffix = "（专属）" if exclusive else "（常驻同类型）"
+        suffix = "（专属外观）" if exclusive else "（同类型）"
         fork_combo.addItem(f"{fork.get('name_zh') or fork['fork_id']} {suffix}", fork["fork_id"])
     fork_index = fork_combo.findData(profile.get("fork_id"))
     fork_combo.setCurrentIndex(fork_index if fork_index >= 0 else 0)

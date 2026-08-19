@@ -15,9 +15,12 @@ from src.domain.battle_report import (
     EMPTY_BATTLE_CAPTURE_STATE,
 )
 from src.integrations.nte_core_battle import (
+    parse_battle_axis,
+    parse_battle_record,
     parse_battle_summary,
     parse_battle_summary_event,
 )
+from src.integrations.nte_core import nte_core_error_has_domain_code
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
@@ -57,6 +60,21 @@ class BattleCoreClient(Protocol):
         self, *, subtract_time_stop: bool = True
     ) -> Mapping[str, Any] | None: ...
 
+    def get_battle_record(
+        self,
+        *,
+        battle_record_id: str | None = None,
+        subtract_time_stop: bool = True,
+    ) -> Mapping[str, Any] | None: ...
+
+    def get_battle_axis(
+        self,
+        *,
+        battle_record_id: str,
+        cursor: str | None = None,
+        limit: int = 500,
+    ) -> Mapping[str, Any] | None: ...
+
     def close(self) -> None: ...
 
 
@@ -64,6 +82,22 @@ BattleClientFactory = Callable[[], BattleCoreClient]
 
 
 class BattleSummaryWriter(Protocol):
+    def begin_capture(
+        self,
+        *,
+        capture_operation_id: str,
+        captured_at_utc: str,
+    ) -> None: ...
+
+    def append_axis_page(
+        self,
+        *,
+        capture_operation_id: str,
+        page: Mapping[str, Any],
+    ) -> None: ...
+
+    def discard_capture(self, *, capture_operation_id: str) -> None: ...
+
     def finalize_summary(
         self,
         *,
@@ -72,6 +106,7 @@ class BattleSummaryWriter(Protocol):
         capture_operation_id: str,
         captured_at_utc: str,
         finalized_at_utc: str,
+        raw_record_payload: Mapping[str, Any] | None = None,
     ) -> BattleSummaryPersistenceOutcome: ...
 
 
@@ -103,6 +138,8 @@ class BattleCaptureService:
         self._latest_summary: BattleSummary | None = None
         self._last_sequence = -1
         self._event_error: Exception | None = None
+        self._source_battle_record_id: str | None = None
+        self._axis_cursor: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -167,7 +204,16 @@ class BattleCaptureService:
         terminal_error: Exception | None = None
         persistence_outcome: BattleSummaryPersistenceOutcome | None = None
         final_payload_received = False
+        capture_staged = False
+        capture_finalized = False
+        final_record: dict[str, Any] | None = None
         try:
+            if self._summary_writer is not None:
+                self._summary_writer.begin_capture(
+                    capture_operation_id=self._operation_context.operation_id,
+                    captured_at_utc=captured_at_utc,
+                )
+                capture_staged = True
             client = self._client_factory()
             self._client = client
             client.start()
@@ -185,12 +231,18 @@ class BattleCaptureService:
                 "采集中：进入战斗后将实时显示队伍伤害。",
                 running=True,
             )
-            self._stop_event.wait()
+            while not self._stop_event.wait(0.5):
+                self._poll_axis(client, maximum_pages=8)
             client.stop_capture()
             capture_started = False
             if self._event_error is not None:
                 raise self._event_error
-            final_payload = client.get_battle_summary(subtract_time_stop=True)
+            final_record = self._poll_axis(client, maximum_pages=120)
+            final_payload = (
+                final_record.get("summary")
+                if final_record is not None
+                else client.get_battle_summary(subtract_time_stop=True)
+            )
             if final_payload is not None:
                 final_payload_received = True
                 self._latest_summary = parse_battle_summary(
@@ -204,7 +256,9 @@ class BattleCaptureService:
                         capture_operation_id=self._operation_context.operation_id,
                         captured_at_utc=captured_at_utc,
                         finalized_at_utc=_utc_now(),
+                        raw_record_payload=final_record,
                     )
+                    capture_finalized = True
         except Exception as error:
             terminal_error = error
         finally:
@@ -223,6 +277,18 @@ class BattleCaptureService:
                     if terminal_error is None:
                         terminal_error = close_error
             self._client = None
+            if (
+                capture_staged
+                and not capture_finalized
+                and self._summary_writer is not None
+            ):
+                try:
+                    self._summary_writer.discard_capture(
+                        capture_operation_id=self._operation_context.operation_id
+                    )
+                except Exception as discard_error:
+                    if terminal_error is None:
+                        terminal_error = discard_error
         summary = self._latest_summary
         if terminal_error is None:
             persistence_status = (
@@ -292,6 +358,57 @@ class BattleCaptureService:
                 result="failed",
                 error=safe_exception(terminal_error),
             )
+
+    def _poll_axis(
+        self,
+        client: BattleCoreClient,
+        *,
+        maximum_pages: int,
+    ) -> dict[str, Any] | None:
+        raw_record = client.get_battle_record(
+            battle_record_id=self._source_battle_record_id,
+            subtract_time_stop=True,
+        )
+        if raw_record is None:
+            return None
+        record = parse_battle_record(raw_record)
+        source_record_id = str(record["battle_record_id"])
+        if self._source_battle_record_id is None:
+            self._source_battle_record_id = source_record_id
+        elif source_record_id != self._source_battle_record_id:
+            raise RuntimeError("同一次采集出现了不同的 nte-core 战斗记录")
+
+        for _page_index in range(maximum_pages):
+            try:
+                raw_page = client.get_battle_axis(
+                    battle_record_id=source_record_id,
+                    cursor=self._axis_cursor,
+                    limit=500,
+                )
+            except Exception as error:
+                if nte_core_error_has_domain_code(
+                    error,
+                    frozenset({"BATTLE_AXIS_CURSOR_EXPIRED"}),
+                ):
+                    self._axis_cursor = None
+                    continue
+                raise
+            if raw_page is None:
+                break
+            page = parse_battle_axis(raw_page)
+            writer = self._summary_writer
+            if writer is not None:
+                writer.append_axis_page(
+                    capture_operation_id=self._operation_context.operation_id,
+                    page=page,
+                )
+            next_cursor = page.get("next_cursor")
+            if next_cursor is None or next_cursor == self._axis_cursor:
+                break
+            self._axis_cursor = str(next_cursor)
+            if not page["rows"]:
+                break
+        return record
 
     def _on_summary_event(self, event: dict[str, object]) -> None:
         try:

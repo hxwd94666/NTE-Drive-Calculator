@@ -8,6 +8,15 @@ from tools.game_data.static_database_build_support import *
 
 class CombatImportMixin:
     def _import_forks(self) -> None:
+        canonical_star_packs: dict[str, str] = {}
+        for row_key in self.rows["fork_stars"]:
+            pack_id, _star_level = split_numbered_row(row_key)
+            normalized = pack_id.casefold()
+            previous = canonical_star_packs.setdefault(normalized, pack_id)
+            if previous != pack_id:
+                raise StaticDatabaseError(
+                    f"弧盘精炼包仅大小写不同且无法唯一解析：{previous}/{pack_id}"
+                )
         for type_id in sorted(self.rows["fork_types"], key=int):
             row = self.rows["fork_types"][type_id]
             name, _, _ = text_parts(row.get("TypeName"))
@@ -35,6 +44,16 @@ class CombatImportMixin:
             quality = enum_tail(row.get("ItemQuality"), "ITEM_QUALITY_")
             if name is None or quality is None:
                 raise StaticDatabaseError(f"弧盘身份字段不完整：{fork_id}")
+            raw_star_pack_id = optional_text(element.get("UpgradeStarPackID"))
+            star_pack_id = (
+                canonical_star_packs.get(raw_star_pack_id.casefold())
+                if raw_star_pack_id is not None
+                else None
+            )
+            if int(element.get("MaxUpgradeStar") or 0) > 0 and star_pack_id is None:
+                raise StaticDatabaseError(
+                    f"弧盘精炼包无法解析：{fork_id}/{raw_star_pack_id}"
+                )
             self.connection.execute(
                 "INSERT INTO fork_item VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -48,7 +67,7 @@ class CombatImportMixin:
                     group_type,
                     element.get("UpgradePackId"),
                     element.get("BreakthroughPackId"),
-                    element.get("UpgradeStarPackID"),
+                    star_pack_id,
                     element.get("MaxBreakthrough"),
                     element.get("MaxUpgradeStar"),
                     asset_path(row.get("ItemIcon")),
@@ -421,6 +440,22 @@ class CombatImportMixin:
             "fork_breakthrough",
             "fork_star_level",
             "fork_refinement_parameter_value",
+            "character_cultivation_guide",
+            "character_cultivation_fork_recommendation",
+            "character_cultivation_attribute_recommendation",
+            "character_cultivation_stage",
+            "character_cultivation_stage_skill",
+            "gameplay_ability_catalog",
+            "gameplay_ability_description",
+            "gameplay_ability_level_hint",
+            "gameplay_effect_catalog",
+            "monster_catalog",
+            "monster_identifier_alias",
+            "equipment_modify_pack",
+            "equipment_modify_value",
+            "equipment_buff_curve",
+            "equipment_buff_curve_point",
+            "combat_effect_definition",
         )
         return {
             table: int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

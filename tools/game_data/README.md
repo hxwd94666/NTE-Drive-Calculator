@@ -29,7 +29,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v12
+## 构建静态 SQLite v17
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -67,8 +67,20 @@ python tools/game_data/sync_recommended_weights.py `
   --config-dir config
 ```
 
-API 没有返回的角色会写入固定默认权重（增伤、暴击、爆伤、攻击力%）。Key 只从开发机环境或 `.env` 读取，不写入数据库或安装包；应用运行时只读静态库，不访问 API，也不读取旧 `roles.json` 权重。
+API 没有返回的角色保留本次构建产生的角色级发行回退；明确确认的覆盖位于
+`character_weight_overrides.json`。Key 只从开发机隐藏输入、环境或 `.env` 读取，不写入数据库或安装包；
+应用运行时只读静态库，不访问 API，也不读取旧 `roles.json` 权重。
 同步完成后会按更新后的权重重新生成全部角色毕业模板，保证推荐词条与毕业基准来自同一版静态快照。
+
+无法访问 API 时，可以明确沿用上一发行库中带 `workshop_api`/`workshop_cache` 来源的行；新角色仍保留
+当前构建回退，不把旧默认冒充新推荐：
+
+```powershell
+python tools/game_data/sync_recommended_weights.py `
+  --database data/game_static.sqlite3 `
+  --reuse-database build/previous/data/game_static.sqlite3 `
+  --manifest data/manifest.json
+```
 
 构建器还会自动扫描 `DataTable/Character/Awaken/*AwakenEffect*.json`：每个角色的六个
 可选觉醒、三/六觉共鸣、名称/描述/图标、Buff 引用和明确的技能等级加成都会进入静态库。
@@ -91,11 +103,11 @@ API 没有返回的角色会写入固定默认权重（增伤、暴击、爆伤�
 `character_overrides.json` 中标记为 `combat_transformation` 的记录只保留官方角色目录和
 规范角色关联；它们共用规范角色的属性与养成，不能生成独立的成长、觉醒或普通技能目录。
 
-schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级变体和 Abyss 关卡绑定；schema v11 新增带来源标记的角色推荐权重；schema v12 新增构建期固定的逐角色直伤毕业模板。
+schema v8–v10 新增倾陷/环合曲线、敌方属性包、怪物实例等级变体和 Abyss 关卡绑定；schema v11 新增带来源标记的角色推荐权重；schema v12 新增构建期固定的逐角色直伤毕业模板；schema v13–v16 新增设置默认、额外形状和弧盘精炼参数；schema v17 新增培养指南、技能说明、GameplayEffect 索引、怪物别名和装备效果来源。
 `DT_MonsterPackData_FT` 与 `FT_` 表示 999 夜子玩法；Abyss 的 `AttributeID` 全部关联普通
 `DT_MonsterPackData`，不能按文件名或前缀推断场景。
 
-新 SQLite DAO、角色页和 nte-core 同步链路只使用 v12 数据库与原始游戏/nte-core ID，不经过旧格式转换。
+新 SQLite DAO、角色页和 nte-core 同步链路只使用 v17 数据库与原始游戏/nte-core ID，不经过旧格式转换。
 
 ## 查询静态数据库
 

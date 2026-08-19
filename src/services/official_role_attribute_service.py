@@ -54,16 +54,21 @@ def _compatible_forks(character: Mapping[str, Any], forks: list[dict[str, Any]])
     group_type = str(character.get("group_type") or "")
     compatible = [
         fork for fork in forks
-        if character_id in {str(value) for value in fork.get("exclusive_character_ids") or []}
-        or (
-            not fork.get("exclusive_character_ids")
-            and str(fork.get("raw_group_type") or "") == group_type
-        )
+        if str(fork.get("raw_group_type") or "") == group_type
     ]
+
+    def recommendation_rank(fork: Mapping[str, Any]) -> int:
+        ranks = [
+            int(row.get("ordinal") or 0)
+            for row in fork.get("cultivation_recommendations") or ()
+            if str(row.get("character_id")) == character_id
+        ]
+        return min(ranks) if ranks else 1_000_000
+
     return sorted(
         compatible,
         key=lambda fork: (
-            character_id not in {str(value) for value in fork.get("exclusive_character_ids") or []},
+            recommendation_rank(fork),
             str(fork.get("quality") or "") != "ORANGE",
             str(fork.get("name_zh") or fork.get("fork_id") or ""),
         ),

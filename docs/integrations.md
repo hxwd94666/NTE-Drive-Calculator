@@ -12,7 +12,7 @@
 - `capture.start(profile="inventory"|"combat")` 与 `capture.stop`；
 - `inventory.get_latest`；
 - 仓库状态写回与极速装配 RPC；
-- `event.battle.summary`、`battle.get_summary`、`battle.reset`。
+- `event.battle.summary`、`battle.get_summary`、`battle.get_record`、`battle.get_axis`、`battle.reset`。
 
 `inventory.get_latest` 读取最近捕获结果，不等于强制刷新。完整库存事件进入快照稳定化；残缺状态事件只
 更新固定完整快照中的已知 UID。RPC 接受只代表已提交，最终状态由后续稳定快照或正式范围事件确认。
@@ -23,8 +23,14 @@
 安装缺失、驱动服务、无活动网卡或“驱动/过滤器/运行时待排查”给出下一步；核心没有提供 libpcap 枚举错误
 文本或逐网卡过滤理由时，报告必须明确该边界，不能伪造原因。
 
-逐击分页、Buff/Debuff 区间、完整养成/武器快照、四人/双队、敌人实例、正式场景 ID 和历史逐击导出尚未
-成为产品 contract。调试样本不代替公开 CLI capability。
+`battle.get_record` 与 `battle.get_axis` 使用 nte-core 0.4.1 的 v1 contract。record ID 在当前 Core
+进程内稳定，generation、cursor、sequence 和总数按十进制字符串保留；axis 每页限制 1～500 行。
+应用在采集期间轮询并持久化，停止后排空尾页，以免 Core 的 50,000 击保留窗口裁剪前缀。逐击只保存
+Core 已脱敏字段，不保存网络包、端点或 PCAP。
+
+`team_snapshot_id` 当前为空，逐击也没有暴击事实、Buff/Debuff 区间、护盾/治疗或角色施法事件。应用不得
+用当前 UI 队伍、固定暴击率或相邻血量补造这些事实。完整队伍、正式敌人实例、场景 ID、时间线 UI 和
+历史逐击导出仍未成为产品能力。
 
 ## 2. 视觉、OCR 与游戏输入
 
@@ -57,8 +63,13 @@ Mods 插件默认通过游戏目录中的代理 `dwmapi.dll` 加载。只有代�
 
 ## 4. 静态数据与资源
 
-官方数据只通过 `tools/game_data` 生成候选静态库。导入器保留来源文件、行键与摘要，验证 schema、外键、
-业务约束和 manifest 后才替换发行数据库。静态库和 `data/manifest.json` 作为一个原子变更审查。
+官方数据只通过 `tools/game_data` 生成候选静态库。静态 schema v17 还保存培养指南、推荐弧盘/属性/阶段、
+技能说明、GameplayEffect 索引、怪物手册别名、装备 Modify/曲线和可追溯效果定义。导入器保留来源文件、
+行键与摘要，验证 schema、外键、业务约束和 manifest 后才替换发行数据库。静态库和
+`data/manifest.json` 作为一个原子变更审查。
+
+工坊推荐同步只覆盖 API 实际返回的角色；缺行角色保留本次构建的可审计发行回退。角色 1072 的确认覆盖
+位于 `tools/game_data/character_weight_overrides.json`，不得被 API 缺行默认重新覆盖。
 
 游戏 UI 图片由资源构建工具生成到 `assets/game_ui`，`manifest.json` 明确记录 ID 映射、文件哈希和
 `unresolved_assets`。缺失资源保持显式 unresolved，不用相似图片或本机路径占位。

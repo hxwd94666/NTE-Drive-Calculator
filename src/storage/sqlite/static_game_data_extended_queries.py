@@ -8,7 +8,7 @@ from typing import Any
 
 from .protocols import StaticDataDaoMixinHost
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 _DEFAULT_LOGICAL_CHARACTER_IDS = {
     "protagonist": 1051,
@@ -59,6 +59,22 @@ SUMMARY_TABLES = (
     "fork_type",
     "fork_item",
     "fork_refinement_parameter_value",
+    "character_cultivation_guide",
+    "character_cultivation_fork_recommendation",
+    "character_cultivation_attribute_recommendation",
+    "character_cultivation_stage",
+    "character_cultivation_stage_skill",
+    "gameplay_ability_catalog",
+    "gameplay_ability_description",
+    "gameplay_ability_level_hint",
+    "gameplay_effect_catalog",
+    "monster_catalog",
+    "monster_identifier_alias",
+    "equipment_modify_pack",
+    "equipment_modify_value",
+    "equipment_buff_curve",
+    "equipment_buff_curve_point",
+    "combat_effect_definition",
 )
 
 
@@ -93,6 +109,15 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
 
     def list_fork_templates(self) -> list[dict[str, Any]]:
         """返回弧盘的官方成长、突破、星级和逐项属性加成。"""
+        recommendations_by_fork: dict[str, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT fork_id, character_id, ordinal, description_zh, source_kind
+            FROM character_cultivation_fork_recommendation
+            ORDER BY fork_id, ordinal, character_id
+            """
+        ):
+            recommendations_by_fork.setdefault(row.pop("fork_id"), []).append(row)
         modifiers_by_pack: dict[str, list[dict[str, Any]]] = {}
         for row in self._rows(
             """
@@ -187,6 +212,9 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             template["star_levels"] = stars_by_pack.get(
                 str(template.get("star_pack_id") or ""), []
             )
+            template["cultivation_recommendations"] = recommendations_by_fork.get(
+                str(template.get("fork_id") or ""), []
+            )
             templates.append(template)
         return templates
 
@@ -244,6 +272,200 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             )
         ]
         return plan
+
+    def get_character_cultivation_guide(
+        self, character_id: int
+    ) -> dict[str, Any] | None:
+        guide = self._one(
+            """
+            SELECT character_id, display_text, s_score, a_score, icon_path,
+                   recommend_attribute_jump_id, role_sex_change, source_row_id
+            FROM character_cultivation_guide
+            WHERE character_id = ?
+            """,
+            (int(character_id),),
+        )
+        if guide is None:
+            return None
+        guide["display_text"] = bool(guide["display_text"])
+        guide["role_sex_change"] = bool(guide["role_sex_change"])
+        guide["fork_recommendations"] = self._rows(
+            """
+            SELECT ordinal, fork_id, description_zh, source_kind
+            FROM character_cultivation_fork_recommendation
+            WHERE character_id = ? ORDER BY ordinal
+            """,
+            (int(character_id),),
+        )
+        guide["attribute_recommendations"] = self._rows(
+            """
+            SELECT recommendation.ordinal, recommendation.property_id,
+                   attribute.display_name_zh, attribute.show_percent
+            FROM character_cultivation_attribute_recommendation AS recommendation
+            LEFT JOIN equipment_attribute AS attribute
+              ON attribute.attribute_id = recommendation.property_id
+            WHERE recommendation.character_id = ?
+            ORDER BY recommendation.ordinal
+            """,
+            (int(character_id),),
+        )
+        stages = self._rows(
+            """
+            SELECT stage_ordinal, character_level, fork_level, core_item_id,
+                   core_level, equipment_level
+            FROM character_cultivation_stage
+            WHERE character_id = ? ORDER BY stage_ordinal
+            """,
+            (int(character_id),),
+        )
+        for stage in stages:
+            stage["skills"] = self._rows(
+                """
+                SELECT sex_kind, ordinal, ability_id, recommended_level
+                FROM character_cultivation_stage_skill
+                WHERE character_id = ? AND stage_ordinal = ?
+                ORDER BY sex_kind, ordinal
+                """,
+                (int(character_id), int(stage["stage_ordinal"])),
+            )
+        guide["stages"] = stages
+        return guide
+
+    def get_gameplay_ability(self, ability_id: str) -> dict[str, Any] | None:
+        ability = self._one(
+            """
+            SELECT ability_id, name_zh, name_text_table, name_text_key,
+                   icon_path, extended_icon_path, gameplay_ability_path,
+                   is_stolen, source_row_id
+            FROM gameplay_ability_catalog WHERE ability_id = ?
+            """,
+            (str(ability_id),),
+        )
+        if ability is None:
+            return None
+        ability["is_stolen"] = bool(ability["is_stolen"])
+        descriptions = self._rows(
+            """
+            SELECT ordinal, description_type, title_zh, description_zh,
+                   description_text_table, description_text_key,
+                   short_description_zh, unlock_id, unlock_description_zh,
+                   replacement_values_json
+            FROM gameplay_ability_description
+            WHERE ability_id = ? ORDER BY ordinal
+            """,
+            (str(ability_id),),
+        )
+        for row in descriptions:
+            row["replacement_values"] = json.loads(
+                row.pop("replacement_values_json") or "[]"
+            )
+        ability["descriptions"] = descriptions
+        hints = self._rows(
+            """
+            SELECT ordinal, name_id, description_zh, value_description_zh,
+                   global_curve_id, source_type, damage_effect_ids_json,
+                   defense_effect_ids_json, health_effect_ids_json
+            FROM gameplay_ability_level_hint
+            WHERE ability_id = ? ORDER BY ordinal
+            """,
+            (str(ability_id),),
+        )
+        for row in hints:
+            for field in (
+                "damage_effect_ids",
+                "defense_effect_ids",
+                "health_effect_ids",
+            ):
+                row[field] = json.loads(row.pop(f"{field}_json") or "[]")
+        ability["level_hints"] = hints
+        return ability
+
+    def get_gameplay_effect(
+        self,
+        *,
+        gameplay_effect_index: int | None = None,
+        gameplay_effect_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        if gameplay_effect_index is not None:
+            return self._one(
+                """
+                SELECT gameplay_effect_index, gameplay_effect_id, class_path,
+                       source_row_id
+                FROM gameplay_effect_catalog WHERE gameplay_effect_index = ?
+                """,
+                (int(gameplay_effect_index),),
+            )
+        if gameplay_effect_id:
+            return self._one(
+                """
+                SELECT gameplay_effect_index, gameplay_effect_id, class_path,
+                       source_row_id
+                FROM gameplay_effect_catalog WHERE gameplay_effect_id = ?
+                """,
+                (str(gameplay_effect_id),),
+            )
+        return None
+
+    def find_monster_catalog(
+        self,
+        identifier: str,
+        *,
+        alias_kind: str | None = None,
+    ) -> list[dict[str, Any]]:
+        normalized = str(identifier)
+        parameters: list[Any] = [normalized, normalized]
+        alias_filter = ""
+        if alias_kind is not None:
+            alias_filter = " AND alias.alias_kind = ?"
+            parameters.append(str(alias_kind))
+        return self._rows(
+            """
+            SELECT DISTINCT monster.monster_manual_id, monster.sort_order,
+                   monster.name_zh, monster.enemy_type, monster.image_path,
+                   monster.world_image_path, monster.place_zh,
+                   monster.discovered_description_zh,
+                   monster.undiscovered_description_zh, monster.drop_id,
+                   monster.stamina_cost, monster.trace_type,
+                   monster.map_icon_id, monster.quest_id, monster.source_row_id
+            FROM monster_catalog AS monster
+            LEFT JOIN monster_identifier_alias AS alias
+              USING (monster_manual_id)
+            WHERE (monster.monster_manual_id = ? OR alias.alias_value = ?)
+            """
+            + alias_filter
+            + " ORDER BY monster.sort_order, monster.monster_manual_id",
+            parameters,
+        )
+
+    def list_combat_effect_definitions(
+        self,
+        *,
+        owner_kind: str | None = None,
+        owner_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if owner_kind is not None:
+            clauses.append("owner_kind = ?")
+            parameters.append(str(owner_kind))
+        if owner_id is not None:
+            clauses.append("owner_id = ?")
+            parameters.append(str(owner_id))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._rows(
+            """
+            SELECT effect_definition_id, owner_kind, owner_id, effect_kind,
+                   activation_kind, description_zh, parameters_json,
+                   formula_version, source_row_id
+            FROM combat_effect_definition
+            """
+            + where
+            + " ORDER BY owner_kind, owner_id, effect_definition_id",
+            parameters,
+        )
+        for row in rows:
+            row["parameters"] = json.loads(row.pop("parameters_json") or "{}")
+        return rows
 
     def list_equipment_plans(self) -> list[dict[str, Any]]:
         """Return every official equipment plan without per-role query fan-out.

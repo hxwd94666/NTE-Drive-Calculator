@@ -18,6 +18,7 @@ from typing import Any, Literal
 from src.integrations.nte_core_events import (
     CoalescingEventQueue as _CoalescingEventQueue,
 )
+from src.integrations.nte_core_battle_client import NteCoreBattleQueryMixin
 from src.integrations.nte_core_protocol import (
     JsonObject,
     MODS_PLUGIN_BUSY_CODES,
@@ -172,7 +173,7 @@ def resolve_nte_core_executable(executable: str | os.PathLike[str] | None = None
     )
 
 
-class NteCoreClient:
+class NteCoreClient(NteCoreBattleQueryMixin):
     """管理一个 nte-core 进程，并向调用方暴露原始业务 DTO。
 
     匹配的事件处理器在专用回调线程执行并接管对应事件；未处理事件仍可通过

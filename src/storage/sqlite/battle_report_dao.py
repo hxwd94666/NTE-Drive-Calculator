@@ -28,8 +28,11 @@ _HISTORY_SELECT = """
     SELECT
         record.battle_record_id,
         record.capture_operation_id,
-        record.source_kind,
-        record.capability_level,
+        COALESCE(record.evidence_source_kind, record.source_kind) AS source_kind,
+        COALESCE(
+            record.evidence_capability_level,
+            record.capability_level
+        ) AS capability_level,
         record.combat_context_kind,
         record.abyss_floor,
         record.has_first_half,
@@ -49,6 +52,12 @@ _HISTORY_SELECT = """
         record.abyss_success,
         record.payload_schema_version,
         record.raw_summary_sha256,
+        record.nte_core_record_id,
+        record.nte_core_contract_version,
+        record.axis_complete,
+        record.axis_first_sequence,
+        record.axis_total_hits,
+        record.axis_stored_hits,
         record.created_at_utc,
         retention.retention_kind,
         retention.auto_saved_at_utc,
@@ -99,6 +108,8 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
             "abyss_success",
         ):
             result[field] = bool(result[field])
+        if result.get("axis_complete") is not None:
+            result["axis_complete"] = bool(result["axis_complete"])
         return result
 
     def _battle_record_history_row(
