@@ -49,6 +49,31 @@ def refresh_account_scoped_settings(window) -> None:
         edit.blockSignals(True)
         edit.setText(str(preferences.get("protagonist_game_name") or ""))
         edit.blockSignals(False)
+    game_edit = getattr(window, "_equipment_plugin_game_executable_edit", None)
+    if game_edit is not None:
+        game_edit.blockSignals(True)
+        game_edit.setText(
+            str(preferences.get("equipment_plugin_game_executable") or "")
+        )
+        game_edit.blockSignals(False)
+    method_combo = getattr(window, "_equipment_plugin_loading_method_combo", None)
+    if method_combo is not None:
+        method_combo.blockSignals(True)
+        method_index = method_combo.findData(
+            preferences.get("equipment_plugin_loading_method") or "proxy"
+        )
+        method_combo.setCurrentIndex(max(0, method_index))
+        method_combo.blockSignals(False)
+    consent = getattr(window, "_equipment_plugin_consent", None)
+    if consent is not None:
+        consent.blockSignals(True)
+        consent.setChecked(
+            bool(preferences.get("equipment_plugin_risk_acknowledged", False))
+        )
+        consent.blockSignals(False)
+    refresh_plugin = getattr(window, "_refresh_equipment_plugin_status", None)
+    if callable(refresh_plugin):
+        refresh_plugin()
 
 
 @dataclass(frozen=True)
@@ -204,8 +229,9 @@ def _build_environment_card(window):
     equipment_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(equipment_title)
     equipment_description = QLabel(
-        "<b>简单原理：</b>极速装配会把 dwmapi.dll 放入游戏目录，由游戏加载后通过装备 Mod 脚本"
-        "调用或 Hook 游戏内部功能，直接发送装备指令。"
+        "<b>简单原理：</b>默认把 dwmapi.dll 放入游戏目录，由游戏代理加载；"
+        "少数环境不加载代理 DLL 时，可显式改用管理员 Mod Loader。"
+        "两种方式都会通过装备 Mod 脚本调用或 Hook 游戏内部功能，且不会同时启用。"
         "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
         "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
     )
@@ -216,6 +242,29 @@ def _build_environment_card(window):
     )
     card.layout().addWidget(equipment_description)
     form = QFormLayout()
+    window._equipment_plugin_loading_method_combo = NoWheelComboBox()
+    window._equipment_plugin_loading_method_combo.addItem(
+        "代理 DLL（推荐）", "proxy"
+    )
+    window._equipment_plugin_loading_method_combo.addItem(
+        "Mod Loader（备用）", "loader"
+    )
+    loading_method = str(
+        (getattr(window, "_ui_preferences", {}) or {}).get(
+            "equipment_plugin_loading_method"
+        )
+        or "proxy"
+    )
+    method_index = window._equipment_plugin_loading_method_combo.findData(
+        loading_method
+    )
+    window._equipment_plugin_loading_method_combo.setCurrentIndex(
+        max(0, method_index)
+    )
+    window._equipment_plugin_loading_method_combo.currentIndexChanged.connect(
+        window._equipment_plugin_loading_method_changed
+    )
+    form.addRow("加载方式:", window._equipment_plugin_loading_method_combo)
     window._equipment_plugin_game_executable_edit = QLineEdit()
     window._equipment_plugin_game_executable_edit.setPlaceholderText(
         "可手动粘贴 HTGame.exe 的完整文件地址"
@@ -251,6 +300,16 @@ def _build_environment_card(window):
     window._equipment_plugin_consent.setStyleSheet(
         themed_style("color:#d29922;font-weight:600")
     )
+    window._equipment_plugin_consent.setChecked(
+        bool(
+            (getattr(window, "_ui_preferences", {}) or {}).get(
+                "equipment_plugin_risk_acknowledged", False
+            )
+        )
+    )
+    window._equipment_plugin_consent.toggled.connect(
+        window._equipment_plugin_risk_acknowledgement_changed
+    )
     consent_row.addWidget(window._equipment_plugin_consent)
     window._dwmapi_diagnostic_button = QPushButton("诊断 dwmapi")
     window._dwmapi_diagnostic_button.clicked.connect(window._diagnose_dwmapi)
@@ -264,14 +323,18 @@ def _build_environment_card(window):
     )
     card.layout().addWidget(window._equipment_plugin_status_label)
     actions = QHBoxLayout()
-    deploy_button = QPushButton("部署装备插件")
-    deploy_button.setObjectName("btnPrimary")
-    deploy_button.clicked.connect(window._deploy_equipment_plugin)
-    actions.addWidget(deploy_button)
-    restore_button = QPushButton("还原游戏目录")
-    restore_button.setObjectName("btnDanger")
-    restore_button.clicked.connect(window._restore_equipment_plugin)
-    actions.addWidget(restore_button)
+    window._equipment_plugin_primary_button = QPushButton("部署代理 DLL")
+    window._equipment_plugin_primary_button.setObjectName("btnPrimary")
+    window._equipment_plugin_primary_button.clicked.connect(
+        window._activate_equipment_plugin_loading_method
+    )
+    actions.addWidget(window._equipment_plugin_primary_button)
+    window._equipment_plugin_stop_button = QPushButton("还原游戏目录")
+    window._equipment_plugin_stop_button.setObjectName("btnDanger")
+    window._equipment_plugin_stop_button.clicked.connect(
+        window._deactivate_equipment_plugin_loading_method
+    )
+    actions.addWidget(window._equipment_plugin_stop_button)
     actions.addStretch()
     card.layout().addLayout(actions)
     refresher = getattr(window, "_refresh_equipment_plugin_status", None)

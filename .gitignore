@@ -46,6 +46,7 @@ config/update_config.json
 
 # 开发者本机数据、生成的数据库和本地运行组件
 /config/game_raw/
+/config/mods-plugin/
 /game_dumps/
 /local_game_data/
 nte_capture*.json

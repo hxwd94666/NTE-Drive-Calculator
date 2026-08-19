@@ -197,8 +197,12 @@ python tools/windows_validation/run_validation.py --profile vision `
 
 ## 10. 插件、环境、更新与发行
 
-- [ ] 环境诊断分别显示 Npcap、nte-core、dwmapi、插件 presence、SDK 缓存和 IPC 管道状态。
+- [ ] 环境诊断分别显示 Npcap、nte-core、dwmapi、Mod Loader、VC++ 运行库、插件 presence、SDK 缓存和 IPC 管道状态。
 - [ ] 在测试环境执行插件部署、备份和还原；失败保留原 DLL 和运行时 SDK 缓存。
+- [ ] 代理 DLL 可加载的环境保持默认代理方式，启动游戏后 IPC v7 管道出现且 Loader 未启动。
+- [ ] 代理 DLL 不会自动加载的环境先安全还原代理，再经 UAC 启动备用 Loader；游戏启动后 IPC v7 管道出现。
+- [ ] Loader 运行时尝试切到代理方式；应用拒绝。停止 Loader 后确认本次注入的启动器退出，再允许部署代理。
+- [ ] 取消 UAC、Loader 文件缺失、payload 缺失、VC++ 运行库缺失和停止超时分别显示明确错误，不报告加载成功。
 - [ ] 游戏更新后按 [插件适配文档](../reference/mods-plugin-version-adaptation.md) 验证 DLL 哈希、工作区、
   SDK 重建、presence、pipe 和一次受控装配。
 - [ ] 执行 Mirror 更新检查、取消、失败重试和安装器启动；日志无 CDK、Token 和鉴权 URL。

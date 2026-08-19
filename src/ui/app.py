@@ -125,6 +125,7 @@ from src.features.accounts.manager import AccountManager, populate_account_combo
 from src.features.settings.page import refresh_account_scoped_settings
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.services.global_theme_settings_service import GlobalThemeSettingsService
+from src.services.mod_plugin_loading_service import ModPluginLoadingService
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
@@ -270,6 +271,9 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._account_settings.migrate_legacy_settings()
         self._account_settings.remove_legacy_theme_preference()
         self._global_theme_settings = GLOBAL_THEME_SETTINGS
+        self._mod_plugin_loading_service = ModPluginLoadingService(
+            application_root=self.app_context.paths.root
+        )
         self._theme_preference = self._load_theme_preference(legacy_theme)
         self._load_hotkey_config()
         self.global_hotkey_manager = GlobalHotkeyManager(
@@ -450,6 +454,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             self._stop_inventory_sync()
         except Exception as exc:
             logger.warning(f"停止背包同步失败: {exc}")
+        try:
+            self._mod_plugin_loading_service.close()
+        except Exception as exc:
+            logger.warning(f"停止 Mod Loader 失败: {exc}")
         self.global_hotkey_manager.close()
         self._unregister_inventory_sync_lifecycle()
         self._account_context_unsubscribe()

@@ -89,9 +89,11 @@ def default_artifact_paths(target: Path | None) -> tuple[Path, ...]:
     relative_candidates = (
         Path("_internal/nte-core.exe"),
         Path("_internal/dwmapi.dll"),
+        Path("_internal/nte-mod-loader.exe"),
         Path("_internal/plugins/nte-mods/equipment.nte"),
         Path("third_party/nte-core/bin/nte-core.exe"),
         Path("third_party/mods-plugin/bin/dwmapi.dll"),
+        Path("third_party/mod-loader/bin/nte-mod-loader.exe"),
         Path("third_party/mods-plugin/workspace/nte-mods/equipment.nte"),
     )
     found: list[Path] = []

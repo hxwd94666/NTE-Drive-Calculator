@@ -35,12 +35,14 @@ THIRD_PARTY_DIR = ROOT / "third_party"
 SQLITE_SCHEMA_DIR = ROOT / "src" / "storage" / "sqlite" / "schema"
 NTE_CORE_ENV = "NTE_CORE_EXE"
 MODS_PLUGIN_ENV = "NTE_MODS_PLUGIN_DLL"
+MOD_LOADER_ENV = "NTE_MOD_LOADER_EXE"
 LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
 STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
 STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"
 STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"
 SHARED_DATABASE_SEED_PATH = ROOT / "data" / "app_shared.sqlite3"
 MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"
+MOD_LOADER_PATH = THIRD_PARTY_DIR / "mod-loader" / "bin" / "nte-mod-loader.exe"
 NTE_CORE_RELEASE_FILES = (
     "LICENSE",
     "SOURCE.md",
@@ -224,6 +226,12 @@ mods_plugin_path = _required_build_file(
     ROOT / "dwmapi.dll",
 )
 _append_add_data(mods_plugin_path, ".")
+mod_loader_path = _required_build_file(
+    "nte-mod-loader.exe",
+    os.environ.get(MOD_LOADER_ENV),
+    MOD_LOADER_PATH,
+)
+_append_add_binary(mod_loader_path, ".")
 if not MODS_PLUGIN_WORKSPACE_DIR.is_dir():
     raise FileNotFoundError(f"打包缺少 nte-mods 工作区：{MODS_PLUGIN_WORKSPACE_DIR}")
 _append_add_data(MODS_PLUGIN_WORKSPACE_DIR, "plugins")
@@ -244,6 +252,20 @@ for notice_path in (
 ):
     if notice_path.is_file():
         _append_add_data(notice_path, "licenses/mods-plugin")
+for notice_path in (
+    THIRD_PARTY_DIR / "mod-loader" / "LICENSE",
+    THIRD_PARTY_DIR / "mod-loader" / "SOURCE.md",
+    THIRD_PARTY_DIR / "mod-loader" / "COMPONENT.md",
+    THIRD_PARTY_DIR / "mod-loader" / "THIRD_PARTY_LICENSES.md",
+):
+    if notice_path.is_file():
+        _append_add_data(notice_path, "licenses/mod-loader")
+mod_loader_dependency_licenses = THIRD_PARTY_DIR / "mod-loader" / "licenses"
+if mod_loader_dependency_licenses.is_dir():
+    _append_add_data(
+        mod_loader_dependency_licenses,
+        "licenses/mod-loader/dependencies",
+    )
 
 
 def _find_package_dir(package_name: str) -> Path | None:

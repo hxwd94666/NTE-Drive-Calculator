@@ -199,8 +199,10 @@ ACE `>=280`。该总评规则不依赖角色来源或槽位：官方角色、自
 
 ## 10. 环境、更新与日志
 
-环境诊断分别检查 Npcap、nte-core、dwmapi、mods 插件、运行时 SDK 缓存、IPC 管道和资源。插件部署在
-用户确认后备份并复制发行 DLL，工作区升级只更新受管脚本并保留动态 SDK 缓存。
+环境诊断分别检查 Npcap、nte-core、dwmapi、备用 Mod Loader、Microsoft Visual C++ 运行库、运行时 SDK
+缓存、IPC 管道和资源。插件默认在用户确认后备份并复制发行代理 DLL；代理方式不生效时可显式改用
+管理员 Loader。两种加载方式互斥，Loader 会话由应用 stop event 和 owner PID 管理。工作区升级只更新
+受管脚本并保留动态 SDK 缓存。
 
 Mirror Controller/Integration 负责版本检查、下载、取消和安装器启动。日志不记录 CDK、Token 或鉴权 URL。
 

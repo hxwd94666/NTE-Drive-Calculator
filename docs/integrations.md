@@ -40,11 +40,17 @@ Service 负责 OCR、归一化和装备字段。Integration 返回截图、索�
 
 ## 3. 二进制与插件
 
-根目录 `nte-core.exe`、`dwmapi.dll` 和插件副本是本机文件。`third_party` 只保存明确晋升的发行组件；
+根目录 `nte-core.exe`、`dwmapi.dll`、`nte-mod-loader.exe` 和插件副本是本机文件。`third_party` 只保存明确晋升的发行组件；
 晋升前记录上游 commit、版本、许可和 SHA-256，并完成协议、打包和真实 Windows 验证。
 
-mods 插件运行时 SDK 缓存位于可写工作区，不进入 Git 或发行模板。游戏更新后的 presence、IPC 管道、
+mods 插件运行时脚本与 SDK 缓存位于应用配置目录的可写 `mods-plugin` 工作区，不进入 Git 或发行模板。
+游戏更新后的 presence、IPC 管道、
 动态 SDK 和 Hook 排查见 [装配插件版本适配](reference/mods-plugin-version-adaptation.md)。
+
+Mods 插件默认通过游戏目录中的代理 `dwmapi.dll` 加载。只有代理未生效时，用户才可显式选择备用
+`nte-mod-loader.exe`；两种方式互斥。Loader 由 Integration 使用 UAC、唯一 stop event 和 owner PID 管理，
+应用退出或用户停止时协作退出，不以强制杀进程作为正常路径。Loader 启动前要求游戏目录不存在代理 DLL，
+停止超时后禁止部署代理方式。
 
 ## 4. 静态数据与资源
 

@@ -13,7 +13,7 @@
 | [当前路线图](roadmap.md) | 判断某项能力是否仍在开发、受何种上游条件阻塞 |
 | [伤害计算规则](reference/damage-calculation.md) | 修改直伤、DOT、环合、倾陷、怪物属性或技能档位 |
 | [日志事件规范](reference/logging-events.md) | 增加结构化事件、运行日志或脱敏字段 |
-| [装配插件版本适配](reference/mods-plugin-version-adaptation.md) | 排查 presence、IPC 管道、动态 SDK 和插件升级 |
+| [装配插件版本适配](reference/mods-plugin-version-adaptation.md) | 排查代理/Loader、IPC 管道、动态 SDK 和插件升级 |
 | [Windows 验收](validation/windows.md) | 验证真实游戏、驱动、插件、扫描、装配和更新 |
 
 ## 维护规则

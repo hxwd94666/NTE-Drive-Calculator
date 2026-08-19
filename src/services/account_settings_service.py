@@ -26,6 +26,11 @@ _UI_RUNTIME_DEFAULTS = {
     "equipment_plugin_dll_source": "",
     "equipment_plugin_backup_path": "",
     "equipment_plugin_deployed_sha256": "",
+    "equipment_plugin_workspace": "",
+    "equipment_plugin_workspace_registry_value_before": "",
+    "equipment_plugin_workspace_registry_value_existed": False,
+    "equipment_plugin_loading_method": "proxy",
+    "equipment_plugin_risk_acknowledged": False,
     "cloud_nte_mode": False,
     # Full visual-scan controls belong to the active account.  The capture
     # method may differ by account hardware and its completed inventory data.
@@ -290,6 +295,20 @@ class AccountSettingsService:
                 "equipment_plugin_dll_source",
                 "equipment_plugin_backup_path",
                 "equipment_plugin_deployed_sha256",
+                "equipment_plugin_workspace",
+                "equipment_plugin_workspace_registry_value_before",
             ):
                 normalized[name] = str(normalized.get(name) or "").strip()
+            loading_method = str(
+                normalized.get("equipment_plugin_loading_method") or "proxy"
+            ).strip().casefold()
+            normalized["equipment_plugin_loading_method"] = (
+                loading_method if loading_method in {"proxy", "loader"} else "proxy"
+            )
+            normalized["equipment_plugin_workspace_registry_value_existed"] = bool(
+                normalized.get("equipment_plugin_workspace_registry_value_existed", False)
+            )
+            normalized["equipment_plugin_risk_acknowledged"] = bool(
+                normalized.get("equipment_plugin_risk_acknowledged", False)
+            )
         return normalized

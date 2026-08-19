@@ -40,6 +40,11 @@ COMPONENTS = (
         ROOT / "third_party" / "mods-plugin" / "COMPONENT.md",
         "`bin/dwmapi.dll` SHA-256",
     ),
+    (
+        ROOT / "third_party" / "mod-loader" / "bin" / "nte-mod-loader.exe",
+        ROOT / "third_party" / "mod-loader" / "COMPONENT.md",
+        "`bin/nte-mod-loader.exe` SHA-256",
+    ),
 )
 REQUIRED_COMPONENT_FILES = (
     ROOT / "NOTICE",
@@ -50,6 +55,11 @@ REQUIRED_COMPONENT_FILES = (
     ROOT / "third_party" / "mods-plugin" / "workspace" / "nte-mods.enabled",
     ROOT / "third_party" / "mods-plugin" / "workspace" / "nte-mods" / "equipment.nte",
     ROOT / "third_party" / "mods-plugin" / "workspace" / "nte-mods" / "combat-clock.nte",
+    ROOT / "third_party" / "mod-loader" / "LICENSE",
+    ROOT / "third_party" / "mod-loader" / "SOURCE.md",
+    ROOT / "third_party" / "mod-loader" / "THIRD_PARTY_LICENSES.md",
+    ROOT / "third_party" / "mod-loader" / "licenses" / "MinHook-LICENSE.txt",
+    ROOT / "third_party" / "mod-loader" / "licenses" / "ManualMap-LICENSE.txt",
 )
 
 

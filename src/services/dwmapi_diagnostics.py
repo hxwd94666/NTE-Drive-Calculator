@@ -10,6 +10,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from src.integrations.mod_loader import (
+    ModLoaderRuntimeError,
+    packaged_mod_loader,
+)
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
     GAME_EXECUTABLE_NAME,
@@ -21,6 +25,10 @@ from src.services.equipment_plugin_deployment import (
     packaged_mod_workspace,
     packaged_plugin_dll,
     registered_mod_workspace,
+)
+from src.services.mod_plugin_loading_service import (
+    MSVC_RUNTIME_FILES,
+    probe_mod_plugin_msvc_runtime,
 )
 
 
@@ -107,6 +115,8 @@ def collect_dwmapi_diagnostics(
     application_root: str | Path,
     recorded_deployed_sha256: str = "",
     recorded_workspace_path: str | Path = "",
+    loading_method: str = "proxy",
+    loader_snapshot: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Collect file/deployment/pipe facts required to debug fast apply.
 
@@ -119,7 +129,26 @@ def collect_dwmapi_diagnostics(
         "game_executable_input": str(game_executable_path or ""),
         "expected_game_executable": GAME_EXECUTABLE_NAME,
         "pipe": probe_equipment_pipe(),
+        "loading_method": (
+            "loader" if str(loading_method).strip().casefold() == "loader" else "proxy"
+        ),
+        "msvc_runtime": probe_mod_plugin_msvc_runtime(),
+        "loader": dict(loader_snapshot or {}),
     }
+    if not result["loader"]:
+        try:
+            loader = packaged_mod_loader(application_root)
+            result["loader"] = {
+                "phase": "stopped",
+                "loader_path": str(loader),
+                "loader_present": True,
+            }
+        except ModLoaderRuntimeError as exc:
+            result["loader"] = {
+                "phase": "missing_loader",
+                "loader_present": False,
+                "detail": str(exc),
+            }
     try:
         executable = game_executable(game_executable_path)
         bundled = packaged_plugin_dll(application_root)
@@ -182,7 +211,14 @@ def collect_dwmapi_diagnostics(
 def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
     """Format a copyable diagnostic report without leaking unrelated settings."""
 
-    lines = ["NTE Drive Calc · dwmapi 装备插件诊断"]
+    lines = [
+        "NTE Drive Calc · Mods 插件加载诊断",
+        "加载方式：" + (
+            "Mod Loader（备用）"
+            if result.get("loading_method") == "loader"
+            else "代理 DLL（推荐）"
+        ),
+    ]
     if not result.get("ok"):
         lines.extend(["", "检测失败", f"原因：{result.get('error', '未选择有效的 HTGame.exe')} "])
     else:
@@ -225,6 +261,28 @@ def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
             )
 
     pipe = result.get("pipe") if isinstance(result.get("pipe"), Mapping) else {}
+    loader = result.get("loader") if isinstance(result.get("loader"), Mapping) else {}
+    runtime = (
+        result.get("msvc_runtime")
+        if isinstance(result.get("msvc_runtime"), Mapping)
+        else {}
+    )
+    runtime_files = runtime.get("files") if isinstance(runtime.get("files"), Mapping) else {}
+    lines.extend([
+        "",
+        "Mod Loader",
+        f"状态：{loader.get('phase', '未知')}",
+        f"文件：{loader.get('loader_path') or '未找到'}",
+    ])
+    if loader.get("detail"):
+        lines.append(f"说明：{loader['detail']}")
+    lines.extend([
+        "",
+        "Microsoft Visual C++ 运行库",
+        f"状态：{'就绪' if runtime.get('ready') else '缺失或无法确认'}",
+    ])
+    for name in MSVC_RUNTIME_FILES:
+        lines.append(f"{name}：{'存在' if runtime_files.get(name) else '缺失'}")
     lines.extend([
         "",
         "命名管道检测",

@@ -43,7 +43,7 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 | 自动装配 | `drive_assembly.*` | 页面阶段、输入后端、动作、停止与可见结果 |
 | 倒带 | `rewind.*` | 推荐请求、八槽保存、OCR 阶段、十连计划和停止 |
 | 战报 | `battle_report.*` | capture 生命周期、摘要持久化、历史恢复和保留策略 |
-| 环境 | `environment.*` | Npcap、nte-core、dwmapi、SDK 缓存、pipe、部署与恢复 |
+| 环境 | `environment.*` | Npcap、nte-core、dwmapi、Mod Loader、VC Runtime、SDK 缓存、pipe、部署与恢复 |
 | 更新 | `update.*` | 检查、下载、取消、失败、完成和安装器启动 |
 
 同步与仓库允许记录驱动、卡带、已装备、锁定和角色实例的聚合数量，不记录 UID 列表。战报允许字段包括

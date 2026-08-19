@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any, cast
 
 from PySide6.QtCore import QTimer
@@ -40,6 +41,16 @@ from src.services.nte_core_diagnostics import (
     collect_nte_core_diagnostics,
     format_nte_core_diagnostics,
 )
+from src.services.mod_plugin_loading_service import ModPluginLoadingError
+from src.ui.controllers.mod_loader_controller import (
+    activate_equipment_plugin_loading_method,
+    deactivate_equipment_plugin_loading_method,
+    equipment_plugin_loading_method_changed,
+    equipment_plugin_risk_acknowledgement_changed,
+    selected_plugin_loading_method,
+    start_equipment_mod_loader,
+    stop_equipment_mod_loader,
+)
 
 
 def _new_environment_operation(
@@ -74,21 +85,84 @@ def _refresh_equipment_plugin_status(self):
     bundle_label = getattr(self, "_equipment_plugin_bundle_label", None)
     if executable is None:
         return
+    bundled_plugin = None
+    loader_snapshot = None
     try:
         bundled_plugin = packaged_plugin_dll(self.app_context.paths.root)
         packaged_mod_workspace(self.app_context.paths.root)
-        if bundle_label is not None:
-            bundle_label.setText(f"打包插件与 Mod 脚本：{bundled_plugin}")
     except EquipmentPluginDeploymentError:
-        bundled_plugin = None
-        if bundle_label is not None:
+        pass
+    try:
+        loader_snapshot = self._mod_plugin_loading_service.snapshot()
+    except ModPluginLoadingError:
+        pass
+    if bundle_label is not None:
+        if bundled_plugin is None:
             bundle_label.setText("打包插件缺失：请重新安装完整应用包")
-    if not executable.text().strip():
+        else:
+            loader_text = "Loader 状态未知"
+            if loader_snapshot is not None:
+                loader_text = (
+                    "Loader 已打包"
+                    if loader_snapshot.phase
+                    not in {"missing_loader", "unsupported"}
+                    else "Loader 不可用"
+                )
+            bundle_label.setText(
+                f"打包插件与 Mod 脚本：{bundled_plugin}；{loader_text}"
+            )
+    method = selected_plugin_loading_method(self)
+    if loader_snapshot is not None and loader_snapshot.phase == "running":
+        method = "loader"
+        method_combo = getattr(
+            self, "_equipment_plugin_loading_method_combo", None
+        )
+        if method_combo is not None and method_combo.currentData() != "loader":
+            method_combo.blockSignals(True)
+            method_combo.setCurrentIndex(
+                max(0, method_combo.findData("loader"))
+            )
+            method_combo.blockSignals(False)
+    primary = getattr(self, "_equipment_plugin_primary_button", None)
+    stop = getattr(self, "_equipment_plugin_stop_button", None)
+    if primary is not None:
+        primary.setText(
+            "启动 Mod Loader" if method == "loader" else "部署代理 DLL"
+        )
+    if stop is not None:
+        stop.setText(
+            "停止 Mod Loader" if method == "loader" else "还原游戏目录"
+        )
+    if loader_snapshot is not None and loader_snapshot.phase == "running":
+        plugin_label.setText(
+            "Mod Loader 正在运行，等待或已经完成游戏注入；请通过诊断确认 IPC 管道。"
+        )
+    elif not executable.text().strip():
         plugin_label.setText("尚未选择 HTGame.exe")
     elif bundled_plugin is None:
         plugin_label.setText("应用根目录缺少打包的 dwmapi.dll，无法部署")
+    elif method == "loader" and (
+        loader_snapshot is None
+        or loader_snapshot.phase in {"missing_loader", "unsupported"}
+    ):
+        loader_detail = (
+            loader_snapshot.detail
+            if loader_snapshot is not None
+            else "无法读取 Loader 状态"
+        )
+        plugin_label.setText(
+            "Mod Loader 当前不可用：" + loader_detail
+        )
     else:
-        plugin_label.setText("已选择游戏目录；部署前仍需确认")
+        plugin_label.setText(
+            "已选择游戏目录；"
+            + (
+                "启动 Loader 前请先确认游戏目录没有代理 dwmapi.dll"
+                if method == "loader"
+                else "部署代理 DLL 前仍需确认"
+            )
+        )
+
 
 def _select_equipment_plugin_game_executable(self):
     selected, _ = QFileDialog.getOpenFileName(
@@ -97,6 +171,7 @@ def _select_equipment_plugin_game_executable(self):
     if selected:
         self._equipment_plugin_game_executable_edit.setText(selected)
         self._refresh_equipment_plugin_status()
+
 
 def _detect_equipment_plugin_game_executable(self):
     current_worker = getattr(self, "_equipment_plugin_detection_worker", None)
@@ -326,6 +401,15 @@ def _diagnose_dwmapi(self):
         button.setEnabled(False)
         button.setText("诊断中…")
     preferences = getattr(self, "_ui_preferences", {}) or {}
+    try:
+        runtime_snapshot = asdict(self._mod_plugin_loading_service.snapshot())
+        runtime_snapshot["loader_path"] = str(runtime_snapshot["loader_path"])
+        runtime_snapshot["payload_path"] = str(runtime_snapshot["payload_path"])
+    except (EquipmentPluginDeploymentError, ModPluginLoadingError) as exc:
+        runtime_snapshot = {
+            "phase": "probe_error",
+            "detail": str(exc),
+        }
     worker = WorkerThread(
         target=lambda: collect_dwmapi_diagnostics(
             game_executable_path=executable,
@@ -336,6 +420,8 @@ def _diagnose_dwmapi(self):
             recorded_workspace_path=str(
                 preferences.get("equipment_plugin_workspace") or ""
             ),
+            loading_method=selected_plugin_loading_method(self),
+            loader_snapshot=runtime_snapshot,
         ),
         parent=self,
     )
@@ -382,10 +468,12 @@ def _diagnose_dwmapi(self):
 
 def _show_dwmapi_diagnostic_report(self: Any, report: str) -> None:
     dialog = QDialog(self)
-    dialog.setWindowTitle("dwmapi 装备插件诊断结果")
+    dialog.setWindowTitle("Mods 插件加载诊断结果")
     dialog.resize(760, 540)
     layout = QVBoxLayout(dialog)
-    hint = QLabel("以下信息可直接复制后发送用于排查；本操作不会执行装备、复制或修改 DLL。")
+    hint = QLabel(
+        "以下信息可直接复制后发送用于排查；本操作不会执行装备、启动 Loader、复制或修改 DLL。"
+    )
     hint.setWordWrap(True)
     layout.addWidget(hint)
     content = QPlainTextEdit(dialog)
@@ -413,9 +501,10 @@ def _deploy_equipment_plugin(self):
         return
     executable = self._equipment_plugin_game_executable_edit.text().strip()
     try:
+        self._mod_plugin_loading_service.ensure_proxy_deployment_allowed()
         source = packaged_plugin_dll(self.app_context.paths.root)
         workspace_source = packaged_mod_workspace(self.app_context.paths.root)
-    except EquipmentPluginDeploymentError as exc:
+    except (EquipmentPluginDeploymentError, ModPluginLoadingError) as exc:
         QMessageBox.warning(self, "部署装备插件", str(exc))
         return
     if QMessageBox.question(
@@ -444,8 +533,8 @@ def _deploy_equipment_plugin(self):
             game_executable_path=executable,
             plugin_dll_path=source,
             application_root=self.app_context.paths.root,
-            writable_workspace_path=packaged_mod_workspace(
-                self.app_context.paths.root
+            writable_workspace_path=(
+                self.app_context.paths.config_dir / "mods-plugin"
             ),
             backup_directory=(
                 self.app_context.account.account_data_root
@@ -505,6 +594,7 @@ def _deploy_equipment_plugin(self):
             error=exc,
         )
         QMessageBox.warning(self, "部署装备插件", str(exc))
+
 
 def _restore_equipment_plugin(self):
     preferences = self._ui_preferences or {}
@@ -577,6 +667,7 @@ def _restore_equipment_plugin(self):
         )
         QMessageBox.warning(self, "还原装备插件", str(exc))
 
+
 def _focus_environment_configuration(self):
     self._go("settings")
     scroll = getattr(self, "_settings_scroll", None)
@@ -587,6 +678,20 @@ def _focus_environment_configuration(self):
 
 class EnvironmentControllerMixin:
     _refresh_equipment_plugin_status = _refresh_equipment_plugin_status
+    _equipment_plugin_loading_method_changed = (
+        equipment_plugin_loading_method_changed
+    )
+    _equipment_plugin_risk_acknowledgement_changed = (
+        equipment_plugin_risk_acknowledgement_changed
+    )
+    _activate_equipment_plugin_loading_method = (
+        activate_equipment_plugin_loading_method
+    )
+    _deactivate_equipment_plugin_loading_method = (
+        deactivate_equipment_plugin_loading_method
+    )
+    _start_equipment_mod_loader = start_equipment_mod_loader
+    _stop_equipment_mod_loader = stop_equipment_mod_loader
     _select_equipment_plugin_game_executable = _select_equipment_plugin_game_executable
     _detect_equipment_plugin_game_executable = _detect_equipment_plugin_game_executable
     _open_npcap_download = _open_npcap_download
