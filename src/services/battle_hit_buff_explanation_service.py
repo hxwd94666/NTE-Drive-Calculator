@@ -24,7 +24,7 @@ _SCOPE_LABELS = {
     "unknown": "作用对象待确认",
 }
 _STATUS_LABELS = {
-    "applied": "已应用",
+    "applied": "已投影",
     "not_applied": "未采用",
     "unresolved": "待确认/结构化",
 }
@@ -138,7 +138,7 @@ def _raw_modifier_lines(
             )
         else:
             value = "数值尚未解析"
-        usage = "进入本击公式" if property_id in applied_ids else "未进入本击公式"
+        usage = "已投影到属性值" if property_id in applied_ids else "未投影到属性值"
         lines.append(
             f"  - {label} {value}（{property_id}，{usage}，数值置信度"
             f" {modifier.value_confidence}）"
@@ -176,12 +176,14 @@ class BattleHitBuffExplanationService:
             f"命中时间：{_time(hit.relative_time_us)}    目标：{hit.target_name}",
             (
                 f"命中时推算 Buff：{len(decisions)} 个    "
-                f"已应用 {counts['applied']} / 未采用 {counts['not_applied']} / "
+                f"已投影 {counts['applied']} / 未采用 {counts['not_applied']} / "
                 f"待确认 {counts['unresolved']}"
             ),
             "口径：这是冻结配装、动作和逐击推算，不是 nte-core 运行时实测 Buff。",
+            "公式消费口径：已投影只表示进入逐击属性值；是否被当前伤害公式消费，"
+            "以伤害公式列出的乘区和来源项为准。",
             "",
-            "【进入本击公式的加成汇总】",
+            "【投影到逐击属性值的加成汇总】",
         ]
         if projection.modifiers:
             for modifier in projection.modifiers:
@@ -194,7 +196,7 @@ class BattleHitBuffExplanationService:
                     f"  来源：{sources}"
                 )
         else:
-            lines.append("- 没有 Buff 数值进入本击公式。")
+            lines.append("- 没有 Buff 数值投影到本击属性值。")
 
         decision_by_status = {
             status: tuple(row for row in decisions if row.status == status)

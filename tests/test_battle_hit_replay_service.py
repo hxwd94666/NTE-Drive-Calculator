@@ -221,6 +221,8 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             level_multiplier: float,
             static_multiplier: float,
             ring_strength: float,
+            state_multiplier: float = 1.0,
+            state_label: str = "",
         ):
             hit = BattleAnalysisHit(
                 event_id=f"{channel_id}:1",
@@ -261,6 +263,10 @@ class BattleHitReplayServiceTests(unittest.TestCase):
                 evidence_basis="官方 16 档",
                 formula_kind="reaction",
                 level_multiplier=level_multiplier,
+                state_multiplier=state_multiplier,
+                state_multiplier_label=state_label,
+                state_multiplier_basis="按目标逐击重放",
+                state_confidence="中",
             )
             analysis = SimpleNamespace(
                 target_condition=condition,
@@ -298,11 +304,37 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             static_multiplier=1.5,
             ring_strength=60.0,
         )
+        stacked_scorch = replay(
+            channel_id="reaction_scorch",
+            character_id=1003,
+            attribute="incantation",
+            observed=6204.0,
+            level_multiplier=2700.0,
+            static_multiplier=1.5,
+            ring_strength=60.0,
+            state_multiplier=3.0,
+            state_label="浊燃结算前层数",
+        )
 
         assert creation is not None and creation.selected_damage is not None
         assert scorch is not None and scorch.selected_damage is not None
+        assert stacked_scorch is not None
+        assert stacked_scorch.selected_damage is not None
         self.assertAlmostEqual(5198.854, creation.selected_damage, places=2)
         self.assertAlmostEqual(2067.937, scorch.selected_damage, places=2)
+        self.assertAlmostEqual(
+            scorch.selected_damage * 3.0,
+            stacked_scorch.selected_damage,
+            places=6,
+        )
+        self.assertEqual(
+            3.0,
+            next(
+                factor.value
+                for factor in stacked_scorch.factors
+                if factor.factor_id == "state_coefficient"
+            ),
+        )
         self.assertEqual("not_applicable", creation.critical_state)
         self.assertEqual("non_critical", scorch.critical_state)
         self.assertEqual(0.50, scorch.critical_rate)

@@ -477,6 +477,9 @@ refinement 所有者：22 个既有专用模型、16 个伤害优先补全模型
 到期，不同施加批次独立到期。导出的
 `Cau_LacrimosaBloodDam` 只暴露 `StackCount/MaxCoef/StackMult` 等图节点名称，未提供蓝图字节码和运行时
 默认值，所以逐层求和属于项目侧重放模型，不冒充原生 Calculation 函数体。
+残虹突破被动启用时，浊燃另按 `(半场, 目标)` 维护一组最多 3 层的共享状态；每跳先读取结算前层数，再由
+已识别的非浊燃 DOT 状态施加增加层数。新增或满层触发只刷新整组快照和 15 秒到期，不重排原始逐击周期；
+`Buff_Zankou_ListenBattle` 的专用 Calculation 仍只绑定蚀心和鸩火，不扩展到浊燃。
 边际以真实逐击为锚，在冻结与编辑后面板上同时加入该击的动态 Buff，只改变属性边际敏感度，不把 Buff 再乘到已观测伤害上。
 `ScalableFloat.Value` 只是曲线系数；持续时间和数值必须先解析曲线行或当前精炼参数，曲线未解析
 时不回退成错误的 1 秒或 100%。角色技能只消费 `character_combat_ability_binding` 中正式 GA 事件直接绑定、

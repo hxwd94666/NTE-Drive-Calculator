@@ -218,7 +218,7 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
 
         self.assertIn("已匹配直伤适配器", text)
         self.assertNotIn("当前类型尚无完整反事实适配器", text)
-        self.assertIn("可应用（公式输入不完整）", text)
+        self.assertIn("可投影（公式输入不完整）", text)
 
     def test_error_keeps_negative_direction_for_underestimate(self) -> None:
         hit = BattleAnalysisHit(
@@ -308,7 +308,7 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
             ),
         )
 
-        self.assertIn("【本击 Buff：已应用】", text)
+        self.assertIn("【本击 Buff：已投影（是否被公式消费见乘区）】", text)
         self.assertIn("【本击 Buff：未采用】", text)
         self.assertIn("【本击 Buff：待确认/结构化】", text)
         self.assertIn("ID：source:applied", text)

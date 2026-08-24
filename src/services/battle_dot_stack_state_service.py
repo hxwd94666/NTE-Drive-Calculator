@@ -1,4 +1,4 @@
-# 按逐击与扣时停时钟重放噩梦、蚀心和鸩火的目标层数。
+# 按逐击与扣时停时钟重放噩梦、蚀心、鸩火和浊燃的目标层数。
 """Forward-only target stack reconstruction for direct-formula DOT hits."""
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ _NIGHTMARE_IDS = frozenset({
 })
 _EROSION_ID = "ge_player_zankou_dotdamage"
 _VENOM_ID = "ge_player_zankou_dotultradamage"
+_SCORCH_ID = "buff_reaction_5_new_1036"
 _LACRIMOSA_GLOBAL_VALUE_TABLE = (
     "/Game/DataTable/Skill/GlobalCharacterData/DT_GlobalValueLacrimosaData"
 )
@@ -126,6 +127,51 @@ class _Stack:
         self.expiry_times_active_us.clear()
 
 
+@dataclass(slots=True)
+class _ScorchState:
+    """One target's shared scorch snapshot; periodic hits never add layers."""
+
+    stack_limit: int
+    count: int = 0
+    expires_at_active_us: int | None = None
+    duration_us: int = 15_000_000
+    pending_applications: list[tuple[int, int]] = field(default_factory=list)
+
+    def advance(self, active_us: int) -> None:
+        self.pending_applications = [
+            row for row in self.pending_applications
+            if active_us - row[0] <= 1_000_000
+        ]
+        if (
+            self.expires_at_active_us is not None
+            and active_us >= self.expires_at_active_us
+        ):
+            self.count = 0
+            self.expires_at_active_us = None
+
+    def observe_settlement(self, active_us: int) -> None:
+        """A recorded tick proves at least one pre-settlement layer exists."""
+
+        self.advance(active_us)
+        if self.count == 0:
+            recent_applications = sum(amount for _, amount in self.pending_applications)
+            self.count = min(self.stack_limit, 1 + recent_applications)
+            self.expires_at_active_us = active_us + self.duration_us
+        self.pending_applications.clear()
+
+    def apply_dot_layers(self, amount: int, active_us: int) -> None:
+        """Refresh the shared snapshot without moving the recorded next tick."""
+
+        self.advance(active_us)
+        if amount <= 0:
+            return
+        if self.count == 0:
+            self.pending_applications.append((active_us, amount))
+            return
+        self.count = min(self.stack_limit, self.count + amount)
+        self.expires_at_active_us = active_us + self.duration_us
+
+
 def _builds(build: Mapping[str, object] | None) -> dict[int, Mapping[str, object]]:
     return {
         int(row["character_id"]): row
@@ -156,6 +202,17 @@ def _nightmare_early_settlement_enabled(
         else ()
     ) or ()
     return "Effect3" in awakenings
+
+
+def _zankou_scorch_stack_enabled(build: Mapping[str, object] | None) -> bool:
+    character = _builds(build).get(1036, {})
+    profile = character.get("profile") if isinstance(character, Mapping) else {}
+    stage = max(
+        int(character.get("breakthrough_stage") or 0),
+        int(profile.get("breakthrough_stage") or 0)
+        if isinstance(profile, Mapping) else 0,
+    )
+    return stage >= 2
 
 
 def _active_us(analysis: BattleAnalysisSnapshot, raw_us: int) -> int:
@@ -269,6 +326,8 @@ def reconstruct_dot_stack_states(
     nightmare_by_target: dict[tuple[str, str], _Stack] = {}
     erosion_by_target: dict[tuple[str, str], _Stack] = {}
     venom_by_target: dict[tuple[str, str], _Stack] = {}
+    scorch_stack_enabled = _zankou_scorch_stack_enabled(build)
+    scorch_by_target: dict[tuple[str, str], _ScorchState] = {}
     venom_markers = _burst_final_markers(
         analysis.hits,
         character_id=1036,
@@ -304,9 +363,14 @@ def reconstruct_dot_stack_states(
             hit,
             duration_us=30_000_000,
         )
+        scorch = scorch_by_target.setdefault(
+            target_key,
+            _ScorchState(stack_limit=3 if scorch_stack_enabled else 1),
+        )
         nightmare.advance(now)
         erosion.advance(now)
         venom.advance(now)
+        scorch.advance(now)
         effect = hit.gameplay_effect_id.casefold()
         is_early_settlement = False
         if effect in _NIGHTMARE_IDS:
@@ -321,10 +385,15 @@ def reconstruct_dot_stack_states(
         elif effect == _VENOM_ID:
             state = venom
             label = "鸩火当前层数"
+        elif effect == _SCORCH_ID:
+            scorch.observe_settlement(now)
+            state = scorch
+            label = "浊燃结算前层数"
         else:
             state = None
             label = ""
         if state is not None:
+            is_scorch = effect == _SCORCH_ID
             results[hit.event_id] = BattleDotStackState(
                 event_id=hit.event_id,
                 coefficient=(0 if is_early_settlement else max(1, state.count)),
@@ -332,7 +401,11 @@ def reconstruct_dot_stack_states(
                 confidence=(
                     "未解析"
                     if is_early_settlement
-                    else ("中" if state.count else "低")
+                    else (
+                        "中"
+                        if is_scorch and scorch_stack_enabled and state.count > 1
+                        else "低" if is_scorch else ("中" if state.count else "低")
+                    )
                 ),
                 evidence_basis=(
                     (
@@ -340,6 +413,16 @@ def reconstruct_dot_stack_states(
                         "剩余结算次数，本击不按普通噩梦跳伤估算"
                     )
                     if is_early_settlement
+                    else (
+                        "按半场与目标隔离重放浊燃共享状态；本跳先读取结算前层数；"
+                        "残虹突破被动启用时，每次已识别的非浊燃 DOT 状态施加按层数"
+                        "补充浊燃，最多 3 层；新增或满层触发只刷新整组快照与 15 秒"
+                        "到期，不移动原轴下一跳；首次可见跳伤回看前 1 秒已识别施加；"
+                        "浊燃自身跳伤不递归加层"
+                        if is_scorch and scorch_stack_enabled
+                        else "逐击仅证明本目标当前至少存在 1 层浊燃"
+                    )
+                    if is_scorch
                     else (
                         "按同一目标逐击正向重放命中后加层；最大 10 层；"
                         "每层独立按扣时停时钟计算到期时间；"
@@ -365,7 +448,17 @@ def reconstruct_dot_stack_states(
             "ge_player_lacrimosa_b_melee8_damage",
         }:
             settlement_pending_by_target[target_key] = now + 500_000
-        erosion.add(_is_erosion_application(hit), now)
-        if hit.event_id in venom_markers:
-            venom.add(5, now)
+        nightmare_application = _is_nightmare_application(hit, rules)
+        if hit.event_id in nightmare_q_markers:
+            nightmare_application += rules.nightmare_ultimate_application
+        erosion_application = _is_erosion_application(hit)
+        venom_application = 5 if hit.event_id in venom_markers else 0
+        erosion.add(erosion_application, now)
+        if venom_application:
+            venom.add(venom_application, now)
+        if scorch_stack_enabled and effect != _SCORCH_ID:
+            scorch.apply_dot_layers(
+                nightmare_application + erosion_application + venom_application,
+                now,
+            )
     return results

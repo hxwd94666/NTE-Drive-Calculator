@@ -397,9 +397,15 @@ class BattleSpecialHitReplayService:
             if channel_id == "reaction_scorch"
             else 1.0
         )
+        stack_multiplier = (
+            max(1.0, evidence.state_multiplier)
+            if channel_id == "reaction_scorch"
+            else 1.0
+        )
         non_critical = (
             level_multiplier
             * reaction_multiplier
+            * stack_multiplier
             * ring_multiplier
             * defense
             * resistance
@@ -432,8 +438,24 @@ class BattleSpecialHitReplayService:
         missing = []
         if unresolved:
             missing.append(f"{unresolved} 个{formula_label}相关 Buff 仍待结构化")
+        if channel_id == "reaction_scorch" and evidence.state_multiplier_label:
+            missing.append(
+                f"浊燃层数由逐击正向重放（置信度{evidence.state_confidence}），"
+                "待运行时目标 Buff 层数覆盖"
+            )
         condition = analysis.target_condition
         assert condition is not None
+        stack_factors = (
+            ()
+            if channel_id != "reaction_scorch" or not evidence.state_multiplier_label
+            else (_factor(
+                "state_coefficient",
+                evidence.state_multiplier_label,
+                stack_multiplier,
+                evidence.state_multiplier_basis,
+                "min(结算前浊燃层数, 3) × 单层伤害",
+            ),)
+        )
         factors = (
             _factor(
                 "skill",
@@ -453,6 +475,7 @@ class BattleSpecialHitReplayService:
                 ),
                 "静态倍率" if channel_id == "reaction_scorch" else "固定为 1",
             ),
+            *stack_factors,
             _factor(
                 "scaling",
                 "环合强度区",

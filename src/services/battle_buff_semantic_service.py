@@ -66,7 +66,7 @@ _BUFF_DISPLAY_NAMES = {
     "buff_equipment_cosmos2_4_effect": "「失落光芒」",
     "buff_equipment_incantation_4_1": "「真红：双生蝶」",
     "buff_equipment_getefficiency2_4_1": "「音速蓝刺猬」",
-    "buff_zankou_listenbattle": "残虹：持续伤害层数倍率",
+    "buff_zankou_listenbattle": "残虹：蚀心/鸩火层数倍率监听",
     "buff_lacrimosa_meleetotal": "「噩梦」",
     "buff_lacrimosa004_level6": "一觉：噩梦层数倍率",
     "buff_lacrimosa004_level5_cure": "五觉：噩梦生命上限结算",

@@ -100,10 +100,10 @@ class BattleHitBuffDetailTests(unittest.TestCase):
             ),
         )
 
-        self.assertIn("已应用 1 / 未采用 0 / 待确认 1", text)
+        self.assertIn("已投影 1 / 未采用 0 / 待确认 1", text)
         self.assertIn("通用伤害提升 +15%", text)
         self.assertIn("DamageUpGeneralBase", text)
-        self.assertIn("【已应用 Buff】", text)
+        self.assertIn("【已投影 Buff】", text)
         self.assertIn("【待确认/结构化 Buff】", text)
         self.assertIn("ID：source:damage-up", text)
         self.assertIn("资产：/Game/Test/damage-up", text)

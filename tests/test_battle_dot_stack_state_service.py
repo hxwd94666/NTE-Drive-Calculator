@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 
 from src.domain.battle_report import BattleAnalysisHit
@@ -78,6 +79,100 @@ def _nightmare_evade_hit(event_id: str, time_us: int) -> BattleAnalysisHit:
 
 
 class BattleDotStackStateServiceTests(unittest.TestCase):
+    def test_first_scorch_tick_recovers_recent_pre_tick_dot_applications(self) -> None:
+        first_application = _hit(
+            "nightmare-1",
+            500_000,
+            "GE_Player_Lacrimosa_Pan_Damage",
+            1004,
+        )
+        second_application = _hit(
+            "nightmare-2",
+            900_000,
+            "GE_Player_Lacrimosa_Pan_Damage",
+            1004,
+        )
+        first_tick = _hit(
+            "scorch-first",
+            1_000_000,
+            "Buff_Reaction_5_new_1036",
+            1036,
+        )
+        analysis = SimpleNamespace(
+            hits=(first_application, second_application, first_tick),
+            time_stop_intervals=(),
+        )
+        build = {
+            "characters": [{
+                "character_id": 1036,
+                "breakthrough_stage": 2,
+                "profile": {},
+            }],
+        }
+
+        state = reconstruct_dot_stack_states(
+            analysis,
+            build,
+            rules=OFFICIAL_RULES,
+        )["scorch-first"]
+
+        self.assertEqual(3, state.coefficient)
+
+    def test_scorch_uses_pre_hit_shared_stack_per_half_and_target(self) -> None:
+        first = replace(
+            _hit("scorch-first", 1_000_000, "Buff_Reaction_5_new_1036", 1003),
+            scope_half="upper",
+            target_id="a",
+        )
+        add_to_a = replace(
+            _hit("erosion-a", 2_000_000, "GE_Player_Zankou_Skill1_1_Damage", 1036),
+            scope_half="upper",
+            target_id="a",
+        )
+        refresh_a = replace(
+            _hit("erosion-refresh", 16_500_000, "GE_Player_Zankou_Skill1_1_Damage", 1036),
+            scope_half="upper",
+            target_id="a",
+        )
+        stacked = replace(
+            _hit("scorch-stacked", 18_000_000, "Buff_Reaction_5_new_1036", 1003),
+            scope_half="upper",
+            target_id="a",
+        )
+        other_target = replace(
+            _hit("scorch-other", 18_100_000, "Buff_Reaction_5_new_1036", 1003),
+            scope_half="upper",
+            target_id="b",
+        )
+        other_half = replace(
+            _hit("scorch-lower", 18_200_000, "Buff_Reaction_5_new_1036", 1003),
+            scope_half="lower",
+            target_id="a",
+        )
+        analysis = SimpleNamespace(
+            hits=(first, add_to_a, refresh_a, stacked, other_target, other_half),
+            time_stop_intervals=(),
+        )
+        build = {
+            "characters": [{
+                "character_id": 1036,
+                "breakthrough_stage": 2,
+                "profile": {},
+            }],
+        }
+
+        states = reconstruct_dot_stack_states(
+            analysis,
+            build,
+            rules=OFFICIAL_RULES,
+        )
+
+        self.assertEqual(1, states["scorch-first"].coefficient)
+        self.assertEqual(3, states["scorch-stacked"].coefficient)
+        self.assertEqual(1, states["scorch-other"].coefficient)
+        self.assertEqual(1, states["scorch-lower"].coefficient)
+        self.assertIn("不移动原轴下一跳", states["scorch-stacked"].evidence_basis)
+
     def test_zankou_stacks_are_isolated_by_half_and_target(self) -> None:
         upper_a = _hit(
             "upper-a",

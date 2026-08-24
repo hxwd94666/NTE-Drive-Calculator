@@ -38,6 +38,7 @@ class BattleBuffSemanticServiceTests(unittest.TestCase):
             "Buff_Fork_BlackBook_Lv5": "「黑之书」",
             "Buff_BlackBook_CantUse": "「黑之书」：锁链封锁",
             "Buff_Lacrimosa_MeleeTotal": "「噩梦」",
+            "Buff_Zankou_ListenBattle": "残虹：蚀心/鸩火层数倍率监听",
             "Buff_Fadia_NoDieShareDamage": "观众目击的祭献：分摊保护",
             "Buff_Fadia_ShareOutTeammatesDamage": "观众目击的祭献：伤害分摊",
             "Buff_DaffodillUnbalUp": "达芙蒂尔：倾陷伤害提升",

@@ -43,6 +43,23 @@ _REQUIRED_FORMULA_FACTOR_IDS = frozenset({
     "vulnerability",
     "independent",
 })
+_REACTION_FORMULA_FACTOR_IDS = (
+    "skill",
+    "reaction_multiplier",
+    "state_coefficient",
+    "scaling",
+    "defense",
+    "resistance",
+    "vulnerability",
+)
+_REQUIRED_REACTION_FACTOR_IDS = frozenset({
+    "skill",
+    "reaction_multiplier",
+    "scaling",
+    "defense",
+    "resistance",
+    "vulnerability",
+})
 _CRIT_STATES = {
     "critical": "是",
     "non_critical": "否",
@@ -330,6 +347,11 @@ class BattleHitReplayExplanationService:
             for factor_id in _FORMULA_FACTOR_IDS
             if factor_id in factors
         ]
+        reaction_formula_factors = [
+            factors[factor_id]
+            for factor_id in _REACTION_FORMULA_FACTOR_IDS
+            if factor_id in factors
+        ]
         lines.append(
             "【候选配置伤害公式】"
             if counterfactual is not None
@@ -350,6 +372,30 @@ class BattleHitReplayExplanationService:
                 f"  = {substituted}",
                 f"  = {sum(factor.value for factor in topple_cells):,.2f}",
             ))
+        elif _REQUIRED_REACTION_FACTOR_IDS.issubset(factors):
+            expression = " × ".join(
+                factor.label for factor in reaction_formula_factors
+            )
+            substituted = " × ".join(
+                _factor_value(factor) for factor in reaction_formula_factors
+            )
+            noncrit = reduce(
+                mul,
+                (factor.value for factor in reaction_formula_factors),
+                1.0,
+            )
+            lines.extend((
+                f"伤害（未暴击） = {expression}",
+                f"  = {substituted}",
+                f"  = {noncrit:,.2f}",
+            ))
+            critical = factors.get("critical")
+            if critical is not None:
+                lines.extend((
+                    f"伤害（暴击） = 伤害（未暴击） × {critical.label}",
+                    f"  = {noncrit:,.2f} × {_factor_value(critical)}",
+                    f"  = {noncrit * critical.value:,.2f}",
+                ))
         elif _REQUIRED_FORMULA_FACTOR_IDS.issubset(factors):
             expression = " × ".join(factor.label for factor in formula_factors)
             substituted = " × ".join(_factor_value(factor) for factor in formula_factors)
@@ -395,12 +441,12 @@ class BattleHitReplayExplanationService:
             row.interval_id: row for row in projection.decisions
         }
         lines.append(
-            "【本击 Buff：已应用】"
+            "【本击 Buff：已投影（是否被公式消费见乘区）】"
             if not any(
                 "单目标防御与抗性" in row
                 for row in replay.missing_evidence
             )
-            else "【本击 Buff：可应用（公式输入不完整）】"
+            else "【本击 Buff：可投影（公式输入不完整）】"
         )
         if active_buffs:
             applied = tuple(
