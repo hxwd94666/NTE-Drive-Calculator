@@ -68,3 +68,6 @@ nte_capture*.json
 *.log
 *.tmp
 /.codex/
+
+# Local battle-damage audit ledgers (may contain account-specific evidence)
+/docs/local-audits/

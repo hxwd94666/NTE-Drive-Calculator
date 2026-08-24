@@ -8,85 +8,6 @@ from typing import Any
 
 from .protocols import StaticDataDaoMixinHost
 
-SCHEMA_VERSION = 18
-STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
-_DEFAULT_LOGICAL_CHARACTER_IDS = {
-    "protagonist": 1051,
-}
-_ROLE_TEMPLATE_CLASSIFICATIONS = {
-    "available_character",
-    "scheduled_character",
-    "playable",
-}
-
-SUMMARY_TABLES = (
-    "source_file",
-    "source_row",
-    "character",
-    "character_annotation",
-    "character_awaken_effect",
-    "character_awaken_skill_level_bonus",
-    "character_likeability_bonus",
-    "character_likeability_bonus_property",
-    "character_panel_growth",
-    "character_skill",
-    "character_skill_level",
-    "skill_damage",
-    "skill_damage_modifier",
-    "combat_level_curve",
-    "combat_level_curve_point",
-    "reaction_definition",
-    "combat_effect_constant",
-    "enemy_combat_profile",
-    "enemy_element_resistance",
-    "monster_instance_profile",
-    "monster_instance_profile_variant",
-    "abyss_level",
-    "abyss_level_monster_spawn",
-    "abyss_monster_pool_entry",
-    "equipment_attribute",
-    "equipment_shape",
-    "equipment_suit",
-    "equipment_suit_effect",
-    "equipment_item",
-    "equipment_plan",
-    "character_weight_recommendation",
-    "character_weight_recommendation_property",
-    "character_graduation_template",
-    "application_setting_default",
-    "character_shape_bonus",
-    "character_shape_bonus_property",
-    "logical_character_shape_bonus",
-    "logical_character_shape_bonus_property",
-    "fork_type",
-    "fork_item",
-    "fork_refinement_parameter_value",
-    "character_cultivation_guide",
-    "character_cultivation_fork_recommendation",
-    "character_cultivation_attribute_recommendation",
-    "character_cultivation_stage",
-    "character_cultivation_stage_skill",
-    "gameplay_ability_catalog",
-    "gameplay_ability_description",
-    "gameplay_ability_level_hint",
-    "gameplay_effect_catalog",
-    "monster_catalog",
-    "monster_identifier_alias",
-    "equipment_modify_pack",
-    "equipment_modify_value",
-    "equipment_buff_curve",
-    "equipment_buff_curve_point",
-    "combat_effect_definition",
-)
-
-
-
-
-
-
-
-
-
 class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
     def list_forks(self) -> list[dict[str, Any]]:
         rows = self._rows(
@@ -397,8 +318,39 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
 
         return self._rows(
             """
-            SELECT damage_id, ability_id
+            SELECT damage_id, ability_id, damage_type
             FROM skill_damage ORDER BY damage_id
+            """
+        )
+
+    def list_skill_level_ability_candidates(
+        self,
+        character_id: int,
+        damage_id: str,
+    ) -> list[str]:
+        """Return player-levelled abilities whose official hint owns one damage GE."""
+
+        rows = self._rows(
+            """
+            SELECT DISTINCT hint.ability_id
+            FROM character_cultivation_stage_skill AS stage_skill
+            JOIN gameplay_ability_level_hint AS hint
+              ON hint.ability_id = stage_skill.ability_id
+            JOIN json_each(hint.damage_effect_ids_json) AS damage
+            WHERE stage_skill.character_id = ? AND damage.value = ?
+            ORDER BY hint.ability_id
+            """,
+            (int(character_id), str(damage_id)),
+        )
+        return [str(row["ability_id"]) for row in rows]
+
+    def list_gameplay_effects(self) -> list[dict[str, Any]]:
+        """Return the stable GE index-to-ID catalog for evidence fallback."""
+
+        return self._rows(
+            """
+            SELECT gameplay_effect_index, gameplay_effect_id, class_path
+            FROM gameplay_effect_catalog ORDER BY gameplay_effect_index
             """
         )
 
@@ -651,7 +603,8 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             SELECT profile_set, pack_id, defense_base, defense_up, defense_add,
                    defense_ignore, topple_limit, topple_accrue_efficiency,
                    topple_anti_accrue_efficiency, topple_bonus,
-                   topple_reduce_natural, topple_reduce_reset, source_row_id
+                   topple_reduce_natural, topple_reduce_reset, source_row_id,
+                   health_base, health_up, health_add
             FROM enemy_combat_profile WHERE profile_set = ? AND pack_id = ?
             """,
             (profile_set, str(pack_id).strip()),

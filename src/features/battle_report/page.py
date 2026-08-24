@@ -1,96 +1,47 @@
-# 展示 nte-core 实时聚合伤害数据和历史战报。
-"""Battle report page displaying live nte-core aggregate damage data."""
+# 展示精简战报主页面，并在页内切换固定轴边际分析。
+"""Battle report page with a compact report view and marginal subpage."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QPushButton,
     QScrollArea,
-    QTableWidget,
-    QTableWidgetItem,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.app.theme import themed_style
-from src.domain.battle_report import (
-    BattleCaptureState,
-    BattleCharacterSummary,
-    BattleSkillSummary,
-    BattleSummary,
-    active_abyss_half,
+from src.app.dialogs import show_help
+from src.domain.battle_report import BattleCaptureState, BattleSummary
+from src.features.battle_report.analysis_view import BattleLongAnalysisView
+from src.features.battle_report.analysis_progress_bar import (
+    BattleAnalysisProgressBar,
 )
-from src.features.battle_report.composition_view import BattleDamageCompositionPanel
-from src.services.battle_damage_composition_service import (
-    BattleDamageCompositionService,
-)
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.features.battle_report.marginal_page import BattleMarginalPage
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 
 
-def _section(title: str, description: str = "") -> tuple[QFrame, QVBoxLayout]:
+def _section(title: str) -> tuple[QFrame, QVBoxLayout]:
     card = QFrame()
     card.setObjectName("card")
     layout = QVBoxLayout(card)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(10)
-    title_label = QLabel(title)
-    title_label.setObjectName("cardTitle")
-    layout.addWidget(title_label)
-    if description:
-        subtitle = QLabel(description)
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-        layout.addWidget(subtitle)
+    label = QLabel(title)
+    label.setObjectName("cardTitle")
+    layout.addWidget(label)
     return card, layout
 
 
 def _format_number(value: float) -> str:
     return f"{value:,.0f}"
-
-
-class ProportionalTableWidget(QTableWidget):
-    """Keep table columns at stable percentages of the visible table width."""
-
-    def __init__(
-        self,
-        column_ratios: tuple[float, ...],
-        parent: QWidget | None = None,
-    ) -> None:
-        if not column_ratios or any(ratio <= 0 for ratio in column_ratios):
-            raise ValueError("column ratios must contain positive values")
-        total = sum(column_ratios)
-        self._column_ratios = tuple(ratio / total for ratio in column_ratios)
-        super().__init__(0, len(column_ratios), parent)
-        self.horizontalHeader().setSectionsMovable(False)
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        super().resizeEvent(event)
-        self.refresh_proportional_columns()
-
-    def refresh_proportional_columns(self) -> None:
-        available_width = self.viewport().width()
-        if available_width <= 0:
-            return
-        consumed = 0
-        last_column = len(self._column_ratios) - 1
-        for column, ratio in enumerate(self._column_ratios):
-            width = (
-                available_width - consumed
-                if column == last_column
-                else round(available_width * ratio)
-            )
-            self.setColumnWidth(column, max(1, width))
-            consumed += width
 
 
 class BattleReportPage(QWidget):
@@ -101,183 +52,173 @@ class BattleReportPage(QWidget):
     detail_scope_changed = Signal(str)
     save_result_requested = Signal()
     history_requested = Signal()
+    export_requested = Signal()
+    analysis_range_requested = Signal(int, int)
+    analysis_range_reset_requested = Signal()
+    analysis_character_changed = Signal(int)
+    target_condition_save_requested = Signal(object)
+    build_edit_requested = Signal()
+    build_edit_activation_requested = Signal(bool)
+    build_role_page_import_requested = Signal()
+    build_sync_role_page_requested = Signal()
+    marginal_requested = Signal()
+    marginal_recalculate_requested = Signal(object)
+    analysis_details_requested = Signal(str, object)
 
     def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._asset_catalog = GameUiAssetCatalog(game_ui_asset_root)
         self._latest_summary: BattleSummary | None = None
         self._detail_scope = "current"
-        self._build()
+        self._stack = QStackedWidget(self)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._stack, 1)
+        self.analysis_progress = BattleAnalysisProgressBar(self)
+        layout.addWidget(self.analysis_progress)
+        self._build_report(game_ui_asset_root)
+        self._build_marginal(game_ui_asset_root)
 
-    def _build(self) -> None:
+    def _build_report(self, game_ui_asset_root) -> None:
         content = QWidget()
-        scroll = QScrollArea(self)
+        scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(content)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
-
+        self._stack.addWidget(scroll)
         root = QVBoxLayout(content)
         root.setContentsMargins(22, 18, 22, 22)
         root.setSpacing(16)
 
-        control_card, control_layout = _section(
-            "战报采集",
-            "使用 nte-core 实时统计队伍与技能伤害。采集期间会暂停背包同步，结束后自动恢复。",
-        )
+        control_card, control_layout = _section("战报采集工作台")
         status_row = QHBoxLayout()
         self.status_badge = QLabel()
         self.status_badge.setAlignment(Qt.AlignCenter)
         set_status_badge(self.status_badge, "未开始", "neutral")
         self.status_detail = QLabel("尚未开始战报采集。")
-        self.status_detail.setWordWrap(True)
         self.status_detail.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         status_row.addWidget(self.status_badge)
         status_row.addWidget(self.status_detail, 1)
+        help_text = (
+            "使用 nte-core 采集战斗；采集期间暂停背包同步，结束后自动恢复。"
+            "悬浮窗只在当前采集会话中显示。"
+        )
+        help_button = QPushButton("?")
+        help_button.setObjectName("btnHelp")
+        help_button.setToolTip(help_text)
+        help_button.clicked.connect(
+            lambda _checked=False, button=help_button: show_help(
+                button,
+                "战报采集工作台",
+                help_text,
+            )
+        )
+        self.export_button = QPushButton("导出战报")
+        self.export_button.setObjectName("btnAction")
+        self.export_button.clicked.connect(self.export_requested)
+        status_row.addWidget(self.export_button)
+        status_row.addWidget(help_button)
         control_layout.addLayout(status_row)
-        action_row = QHBoxLayout()
+        actions = QHBoxLayout()
         self.start_button = QPushButton("开始采集")
         self.start_button.setObjectName("btnPrimary")
         self.start_button.clicked.connect(self.start_requested)
+        actions.addWidget(self.start_button)
         self.stop_button = QPushButton("结束并生成战报")
         self.stop_button.setObjectName("btnDanger")
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop_requested)
+        actions.addWidget(self.stop_button)
         self.save_result_button = QPushButton("保存伤害结果")
         self.save_result_button.setEnabled(False)
         self.save_result_button.clicked.connect(self.save_result_requested)
+        actions.addWidget(self.save_result_button)
         self.history_button = QPushButton("读取历史战报")
         self.history_button.clicked.connect(self.history_requested)
+        actions.addWidget(self.history_button)
+        actions.addSpacing(12)
         self.overlay_toggle = QCheckBox("显示实时悬浮窗")
         self.overlay_toggle.setChecked(True)
         self.overlay_toggle.toggled.connect(self.overlay_visibility_changed)
+        actions.addWidget(self.overlay_toggle)
         self.passthrough_toggle = QCheckBox("鼠标穿透")
         self.passthrough_toggle.setChecked(True)
-        self.passthrough_toggle.setToolTip("关闭后可以拖动悬浮窗，开启后鼠标操作会落到游戏窗口。")
+        self.passthrough_toggle.setToolTip("关闭后可拖动悬浮窗；开启后鼠标操作落到游戏。")
         self.passthrough_toggle.toggled.connect(self.overlay_passthrough_changed)
-        action_row.addWidget(self.start_button)
-        action_row.addWidget(self.stop_button)
-        action_row.addWidget(self.save_result_button)
-        action_row.addWidget(self.history_button)
-        action_row.addSpacing(12)
-        action_row.addWidget(self.overlay_toggle)
-        action_row.addWidget(self.passthrough_toggle)
-        action_row.addStretch()
-        control_layout.addLayout(action_row)
+        actions.addWidget(self.passthrough_toggle)
+        actions.addStretch()
+        control_layout.addLayout(actions)
         root.addWidget(control_card)
 
         metrics = QGridLayout()
-        metrics.setHorizontalSpacing(12)
-        metrics.setVerticalSpacing(12)
         definitions = (
             ("dps", "队伍 DPS", "扣除停表时间"),
-            ("damage", "总伤害", "当前统计范围"),
-            ("duration", "战斗时长", "秒"),
+            ("damage", "总伤害", "完整战报"),
+            ("duration", "战斗时长", "扣除停表（括号为真实时长）"),
             ("taken", "承受伤害", "全队"),
         )
         self.metric_labels: dict[str, QLabel] = {}
         for column, (key, title, subtitle) in enumerate(definitions):
-            card, value_label, _ = metric_card(title, "—", subtitle)
-            self.metric_labels[key] = value_label
+            card, value, _sub = metric_card(title, "—", subtitle)
+            self.metric_labels[key] = value
             metrics.addWidget(card, 0, column)
         root.addLayout(metrics)
 
-        character_card, character_layout = _section(
-            "角色伤害贡献",
-            "范围切换只影响角色贡献和技能伤害明细；顶部汇总始终显示整场统计。",
+        self.long_analysis_view = BattleLongAnalysisView(
+            game_ui_asset_root=game_ui_asset_root
         )
-        scope_row = QHBoxLayout()
-        scope_title = QLabel("明细范围")
-        scope_title.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-        scope_row.addWidget(scope_title)
-        self.scope_button_group = QButtonGroup(self)
-        self.scope_button_group.setExclusive(True)
-        self.scope_buttons: dict[str, QPushButton] = {}
-        scope_button_style = themed_style(
-            "QPushButton{padding:4px 13px;font-size:11px;}"
-            "QPushButton:checked{background:#1f6feb55;color:#58a6ff;"
-            "border-color:#1f6feb;font-weight:600;}"
+        self.long_analysis_view.range_requested.connect(self.analysis_range_requested)
+        self.long_analysis_view.range_reset_requested.connect(
+            self.analysis_range_reset_requested
         )
-        for mode, label in (
-            ("current", "跟随当前"),
-            ("first", "上半"),
-            ("second", "下半"),
-        ):
-            button = QPushButton(label)
-            button.setCheckable(True)
-            button.setStyleSheet(scope_button_style)
-            button.clicked.connect(
-                lambda _checked=False, selected_mode=mode: self._select_detail_scope(
-                    selected_mode
-                )
-            )
-            self.scope_button_group.addButton(button)
-            self.scope_buttons[mode] = button
-            scope_row.addWidget(button)
-        self.scope_buttons["current"].setChecked(True)
-        self.scope_buttons["first"].setEnabled(False)
-        self.scope_buttons["second"].setEnabled(False)
-        scope_row.addStretch()
-        character_layout.addLayout(scope_row)
-        self.scope_label = QLabel("当前范围：等待战斗数据")
-        self.scope_label.setStyleSheet(
-            themed_style("color:#58a6ff;font-size:12px;font-weight:600")
+        self.long_analysis_view.character_selected.connect(
+            self.analysis_character_changed
         )
-        character_layout.addWidget(self.scope_label)
-        self.character_table = ProportionalTableWidget(
-            (0.30, 0.10, 0.16, 0.15, 0.13, 0.16)
+        self.long_analysis_view.detail_scope_changed.connect(
+            self._select_detail_scope
         )
-        self.character_table.setHorizontalHeaderLabels(
-            ("角色", "命中", "伤害", "DPS", "队伍占比", "承伤")
+        self.long_analysis_view.marginal_requested.connect(
+            self.marginal_requested
         )
-        self.character_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.character_table.setSelectionMode(QTableWidget.NoSelection)
-        self.character_table.verticalHeader().setVisible(False)
-        header = self.character_table.horizontalHeader()
-        header.setMinimumSectionSize(1)
-        for column in range(self.character_table.columnCount()):
-            header.setSectionResizeMode(column, QHeaderView.Fixed)
-        self.character_table.setMinimumHeight(210)
-        character_layout.addWidget(self.character_table)
-        root.addWidget(character_card)
-
-        skill_card, skill_layout = _section(
-            "技能伤害明细",
-            "按当前统计范围的累计伤害排序；技能分类来自 nte-core。",
+        self.long_analysis_view.target_vital_panel.condition_save_requested.connect(
+            self.target_condition_save_requested
         )
-        self.skill_table = ProportionalTableWidget(
-            (0.16, 0.34, 0.16, 0.09, 0.15, 0.10)
+        self.long_analysis_view.details_requested.connect(
+            self.analysis_details_requested
         )
-        self.skill_table.setHorizontalHeaderLabels(
-            ("角色", "技能", "分类", "命中", "伤害", "占比")
+        self.long_analysis_view.build_edit_control.edit_requested.connect(
+            self.build_edit_requested
         )
-        self.skill_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.skill_table.setSelectionMode(QTableWidget.NoSelection)
-        self.skill_table.verticalHeader().setVisible(False)
-        skill_header = self.skill_table.horizontalHeader()
-        skill_header.setMinimumSectionSize(1)
-        for column in range(self.skill_table.columnCount()):
-            skill_header.setSectionResizeMode(column, QHeaderView.Fixed)
-        self.skill_table.setMinimumHeight(270)
-        skill_layout.addWidget(self.skill_table)
-        root.addWidget(skill_card)
-
-        composition_card, composition_layout = _section(
-            "角色伤害构成",
-            "按所选半场统计直伤、特殊伤害、具体环合及其他伤害；每张卡固定显示五行。",
-        )
-        self.damage_composition_panel = BattleDamageCompositionPanel(
-            game_ui_asset_root=self._asset_catalog.asset_root
-        )
-        composition_layout.addWidget(self.damage_composition_panel)
-        root.addWidget(composition_card)
-
+        root.addWidget(self.long_analysis_view)
         self.quality_label = QLabel("数据质量：等待采集")
-        self.quality_label.setWordWrap(True)
-        self.quality_label.setStyleSheet(themed_style("color:#6e7681;font-size:11px"))
+        self.quality_label.hide()
         root.addWidget(self.quality_label)
         root.addStretch()
+
+    def _build_marginal(self, game_ui_asset_root) -> None:
+        self.marginal_page = BattleMarginalPage(
+            game_ui_asset_root=game_ui_asset_root,
+        )
+        self.marginal_page.back_requested.connect(self.show_report)
+        self.marginal_page.recalculate_requested.connect(
+            self.marginal_recalculate_requested
+        )
+        self.marginal_page.import_role_page_requested.connect(
+            self.build_role_page_import_requested
+        )
+        self.marginal_page.restore_original_requested.connect(
+            lambda: self.build_edit_activation_requested.emit(False)
+        )
+        self.marginal_page.sync_role_page_requested.connect(
+            self.build_sync_role_page_requested
+        )
+        self._stack.addWidget(self.marginal_page)
+
+    def show_marginal(self, editor_data: dict) -> None:
+        self.marginal_page.set_editor_data(editor_data)
+        self._stack.setCurrentWidget(self.marginal_page)
+
+    def show_report(self) -> None:
+        self._stack.setCurrentIndex(0)
 
     def update_state(self, state: BattleCaptureState) -> None:
         tones = {
@@ -290,17 +231,14 @@ class BattleReportPage(QWidget):
         }
         label, tone = tones.get(state.phase, (state.phase, "neutral"))
         set_status_badge(self.status_badge, label, tone)
-        detail = state.message
-        if state.error:
-            detail += f"\n技术详情：{state.error}"
-        self.status_detail.setText(detail)
+        self.status_detail.setText(
+            state.message if not state.error else f"{state.message}：{state.error}"
+        )
         self.start_button.setEnabled(not state.running)
         self.stop_button.setEnabled(state.running and state.phase != "stopping")
         self.history_button.setEnabled(not state.running)
         is_manual = state.retention_kind == "manual"
-        self.save_result_button.setText(
-            "已手动保存" if is_manual else "保存伤害结果"
-        )
+        self.save_result_button.setText("已手动保存" if is_manual else "保存伤害结果")
         self.save_result_button.setEnabled(
             not state.running
             and state.battle_record_id is not None
@@ -315,31 +253,82 @@ class BattleReportPage(QWidget):
         self.overlay_toggle.blockSignals(False)
 
     def set_detail_scope(self, mode: str) -> None:
-        button = self.scope_buttons.get(mode)
-        if button is None or not button.isEnabled():
-            mode = "current"
-            button = self.scope_buttons[mode]
         self._detail_scope = mode
-        button.setChecked(True)
-        if self._latest_summary is not None:
-            self._render_damage_details(self._latest_summary)
+        summary = self._latest_summary
+        self.long_analysis_view.set_detail_scope(
+            mode,
+            first_available=bool(summary and summary.abyss.first_half is not None),
+            second_available=bool(summary and summary.abyss.second_half is not None),
+        )
 
     def detail_scope(self) -> str:
-        return self._detail_scope
+        return self.long_analysis_view.detail_scope()
 
     def clear_summary(self) -> None:
         self._latest_summary = None
         self._detail_scope = "current"
         for label in self.metric_labels.values():
             label.setText("—")
-        self.character_table.setRowCount(0)
-        self.skill_table.setRowCount(0)
-        self.scope_buttons["current"].setChecked(True)
-        self.scope_buttons["first"].setEnabled(False)
-        self.scope_buttons["second"].setEnabled(False)
-        self.scope_label.setText("当前范围：等待战斗数据")
-        self.damage_composition_panel.clear()
-        self.quality_label.setText("数据质量：等待采集")
+        self.long_analysis_view.clear()
+
+    def set_analysis(self, analysis, *, selected_character_id=None) -> None:
+        if self._latest_summary is not None:
+            raw_damage = max(0.0, float(self._latest_summary.total_damage))
+            overkill_correction = (
+                analysis.timeline_damage_correction_total
+                if analysis.axis_complete
+                else 0.0
+            )
+            corrected_damage = max(
+                0.0,
+                raw_damage - overkill_correction,
+            )
+            duration = max(0.001, self._latest_summary.duration_seconds)
+            self.metric_labels["damage"].setText(_format_number(corrected_damage))
+            self.metric_labels["dps"].setText(_format_number(corrected_damage / duration))
+            real_duration = max(duration, analysis.battle_end_us / 1_000_000.0)
+            self.metric_labels["duration"].setText(
+                f"{duration:.1f}s（{real_duration:.1f}s）"
+            )
+        self.long_analysis_view.set_analysis(
+            analysis,
+            selected_character_id=selected_character_id,
+        )
+        self.marginal_page.set_analysis(analysis)
+
+    def complete_analysis_details(self, kind: str, payload: object) -> None:
+        self.long_analysis_view.complete_analysis_details(kind, payload)
+
+    def begin_analysis_details(self, kind: str) -> None:
+        self.analysis_progress.show_for(kind)
+
+    def end_analysis_details(self) -> None:
+        self.analysis_progress.finish()
+
+    def set_target_catalog(self, catalog: dict[str, object]) -> None:
+        self.long_analysis_view.set_target_catalog(catalog)
+
+    def analysis_range(self):
+        return self.long_analysis_view.selected_range()
+
+    def analysis_character_id(self):
+        return self.marginal_page.selected_character_id()
+
+    def clear_analysis(self, message: str) -> None:
+        self.long_analysis_view.clear(message)
+
+    def set_build_edit_state(
+        self,
+        *,
+        has_edit: bool,
+        active: bool,
+        available: bool = True,
+    ) -> None:
+        self.long_analysis_view.build_edit_control.set_state(
+            has_edit=has_edit,
+            active=active,
+            available=available,
+        )
 
     def _render_summary(self, summary: BattleSummary) -> None:
         self._latest_summary = summary
@@ -347,128 +336,12 @@ class BattleReportPage(QWidget):
         self.metric_labels["damage"].setText(_format_number(summary.total_damage))
         self.metric_labels["duration"].setText(f"{summary.duration_seconds:.1f}s")
         self.metric_labels["taken"].setText(_format_number(summary.total_damage_taken))
-        self._update_detail_scope_availability(summary)
-        self._render_damage_details(summary)
+        self.set_detail_scope(self._detail_scope)
         quality = summary.quality
         self.quality_label.setText(
-            "数据质量："
-            f"{quality.source} · {quality.packet_count:,} 个包 · "
-            f"{quality.hit_count:,} 条伤害 · 未识别角色 {quality.unknown_character_hits:,} 条 · "
-            f"未映射技能 {quality.unmapped_skill_hits:,} 条"
+            f"{quality.source} · {quality.packet_count:,}包 · {quality.hit_count:,}击"
         )
 
     def _select_detail_scope(self, mode: str) -> None:
-        button = self.scope_buttons.get(mode)
-        if button is None or not button.isEnabled():
-            return
         self._detail_scope = mode
-        button.setChecked(True)
-        if self._latest_summary is not None:
-            self._render_damage_details(self._latest_summary)
         self.detail_scope_changed.emit(mode)
-
-    def _update_detail_scope_availability(self, summary: BattleSummary) -> None:
-        first_available = summary.abyss.first_half is not None
-        second_available = summary.abyss.second_half is not None
-        self.scope_buttons["first"].setEnabled(first_available)
-        self.scope_buttons["second"].setEnabled(second_available)
-        selected = self.scope_buttons[self._detail_scope]
-        if not selected.isEnabled():
-            self._detail_scope = "current"
-            self.scope_buttons["current"].setChecked(True)
-
-    def _render_damage_details(self, summary: BattleSummary) -> None:
-        if self._detail_scope == "first" and summary.abyss.first_half is not None:
-            half = summary.abyss.first_half
-            scope_name = "上半"
-        elif self._detail_scope == "second" and summary.abyss.second_half is not None:
-            half = summary.abyss.second_half
-            scope_name = "下半"
-        else:
-            half = active_abyss_half(summary)
-            scope_name = self._current_scope_name(summary)
-
-        if half is None:
-            characters = summary.characters
-            skills = summary.skills
-            segment_total_damage = summary.total_damage
-        else:
-            characters = half.characters
-            skills = half.skills
-            segment_total_damage = half.total_damage
-        floor = f"第 {summary.abyss.floor} 层 · " if summary.abyss.floor else ""
-        self.scope_label.setText(f"当前范围：{floor}{scope_name}")
-        self._render_characters(characters)
-        self._render_skills(skills)
-        self.damage_composition_panel.render(
-            BattleDamageCompositionService.calculate(
-                characters=characters,
-                skills=skills,
-                segment_total_damage=segment_total_damage,
-            )
-        )
-
-    @staticmethod
-    def _current_scope_name(summary: BattleSummary) -> str:
-        active = (summary.abyss.active_half or "").lower()
-        if "ascending" in active or "first" in active or "上" in active:
-            return "跟随当前 · 上半"
-        if "descending" in active or "second" in active or "下" in active:
-            return "跟随当前 · 下半"
-        return "跟随当前"
-
-    def _render_characters(
-        self, characters: tuple[BattleCharacterSummary, ...]
-    ) -> None:
-        ordered = sorted(characters, key=lambda item: item.damage, reverse=True)
-        self.character_table.setRowCount(len(ordered))
-        for row, character in enumerate(ordered):
-            identity = QWidget()
-            identity_layout = QHBoxLayout(identity)
-            identity_layout.setContentsMargins(4, 2, 4, 2)
-            identity_layout.setSpacing(8)
-            icon_path = self._asset_catalog.character_icon(character.character_id)
-            if icon_path is not None:
-                icon = QLabel()
-                icon.setFixedSize(34, 34)
-                icon.setPixmap(
-                    QPixmap(str(icon_path)).scaled(
-                        34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation
-                    )
-                )
-                identity_layout.addWidget(icon)
-            identity_layout.addWidget(QLabel(character.name))
-            identity_layout.addStretch()
-            self.character_table.setCellWidget(row, 0, identity)
-            values = (
-                f"{character.hits:,}",
-                _format_number(character.damage),
-                _format_number(character.dps),
-                f"{character.damage_share_percent:.1f}%",
-                _format_number(character.damage_taken),
-            )
-            for column, value in enumerate(values, start=1):
-                item = QTableWidgetItem(value)
-                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.character_table.setItem(row, column, item)
-            self.character_table.setRowHeight(row, 42)
-        self.character_table.refresh_proportional_columns()
-
-    def _render_skills(self, skills: tuple[BattleSkillSummary, ...]) -> None:
-        ordered = sorted(skills, key=lambda item: item.damage, reverse=True)
-        self.skill_table.setRowCount(len(ordered))
-        for row, skill in enumerate(ordered):
-            values = (
-                skill.character_name,
-                skill.name,
-                skill.category,
-                f"{skill.hits:,}",
-                _format_number(skill.damage),
-                f"{skill.damage_share_percent:.1f}%",
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if column >= 3:
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.skill_table.setItem(row, column, item)
-        self.skill_table.refresh_proportional_columns()

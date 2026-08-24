@@ -23,10 +23,16 @@
 安装缺失、驱动服务、无活动网卡或“驱动/过滤器/运行时待排查”给出下一步；核心没有提供 libpcap 枚举错误
 文本或逐网卡过滤理由时，报告必须明确该边界，不能伪造原因。
 
-`battle.get_record` 与 `battle.get_axis` 使用 nte-core 0.4.1 的 v1 contract。record ID 在当前 Core
+`battle.get_record` 与 `battle.get_axis` 使用 nte-core 0.4.2 的 v3 contract；v3 新增逐击
+`overkill_damage`，CLI `protocol_version` 仍为 1。record ID 在当前 Core
 进程内稳定，generation、cursor、sequence 和总数按十进制字符串保留；axis 每页限制 1～500 行。
+`overkill_damage` 只对应 primary `damage`，不包含追击；应用校验它不大于主伤害，并随原始脱敏轴行持久化，
+因此账号 schema 无需为该上游字段单独迁移。Core 的 `Server settlement residual` 行以未知角色返回；应用把
+非正角色 ID 或 `character_known=false` 统一投影为未归因，保留其有效伤害但不生成角色养成快照。
 应用在采集期间轮询并持久化，停止后排空尾页，以免 Core 的 50,000 击保留窗口裁剪前缀。逐击只保存
-Core 已脱敏字段，不保存网络包、端点或 PCAP。
+Core 已脱敏字段，战报数据库不保存网络包、端点或 PCAP。设置页显式启用账号级原始抓包后，库存与战报
+启动时会冻结该设置，并由 Core 把 `.pcapng` 独立写入当前账号日志目录；这些文件不属于业务数据，不随战报
+历史读取、导出或数据库迁移。
 
 `team_snapshot_id` 当前为空，逐击也没有暴击事实、Buff/Debuff 区间、护盾/治疗或角色施法事件。应用不得
 用当前 UI 队伍、固定暴击率或相邻血量补造这些事实。完整队伍、正式敌人实例、场景 ID、时间线 UI 和
@@ -63,13 +69,21 @@ Mods 插件默认通过游戏目录中的代理 `dwmapi.dll` 加载。只有代�
 
 ## 4. 静态数据与资源
 
-官方数据只通过 `tools/game_data` 生成候选静态库。静态 schema v17 还保存培养指南、推荐弧盘/属性/阶段、
-技能说明、GameplayEffect 索引、怪物手册别名、装备 Modify/曲线和可追溯效果定义。导入器保留来源文件、
+官方数据只通过 `tools/game_data` 生成候选静态库。静态 schema v27 保存培养指南、推荐弧盘/属性/阶段、
+技能说明、GameplayEffect 索引、怪物手册别名、装备 Modify/曲线，以及精确范围内的角色输入、技能效果引用、
+关键效果属性和动画时间证据；同时保存敌方生命三段值、RogueLike 怪物/属性修正，并基于已导入 Blueprint
+证据规范化 Buff/GE 的持续、周期、叠层、属性修正、事件触发及装备/弧盘/觉醒绑定；同时保存官方怪物图鉴、
+材料/养成副本类目、难度、波次刷怪模板、争锋赏宴和魔女赐福目录，以及限时奖励任务提供的轨外配置大陆服
+生效区间，以及当前/下一配置的赛季名称、Buff 说明、正式 GE、数值曲线、已审计触发组成和怪物池官方本地化名称。当前/下一轨外配置按构建日后的正式时间区间选取，不按 `AbyssID` 数字大小推断。导入器保留来源文件、
 行键与摘要，验证 schema、外键、业务约束和 manifest 后才替换发行数据库。静态库和
 `data/manifest.json` 作为一个原子变更审查。
 
-工坊推荐同步只覆盖 API 实际返回的角色；缺行角色保留本次构建的可审计发行回退。角色 1072 的确认覆盖
-位于 `tools/game_data/character_weight_overrides.json`，不得被 API 缺行默认重新覆盖。
+正式静态库重建前先原子备份上一发行库。存在工坊 API Key 时同步 API；没有 Key 时只从该备份继承带
+`workshop_api`/`workshop_cache` 来源的权重，旧库不存在的新角色才保留本次构建回退。两条路径都重新
+生成毕业模板；没有 Key 和备份时阻止发布。角色 1072 尚未实装、工坊 API 缺行时，使用
+`tools/game_data/character_weight_overrides.json` 中的临时发行回退，不被通用默认值覆盖；工坊 API 一旦
+返回 1072，则以工坊权重替换该回退。角色额外形状不继承旧库，直接由官方角色、底盘槽位和槽位属性修正
+三表关联导入。
 
 游戏 UI 图片由资源构建工具生成到 `assets/game_ui`，`manifest.json` 明确记录 ID 映射、文件哈希和
 `unresolved_assets`。缺失资源保持显式 unresolved，不用相似图片或本机路径占位。

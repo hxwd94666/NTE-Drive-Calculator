@@ -221,7 +221,7 @@ def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False
         build_cmd = [sys.executable, str(ROOT / "build_exe.py")]
         if skip_workshop_sync:
             build_cmd.append("--skip-workshop-sync")
-        if require_workshop_sync:
+        else:
             build_cmd.append("--require-workshop-sync")
         _run(build_cmd)
 
@@ -454,7 +454,11 @@ def main() -> int:
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
     parser.add_argument("--skip-workshop-sync", action="store_true", help="Do not sync workshop weights before building the app bundle.")
-    parser.add_argument("--require-workshop-sync", action="store_true", help="Fail release packaging if workshop weight sync cannot run.")
+    parser.add_argument(
+        "--require-workshop-sync",
+        action="store_true",
+        help="Require API synchronization or inheritance from the prebuild release backup.",
+    )
     parser.add_argument(
         "--iscc",
         type=Path,

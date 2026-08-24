@@ -11,6 +11,7 @@ from src.services.damage_calculation_service import (
     DamageScene,
     DarkStarInstances,
     DirectDamageInput,
+    EnemyDefenseProfileInput,
     DotDamageInput,
     ToppleDamageInput,
     RingCharacter,
@@ -120,25 +121,43 @@ class DamageCalculationServiceTests(unittest.TestCase):
 
         self.assertEqual("high", owner.character_id)
         self.assertAlmostEqual(1.20, calculate_ring_strength_multiplier(120))
-        self.assertAlmostEqual(24 * 120 / 300, calculate_ring_amplification(120))
+        self.assertAlmostEqual(
+            1.20 * (1 + 0.20 * 120 / 300),
+            calculate_ring_amplification(120),
+        )
 
     def test_topple_damage_uses_only_its_five_confirmed_multipliers(self):
         result = DamageCalculationService.calculate_topple(
             ToppleDamageInput(
                 level_multiplier=3_603,
                 mitigation=standard_values(),
-                team_topple_strength=100,
+                character_topple_strength=100,
                 topple_damage_increases=(0.10, 0.05),
-                enemy_topple_limit=50,
+                enemy_topple_limit=25,
             )
         )
 
         self.assertAlmostEqual(200.0 / 314.0, result.defense_multiplier)
         self.assertAlmostEqual(1 - (-0.05 / 1.10), result.resistance_multiplier)
         self.assertAlmostEqual(
-            3_603 * (1 + 100 / 300 + 0.10 + 0.05) * (50 / 3) * (200.0 / 314.0) * (1 - (-0.05 / 1.10)),
+            3_603
+            * (1 + 100 / 300 + 0.10 + 0.05)
+            * (25 / 3)
+            * (200.0 / 314.0)
+            * (1 - (-0.05 / 1.10)),
             result.damage,
         )
+
+    def test_ordinary_topple_target_multiplier_divides_unbalmax_by_three(self):
+        from src.services.damage_calculation_service import (
+            calculate_enemy_topple_limit_multiplier,
+        )
+
+        self.assertEqual(1.0, calculate_enemy_topple_limit_multiplier(2))
+        self.assertAlmostEqual(4 / 3, calculate_enemy_topple_limit_multiplier(4))
+        self.assertEqual(6.0, calculate_enemy_topple_limit_multiplier(18))
+        self.assertAlmostEqual(25 / 3, calculate_enemy_topple_limit_multiplier(25))
+        self.assertAlmostEqual(70 / 3, calculate_enemy_topple_limit_multiplier(70))
 
     def test_skill_can_scale_from_health_or_defense(self):
         health_result = DamageCalculationService.calculate_direct(
@@ -159,6 +178,31 @@ class DamageCalculationServiceTests(unittest.TestCase):
 
         self.assertAlmostEqual(120.0, open_world.enemy_defense)
         self.assertLess(open_world.defense_multiplier, outer_realm.defense_multiplier)
+
+    def test_enemy_profile_defbase_overrides_level_scene_approximation(self):
+        result = DamageCalculationService.calculate_direct(
+            standard_values(
+                character_level=80.0,
+                enemy_level=90.0,
+                defense_penetration=0.0,
+                defense_reduction=0.0,
+                enemy_defense_profile=EnemyDefenseProfileInput(
+                    defense_base=1050.0,
+                    defense_up=0.0,
+                    defense_add=0.0,
+                ),
+            )
+        )
+
+        self.assertAlmostEqual(175.0, result.enemy_defense)
+        self.assertAlmostEqual(180.0 / 355.0, result.defense_multiplier)
+
+    def test_vulnerability_defaults_to_no_enemy_debuff(self):
+        result = DamageCalculationService.calculate_direct(
+            standard_values(vulnerability_increases=())
+        )
+
+        self.assertEqual(1.0, result.vulnerability_multiplier)
 
     def test_rejects_invalid_multiplier_and_level(self):
         with self.assertRaises(ValueError):

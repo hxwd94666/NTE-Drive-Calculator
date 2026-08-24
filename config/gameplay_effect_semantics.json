@@ -131,6 +131,34 @@
       "damage_name_ja": "「悪夢」",
       "owner_character_id": 1004
     },
+    "GE_Player_Lacrimosa_SwitchModB_Damage": {
+      "owner_character_id": 1004,
+      "ability": "GA_Lacrimosa_SwitchSkill",
+      "override_observed_ability": true,
+      "override_observed_attack_type": true,
+      "attack_type": "G技能",
+      "show_parent_ability": false,
+      "damage_name_zh": "G技能伤害"
+    },
+    "GE_Player_Lacrimosa_AnHunZhouTwo_Damage": {
+      "owner_character_id": 1004,
+      "ability": "GA_Lacrimosa_Passive_1",
+      "override_observed_attack_type": true,
+      "attack_type": "Passive Damage",
+      "show_parent_ability": true,
+      "damage_name_zh": "失谐追加伤害"
+    },
+    "GE_boss_018_act019_Steal_Dmg_BP": {
+      "owner_character_id": 1004,
+      "ability": "GA_Lacrimosa_Skill",
+      "attack_type": "E技能",
+      "show_parent_ability": false,
+      "damage_name_zh": "番茄酱恶魔"
+    },
+    "GE_boss_05_HitBullet_Dmg_BP": {
+      "show_parent_ability": false,
+      "damage_name_zh": "敌方飞弹反射伤害"
+    },
     "GE_Player_Shinku_ReactionAOE_Damage": {
       "owner_character_id": 1076,
       "ability": "GA_Shinku_Passive_1",
@@ -482,6 +510,18 @@
       "damage_name_zh": "血宴入梦时",
       "damage_name_en": "血宴入梦时",
       "damage_name_ja": "血宴入梦时"
+    },
+    "Buff_Tenacity_damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "倾陷伤害",
+      "damage_name_en": "Collapse Damage",
+      "damage_name_ja": "傾陥ダメージ"
+    },
+    "GE_Parry_Damage": {
+      "show_parent_ability": false,
+      "damage_name_zh": "格挡反击伤害",
+      "damage_name_en": "Parry Counter Damage",
+      "damage_name_ja": "ガード反撃ダメージ"
     },
     "GE_Player_Radio072_Branch_Damage": {
       "show_parent_ability": false,

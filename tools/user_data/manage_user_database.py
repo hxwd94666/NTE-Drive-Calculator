@@ -15,6 +15,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.character_shape_bonus_service import (
+    static_character_shape_profile_fields,
+)
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 def _print_json(value: Any) -> None:
@@ -66,6 +70,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="至少保留最近的稳定快照数量；省略时读取数据库设置",
     )
+    repair_parser = subparsers.add_parser(
+        "repair-battle-shapes",
+        help="按发行静态库修复战报角色修改副本缺失的官方额外形状字段",
+    )
+    repair_parser.add_argument("--static-database", required=True, type=Path)
     return parser.parse_args()
 
 
@@ -78,6 +87,22 @@ def main() -> int:
             account_name=args.account_name,
         ) as dao:
             _print_json(dao.summary())
+        return 0
+
+    if args.command == "repair-battle-shapes":
+        with StaticGameDataDao(args.static_database) as static_dao:
+            shape_fields = {
+                int(character["character_id"]): static_character_shape_profile_fields(
+                    static_dao, int(character["character_id"])
+                )
+                for character in static_dao.list_characters()
+                if static_dao.get_character_shape_bonus(
+                    int(character["character_id"])
+                ) is not None
+            }
+        with UserDataDao(args.database) as dao:
+            result = dao.repair_battle_build_edit_shape_profiles(shape_fields)
+        _print_json(result)
         return 0
 
     with UserDataDao(args.database) as dao:

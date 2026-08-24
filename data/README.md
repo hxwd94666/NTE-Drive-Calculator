@@ -6,9 +6,10 @@
 当前数据集、结构版本、生成时间、SHA-256 和原始 payload 省略状态统一读取
 `manifest.json`，本说明不再手工复制这些容易过期的值。
 
-2026-08-19 官方文件更新涉及角色、培养指南、弧盘、技能、GameplayEffect、怪物、深渊和装备效果数据。
-发行库包含 22 条实时工坊权重和 1 条确认覆盖；灵可 `1072` 的工坊接口缺行，使用
-`tools/game_data/character_weight_overrides.json` 中的确认权重，不回落到通用四项默认。
+官方文件更新涉及角色、培养指南、弧盘、技能、GameplayEffect、怪物、深渊和装备效果数据。灵可 `1072`
+尚未实装且工坊接口缺行时，使用 `tools/game_data/character_weight_overrides.json` 中的临时发行回退，不回落
+到通用四项默认；工坊接口以后返回该角色时，以工坊权重覆盖这份临时回退。发行前必须核对实际库中的
+`source_kind`，文档不手工声明容易过期的实时工坊行数。
 
 发行数据库保留规范化业务表、来源文件相对路径、来源文件哈希、来源行键和
 来源行内容哈希。`source_row.payload_json` 必须全部为 `NULL`，完整来源原文和
@@ -36,10 +37,14 @@ python tools/game_data/build_static_database.py `
 构建器会自动导入 `DataTable/Character/Awaken/*AwakenEffect*.json` 中的
 角色六觉、三/六觉共鸣和其中明确给出的技能等级加成。生成后必须运行静态数据库测试，
 并重新生成 `manifest.json`。发布前检查会核对清单与实际数据库，不一致时拒绝继续。
+覆盖正式输出前，构建器自动将旧库原子备份到 `build/previous/data/game_static.sqlite3`。打包时有工坊 API
+Key 就同步 API；没有 Key 就从该备份继承带来源的旧权重。没有 Key 和备份时发布失败，不允许把整库
+`default` 权重直接打入正式包；全 `default` 新库也不能覆盖已有的有效发行备份。
 
-schema v18 还把 `DT_LikeabilityRoleData.json` 的 10 级映射与
-`DT_LikeabilityModifyData.json` 的正式属性修改标准化为角色好感度加成。运行时只保存账号是否启用该加成，
-不复制或猜测属性数值。
+schema v18 还按 `SoftActorClass` 的玩家资产编号关联正式角色，再把
+`DT_LikeabilityRoleData.json` 的 10 级映射与 `DT_LikeabilityModifyData.json` 的正式属性修改标准化为角色
+好感度加成；不能把好感度表行键当作角色 ID。玩家角色零没有好感度记录。运行时只保存账号是否启用该
+加成，不复制或猜测属性数值。
 
 如果下一版本需要继续从某个已发布版本迁移历史可编辑的额外形状值，还要从该版本
 确认未修改的发行库生成基线：
@@ -80,7 +85,19 @@ schema v12 起为全部具备完整战斗目录的可用角色保存构建期固
 调用图纸求解器或重复搜索空幕主词条。角色均使用官方默认套装、有效推荐弧盘和当前静态推荐权重生成
 `official_default` 模板。
 
-schema v13–v16 保存设置默认、官方额外形状基线、逻辑角色形状和逐级弧盘精炼参数。schema v17 保存
+schema v13–v16 保存设置默认、逻辑角色形状和逐级弧盘精炼参数。额外形状按
+`DT_Character.ElementData.EquipmentSlotID` → `DT_CharacterEquipmentSlotsData.ModifyPropID` →
+`DT_EquipmentModifySlotsEffect.ModifyData` 的官方关系直接导入；数值语义是每件匹配格数的驱动提供一次
+加成，不按驱动占用格子数倍增。schema v17 保存
 培养指南中的推荐弧盘、属性、阶段与技能等级，并新增技能说明、GameplayEffect 索引、怪物手册别名、
 装备 Modify/曲线和统一效果定义；schema v18 保存角色好感度 10 级正式属性加成。弧盘的星级包 ID 按不区分大小写的官方主键规范化，构建时要求精炼等级
 和说明数量与 `max_star` 完整一致。
+
+schema v19–v21 保存角色战斗 Blueprint 时间证据、规范化 Buff/GE 和修正作用域；schema v22 保存争锋赏宴
+对象、难度、加成与魔女赐福；schema v23 保存官方怪物图鉴、材料/养成副本类目、难度、波次刷怪模板及
+怪物模板绑定；schema v24 从限时战斗奖励任务保存轨外配置的大陆服生效区间，并在构建日按日切后的状态
+标记当前与下一配置；schema v25 为怪物模板、实例和等级变体的不区分大小写查询补充表达式联合索引；
+schema v26 保存当前/下一轨外配置的赛季 Buff 元数据、正式曲线值和已审计触发组成。
+schema v27 保存轨外怪物池条目的官方本地化名称，供半场目标识别与战报展示直接使用。
+`AbyssID` 是整套配置 ID，不能把末尾数字当层数；`AbyssLevel` 才是任务要求的层数。
+副本模板没有唯一属性包绑定时只用于目标身份选择，不生成防御或抗性默认值。

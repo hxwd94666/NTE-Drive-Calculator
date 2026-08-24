@@ -33,6 +33,108 @@ class EquipmentImportMixin:
                 ),
             )
 
+    def _import_official_character_shape_bonuses(self) -> None:
+        """Import per-drive extra-shape bonuses from the official slot relation."""
+
+        attributes = {
+            str(row[0]): bool(row[1])
+            for row in self.connection.execute(
+                "SELECT attribute_id, show_percent FROM equipment_attribute"
+            )
+        }
+        rules: dict[str, tuple[int, int, tuple[tuple[str, float], ...]]] = {}
+        for raw_character_id in sorted(self.rows["character"], key=int):
+            character_row = self.rows["character"][raw_character_id]
+            element = character_row.get("ElementData")
+            if not isinstance(element, dict):
+                continue
+            slot_id = optional_text(element.get("EquipmentSlotID"))
+            if slot_id is None or slot_id == "None":
+                continue
+            slot_row = self.rows["character_equipment_slots"].get(slot_id)
+            if not isinstance(slot_row, dict):
+                raise StaticDatabaseError(
+                    f"角色 {raw_character_id} 的额外形状配置不存在：{slot_id}"
+                )
+            modify_pack_id = optional_text(slot_row.get("ModifyPropID"))
+            modify_row = self.rows["equipment_slot_modify"].get(modify_pack_id or "")
+            if not isinstance(modify_row, dict):
+                raise StaticDatabaseError(
+                    f"角色 {raw_character_id} 的额外形状修正不存在：{modify_pack_id}"
+                )
+            conditions = modify_row.get("ConditionArray") or ()
+            if any(value not in ({}, None) for value in conditions):
+                raise StaticDatabaseError(
+                    f"角色 {raw_character_id} 的额外形状包含未建模条件：{modify_pack_id}"
+                )
+            grid_count = int(slot_row.get("OwnerGridCount") or 0)
+            if grid_count <= 0:
+                raise StaticDatabaseError(
+                    f"角色 {raw_character_id} 的额外形状格数无效：{slot_id}"
+                )
+            properties: list[tuple[str, float]] = []
+            for modifier in modify_row.get("ModifyData") or ():
+                if not isinstance(modifier, dict):
+                    raise StaticDatabaseError(
+                        f"角色 {raw_character_id} 的额外形状修正格式无效：{modify_pack_id}"
+                    )
+                property_id = str(modifier.get("PropName") or "")
+                if property_id not in attributes:
+                    raise StaticDatabaseError(
+                        f"角色 {raw_character_id} 的额外形状属性不存在：{property_id}"
+                    )
+                operation = enum_tail(modifier.get("ModifierOp"))
+                if operation != "MODIFY_MODOP_ADDITIVE":
+                    raise StaticDatabaseError(
+                        f"角色 {raw_character_id} 的额外形状不是加法修正：{modify_pack_id}"
+                    )
+                raw_value = float(modifier.get("PropValue") or 0.0)
+                display_value = raw_value * 100.0 if attributes[property_id] else raw_value
+                if any(existing_id == property_id for existing_id, _ in properties):
+                    raise StaticDatabaseError(
+                        f"角色 {raw_character_id} 的额外形状属性重复：{property_id}"
+                    )
+                properties.append((property_id, display_value))
+            if not properties:
+                raise StaticDatabaseError(
+                    f"角色 {raw_character_id} 的额外形状没有属性：{modify_pack_id}"
+                )
+            annotation = self.connection.execute(
+                """SELECT logical_character_key
+                   FROM character_annotation WHERE character_id = ?""",
+                (int(raw_character_id),),
+            ).fetchone()
+            if annotation is None:
+                continue
+            logical_key = str(annotation[0])
+            candidate = (int(raw_character_id), grid_count, tuple(properties))
+            previous = rules.get(logical_key)
+            if previous is not None and previous[1:] != candidate[1:]:
+                raise StaticDatabaseError(
+                    f"逻辑角色 {logical_key} 存在冲突的官方额外形状配置"
+                )
+            if previous is None or candidate[0] < previous[0]:
+                rules[logical_key] = candidate
+
+        for logical_key in sorted(rules):
+            representative_id, grid_count, properties = rules[logical_key]
+            self.connection.execute(
+                """INSERT INTO logical_character_shape_bonus(
+                       logical_character_key, representative_character_id,
+                       shape_label, shape_grid_count, source_kind
+                   ) VALUES (?, ?, ?, ?, 'official_role_profile')""",
+                (logical_key, representative_id, f"Type-{grid_count}", grid_count),
+            )
+            self.connection.executemany(
+                """INSERT INTO logical_character_shape_bonus_property(
+                       logical_character_key, property_id, display_value, ordinal
+                   ) VALUES (?, ?, ?, ?)""",
+                [
+                    (logical_key, property_id, display_value, ordinal)
+                    for ordinal, (property_id, display_value) in enumerate(properties)
+                ],
+            )
+
     def _import_equipment_shapes(self) -> None:
         for shape_id in sorted(self.rows["equipment_shapes"]):
             row = self.rows["equipment_shapes"][shape_id]
@@ -278,7 +380,8 @@ class EquipmentImportMixin:
                 ):
                     raise StaticDatabaseError(f"角色 {character_id} 推荐权重覆盖为空或重复")
                 source_name = str(
-                    override.get("source_name") or "confirmed_role_override"
+                    override.get("source_name")
+                    or "preimplementation_workshop_fallback"
                 )
             else:
                 fallback_rows = []

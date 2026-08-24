@@ -30,7 +30,17 @@ _DAMAGE_ROW_HEIGHT = 25
 _DAMAGE_ROW_SPACING = 2
 _CHANNEL_COLORS = {
     "direct": "#58a6ff",
+    "direct_follow_up": "#a371f7",
+    "dot": "#ff75b5",
+    "attachment": "#7ee787",
+    "topple": "#d29922",
+    "shared_damage": "#39c5cf",
     "special": "#f0883e",
+    "special_nightmare": "#ff75b5",
+    "special_zankou_erosion": "#ff9b73",
+    "special_zankou_venom": "#c77dff",
+    "max_hp_reduction": "#ffd166",
+    "max_hp_reduction_estimated": "#c9a227",
     "reaction_creation": "#a371f7",
     "reaction_hexed": "#bc8cff",
     "reaction_remora": "#7ee787",
@@ -42,6 +52,7 @@ _CHANNEL_COLORS = {
     "reaction_unknown": "#8b949e",
     "other": "#6e7681",
     "other_topple": "#d29922",
+    "other_reflected_projectile": "#8b949e",
     "other_environment": "#8b949e",
     "other_shared": "#39c5cf",
     "other_unattributed": "#6e7681",
@@ -53,9 +64,18 @@ def _format_damage(value: float) -> str:
 
 
 class BattleDamageCompositionPanel(QWidget):
-    def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        game_ui_asset_root=None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._asset_catalog = GameUiAssetCatalog(game_ui_asset_root)
+        self._asset_catalog = (
+            None
+            if game_ui_asset_root is None
+            else GameUiAssetCatalog(game_ui_asset_root)
+        )
         self._grid = QGridLayout(self)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setHorizontalSpacing(12)
@@ -69,8 +89,23 @@ class BattleDamageCompositionPanel(QWidget):
                 index // 2,
                 index % 2,
             )
-        other_row = (len(composition.roles) + 1) // 2
-        self._grid.addWidget(self._other_card(composition), other_row, 0, 1, 2)
+        next_row = (len(composition.roles) + 1) // 2
+        if composition.system_entries:
+            self._grid.addWidget(
+                self._system_card(composition),
+                next_row,
+                0,
+                1,
+                2,
+            )
+            next_row += 1
+        self._grid.addWidget(
+            self._unattributed_card(composition),
+            next_row,
+            0,
+            1,
+            2,
+        )
         self._grid.setColumnStretch(0, 1)
         self._grid.setColumnStretch(1, 1)
 
@@ -87,7 +122,11 @@ class BattleDamageCompositionPanel(QWidget):
     def _role_card(self, role: RoleDamageComposition) -> QFrame:
         card, layout = self._card_shell()
         header = QHBoxLayout()
-        icon_path = self._asset_catalog.character_icon(role.character_id)
+        icon_path = (
+            None
+            if self._asset_catalog is None
+            else self._asset_catalog.character_icon(role.character_id)
+        )
         if icon_path is not None:
             icon = QLabel()
             icon.setFixedSize(36, 36)
@@ -112,12 +151,12 @@ class BattleDamageCompositionPanel(QWidget):
         layout.addWidget(self._rows_scroll(role.entries))
         return card
 
-    def _other_card(self, composition: BattleDamageComposition) -> QFrame:
+    def _system_card(self, composition: BattleDamageComposition) -> QFrame:
         card, layout = self._card_shell()
         header = QHBoxLayout()
-        badge = QLabel("其他")
+        badge = QLabel("系统 / 环境")
         badge.setAlignment(Qt.AlignCenter)
-        badge.setFixedSize(44, 30)
+        badge.setFixedSize(84, 30)
         badge.setStyleSheet(
             themed_style(
                 "background:#21262d;color:#c9d1d9;border:1px solid #30363d;"
@@ -125,13 +164,52 @@ class BattleDamageCompositionPanel(QWidget):
             )
         )
         header.addWidget(badge)
-        description = QLabel("倾陷、环境、共享及未归因伤害")
+        description = QLabel("已识别机制，但没有角色伤害所有者")
+        description.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
+        header.addWidget(description)
+        header.addStretch()
+        total = QLabel(
+            f"{_format_damage(composition.system_total_damage)}  ·  "
+            f"{composition.system_share_percent:.1f}% 时段伤害"
+        )
+        total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
+        header.addWidget(total)
+        layout.addLayout(header)
+        layout.addWidget(self._composition_bar(composition.system_entries))
+        layout.addWidget(
+            self._rows_scroll(
+                composition.system_entries,
+                empty_text="当前范围内没有系统或环境伤害",
+            )
+        )
+        return card
+
+    def _unattributed_card(self, composition: BattleDamageComposition) -> QFrame:
+        card, layout = self._card_shell()
+        header = QHBoxLayout()
+        badge = QLabel("未归因")
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setFixedSize(62, 30)
+        badge.setStyleSheet(
+            themed_style(
+                "background:#21262d;color:#c9d1d9;border:1px solid #30363d;"
+                "border-radius:7px;font-size:12px;font-weight:700"
+            )
+        )
+        header.addWidget(badge)
+        description = QLabel(
+            "倾陷逐角色公式尚未加载"
+            if composition.pending_topple_attribution
+            else "倾陷缺少明确目标或公式证据"
+            if composition.unresolved_topple_attribution
+            else "完整、正常归属的战报这里应为 0"
+        )
         description.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(description)
         header.addStretch()
         total = QLabel(
             f"{_format_damage(composition.other_total_damage)}  ·  "
-            f"{composition.other_share_percent:.1f}% 半场伤害"
+            f"{composition.other_share_percent:.1f}% 时段伤害"
         )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
@@ -140,7 +218,7 @@ class BattleDamageCompositionPanel(QWidget):
         layout.addWidget(
             self._rows_scroll(
                 composition.other_entries,
-                empty_text="当前范围内没有公共其他伤害",
+                empty_text="当前范围内没有未归因伤害",
             )
         )
         return card
@@ -178,7 +256,10 @@ class BattleDamageCompositionPanel(QWidget):
             if entry.share_percent <= 0:
                 continue
             segment = QFrame()
-            color = _CHANNEL_COLORS.get(entry.key, "#6e7681")
+            color = _CHANNEL_COLORS.get(
+                entry.key.split("|", 1)[0],
+                "#6e7681",
+            )
             segment.setStyleSheet(f"background:{color};border:none")
             layout.addWidget(segment, max(1, round(entry.share_percent * 10)))
         remaining = max(0.0, 100.0 - sum(row.share_percent for row in entries))
@@ -238,7 +319,7 @@ class BattleDamageCompositionPanel(QWidget):
         marker = QFrame()
         marker.setFixedSize(8, 8)
         marker.setStyleSheet(
-            f"background:{_CHANNEL_COLORS.get(entry.key, '#6e7681')};"
+            f"background:{_CHANNEL_COLORS.get(entry.key.split('|', 1)[0], '#6e7681')};"
             "border:none;border-radius:4px"
         )
         layout.addWidget(marker)

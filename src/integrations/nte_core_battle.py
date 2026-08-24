@@ -335,10 +335,40 @@ def parse_battle_record(value: Any) -> dict[str, Any]:
     }
 
 
-def _axis_hit(value: Any, field: str) -> dict[str, Any]:
+def _axis_hit(value: Any, field: str, *, contract_version: int) -> dict[str, Any]:
     item = _object(value, field)
-    character_id = item.get("character_id", item.get("char_id"))
+    raw_character_id = _optional_integer(
+        item.get("character_id", item.get("char_id")),
+        f"{field}.character_id",
+    )
+    character_known = _boolean(
+        item.get("character_known", item.get("char_known")),
+        f"{field}.character_known",
+        default=raw_character_id is not None and raw_character_id > 0,
+    )
+    if character_known and not raw_character_id:
+        raise NteCoreProtocolError(
+            f"{field}.character_id must be positive when character_known is true"
+        )
+    character_id = (
+        raw_character_id
+        if character_known and raw_character_id is not None and raw_character_id > 0
+        else None
+    )
     character_name = item.get("character_name", item.get("char_name"))
+    damage = _number(item.get("damage"), f"{field}.damage", default=0.0)
+    overkill_damage = (
+        _number(item.get("overkill_damage"), f"{field}.overkill_damage")
+        if contract_version >= 3
+        else _optional_number(
+            item.get("overkill_damage"),
+            f"{field}.overkill_damage",
+        )
+    )
+    if overkill_damage is not None and overkill_damage > damage:
+        raise NteCoreProtocolError(
+            f"{field}.overkill_damage cannot exceed primary damage"
+        )
     raw_labels = item.get("follow_up_labels")
     if raw_labels is None:
         raw_labels = [
@@ -356,6 +386,18 @@ def _axis_hit(value: Any, field: str) -> dict[str, Any]:
         _text(label, f"{field}.follow_up_labels[{index}]")
         for index, label in enumerate(labels)
     ]
+    raw_target_context = item.get("target_context")
+    if raw_target_context is None:
+        target_context: list[str] = []
+    elif isinstance(raw_target_context, str):
+        target_context = [raw_target_context] if raw_target_context.strip() else []
+    else:
+        target_context = [
+            _text(label, f"{field}.target_context[{index}]")
+            for index, label in enumerate(
+                _array(raw_target_context, f"{field}.target_context")
+            )
+        ]
     return {
         "battle_record_id": _text(
             item.get("battle_record_id"),
@@ -371,13 +413,9 @@ def _axis_hit(value: Any, field: str) -> dict[str, Any]:
             f"{field}.relative_time_seconds",
         ),
         "abyss_half": _optional_text(item.get("abyss_half"), f"{field}.abyss_half"),
-        "character_id": _optional_integer(character_id, f"{field}.character_id"),
+        "character_id": character_id,
         "character_name": _optional_text(character_name, f"{field}.character_name"),
-        "character_known": _boolean(
-            item.get("character_known"),
-            f"{field}.character_known",
-            default=character_id is not None,
-        ),
+        "character_known": character_known,
         "character_source": _optional_text(
             item.get("character_source"),
             f"{field}.character_source",
@@ -399,7 +437,8 @@ def _axis_hit(value: Any, field: str) -> dict[str, Any]:
             f"{field}.team_snapshot_id",
         ),
         "direction": _text(item.get("direction"), f"{field}.direction"),
-        "damage": _number(item.get("damage"), f"{field}.damage", default=0.0),
+        "damage": damage,
+        "overkill_damage": overkill_damage,
         "follow_up_damage": _number(
             item.get("follow_up_damage"),
             f"{field}.follow_up_damage",
@@ -428,10 +467,7 @@ def _axis_hit(value: Any, field: str) -> dict[str, Any]:
             item.get("target_monster_id"),
             f"{field}.target_monster_id",
         ),
-        "target_context": _optional_text(
-            item.get("target_context"),
-            f"{field}.target_context",
-        ),
+        "target_context": target_context,
         "target_hp_before": _optional_number(
             item.get("target_hp_before"),
             f"{field}.target_hp_before",
@@ -470,12 +506,28 @@ def _axis_hit(value: Any, field: str) -> dict[str, Any]:
             item.get("damage_attribute"),
             f"{field}.damage_attribute",
         ),
+        "follow_up_damage_name": _optional_text(
+            item.get("follow_up_damage_name"),
+            f"{field}.follow_up_damage_name",
+        ),
+        "follow_up_damage_component": _optional_text(
+            item.get("follow_up_damage_component"),
+            f"{field}.follow_up_damage_component",
+        ),
+        "follow_up_attack_type": _optional_text(
+            item.get("follow_up_attack_type"),
+            f"{field}.follow_up_attack_type",
+        ),
+        "follow_up_damage_attribute": _optional_text(
+            item.get("follow_up_damage_attribute"),
+            f"{field}.follow_up_damage_attribute",
+        ),
         "follow_up_labels": normalized_labels,
     }
 
 
 def parse_battle_axis(value: Any) -> dict[str, Any]:
-    """Validate one battle_axis_v1 page and normalize its hit field names."""
+    """Validate one versioned battle-axis page and normalize its hit fields."""
 
     item = _object(value, "battle axis")
     contract_version = _integer(item.get("contract_version"), "contract_version")
@@ -506,7 +558,7 @@ def parse_battle_axis(value: Any) -> dict[str, Any]:
             default=len(rows),
         ),
         "rows": [
-            _axis_hit(row, f"rows[{index}]")
+            _axis_hit(row, f"rows[{index}]", contract_version=contract_version)
             for index, row in enumerate(rows)
         ],
     }

@@ -427,7 +427,8 @@ Core shuts down; `battle.reset` ends its availability and the next battle gets
 a new ID. Passing a no-longer-available or unknown ID returns
 `BATTLE_RECORD_NOT_FOUND` instead of silently switching to the current battle.
 
-The response contract is version 1. It includes the shared `generation`,
+The response contract is version 3. Version 3 adds authoritative per-hit
+`overkill_damage`; it includes the shared `generation`,
 capture operation ID, state/source, battle bounds, clipped time-stop intervals,
 abyss markers, aggregate summary, quality counters, and axis completeness.
 `generation`, `axis_first_sequence`, and `axis_total_hits` are decimal strings
@@ -452,9 +453,12 @@ string returned by `next_cursor`. Sequence/cursor/total values are strings;
 the page also carries the same battle `generation`. Each row contains the
 bounded, redacted combat facts already held by Core, including its record ID,
 source, attribution status/reason, direction, damage/follow-up, target
-projection, skill identifiers, and abyss half; it never contains packet bytes,
-endpoints, or PCAP data. `team_snapshot_id` is explicitly null until a stable
-team snapshot is available instead of being inferred from current UI state.
+projection, skill identifiers, and abyss half. `overkill_damage` is the portion
+of primary `damage` beyond a valid `target_hp_before`; it excludes follow-up
+damage and is zero when Core has no valid target HP snapshot. Rows never contain
+packet bytes, endpoints, or PCAP data. `team_snapshot_id` is explicitly null
+until a stable team snapshot is available instead of being inferred from current
+UI state.
 
 Core retains a bounded hit window. Once earlier rows have been trimmed,
 `complete` becomes false and `first_available_cursor` identifies the first

@@ -269,7 +269,15 @@ class CombatImportMixin:
             for pack_id in sorted(self.rows[table_name]):
                 row = self.rows[table_name][pack_id]
                 self.connection.execute(
-                    "INSERT INTO enemy_combat_profile VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    """
+                    INSERT INTO enemy_combat_profile(
+                        profile_set, pack_id, defense_base, defense_up,
+                        defense_add, defense_ignore, topple_limit,
+                        topple_accrue_efficiency, topple_anti_accrue_efficiency,
+                        topple_bonus, topple_reduce_natural, topple_reduce_reset,
+                        source_row_id, health_base, health_up, health_add
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
                     (
                         profile_set, pack_id, float_value(row, "DefBase"),
                         float_value(row, "DefUp"), float_value(row, "DefAdd"),
@@ -277,7 +285,11 @@ class CombatImportMixin:
                         float_value(row, "UnbalAccrueEfficiencyBase"),
                         float_value(row, "UnbalAntiAccrueEfficiencyBase"),
                         float_value(row, "UnbaleBonus"), float_value(row, "UnbalReduceNatur"),
-                        float_value(row, "UnbalReduceReset"), self.source_row_id(table_name, pack_id),
+                        float_value(row, "UnbalReduceReset"),
+                        self.source_row_id(table_name, pack_id),
+                        float_value(row, "HPMaxBase"),
+                        float_value(row, "HPMaxUp"),
+                        float_value(row, "HPMaxAdd"),
                     ),
                 )
                 for damage_type, (resistance_field, immunity_field) in ENEMY_RESISTANCE_FIELDS.items():
@@ -288,6 +300,45 @@ class CombatImportMixin:
                             float_value(row, resistance_field), float_value(row, immunity_field),
                         ),
                     )
+
+    def _import_roguelike_modifiers(self) -> None:
+        for modifier_id in sorted(self.rows["roguelike_modify"]):
+            row = self.rows["roguelike_modify"][modifier_id]
+            conditions = row.get("ConditionArray") or []
+            modifiers = row.get("ModifyData") or []
+            if not isinstance(conditions, list) or not isinstance(modifiers, list):
+                raise StaticDatabaseError(
+                    f"RogueLike 修正配置字段不是数组：{modifier_id}"
+                )
+            self.connection.execute(
+                "INSERT INTO roguelike_modifier_profile VALUES (?,?,?)",
+                (
+                    modifier_id,
+                    canonical_json(conditions),
+                    self.source_row_id("roguelike_modify", modifier_id),
+                ),
+            )
+            for ordinal, modifier in enumerate(modifiers):
+                if not isinstance(modifier, dict):
+                    raise StaticDatabaseError(
+                        f"RogueLike 修正条目不是对象：{modifier_id}/{ordinal}"
+                    )
+                property_id = optional_text(modifier.get("PropName"))
+                if property_id is None:
+                    raise StaticDatabaseError(
+                        f"RogueLike 修正条目缺少属性：{modifier_id}/{ordinal}"
+                    )
+                self.connection.execute(
+                    "INSERT INTO roguelike_modifier_property VALUES (?,?,?,?,?,?)",
+                    (
+                        modifier_id,
+                        ordinal,
+                        property_id,
+                        optional_text(modifier.get("ModifierOp")) or "unknown",
+                        float_value(modifier, "PropValue"),
+                        optional_int(modifier.get("SortKey")) or 0,
+                    ),
+                )
 
     def _import_monster_instance_profiles(self) -> None:
         """只导入静态表中的显式绑定；FT_ 是 999 夜前缀，不用于判断 Abyss。"""
@@ -385,12 +436,14 @@ class CombatImportMixin:
                 monster_count = optional_int(monster.get("MonsterCount"))
                 if monster_level is None or monster_count is None:
                     raise StaticDatabaseError(f"Abyss 怪物缺少等级或数量：{monster_pool_id}")
+                monster_name_zh, _, _ = text_parts(monster.get("MonsterName"))
                 self.connection.execute(
-                    "INSERT INTO abyss_monster_pool_entry VALUES (?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO abyss_monster_pool_entry VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         monster_pool_id, ordinal, asset_path(monster.get("MonsterClass")),
                         monster_count, monster_level, "standard", attribute_pack_id,
                         pool_source_row_id, self.source_row_id("monster_pack", attribute_pack_id),
+                        monster_name_zh,
                     ),
                 )
 
@@ -415,6 +468,8 @@ class CombatImportMixin:
             "combat_effect_constant",
             "enemy_combat_profile",
             "enemy_element_resistance",
+            "roguelike_modifier_profile",
+            "roguelike_modifier_property",
             "monster_instance_profile",
             "monster_instance_profile_variant",
             "abyss_level",
@@ -457,7 +512,34 @@ class CombatImportMixin:
             "equipment_modify_value",
             "equipment_buff_curve",
             "equipment_buff_curve_point",
+            "combat_curve",
+            "combat_curve_point",
             "combat_effect_definition",
+            "combat_blueprint_asset",
+            "character_combat_ability_binding",
+            "combat_blueprint_reference",
+            "combat_blueprint_tag",
+            "combat_blueprint_semantic_property",
+            "combat_ability_montage_binding",
+            "combat_ability_effect_binding",
+            "combat_montage",
+            "combat_montage_section",
+            "combat_montage_notify",
+            "buff_definition",
+            "buff_modifier",
+            "buff_trigger_effect",
+            "combat_effect_buff_link",
+            "feast_stage",
+            "feast_stage_difficulty",
+            "feast_option",
+            "feast_stage_option",
+            "divination_buff",
+            "clone_activity_category",
+            "clone_activity",
+            "clone_activity_difficulty",
+            "clone_spawn_member",
+            "monster_template_binding",
+            "outer_realm_rotation",
         )
         return {
             table: int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

@@ -175,6 +175,11 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn('_append_add_data(static_database_path, "data")', source)
         self.assertIn('_append_add_data(STATIC_MIGRATION_DATA_DIR, "data/migrations")', source)
         self.assertIn('_append_add_data(shared_database_seed_path, "data")', source)
+        self.assertIn("PREVIOUS_RELEASE_DATABASE_PATH", source)
+        self.assertIn('"--reuse-database-if-missing"', source)
+        self.assertNotIn('cmd.extend(["--prompt-key", "--fallback-normal"])', source)
+        installer_source = Path("build_installer.py").read_text(encoding="utf-8")
+        self.assertIn('else:\n            build_cmd.append("--require-workshop-sync")', installer_source)
 
     def test_pyinstaller_cleanup_does_not_delete_unrelated_build_directories(self):
         source = Path("build_exe.py").read_text(encoding="utf-8")

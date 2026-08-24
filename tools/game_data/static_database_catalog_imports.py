@@ -34,6 +34,41 @@ class CatalogImportMixin:
         self._import_combat_effect_definitions()
         self._validate_fork_refinement_links()
 
+    def _import_combat_curves(self) -> None:
+        rows = list(self.character_effect_curve_rows)
+        for table, table_asset_path in (
+            ("equipment_buff_curves", "/Game/DataTable/Equipment/CT_Equipmentbuff"),
+            ("fork_buff_curves", "/Game/DataTable/Fork/CT_ForkBuff"),
+        ):
+            rows.extend(
+                (table_asset_path, str(curve_id), curve, self.source_row_id(table, curve_id))
+                for curve_id, curve in self.rows[table].items()
+            )
+        for table_asset_path, curve_id, curve, source_row_id in rows:
+            self.connection.execute(
+                "INSERT INTO combat_curve VALUES (?,?,?,?,?,?,?)",
+                (
+                    table_asset_path,
+                    curve_id,
+                    enum_tail(curve.get("InterpMode")),
+                    curve.get("DefaultValue"),
+                    enum_tail(curve.get("PreInfinityExtrap")),
+                    enum_tail(curve.get("PostInfinityExtrap")),
+                    source_row_id,
+                ),
+            )
+            for ordinal, point in enumerate(_plain_list(curve.get("Keys"))):
+                self.connection.execute(
+                    "INSERT INTO combat_curve_point VALUES (?,?,?,?,?)",
+                    (
+                        table_asset_path,
+                        curve_id,
+                        ordinal,
+                        float(point["Time"]),
+                        float(point["Value"]),
+                    ),
+                )
+
     def _import_gameplay_abilities(self) -> None:
         for ability_id in sorted(self.rows["gameplay_ability_tips"]):
             row = self.rows["gameplay_ability_tips"][ability_id]
@@ -139,9 +174,18 @@ class CatalogImportMixin:
         }
         for monster_id in sorted(self.rows["monster_manual"]):
             row = self.rows["monster_manual"][monster_id]
-            name = _localized_text(row.get("MonsterName"))
+            name, _, _ = resolved_text_parts(self.rows, row.get("MonsterName"))
             if name is None:
                 raise StaticDatabaseError(f"怪物手册缺少名称：{monster_id}")
+            place, _, _ = resolved_text_parts(self.rows, row.get("EnemyPlace"))
+            discovered, _, _ = resolved_text_parts(
+                self.rows,
+                row.get("DiscoveredDesc"),
+            )
+            undiscovered, _, _ = resolved_text_parts(
+                self.rows,
+                row.get("UndiscoveredDesc"),
+            )
             self.connection.execute(
                 "INSERT INTO monster_catalog VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -151,9 +195,9 @@ class CatalogImportMixin:
                     enum_tail(row.get("EnemyType")),
                     asset_path(row.get("EnemyImage")),
                     asset_path(row.get("EnemyWorldImage")),
-                    _localized_text(row.get("EnemyPlace")),
-                    _localized_text(row.get("DiscoveredDesc")),
-                    _localized_text(row.get("UndiscoveredDesc")),
+                    place,
+                    discovered,
+                    undiscovered,
                     optional_text(row.get("DropID")),
                     optional_int(row.get("StaminaNum")),
                     enum_tail(row.get("TraceType")),

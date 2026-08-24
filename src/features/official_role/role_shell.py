@@ -183,7 +183,7 @@ def _reset_current_role(window) -> None:
     answer = QMessageBox.question(
         window,
         "重置当前角色",
-        "将当前角色的等级、觉醒、技能和弧盘恢复为公共模板。\n额外形状与账号基础权重不会重置，是否继续？",
+        "将当前角色的等级、觉醒、技能和弧盘恢复为公共模板。\n官方额外形状始终读取静态库，账号基础权重不会重置，是否继续？",
         QMessageBox.Yes | QMessageBox.Cancel,
         QMessageBox.Cancel,
     )
@@ -202,7 +202,7 @@ def _reset_all_roles(window) -> None:
     answer = QMessageBox.question(
         window,
         "重置全部角色",
-        "将当前账号所有角色的等级、觉醒、技能和弧盘恢复为公共模板。\n额外形状与账号基础权重不会重置，是否继续？",
+        "将当前账号所有角色的等级、觉醒、技能和弧盘恢复为公共模板。\n官方额外形状始终读取静态库，账号基础权重不会重置，是否继续？",
         QMessageBox.Yes | QMessageBox.Cancel,
         QMessageBox.Cancel,
     )
@@ -243,11 +243,11 @@ def _page_my_role(window) -> QWidget:
     header.addWidget(search, 1)
     reset_current = QPushButton("重置当前")
     reset_current.setObjectName("btnDanger")
-    reset_current.setToolTip("将当前角色和弧盘恢复为公共模板；保留额外形状与基础权重")
+    reset_current.setToolTip("将当前角色和弧盘恢复为公共模板；官方额外形状读取静态库，保留基础权重")
     reset_current.clicked.connect(lambda: _reset_current_role(window))
     reset_all = QPushButton("重置所有")
     reset_all.setObjectName("btnDanger")
-    reset_all.setToolTip("将本账号所有角色和弧盘恢复为公共模板；保留额外形状与基础权重")
+    reset_all.setToolTip("将本账号所有角色和弧盘恢复为公共模板；官方额外形状读取静态库，保留基础权重")
     reset_all.clicked.connect(lambda: _reset_all_roles(window))
     save = QPushButton("保存")
     save.setObjectName("btnPrimary")
@@ -256,7 +256,7 @@ def _page_my_role(window) -> QWidget:
     blueprint.setToolTip("查看角色套装形状与可用图纸方案")
     blueprint.clicked.connect(lambda: window._go("blueprint"))
     base_weights = QPushButton("基础权重")
-    base_weights.setToolTip("编辑当前账号角色基础权重，以及全部账号共享的额外形状覆盖")
+    base_weights.setToolTip("编辑当前账号角色基础权重；官方额外形状只读静态库，自创角色额外形状可编辑")
     base_weights.clicked.connect(lambda: window._go("config"))
     header.addWidget(blueprint)
     header.addWidget(base_weights)

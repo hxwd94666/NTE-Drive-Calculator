@@ -140,7 +140,11 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     )
     likeability.setEnabled(bool(likeability_properties))
     if not likeability_properties:
-        likeability.setToolTip("当前静态资料未提供该角色的好感度 10 级属性。")
+        if str((detail.get("character") or {}).get("logical_character_key")) == "protagonist":
+            likeability.setText("玩家角色无好感度系统")
+            likeability.setToolTip("零是玩家自身，不提供好感度等级与十级属性加成。")
+        else:
+            likeability.setToolTip("当前静态资料未提供该角色的好感度 10 级属性。")
     right_layout.addWidget(likeability)
 
     stats_grid = QGridLayout()
@@ -371,9 +375,6 @@ def _damage_multiplier_row(
         return None
     tier = min(skill_tier_for_effective_level(effective_level), len(values) - 1)
     multiplier = float(values[tier])
-    coefficient = damage.get("modifier_atk_rate_base_coefficient")
-    if scaling_name == "攻击力" and coefficient is not None:
-        multiplier *= float(coefficient)
     return (
         str(damage.get("display_name_zh") or damage.get("damage_id") or "倍率项"),
         scaling_name,

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import threading
+import tempfile
 import unittest
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from src.domain.battle_report import BattleSummaryPersistenceOutcome
@@ -40,6 +42,7 @@ class _Core:
         self.capture_started = threading.Event()
         self.finalized = False
         self.handlers: list[Any] = []
+        self.capture_params: dict[str, Any] = {}
 
     def start(self) -> None:
         return None
@@ -50,7 +53,8 @@ class _Core:
     def remove_event_handler(self, _method: str | None, handler: Any) -> None:
         self.handlers.remove(handler)
 
-    def start_capture(self, **_kwargs: Any) -> Mapping[str, Any]:
+    def start_capture(self, **kwargs: Any) -> Mapping[str, Any]:
+        self.capture_params = dict(kwargs)
         self.capture_started.set()
         return {"started": True}
 
@@ -177,6 +181,36 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         self.assertFalse(writer.discarded)
         self.assertEqual("saved", states[-1].persistence_status)
         self.assertEqual(7, states[-1].battle_record_id)
+        self.assertEqual("disabled", core.capture_params["raw_capture"])
+
+    def test_capture_enables_raw_packets_in_the_frozen_account_directory(self) -> None:
+        core = _Core()
+        writer = _Writer()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture_directory = Path(temp_dir) / "account" / "raw_capture"
+            service = BattleCaptureService(
+                client_factory=lambda: core,
+                operation_context=OperationContext.create("battle_report"),
+                summary_writer=writer,
+                raw_capture_enabled=True,
+                raw_capture_directory=capture_directory,
+            )
+
+            service.start()
+            self.assertTrue(core.capture_started.wait(1.0))
+            service.request_stop()
+            service.close(timeout=2.0)
+
+            self.assertTrue(capture_directory.is_dir())
+            self.assertEqual("enabled", core.capture_params["raw_capture"])
+
+    def test_enabled_raw_capture_requires_an_explicit_account_directory(self) -> None:
+        with self.assertRaisesRegex(ValueError, "账号抓包目录"):
+            BattleCaptureService(
+                client_factory=_Core,
+                operation_context=OperationContext.create("battle_report"),
+                raw_capture_enabled=True,
+            )
 
 
 if __name__ == "__main__":

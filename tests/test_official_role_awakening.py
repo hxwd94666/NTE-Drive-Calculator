@@ -78,3 +78,26 @@ class OfficialRoleAwakeningTests(unittest.TestCase):
             "当前技能等级下提升至<NumGreen>110%</>。",
             render_awaken_effect_description(effect, profile, effects),
         )
+
+    def test_description_does_not_apply_ft_attack_rate_coefficient(self):
+        effects = _effects()
+        effect = {
+            "description_zh": "当前技能等级下倍率为<NumGreen>{0}%</>。",
+            "description_damage_entries": [{
+                "ability_id": "Skill",
+                "atk_rate_base": [0.439],
+                "def_rate_base": [],
+                "hp_rate_base": [],
+                "modifier_atk_rate_base_coefficient": 0.9,
+            }],
+        }
+        profile = {
+            "skill_levels": {"Skill": 1},
+            "awakening_selection_initialized": True,
+            "selected_awaken_effect_ids": [],
+        }
+
+        self.assertEqual(
+            "当前技能等级下倍率为<NumGreen>43.9%</>。",
+            render_awaken_effect_description(effect, profile, effects),
+        )

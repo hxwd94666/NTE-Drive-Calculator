@@ -112,7 +112,7 @@ def _description_damage_value(
         ("health", damage.get("hp_rate_base") or ()),
         ("defense", damage.get("def_rate_base") or ()),
     )
-    scaling, values = next(
+    _scaling, values = next(
         ((scaling, values) for scaling, values in choices if values),
         ("", ()),
     )
@@ -120,9 +120,6 @@ def _description_damage_value(
         return None
     tier = min(skill_tier_for_effective_level(effective_level), len(values) - 1)
     value = float(values[tier])
-    coefficient = damage.get("modifier_atk_rate_base_coefficient")
-    if scaling == "attack" and coefficient is not None:
-        value *= float(coefficient)
     return value * 100.0
 
 

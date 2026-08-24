@@ -1,6 +1,6 @@
 {
   "1072": {
-    "source_name": "confirmed_role_override",
+    "source_name": "preimplementation_workshop_fallback",
     "properties": [
       {"property_id": "DamageUpNatureBase", "weight": 1.25},
       {"property_id": "CritBase", "weight": 1.0},

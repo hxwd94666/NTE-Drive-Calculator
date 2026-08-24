@@ -5,9 +5,12 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +34,15 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "017_game_static_combat_catalog.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "018_game_static_character_likeability.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "019_game_static_combat_blueprint.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "020_game_static_buff_definition.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "021_game_static_buff_modifier_scope.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "022_game_static_encounter_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "023_game_static_encounter_activity.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "024_game_static_encounter_rotation.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "025_game_static_encounter_lookup_indexes.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "026_game_static_outer_realm_buff.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "027_game_static_abyss_monster_name.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -48,6 +60,106 @@ def load_builder_module():
 
 
 class StaticGameDatabaseTests(unittest.TestCase):
+    def test_rebuild_backs_up_the_existing_release_database_first(self):
+        module = load_builder_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "game_static.sqlite3"
+            backup = root / "build" / "previous" / "data" / output.name
+            output.parent.mkdir(parents=True)
+            with closing(sqlite3.connect(output)) as connection:
+                connection.execute(
+                    "CREATE TABLE character_weight_recommendation(source_kind TEXT)"
+                )
+                connection.execute(
+                    "INSERT INTO character_weight_recommendation VALUES ('workshop_api')"
+                )
+                connection.commit()
+
+            module.backup_existing_release_database(output, backup)
+
+            with closing(sqlite3.connect(backup)) as connection:
+                source_kind = connection.execute(
+                    "SELECT source_kind FROM character_weight_recommendation"
+                ).fetchone()[0]
+            self.assertEqual("workshop_api", source_kind)
+
+    def test_unsynchronized_rebuild_does_not_overwrite_valid_release_backup(self):
+        module = load_builder_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "data" / "game_static.sqlite3"
+            backup = root / "build" / "previous" / "data" / output.name
+            output.parent.mkdir(parents=True)
+            backup.parent.mkdir(parents=True)
+            backup.write_bytes(b"valid-previous-release")
+            with closing(sqlite3.connect(output)) as connection:
+                connection.execute(
+                    "CREATE TABLE character_weight_recommendation(source_kind TEXT)"
+                )
+                connection.execute(
+                    "INSERT INTO character_weight_recommendation VALUES ('default')"
+                )
+                connection.commit()
+
+            module.backup_existing_release_database(output, backup)
+
+            self.assertEqual(b"valid-previous-release", backup.read_bytes())
+
+    def test_new_role_likeability_bonuses_follow_actor_identity(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            rows = connection.execute(
+                """
+                SELECT bonus.character_id, property.property_id, property.value
+                FROM character_likeability_bonus AS bonus
+                JOIN character_likeability_bonus_property AS property
+                  USING (character_id)
+                WHERE bonus.character_id IN (1046, 1051, 1052, 1054, 1055)
+                ORDER BY bonus.character_id, property.ordinal
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            [
+                (1052, "CritBase", 0.04),
+                (1054, "AtkUp", 0.05),
+                (1055, "AtkUp", 0.05),
+            ],
+            rows,
+        )
+
+    def test_lacrimosa_nightmare_applications_use_official_static_curves(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            rows = connection.execute(
+                """
+                SELECT curve_id, GROUP_CONCAT(value, ',')
+                FROM combat_curve
+                JOIN combat_curve_point USING (curve_table_asset_path, curve_id)
+                WHERE curve_table_asset_path = '/Game/DataTable/Skill/'
+                    || 'GlobalCharacterData/DT_GlobalValueLacrimosaData'
+                  AND curve_id IN (
+                    'Lacrimosa_Skilldotnum_1',
+                    'Lacrimosa_UltraSkilldotnum_1'
+                  )
+                GROUP BY curve_id
+                ORDER BY curve_id
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            [
+                ("Lacrimosa_Skilldotnum_1", "5.0,5.0"),
+                ("Lacrimosa_UltraSkilldotnum_1", "5.0,5.0"),
+            ],
+            rows,
+        )
+
     def test_lingke_uses_nature_ordered_fallback_and_official_first_fork(self):
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
         try:
@@ -85,7 +197,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
                 "ECharacterElementType::CHARACTER_ELEMENT_TYPE_NATURE",
                 "ECharacterGroupType::CHARACTER_GROUP_TYPE_THREE",
                 "default",
-                "confirmed_role_override",
+                "preimplementation_workshop_fallback",
                 "fork_GoldRecord",
             ),
             role,
@@ -125,27 +237,48 @@ class StaticGameDatabaseTests(unittest.TestCase):
             row,
         )
 
-    def test_release_shape_defaults_can_seed_a_rebuilt_database(self):
-        from tools.game_data.build_graduation_templates import (
-            populate_logical_character_shape_bonuses,
-        )
-
+    def test_official_slot_relations_import_character_shape_bonus(self):
         with tempfile.TemporaryDirectory() as directory:
-            release_database = Path(directory) / "release.sqlite3"
             rebuilt_database = Path(directory) / "rebuilt.sqlite3"
-            shutil.copy2(PROJECT_DATABASE_PATH, release_database)
             shutil.copy2(PROJECT_DATABASE_PATH, rebuilt_database)
             connection = sqlite3.connect(rebuilt_database)
             try:
-                count = populate_logical_character_shape_bonuses(
-                    connection,
-                    config_dir=PROJECT_ROOT / "config",
-                    release_defaults_database=release_database,
-                )
-                protagonist = connection.execute(
-                    """SELECT shape_label, shape_grid_count
-                       FROM logical_character_shape_bonus
-                       WHERE logical_character_key = 'protagonist'"""
+                connection.execute("DELETE FROM logical_character_shape_bonus_property")
+                connection.execute("DELETE FROM logical_character_shape_bonus")
+                module = load_builder_module()
+                builder = module.StaticDatabaseBuilder.__new__(module.StaticDatabaseBuilder)
+                builder.connection = connection
+                builder.rows = {
+                    "character": {
+                        "1075": {"ElementData": {
+                            "EquipmentSlotID": "EquipmentSlots_oneiroi",
+                        }},
+                    },
+                    "character_equipment_slots": {
+                        "EquipmentSlots_oneiroi": {
+                            "OwnerGridCount": 3,
+                            "ModifyPropID": "SlotsEffect_oneiroi",
+                        },
+                    },
+                    "equipment_slot_modify": {
+                        "SlotsEffect_oneiroi": {
+                            "ConditionArray": [],
+                            "ModifyData": [{
+                                "PropName": "AtkUp",
+                                "PropValue": 0.1,
+                                "ModifierOp": "EModifyModOp::MODIFY_MODOP_ADDITIVE",
+                            }],
+                        },
+                    },
+                }
+                builder._import_official_character_shape_bonuses()
+                oneiroi = connection.execute(
+                    """SELECT b.shape_label, b.shape_grid_count,
+                              p.property_id, p.display_value, b.source_kind
+                       FROM logical_character_shape_bonus AS b
+                       JOIN logical_character_shape_bonus_property AS p
+                         USING (logical_character_key)
+                       WHERE b.logical_character_key = 'character:1075'"""
                 ).fetchone()
                 violations = connection.execute(
                     "PRAGMA foreign_key_check"
@@ -153,15 +286,22 @@ class StaticGameDatabaseTests(unittest.TestCase):
             finally:
                 connection.close()
 
-        self.assertGreater(count, 0)
-        self.assertEqual(("Type-3", 3), protagonist)
+        self.assertEqual(
+            ("Type-3", 3, "AtkUp", 10.0, "official_role_profile"),
+            oneiroi,
+        )
         self.assertEqual([], violations)
 
     def test_split_character_importer_uses_public_show_time_helper(self):
+        from tools.game_data.static_database_character_imports import (
+            _player_variant_id,
+        )
+
         module = load_builder_module()
 
         self.assertTrue(callable(module.show_time))
         self.assertIn("show_time", module.CharacterImportMixin._import_characters.__code__.co_names)
+        self.assertIsNone(_player_variant_id({"AssetPathName": "None"}))
 
     def test_legacy_calculation_catalog_uses_sqlite_not_legacy_set_json(self):
         """The old calculation UI may retain its solver, but not JSON static data."""
@@ -222,13 +362,11 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertEqual(target_suit["name_zh"], role["default_set"])
         self.assertEqual(20, sum(cell == 0 for row in catalog.board_matrices["第二步自建角色"] for cell in row))
 
-    def test_legacy_calculation_catalog_uses_public_shape_bonus_rule(self):
-        from src.services.character_shape_bonus_service import (
-            save_public_character_shape_bonus,
-        )
+    def test_legacy_calculation_catalog_ignores_public_shape_override(self):
         from src.services.legacy_allocation_static_catalog import (
             build_legacy_allocation_static_catalog,
         )
+        from src.storage.sqlite.shared_data_dao import SharedDataDao
         from src.storage.sqlite.user_data_dao import UserDataDao
 
         with tempfile.TemporaryDirectory() as directory:
@@ -245,23 +383,32 @@ class StaticGameDatabaseTests(unittest.TestCase):
                     "NTE_APP_SHARED_DB": str(shared_database),
                 },
             ):
-                save_public_character_shape_bonus(
-                    1051,
-                    shape_label="Type-4",
-                    property_values={"CritBase": 8.0},
-                )
+                with StaticGameDataDao(static_database) as static_dao:
+                    expected = static_dao.get_character_shape_bonus(1051)
+                    logical_key = static_dao.get_logical_character_key(1051)
+                with SharedDataDao(shared_database) as shared_dao:
+                    shared_dao.upsert_shape_bonus_override(
+                        logical_key,
+                        representative_character_id=1051,
+                        shape_label="Type-4",
+                        shape_grid_count=4,
+                        properties=[{
+                            "property_id": "CritBase",
+                            "display_value": 8.0,
+                        }],
+                        based_on_dataset_id="legacy-fixture",
+                    )
                 catalog = build_legacy_allocation_static_catalog(
                     config_dir=PROJECT_ROOT / "config",
                     user_database_path=database,
                 )
 
-        self.assertEqual("Type-4", catalog.roles_db["「零」"]["extra_shape_label"])
-        self.assertEqual(
-            {"暴击率%": 8.0},
-            catalog.roles_db["「零」"]["extra_shape_buffs"],
+        self.assertEqual(expected["shape_label"], catalog.roles_db["「零」"]["extra_shape_label"])
+        self.assertNotEqual(
+            {"暴击率%": 8.0}, catalog.roles_db["「零」"]["extra_shape_buffs"]
         )
 
-    def test_weight_page_saves_shape_bonus_to_public_static_database(self):
+    def test_weight_page_rejects_official_shape_bonus_edit(self):
         from src.features.configuration import page as configuration_page
         from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -304,7 +451,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             )
             window._load_data = lambda: setattr(window, "reloaded", True)
             with patch.object(configuration_page.QMessageBox, "information"), \
-                 patch.object(configuration_page.QMessageBox, "warning"):
+                 patch.object(configuration_page.QMessageBox, "warning") as warning:
                 configuration_page.save_config_form(window, PROJECT_ROOT / "config", None)
             with UserDataDao(database) as user_dao:
                 weights = user_dao.get_character_weight_preferences(1051)
@@ -315,13 +462,10 @@ class StaticGameDatabaseTests(unittest.TestCase):
                     shared_database_path=shared_database,
                 )
 
-        self.assertTrue(window.reloaded)
-        self.assertEqual({"CritBase": 1.25}, weights["property_weights"])
-        self.assertEqual("Type-2", shape_bonus["shape_label"])
-        self.assertEqual(
-            [("AtkUp", 15.0)],
-            [(row["property_id"], row["display_value"]) for row in shape_bonus["properties"]],
-        )
+        self.assertFalse(window.reloaded)
+        self.assertIsNone(weights)
+        self.assertNotEqual("Type-2", shape_bonus["shape_label"])
+        warning.assert_called_once()
 
     def test_checked_in_distribution_database_has_no_source_payloads(self):
         self.assertTrue(PROJECT_DATABASE_PATH.is_file())
@@ -370,7 +514,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(18, schema_version)
+        self.assertEqual(27, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         # The role-template DAO adds official ID 1051 as the default avatar
@@ -381,6 +525,32 @@ class StaticGameDatabaseTests(unittest.TestCase):
         )
         self.assertEqual(0, absolute_path_count)
         self.assertEqual([], violations)
+
+    def test_latest_outer_realm_buffs_keep_official_components(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            rows = connection.execute(
+                """
+                SELECT b.level_config_id, b.buff_name_zh, c.trigger_kind,
+                       c.property_id, c.property_value, c.duration_seconds,
+                       c.trigger_cooldown_seconds, c.stack_limit_count
+                FROM outer_realm_season_buff AS b
+                JOIN outer_realm_season_buff_component AS c USING (level_config_id)
+                ORDER BY b.level_config_id, c.component_ordinal
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            [
+                ("Abyss_8", "炽火灼痕", "corruption_damage_stack", "CritDamageBase", 0.06, 6.0, 1.0, 8),
+                ("Abyss_8", "炽火灼痕", "while_target_toppled", "DamageUpGeneralBase", 0.25, None, None, 1),
+                ("Abyss_9", "飘摇残响", "whole_battle", "DamageUpNatureBase", 0.45, None, None, 1),
+                ("Abyss_9", "飘摇残响", "whole_battle", "DamageUpIncantationBase", 0.45, None, None, 1),
+            ],
+            rows,
+        )
 
     def test_combat_transformations_do_not_get_independent_growth_or_skills(self):
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
@@ -426,10 +596,70 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("character_skill", tables)
         self.assertIn("skill_damage", tables)
         self.assertIn("enemy_combat_profile", tables)
+        self.assertIn("roguelike_modifier_profile", tables)
+        self.assertIn("buff_definition", tables)
         self.assertIn("monster_instance_profile", tables)
         self.assertIn("abyss_level_monster_spawn", tables)
         self.assertIn("character_weight_recommendation", tables)
         self.assertIn("character_weight_recommendation_property", tables)
+        self.assertIn("feast_stage", tables)
+        self.assertIn("feast_option", tables)
+        self.assertIn("divination_buff", tables)
+        self.assertIn("clone_activity_category", tables)
+        self.assertIn("clone_activity", tables)
+        self.assertIn("clone_activity_difficulty", tables)
+        self.assertIn("clone_spawn_member", tables)
+        self.assertIn("monster_template_binding", tables)
+        self.assertIn("outer_realm_rotation", tables)
+
+    def test_checked_in_encounter_catalog_is_complete(self):
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            counts = {
+                table: connection.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()[0]
+                for table in (
+                    "feast_stage",
+                    "feast_stage_difficulty",
+                    "feast_option",
+                    "divination_buff",
+                    "clone_activity_category",
+                    "clone_activity",
+                    "clone_activity_difficulty",
+                    "clone_spawn_member",
+                    "monster_template_binding",
+                    "outer_realm_rotation",
+                )
+            }
+        finally:
+            connection.close()
+
+        self.assertEqual(8, counts["feast_stage"])
+        self.assertEqual(32, counts["feast_stage_difficulty"])
+        self.assertEqual(54, counts["feast_option"])
+        self.assertEqual(7, counts["divination_buff"])
+        self.assertEqual(7, counts["clone_activity_category"])
+        self.assertEqual(56, counts["clone_activity"])
+        self.assertGreater(counts["clone_activity_difficulty"], 0)
+        self.assertGreater(counts["clone_spawn_member"], 0)
+        self.assertGreater(counts["monster_template_binding"], 0)
+        self.assertGreater(counts["outer_realm_rotation"], 0)
+
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            unlimited_count = connection.execute(
+                "SELECT COUNT(*) FROM clone_activity_difficulty "
+                "WHERE kill_monster_time_limit IS NULL"
+            ).fetchone()[0]
+            inference_rotation_count = connection.execute(
+                "SELECT COUNT(*) FROM outer_realm_rotation "
+                "WHERE inference_ordinal IS NOT NULL"
+            ).fetchone()[0]
+        finally:
+            connection.close()
+        self.assertGreater(unlimited_count, 0)
+        self.assertEqual(2, inference_rotation_count)
 
     def test_schema_uses_source_shape_ids_without_legacy_aliases(self):
         schema = "\n".join(path.read_text(encoding="utf-8") for path in SCHEMA_PATHS)

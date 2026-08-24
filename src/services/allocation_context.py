@@ -438,9 +438,9 @@ def _allocation_role_values(
     else:
         weights = {}
         main_weights = {}
-    # Account-created roles deliberately do not resolve the public shared DB:
-    # their chassis and extra-shape settings are account-private calculation
-    # inputs. Official roles alone use the release-supplied shared override.
+    # Account-created roles own account-private chassis/shape settings. Official
+    # roles resolve the immutable release-static rule; the compatibility
+    # shared-database argument cannot override it.
     is_custom_role = bool(user_dao.list_custom_character_board_cells(character_id))
     shape_bonus = (
         user_dao.get_custom_character_shape_bonus(character_id)

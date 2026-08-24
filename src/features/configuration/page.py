@@ -22,6 +22,7 @@ from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, match_pinyin
 from src.app.theme import themed_style
 from src.features.configuration.controller import BasicWeightController
 from src.features.configuration.dependencies import BasicWeightDependencies
+from src.features.configuration.shape_display import official_shape_display_rows
 
 
 _ACCOUNT_WEIGHT_CONFIG = "account_weights"
@@ -212,11 +213,7 @@ def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
     role_data["extra_shape_label"] = current_label
     value.setCurrentText(current_label)
     value.setPlaceholderText("选择额外形状标签")
-    ownership = (
-        "点击“保存”后写入当前账号的自建角色数据。"
-        if role_data.get("is_custom")
-        else "点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。"
-    )
+    ownership = "点击“保存”后写入当前账号的自建角色数据。"
     value.setToolTip(f"选择额外形状标签；{ownership}")
     value.currentTextChanged.connect(
         lambda text, rn=role_name: save_extra_shape_label(window, rn, text, data)
@@ -244,11 +241,7 @@ def _add_extra_shape_buff_row(
         property_combo.addItem(str(label), str(property_id))
     selected_index = property_combo.findData(str(selected_property))
     property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
-    ownership = (
-        "点击“保存”后写入当前账号的自建角色数据。"
-        if role_data.get("is_custom")
-        else "点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。"
-    )
+    ownership = "点击“保存”后写入当前账号的自建角色数据。"
     property_combo.setToolTip(f"选择额外形状提供的属性；{ownership}")
     row.addWidget(property_combo, 1)
     value_spin = NoWheelDoubleSpinBox()
@@ -433,11 +426,7 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
         f"（初始来源：{role_data.get('source_kind') or 'default'}）"
     )
     if not role_data.get("is_custom"):
-        source_text += "\n额外形状：全部账号共用 · " + (
-            "本机覆盖"
-            if role_data.get("shape_bonus_source") == "shared_override"
-            else "发行默认"
-        )
+        source_text += "\n额外形状：发行静态资源库 · 只读"
     source = QLabel(source_text)
     source.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     form_layout.addWidget(source)
@@ -459,10 +448,8 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
         )
         _add_custom_board(window, role_name, role_data, form_layout)
     else:
-        _add_extra_shape_row(window, data, role_name, role_data, form_layout)
-        _add_extra_shape_buff_row(
-            window, data, role_name, role_data, form_layout, rebuild_all_tabs,
-        )
+        for label, widget in official_shape_display_rows(window, role_data):
+            _field(label, widget, form_layout)
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "卡带主词条权重", "main_weights", "+ 添加主词条")
     _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
     form_layout.addStretch()
@@ -553,6 +540,8 @@ def add_weight(window, rn, data, cb, config_dir, weight_field="weights"):
 
 
 def _mark_shape_bonus_dirty(window, role_data):
+    if not role_data.get("is_custom"):
+        return
     if getattr(window, "_current_config_name", "") != _ACCOUNT_WEIGHT_CONFIG:
         return
     window._config_dirty_shape_bonus_ids.add(int(role_data["character_id"]))
@@ -560,6 +549,8 @@ def _mark_shape_bonus_dirty(window, role_data):
 
 def save_extra_shape_label(window, rn, value, data):
     if rn not in data:
+        return
+    if not data[rn].get("is_custom"):
         return
     normalized = str(value or "").strip()
     if data[rn].get("extra_shape_label", "") == normalized:
@@ -621,6 +612,8 @@ def delete_custom_role(window, role_name, role_data, rebuild_all_tabs):
 def save_single_extra_shape_bonus(window, rn, property_id, value, data):
     """Stage the sole account-level extra-shape bonus until Save is clicked."""
     if rn not in data:
+        return
+    if not data[rn].get("is_custom"):
         return
     normalized_property = str(property_id or "")
     normalized_value = round(float(value), 3)
@@ -695,7 +688,7 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     QMessageBox.information(
         window,
         "保存",
-        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到本机公共覆盖库，所有账号共用。",
+        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；自创角色额外形状已保存，官方角色额外形状保持静态资源库值。",
     )
 
 

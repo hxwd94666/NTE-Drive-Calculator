@@ -39,6 +39,7 @@ MOD_LOADER_ENV = "NTE_MOD_LOADER_EXE"
 LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
 STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
 STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"
+PREVIOUS_RELEASE_DATABASE_PATH = BUILD / "previous" / "data" / "game_static.sqlite3"
 STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"
 SHARED_DATABASE_SEED_PATH = ROOT / "data" / "app_shared.sqlite3"
 MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"
@@ -75,20 +76,20 @@ skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode()
 
 def _sync_workshop_weights_before_build() -> None:
     if skip_workshop_sync:
-        build_cli.skip("普通模式：不更新异环工坊权重")
+        build_cli.skip("开发诊断：跳过异环工坊权重发布门禁")
         return
     cmd = [
         sys.executable,
         str(ROOT / "tools" / "game_data" / "sync_recommended_weights.py"),
         "--database", str(STATIC_DATABASE_PATH),
         "--manifest", str(STATIC_MANIFEST_PATH),
+        "--reuse-database-if-missing", str(PREVIOUS_RELEASE_DATABASE_PATH),
     ]
-    if require_workshop_sync:
-        cmd.extend(["--prompt-key", "--fallback-normal"])
-    elif "--prompt-workshop-key" in sys.argv:
+    if (
+        "--prompt-workshop-key" in sys.argv
+        or (require_workshop_sync and "--require-workshop-sync" not in sys.argv)
+    ):
         cmd.append("--prompt-key")
-    else:
-        cmd.append("--optional")
     build_cli.run(cmd, ROOT)
 
 

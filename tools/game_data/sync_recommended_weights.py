@@ -56,7 +56,6 @@ def resolve_api_key(
     env_file: Path,
     *,
     prompt_when_missing: bool = False,
-    allow_normal_fallback: bool = False,
 ) -> tuple[str, str]:
     """Resolve only the build-time API key; no user config is read or written."""
 
@@ -67,8 +66,6 @@ def resolve_api_key(
             return value.strip(), ".env"
     if not prompt_when_missing:
         return "", ""
-    if allow_normal_fallback and build_cli.choose_missing_api_key_action() != "manual":
-        return "", "normal"
     value = getpass.getpass("请输入 WORKSHOP_API_KEY（输入内容不会显示）: ").strip()
     return (value, "manual") if value else ("", "")
 
@@ -120,7 +117,14 @@ def _install_database_candidate(
                 raise RuntimeError(f"静态数据库在线写入完整性检查失败：{integrity}")
             if violations:
                 raise RuntimeError(f"静态数据库在线写入外键检查失败：{violations[:3]}")
-    candidate_path.unlink(missing_ok=True)
+    try:
+        candidate_path.unlink(missing_ok=True)
+    except OSError as exc:
+        # Windows 可能在在线 backup 已提交后仍短暂占用候选文件。
+        # 数据库已完成完整性/外键检查，此时不能把清理失败误报为迁移失败；
+        # 临时文件使用隐藏前缀且会在后续维护时清理。
+        if not _is_windows_sharing_error(exc):
+            raise
     return "online_backup"
 
 
@@ -340,6 +344,10 @@ def reuse_static_database_recommendations(
                 )
                 if int(row["character_id"]) in character_ids
             }
+            if not reusable_rows:
+                raise RuntimeError(
+                    "发行备份不含 workshop_api/workshop_cache 权重，不能作为发布回退"
+                )
             reusable_properties: dict[int, list[dict]] = {}
             for row in source.execute(
                 """
@@ -436,15 +444,20 @@ def main() -> int:
     parser.add_argument("--config-dir", type=Path, default=ROOT / "config")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument("--manifest", type=Path)
-    parser.add_argument("--optional", action="store_true")
     parser.add_argument("--prompt-key", action="store_true")
-    parser.add_argument("--fallback-normal", action="store_true")
     parser.add_argument(
         "--reuse-database",
         type=Path,
         help="离线沿用上一发行库中带来源的工坊权重，缺失角色保留新回退",
     )
+    parser.add_argument(
+        "--reuse-database-if-missing",
+        type=Path,
+        help="没有 API Key 时自动沿用该发行备份；备份不存在则失败",
+    )
     args = parser.parse_args()
+    if args.reuse_database is not None and args.reuse_database_if_missing is not None:
+        parser.error("--reuse-database 与 --reuse-database-if-missing 不能同时使用")
     if args.reuse_database is not None:
         try:
             manifest_path = args.manifest
@@ -472,16 +485,33 @@ def main() -> int:
     api_key, source = resolve_api_key(
         args.env_file,
         prompt_when_missing=args.prompt_key,
-        allow_normal_fallback=args.fallback_normal,
     )
     if not api_key:
-        if source == "normal":
-            build_cli.skip("已进入普通模式：不更新静态角色权重。")
+        if args.reuse_database_if_missing is not None:
+            try:
+                manifest_path = args.manifest
+                adjacent_manifest = args.database.expanduser().resolve().with_name(
+                    "manifest.json"
+                )
+                if manifest_path is None and adjacent_manifest.is_file():
+                    manifest_path = adjacent_manifest
+                summary = reuse_static_database_recommendations(
+                    args.database,
+                    args.reuse_database_if_missing,
+                    config_dir=args.config_dir,
+                    manifest_path=manifest_path,
+                )
+            except Exception as exc:
+                build_cli.fail(f"缺少 API Key，且沿用发行备份失败：{exc}")
+                return 1
+            build_cli.ok(
+                "未配置 API Key，已沿用发行备份权重"
+                f"（工坊={summary['reused_count']}，新回退={summary['default_count']}，"
+                f"词条={summary['property_count']}，毕业模板={summary['graduation_count']}，"
+                f"写入={summary['install_mode']}）"
+            )
             return 0
         message = "缺少 WORKSHOP_API_KEY；开发发布前请写入 .env 或手动输入。"
-        if args.optional:
-            build_cli.warn(message)
-            return 0
         build_cli.fail(message)
         return 2
     try:

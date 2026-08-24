@@ -142,18 +142,34 @@ def _matching_baseline(
         None,
     )
     if exact is not None:
-        return exact
-    compatible = [
-        baseline
-        for baseline in baselines
-        if str(baseline.get("dataset_id") or "") == legacy["dataset_id"]
-        and int(baseline.get("schema_version") or 0) == legacy["schema_version"]
-    ]
-    if len(compatible) != 1:
-        raise RuntimeError(
-            "没有与旧版静态库数据集和结构版本匹配的额外形状迁移基线"
-        )
-    return compatible[0]
+        selected = exact
+    else:
+        compatible = [
+            baseline
+            for baseline in baselines
+            if str(baseline.get("dataset_id") or "") == legacy["dataset_id"]
+            and int(baseline.get("schema_version") or 0)
+            == legacy["schema_version"]
+        ]
+        if len(compatible) != 1:
+            raise RuntimeError(
+                "没有与旧版静态库数据集和结构版本匹配的额外形状迁移基线"
+            )
+        selected = compatible[0]
+    records_from = str(selected.get("records_from_release_version") or "")
+    if not records_from:
+        return selected
+    source = next(
+        (
+            baseline
+            for baseline in baselines
+            if str(baseline.get("release_version") or "") == records_from
+        ),
+        None,
+    )
+    if source is None or not isinstance(source.get("records"), list):
+        raise RuntimeError("额外形状迁移基线引用的发行默认不存在")
+    return {**selected, "records": source["records"]}
 
 
 def migrate_legacy_static_shape_bonuses(

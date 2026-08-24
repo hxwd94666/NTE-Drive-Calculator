@@ -91,34 +91,7 @@ from src.utils.logger import (
     logger,
     set_log_dir,
 )
-from src.services.shared_data_migration_service import (
-    migrate_legacy_static_shape_bonuses,
-)
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.qt_log_sink import QtLogSink
-
-
-def _migrate_legacy_shared_shape_bonus() -> None:
-    legacy_database = APPLICATION_PATHS.app_dir / "migration" / "game_static.previous.sqlite3"
-    if not legacy_database.is_file():
-        return
-    try:
-        with StaticGameDataDao() as static_dao:
-            current_static_database = static_dao.database_path
-        migrate_legacy_static_shape_bonuses(
-            legacy_database_path=legacy_database,
-            current_static_database_path=current_static_database,
-            shared_database_path=APPLICATION_PATHS.shared_database_path,
-            baseline_path=(
-                APPLICATION_PATHS.root
-                / "data"
-                / "migrations"
-                / "shape_bonus_defaults_2.0.2.json"
-            ),
-            operation_context=OperationContext.create("database_migration"),
-        )
-    except Exception:
-        logger.warning("旧版公共额外形状迁移失败；备份已保留且新版静态库未修改")
 
 
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
@@ -153,7 +126,6 @@ APP_CONTEXT = AppContext(
 GLOBAL_THEME_SETTINGS = GlobalThemeSettingsService(
     APPLICATION_PATHS.global_ui_preferences_file
 )
-_migrate_legacy_shared_shape_bonus()
 from src.features.inventory.warehouse import configure_warehouse_view_template_roots
 
 configure_warehouse_view_template_roots(

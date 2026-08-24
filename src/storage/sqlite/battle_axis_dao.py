@@ -1,11 +1,7 @@
 # 持久化 nte-core 逐击证据，并在战后物化游戏当前角色配装。
-"""Account-owned battle-axis staging and build-snapshot persistence."""
-
 from __future__ import annotations
 
 import hashlib
-import json
-import math
 import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -17,16 +13,16 @@ from .user_data_support import (
     _decoded,
     _integer,
     _json,
+    _json_object,
+    _microseconds,
     _utc_now,
 )
-
 
 def _required_text(value: Any, label: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
         raise UserDataValidationError(f"{label} 不能为空")
     return normalized
-
 
 def _optional_text(value: Any) -> str | None:
     if value is None:
@@ -39,30 +35,6 @@ def _optional_integer(value: Any, label: str) -> int | None:
     if value is None:
         return None
     return _integer(value, label, minimum=0)
-
-
-def _microseconds(value: Any, label: str) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise UserDataValidationError(f"{label} 必须是数字")
-    normalized = float(value)
-    if not math.isfinite(normalized):
-        raise UserDataValidationError(f"{label} 必须是有限数字")
-    return int(round(normalized * 1_000_000.0))
-
-
-def _json_object(value: Mapping[str, Any], label: str) -> str:
-    try:
-        return json.dumps(
-            dict(value),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-            allow_nan=False,
-        )
-    except (TypeError, ValueError) as error:
-        raise UserDataValidationError(f"{label} 无法序列化") from error
 
 
 class BattleAxisDaoMixin(UserDataDaoMixinHost):
@@ -227,11 +199,29 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             raise UserDataValidationError("hit.sequence 必须是十进制字符串") from error
         if sequence_order < 0:
             raise UserDataValidationError("hit.sequence 不能为负数")
+        character_known = bool(hit.get("character_known", False))
+        raw_character_id = _optional_integer(
+            hit.get("character_id"),
+            "hit.character_id",
+        )
+        if character_known and not raw_character_id:
+            raise UserDataValidationError("已归因逐击必须提供正角色 ID")
+        character_id = raw_character_id if character_known and raw_character_id else None
         labels = hit.get("follow_up_labels") or []
         if not isinstance(labels, Sequence) or isinstance(
             labels, (str, bytes, bytearray)
         ):
             raise UserDataValidationError("hit.follow_up_labels 必须是数组")
+        target_context = hit.get("target_context") or []
+        if isinstance(target_context, str):
+            target_context = [target_context] if target_context.strip() else []
+        if not isinstance(target_context, Sequence) or isinstance(
+            target_context, (bytes, bytearray)
+        ):
+            raise UserDataValidationError("hit.target_context 必须是数组")
+        normalized_context = [
+            str(value) for value in target_context if str(value).strip()
+        ]
         cursor = connection.execute(
             """
             INSERT OR IGNORE INTO battle_hit_evidence(
@@ -245,9 +235,12 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 target_hp_before, target_hp_after, target_max_hp,
                 target_hp_percent, gameplay_effect_index, gameplay_effect_name,
                 ability_name, damage_name, damage_component, attack_type,
-                damage_attribute, follow_up_labels_json, raw_hit_json
+                damage_attribute, follow_up_labels_json, raw_hit_json,
+                target_context_json, follow_up_damage_name,
+                follow_up_damage_component, follow_up_attack_type,
+                follow_up_damage_attribute
             ) VALUES (
-                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
             )
             """,
             (
@@ -260,9 +253,9 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     "hit.relative_time_seconds",
                 ),
                 _optional_text(hit.get("abyss_half")),
-                _optional_integer(hit.get("character_id"), "hit.character_id"),
+                character_id,
                 _optional_text(hit.get("character_name")),
-                int(bool(hit.get("character_known", False))),
+                int(character_known),
                 _optional_text(hit.get("character_source")),
                 _optional_text(hit.get("attribution_status")),
                 _optional_text(hit.get("attribution_source")),
@@ -281,7 +274,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 _optional_text(hit.get("target_name_en")),
                 _optional_text(hit.get("target_name_ja")),
                 _optional_text(hit.get("target_monster_id")),
-                _optional_text(hit.get("target_context")),
+                " · ".join(normalized_context) or None,
                 hit.get("target_hp_before"),
                 hit.get("target_hp_after"),
                 hit.get("target_max_hp"),
@@ -298,6 +291,11 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 _optional_text(hit.get("damage_attribute")),
                 _json(list(labels)),
                 _json_object(hit, "hit"),
+                _json(normalized_context),
+                _optional_text(hit.get("follow_up_damage_name")),
+                _optional_text(hit.get("follow_up_damage_component")),
+                _optional_text(hit.get("follow_up_attack_type")),
+                _optional_text(hit.get("follow_up_damage_attribute")),
             ),
         )
         return max(0, int(cursor.rowcount))
@@ -309,10 +307,13 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         battle_record_id: int,
         record: Mapping[str, Any] | None,
         observed_characters: Mapping[int, str],
-        source_inventory_snapshot_id: int,
+        source_inventory_snapshot_id: int | None,
         static_dataset_id: str | None,
         static_schema_version: int,
         character_profiles: Mapping[int, Mapping[str, Any]],
+        character_stat_snapshots: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+        formula_model_version: str = "battle-counterfactual-v3",
+        name_mapping_version: str = "gameplay-effect-semantics-v1",
         finalized_at_utc: str,
     ) -> dict[str, Any]:
         operation_id = _required_text(capture_operation_id, "capture_operation_id")
@@ -346,22 +347,27 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     ),
                 }
             capture_id = int(capture["capture_id"])
-            snapshot_id = _integer(
-                source_inventory_snapshot_id,
-                "source_inventory_snapshot_id",
-                minimum=1,
+            snapshot_id = (
+                None
+                if source_inventory_snapshot_id is None
+                else _integer(
+                    source_inventory_snapshot_id,
+                    "source_inventory_snapshot_id",
+                    minimum=1,
+                )
             )
-            snapshot = connection.execute(
-                """
-                SELECT source, complete
-                FROM inventory_snapshot WHERE snapshot_id = ?
-                """,
-                (snapshot_id,),
-            ).fetchone()
-            if snapshot is None:
-                raise UserDataValidationError("战后游戏当前背包快照不存在")
-            if str(snapshot["source"]) != "nte_core" or not bool(snapshot["complete"]):
-                raise UserDataValidationError("战报只能保存完整的游戏原生背包快照")
+            if snapshot_id is not None:
+                snapshot = connection.execute(
+                    """
+                    SELECT source, complete
+                    FROM inventory_snapshot WHERE snapshot_id = ?
+                    """,
+                    (snapshot_id,),
+                ).fetchone()
+                if snapshot is None:
+                    raise UserDataValidationError("战后游戏当前背包快照不存在")
+                if str(snapshot["source"]) != "nte_core" or not bool(snapshot["complete"]):
+                    raise UserDataValidationError("战报只能保存完整的游戏原生背包快照")
             observed = {
                 int(character_id): str(name or "")
                 for character_id, name in observed_characters.items()
@@ -370,7 +376,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 """
                 SELECT character_id, MAX(COALESCE(character_name, '')) AS name
                 FROM battle_hit_evidence
-                WHERE capture_id = ? AND character_id IS NOT NULL
+                WHERE capture_id = ? AND character_id > 0 AND character_known = 1
                 GROUP BY character_id
                 """,
                 (capture_id,),
@@ -394,8 +400,9 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     battle_record_id, source_inventory_snapshot_id,
                     account_generation, static_dataset_id, static_schema_version,
                     profile_schema_version, observed_character_count,
-                    materialized_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    materialized_at_utc, formula_model_version,
+                    name_mapping_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id,
@@ -410,6 +417,8 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     1,
                     len(selected_profiles),
                     finalized_at,
+                    _required_text(formula_model_version, "formula_model_version"),
+                    _required_text(name_mapping_version, "name_mapping_version"),
                 ),
             )
             self._materialize_character_builds(
@@ -417,6 +426,12 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 record_id=record_id,
                 snapshot_id=snapshot_id,
                 profiles=selected_profiles,
+            )
+            self._materialize_character_stats(
+                connection,
+                record_id=record_id,
+                character_ids={row[0] for row in selected_profiles},
+                snapshots=character_stat_snapshots or {},
             )
             self._replace_time_stop_intervals(
                 connection,
@@ -526,7 +541,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         connection: sqlite3.Connection,
         *,
         record_id: int,
-        snapshot_id: int,
+        snapshot_id: int | None,
         profiles: Sequence[tuple[int, str, dict[str, Any]]],
     ) -> None:
         for character_id, observed_name, profile in profiles:
@@ -574,7 +589,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     for skill_id, skill_level in sorted(skills.items())
                 ],
             )
-        if not profiles:
+        if not profiles or snapshot_id is None:
             return
         character_ids = [row[0] for row in profiles]
         placeholders = ",".join("?" for _ in character_ids)
@@ -614,7 +629,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     item["item_id"],
                     item["suit_id"],
                     item["geometry"],
-                    int(item["grid_count"]),
+                    int(item["grid_count"] or 0),
                     item["quality"],
                     item["level"],
                     item["max_level"],
@@ -664,6 +679,60 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             )
 
     @staticmethod
+    def _materialize_character_stats(
+        connection: sqlite3.Connection,
+        *,
+        record_id: int,
+        character_ids: set[int],
+        snapshots: Mapping[int, Sequence[Mapping[str, Any]]],
+    ) -> None:
+        for character_id, rows in snapshots.items():
+            normalized_character_id = int(character_id)
+            if normalized_character_id not in character_ids:
+                continue
+            seen: set[tuple[str, str]] = set()
+            values = []
+            for ordinal, row in enumerate(rows):
+                source_group = str(row.get("source_group") or "resolved")
+                if source_group not in {
+                    "character",
+                    "fork",
+                    "likeability",
+                    "equipment",
+                    "resolved",
+                }:
+                    raise UserDataValidationError("战报属性快照来源无效")
+                property_id = _required_text(row.get("property_id"), "property_id")
+                key = (source_group, property_id)
+                if key in seen:
+                    raise UserDataValidationError("战报属性快照包含重复属性")
+                seen.add(key)
+                values.append(
+                    (
+                        record_id,
+                        normalized_character_id,
+                        source_group,
+                        property_id,
+                        _required_text(
+                            row.get("display_name") or property_id,
+                            "display_name",
+                        ),
+                        float(row.get("value") or 0.0),
+                        int(bool(row.get("is_percent", False))),
+                        int(row.get("ordinal", ordinal)),
+                    )
+                )
+            connection.executemany(
+                """
+                INSERT INTO battle_character_stat_snapshot(
+                    battle_record_id, character_id, source_group, property_id,
+                    display_name, value, is_percent, ordinal
+                ) VALUES (?,?,?,?,?,?,?,?)
+                """,
+                values,
+            )
+
+    @staticmethod
     def _replace_time_stop_intervals(
         connection: sqlite3.Connection,
         *,
@@ -686,10 +755,16 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             start = value.get("start_unix", value.get("started_at_unix"))
             end = value.get("end_unix", value.get("ended_at_unix"))
             duration = value.get("duration_seconds")
+            start_offset = value.get("start_offset_seconds")
+            end_offset = value.get("end_offset_seconds")
             if duration is None and isinstance(start, (int, float)) and isinstance(
                 end, (int, float)
             ):
                 duration = max(0.0, float(end) - float(start))
+            if duration is None and isinstance(
+                start_offset, (int, float)
+            ) and isinstance(end_offset, (int, float)):
+                duration = max(0.0, float(end_offset) - float(start_offset))
             connection.execute(
                 """
                 INSERT INTO battle_time_stop_interval(
@@ -723,70 +798,3 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         except sqlite3.Error as error:
             connection.rollback()
             raise UserDataError("无法清理未完成的战斗逐击记录") from error
-
-    def load_battle_build_snapshot(
-        self,
-        battle_record_id: int,
-    ) -> dict[str, Any] | None:
-        record_id = _integer(battle_record_id, "battle_record_id", minimum=1)
-        header = self._one(
-            "SELECT * FROM battle_build_snapshot WHERE battle_record_id = ?",
-            (record_id,),
-        )
-        if header is None:
-            return None
-        characters = self._rows(
-            """
-            SELECT * FROM battle_character_build_snapshot
-            WHERE battle_record_id = ? ORDER BY ordinal, character_id
-            """,
-            (record_id,),
-        )
-        equipment = self._rows(
-            """
-            SELECT * FROM battle_equipment_snapshot
-            WHERE battle_record_id = ?
-            ORDER BY character_id, kind, uid_slot, uid_serial
-            """,
-            (record_id,),
-        )
-        stats = self._rows(
-            """
-            SELECT * FROM battle_equipment_stat_snapshot
-            WHERE battle_record_id = ?
-            ORDER BY uid_slot, uid_serial, stat_group, ordinal
-            """,
-            (record_id,),
-        )
-        stats_by_uid: dict[tuple[int, int], list[dict[str, Any]]] = {}
-        for stat in stats:
-            key = (int(stat["uid_serial"]), int(stat["uid_slot"]))
-            stat["is_percent"] = bool(stat["is_percent"])
-            stat["names"] = _decoded(stat.pop("names_json"), {})
-            stat.pop("raw_stat_json", None)
-            stats_by_uid.setdefault(key, []).append(stat)
-        equipment_by_character: dict[int, list[dict[str, Any]]] = {}
-        for item in equipment:
-            key = (int(item["uid_serial"]), int(item["uid_slot"]))
-            item["locked"] = bool(item["locked"])
-            item["names"] = _decoded(item.pop("names_json"), {})
-            item["suit_names"] = _decoded(item.pop("suit_names_json"), {})
-            item["stats"] = stats_by_uid.get(key, [])
-            equipment_by_character.setdefault(int(item["character_id"]), []).append(item)
-        for character in characters:
-            character["profile"] = _decoded(character.pop("raw_profile_json"), {})
-            character["skills"] = self._rows(
-                """
-                SELECT skill_id, skill_level
-                FROM battle_character_skill_snapshot
-                WHERE battle_record_id = ? AND character_id = ?
-                ORDER BY skill_id
-                """,
-                (record_id, int(character["character_id"])),
-            )
-            character["equipment"] = equipment_by_character.get(
-                int(character["character_id"]),
-                [],
-            )
-        header["characters"] = characters
-        return header

@@ -155,8 +155,9 @@ def _build_sync_card(window):
         bool(settings["raw_capture_enabled"])
     )
     window._sync_raw_capture_toggle.setToolTip(
+        "背包同步和战报采集都会按各自启动时的设置保存原始包；"
         "文件仅保存到当前账号的 logs/nte_core/raw_capture。"
-        "停止同步后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
+        "采集结束后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
         "正在写入和最新的一份不会被删除。"
     )
     raw_capture_row = QHBoxLayout()

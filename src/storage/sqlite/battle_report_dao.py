@@ -470,7 +470,8 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
     def battle_report_page_state(self) -> dict[str, Any]:
         row = self._one(
             """
-            SELECT last_battle_record_id, last_detail_scope, updated_at_utc
+            SELECT last_battle_record_id, last_detail_scope, updated_at_utc,
+                   analysis_start_us, analysis_end_us, analysis_character_id
             FROM battle_report_page_state
             WHERE singleton_id = 1
             """
@@ -480,6 +481,9 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
                 "last_battle_record_id": None,
                 "last_detail_scope": "current",
                 "updated_at_utc": None,
+                "analysis_start_us": None,
+                "analysis_end_us": None,
+                "analysis_character_id": None,
             }
         return row
 
@@ -513,6 +517,50 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
         self._db().commit()
         return self.battle_report_page_state()
 
+    def update_battle_report_analysis_state(
+        self,
+        *,
+        battle_record_id: int,
+        start_us: int | None,
+        end_us: int | None,
+        character_id: int | None = None,
+    ) -> dict[str, Any]:
+        normalized_id = _integer(battle_record_id, "battle_record_id", minimum=1)
+        if (start_us is None) != (end_us is None):
+            raise UserDataValidationError("分析时段起止必须同时为空或同时提供")
+        if start_us is not None:
+            normalized_start = _integer(start_us, "start_us", minimum=0)
+            normalized_end = _integer(end_us, "end_us", minimum=1)
+            if normalized_end <= normalized_start:
+                raise UserDataValidationError("分析时段结束必须晚于开始")
+        else:
+            normalized_start = None
+            normalized_end = None
+        normalized_character_id = (
+            None
+            if character_id is None
+            else _integer(character_id, "character_id", minimum=1)
+        )
+        connection = self._db()
+        connection.execute(
+            """
+            UPDATE battle_report_page_state
+            SET last_battle_record_id = ?, analysis_start_us = ?,
+                analysis_end_us = ?, analysis_character_id = ?,
+                updated_at_utc = ?
+            WHERE singleton_id = 1
+            """,
+            (
+                normalized_id,
+                normalized_start,
+                normalized_end,
+                normalized_character_id,
+                _utc_now(),
+            ),
+        )
+        connection.commit()
+        return self.battle_report_page_state()
+
     def restore_battle_report_record(self) -> dict[str, Any] | None:
         state = self.battle_report_page_state()
         last_id = state["last_battle_record_id"]
@@ -520,6 +568,11 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
             record = self.load_battle_record(int(last_id))
             if record is not None:
                 record["restored_detail_scope"] = state["last_detail_scope"]
+                record["restored_analysis_start_us"] = state["analysis_start_us"]
+                record["restored_analysis_end_us"] = state["analysis_end_us"]
+                record["restored_analysis_character_id"] = state[
+                    "analysis_character_id"
+                ]
                 return record
         latest = self.list_battle_records(limit=1)
         if not latest:

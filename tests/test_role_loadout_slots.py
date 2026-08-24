@@ -10,6 +10,7 @@ from pathlib import Path
 from src.services.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.storage.sqlite.loadout_slot_dao import PRIMARY_LOADOUT_SLOT_KEY
 from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao, UserDataValidationError
+from tests.user_data_migration_helpers import drop_battle_axis_v23
 
 
 def inventory_snapshot() -> dict:
@@ -326,6 +327,7 @@ class RoleLoadoutSlotTests(unittest.TestCase):
         )
         self.dao.close()
         connection = sqlite3.connect(self.database)
+        drop_battle_axis_v23(connection)
         connection.execute("DROP INDEX idx_loadout_plan_active_slot")
         connection.execute("DROP INDEX idx_loadout_plan_slot")
         connection.execute("DROP INDEX idx_role_loadout_slot_character")

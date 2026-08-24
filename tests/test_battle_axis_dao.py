@@ -121,6 +121,84 @@ class BattleAxisDaoTests(unittest.TestCase):
         )
         return int(result["record"]["battle_record_id"])
 
+    def test_target_condition_is_replaceable_and_deleted_with_record(self) -> None:
+        record_id = self._insert_summary("target-condition")
+        condition = {
+            "target_name": "墨菲斯托",
+            "enemy_level": 90,
+            "scene": "outer_realm",
+            "enemy_defense_base": 1050.0,
+            "enemy_defense_up": 0.0,
+            "enemy_defense_add": 0.0,
+            "defense_reduction": 0.0,
+            "vulnerability": 0.0,
+            "resistances": {
+                "normal": 0.28,
+                "chaos": 0.2,
+                "cosmos": 0.5,
+                "incantation": 0.2,
+                "lakshana": 0.5,
+                "nature": 0.2,
+                "psyche": 0.5,
+                "psychically": 0.2,
+            },
+        }
+
+        saved = self.dao.save_battle_target_condition(record_id, condition)
+        condition["vulnerability"] = 0.15
+        replaced = self.dao.save_battle_target_condition(record_id, condition)
+
+        self.assertEqual(0.5, saved["resistances"]["cosmos"])
+        self.assertEqual(0.28, saved["resistances"]["normal"])
+        self.assertEqual(1050.0, saved["enemy_defense_base"])
+        self.assertEqual(0.15, replaced["vulnerability"])
+        self.assertTrue(self.dao.delete_battle_record(record_id))
+        self.assertIsNone(self.dao.load_battle_target_condition(record_id))
+
+    def test_target_condition_retains_environment_options_and_witch_buff(self) -> None:
+        record_id = self._insert_summary("structured-target-condition")
+        condition = {
+            "target_name": "争锋赏宴·愿望成真",
+            "enemy_level": 90,
+            "scene": "outer_realm",
+            "enemy_defense_base": 1050.0,
+            "enemy_defense_up": 0.0,
+            "enemy_defense_add": 0.0,
+            "enemy_topple_limit": 70.0,
+            "defense_reduction": 0.0,
+            "vulnerability": 0.0,
+            "resistances": {
+                "normal": 0.28,
+                "chaos": 0.2,
+                "cosmos": 0.5,
+                "incantation": 0.2,
+                "lakshana": 0.5,
+                "nature": 0.2,
+                "psyche": 0.5,
+                "psychically": 0.2,
+            },
+            "environment_kind": "feast",
+            "environment_ref": "DiyBossStage8",
+            "selected_target_ids": ["boss_05_BP_DiyBoss"],
+            "primary_target_id": "boss_05_BP_DiyBoss",
+            "difficulty_id": 4,
+            "feast_options": {"4": "HunOP003_challenge"},
+            "witch_buff_id": "Buff_Divination_DamageUpGeneralBase",
+            "witch_buff_name_zh": "通用伤害提升15%",
+            "witch_buff_property_id": "DamageUpGeneralBase",
+            "witch_buff_value": 0.15,
+            "witch_buff_is_percent": True,
+        }
+
+        saved = self.dao.save_battle_target_condition(record_id, condition)
+
+        self.assertEqual("feast", saved["environment_kind"])
+        self.assertEqual(["boss_05_BP_DiyBoss"], saved["selected_target_ids"])
+        self.assertEqual({"4": "HunOP003_challenge"}, saved["feast_options"])
+        self.assertEqual("DamageUpGeneralBase", saved["witch_buff_property_id"])
+        self.assertEqual(0.15, saved["witch_buff_value"])
+        self.assertTrue(saved["witch_buff_is_percent"])
+
     def test_materializes_only_observed_character_from_post_battle_snapshot(self) -> None:
         operation_id = "axis-operation"
         self.dao.begin_battle_axis_capture(
@@ -141,14 +219,14 @@ class BattleAxisDaoTests(unittest.TestCase):
         self.dao.append_battle_axis_page(
             capture_operation_id=operation_id,
             page={
-                "contract_version": 1,
+                "contract_version": 3,
                 "battle_record_id": "battle-1",
                 "generation": "3",
                 "complete": True,
                 "first_available_cursor": "1",
-                "next_cursor": "2",
-                "total_hits": "1",
-                "retained_hits": 1,
+                "next_cursor": "3",
+                "total_hits": "2",
+                "retained_hits": 2,
                 "rows": [
                     {
                         "sequence": "1",
@@ -159,10 +237,26 @@ class BattleAxisDaoTests(unittest.TestCase):
                         "character_known": True,
                         "direction": "outgoing",
                         "damage": 100.0,
+                        "overkill_damage": 10.0,
                         "follow_up_damage": 0.0,
                         "total_damage": 100.0,
                         "follow_up_labels": [],
-                    }
+                    },
+                    {
+                        "sequence": "2",
+                        "timestamp_unix": 1_787_000_000.1,
+                        "relative_time_seconds": 1.35,
+                        "character_id": 0,
+                        "character_name": "未归因",
+                        "character_known": False,
+                        "direction": "outgoing",
+                        "damage": 5.0,
+                        "overkill_damage": 0.0,
+                        "follow_up_damage": 0.0,
+                        "total_damage": 5.0,
+                        "damage_name": "Server settlement residual",
+                        "follow_up_labels": [],
+                    },
                 ],
             },
         )
@@ -171,13 +265,18 @@ class BattleAxisDaoTests(unittest.TestCase):
             capture_operation_id=operation_id,
             battle_record_id=record_id,
             record={
-                "contract_version": 1,
+                "contract_version": 3,
                 "battle_record_id": "battle-1",
                 "generation": "4",
                 "axis_complete": True,
                 "axis_first_sequence": "1",
-                "axis_total_hits": "1",
-                "time_stop_intervals": [],
+                "axis_total_hits": "2",
+                "time_stop_intervals": [
+                    {
+                        "start_offset_seconds": 2.5,
+                        "end_offset_seconds": 4.0,
+                    }
+                ],
             },
             observed_characters={},
             source_inventory_snapshot_id=snapshot_id,
@@ -187,12 +286,49 @@ class BattleAxisDaoTests(unittest.TestCase):
                 1072: _profile(1072, "fork_GoldRecord"),
                 1075: _profile(1075, "fork_worldrain"),
             },
+            character_stat_snapshots={
+                1072: [
+                    {
+                        "source_group": "character",
+                        "property_id": "AtkBase",
+                        "display_name": "基础攻击力",
+                        "value": 900.0,
+                        "is_percent": False,
+                        "ordinal": 0,
+                    },
+                    {
+                        "source_group": "fork",
+                        "property_id": "AtkBase",
+                        "display_name": "基础攻击力",
+                        "value": 100.0,
+                        "is_percent": False,
+                        "ordinal": 0,
+                    },
+                    {
+                        "source_group": "equipment",
+                        "property_id": "AtkUp",
+                        "display_name": "攻击力提升",
+                        "value": 0.25,
+                        "is_percent": True,
+                        "ordinal": 0,
+                    },
+                    {
+                        "source_group": "resolved",
+                        "property_id": "CritDamageBase",
+                        "display_name": "暴击伤害",
+                        "value": 0.9,
+                        "is_percent": True,
+                        "ordinal": 0,
+                    }
+                ]
+            },
             finalized_at_utc="2026-08-19T00:00:10+00:00",
         )
         build = self.dao.load_battle_build_snapshot(record_id)
+        axis = self.dao.load_battle_axis_evidence(record_id)
         history = self.dao.load_battle_record(record_id)
 
-        self.assertEqual(1, result["stored_hits"])
+        self.assertEqual(2, result["stored_hits"])
         self.assertIsNotNone(build)
         assert build is not None and history is not None
         self.assertEqual([1072], [row["character_id"] for row in build["characters"]])
@@ -201,8 +337,32 @@ class BattleAxisDaoTests(unittest.TestCase):
             build["characters"][0]["profile"]["fork_id"],
         )
         self.assertEqual(2, len(build["characters"][0]["equipment"]))
+        stat_keys = {
+            (row["source_group"], row["property_id"])
+            for row in build["characters"][0]["stats"]
+        }
+        self.assertIn(("character", "AtkBase"), stat_keys)
+        self.assertIn(("fork", "AtkBase"), stat_keys)
+        self.assertIn(("equipment", "AtkUp"), stat_keys)
+        self.assertIn(("resolved", "CritDamageBase"), stat_keys)
+        self.assertEqual(
+            "frozen_v30",
+            build["characters"][0]["stat_snapshot_source"],
+        )
+        self.assertEqual("battle-counterfactual-v3", build["formula_model_version"])
         self.assertEqual("hit_axis", history["capability_level"])
         self.assertTrue(history["axis_complete"])
+        assert axis is not None
+        self.assertEqual(10.0, axis["hits"][0]["overkill_damage"])
+        self.assertIsNone(axis["hits"][1]["character_id"])
+        self.assertEqual(
+            {
+                "start_offset_seconds": 2.5,
+                "end_offset_seconds": 4.0,
+            },
+            axis["time_stop_intervals"][0]["raw_interval"],
+        )
+        self.assertEqual(1_500_000, axis["time_stop_intervals"][0]["duration_us"])
 
     def test_in_progress_capture_does_not_pin_pre_battle_snapshot(self) -> None:
         first = self.dao.import_inventory_snapshot(

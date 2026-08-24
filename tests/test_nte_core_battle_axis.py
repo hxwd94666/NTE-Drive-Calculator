@@ -74,7 +74,7 @@ class NteCoreBattleAxisTests(unittest.TestCase):
                         "target_name_en": None,
                         "target_name_ja": None,
                         "target_monster_id": None,
-                        "target_context": None,
+                        "target_context": ["boss", "phase-1"],
                         "target_hp_before": 100.0,
                         "target_hp_after": 88.0,
                         "target_max_hp": 100.0,
@@ -86,6 +86,10 @@ class NteCoreBattleAxisTests(unittest.TestCase):
                         "damage_component": "skill",
                         "attack_type": "skill",
                         "damage_attribute": "nature",
+                        "follow_up_damage_name": "覆纹追加攻击",
+                        "follow_up_damage_component": "reaction",
+                        "follow_up_attack_type": "follow_up",
+                        "follow_up_damage_attribute": "nature",
                         "follow_up_labels": ["追击"],
                     }
                 ],
@@ -96,6 +100,9 @@ class NteCoreBattleAxisTests(unittest.TestCase):
         self.assertEqual("1", hit["sequence"])
         self.assertEqual("123", hit["target_id"])
         self.assertEqual(["追击"], hit["follow_up_labels"])
+        self.assertEqual(["boss", "phase-1"], hit["target_context"])
+        self.assertEqual("覆纹追加攻击", hit["follow_up_damage_name"])
+        self.assertEqual("nature", hit["follow_up_damage_attribute"])
         self.assertNotIn("critical", hit)
         self.assertNotIn("buffs", hit)
 
@@ -117,6 +124,71 @@ class NteCoreBattleAxisTests(unittest.TestCase):
                     ],
                 }
             )
+
+    def test_v3_preserves_overkill_and_normalizes_unknown_character(self) -> None:
+        page = parse_battle_axis(
+            {
+                "contract_version": 3,
+                "battle_record_id": "battle-1",
+                "generation": "3",
+                "rows": [
+                    {
+                        "battle_record_id": "battle-1",
+                        "sequence": "1",
+                        "timestamp_unix": 100.0,
+                        "relative_time_seconds": 0.5,
+                        "character_id": 1072,
+                        "character_known": True,
+                        "direction": "outgoing",
+                        "damage": 120.0,
+                        "overkill_damage": 20.0,
+                    },
+                    {
+                        "battle_record_id": "battle-1",
+                        "sequence": "2",
+                        "timestamp_unix": 100.1,
+                        "relative_time_seconds": 0.6,
+                        "character_id": 0,
+                        "character_known": False,
+                        "direction": "outgoing",
+                        "damage": 15.0,
+                        "overkill_damage": 0.0,
+                        "damage_name": "Server settlement residual",
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(20.0, page["rows"][0]["overkill_damage"])
+        self.assertEqual(1072, page["rows"][0]["character_id"])
+        self.assertIsNone(page["rows"][1]["character_id"])
+        self.assertFalse(page["rows"][1]["character_known"])
+
+    def test_v3_requires_valid_primary_overkill(self) -> None:
+        base = {
+            "battle_record_id": "battle-1",
+            "sequence": "1",
+            "timestamp_unix": 100.0,
+            "relative_time_seconds": 0.5,
+            "direction": "outgoing",
+            "damage": 10.0,
+        }
+        for invalid in (
+            {},
+            {"overkill_damage": 11.0},
+            {"overkill_damage": 0.0, "character_known": True},
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(
+                NteCoreProtocolError
+            ):
+                parse_battle_axis(
+                    {
+                        "contract_version": 3,
+                        "battle_record_id": "battle-1",
+                        "generation": "3",
+                        "rows": [{**base, **invalid}],
+                    }
+                )
 
 
 if __name__ == "__main__":

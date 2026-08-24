@@ -23,6 +23,15 @@ class DamageScene(str, Enum):
 
 
 @dataclass(frozen=True)
+class EnemyDefenseProfileInput:
+    """Raw enemy-pack defense attributes; DefBase is normalized by the game divisor 6."""
+
+    defense_base: float
+    defense_up: float = 0.0
+    defense_add: float = 0.0
+
+
+@dataclass(frozen=True)
 class DirectDamageInput:
     """One direct-damage instance. Percentage values use fractions (30% = 0.30)."""
 
@@ -50,6 +59,7 @@ class DirectDamageInput:
     resistance_penetrations: tuple[float, ...] = ()
     independent_damage_bonuses: tuple[float, ...] = ()
     scene: DamageScene = DamageScene.OUTER_REALM
+    enemy_defense_profile: EnemyDefenseProfileInput | None = None
 
 
 @dataclass(frozen=True)
@@ -102,13 +112,14 @@ class DotDamageResult:
 
 @dataclass(frozen=True)
 class ToppleDamageInput:
-    """倾陷伤害参数；mitigation 提供防御区与抗性区所需的目标数据。"""
+    """单个角色的倾陷贡献；团队倾陷伤害由所有角色贡献求和。"""
 
     level_multiplier: float
     mitigation: DirectDamageInput
-    team_topple_strength: float
+    character_topple_strength: float
     topple_damage_increases: tuple[float, ...] = ()
     enemy_topple_limit: float = 50.0
+    enemy_topple_limit_multiplier_override: float | None = None
 
 
 @dataclass(frozen=True)
@@ -232,9 +243,7 @@ class DamageCalculationService:
         damage_increase_multiplier = calculate_additive_multiplier(values.damage_increases)
         vulnerability_multiplier = calculate_additive_multiplier(values.vulnerability_increases)
         critical_multiplier = calculate_critical_multiplier(values.crit_rate, values.crit_damage)
-        enemy_defense = calculate_enemy_defense(
-            values.enemy_level, values.defense_penetration, values.defense_reduction, values.scene
-        )
+        enemy_defense = calculate_enemy_defense_input(values)
         defense_multiplier = calculate_defense_multiplier(values.character_level, enemy_defense)
         effective_resistance = calculate_effective_resistance(
             values.boss_resistance,
@@ -303,16 +312,16 @@ class DamageCalculationService:
         """Calculate topple damage: level × strength × target limit × defense × resistance."""
         if values.level_multiplier < 0:
             raise ValueError("倾陷角色等级乘区不能为负数。")
-        if values.team_topple_strength < 0 or values.enemy_topple_limit < 0:
+        if values.character_topple_strength < 0 or values.enemy_topple_limit < 0:
             raise ValueError("倾陷强度和敌方倾陷上限不能为负数。")
+        if (
+            values.enemy_topple_limit_multiplier_override is not None
+            and values.enemy_topple_limit_multiplier_override < 0
+        ):
+            raise ValueError("敌方倾陷档位覆盖不能为负数。")
 
         source = values.mitigation
-        enemy_defense = calculate_enemy_defense(
-            source.enemy_level,
-            source.defense_penetration,
-            source.defense_reduction,
-            source.scene,
-        )
+        enemy_defense = calculate_enemy_defense_input(source)
         defense_multiplier = calculate_defense_multiplier(source.character_level, enemy_defense)
         effective_resistance = calculate_effective_resistance(
             source.boss_resistance,
@@ -321,10 +330,12 @@ class DamageCalculationService:
         )
         resistance_multiplier = calculate_resistance_multiplier(effective_resistance)
         topple_strength_multiplier = calculate_topple_strength_multiplier(
-            values.team_topple_strength, values.topple_damage_increases
+            values.character_topple_strength, values.topple_damage_increases
         )
-        enemy_topple_limit_multiplier = calculate_enemy_topple_limit_multiplier(
-            values.enemy_topple_limit
+        enemy_topple_limit_multiplier = (
+            values.enemy_topple_limit_multiplier_override
+            if values.enemy_topple_limit_multiplier_override is not None
+            else calculate_enemy_topple_limit_multiplier(values.enemy_topple_limit)
         )
         damage = (
             values.level_multiplier
@@ -409,6 +420,41 @@ def calculate_enemy_defense(
     return (enemy_level + _enemy_defense_offset(scene)) * (1 - defense_penetration) * (1 - defense_reduction)
 
 
+def calculate_enemy_defense_from_profile(
+    profile: EnemyDefenseProfileInput,
+    defense_penetration: float,
+    defense_reduction: float,
+) -> float:
+    """Use the bound monster pack instead of inferring defense from display level."""
+
+    if profile.defense_base < 0:
+        raise ValueError("敌方 DefBase 不能为负数。")
+    raw_defense = calculate_attribute_value(
+        profile.defense_base,
+        profile.defense_up,
+        profile.defense_add,
+    )
+    normalized_defense = raw_defense / 6.0
+    return normalized_defense * (1 - defense_penetration) * (1 - defense_reduction)
+
+
+def calculate_enemy_defense_input(values: DirectDamageInput) -> float:
+    """Prefer a frozen enemy-pack profile, retaining the legacy level fallback."""
+
+    if values.enemy_defense_profile is not None:
+        return calculate_enemy_defense_from_profile(
+            values.enemy_defense_profile,
+            values.defense_penetration,
+            values.defense_reduction,
+        )
+    return calculate_enemy_defense(
+        values.enemy_level,
+        values.defense_penetration,
+        values.defense_reduction,
+        values.scene,
+    )
+
+
 def calculate_defense_multiplier(character_level: float, enemy_defense: float) -> float:
     """Calculate the defense multiplier for the active scene."""
     return (character_level + 100) / (enemy_defense + character_level + 100)
@@ -449,10 +495,8 @@ def calculate_ring_strength_multiplier(ring_strength: float) -> float:
 
 
 def calculate_ring_amplification(ring_strength: float) -> float:
-    """Calculate 浸染的 24 × strength / (strength + 180) factor."""
-    if ring_strength < 0:
-        raise ValueError("环合强度不能为负数。")
-    return 24 * ring_strength / (ring_strength + 180)
+    """Calculate 浸染's total multiplier, shared with 覆纹 before form splitting."""
+    return 1.20 * calculate_weave_strength_multiplier(ring_strength)
 
 
 def calculate_weave_strength_multiplier(ring_strength: float) -> float:
@@ -535,12 +579,14 @@ def calculate_weave_followup_damage(
 
 
 def calculate_topple_strength_multiplier(
-    team_topple_strength: float, topple_damage_increases: tuple[float, ...]
+    character_topple_strength: float, topple_damage_increases: tuple[float, ...]
 ) -> float:
-    """Calculate 1 + team topple strength / 300 + all topple-damage bonuses."""
-    return 1 + team_topple_strength / 300 + sum(topple_damage_increases)
+    """Calculate one character's 1 + strength / 300 + topple-damage bonuses."""
+    return 1 + character_topple_strength / 300 + sum(topple_damage_increases)
 
 
 def calculate_enemy_topple_limit_multiplier(enemy_topple_limit: float) -> float:
-    """Calculate the enemy topple-limit multiplier."""
-    return enemy_topple_limit / 3
+    """Map ordinary UnbalMax to its multiplier, with a 100% floor."""
+    if enemy_topple_limit < 0:
+        raise ValueError("敌方倾陷上限不能为负数。")
+    return max(1.0, enemy_topple_limit / 3.0)

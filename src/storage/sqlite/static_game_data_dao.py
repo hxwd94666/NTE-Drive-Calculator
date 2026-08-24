@@ -11,78 +11,15 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Iterable
 
+from .static_game_data_metadata import SCHEMA_VERSION, SUMMARY_TABLES
 
-SCHEMA_VERSION = 18
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
-_DEFAULT_LOGICAL_CHARACTER_IDS = {
-    "protagonist": 1051,
-}
+_DEFAULT_LOGICAL_CHARACTER_IDS = {"protagonist": 1051}
 _ROLE_TEMPLATE_CLASSIFICATIONS = {
     "available_character",
     "scheduled_character",
     "playable",
 }
-
-SUMMARY_TABLES = (
-    "source_file",
-    "source_row",
-    "character",
-    "character_annotation",
-    "character_awaken_effect",
-    "character_awaken_skill_level_bonus",
-    "character_likeability_bonus",
-    "character_likeability_bonus_property",
-    "character_panel_growth",
-    "character_skill",
-    "character_skill_level",
-    "skill_damage",
-    "skill_damage_modifier",
-    "combat_level_curve",
-    "combat_level_curve_point",
-    "reaction_definition",
-    "combat_effect_constant",
-    "enemy_combat_profile",
-    "enemy_element_resistance",
-    "monster_instance_profile",
-    "monster_instance_profile_variant",
-    "abyss_level",
-    "abyss_level_monster_spawn",
-    "abyss_monster_pool_entry",
-    "equipment_attribute",
-    "equipment_shape",
-    "equipment_suit",
-    "equipment_suit_effect",
-    "equipment_item",
-    "equipment_plan",
-    "character_weight_recommendation",
-    "character_weight_recommendation_property",
-    "character_graduation_template",
-    "application_setting_default",
-    "character_shape_bonus",
-    "character_shape_bonus_property",
-    "logical_character_shape_bonus",
-    "logical_character_shape_bonus_property",
-    "fork_type",
-    "fork_item",
-    "fork_refinement_parameter_value",
-    "character_cultivation_guide",
-    "character_cultivation_fork_recommendation",
-    "character_cultivation_attribute_recommendation",
-    "character_cultivation_stage",
-    "character_cultivation_stage_skill",
-    "gameplay_ability_catalog",
-    "gameplay_ability_description",
-    "gameplay_ability_level_hint",
-    "gameplay_effect_catalog",
-    "monster_catalog",
-    "monster_identifier_alias",
-    "equipment_modify_pack",
-    "equipment_modify_value",
-    "equipment_buff_curve",
-    "equipment_buff_curve_point",
-    "combat_effect_definition",
-)
-
 
 class StaticGameDataError(RuntimeError):
     """静态数据库缺失或版本不兼容。"""
@@ -136,10 +73,25 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
     raise StaticGameDataError(f"找不到静态数据库；已检查：{checked}")
 
 
+from src.storage.sqlite.static_game_data_combat_blueprint_queries import (
+    StaticGameDataCombatBlueprintQueriesMixin,
+)
+from src.storage.sqlite.static_game_data_buff_queries import (
+    StaticGameDataBuffQueriesMixin,
+)
 from src.storage.sqlite.static_game_data_extended_queries import StaticGameDataExtendedQueriesMixin
+from src.storage.sqlite.static_game_data_encounter_queries import (
+    StaticGameDataEncounterQueriesMixin,
+)
 
-class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
-    """面向 schema v18 静态数据库的轻量查询边界。
+
+class StaticGameDataDao(
+    StaticGameDataEncounterQueriesMixin,
+    StaticGameDataBuffQueriesMixin,
+    StaticGameDataCombatBlueprintQueriesMixin,
+    StaticGameDataExtendedQueriesMixin,
+):
+    """面向 schema v27 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """

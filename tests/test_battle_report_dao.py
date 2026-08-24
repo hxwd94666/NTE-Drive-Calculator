@@ -201,6 +201,27 @@ class BattleReportDaoTests(unittest.TestCase):
         self.assertEqual(first_id, restored["battle_record_id"])
         self.assertEqual("first", restored["restored_detail_scope"])
 
+    def test_analysis_range_is_restored_without_overwriting_detail_scope(self) -> None:
+        record_id = int(self._insert(12)["record"]["battle_record_id"])
+        self.dao.update_battle_report_page_state(
+            battle_record_id=record_id,
+            detail_scope="second",
+        )
+        self.dao.update_battle_report_analysis_state(
+            battle_record_id=record_id,
+            start_us=1_250_000,
+            end_us=7_500_000,
+            character_id=1072,
+        )
+
+        restored = self.dao.restore_battle_report_record()
+
+        assert restored is not None
+        self.assertEqual("second", restored["restored_detail_scope"])
+        self.assertEqual(1_250_000, restored["restored_analysis_start_us"])
+        self.assertEqual(7_500_000, restored["restored_analysis_end_us"])
+        self.assertEqual(1072, restored["restored_analysis_character_id"])
+
     def test_existing_v12_database_migrates_to_battle_report_tables(self) -> None:
         legacy_path = Path(self.temporary.name) / "legacy_v12.sqlite3"
         with patch.object(user_data_base, "SCHEMA_VERSION", 12):
@@ -230,8 +251,13 @@ class BattleReportDaoTests(unittest.TestCase):
             {
                 "battle_axis_capture",
                 "battle_build_snapshot",
+                "battle_build_edit",
+                "battle_character_awaken_edit",
+                "battle_character_build_edit",
                 "battle_character_build_snapshot",
+                "battle_character_skill_edit",
                 "battle_character_skill_snapshot",
+                "battle_character_stat_snapshot",
                 "battle_equipment_snapshot",
                 "battle_equipment_stat_snapshot",
                 "battle_hit_evidence",
@@ -239,9 +265,70 @@ class BattleReportDaoTests(unittest.TestCase):
                 "battle_record_retention",
                 "battle_report_page_state",
                 "battle_time_stop_interval",
+                "battle_target_condition",
             },
             tables,
         )
+
+    def test_existing_v26_database_migrates_target_condition_table(self) -> None:
+        legacy_path = Path(self.temporary.name) / "legacy_v26.sqlite3"
+        with patch.object(user_data_base, "SCHEMA_VERSION", 26):
+            with UserDataDao(
+                legacy_path,
+                account_id="legacy",
+                account_name="旧账号",
+            ) as legacy:
+                self.assertEqual(26, legacy.summary()["schema_version"])
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
+            table = migrated._db().execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'battle_target_condition'"
+            ).fetchone()
+
+        self.assertIsNotNone(table)
+
+    def test_existing_v29_database_migrates_formula_source_groups(self) -> None:
+        legacy_path = Path(self.temporary.name) / "legacy_v29.sqlite3"
+        with patch.object(user_data_base, "SCHEMA_VERSION", 29):
+            with UserDataDao(
+                legacy_path,
+                account_id="legacy",
+                account_name="旧账号",
+            ) as legacy:
+                self.assertEqual(29, legacy.summary()["schema_version"])
+
+        with UserDataDao(legacy_path) as migrated:
+            self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
+            table_sql = migrated._db().execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'battle_character_stat_snapshot'"
+            ).fetchone()[0]
+
+        self.assertIn("'character'", table_sql)
+        self.assertIn("'fork'", table_sql)
+        self.assertIn("'likeability'", table_sql)
+
+    def test_existing_v31_database_adds_normal_target_resistance(self) -> None:
+        legacy_path = Path(self.temporary.name) / "legacy_v31.sqlite3"
+        with patch.object(user_data_base, "SCHEMA_VERSION", 31):
+            with UserDataDao(
+                legacy_path,
+                account_id="legacy",
+                account_name="旧账号",
+            ) as legacy:
+                self.assertEqual(31, legacy.summary()["schema_version"])
+
+        with UserDataDao(legacy_path) as migrated:
+            columns = {
+                row[1]: row[4]
+                for row in migrated._db().execute(
+                    "PRAGMA table_info(battle_target_condition)"
+                )
+            }
+
+        self.assertEqual("0.2", columns["resistance_normal"])
 
 
 if __name__ == "__main__":

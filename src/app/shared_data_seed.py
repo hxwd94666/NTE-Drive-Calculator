@@ -1,5 +1,5 @@
-# 为首次运行的用户数据目录初始化随发行包提供的公共额外形状覆盖库。
-"""Install the packaged public shared data over the local copy."""
+# 初始化公共兼容数据库；官方额外形状不再从这里读取。
+"""Install packaged compatibility shared data over the local copy."""
 
 from __future__ import annotations
 

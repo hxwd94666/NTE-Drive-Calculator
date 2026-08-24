@@ -22,6 +22,7 @@ from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
     DirectDamageInput,
+    calculate_attribute_value,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.official_role_labels import _property_label
@@ -446,6 +447,186 @@ def _property_stats_by_source(
     for property_id, value in equipment_stats.items():
         totals[property_id] = totals.get(property_id, 0.0) + value
     return fork_stats, equipment_stats, totals
+
+
+def calculate_official_role_combat_stat_sources(
+    detail: Mapping[str, Any],
+    items: Iterable[Any],
+) -> dict[str, tuple[OfficialAttributeSummaryValue, ...]]:
+    """Freeze formula inputs by owner before producing resolved panel values."""
+
+    profile = detail.get("profile") or {}
+    wanted_growth = (
+        int(profile.get("character_level") or 0),
+        int(profile.get("breakthrough_stage") or 0),
+    )
+    growth: Mapping[str, Any] = next(
+        (
+            row
+            for row in detail.get("growth_rows") or ()
+            if (
+                int(row.get("level") or 0),
+                int(row.get("breakthrough_stage") or 0),
+            )
+            == wanted_growth
+        ),
+        {},
+    )
+    property_percent = {
+        str(property_id): bool(attribute.get("show_percent"))
+        for property_id, attribute in (detail.get("attributes") or {}).items()
+    }
+
+    def rows(values: Mapping[str, float]) -> tuple[OfficialAttributeSummaryValue, ...]:
+        return tuple(
+            OfficialAttributeSummaryValue(
+                key=property_id,
+                label=_property_label(detail, property_id),
+                value=float(value),
+                percent=property_percent.get(
+                    property_id,
+                    property_id.endswith("Up")
+                    or "Crit" in property_id
+                    or "Damage" in property_id
+                    or property_id.startswith("DefIgnore"),
+                ),
+                weight_property_ids=(property_id,),
+            )
+            for property_id, value in sorted(values.items())
+            if property_id and float(value) != 0.0
+        )
+
+    character = {
+        "AtkBase": float(growth.get("atk_base") or 0.0),
+        "HPMaxBase": float(growth.get("hp_base") or 0.0),
+        "DefBase": float(growth.get("def_base") or 0.0),
+        "CritBase": 0.05,
+        "CritDamageBase": 0.50,
+    }
+    return {
+        "character": rows(character),
+        "fork": rows(_fork_property_stats(detail)),
+        "likeability": rows(_likeability_property_stats(detail)),
+        "equipment": rows(_equipment_property_stats(detail, list(items))),
+    }
+
+
+def calculate_official_role_combat_stat_components(
+    detail: Mapping[str, Any],
+    items: Iterable[Any],
+) -> tuple[OfficialAttributeSummaryValue, ...]:
+    """Resolve reusable formula inputs from one frozen role build.
+
+    The values deliberately preserve base/percentage/flat components instead
+    of only returning panel totals. Battle-report counterfactual analysis and
+    the role page therefore share the same growth, fork, likeability and
+    equipment semantics.
+    """
+
+    profile = detail.get("profile") or {}
+    wanted_growth = (
+        int(profile.get("character_level") or 0),
+        int(profile.get("breakthrough_stage") or 0),
+    )
+    growth: Mapping[str, Any] = next(
+        (
+            row
+            for row in detail.get("growth_rows") or ()
+            if (
+                int(row.get("level") or 0),
+                int(row.get("breakthrough_stage") or 0),
+            )
+            == wanted_growth
+        ),
+        {},
+    )
+    property_percent = {
+        str(property_id): bool(attribute.get("show_percent"))
+        for property_id, attribute in (detail.get("attributes") or {}).items()
+    }
+    totals = _fork_property_stats(detail)
+    for property_id, value in _likeability_property_stats(detail).items():
+        totals[property_id] = totals.get(property_id, 0.0) + value
+    for property_id, value in _equipment_property_stats(detail, list(items)).items():
+        totals[property_id] = totals.get(property_id, 0.0) + value
+
+    rows: list[OfficialAttributeSummaryValue] = []
+
+    def add(
+        property_id: str,
+        label: str,
+        value: float,
+        *,
+        percent: bool = False,
+    ) -> None:
+        rows.append(
+            OfficialAttributeSummaryValue(
+                key=property_id,
+                label=label,
+                value=float(value),
+                percent=percent,
+                weight_property_ids=(property_id,),
+            )
+        )
+
+    add("AtkBase", "基础攻击力", float(growth.get("atk_base") or 0.0) + totals.get("AtkBase", 0.0))
+    add("AtkUp", "攻击力提升", totals.get("AtkUp", 0.0), percent=True)
+    add("AtkAdd", "固定攻击力", totals.get("AtkAdd", 0.0))
+    add(
+        "PanelAtk",
+        "总攻击力",
+        calculate_attribute_value(
+            float(growth.get("atk_base") or 0.0) + totals.get("AtkBase", 0.0),
+            totals.get("AtkUp", 0.0),
+            totals.get("AtkAdd", 0.0),
+        ),
+    )
+    add("HPMaxBase", "基础生命值", float(growth.get("hp_base") or 0.0) + totals.get("HPMaxBase", 0.0))
+    add("HPMaxUp", "生命值提升", totals.get("HPMaxUp", 0.0), percent=True)
+    add("HPMaxAdd", "固定生命值", totals.get("HPMaxAdd", 0.0))
+    add(
+        "PanelHP",
+        "总生命值",
+        calculate_attribute_value(
+            float(growth.get("hp_base") or 0.0) + totals.get("HPMaxBase", 0.0),
+            totals.get("HPMaxUp", 0.0),
+            totals.get("HPMaxAdd", 0.0),
+        ),
+    )
+    add("DefBase", "基础防御力", float(growth.get("def_base") or 0.0) + totals.get("DefBase", 0.0))
+    add("DefUp", "防御力提升", totals.get("DefUp", 0.0), percent=True)
+    add("DefAdd", "固定防御力", totals.get("DefAdd", 0.0))
+    add(
+        "PanelDef",
+        "总防御力",
+        calculate_attribute_value(
+            float(growth.get("def_base") or 0.0) + totals.get("DefBase", 0.0),
+            totals.get("DefUp", 0.0),
+            totals.get("DefAdd", 0.0),
+        ),
+    )
+    add("CritBase", "暴击率", 0.05 + totals.get("CritBase", 0.0) + totals.get("CritAdd", 0.0), percent=True)
+    add("CritDamageBase", "暴击伤害", 0.50 + totals.get("CritDamageBase", 0.0) + totals.get("CritDamageAdd", 0.0), percent=True)
+    add(
+        "DamageUpGeneralBase",
+        "通用伤害增强",
+        totals.get("DamageUpGeneralBase", 0.0) + totals.get("DamageUpGeneralAdd", 0.0),
+        percent=True,
+    )
+    add("DefIgnore", "防御忽略", totals.get("DefIgnore", 0.0), percent=True)
+    add("MagBase", "环合强度", totals.get("MagBase", 0.0))
+    add("UnbalIntensityBase", "倾陷强度", totals.get("UnbalIntensityBase", 0.0))
+    element_property = _element_damage_property(
+        str((detail.get("character") or {}).get("element_type") or "")
+    )
+    if element_property:
+        add(
+            element_property,
+            _property_label(detail, element_property),
+            totals.get(element_property, 0.0),
+            percent=property_percent.get(element_property, True),
+        )
+    return tuple(rows)
 
 
 def _element_damage_property(element_type: str) -> str | None:

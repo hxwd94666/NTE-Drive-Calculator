@@ -8,6 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_TRACKED_FILE_BYTES = 10 * 1024 * 1024
+TRACKED_FILE_SIZE_BUDGETS = {
+    # Normalized combat-blueprint and Buff evidence is an intentional release
+    # asset. Keep a finite ceiling so accidental source payloads still fail.
+    "data/game_static.sqlite3": 96 * 1024 * 1024,
+}
 MAX_REVIEWABLE_PYTHON_LINES = 800
 
 
@@ -25,7 +30,14 @@ class RepositoryHygieneTests(unittest.TestCase):
         oversized = {
             path.as_posix(): (ROOT / path).stat().st_size
             for path in paths
-            if (ROOT / path).is_file() and (ROOT / path).stat().st_size > MAX_TRACKED_FILE_BYTES
+            if (
+                (ROOT / path).is_file()
+                and (ROOT / path).stat().st_size
+                > TRACKED_FILE_SIZE_BUDGETS.get(
+                    path.as_posix(),
+                    MAX_TRACKED_FILE_BYTES,
+                )
+            )
         }
 
         self.assertEqual({}, oversized)

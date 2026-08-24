@@ -30,6 +30,15 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "017_game_static_combat_catalog.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "018_game_static_character_likeability.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "019_game_static_combat_blueprint.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "020_game_static_buff_definition.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "021_game_static_buff_modifier_scope.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "022_game_static_encounter_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "023_game_static_encounter_activity.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "024_game_static_encounter_rotation.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "025_game_static_encounter_lookup_indexes.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "026_game_static_outer_realm_buff.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "027_game_static_abyss_monster_name.sql",
 )
 
 
@@ -57,8 +66,17 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (16, '2026-07-23')")
         connection.execute("INSERT INTO schema_migration VALUES (17, '2026-08-19')")
         connection.execute("INSERT INTO schema_migration VALUES (18, '2026-08-20')")
+        connection.execute("INSERT INTO schema_migration VALUES (19, '2026-08-20')")
+        connection.execute("INSERT INTO schema_migration VALUES (20, '2026-08-20')")
+        connection.execute("INSERT INTO schema_migration VALUES (21, '2026-08-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (22, '2026-08-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (23, '2026-08-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (24, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (25, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (26, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (27, '2026-08-23')")
         connection.execute(
-            "INSERT INTO dataset VALUES ('fixture', 3, '2026-07-18')"
+            "INSERT INTO dataset VALUES ('fixture', 19, '2026-08-20')"
         )
         connection.execute(
             "INSERT INTO source_file VALUES (1, 'DataTable/Test.json', 'hash', 1)"
@@ -70,6 +88,86 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute(
             "INSERT INTO character VALUES (1001, '角色', NULL, NULL, 'Element', "
             "'Group', '/Game/Actor', NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO source_file VALUES (2, 'combat_blueprint/fixture.json', "
+            "'combat-hash', 3)"
+        )
+        connection.executemany(
+            "INSERT INTO combat_blueprint_asset VALUES (?,?,?,?,?,2)",
+            (
+                (
+                    "/Game/Ability/GA_Test", "GA_Test", "BlueprintGeneratedClass",
+                    "ability", 1001,
+                ),
+                (
+                    "/Game/Animation/Test_Montage", "Test_Montage", "AnimMontage",
+                    "montage", 1001,
+                ),
+                (
+                    "/Game/Effect/GE_Test", "GE_Test", "BlueprintGeneratedClass",
+                    "gameplay_effect", 1001,
+                ),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO buff_definition VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                "/Game/Effect/GE_Test", "GE_Test", "gameplay_effect", 1001,
+                "HasDuration", '{"Value":8}', '{"Value":1}', "Aggregate", 3, 2,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO buff_modifier VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "/Game/Effect/GE_Test", 0, "AtkUp", "Additive", "ScalableFloat",
+                0.2, None, '{"ScalableFloatMagnitude":{"Value":0.2}}',
+                "$[0].Properties.Modifiers",
+                0, None, '[]', '[]', '[]', '[]',
+            ),
+        )
+        connection.execute(
+            "INSERT INTO character_combat_ability_binding VALUES "
+            "(1001, 'active', 0, 'Skill1', 'GA_Test', '/Game/Ability/GA_Test')"
+        )
+        connection.execute(
+            "INSERT INTO combat_blueprint_reference VALUES "
+            "('/Game/Ability/GA_Test', '$[0].Properties.Montage', 0, 'animation', "
+            "'/Game/Animation/Test_Montage', "
+            "'/Game/Animation/Test_Montage.Test_Montage', 'Test_Montage', 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_blueprint_tag VALUES "
+            "('/Game/Ability/GA_Test', '$[0].Properties.EventTag', 0, 'Event.Hit')"
+        )
+        connection.execute(
+            "INSERT INTO combat_blueprint_semantic_property VALUES "
+            "('/Game/Ability/GA_Test', '$[0].Properties.AbilityTags', 0, "
+            "'AbilityTags', '{\"tags\":[\"Ability.Test\"]}')"
+        )
+        connection.execute(
+            "INSERT INTO combat_ability_montage_binding VALUES "
+            "('/Game/Ability/GA_Test', 0, 'Skill1', "
+            "'/Game/Animation/Test_Montage', "
+            "'/Game/Animation/Test_Montage.Test_Montage')"
+        )
+        connection.execute(
+            "INSERT INTO combat_ability_effect_binding VALUES "
+            "('/Game/Ability/GA_Test', 'Event.Hit', 0, "
+            "'/Game/Effect/GE_Test', 'GE_Test', NULL)"
+        )
+        connection.execute(
+            "INSERT INTO combat_montage VALUES "
+            "('/Game/Animation/Test_Montage', 1.2, 0.1, 0.2, 30, 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_montage_section VALUES "
+            "('/Game/Animation/Test_Montage', 0, 'Default', NULL, 0.0, 1.2, NULL)"
+        )
+        connection.execute(
+            "INSERT INTO combat_montage_notify VALUES "
+            "('/Game/Animation/Test_Montage', 0, 'Hit', NULL, 0.45, 0.45, "
+            "'Event.Hit', 0)"
         )
         connection.execute(
             "INSERT INTO character_annotation VALUES "
@@ -147,7 +245,8 @@ class StaticGameDataDaoTest(unittest.TestCase):
         )
         connection.execute(
             "INSERT INTO enemy_combat_profile VALUES "
-            "('night_999', 'Boss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, 1)"
+            "('night_999', 'Boss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, "
+            "1, 500000, 0.5, 1000)"
         )
         connection.execute(
             "INSERT INTO enemy_element_resistance VALUES "
@@ -155,7 +254,8 @@ class StaticGameDataDaoTest(unittest.TestCase):
         )
         connection.execute(
             "INSERT INTO enemy_combat_profile VALUES "
-            "('standard', 'AbyssBoss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, 1)"
+            "('standard', 'AbyssBoss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, "
+            "1, 800000, 0, 0)"
         )
         connection.execute(
             "INSERT INTO abyss_level VALUES ('Abyss_Common', 1, NULL, '始发站', 1)"
@@ -168,7 +268,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute(
             "INSERT INTO abyss_monster_pool_entry VALUES "
             "('Pool1', 0, '/Game/Monster/Boss.Boss_C', 2, 43, 'standard', "
-            "'AbyssBoss1', 1, 1)"
+            "'AbyssBoss1', 1, 1, '测试首领')"
         )
         connection.execute(
             "INSERT INTO equipment_attribute VALUES "
@@ -301,7 +401,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 17)
+            self.assertEqual(summary["schema_version"], 27)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")
@@ -441,8 +541,43 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.assertEqual(damage["atk_rate_base"], [1.0, 1.1])
         self.assertEqual([point["value"] for point in reaction["points"]], [80, 120])
         self.assertEqual(enemy["resistances"]["chaos"]["resistance_base"], 0.2)
+        self.assertEqual(enemy["health_base"], 500000)
         self.assertEqual(level["spawns"][0]["attribute_pack_id"], "AbyssBoss1")
         self.assertEqual(level["spawns"][0]["monster_level"], 43)
+
+    def test_outer_realm_target_preset_keeps_official_localized_name(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            preset = dao.list_outer_realm_target_presets()[0]
+
+        self.assertEqual("测试首领", preset["monster_name_zh"])
+
+    def test_combat_blueprint_action_graph_is_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            bindings = dao.list_character_combat_bindings(1001)
+            graph = dao.get_combat_ability_graph("/Game/Ability/GA_Test")
+            montage = dao.get_combat_montage("/Game/Animation/Test_Montage")
+
+        self.assertEqual("Skill1", bindings[0]["input_id"])
+        self.assertTrue(graph["references"][0]["target_available"])
+        self.assertEqual(
+            {"tags": ["Ability.Test"]},
+            graph["semantic_properties"][0]["value"],
+        )
+        self.assertEqual("Skill1", graph["montages"][0]["selector_key"])
+        self.assertEqual("Event.Hit", graph["effects"][0]["event_tag"])
+        self.assertEqual(1.2, montage["duration_seconds"])
+        self.assertEqual("Default", montage["sections"][0]["section_name"])
+        self.assertEqual(0.45, montage["notifies"][0]["start_seconds"])
+
+    def test_normalized_buff_definition_is_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            definition = dao.get_buff_definition("/Game/Effect/GE_Test")
+
+        self.assertEqual("HasDuration", definition["duration_policy"])
+        self.assertEqual({"Value": 8}, definition["duration_magnitude"])
+        self.assertEqual("AtkUp", definition["modifiers"][0]["property_id"])
+        self.assertEqual(0.2, definition["modifiers"][0]["magnitude_value"])
+        self.assertEqual((), definition["modifiers"][0]["source_require_tags"])
 
     def test_raw_source_payload_is_available(self):
         with StaticGameDataDao(self.database_path) as dao:

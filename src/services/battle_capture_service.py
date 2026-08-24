@@ -6,6 +6,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from src.domain.battle_report import (
@@ -24,6 +25,7 @@ from src.integrations.nte_core import nte_core_error_has_domain_code
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
+from src.services.raw_capture_retention import prune_raw_capture_files
 
 
 BattleStateHandler = Callable[[BattleCaptureState], None]
@@ -124,11 +126,21 @@ class BattleCaptureService:
         operation_context: OperationContext,
         device_name: str | None = None,
         summary_writer: BattleSummaryWriter | None = None,
+        raw_capture_enabled: bool = False,
+        raw_capture_directory: str | Path | None = None,
     ) -> None:
+        if raw_capture_enabled and raw_capture_directory is None:
+            raise ValueError("启用战报原始抓包时必须提供账号抓包目录")
         self._client_factory = client_factory
         self._operation_context = operation_context
         self._device_name = device_name
         self._summary_writer = summary_writer
+        self._raw_capture_enabled = bool(raw_capture_enabled)
+        self._raw_capture_directory = (
+            Path(raw_capture_directory).expanduser().resolve()
+            if raw_capture_directory is not None
+            else None
+        )
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
         self._handlers: list[BattleStateHandler] = []
@@ -208,6 +220,10 @@ class BattleCaptureService:
         capture_finalized = False
         final_record: dict[str, Any] | None = None
         try:
+            if self._raw_capture_enabled:
+                assert self._raw_capture_directory is not None
+                self._raw_capture_directory.mkdir(parents=True, exist_ok=True)
+                self._prune_raw_captures()
             if self._summary_writer is not None:
                 self._summary_writer.begin_capture(
                     capture_operation_id=self._operation_context.operation_id,
@@ -223,7 +239,9 @@ class BattleCaptureService:
                 device_name=self._device_name,
                 include_incoming=True,
                 server_damage_calibration=True,
-                raw_capture="disabled",
+                raw_capture=(
+                    "enabled" if self._raw_capture_enabled else "disabled"
+                ),
             )
             capture_started = True
             self._publish(
@@ -276,6 +294,8 @@ class BattleCaptureService:
                 except Exception as close_error:
                     if terminal_error is None:
                         terminal_error = close_error
+            if self._raw_capture_enabled:
+                self._prune_raw_captures()
             self._client = None
             if (
                 capture_staged
@@ -357,6 +377,33 @@ class BattleCaptureService:
                 phase="failed",
                 result="failed",
                 error=safe_exception(terminal_error),
+            )
+
+    def _prune_raw_captures(self) -> None:
+        """Best-effort cleanup without exposing the account log path."""
+        directory = self._raw_capture_directory
+        if directory is None:
+            return
+        try:
+            result = prune_raw_capture_files(directory)
+        except Exception as error:
+            log_event(
+                "WARNING",
+                "battle_report.raw_capture_prune_failed",
+                "清理战报原始抓包失败，将在下次采集时重试",
+                self._operation_context,
+                error=safe_exception(error),
+            )
+            return
+        if result.deleted_count:
+            log_event(
+                "INFO",
+                "battle_report.raw_capture_pruned",
+                "已清理旧战报原始抓包",
+                self._operation_context,
+                deleted_count=result.deleted_count,
+                deleted_bytes=result.deleted_bytes,
+                retained_count=result.retained_count,
             )
 
     def _poll_axis(

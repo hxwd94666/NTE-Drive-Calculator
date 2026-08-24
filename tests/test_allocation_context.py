@@ -17,7 +17,6 @@ from src.services.allocation_context import (
     build_allocation_context,
 )
 from src.services.character_shape_bonus_service import SHARED_DATABASE_ENV
-from src.services.character_shape_bonus_service import save_public_character_shape_bonus
 from src.services.custom_character_service import (
     create_custom_character,
     save_custom_character_board,
@@ -150,7 +149,7 @@ class AllocationContextTests(unittest.TestCase):
         self.assertEqual("allocation-context", context.account_id)
         self.assertEqual(snapshot_id, context.snapshot.snapshot_id)
         self.assertEqual("weighted-solver-v1", context.solver_version)
-        self.assertEqual(18, context.static_dataset.schema_version)
+        self.assertEqual(27, context.static_dataset.schema_version)
         self.assertTrue(context.static_dataset.dataset_id)
         self.assertEqual([1003, 1004], [role.character_id for role in context.roles])
         self.assertEqual([0, 2], [role.priority_group for role in context.roles])
@@ -177,18 +176,22 @@ class AllocationContextTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             context.candidates[0].level = 1
 
-    def test_uses_the_pinned_public_extra_shape_override(self) -> None:
+    def test_ignores_legacy_public_extra_shape_override(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(
             snapshot(1, [item(101, 11, kind="module"), item(202, 22, kind="core")])
         )
         profile = self._profile()
-        save_public_character_shape_bonus(
-            1003,
-            shape_label="Type-4",
-            property_values={"CritBase": 8.0},
-            database_path=self.static_database_path,
-            shared_database_path=self.shared_database_path,
-        )
+        from src.storage.sqlite.shared_data_dao import SharedDataDao
+
+        with SharedDataDao(self.shared_database_path) as shared_dao:
+            shared_dao.upsert_shape_bonus_override(
+                "character:1003",
+                representative_character_id=1003,
+                shape_label="Type-4",
+                shape_grid_count=4,
+                properties=[{"property_id": "CritBase", "display_value": 8.0}],
+                based_on_dataset_id="legacy-fixture",
+            )
 
         context = build_allocation_context(
             self.user_dao,
@@ -200,8 +203,15 @@ class AllocationContextTests(unittest.TestCase):
         )
 
         role = next(role for role in context.roles if role.character_id == 1003)
-        self.assertEqual("Type-4", role.extra_shape_label)
-        self.assertEqual((("CritBase", 8.0),), role.extra_shape_buffs)
+        static_shape = self.static_dao.get_character_shape_bonus(1003)
+        self.assertEqual(static_shape["shape_label"], role.extra_shape_label)
+        self.assertEqual(
+            tuple(sorted(
+                (row["property_id"], row["display_value"])
+                for row in static_shape["properties"]
+            )),
+            role.extra_shape_buffs,
+        )
 
     def test_custom_role_uses_its_account_chassis_and_extra_shape_in_calculation(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(
@@ -371,34 +381,6 @@ class AllocationContextTests(unittest.TestCase):
             profile_id=profile["profile_id"], profile_version=1,
         )
         self.assertTrue(context.roles[0].extra_shape_label)
-
-    def test_context_uses_public_shape_bonus_rule(self) -> None:
-        from src.services.character_shape_bonus_service import (
-            save_public_character_shape_bonus,
-        )
-
-        snapshot_id = self.user_dao.import_inventory_snapshot(
-            snapshot(1, [item(101, 11, kind="module")])
-        )
-        profile = self._profile()
-        self.static_dao.close()
-        save_public_character_shape_bonus(
-            1003,
-            shape_label="Type-4",
-            property_values={"CritBase": 8.0},
-            database_path=self.static_database_path,
-            shared_database_path=self.shared_database_path,
-        )
-        self.static_dao = StaticGameDataDao()
-
-        context = build_allocation_context(
-            self.user_dao, self.static_dao, snapshot_id=snapshot_id,
-            profile_id=profile["profile_id"], profile_version=1,
-        )
-
-        role = context.roles[0]
-        self.assertEqual("Type-4", role.extra_shape_label)
-        self.assertEqual((("CritBase", 8.0),), role.extra_shape_buffs)
 
     def test_protagonist_defaults_match_official_id_before_display_name(self) -> None:
         snapshot_id = self.user_dao.import_inventory_snapshot(snapshot(1, [item(101, 11, kind="module")]))
