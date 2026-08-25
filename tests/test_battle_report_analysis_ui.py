@@ -303,6 +303,7 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
                 include_equipment=False,
                 scoring_engine=None,
                 shape_areas=None,
+                **_kwargs,
             ) -> None:
                 super().__init__(parent)
                 self.include_analysis = include_analysis

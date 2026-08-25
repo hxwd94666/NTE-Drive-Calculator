@@ -110,6 +110,17 @@ def replacement_candidates_for_official_role(
         return []
     if bool((context.get("plan") or {}).get("allocation_locked")):
         return []
+    return replacement_candidates_for_frozen_context(detail, context_key, target)
+
+
+def replacement_candidates_for_frozen_context(
+    detail: Mapping[str, Any],
+    context_key: str,
+    target: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Rank compatible replacements without assuming or mutating a saved plan."""
+
+    context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
     raw_items = tuple(context.get("items") or ())
     if not raw_items:
         return []

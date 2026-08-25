@@ -26,6 +26,7 @@ from src.services.damage_calculation_service import (
     ToppleDamageInput,
     calculate_enemy_topple_limit_multiplier,
 )
+from src.services.battle_hit_replay_support import ceil_replay_damage
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +254,7 @@ class BattleToppleHitReplayService:
                 *missing or ("没有可计算的出场角色格子",),
                 formula_type=formula_type,
             )
-        predicted = sum(contributions)
+        predicted = ceil_replay_damage(sum(contributions))
         signed_error = _signed_error(hit.damage, predicted)
         absolute_error = None if signed_error is None else abs(signed_error)
         confidence = (

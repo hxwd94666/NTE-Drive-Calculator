@@ -48,7 +48,7 @@
 | 事件层 | 候选对象 | 含义与所有权 |
 | --- | --- | --- |
 | 战斗证据 | `DamageHitEvent`、`TargetVitalEvent`、`TimeStopInterval`，未来的 `ObservedBuffSnapshot`、`ObservedBuffDelta` | nte-core/Integration 提供的原始或正式投影；逐击和实测状态的唯一事实源 |
-| 派生推断 | `CharacterActionEvent`、`ReactionActivationEvent`、`InferredBuffInterval`、`CollapseEvent`、`MaxHpReductionEvent` | Domain 根据正式证据和静态映射生成；必须保留算法版本、证据引用和内部置信信息，可删除重算 |
+| 派生推断 | `CharacterActionEvent`、`ReactionActivationEvent`、`InferredBuffInterval`、`CollapseEvent`、`MaxHpReductionEvent`、`BattleInferredCharacterFact` | Domain 根据正式证据和静态映射生成；必须保留算法版本、证据引用和内部置信信息，可删除重算 |
 | 用户声明 | `BattleTargetCondition`、未来的 `UserEvidenceCorrection` | 当前账号对目标集合、主计算对象、环境/难度/争锋加成、人工补正和本场魔女赐福的单一可覆盖输入；改变分析投影但不改写逐击或 nte-core 事实 |
 | UI 交互 | `AnalysisRangeChanged`、`TimelineEventSelected`、`DenseGroupExpanded`、`ReportFilterChanged`、`DetailRequested` | Controller 持有的页面意图和可丢弃状态；不冒充战斗事件，不默认写入战报历史 |
 
@@ -117,6 +117,10 @@ nte-core 实测状态
   可失效、可删除，并且不改变原始逐击。
 - 后续如果持久化动作或机制推断缓存，只能保存算法版本和证据引用；页面临时边际属性、滚动、悬停和密集
   组展开仍不得写成战报事实。
+- `BattleMarginalCandidate` 完整属于 Controller/UI 会话内存；它可以覆盖当前候选养成、弧盘、面板及允许的
+  临时装备，但不能调用战报修改副本 DAO、不能进入导出，也不能在切换战报后复用。
+- `battle_build_edit` 只属于本机战报的外层持久校准；导入记录的装备由来源与摘要锁保护，只有养成字段可以
+  另存修改副本。Core v4 最终轴替换属于采集 Service 的单事务动作，页面不能逐页提交最终事实。
 
 ### 1.7 UI 交互事件候选
 

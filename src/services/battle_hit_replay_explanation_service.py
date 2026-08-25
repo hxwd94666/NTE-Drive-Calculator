@@ -33,6 +33,7 @@ _FORMULA_FACTOR_IDS = (
     "resistance",
     "vulnerability",
     "independent",
+    "dot_final",
 )
 _REQUIRED_FORMULA_FACTOR_IDS = frozenset({
     "skill",
@@ -45,16 +46,15 @@ _REQUIRED_FORMULA_FACTOR_IDS = frozenset({
 })
 _REACTION_FORMULA_FACTOR_IDS = (
     "skill",
-    "reaction_multiplier",
     "state_coefficient",
     "scaling",
     "defense",
     "resistance",
     "vulnerability",
+    "dot_final",
 )
 _REQUIRED_REACTION_FACTOR_IDS = frozenset({
     "skill",
-    "reaction_multiplier",
     "scaling",
     "defense",
     "resistance",
@@ -112,6 +112,34 @@ def _sum_terms(terms: Sequence[BattleHitReplayTerm]) -> tuple[str, str]:
         " + ".join(f"{term.source_name}:{term.label}" for term in terms),
         " + ".join(_term_value(term) for term in terms),
     )
+
+
+def _terms_for_property(
+    factor: BattleHitReplayFactor, property_id: str,
+) -> tuple[BattleHitReplayTerm, ...]:
+    return tuple(
+        term for term in factor.terms if term.property_id == property_id
+    )
+
+
+def _term_total(
+    factor: BattleHitReplayFactor, property_id: str,
+) -> float:
+    return sum(term.value for term in _terms_for_property(factor, property_id))
+
+
+def _source_names(terms: Sequence[BattleHitReplayTerm]) -> str:
+    return "、".join(
+        dict.fromkeys(f"{term.source_name}:{term.label}" for term in terms)
+    ) or "无"
+
+
+def _signed_percent_expression(initial: float, changes: Sequence[float]) -> str:
+    expression = f"{initial * 100:g}%"
+    for value in changes:
+        operator = "+" if value >= 0 else "-"
+        expression += f" {operator} {abs(value) * 100:g}%"
+    return expression
 
 
 def _group_buff_intervals(
@@ -189,6 +217,85 @@ def _scaling_formula_lines(factor: BattleHitReplayFactor) -> list[str]:
     ]
 
 
+def _defense_formula_lines(factor: BattleHitReplayFactor) -> list[str]:
+    if "DefBase/6" not in factor.evidence_basis:
+        return []
+    level = _term_total(factor, "CharacterLevel")
+    defense_base = _term_total(factor, "DefBase")
+    defense_up = _term_total(factor, "DefUp")
+    defense_add = _term_total(factor, "DefAdd")
+    penetration = _term_total(factor, "DefIgnore")
+    reduction = _term_total(factor, "DefReduction")
+    level_factor = level + 100.0
+    panel_defense = defense_base * (1.0 + defense_up) + defense_add
+    effective_defense = (
+        panel_defense / 6.0 * (1.0 - penetration) * (1.0 - reduction)
+    )
+    return [
+        "防御区 = L / (敌方有效防御 + L)，L = 角色等级 + 100",
+        f"  L = {level:g} + 100 = {level_factor:g}",
+        "  敌方面板防御 = DefBase × (1 + DefUp) + DefAdd",
+        f"    = {defense_base:g} × (1 + {defense_up * 100:g}%) + "
+        f"{defense_add:g} = {panel_defense:g}",
+        "  敌方有效防御 = 敌方面板防御 / 6 × (1 - 防御穿透) × "
+        "(1 - 防御降低)",
+        f"    = {panel_defense:g} / 6 × (1 - {penetration * 100:g}%) × "
+        f"(1 - {reduction * 100:g}%) = {effective_defense:g}",
+        f"  防御区 = {level_factor:g} / ({effective_defense:g} + "
+        f"{level_factor:g}) = {_factor_value(factor)}",
+    ]
+
+
+def _resistance_formula_lines(factor: BattleHitReplayFactor) -> list[str]:
+    base_terms = tuple(
+        term
+        for term in factor.terms
+        if term.property_id.startswith("Resistance:")
+    )
+    penetration_terms = tuple(
+        term
+        for term in factor.terms
+        if term.property_id.startswith("DamagePenetrate")
+    )
+    resistance_modifiers = tuple(
+        term
+        for term in factor.terms
+        if term.property_id.startswith("DamageResist")
+    )
+    if not base_terms:
+        return []
+    base = sum(term.value for term in base_terms)
+    modifier_values = tuple(term.value for term in resistance_modifiers)
+    target_resistance = base + sum(modifier_values)
+    penetration = sum(term.value for term in penetration_terms)
+    effective = target_resistance - penetration
+    target_expression = _signed_percent_expression(base, modifier_values)
+    comparison = ">= 0" if effective >= 0 else "< 0"
+    branch_formula = (
+        "1 - 有效抗性"
+        if effective >= 0
+        else "1 - 有效抗性 / 1.10"
+    )
+    branch_substitution = (
+        f"1 - {effective * 100:g}%"
+        if effective >= 0
+        else f"1 - ({effective * 100:g}% / 1.10)"
+    )
+    return [
+        "抗性区 = 抗性分段函数(有效抗性)",
+        f"  目标抗性来源：{_source_names((*base_terms, *resistance_modifiers))}",
+        f"  目标抗性 = {target_expression} = {target_resistance * 100:g}%",
+        f"  属性穿透来源：{_source_names(penetration_terms)}",
+        f"  属性穿透合计 = {penetration * 100:g}%",
+        "  有效抗性 = 目标抗性 - 属性穿透",
+        f"    = {target_resistance * 100:g}% - {penetration * 100:g}% "
+        f"= {effective * 100:g}%",
+        f"  因有效抗性 {effective * 100:g}% {comparison}，采用："
+        f"{branch_formula}",
+        f"  抗性区 = {branch_substitution} = {_factor_value(factor)}",
+    ]
+
+
 def _factor_lines(factor: BattleHitReplayFactor) -> list[str]:
     if factor.factor_id.startswith("topple_character:"):
         lines = [
@@ -208,6 +315,14 @@ def _factor_lines(factor: BattleHitReplayFactor) -> list[str]:
         return lines
     if factor.factor_id == "scaling":
         lines = _scaling_formula_lines(factor)
+    elif factor.factor_id == "defense" and (
+        detailed := _defense_formula_lines(factor)
+    ):
+        lines = detailed
+    elif factor.factor_id == "resistance" and (
+        detailed := _resistance_formula_lines(factor)
+    ):
+        lines = detailed
     else:
         lines = [f"{factor.label} = {factor.formula or '结构化计算值'}"]
         if factor.terms:
@@ -242,6 +357,7 @@ class BattleHitReplayExplanationService:
         )
         lines = [
             f"{hit.character_name} · {damage_name}",
+            f"逐击 ID：{hit.event_id}",
             f"对应公式类型：{formula_type}",
             f"目标：{hit.target_name}",
             "",
@@ -321,9 +437,8 @@ class BattleHitReplayExplanationService:
                     f"实际伤害期望：{_damage(replay.corrected_expected_damage)}"
                 ),
                 (
-                    "期望口径：预计非暴击伤害 × "
-                    f"[1 + {_percent((replay.critical_rate or 0.0) * 100)}"
-                    " × 暴击伤害]；实际期望按本击有符号误差同比补正。"
+                    "期望口径：向上取整后的未暴击/暴击候选按暴击率加权；"
+                    "实际期望按本击有符号误差同比补正。"
                 ),
                 (
                     f"推断暴击：{_CRIT_STATES.get(replay.critical_state, replay.critical_state)}"
@@ -367,11 +482,29 @@ class BattleHitReplayExplanationService:
             substituted = " + ".join(
                 _factor_value(factor) for factor in topple_cells
             )
+            raw_damage = sum(factor.value for factor in topple_cells)
             lines.extend((
                 f"团队倾陷伤害 = {expression}",
                 f"  = {substituted}",
-                f"  = {sum(factor.value for factor in topple_cells):,.2f}",
+                f"  = ceil({raw_damage:,.6f}) = {_damage(replay.non_critical_damage)}",
             ))
+        elif _REQUIRED_FORMULA_FACTOR_IDS.issubset(factors):
+            expression = " × ".join(factor.label for factor in formula_factors)
+            substituted = " × ".join(_factor_value(factor) for factor in formula_factors)
+            noncrit = reduce(mul, (factor.value for factor in formula_factors), 1.0)
+            lines.extend((
+                f"伤害（未暴击） = {expression}",
+                f"  = {substituted}",
+                f"  = ceil({noncrit:,.6f}) = {_damage(replay.non_critical_damage)}",
+            ))
+            critical = factors.get("critical")
+            if critical is not None:
+                raw_critical = noncrit * critical.value
+                lines.extend((
+                    f"伤害（暴击） = 未取整伤害 × {critical.label}",
+                    f"  = {noncrit:,.2f} × {_factor_value(critical)}",
+                    f"  = ceil({raw_critical:,.6f}) = {_damage(replay.critical_damage)}",
+                ))
         elif _REQUIRED_REACTION_FACTOR_IDS.issubset(factors):
             expression = " × ".join(
                 factor.label for factor in reaction_formula_factors
@@ -387,30 +520,15 @@ class BattleHitReplayExplanationService:
             lines.extend((
                 f"伤害（未暴击） = {expression}",
                 f"  = {substituted}",
-                f"  = {noncrit:,.2f}",
+                f"  = ceil({noncrit:,.6f}) = {_damage(replay.non_critical_damage)}",
             ))
             critical = factors.get("critical")
             if critical is not None:
+                raw_critical = noncrit * critical.value
                 lines.extend((
-                    f"伤害（暴击） = 伤害（未暴击） × {critical.label}",
+                    f"伤害（暴击） = 未取整伤害 × {critical.label}",
                     f"  = {noncrit:,.2f} × {_factor_value(critical)}",
-                    f"  = {noncrit * critical.value:,.2f}",
-                ))
-        elif _REQUIRED_FORMULA_FACTOR_IDS.issubset(factors):
-            expression = " × ".join(factor.label for factor in formula_factors)
-            substituted = " × ".join(_factor_value(factor) for factor in formula_factors)
-            noncrit = reduce(mul, (factor.value for factor in formula_factors), 1.0)
-            lines.extend((
-                f"伤害（未暴击） = {expression}",
-                f"  = {substituted}",
-                f"  = {noncrit:,.2f}",
-            ))
-            critical = factors.get("critical")
-            if critical is not None:
-                lines.extend((
-                    f"伤害（暴击） = 伤害（未暴击） × {critical.label}",
-                    f"  = {noncrit:,.2f} × {_factor_value(critical)}",
-                    f"  = {noncrit * critical.value:,.2f}",
+                    f"  = ceil({raw_critical:,.6f}) = {_damage(replay.critical_damage)}",
                 ))
         else:
             missing_target = any(

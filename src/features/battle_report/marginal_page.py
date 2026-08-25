@@ -6,6 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractButton,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFrame,
@@ -34,6 +35,9 @@ from src.features.battle_report.analysis_components import (
 )
 from src.features.battle_report.composition_view import BattleDamageCompositionPanel
 from src.features.battle_report.hit_formula_dialog import BattleHitFormulaDialog
+from src.features.battle_report.marginal_replacement_controller import (
+    show_marginal_equipment_replacement,
+)
 from src.features.battle_report.role_contribution_view import (
     BattleRoleDamagePieWidget,
     BattleRoleShareBar,
@@ -45,6 +49,9 @@ from src.features.official_role.profile_editor import OfficialRoleProfileEditor
 from src.services.battle_build_equipment_service import freeze_equipment_context
 from src.services.battle_build_timeline_projection_service import (
     BattleBuildTimelineProjectionService,
+)
+from src.services.battle_marginal_candidate_service import (
+    BattleMarginalCandidateService,
 )
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
@@ -59,13 +66,12 @@ def _number(value: float) -> str:
 
 
 class BattleMarginalPage(QWidget):
-    """Edit one saved candidate and present its full-axis estimated result."""
+    """Edit one memory-only candidate and replay the selected role's battle half."""
 
     back_requested = Signal()
     recalculate_requested = Signal(object)
-    import_role_page_requested = Signal()
-    restore_original_requested = Signal()
-    sync_role_page_requested = Signal()
+    restore_saved_requested = Signal()
+    analysis_requested = Signal(int, object, object)
 
     def __init__(self, *, game_ui_asset_root=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -76,6 +82,8 @@ class BattleMarginalPage(QWidget):
         self._editors: list[OfficialRoleProfileEditor | None] = []
         self._editor_character_ids: list[int] = []
         self._attribute_edits: dict[int, dict[str, float]] = {}
+        self._equipment_editable = True
+        self._inferred_fact_ids: tuple[str, ...] = ()
         self._build()
 
     def _build(self) -> None:
@@ -127,6 +135,14 @@ class BattleMarginalPage(QWidget):
         self.change_summary = QLabel("等待角色配置")
         self.change_summary.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         selector.addWidget(self.change_summary, 1)
+        self.use_inferred_facts = QCheckBox("使用战报推断事实")
+        self.use_inferred_facts.setChecked(True)
+        self.use_inferred_facts.setToolTip(
+            "默认使用完整原始轴确认的高置信事实；取消后只影响本页候选，"
+            "不会改写战报快照或角色页。"
+        )
+        self.use_inferred_facts.hide()
+        selector.addWidget(self.use_inferred_facts)
         recalculate = QPushButton("重算")
         recalculate.setObjectName("btnPrimary")
         recalculate.clicked.connect(self._request_recalculate)
@@ -243,16 +259,11 @@ class BattleMarginalPage(QWidget):
         self.editor_stack = QStackedWidget()
         editor_layout.addWidget(self.editor_stack)
         actions = QHBoxLayout()
-        from_role = QPushButton("从角色页同步")
-        from_role.clicked.connect(self.import_role_page_requested)
-        actions.addWidget(from_role)
-        restore = QPushButton("恢复原始")
-        restore.clicked.connect(self.restore_original_requested)
+        restore = QPushButton("恢复已保存状态")
+        restore.setToolTip("丢弃本页临时调整，重新读取当前持久化基线。")
+        restore.clicked.connect(self.restore_saved_requested)
         actions.addWidget(restore)
         actions.addStretch()
-        sync = QPushButton("同步养成到角色页")
-        sync.clicked.connect(self.sync_role_page_requested)
-        actions.addWidget(sync)
         editor_layout.addLayout(actions)
         root.addWidget(editor_card)
 
@@ -278,6 +289,9 @@ class BattleMarginalPage(QWidget):
         root.addStretch()
 
     def set_editor_data(self, editor_data: dict) -> None:
+        self._load_editor_data(editor_data)
+
+    def _load_editor_data(self, editor_data: dict) -> None:
         while self.editor_stack.count():
             widget = self.editor_stack.widget(0)
             self.editor_stack.removeWidget(widget)
@@ -286,6 +300,16 @@ class BattleMarginalPage(QWidget):
         self._details.clear()
         self._editor_character_ids.clear()
         self._attribute_edits.clear()
+        self._equipment_editable = bool(
+            editor_data.get("marginal_equipment_editable", True)
+        )
+        self._inferred_fact_ids = tuple(
+            str(getattr(fact, "fact_id", ""))
+            for fact in editor_data.get("inferred_character_facts") or ()
+            if str(getattr(fact, "fact_id", ""))
+        )
+        self.use_inferred_facts.setChecked(True)
+        self.use_inferred_facts.setVisible(bool(self._inferred_fact_ids))
         self.character_combo.blockSignals(True)
         self.character_combo.clear()
         for detail in editor_data.get("details") or ():
@@ -306,6 +330,13 @@ class BattleMarginalPage(QWidget):
         self.character_combo.blockSignals(False)
         self._character_changed()
 
+    def clear_candidate(self) -> None:
+        self._load_editor_data({"details": [], "marginal_equipment_editable": True})
+        self._analysis = None
+        self._candidate_analysis = None
+        self.counterfactual_timeline.set_analysis(None)
+        self.composition_panel.clear()
+
     def set_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
         self._analysis = analysis
         comparison = analysis.build_counterfactual
@@ -314,7 +345,7 @@ class BattleMarginalPage(QWidget):
             self.counterfactual_timeline.set_analysis(None)
             self.metric_labels["dps"].setText(_number(analysis.effective_dps))
             self.metric_labels["damage"].setText(_number(analysis.effective_damage))
-            self.metric_subtitles["damage"].setText("尚未保存修改副本")
+            self.metric_subtitles["damage"].setText("当前候选尚未重算")
             self.metric_labels["structured"].setText("—")
             self.roles_table.setRowCount(0)
             self.roles_pie.set_roles(())
@@ -424,7 +455,7 @@ class BattleMarginalPage(QWidget):
                 profile = editor.profile()
                 selection = editor.selected_equipment_context()
             if selection is None:
-                raise ValueError("战报角色副本缺少边际配装上下文")
+                raise ValueError("战报边际候选缺少计算配装")
             context_key, context = selection
             profile.update({
                 "equipment_context_key": context_key,
@@ -442,6 +473,19 @@ class BattleMarginalPage(QWidget):
         value = self.character_combo.currentData()
         return None if value is None else int(value)
 
+    def selected_detail_scope(self) -> str | None:
+        index = self.character_combo.currentIndex()
+        if not 0 <= index < len(self._details):
+            return None
+        scope = self._details[index].get("analysis_detail_scope")
+        return str(scope) if scope in {"first", "second"} else None
+
+    def equipment_editable(self) -> bool:
+        return self._equipment_editable
+
+    def disabled_inferred_fact_ids(self) -> tuple[str, ...]:
+        return () if self.use_inferred_facts.isChecked() else self._inferred_fact_ids
+
     def _character_changed(self, _index: int = -1) -> None:
         index = self.character_combo.currentIndex()
         if 0 <= index < self.editor_stack.count():
@@ -449,6 +493,13 @@ class BattleMarginalPage(QWidget):
             self.editor_stack.setCurrentIndex(index)
         self._render_selected_role()
         self._refresh_change_summary()
+        character_id = self.selected_character_id()
+        if character_id is not None:
+            self.analysis_requested.emit(
+                character_id,
+                self.selected_detail_scope(),
+                self.profiles(),
+            )
 
     def _refresh_change_summary(self, *_args) -> None:
         index = self.character_combo.currentIndex()
@@ -494,6 +545,13 @@ class BattleMarginalPage(QWidget):
             self,
             include_analysis=False,
             include_equipment=True,
+            allow_equipment_replacement=self._equipment_editable,
+            show_equipment_context_selector=False,
+            equipment_replacement_handler=(
+                lambda target, context_key, current=index: (
+                    self._replace_equipment(current, target, context_key)
+                )
+            ),
             scoring_engine=getattr(host, "scoring_engine", None),
             shape_areas=getattr(host, "_shape_areas", {}),
         )
@@ -511,6 +569,37 @@ class BattleMarginalPage(QWidget):
         for widget in editor.findChildren(QDoubleSpinBox):
             widget.valueChanged.connect(self._refresh_change_summary)
         return editor
+
+    def _replace_equipment(
+        self,
+        index: int,
+        target: dict,
+        context_key: str,
+    ) -> bool:
+        if not self._equipment_editable or not 0 <= index < len(self._details):
+            return False
+        detail = self._details[index]
+        context = (detail.get("equipment_contexts") or {}).get(context_key)
+        if not isinstance(context, dict):
+            return False
+
+        def apply_replacement(replacement) -> None:
+            BattleMarginalCandidateService.replace_equipment(
+                context,
+                target,
+                replacement,
+            )
+
+        accepted = show_marginal_equipment_replacement(
+            self,
+            detail,
+            target,
+            context_key=context_key,
+            on_replaced=apply_replacement,
+        )
+        if accepted:
+            self._refresh_change_summary()
+        return accepted
 
     def _render_selected_role(self) -> None:
         analysis = self._analysis

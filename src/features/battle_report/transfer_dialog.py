@@ -8,6 +8,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QHeaderView,
@@ -42,6 +43,7 @@ class BattleReportTransferDialog(QDialog):
 
     def __init__(self, *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._selectors: dict[int, QCheckBox] = {}
         self.setWindowTitle("导出 / 读取战报包")
         self.setMinimumSize(900, 520)
         self.resize(1080, 680)
@@ -163,6 +165,7 @@ class BattleReportTransferDialog(QDialog):
         self.account_name_edit.setModified(False)
 
     def set_entries(self, entries: tuple[BattleReportTransferEntry, ...]) -> None:
+        self._selectors.clear()
         self.table.setRowCount(len(entries))
         self.table.setVisible(bool(entries))
         self.empty_label.setVisible(not entries)
@@ -171,12 +174,9 @@ class BattleReportTransferDialog(QDialog):
         self.select_all_button.setEnabled(bool(entries))
         self.clear_selection_button.setEnabled(bool(entries))
         for row, entry in enumerate(entries):
-            selector = QTableWidgetItem()
-            selector.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-            selector.setCheckState(Qt.Unchecked)
-            selector.setData(Qt.UserRole, entry.battle_record_id)
-            selector.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 0, selector)
+            selector_cell, selector = self._selector_widget()
+            self._selectors[entry.battle_record_id] = selector
+            self.table.setCellWidget(row, 0, selector_cell)
             self.table.setItem(row, 1, self._item(_local_time(entry.captured_at_utc)))
             self.table.setItem(row, 2, self._item(entry.gameplay_label))
             self.table.setItem(row, 3, self._item(entry.scope_label))
@@ -190,12 +190,11 @@ class BattleReportTransferDialog(QDialog):
             self.table.setRowHeight(row, 42)
 
     def selected_report_ids(self) -> tuple[int, ...]:
-        result = []
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item is not None and item.checkState() == Qt.Checked:
-                result.append(int(item.data(Qt.UserRole)))
-        return tuple(result)
+        return tuple(
+            report_id
+            for report_id, selector in self._selectors.items()
+            if selector.isChecked()
+        )
 
     def has_unsaved_account_name(self) -> bool:
         return self.account_name_edit.isModified()
@@ -227,12 +226,19 @@ class BattleReportTransferDialog(QDialog):
         item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         return item
 
+    @staticmethod
+    def _selector_widget() -> tuple[QWidget, QCheckBox]:
+        cell = QWidget()
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        selector = QCheckBox(cell)
+        layout.addWidget(selector, 0, Qt.AlignCenter)
+        return cell, selector
+
     def _set_all_checked(self, checked: bool) -> None:
-        state = Qt.Checked if checked else Qt.Unchecked
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item is not None:
-                item.setCheckState(state)
+        for selector in self._selectors.values():
+            selector.setChecked(checked)
 
 
 __all__ = ["BattleReportTransferDialog"]

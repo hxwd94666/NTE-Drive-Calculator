@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from math import ceil
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
@@ -13,6 +14,7 @@ from src.domain.battle_report import (
     BattleHitReplayFactor,
     BattleHitReplayResult,
     BattleHitReplayTerm,
+    BattleSkillDamageEvidence,
 )
 
 
@@ -21,6 +23,12 @@ _PANEL_PROPERTIES = {
     "HPMax": ("PanelHP", "HPMax"),
     "Def": ("PanelDef", "Def"),
 }
+
+
+def ceil_replay_damage(value: float) -> float:
+    """Round one deterministic replay settlement upward after all factors."""
+
+    return float(ceil(max(0.0, float(value))))
 
 
 def first_replay_value(values: Mapping[str, float], property_id: str) -> float:
@@ -58,6 +66,26 @@ def replay_factor(
         formula,
         terms,
     )
+
+
+def dot_final_replay_factors(
+    evidence: BattleSkillDamageEvidence,
+) -> tuple[BattleHitReplayFactor, ...]:
+    """Explain a DOT-only final multiplier without exposing it to direct hits."""
+
+    if not evidence.dot_final_multiplier_basis:
+        return ()
+    value = max(1.0, evidence.dot_final_multiplier)
+    return (replay_factor(
+        "dot_final",
+        "DOT 专属最终乘区",
+        value,
+        evidence.dot_final_multiplier_basis,
+        formula=(
+            "1 + min(结算前 DOT 种类数 × 25%, 100%)"
+            if value > 1.0 else "固定为 1"
+        ),
+    ),)
 
 
 def replay_source_terms(

@@ -26,6 +26,7 @@ from src.services.damage_calculation_service import (
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.official_role_labels import _property_label
+from src.services.world_bonus_settings_service import world_bonus_property_stats
 
 
 def _asset_root(value: str | Path | None) -> Path:
@@ -231,6 +232,17 @@ def _likeability_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
     }
 
 
+def _world_bonus_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
+    return world_bonus_property_stats(detail.get("world_bonus"))
+
+
+def _add_property_stats(
+    totals: dict[str, float], values: Mapping[str, float],
+) -> None:
+    for property_id, value in values.items():
+        totals[property_id] = totals.get(property_id, 0.0) + float(value)
+
+
 def calculate_official_role_attribute_summaries(
     detail: Mapping[str, Any],
     items: Iterable[Any],
@@ -260,8 +272,8 @@ def calculate_official_role_attribute_summaries(
         for total in equipment_totals
     )
     combined = _fork_property_stats(detail)
-    for property_id, value in _likeability_property_stats(detail).items():
-        combined[property_id] = combined.get(property_id, 0.0) + value
+    _add_property_stats(combined, _likeability_property_stats(detail))
+    _add_property_stats(combined, _world_bonus_property_stats(detail))
     for total in equipment_totals:
         combined[total.property_id] = (
             combined.get(total.property_id, 0.0) + float(total.value)
@@ -442,10 +454,9 @@ def _property_stats_by_source(
         detail, _context_calculation_items(context),
     )
     totals = dict(fork_stats)
-    for property_id, value in _likeability_property_stats(detail).items():
-        totals[property_id] = totals.get(property_id, 0.0) + value
-    for property_id, value in equipment_stats.items():
-        totals[property_id] = totals.get(property_id, 0.0) + value
+    _add_property_stats(totals, _likeability_property_stats(detail))
+    _add_property_stats(totals, _world_bonus_property_stats(detail))
+    _add_property_stats(totals, equipment_stats)
     return fork_stats, equipment_stats, totals
 
 
@@ -477,7 +488,9 @@ def calculate_official_role_combat_stat_sources(
         for property_id, attribute in (detail.get("attributes") or {}).items()
     }
 
-    def rows(values: Mapping[str, float]) -> tuple[OfficialAttributeSummaryValue, ...]:
+    def rows(
+        values: Mapping[str, float], *, include_zero: bool = False,
+    ) -> tuple[OfficialAttributeSummaryValue, ...]:
         return tuple(
             OfficialAttributeSummaryValue(
                 key=property_id,
@@ -493,7 +506,7 @@ def calculate_official_role_combat_stat_sources(
                 weight_property_ids=(property_id,),
             )
             for property_id, value in sorted(values.items())
-            if property_id and float(value) != 0.0
+            if property_id and (include_zero or float(value) != 0.0)
         )
 
     character = {
@@ -507,6 +520,10 @@ def calculate_official_role_combat_stat_sources(
         "character": rows(character),
         "fork": rows(_fork_property_stats(detail)),
         "likeability": rows(_likeability_property_stats(detail)),
+        "world_bonus": rows(
+            _world_bonus_property_stats(detail),
+            include_zero=True,
+        ),
         "equipment": rows(_equipment_property_stats(detail, list(items))),
     }
 
@@ -545,10 +562,9 @@ def calculate_official_role_combat_stat_components(
         for property_id, attribute in (detail.get("attributes") or {}).items()
     }
     totals = _fork_property_stats(detail)
-    for property_id, value in _likeability_property_stats(detail).items():
-        totals[property_id] = totals.get(property_id, 0.0) + value
-    for property_id, value in _equipment_property_stats(detail, list(items)).items():
-        totals[property_id] = totals.get(property_id, 0.0) + value
+    _add_property_stats(totals, _likeability_property_stats(detail))
+    _add_property_stats(totals, _world_bonus_property_stats(detail))
+    _add_property_stats(totals, _equipment_property_stats(detail, list(items)))
 
     rows: list[OfficialAttributeSummaryValue] = []
 

@@ -527,6 +527,10 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         analysis = self._visible_analysis()
         if analysis is None:
             return
+        inferred = (
+            getattr(analysis, "time_stop_source_kind", "")
+            == "inferred_q_action"
+        )
         for start_us, end_us in analysis.time_stop_intervals:
             if start_us is None or end_us is None or end_us <= start_us:
                 continue
@@ -542,10 +546,17 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
             if self._time_mode == ELAPSED_TIME_MODE:
                 painter.fillRect(
                     QRectF(left, TOP, max(1.0, right - left), max(1.0, plot_bottom - TOP)),
-                    QColor(139, 148, 158, 38),
+                    QColor(210, 153, 34, 52)
+                    if inferred
+                    else QColor(139, 148, 158, 38),
                 )
             else:
-                painter.setPen(QPen(QColor(139, 148, 158, 120), 1, Qt.DashLine))
+                color = (
+                    QColor(210, 153, 34, 170)
+                    if inferred
+                    else QColor(139, 148, 158, 120)
+                )
+                painter.setPen(QPen(color, 1, Qt.DashLine))
                 painter.drawLine(int(left), TOP, int(left), int(plot_bottom))
 
     def _paint_selected_range(

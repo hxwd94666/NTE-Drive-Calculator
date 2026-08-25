@@ -424,7 +424,8 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
                    target_context_json, target_hp_before, target_hp_after,
                    target_max_hp, target_hp_percent, gameplay_effect_index,
                    gameplay_effect_name, ability_name, damage_name,
-                   damage_component, attack_type, damage_attribute,
+                    damage_component, attack_type, damage_attribute,
+                     max_hp_reduction,
                     follow_up_damage_name, follow_up_damage_component,
                     follow_up_attack_type, follow_up_damage_attribute,
                     follow_up_labels_json, raw_hit_json

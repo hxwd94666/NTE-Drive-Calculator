@@ -8,7 +8,10 @@ from pathlib import Path
 from src.integrations.nte_core_battle import parse_battle_summary
 from src.observability import OperationContext
 from src.services.battle_report_history_service import BattleReportHistoryService
-from src.services.battle_report_history_projection import analysis_scope_range
+from src.services.battle_report_history_projection import (
+    analysis_scope_range,
+    character_analysis_scopes,
+)
 from src.services.battle_report_persistence_service import (
     BattleReportPersistenceDependencies,
     BattleReportPersistenceService,
@@ -17,6 +20,20 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 class BattleReportLongPageIntegrationTests(unittest.TestCase):
+    def test_roles_map_to_their_unique_upper_or_lower_half(self) -> None:
+        evidence = {
+            "hits": [
+                {"character_id": 1001, "abyss_half": "upper"},
+                {"character_id": 1001, "abyss_half": "upper"},
+                {"character_id": 1002, "abyss_half": "lower"},
+            ]
+        }
+
+        self.assertEqual(
+            {1001: "first", 1002: "second"},
+            character_analysis_scopes(evidence),
+        )
+
     def test_half_scope_resolves_complete_upper_and_lower_axis_ranges(self) -> None:
         evidence = {
             "hits": [
@@ -77,7 +94,7 @@ class BattleReportLongPageIntegrationTests(unittest.TestCase):
             persistence.append_axis_page(
                 capture_operation_id="capture-long-page",
                 page={
-                    "contract_version": 1,
+                    "contract_version": 4,
                     "battle_record_id": "battle-long-page",
                     "generation": "1",
                     "complete": True,
@@ -93,6 +110,8 @@ class BattleReportLongPageIntegrationTests(unittest.TestCase):
                             "character_known": True,
                             "direction": "outgoing",
                             "damage": 100.0,
+                            "overkill_damage": 0.0,
+                            "max_hp_reduction": 0.0,
                             "follow_up_damage": 0.0,
                             "total_damage": 100.0,
                             "ability_name": "GA_Test",
@@ -100,6 +119,8 @@ class BattleReportLongPageIntegrationTests(unittest.TestCase):
                             "damage_component": "skill",
                             "attack_type": "skill",
                             "damage_attribute": "nature",
+                            "target_id": "enemy-wire:wish",
+                            "target_max_hp": 5_419_605.0,
                             "follow_up_labels": [],
                         }
                     ],
@@ -133,7 +154,7 @@ class BattleReportLongPageIntegrationTests(unittest.TestCase):
                 captured_at_utc="2026-08-20T00:00:00+00:00",
                 finalized_at_utc="2026-08-20T00:00:01+00:00",
                 raw_record_payload={
-                    "contract_version": 1,
+                    "contract_version": 4,
                     "battle_record_id": "battle-long-page",
                     "generation": "1",
                     "axis_complete": True,
@@ -147,9 +168,42 @@ class BattleReportLongPageIntegrationTests(unittest.TestCase):
                 dependencies=dependencies,
                 context_is_current=lambda _dependencies: True,
             )
+            history.save_target_condition(
+                outcome.battle_record_id,
+                {
+                    "target_name": "测试目标",
+                    "enemy_level": 90,
+                    "scene": "open_world",
+                    "defense_reduction": 0.0,
+                    "vulnerability": 0.0,
+                    "resistances": {
+                        damage_type: 0.2
+                        for damage_type in (
+                            "normal",
+                            "chaos",
+                            "cosmos",
+                            "incantation",
+                            "lakshana",
+                            "nature",
+                            "psyche",
+                            "psychically",
+                        )
+                    },
+                    "environment_kind": "manual",
+                },
+            )
             analysis = history.load_analysis(outcome.battle_record_id)
 
             assert analysis is not None
+            assert analysis.target_condition is not None
+            self.assertEqual("测试目标", analysis.target_condition.target_name)
+            self.assertEqual(
+                "user_confirmed",
+                analysis.target_condition.source_kind,
+            )
+            self.assertEqual("墨菲克斯", analysis.hits[0].target_name)
+            self.assertEqual("feast", analysis.detected_environment_kind)
+            self.assertEqual("DiyBossStage8", analysis.detected_environment_ref)
             self.assertEqual(1, len(analysis.hits))
             self.assertEqual("GA_Test", analysis.hits[0].ability_id)
             self.assertEqual(1, len(analysis.inferred_actions))

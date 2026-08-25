@@ -113,6 +113,15 @@
       "damage_name_zh": "子弹爆炸",
       "damage_name_ja": "弾丸爆発"
     },
+    "GE_Player_Lacrimosa_Pan_Damage": {
+      "owner_character_id": 1004,
+      "ability": "GA_Lacrimosa_SwitchSkill",
+      "override_observed_ability": true,
+      "override_observed_attack_type": true,
+      "attack_type": "G技能",
+      "show_parent_ability": false,
+      "damage_name_zh": "G技能伤害"
+    },
     "GE_Player_Lacrimosa_Blood_Damage": {
       "ability": "GA_Lacrimosa_Melee",
       "attack_type": "Special Damage",

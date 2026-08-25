@@ -1,11 +1,8 @@
 # 按明确暴击候选与证据缺口确定性重放每一击。
-
 from __future__ import annotations
-
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-
 from src.domain.battle_report import (
     BattleAnalysisSnapshot,
     BattleCharacterBaseline,
@@ -25,15 +22,13 @@ from src.services.damage_calculation_service import (
     calculate_resistance_multiplier,
 )
 from src.services.battle_damage_composition_service import classify_battle_hit_channel
-from src.services.battle_special_hit_replay_service import (
-    BattleSpecialHitReplayService,
-)
+from src.services.battle_special_hit_replay_service import BattleSpecialHitReplayService
 from src.services.battle_topple_hit_replay_service import (
-    BattleToppleCharacterConfig,
-    BattleToppleHitReplayService,
+    BattleToppleCharacterConfig, BattleToppleHitReplayService,
 )
 from src.services.battle_hit_replay_support import (
-    apply_observed_damage_correction,
+    apply_observed_damage_correction, ceil_replay_damage,
+    dot_final_replay_factors,
     first_replay_value as _first_value,
     literal_replay_term,
     replay_factor as _factor,
@@ -41,16 +36,15 @@ from src.services.battle_hit_replay_support import (
     replay_signed_error_percent,
     replay_source_terms as _source_terms,
 )
+from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditService
 from src.services.battle_inferred_target_condition_service import (
     INFERRED_ENCOUNTER_SOURCE_KIND,
 )
-HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v16"
-
+HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v26"
 _DIRECT_FORMULA_CHANNELS = frozenset({
     "direct", "direct_follow_up", "attachment", "special_lacrimosa_dissonance",
     "special_nightmare", "special_zankou_erosion", "special_zankou_venom",
 })
-
 _ELEMENT_DAMAGE_PROPERTIES = {
     "chaos": "DamageUpChaosBase", "cosmos": "DamageUpCosmosBase",
     "incantation": "DamageUpIncantationBase", "lakshana": "DamageUpLakshanaBase",
@@ -87,7 +81,9 @@ class BattleHitReplayService:
         for hit in analysis.hits:
             channel_id, formula_label = classify_battle_hit_channel(hit)
             evidence = evidence_by_event.get(hit.event_id)
-            baseline = baselines.get(hit.character_id)
+            formula_hit = replace(hit, character_id=evidence.source_character_id) \
+                if evidence and evidence.source_character_id is not None else hit
+            baseline = baselines.get(formula_hit.character_id)
             if hit.direction != "outgoing":
                 continue
             hit_analysis = cls._analysis_for_hit(analysis, hit)
@@ -130,7 +126,7 @@ class BattleHitReplayService:
                 continue
             if channel_id == "reaction_hexed":
                 projection = BattleBuffAttributeProjectionService.project_hit(
-                    hit,
+                    formula_hit,
                     analysis.buff_intervals,
                 )
                 frozen = {row.property_id: row.value for row in baseline.stats}
@@ -141,7 +137,7 @@ class BattleHitReplayService:
                 result = BattleSpecialHitReplayService.replay(
                     channel_id=channel_id,
                     formula_label=formula_label,
-                    hit=hit,
+                    hit=formula_hit,
                     evidence=evidence,
                     projection=projection,
                     values=values,
@@ -169,7 +165,7 @@ class BattleHitReplayService:
                 results.append(apply_observed_damage_correction(result, hit))
                 continue
             projection = BattleBuffAttributeProjectionService.project_hit(
-                hit,
+                formula_hit,
                 analysis.buff_intervals,
             )
             frozen = {row.property_id: row.value for row in baseline.stats}
@@ -181,7 +177,7 @@ class BattleHitReplayService:
                 special = BattleSpecialHitReplayService.replay(
                     channel_id=channel_id,
                     formula_label=formula_label,
-                    hit=hit,
+                    hit=formula_hit,
                     evidence=evidence,
                     projection=projection,
                     values=values,
@@ -200,7 +196,7 @@ class BattleHitReplayService:
                 results.append(apply_observed_damage_correction(result, hit))
                 continue
             result = cls._replay_direct(
-                hit=hit,
+                hit=formula_hit,
                 evidence=evidence,
                 baseline=baseline,
                 projection=projection,
@@ -223,8 +219,8 @@ class BattleHitReplayService:
                 result,
                 hit,
             ))
-        return cls._apply_local_crit_evidence(analysis, tuple(results))
-
+        replayed = cls._apply_local_crit_evidence(analysis, tuple(results))
+        return BattleHitReplayAuditService.postprocess(analysis, replayed)
     @staticmethod
     def _analysis_for_hit(
         analysis: BattleAnalysisSnapshot,
@@ -239,7 +235,6 @@ class BattleHitReplayService:
             analysis,
             target_condition=condition,
         )
-
     @classmethod
     def _apply_local_crit_evidence(
         cls,
@@ -260,6 +255,7 @@ class BattleHitReplayService:
                 hit.gameplay_effect_id
                 and result.non_critical_damage is not None
                 and result.critical_damage is not None
+                and all(row.factor_id != "state_coefficient" for row in result.factors)
             ):
                 grouped[(hit.character_id, hit.gameplay_effect_id)].append(result)
         replacements: dict[str, BattleHitReplayResult] = {}
@@ -362,7 +358,6 @@ class BattleHitReplayService:
                     ))),
                 )
         return tuple(replacements.get(row.event_id, row) for row in results)
-
     @classmethod
     def _replay_direct(
         cls,
@@ -466,16 +461,18 @@ class BattleHitReplayService:
             * resistance_factor
             * vulnerability
             * independent
+            * max(1.0, evidence.dot_final_multiplier)
         )
         crit_damage_bonus = max(0.0, values.get("CritDamageBase", 0.50))
         stack_coefficient = max(1.0, evidence.state_multiplier)
-        non_critical = one_stack_non_critical * stack_coefficient
+        raw_non_critical = one_stack_non_critical * stack_coefficient
+        non_critical = ceil_replay_damage(raw_non_critical)
         critical_disabled = evidence.critical_policy == "disabled"
         critical_unknown = evidence.critical_policy == "unknown"
         critical = (
             None
             if critical_disabled
-            else non_critical * (1.0 + crit_damage_bonus)
+            else ceil_replay_damage(raw_non_critical * (1.0 + crit_damage_bonus))
         )
         critical_rate = (
             None
@@ -694,6 +691,7 @@ class BattleHitReplayService:
                 formula="各最终伤害提升独立相乘",
                 terms=independent_terms,
             ),
+            *dot_final_replay_factors(evidence),
             _factor(
                 "critical",
                 "暴击伤害倍率",
@@ -721,7 +719,8 @@ class BattleHitReplayService:
         signed_error = replay_signed_error_percent(hit.damage, selected)
         expected = (
             None if critical_rate is None
-            else non_critical * (1.0 + critical_rate * crit_damage_bonus)
+            else non_critical if critical is None
+            else non_critical * (1.0 - critical_rate) + critical * critical_rate
         )
         corrected_expected = (
             expected * hit.damage / selected

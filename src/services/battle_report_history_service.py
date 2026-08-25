@@ -22,6 +22,7 @@ from src.services.battle_build_profile_normalization_service import (
 )
 from src.services.battle_report_history_projection import (
     analysis_scope_range,
+    character_analysis_scopes,
     history_entry,
     retention_mutation,
     stored_summary,
@@ -31,8 +32,18 @@ from src.services.battle_report_history_support import (
     StaleBattleReportContextError,
 )
 from src.services.battle_build_equipment_service import (
-    apply_equipment_override,
     battle_equipment_items,
+)
+from src.services.battle_build_edit_projection_service import apply_battle_build_edit
+from src.services.battle_marginal_candidate_service import (
+    BattleMarginalCandidate,
+    BattleMarginalCandidateService,
+)
+from src.services.battle_inferred_character_fact_service import (
+    BattleInferredCharacterFactService,
+)
+from src.services.battle_import_equipment_projection_service import (
+    apply_import_equipment_locks,
 )
 from src.services.battle_build_edit_history_mixin import (
     BattleBuildEditHistoryMixin,
@@ -51,11 +62,10 @@ from src.services.battle_action_inference_service import (
     BattleActionAnimationCandidate,
 )
 from src.services.official_role_page_service import load_official_role_detail
-from src.services.official_role_profile_service import (
-    OfficialRoleProfileService,
-    OfficialRoleProfileUpdate,
+from src.services.skill_name_rendering_service import (
+    SkillNameRenderingService,
+    project_immediate_nightmare_source_names,
 )
-from src.services.skill_name_rendering_service import SkillNameRenderingService
 from src.services.battle_report_persistence_service import (
     BattleReportContextGuard,
     BattleReportPersistenceDependencies,
@@ -86,6 +96,9 @@ from src.services.battle_topple_hit_replay_service import (
     BattleToppleCharacterConfig,
 )
 from src.services.battle_outer_realm_buff_service import BattleOuterRealmBuffService
+from src.services.battle_environment_condition_service import (
+    resolve_battle_target_condition,
+)
 from src.services.battle_build_stat_reconstruction_service import (
     BattleBuildStatReconstructionService,
 )
@@ -94,7 +107,6 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 __all__ = ["BattleReportHistoryService", "StaleBattleReportContextError"]
-
 
 class BattleReportHistoryService(
     BattleBuildEditHistoryMixin,
@@ -154,6 +166,8 @@ class BattleReportHistoryService(
         end_us: int | None = None,
         detail_scope: str | None = None,
         use_build_edit: bool = True,
+        marginal_candidate: BattleMarginalCandidate | None = None,
+        disabled_inferred_fact_ids: frozenset[str] = frozenset(),
         include_buff_inference: bool = True,
         include_hit_replays: bool = True,
         include_buff_counterfactuals: bool = True,
@@ -167,10 +181,14 @@ class BattleReportHistoryService(
             evidence = user_dao.load_battle_axis_evidence(battle_record_id)
             build = user_dao.load_battle_build_snapshot(battle_record_id)
             build_edit = user_dao.load_battle_build_edit(battle_record_id)
-            target_condition = user_dao.load_battle_target_condition(
+            import_equipment_locks = user_dao.load_battle_import_equipment_locks(
                 battle_record_id
             )
+            target_condition = resolve_battle_target_condition(
+                user_dao.load_battle_target_condition(battle_record_id)
+            )
         build = normalize_inferred_battle_build(build)
+        apply_import_equipment_locks(build, import_equipment_locks)
         self._localize_axis_evidence(evidence)
         if start_us is None and end_us is None:
             scoped_range = analysis_scope_range(
@@ -178,21 +196,17 @@ class BattleReportHistoryService(
             )
             if scoped_range is not None:
                 start_us, end_us = scoped_range
-        inferred_encounter = (
-            None
-            if target_condition is not None
-            else BattleInferredTargetConditionService.infer(
-                static_database_path=self._dependencies.static_database_path,
-                combat_context_kind=str(record.get("combat_context_kind") or ""),
-                floor=(
-                    None
-                    if record.get("abyss_floor") is None
-                    else int(record["abyss_floor"])
-                ),
-                evidence=evidence,
-                range_start_us=start_us,
-                range_end_us=end_us,
-            )
+        inferred_encounter = BattleInferredTargetConditionService.infer(
+            static_database_path=self._dependencies.static_database_path,
+            combat_context_kind=str(record.get("combat_context_kind") or ""),
+            floor=(
+                None
+                if record.get("abyss_floor") is None
+                else int(record["abyss_floor"])
+            ),
+            evidence=evidence,
+            range_start_us=start_us,
+            range_end_us=end_us,
         )
         BattleInferredTargetConditionService.project_evidence(
             evidence,
@@ -202,9 +216,25 @@ class BattleReportHistoryService(
             target_condition
             or (None if inferred_encounter is None else inferred_encounter.target_condition)
         )
+        inferred_character_facts = BattleInferredCharacterFactService.infer(evidence)
+        effective_disabled_fact_ids = frozenset(disabled_inferred_fact_ids)
+        if marginal_candidate is not None:
+            effective_disabled_fact_ids |= marginal_candidate.disabled_inferred_fact_ids
         if build is not None:
-            if use_build_edit:
-                self._apply_build_edit(build, build_edit)
+            if marginal_candidate is not None:
+                apply_battle_build_edit(
+                    build,
+                    BattleMarginalCandidateService.as_build_edit(
+                        marginal_candidate
+                    ),
+                )
+            elif use_build_edit:
+                apply_battle_build_edit(build, build_edit)
+            BattleInferredCharacterFactService.apply_to_build(
+                build,
+                inferred_character_facts,
+                disabled_fact_ids=effective_disabled_fact_ids,
+            )
             BattleBuildStatReconstructionService.enrich(build, self._dependencies)
         if include_buff_counterfactuals:
             include_hit_replays = True
@@ -244,7 +274,10 @@ class BattleReportHistoryService(
             outer_realm_buff_config=outer_realm_buff_config,
             infer_buffs=include_buff_inference,
         )
-        analysis = _analyze()
+        analysis = replace(
+            _analyze(),
+            inferred_character_facts=inferred_character_facts,
+        )
         analysis = BattleInferredTargetConditionService.apply(
             analysis,
             inferred_encounter,
@@ -287,7 +320,10 @@ class BattleReportHistoryService(
         if critical_events:
             replayed = analysis
             analysis = BattleInferredTargetConditionService.apply(
-                _analyze(critical_events=critical_events),
+                replace(
+                    _analyze(critical_events=critical_events),
+                    inferred_character_facts=inferred_character_facts,
+                ),
                 inferred_encounter,
             )
             skill_evidence = self._load_skill_damage_evidence(analysis, build)
@@ -351,6 +387,7 @@ class BattleReportHistoryService(
     ) -> dict[str, Any]:
         """Save one user-confirmed target input without changing hit evidence."""
 
+        self._assert_counterfactual_editable(battle_record_id)
         with self._open_current_dao() as user_dao:
             return user_dao.save_battle_target_condition(
                 battle_record_id,
@@ -551,6 +588,7 @@ class BattleReportHistoryService(
                         captured=hit.get("follow_up_damage_attribute"),
                     )
                 )
+        project_immediate_nightmare_source_names(evidence.get("hits") or ())
 
     def save_record(self, battle_record_id: int) -> BattleRetentionMutation:
         with self._open_current_dao() as user_dao:
@@ -602,11 +640,21 @@ class BattleReportHistoryService(
     ) -> dict[str, Any]:
         """Build role-page editor models without mutating the immutable snapshot."""
 
+        self._assert_counterfactual_editable(battle_record_id)
         with self._open_current_dao() as user_dao:
             build = user_dao.load_battle_build_snapshot(battle_record_id)
             build_edit = user_dao.load_battle_build_edit(battle_record_id)
+            evidence = user_dao.load_battle_axis_evidence(battle_record_id)
+            import_origin = user_dao.load_battle_report_import_origin(
+                battle_record_id
+            )
+            import_equipment_locks = user_dao.load_battle_import_equipment_locks(
+                battle_record_id
+            )
         if build is None:
             raise UserDataError("当前战报没有可编辑的角色配置快照")
+        apply_import_equipment_locks(build, import_equipment_locks)
+        equipment_editable = import_origin is None
         static_path = self._dependencies.static_database_path
         if static_path is None:
             raise UserDataError("当前应用没有可用的官方静态数据库")
@@ -621,6 +669,7 @@ class BattleReportHistoryService(
             int(row["character_id"]): row
             for row in ((build_edit or {}).get("characters") or ())
         }
+        scopes_by_character = character_analysis_scopes(evidence)
         details: list[dict[str, Any]] = []
         detail_request_cache: dict[object, Any] = {}
         for original in build.get("characters") or ():
@@ -656,7 +705,11 @@ class BattleReportHistoryService(
             })
             profile.update(shape_fields_by_character[character_id])
             frozen_items = battle_equipment_items(original)
-            role_contexts = dict(detail.get("equipment_contexts") or {})
+            role_contexts = (
+                dict(detail.get("equipment_contexts") or {})
+                if equipment_editable
+                else {}
+            )
             for key, context in role_contexts.items():
                 if key == "current":
                     context["source_kind"] = "role_page_current"
@@ -665,9 +718,21 @@ class BattleReportHistoryService(
                 context["source_title"] = str(context.get("title") or key)
             equipment_contexts = {
                 "battle": {
-                    "title": "本场原始冻结配装",
-                    "source_title": "本场原始冻结配装",
-                    "source_kind": "battle_frozen",
+                    "title": (
+                        "本场原始冻结配装"
+                        if equipment_editable
+                        else "导入包固化配装"
+                    ),
+                    "source_title": (
+                        "本场原始冻结配装"
+                        if equipment_editable
+                        else "导入包固化配装"
+                    ),
+                    "source_kind": (
+                        "battle_frozen"
+                        if equipment_editable
+                        else "imported_locked"
+                    ),
                     "items": frozen_items,
                     "calculation_items": frozen_items,
                     "available": bool(frozen_items),
@@ -694,7 +759,9 @@ class BattleReportHistoryService(
             detail["profile"] = profile
             detail["original_profile"] = dict(original.get("profile") or {})
             detail["editor_seed_source"] = seed_source
+            detail["analysis_detail_scope"] = scopes_by_character.get(character_id)
             detail["equipment_contexts"] = equipment_contexts
+            detail["equipment_editable"] = equipment_editable
             detail["selected_equipment_context_key"] = (
                 "edited" if "equipment_override" in profile else "battle"
             )
@@ -703,94 +770,10 @@ class BattleReportHistoryService(
             "battle_record_id": int(battle_record_id),
             "has_edit": build_edit is not None,
             "is_active": bool((build_edit or {}).get("is_active")),
+            "inferred_character_facts": (
+                BattleInferredCharacterFactService.infer(evidence)
+            ),
+            "equipment_editable": equipment_editable,
+            "report_origin": "local_capture" if equipment_editable else "imported_v2",
             "details": details,
         }
-
-    def sync_build_edit_to_role_page(self, battle_record_id: int) -> int:
-        """Copy cultivation fields only; frozen equipment never crosses this boundary."""
-
-        with self._open_current_dao() as user_dao:
-            build_edit = user_dao.load_battle_build_edit(battle_record_id)
-        if build_edit is None:
-            raise UserDataError("当前战报还没有可同步的角色修改副本")
-        static_path = self._dependencies.static_database_path
-        if static_path is None:
-            raise UserDataError("当前应用没有可用的官方静态数据库")
-        updates = []
-        for character in build_edit.get("characters") or ():
-            profile = dict(character.get("profile") or {})
-            current_detail = load_official_role_detail(
-                self._dependencies.user_database_path,
-                int(character["character_id"]),
-                include_inventory_contexts=False,
-                static_database_path=static_path,
-            )
-            role_page_ordinal = (current_detail.get("profile") or {}).get(
-                "ordinal"
-            )
-            current_ordinal = int(
-                character["ordinal"]
-                if role_page_ordinal is None
-                else role_page_ordinal
-            )
-            updates.append(OfficialRoleProfileUpdate(
-                character_id=int(character["character_id"]),
-                character_level=int(character["character_level"]),
-                breakthrough_stage=int(character["breakthrough_stage"]),
-                awakening_level=int(character["awakening_level"]),
-                selected_awaken_effect_ids=tuple(
-                    str(value)
-                    for value in profile.get("selected_awaken_effect_ids") or ()
-                ),
-                likeability_level_10_enabled=bool(
-                    character["likeability_level_10_enabled"]
-                ),
-                fork_id=character.get("fork_id"),
-                fork_level=character.get("fork_level"),
-                fork_refinement_level=character.get("fork_refinement_level"),
-                selected_skill_id=character.get("selected_skill_id"),
-                skill_levels={
-                    str(key): int(value)
-                    for key, value in (profile.get("skill_levels") or {}).items()
-                },
-                ordinal=current_ordinal,
-            ))
-        return OfficialRoleProfileService(
-            self._dependencies.user_database_path
-        ).save_profiles(updates)
-
-    @staticmethod
-    def _apply_build_edit(
-        build: dict[str, Any],
-        build_edit: dict[str, Any] | None,
-    ) -> None:
-        build["has_user_edit"] = build_edit is not None
-        build["user_edit_active"] = bool((build_edit or {}).get("is_active"))
-        if not build["user_edit_active"]:
-            return
-        edited_by_character = {
-            int(row["character_id"]): row
-            for row in (build_edit or {}).get("characters") or ()
-        }
-        for character in build.get("characters") or ():
-            edited = edited_by_character.get(int(character["character_id"]))
-            if edited is None:
-                continue
-            profile = dict(edited.get("profile") or {})
-            equipment_overridden = apply_equipment_override(character, profile)
-            character.update({
-                "profile_source": "user_edited_snapshot",
-                "character_level": int(edited["character_level"]),
-                "breakthrough_stage": int(edited["breakthrough_stage"]),
-                "awakening_level": int(edited["awakening_level"]),
-                "fork_id": edited.get("fork_id"),
-                "fork_level": edited.get("fork_level"),
-                "fork_refinement_level": edited.get("fork_refinement_level"),
-                "selected_skill_id": edited.get("selected_skill_id"),
-                "profile": profile,
-                "skills": list(edited.get("skills") or ()),
-                "stats": [],
-                "stat_snapshot_source": "missing",
-                "_edited_snapshot_active": True,
-                "_edited_equipment_active": equipment_overridden,
-            })

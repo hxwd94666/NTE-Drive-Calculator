@@ -19,7 +19,7 @@ from src.services.battle_character_passive_service import (
 )
 
 
-TARGET_VITAL_MODEL_VERSION = "battle-target-vital-v4"
+TARGET_VITAL_MODEL_VERSION = "battle-target-vital-v5"
 
 _LACRIMOSA_ID = 1004
 _FADIA_ID = 1039
@@ -212,6 +212,7 @@ class BattleTargetVitalAnalysisService:
         *,
         rows: Sequence[Mapping[str, Any]],
         build: Mapping[str, Any] | None,
+        structured_max_hp_reduction: bool = False,
     ) -> tuple[BattleMaxHpReductionEvent, ...]:
         lacrimosa_enabled = _lacrimosa_awaken_five_enabled(build)
         fadia_enabled = BattleCharacterPassiveService.is_unlocked(
@@ -262,18 +263,78 @@ class BattleTargetVitalAnalysisService:
             observed_max = _number(row.get("target_max_hp"))
             hp_before = _number(row.get("target_hp_before"))
             hp_after = _number(row.get("target_hp_after"))
-            if observed_max is None or observed_max <= 0:
+            core_max_hp_reduction = _number(row.get("max_hp_reduction"))
+            core_calibrated = bool(
+                structured_max_hp_reduction
+                and core_max_hp_reduction is not None
+            )
+            core_authoritative = bool(
+                core_calibrated and float(core_max_hp_reduction or 0.0) > 0
+            )
+            fadia_candidates = tuple(
+                candidate
+                for candidate in pending_fadia[target_scope]
+                if 0 <= time_us - int(candidate.get("relative_time_us") or 0)
+                <= _FADIA_MATCH_WINDOW_US
+            )
+            fadia_sample_fallback = bool(
+                core_calibrated
+                and not core_authoritative
+                and fadia_candidates
+                and state.confirmed_max_hp is not None
+                and observed_max is not None
+                and 0.0 < observed_max < state.confirmed_max_hp
+            )
+            if (
+                observed_max is None or observed_max <= 0
+            ) and not (core_authoritative and state.confirmed_max_hp is not None):
                 state.last_observed_hp = hp_after if hp_after is not None else hp_before
                 continue
             if state.confirmed_max_hp is None:
-                state.confirmed_max_hp = observed_max
+                state.confirmed_max_hp = (
+                    float(observed_max) + float(core_max_hp_reduction or 0.0)
+                    if core_authoritative
+                    else observed_max
+                )
                 state.last_observed_hp = hp_after if hp_after is not None else hp_before
                 _remember_hp_sample(
                     state,
                     hp_before=hp_before,
                     hp_after=hp_after,
                 )
+                if not core_authoritative:
+                    continue
+            if (
+                core_calibrated
+                and not core_authoritative
+                and not fadia_sample_fallback
+            ):
+                state.last_observed_hp = hp_after if hp_after is not None else hp_before
+                if observed_max == state.confirmed_max_hp:
+                    _remember_hp_sample(
+                        state,
+                        hp_before=hp_before,
+                        hp_after=hp_after,
+                    )
+                elif (
+                    observed_max is not None
+                    and 0.0 < observed_max < state.confirmed_max_hp
+                ):
+                    # Core v4 的零值阻止正式计伤，但仍接受单调下降样本为
+                    # 后续已知机制的新基线，避免把先前未知下降累计给法帝娅。
+                    state.confirmed_max_hp = observed_max
+                    state.settlement_frontier_hp = None
+                    _remember_hp_sample(
+                        state,
+                        hp_before=hp_before,
+                        hp_after=hp_after,
+                    )
                 continue
+            if core_authoritative:
+                observed_max = max(
+                    0.0,
+                    float(state.confirmed_max_hp) - float(core_max_hp_reduction),
+                )
             if observed_max > state.confirmed_max_hp:
                 continue
             if observed_max == state.confirmed_max_hp:
@@ -287,12 +348,6 @@ class BattleTargetVitalAnalysisService:
 
             old_max_hp = state.confirmed_max_hp
             max_hp_reduction = old_max_hp - observed_max
-            fadia_candidates = tuple(
-                candidate
-                for candidate in pending_fadia[target_scope]
-                if 0 <= time_us - int(candidate.get("relative_time_us") or 0)
-                <= _FADIA_MATCH_WINDOW_US
-            )
             lacrimosa_candidates = tuple(
                 candidate
                 for candidate in pending_lacrimosa[target_scope]
@@ -339,6 +394,21 @@ class BattleTargetVitalAnalysisService:
                 attribution_confidence = "低"
                 basis = "确认最大生命样本下降，但冻结配装与附近事件不足以归属于已建模机制。"
 
+            if fadia_sample_fallback:
+                basis = (
+                    "nte-core v4 对该行给出零 max_hp_reduction，"
+                    "但当前 Core 未覆盖法帝娅黯星的观测差值语义；"
+                    "仅在同半场、同目标、五秒内正式黯星证据下启用"
+                    "法帝娅定向样本回退。 "
+                    + basis
+                )
+            elif core_authoritative:
+                basis = (
+                    "nte-core v4 最终 generation 提供结构化 max_hp_reduction；"
+                    "目标最大生命样本只用于一致性校验，不再生成第二份结算。 "
+                    + basis
+                )
+
             settlement_hp = _settlement_frontier_hp(
                 state,
                 fallback_hp=(
@@ -378,7 +448,11 @@ class BattleTargetVitalAnalysisService:
                     source_skill_name=source_skill_name,
                     evidence_event_ids=evidence_ids,
                     attribution_confidence=attribution_confidence,
-                    calculation_confidence="中" if hp_before is not None else "低",
+                    calculation_confidence=(
+                        "高"
+                        if core_authoritative
+                        else ("中" if hp_before is not None else "低")
+                    ),
                     inference_basis=basis,
                     scope_half=target_scope[0],
                 )

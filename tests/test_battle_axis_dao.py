@@ -199,6 +199,138 @@ class BattleAxisDaoTests(unittest.TestCase):
         self.assertEqual(0.15, saved["witch_buff_value"])
         self.assertTrue(saved["witch_buff_is_percent"])
 
+    def test_final_axis_replacement_is_atomic_and_preserves_v4_max_hp(self) -> None:
+        operation_id = "final-axis-replacement"
+        self.dao.begin_battle_axis_capture(
+            capture_operation_id=operation_id,
+            captured_at_utc="2026-08-24T00:00:00+00:00",
+            account_generation=1,
+        )
+        old_page = {
+            "contract_version": 4,
+            "battle_record_id": "battle-final",
+            "generation": "1",
+            "complete": False,
+            "first_available_cursor": "1",
+            "next_cursor": "2",
+            "total_hits": "1",
+            "retained_hits": 1,
+            "rows": [{
+                "sequence": "1",
+                "direction": "outgoing",
+                "damage": 1.0,
+                "overkill_damage": 0.0,
+                "max_hp_reduction": 0.0,
+                "follow_up_labels": [],
+            }],
+        }
+        self.dao.append_battle_axis_page(
+            capture_operation_id=operation_id,
+            page=old_page,
+        )
+        final_page = {
+            **old_page,
+            "generation": "2",
+            "complete": True,
+            "next_cursor": None,
+            "rows": [{
+                **old_page["rows"][0],
+                "sequence": "8",
+                "damage": 500.0,
+                "max_hp_reduction": 100.0,
+            }],
+        }
+
+        result = self.dao.replace_staged_battle_axis(
+            capture_operation_id=operation_id,
+            pages=(final_page,),
+            source_generation="2",
+        )
+        connection = self.dao._db()
+        rows = connection.execute(
+            """
+            SELECT sequence_text, max_hp_reduction
+            FROM battle_hit_evidence
+            """
+        ).fetchall()
+
+        self.assertTrue(result["complete"])
+        self.assertEqual(1, result["stored_hits"])
+        self.assertEqual("8", rows[0]["sequence_text"])
+        self.assertEqual(100.0, rows[0]["max_hp_reduction"])
+
+        invalid_page = {**final_page, "generation": "3"}
+        with self.assertRaisesRegex(ValueError, "different generation|不同 generation"):
+            self.dao.replace_staged_battle_axis(
+                capture_operation_id=operation_id,
+                pages=(invalid_page,),
+                source_generation="2",
+            )
+        remaining = connection.execute(
+            "SELECT sequence_text FROM battle_hit_evidence"
+        ).fetchall()
+        self.assertEqual(["8"], [row["sequence_text"] for row in remaining])
+
+    def test_incomplete_final_axis_preserves_live_staged_hits(self) -> None:
+        operation_id = "incomplete-final-axis"
+        self.dao.begin_battle_axis_capture(
+            capture_operation_id=operation_id,
+            captured_at_utc="2026-08-24T00:00:00+00:00",
+            account_generation=1,
+        )
+        self.dao.append_battle_axis_page(
+            capture_operation_id=operation_id,
+            page={
+                "contract_version": 4,
+                "battle_record_id": "battle-incomplete",
+                "generation": "7",
+                "complete": True,
+                "first_available_cursor": "1",
+                "next_cursor": None,
+                "total_hits": "1",
+                "retained_hits": 1,
+                "rows": [{
+                    "sequence": "1",
+                    "direction": "outgoing",
+                    "damage": 10.0,
+                    "overkill_damage": 0.0,
+                    "max_hp_reduction": 0.0,
+                    "follow_up_labels": [],
+                }],
+            },
+        )
+
+        result = self.dao.replace_staged_battle_axis(
+            capture_operation_id=operation_id,
+            pages=(),
+            source_generation="8",
+            incomplete_reason="final_axis_incomplete",
+        )
+        connection = self.dao._db()
+        rows = connection.execute(
+            "SELECT sequence_text FROM battle_hit_evidence"
+        ).fetchall()
+        capture = connection.execute(
+            """
+            SELECT axis_complete, stored_hits, source_generation,
+                   finalization_incomplete_reason
+            FROM battle_axis_capture
+            WHERE capture_operation_id = ?
+            """,
+            (operation_id,),
+        ).fetchone()
+
+        self.assertFalse(result["complete"])
+        self.assertEqual(1, result["stored_hits"])
+        self.assertEqual(["1"], [row["sequence_text"] for row in rows])
+        self.assertEqual(0, capture["axis_complete"])
+        self.assertEqual(1, capture["stored_hits"])
+        self.assertEqual("8", capture["source_generation"])
+        self.assertEqual(
+            "final_axis_incomplete",
+            capture["finalization_incomplete_reason"],
+        )
+
     def test_materializes_only_observed_character_from_post_battle_snapshot(self) -> None:
         operation_id = "axis-operation"
         self.dao.begin_battle_axis_capture(

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -18,7 +20,13 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.features.official_role.profile_editor import OfficialRoleProfileEditor
+from src.features.battle_report.marginal_replacement_controller import (
+    show_marginal_equipment_replacement,
+)
 from src.services.battle_build_equipment_service import freeze_equipment_context
+from src.services.battle_marginal_candidate_service import (
+    BattleMarginalCandidateService,
+)
 
 
 class BattleBuildSnapshotEditorDialog(QDialog):
@@ -39,16 +47,14 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("编辑本场角色配置副本")
         self._action = ""
+        self._equipment_editable = bool(editor_data.get("equipment_editable", True))
+        self._details = deepcopy(list(editor_data.get("details") or ()))
         self._editors: list[OfficialRoleProfileEditor] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
 
-        note = QLabel(
-            "原始战报快照始终保留；这里只维护一个可反复覆盖的修改副本。"
-            "每个角色可从本场、游戏当前或已保存方案选择空幕/驱动，"
-            "保存时会复制为可重放的边际配装；装备不会同步到角色页。"
-        )
+        note = QLabel(self._note_text())
         note.setWordWrap(True)
         note.setStyleSheet(themed_style("color:#58a6ff;font-weight:600"))
         layout.addWidget(note)
@@ -60,27 +66,15 @@ class BattleBuildSnapshotEditorDialog(QDialog):
             seed.setStyleSheet(themed_style("color:#d29922;font-size:12px"))
             layout.addWidget(seed)
 
-        tabs = QTabWidget()
-        for detail in editor_data.get("details") or ():
-            editor = OfficialRoleProfileEditor(
-                detail,
-                self,
-                include_analysis=False,
-                include_equipment=True,
-                scoring_engine=getattr(parent, "scoring_engine", None),
-                shape_areas=getattr(parent, "_shape_areas", {}),
-            )
-            self._editors.append(editor)
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            scroll.setWidget(editor)
+        self.tabs = QTabWidget()
+        for index, detail in enumerate(self._details):
+            scroll = self._editor_scroll(index)
             character = detail["character"]
-            tabs.addTab(
+            self.tabs.addTab(
                 scroll,
                 str(character.get("name_zh") or character["character_id"]),
             )
-        layout.addWidget(tabs, 1)
+        layout.addWidget(self.tabs, 1)
 
         actions = QHBoxLayout()
         self.cancel_button = QPushButton("取消")
@@ -105,6 +99,7 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         )
         self.import_all_button.clicked.connect(self._import_all)
         actions.addWidget(self.import_all_button)
+        self.import_all_button.setVisible(self._equipment_editable)
         actions.addStretch()
         self.save_button = QPushButton("保存修改副本")
         self.save_button.setObjectName("btnPrimary")
@@ -125,6 +120,9 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         profiles = []
         for editor in self._editors:
             profile = editor.profile()
+            if not self._equipment_editable:
+                profiles.append(profile)
+                continue
             selection = editor.selected_equipment_context()
             if selection is None:
                 raise ValueError("战报角色副本缺少边际配装上下文")
@@ -145,6 +143,85 @@ class BattleBuildSnapshotEditorDialog(QDialog):
             )
             profiles.append(profile)
         return profiles
+
+    def _note_text(self) -> str:
+        if not self._equipment_editable:
+            return (
+                "这是导入战报：包内固化空幕/驱动只读。可修改等级、觉醒、"
+                "技能和弧盘，并可与角色页单向同步养成；不会改写装备。"
+            )
+        return (
+            "原始战报快照始终保留；这里只维护一个可反复覆盖的修改副本。"
+            "每个角色可从本场、游戏当前或已保存方案选择并替换空幕/驱动，"
+            "保存时复制进本场副本；不会修改角色页、库存或配装方案。"
+        )
+
+    def _editor_scroll(self, index: int) -> QScrollArea:
+        detail = self._details[index]
+        editor = OfficialRoleProfileEditor(
+            detail,
+            self,
+            include_analysis=False,
+            include_equipment=True,
+            allow_equipment_replacement=self._equipment_editable,
+            show_equipment_context_selector=self._equipment_editable,
+            equipment_replacement_handler=(
+                lambda target, context_key, current=index: (
+                    self._replace_equipment(current, target, context_key)
+                )
+            ),
+            scoring_engine=getattr(self.parent(), "scoring_engine", None),
+            shape_areas=getattr(self.parent(), "_shape_areas", {}),
+        )
+        if index < len(self._editors):
+            self._editors[index] = editor
+        else:
+            self._editors.append(editor)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(editor)
+        return scroll
+
+    def _replace_equipment(
+        self,
+        index: int,
+        target: dict,
+        context_key: str,
+    ) -> bool:
+        if not self._equipment_editable or not 0 <= index < len(self._details):
+            return False
+        detail = self._details[index]
+        context = (detail.get("equipment_contexts") or {}).get(context_key)
+        if not isinstance(context, dict):
+            return False
+
+        accepted = show_marginal_equipment_replacement(
+            self,
+            detail,
+            target,
+            context_key=context_key,
+            on_replaced=lambda replacement: (
+                BattleMarginalCandidateService.replace_equipment(
+                    context,
+                    target,
+                    replacement,
+                )
+            ),
+            title="本场角色配置替换",
+            summary=(
+                "这里只修改当前弹窗草稿；点击保存后才复制进本场战报修改副本。"
+                "不会修改角色页、库存、游戏当前配装或已保存方案。"
+            ),
+        )
+        if accepted:
+            title = self.tabs.tabText(index)
+            old_scroll = self.tabs.widget(index)
+            self.tabs.removeTab(index)
+            old_scroll.deleteLater()
+            self.tabs.insertTab(index, self._editor_scroll(index), title)
+            self.tabs.setCurrentIndex(index)
+        return accepted
 
     def action(self) -> str:
         return self._action

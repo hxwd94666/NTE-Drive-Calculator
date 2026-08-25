@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -226,6 +226,29 @@ class BattleReportPersistenceService:
             user_dao.append_battle_axis_page(
                 capture_operation_id=capture_operation_id,
                 page=page,
+            )
+
+    def replace_axis_pages(
+        self,
+        *,
+        capture_operation_id: str,
+        pages: Sequence[Mapping[str, Any]],
+        source_generation: str,
+        incomplete_reason: str | None = None,
+    ) -> None:
+        dependencies = self._dependencies
+        if not self._context_is_current(dependencies):
+            raise UserDataError("战报账号上下文已经变化")
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            user_dao.replace_staged_battle_axis(
+                capture_operation_id=capture_operation_id,
+                pages=pages,
+                source_generation=source_generation,
+                incomplete_reason=incomplete_reason,
             )
 
     def discard_capture(self, *, capture_operation_id: str) -> None:

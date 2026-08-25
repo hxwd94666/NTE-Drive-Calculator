@@ -4,6 +4,7 @@ import unittest
 from src.services.skill_name_rendering_service import (
     SkillNameRenderingService,
     preferred_battle_damage_name,
+    project_immediate_nightmare_source_names,
     render_battle_event_type,
 )
 
@@ -318,12 +319,18 @@ class SkillNameRenderingServiceTests(unittest.TestCase):
     def test_bundled_lacrimosa_semantics_cover_g_and_dissonance_passive(self):
         renderer = SkillNameRenderingService.from_static_database()
 
-        g_damage = renderer.render_axis_identity(
-            ability_id="GA_Lacrimosa_Melee",
-            damage_id=None,
-            gameplay_effect_index=3276,
-            gameplay_effect_name="GE_Player_Lacrimosa_SwitchModB_Damage",
-            attack_type="普攻",
+        g_damage = tuple(
+            renderer.render_axis_identity(
+                ability_id="GA_Lacrimosa_Melee",
+                damage_id=None,
+                gameplay_effect_index=None,
+                gameplay_effect_name=effect_id,
+                attack_type="普攻",
+            )
+            for effect_id in (
+                "GE_Player_Lacrimosa_Pan_Damage",
+                "GE_Player_Lacrimosa_SwitchModB_Damage",
+            )
         )
         passive_damage = renderer.render_axis_identity(
             ability_id=None,
@@ -333,14 +340,39 @@ class SkillNameRenderingServiceTests(unittest.TestCase):
             attack_type="失谐",
         )
 
-        self.assertEqual(("G技能", "G技能伤害"), (
-            g_damage.skill_name,
-            g_damage.damage_name,
-        ))
+        self.assertEqual(
+            (("G技能", "G技能伤害"),) * 2,
+            tuple((row.skill_name, row.damage_name) for row in g_damage),
+        )
         self.assertEqual(
             ("被动：番茄酱盛宴", "番茄酱盛宴 · 失谐追加伤害"),
             (passive_damage.skill_name, passive_damage.damage_name),
         )
+
+    def test_immediate_nightmare_inherits_g_display_without_rewriting_identity(self):
+        hits = [{
+            "sequence_order": 2,
+            "relative_time_us": 2_000_000,
+            "character_id": 1004,
+            "target_id": "target-1",
+            "damage": 100.0,
+            "gameplay_effect_name": "GE_Player_Lacrimosa_Pan_Damage",
+            "ability_display_name": "G技能",
+        }, {
+            "sequence_order": 3,
+            "relative_time_us": 2_014_815,
+            "character_id": 1004,
+            "target_id": "target-1",
+            "damage": 50.0,
+            "gameplay_effect_name": "GE_Player_Lacrimosa_Blood_Damage_LV6",
+            "ability_name": "GA_Lacrimosa_Melee",
+            "ability_display_name": "普通攻击：酸甜口味的制裁",
+        }]
+
+        project_immediate_nightmare_source_names(hits)
+
+        self.assertEqual("G技能", hits[1]["ability_display_name"])
+        self.assertEqual("GA_Lacrimosa_Melee", hits[1]["ability_name"])
 
     def test_battle_event_type_localizes_protocol_tokens(self):
         self.assertEqual(

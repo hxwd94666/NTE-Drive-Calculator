@@ -119,6 +119,37 @@ def _localized_attack_fallback(value: str | None) -> str:
     return localized
 
 
+def project_immediate_nightmare_source_names(
+    hits: Iterable[dict[str, object]],
+) -> None:
+    """Inherit only an adjacent immediate Nightmare hit's visible source."""
+
+    recent: dict[tuple[int, str], tuple[int, int, str]] = {}
+    nightmare_effects = {
+        "ge_player_lacrimosa_blood_damage",
+        "ge_player_lacrimosa_blood_damage_lv6",
+    }
+    for hit in hits:
+        if int(hit.get("character_id") or 0) != 1004:
+            continue
+        key = (1004, str(hit.get("target_id") or ""))
+        sequence = int(hit.get("sequence_order") or 0)
+        relative_us = int(hit.get("relative_time_us") or 0)
+        effect = str(hit.get("gameplay_effect_name") or "").casefold()
+        previous = recent.get(key)
+        if effect in nightmare_effects:
+            if (
+                previous is not None
+                and sequence == previous[0] + 1
+                and 0 <= relative_us - previous[1] <= 100_000
+            ):
+                hit["ability_display_name"] = previous[2]
+            continue
+        display_name = str(hit.get("ability_display_name") or "").strip()
+        if display_name and float(hit.get("damage") or 0.0) > 0.0:
+            recent[key] = (sequence, relative_us, display_name)
+
+
 def render_battle_classification(value: str) -> str:
     stable = str(value or "").strip()
     return _BATTLE_CLASSIFICATION_NAMES.get(stable, stable or "未知分类")

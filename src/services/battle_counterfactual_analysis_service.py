@@ -39,6 +39,10 @@ from src.services.battle_fadia_hp_stack_service import (
 )
 from src.services.battle_half_buff_scope_service import BattleHalfBuffScopeService
 from src.services.battle_target_ledger_service import BattleTargetLedgerService
+from src.services.battle_time_stop_projection_service import (
+    TIME_STOP_PROJECTION_MODEL_VERSION,
+    BattleTimeStopProjectionService,
+)
 from src.services.battle_outer_realm_buff_service import (
     OUTER_REALM_BUFF_MODEL_VERSION,
     BattleOuterRealmBuffConfig,
@@ -75,15 +79,14 @@ from src.services.battle_character_passive_service import (
 )
 
 
-FORMULA_MODEL_VERSION = "battle-counterfactual-v13"
+FORMULA_MODEL_VERSION = "battle-counterfactual-v17"
 
-_REACTION_MARKERS = (
-    "创生", "黯星", "浊燃", "浸染", "盈蓄",
-    "失谐", "延滞", "倾陷", "reaction", "topple",
-)
+_REACTION_MARKERS = ("创生", "黯星", "浊燃", "浸染", "盈蓄", "失谐", "延滞", "倾陷", "reaction", "topple")
 _WEAVE_MARKERS = ("覆纹", "weave")
 _TOPPLE_MARKERS = ("倾陷", "topple", "tenacity")
 _MECHANIC_MARKERS = ("ge_boss_05_hitbullet", "敌方飞弹反射")
+
+
 def _text(value: Any, fallback: str = "") -> str:
     normalized = str(value or "").strip()
     return normalized or fallback
@@ -319,6 +322,7 @@ def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline
                     "character": "人物",
                     "fork": "弧盘",
                     "likeability": "好感度 10 级",
+                    "world_bonus": "世界加成",
                     "equipment": "装备",
                     "battle_override": "边际手工调整",
                 }.get(str(row.get("source_group") or ""), "其他"),
@@ -359,36 +363,6 @@ def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline
     return tuple(baselines)
 
 
-def _relative_time_stop_interval(
-    row: Mapping[str, Any],
-    *,
-    origin_us: int | None,
-) -> tuple[int | None, int | None]:
-    raw = row.get("raw_interval")
-    if isinstance(raw, Mapping):
-        start_offset = raw.get("start_offset_seconds")
-        end_offset = raw.get("end_offset_seconds")
-        if isinstance(start_offset, (int, float)) and isinstance(
-            end_offset, (int, float)
-        ):
-            return (
-                max(0, round(float(start_offset) * 1_000_000)),
-                max(0, round(float(end_offset) * 1_000_000)),
-            )
-    if origin_us is None:
-        return None, None
-    start_unix_us = row.get("start_unix_us")
-    end_unix_us = row.get("end_unix_us")
-    return (
-        None
-        if start_unix_us is None
-        else max(0, int(start_unix_us) - origin_us),
-        None
-        if end_unix_us is None
-        else max(0, int(end_unix_us) - origin_us),
-    )
-
-
 class BattleCounterfactualAnalysisService:
     """Build one immutable range projection and calculate role margins."""
 
@@ -425,6 +399,10 @@ class BattleCounterfactualAnalysisService:
         all_max_hp_events = BattleTargetVitalAnalysisService.derive(
             rows=raw_hits,
             build=build,
+            structured_max_hp_reduction=bool(
+                int((evidence or {}).get("contract_version") or 0) >= 4
+                and (evidence or {}).get("axis_complete")
+            ),
         )
         all_hits = BattleSingleTargetDamageNormalizationService.normalize(
             _split_hits(raw_hits, origin_us=origin_us),
@@ -437,15 +415,22 @@ class BattleCounterfactualAnalysisService:
                 observed_events=all_max_hp_events,
             )
         )
-        intervals = tuple(
-            _relative_time_stop_interval(row, origin_us=origin_us)
-            for row in (evidence or {}).get("time_stop_intervals") or ()
+        observed_time_stop_intervals = (
+            BattleTimeStopProjectionService.observed_intervals(
+                (evidence or {}).get("time_stop_intervals") or (),
+                origin_us=origin_us,
+            )
         )
         inferred_actions = BattleActionInferenceService.infer(
             all_hits,
-            time_stop_intervals=intervals,
+            time_stop_intervals=observed_time_stop_intervals,
             animation_candidates=animation_candidates,
         )
+        time_stop_projection = BattleTimeStopProjectionService.resolve(
+            observed_time_stop_intervals,
+            inferred_actions,
+        )
+        intervals = time_stop_projection.intervals
         inferred_inputs = BattleTimelineProjectionService.infer_inputs(
             inferred_actions
         )
@@ -493,6 +478,7 @@ class BattleCounterfactualAnalysisService:
                 *BattleZankouFormBuffService.infer(
                     build=build,
                     actions=inferred_actions,
+                    hits=all_hits,
                     battle_end_us=maximum,
                     config=zankou_form_config,
                     time_stop_intervals=intervals,
@@ -742,6 +728,11 @@ class BattleCounterfactualAnalysisService:
                 else ""
             ),
             time_stop_intervals=intervals,
+            observed_time_stop_intervals=observed_time_stop_intervals,
+            time_stop_source_kind=time_stop_projection.source_kind,
+            time_stop_confidence=time_stop_projection.confidence,
+            time_stop_inference_basis=time_stop_projection.inference_basis,
+            time_stop_projection_version=TIME_STOP_PROJECTION_MODEL_VERSION,
             timeline_max_hp_events=all_max_hp_events,
             max_hp_events=max_hp_events,
             max_hp_reduction_damage=max_hp_reduction_damage,

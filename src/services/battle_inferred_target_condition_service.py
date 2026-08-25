@@ -570,7 +570,7 @@ class BattleInferredTargetConditionService:
             reverse=True,
         )[:2]
         for stage in stages:
-            health_options = []
+            health_options = [("", "", 0.0)]
             default_options = []
             resistance_additions: dict[str, float] = {}
             for category in stage.get("option_categories") or ():
@@ -599,8 +599,6 @@ class BattleInferredTargetConditionService:
                         resistance_additions[damage_type] = float(
                             highest.get("add_value") or 0.0
                         )
-            if not health_options:
-                health_options.append(("", "", 0.0))
             for difficulty in stage.get("difficulties") or ():
                 for health_category, option_id, health_up in health_options:
                     row = dict(difficulty)

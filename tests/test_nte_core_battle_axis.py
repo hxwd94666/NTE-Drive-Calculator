@@ -190,6 +190,61 @@ class NteCoreBattleAxisTests(unittest.TestCase):
                     }
                 )
 
+    def test_v4_preserves_structured_max_hp_reduction(self) -> None:
+        page = parse_battle_axis(
+            {
+                "contract_version": 4,
+                "battle_record_id": "battle-1",
+                "generation": "4",
+                "finalized": True,
+                "complete": True,
+                "rows": [
+                    {
+                        "battle_record_id": "battle-1",
+                        "sequence": "8",
+                        "timestamp_unix": 100.0,
+                        "relative_time_seconds": 0.5,
+                        "character_id": 1004,
+                        "character_known": True,
+                        "direction": "outgoing",
+                        "damage": 500.0,
+                        "overkill_damage": 0.0,
+                        "target_max_hp": 9000.0,
+                        "max_hp_reduction": 1000.0,
+                    }
+                ],
+            }
+        )
+
+        hit = page["rows"][0]
+        self.assertEqual(1000.0, hit["max_hp_reduction"])
+
+    def test_v4_requires_structured_max_hp_reduction(self) -> None:
+        with self.assertRaisesRegex(NteCoreProtocolError, "max_hp_reduction"):
+            parse_battle_axis(
+                {
+                    "contract_version": 4,
+                    "battle_record_id": "battle-1",
+                    "generation": "4",
+                    "finalized": True,
+                    "complete": True,
+                    "rows": [
+                        {
+                            "battle_record_id": "battle-1",
+                            "sequence": "8",
+                            "timestamp_unix": 100.0,
+                            "relative_time_seconds": 0.5,
+                            "character_id": 1004,
+                            "character_known": True,
+                            "direction": "outgoing",
+                            "damage": 500.0,
+                            "overkill_damage": 0.0,
+                            "target_max_hp": 9000.0,
+                        }
+                    ],
+                }
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

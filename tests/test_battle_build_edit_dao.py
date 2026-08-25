@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import math
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from src.domain.battle_report_transfer import battle_equipment_sha256
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -22,6 +24,50 @@ class BattleBuildEditDaoTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.dao.close()
         self.temp.cleanup()
+
+    def _insert_imported_build(self) -> int:
+        connection = self.dao._db()
+        connection.executescript(
+            """
+            INSERT INTO battle_record(
+                capture_operation_id, source_kind, capability_level,
+                combat_context_kind, has_first_half, has_second_half,
+                captured_at_utc, finalized_at_utc, dps_time_mode,
+                duration_seconds, total_damage, total_dps,
+                total_damage_taken, total_hits, character_count, skill_count,
+                character_ids_json, abyss_detected, abyss_success,
+                payload_schema_version, raw_summary_json,
+                raw_summary_sha256, created_at_utc
+            ) VALUES (
+                'imported-operation', 'nte_core_summary', 'hit_axis',
+                'non_abyss', 0, 0, 'now', 'now', 'active', 1, 1, 1,
+                0, 1, 1, 0, '[1004]', 0, 0, 1, '{}',
+                '0000000000000000000000000000000000000000000000000000000000000000',
+                'now'
+            );
+            INSERT INTO battle_build_snapshot(
+                battle_record_id, account_generation, profile_schema_version,
+                observed_character_count, materialized_at_utc
+            ) VALUES (last_insert_rowid(), 1, 1, 1, 'now');
+            """
+        )
+        record_id = int(
+            connection.execute(
+                "SELECT battle_record_id FROM battle_record "
+                "WHERE capture_operation_id = 'imported-operation'"
+            ).fetchone()[0]
+        )
+        connection.execute(
+            """
+            INSERT INTO battle_character_build_snapshot(
+                battle_record_id, character_id, profile_source,
+                character_level, breakthrough_stage, awakening_level,
+                ordinal, raw_profile_json
+            ) VALUES (?, 1004, 'imported_bundle', 80, 6, 0, 0, '{}')
+            """,
+            (record_id,),
+        )
+        return record_id
 
     def test_one_edit_copy_can_be_overwritten_and_deactivated(self) -> None:
         connection = self.dao._db()
@@ -188,6 +234,72 @@ class BattleBuildEditDaoTest(unittest.TestCase):
             profile["battle_stat_overrides"] = {"AtkBase": invalid}
             with self.assertRaisesRegex(ValueError, "有限数值"):
                 self.dao._normalize_battle_build_edit_profile(profile)
+
+    def test_imported_battle_allows_cultivation_but_rejects_equipment_change(self) -> None:
+        record_id = self._insert_imported_build()
+        locked_equipment = [
+            self.dao._normalize_equipment_override_item({
+                "kind": "core",
+                "item_id": "Core_Imported",
+                "uid_slot": 7,
+                "uid_serial": 11,
+                "grid_count": 0,
+                "stats": [],
+            })
+        ]
+        connection = self.dao._db()
+        connection.execute(
+            """
+            INSERT INTO battle_report_import_origin(
+                battle_record_id, source_bundle_id, source_account_nickname,
+                last_export_account_nickname, contract_version, imported_at_utc
+            ) VALUES (?, 'bundle-1', '来源账号', '导出账号', 2, 'now')
+            """,
+            (record_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO battle_character_import_equipment_lock(
+                battle_record_id, character_id, equipment_source_kind,
+                equipment_sha256, locked_equipment_json, created_at_utc
+            ) VALUES (?, 1004, 'frozen_battle_snapshot', ?, ?, 'now')
+            """,
+            (
+                record_id,
+                battle_equipment_sha256(locked_equipment),
+                json.dumps(
+                    locked_equipment,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            ),
+        )
+        connection.commit()
+        profile = {
+            "character_id": 1004,
+            "character_level": 70,
+            "breakthrough_stage": 5,
+            "selected_awaken_effect_ids": [],
+            "likeability_level_10_enabled": False,
+            "fork_id": None,
+            "skill_levels": {"melee": 8},
+            "ordinal": 0,
+        }
+
+        saved = self.dao.save_battle_build_edit(record_id, [profile])
+        self.assertEqual(70, saved["characters"][0]["profile"]["character_level"])
+        self.assertNotIn(
+            "equipment_override",
+            saved["characters"][0]["profile"],
+        )
+
+        changed = [{**locked_equipment[0], "item_id": "Core_Replaced"}]
+        with self.assertRaisesRegex(ValueError, "不可修改"):
+            self.dao.save_battle_build_edit(
+                record_id,
+                [{**profile, "equipment_override": changed}],
+            )
 
 
 if __name__ == "__main__":

@@ -14,6 +14,26 @@ from src.domain.battle_report import (
 from src.integrations.nte_core_battle import parse_battle_summary
 
 
+def character_analysis_scopes(
+    evidence: Mapping[str, Any] | None,
+) -> dict[int, str | None]:
+    """Map each observed role to its unique outer-realm half selector."""
+
+    scopes: dict[int, set[str]] = {}
+    for hit in (evidence or {}).get("hits") or ():
+        character_id = hit.get("character_id")
+        half = str(hit.get("abyss_half") or "").strip().casefold()
+        if character_id is None or half not in {"upper", "lower"}:
+            continue
+        scopes.setdefault(int(character_id), set()).add(
+            "first" if half == "upper" else "second"
+        )
+    return {
+        character_id: next(iter(role_scopes)) if len(role_scopes) == 1 else None
+        for character_id, role_scopes in scopes.items()
+    }
+
+
 def analysis_scope_range(
     evidence: Mapping[str, Any] | None,
     raw_summary_payload: Mapping[str, Any],

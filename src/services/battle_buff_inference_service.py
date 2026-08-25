@@ -29,7 +29,7 @@ from src.services.battle_character_awakening_hit_service import (
 from src.services.battle_equipment_suit_service import BattleEquipmentSuitService
 from src.services.battle_fork_refinement_service import BattleForkRefinementService
 
-BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v22"
+BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v23"
 _CONFIRMED_REPLACES_GENERIC = frozenset({
     "character_awaken:1036:Effect5", "character_awaken:1039:resonance_6",
     "character_awaken:1070:Effect5", "character_awaken:1003:Effect4",

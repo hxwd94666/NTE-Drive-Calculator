@@ -585,12 +585,15 @@ class BattleSkillDamageEvidence:
     multiplier_coefficient: float
     effective_skill_level: int
     evidence_basis: str
+    source_character_id: int | None = None
     formula_kind: str = "skill"
     level_multiplier: float | None = None
     state_multiplier: float = 1.0
     state_multiplier_label: str = ""
     state_multiplier_basis: str = ""
     state_confidence: str = ""
+    dot_final_multiplier: float = 1.0
+    dot_final_multiplier_basis: str = ""
     critical_policy: Literal["character", "fixed", "disabled", "unknown"] = "character"
 
 
@@ -674,6 +677,19 @@ class BattleBuffCounterfactualResult:
 
 
 @dataclass(frozen=True, slots=True)
+class BattleInferredCharacterFact:
+    fact_id: str
+    character_id: int
+    fact_kind: str
+    fact_value: str
+    source_gameplay_effect_id: str
+    confidence: str
+    evidence_event_ids: tuple[str, ...]
+    model_version: str
+    inference_basis: str
+
+
+@dataclass(frozen=True, slots=True)
 class BattleAnalysisSnapshot:
     battle_record_id: int
     capability_level: str
@@ -705,6 +721,11 @@ class BattleAnalysisSnapshot:
     buff_attribute_projection_version: str = ""
     outer_realm_buff_model_version: str = ""
     time_stop_intervals: tuple[tuple[int | None, int | None], ...] = ()
+    observed_time_stop_intervals: tuple[tuple[int | None, int | None], ...] = ()
+    time_stop_source_kind: str = "none"
+    time_stop_confidence: str = ""
+    time_stop_inference_basis: str = ""
+    time_stop_projection_version: str = ""
     timeline_max_hp_events: tuple[BattleMaxHpReductionEvent, ...] = ()
     max_hp_events: tuple[BattleMaxHpReductionEvent, ...] = ()
     max_hp_reduction_damage: float = 0.0
@@ -738,6 +759,7 @@ class BattleAnalysisSnapshot:
     timeline_damage_overlap_correction_total: float = 0.0
     raw_total_damage: float = 0.0
     build_counterfactual: BattleBuildCounterfactual | None = None
+    inferred_character_facts: tuple[BattleInferredCharacterFact, ...] = ()
 
 
 EMPTY_BATTLE_CAPTURE_STATE = BattleCaptureState(

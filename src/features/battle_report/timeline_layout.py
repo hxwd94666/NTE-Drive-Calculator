@@ -99,6 +99,24 @@ def format_time(value_us: int) -> str:
     return f"{minutes:02d}:{seconds - minutes * 60:06.3f}"
 
 
+def format_analysis_evidence(analysis: BattleAnalysisSnapshot) -> str:
+    capability = {
+        "hit_axis": "正式逐击证据",
+        "summary_only": "聚合摘要",
+    }.get(analysis.capability_level, analysis.capability_level)
+    axis = "完整轴" if analysis.axis_complete else "不完整轴"
+    return f"{capability} · {axis} · {format_time_stop_evidence(analysis)}"
+
+
+def format_time_stop_evidence(analysis: BattleAnalysisSnapshot) -> str:
+    return {
+        "nte_core": f"正式时停 {len(analysis.time_stop_intervals)} 段",
+        "inferred_q_action": (
+            f"Q 动作推算时停 {len(analysis.time_stop_intervals)} 段（低置信）"
+        ),
+    }.get(getattr(analysis, "time_stop_source_kind", "none"), "未取得时停")
+
+
 @dataclass(frozen=True, slots=True)
 class TimelineLane:
     key: str
@@ -252,12 +270,17 @@ def build_timeline_layout(
     public_groups: dict[tuple[str, str], list[BattleTimelineDamageGroup]] = (
         defaultdict(list)
     )
+    # Off-field DOT/reaction owners still need a visible role lane, but not a
+    # fabricated action bar or a separately split public damage lane.
+    public_damage_roles: set[tuple[int | None, str]] = set()
     for group in analysis.timeline_damage_groups:
         role = (group.character_id, group.character_name)
         if group.direction == "outgoing" and group.channel_key in ROLE_DIRECT_CHANNELS:
             direct_groups_by_role[role].append(group)
         else:
             public_groups[(group.channel_key, group.channel_label)].append(group)
+            if group.direction == "outgoing" and group.character_id is not None:
+                public_damage_roles.add(role)
 
     for role in roles:
         actions = sorted(
@@ -265,7 +288,7 @@ def build_timeline_layout(
             key=lambda item: (item.start_us, item.end_us, item.action_id),
         )
         direct_groups = direct_groups_by_role.get(role, [])
-        if not actions and not direct_groups:
+        if not actions and not direct_groups and role not in public_damage_roles:
             continue
         role_index = role_indexes[role]
         lane = TimelineLane(

@@ -6,6 +6,72 @@ from src.features.battle_report.page import BattleReportPage
 
 
 class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
+    def test_top_summary_reuses_active_clock_for_duration_and_dps(self) -> None:
+        rendered: dict[str, str] = {}
+        page = SimpleNamespace(
+            _latest_summary=SimpleNamespace(
+                total_damage=1_000.0,
+                duration_seconds=10.0,
+            ),
+            metric_labels={
+                key: SimpleNamespace(
+                    setText=lambda value, name=key: rendered.__setitem__(name, value)
+                )
+                for key in ("damage", "dps", "duration")
+            },
+            long_analysis_view=SimpleNamespace(
+                set_analysis=lambda *_args, **_kwargs: None
+            ),
+            marginal_page=SimpleNamespace(set_analysis=lambda _analysis: None),
+        )
+        analysis = SimpleNamespace(
+            axis_complete=True,
+            battle_start_us=0,
+            battle_end_us=10_000_000,
+            time_stop_intervals=((2_000_000, 4_000_000),),
+            time_stop_source_kind="inferred_q_action",
+            timeline_damage_correction_total=0.0,
+        )
+
+        BattleReportPage.set_analysis(page, analysis)
+
+        self.assertEqual("1,000", rendered["damage"])
+        self.assertEqual("125", rendered["dps"])
+        self.assertEqual("8.0s（10.0s）", rendered["duration"])
+
+    def test_top_summary_does_not_double_subtract_core_duration(self) -> None:
+        rendered: dict[str, str] = {}
+        page = SimpleNamespace(
+            _latest_summary=SimpleNamespace(
+                total_damage=800.0,
+                duration_seconds=8.0,
+                dps_time_mode="subtract_time_stop",
+            ),
+            metric_labels={
+                key: SimpleNamespace(
+                    setText=lambda value, name=key: rendered.__setitem__(name, value)
+                )
+                for key in ("damage", "dps", "duration")
+            },
+            long_analysis_view=SimpleNamespace(
+                set_analysis=lambda *_args, **_kwargs: None
+            ),
+            marginal_page=SimpleNamespace(set_analysis=lambda _analysis: None),
+        )
+        analysis = SimpleNamespace(
+            axis_complete=True,
+            battle_start_us=0,
+            battle_end_us=7_000_000,
+            time_stop_intervals=((2_000_000, 4_000_000),),
+            time_stop_source_kind="nte_core",
+            timeline_damage_correction_total=0.0,
+        )
+
+        BattleReportPage.set_analysis(page, analysis)
+
+        self.assertEqual("100", rendered["dps"])
+        self.assertEqual("8.0s（10.0s）", rendered["duration"])
+
     def test_top_summary_subtracts_authoritative_overkill_only(self) -> None:
         rendered: dict[str, str] = {}
         labels = {

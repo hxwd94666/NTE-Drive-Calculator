@@ -427,8 +427,9 @@ Core shuts down; `battle.reset` ends its availability and the next battle gets
 a new ID. Passing a no-longer-available or unknown ID returns
 `BATTLE_RECORD_NOT_FOUND` instead of silently switching to the current battle.
 
-The response contract is version 3. Version 3 adds authoritative per-hit
-`overkill_damage`; it includes the shared `generation`,
+The response contract is version 4. Version 4 adds per-hit
+`max_hp_reduction`; version 3 added authoritative per-hit `overkill_damage`.
+The response includes the shared `generation`,
 capture operation ID, state/source, battle bounds, clipped time-stop intervals,
 abyss markers, aggregate summary, quality counters, and axis completeness.
 `generation`, `axis_first_sequence`, and `axis_total_hits` are decimal strings
@@ -456,7 +457,9 @@ source, attribution status/reason, direction, damage/follow-up, target
 projection, skill identifiers, and abyss half. `overkill_damage` is the portion
 of primary `damage` beyond a valid `target_hp_before`; it excludes follow-up
 damage and is zero when Core has no valid target HP snapshot. Rows never contain
-packet bytes, endpoints, or PCAP data. `team_snapshot_id` is explicitly null
+packet bytes, endpoints, or PCAP data. `max_hp_reduction` is the additional
+maximum-HP loss attributed to that hit and remains separate from `total_damage`.
+`team_snapshot_id` is explicitly null
 until a stable team snapshot is available instead of being inferred from current
 UI state.
 
@@ -485,7 +488,7 @@ beyond `total_hits + 1` returns `BATTLE_AXIS_CURSOR_INVALID`.
 and from 0.2 through 10 seconds. The response reuses Core's authoritative
 timeline projection and includes characters, buckets, per-character DPS rows,
 markers, time-stop intervals, and simplified segments. It carries contract
-version 1, the shared battle generation, and `complete:false` if the underlying
+version 4, the shared battle generation, and `complete:false` if the underlying
 axis was trimmed.
 
 Core checks the response budget before allocating the timeline and caps it at

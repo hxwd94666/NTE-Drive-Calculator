@@ -17,6 +17,10 @@ from src.services.battle_report_history_service import (
     BattleReportHistoryService,
     StaleBattleReportContextError,
 )
+from src.services.battle_marginal_candidate_service import (
+    BattleMarginalCandidate,
+    BattleMarginalCandidateService,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +76,7 @@ class BattleReportAnalysisControllerMixin:
         selected_character_id: int | None = None,
         detail_scope: str | None = None,
         detail_level: str = "overview",
+        marginal_candidate: BattleMarginalCandidate | None = None,
         completion_kind: str = "",
         completion_payload: object | None = None,
     ) -> None:
@@ -92,6 +97,7 @@ class BattleReportAnalysisControllerMixin:
                 end_us=end_us,
                 detail_scope=detail_scope,
                 detail_level=detail_level,
+                marginal_candidate=marginal_candidate,
             ),
             account_id=account.active_account_id,
             generation=self._app_context.generation,
@@ -100,7 +106,8 @@ class BattleReportAnalysisControllerMixin:
             completion_kind=completion_kind,
             completion_payload=completion_payload,
         )
-        self._latest_analysis_load_request = presentation.load
+        if detail_level != "marginal":
+            self._latest_analysis_load_request = presentation.load
         self._analysis_load_token += 1
         token = self._analysis_load_token
         self._pending_analysis_load = (token, presentation, history)
@@ -172,10 +179,13 @@ class BattleReportAnalysisControllerMixin:
                 error=safe_exception(result.target_catalog_error),
             )
         self._page.end_analysis_details()
-        self._page.set_analysis(
-            analysis,
-            selected_character_id=request.selected_character_id,
-        )
+        if request.load.detail_level == "marginal":
+            self._page.set_marginal_analysis(analysis)
+        else:
+            self._page.set_analysis(
+                analysis,
+                selected_character_id=request.selected_character_id,
+            )
         if request.completion_kind:
             self._page.complete_analysis_details(
                 request.completion_kind,
@@ -231,14 +241,8 @@ class BattleReportAnalysisControllerMixin:
         record_id = self._latest_state.battle_record_id
         if record_id is None or self.is_running():
             return
-        detail_level = (
-            "marginal"
-            if kind == "marginal"
-            else "hit"
-            if kind == "composition"
-            else kind
-        )
-        if detail_level not in {"hit", "buff", "marginal"}:
+        detail_level = "hit" if kind == "composition" else kind
+        if detail_level not in {"hit", "buff"}:
             return
         base = self._latest_analysis_load_request
         if base is None or base.battle_record_id != record_id:
@@ -255,6 +259,38 @@ class BattleReportAnalysisControllerMixin:
             detail_level=detail_level,
             completion_kind=kind,
             completion_payload=payload,
+        )
+
+    def _load_marginal_analysis(
+        self,
+        character_id: int,
+        detail_scope: object = None,
+        profiles: object = None,
+    ) -> None:
+        record_id = self._latest_state.battle_record_id
+        if record_id is None or self.is_running():
+            return
+        scope = str(detail_scope) if detail_scope in {"first", "second"} else None
+        if not isinstance(profiles, list):
+            return
+        try:
+            candidate = BattleMarginalCandidateService.freeze(
+                record_id,
+                profiles,
+                equipment_editable=self._page.marginal_equipment_editable(),
+                disabled_inferred_fact_ids=(
+                    self._page.marginal_disabled_inferred_fact_ids()
+                ),
+            )
+        except (TypeError, ValueError):
+            return
+        self._load_analysis(
+            record_id,
+            selected_character_id=int(character_id),
+            detail_scope=scope,
+            detail_level="marginal",
+            marginal_candidate=candidate,
+            completion_kind="marginal",
         )
 
     def _analysis_request_is_current(

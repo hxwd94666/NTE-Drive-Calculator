@@ -23,20 +23,29 @@
 安装缺失、驱动服务、无活动网卡或“驱动/过滤器/运行时待排查”给出下一步；核心没有提供 libpcap 枚举错误
 文本或逐网卡过滤理由时，报告必须明确该边界，不能伪造原因。
 
-`battle.get_record` 与 `battle.get_axis` 使用 nte-core 0.4.2 的 v3 contract；v3 新增逐击
-`overkill_damage`，CLI `protocol_version` 仍为 1。record ID 在当前 Core
-进程内稳定，generation、cursor、sequence 和总数按十进制字符串保留；axis 每页限制 1～500 行。
-`overkill_damage` 只对应 primary `damage`，不包含追击；应用校验它不大于主伤害，并随原始脱敏轴行持久化，
-因此账号 schema 无需为该上游字段单独迁移。Core 的 `Server settlement residual` 行以未知角色返回；应用把
+新采集要求 nte-core battle contract v4；旧 v3 战报只保证可查看，不补写新字段，也不承诺按 v4 重新校准。
+v4 继续保留逐击 `overkill_damage`，并新增结构化 `max_hp_reduction`。正数表示 Core 已对该来源逐击完成生命
+上限扣减校准；零值只表示 Core 没有为该击生成结构化修正，不证明所有尚未注册语义的机制都没有发生。
+应用不得恢复全局样本猜测，只能按[战报功能契约](features.md#9-战报)列出的已审计机制做窄回退。record ID 在当前 Core 进程内稳定，
+generation、cursor、sequence 和总数按十进制字符串保留；axis 每页限制 1～500 行。逐击页携带 generation，
+应用在停止采集后从空 cursor 重读，并逐页核对 generation、record ID、`finalized` 与 `complete`；Core 不额外
+提供逐击来源或校准状态推断标签。
+
+`overkill_damage` 只对应 primary `damage`，不包含追击；应用校验它不大于主伤害。Core 的
+`Server settlement residual` 行以未知角色返回；应用把
 非正角色 ID 或 `character_known=false` 统一投影为未归因，保留其有效伤害但不生成角色养成快照。
-应用在采集期间轮询并持久化，停止后排空尾页，以免 Core 的 50,000 击保留窗口裁剪前缀。逐击只保存
+应用在采集期间轮询并暂存逐击，以免 Core 的 50,000 击保留窗口裁剪前缀；这些页不是最终事实。停止采集后
+固定最终 record generation `G`，从空 cursor 重读完整轴，要求每页均为 `G`，在账号库事务中替换本场暂存轴，
+再复核 record 仍为 `G` 后完成战报。`capture.stop` 返回后 Core 已排空并冻结记录，因此任一步发生代次变化、
+cursor 过期或完整性不满足时直接把本场标记为不完整，不对同一冻结状态做无意义重试；仍不
+稳定时保存为 incomplete 并记录安全原因，绝不混合代次。逐击只保存
 Core 已脱敏字段，战报数据库不保存网络包、端点或 PCAP。设置页显式启用账号级原始抓包后，库存与战报
 启动时会冻结该设置，并由 Core 把 `.pcapng` 独立写入当前账号日志目录；这些文件不属于业务数据，不随战报
 历史读取、导出或数据库迁移。
 
 `team_snapshot_id` 当前为空，逐击也没有暴击事实、Buff/Debuff 区间、护盾/治疗或角色施法事件。应用不得
 用当前 UI 队伍、固定暴击率或相邻血量补造这些事实。完整队伍、正式敌人实例、场景 ID、时间线 UI 和
-历史逐击导出仍未成为产品能力。
+实测 Buff 轴仍未成为 Core 能力。
 
 ## 2. 视觉、OCR 与游戏输入
 

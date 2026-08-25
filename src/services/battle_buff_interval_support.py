@@ -17,7 +17,10 @@ from src.services.battle_timeline_time_service import (
     project_timeline_time_us,
     unproject_timeline_time_us,
 )
-from src.services.battle_damage_composition_service import classify_battle_hit_channel
+from src.services.battle_damage_composition_service import (
+    classify_battle_hit_channel,
+    classify_battle_hit_reaction_trigger,
+)
 from src.services.battle_trigger_requirement_service import (
     trigger_requirement_applies_to_action,
     trigger_requirement_applies_to_hit,
@@ -254,18 +257,22 @@ class BattleBuffIntervalSupportMixin:
                     channel_offsets[channel] = (
                         float(raw_offset) if separator and raw_offset else 0.0
                     )
-            candidates = tuple(
-                row for row in hits
+            candidate_channels = tuple(
+                (
+                    row,
+                    (classify_battle_hit_reaction_trigger(row) or ("", ""))[0],
+                )
+                for row in hits
                 if row.direction == "outgoing"
                 and (
                     prefix != "suit_source_reaction_after"
                     or row.character_id == rule.source_character_id
                 )
-                and classify_battle_hit_channel(row)[0] in channel_offsets
             )
             results = []
-            for row in candidates:
-                channel = classify_battle_hit_channel(row)[0]
+            for row, channel in candidate_channels:
+                if channel not in channel_offsets:
+                    continue
                 offset_us = round(channel_offsets[channel] * 1_000_000)
                 if prefix in {
                     "suit_source_reaction_after",

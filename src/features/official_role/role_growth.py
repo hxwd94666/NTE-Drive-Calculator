@@ -31,6 +31,7 @@ from src.services.official_role_awakening_service import (
     awaken_skill_level_delta,
     render_awaken_effect_description,
 )
+from src.services.world_bonus_settings_service import world_bonus_property_stats
 from src.services.official_role_page_service import (
     calculate_official_role_margins,
 )
@@ -188,7 +189,10 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
             key=lambda row: int(row.get("breakthrough_stage") or 0),
             default={},
         )
-        bonus = likeability_properties if likeability.isChecked() else {}
+        bonus = world_bonus_property_stats(detail.get("world_bonus"))
+        if likeability.isChecked():
+            for property_id, value in likeability_properties.items():
+                bonus[property_id] = bonus.get(property_id, 0.0) + value
         hp_base = float(selected.get("hp_base") or 0)
         atk_base = float(selected.get("atk_base") or 0)
         def_base = float(selected.get("def_base") or 0)

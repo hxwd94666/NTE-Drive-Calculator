@@ -141,6 +141,59 @@ def test_conditional_suit_rules_keep_base_and_increment_separate():
     )] == ("CritBase", 0.14, 20.0)
 
 
+def test_scorch_qte_triggers_diabolos_extra_penetration_after_its_hit():
+    rules = BattleEquipmentSuitService.load_rules(
+        _StaticDao(),
+        (_selected("Suit1", 4),),
+        BattleStaticBuffRule,
+    )
+    qte = replace(
+        _hit(
+            "qte-scorch",
+            0,
+            character_id=1004,
+            damage_attribute="incantation",
+        ),
+        ability_id="GA_Lacrimosa_QTE",
+        gameplay_effect_id="GE_Player_Lacrimosa_QTE1_Damage",
+        attack_type="环合·浊燃",
+        classification="direct",
+    )
+    intervals = BattleBuffInferenceService.infer(
+        rules,
+        actions=(),
+        hits=(qte,),
+        battle_end_us=30_000_000,
+    )
+
+    qte_projection = BattleBuffAttributeProjectionService.project_hit(
+        replace(qte, damage_attribute="chaos"),
+        intervals,
+    )
+    after_projection = BattleBuffAttributeProjectionService.project_hit(
+        _hit(
+            "after-qte",
+            1_000_000,
+            character_id=1004,
+            damage_attribute="chaos",
+        ),
+        intervals,
+    )
+    after_expiry = BattleBuffAttributeProjectionService.project_hit(
+        _hit(
+            "after-expiry",
+            20_000_002,
+            character_id=1004,
+            damage_attribute="chaos",
+        ),
+        intervals,
+    )
+
+    assert qte_projection.modifiers[0].additive_value == 0.12
+    assert after_projection.modifiers[0].additive_value == 0.24
+    assert after_expiry.modifiers[0].additive_value == 0.12
+
+
 def test_team_attribute_suits_stack_per_observed_damage_event():
     rules = BattleEquipmentSuitService.load_rules(
         _StaticDao(),

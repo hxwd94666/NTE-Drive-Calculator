@@ -1,4 +1,4 @@
-# 验证战报伤害构成的粗细切换与倾陷归属懒加载入口。
+# 验证战报伤害构成的粗细切换与倾陷归属自动加载入口。
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -62,7 +62,7 @@ class BattleReportCompositionUiTests(unittest.TestCase):
 
         self.assertIn("普通攻击：燎原 · 蚀心", self._composition_labels(view))
 
-    def test_team_topple_prompts_for_lazy_role_attribution(self) -> None:
+    def test_team_topple_automatically_requests_role_attribution_after_render(self) -> None:
         view = BattleLongAnalysisView()
         requests: list[str] = []
         view.details_requested.connect(
@@ -105,9 +105,11 @@ class BattleReportCompositionUiTests(unittest.TestCase):
         )
 
         view._render_damage_composition()
+        self.app.processEvents()
 
         self.assertFalse(view.composition_topple_button.isHidden())
         self.assertIn("尚未加载", view.composition_status_label.text())
+        self.assertEqual(["composition"], requests)
         view.composition_topple_button.click()
         self.assertEqual(["composition"], requests)
 

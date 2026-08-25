@@ -326,7 +326,7 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 
 尚无战斗或深渊状态时返回 null。记录获得进程内稳定的 `battle_record_id`；抓包停止或 Core 关闭前状态为 `live`，之后变为 `finalized`。`battle.reset` 会终止该记录的可读取周期，下一场战斗获得新 ID。传入已经失效或未知的 ID 会返回 `BATTLE_RECORD_NOT_FOUND`，不会静默切换到当前战斗。
 
-响应契约版本为 3。版本 3 新增权威逐击 `overkill_damage`；响应包含共享 `generation`、抓包 operation ID、状态/来源、战斗时间边界、裁剪后的时停区间、深渊标记、聚合摘要、质量计数和逐击数据完整性。`generation`、`axis_first_sequence`、`axis_total_hits` 使用十进制字符串，避免 JavaScript 丢失 64 位整数精度。只有公开战斗读取模型发生变化或记录完成时才推进 generation。
+响应契约版本为 4。版本 4 新增逐击 `max_hp_reduction`；版本 3 新增权威逐击 `overkill_damage`。响应包含共享 `generation`、抓包 operation ID、状态/来源、战斗时间边界、裁剪后的时停区间、深渊标记、聚合摘要、质量计数和逐击数据完整性。`generation`、`axis_first_sequence`、`axis_total_hits` 使用十进制字符串，避免 JavaScript 丢失 64 位整数精度。只有公开战斗读取模型发生变化或记录完成时才推进 generation。
 
 ### `battle.get_axis`
 
@@ -339,7 +339,7 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 }
 ```
 
-返回一页有序逐击数据。`limit` 必填，范围为 1～500。`cursor` 可省略/为 null（从首条保留记录开始），也可传入 `next_cursor` 返回的正十进制字符串。sequence、cursor、total 均使用字符串，页面同时携带同一战斗 `generation`。每行包含 Core 已持有的有界、脱敏战斗事实，包括记录 ID、角色来源、归因状态/未知原因、方向、伤害/追击、目标投影、技能标识和深渊半场。`overkill_damage` 表示 primary `damage` 中超过有效 `target_hp_before` 的部分，不包含追击伤害；Core 缺少有效目标 HP 快照时为零。逐击行不包含网络包字节、端点或 PCAP 数据。稳定队伍快照尚不存在时，`team_snapshot_id` 明确返回 null，不根据当前 UI 状态推测。
+返回一页有序逐击数据。`limit` 必填，范围为 1～500。`cursor` 可省略/为 null（从首条保留记录开始），也可传入 `next_cursor` 返回的正十进制字符串。sequence、cursor、total 均使用字符串，页面同时携带同一战斗 `generation`。每行包含 Core 已持有的有界、脱敏战斗事实，包括记录 ID、角色来源、归因状态/未知原因、方向、伤害/追击、目标投影、技能标识和深渊半场。`overkill_damage` 表示 primary `damage` 中超过有效 `target_hp_before` 的部分，不包含追击伤害；Core 缺少有效目标 HP 快照时为零。`max_hp_reduction` 表示归属于该次命中的额外最大生命值损失，并与 `total_damage` 分开返回。逐击行不包含网络包字节、端点或 PCAP 数据。稳定队伍快照尚不存在时，`team_snapshot_id` 明确返回 null，不根据当前 UI 状态推测。
 
 Core 只保留有界命中窗口。更早记录被裁剪后，`complete` 变为 false，`first_available_cursor` 指出首条仍可读取记录。过旧 cursor 返回 `BATTLE_AXIS_CURSOR_EXPIRED`；超过 `total_hits + 1` 的 cursor 返回 `BATTLE_AXIS_CURSOR_INVALID`。
 
@@ -359,7 +359,7 @@ Core 只保留有界命中窗口。更早记录被裁剪后，`complete` 变为 
 }
 ```
 
-`scope` 可取 `all`、`upper`、`lower`。`bucket_seconds` 必填且必须是 0.2～10 的有限数值。响应复用 Core 权威时间线投影，包含角色、时间桶、桶内分角色 DPS、标记、时停区间和简化曲线段；同时携带契约版本 1、共享 battle generation，并在底层逐击数据已裁剪时返回 `complete:false`。
+`scope` 可取 `all`、`upper`、`lower`。`bucket_seconds` 必填且必须是 0.2～10 的有限数值。响应复用 Core 权威时间线投影，包含角色、时间桶、桶内分角色 DPS、标记、时停区间和简化曲线段；同时携带契约版本 4、共享 battle generation，并在底层逐击数据已裁剪时返回 `complete:false`。
 
 Core 会在分配时间线前检查响应预算，最多输出 10,000 个桶和总计 100,000 个桶内角色行。超过任一预算会返回 `BATTLE_TIMELINE_TOO_LARGE`；客户端可以增大 `bucket_seconds` 或只查询深渊某一半。
 

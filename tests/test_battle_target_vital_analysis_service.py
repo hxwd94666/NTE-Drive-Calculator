@@ -305,6 +305,108 @@ class BattleTargetVitalAnalysisServiceTests(unittest.TestCase):
         self.assertIn("1:primary", event.evidence_event_ids)
         self.assertIn("2:primary", event.evidence_event_ids)
 
+    def test_v4_first_row_uses_post_settlement_max_without_double_reduction(self) -> None:
+        row = {
+            **_row(
+                8,
+                1_000_000,
+                character_id=1004,
+                character_name="安魂曲",
+                effect="GE_Player_Lacrimosa_Blood_Damage_LV6",
+                max_hp=900,
+                hp_before=800,
+            ),
+            "target_hp_after": 800,
+            "max_hp_reduction": 100,
+        }
+        build = {
+            "characters": [
+                {
+                    "character_id": 1004,
+                    "profile": {
+                        "awakening_selection_initialized": True,
+                        "selected_awaken_effect_ids": ["Effect5"],
+                    },
+                }
+            ]
+        }
+
+        event = BattleTargetVitalAnalysisService.derive(
+            rows=(row,),
+            build=build,
+            structured_max_hp_reduction=True,
+        )[0]
+
+        self.assertEqual(1000.0, event.old_max_hp)
+        self.assertEqual(900.0, event.new_max_hp)
+        self.assertEqual(100.0, event.max_hp_reduction)
+        self.assertEqual(80.0, event.effective_hp_loss)
+        self.assertEqual("高", event.calculation_confidence)
+
+    def test_v4_zero_reduction_does_not_fall_back_to_max_hp_sample(self) -> None:
+        rows = (
+            _row(
+                1,
+                1_000_000,
+                character_id=1036,
+                character_name="残虹",
+                effect="hit-a",
+                max_hp=1_000,
+                hp_before=900,
+            ),
+            {
+                **_row(
+                    2,
+                    1_100_000,
+                    character_id=1036,
+                    character_name="残虹",
+                    effect="hit-b",
+                    max_hp=900,
+                    hp_before=800,
+                ),
+                "max_hp_reduction": 0,
+            },
+        )
+
+        self.assertEqual(
+            (),
+            BattleTargetVitalAnalysisService.derive(
+                rows=rows,
+                build=None,
+                structured_max_hp_reduction=True,
+            ),
+        )
+
+    def test_legacy_axis_keeps_max_hp_sample_inference(self) -> None:
+        rows = (
+            _row(
+                1,
+                1_000_000,
+                character_id=1036,
+                character_name="残虹",
+                effect="hit-a",
+                max_hp=1_000,
+                hp_before=900,
+            ),
+            {
+                **_row(
+                    2,
+                    1_100_000,
+                    character_id=1036,
+                    character_name="残虹",
+                    effect="hit-b",
+                    max_hp=900,
+                    hp_before=800,
+                ),
+                "max_hp_reduction": 0,
+            },
+        )
+
+        events = BattleTargetVitalAnalysisService.derive(rows=rows, build=None)
+
+        self.assertEqual(1, len(events))
+        self.assertEqual(100.0, events[0].max_hp_reduction)
+
     def test_lacrimosa_drop_observed_on_next_hit_uses_old_max_frontier(self) -> None:
         rows = (
             {

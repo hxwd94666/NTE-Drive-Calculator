@@ -10,7 +10,7 @@ from typing import Any
 from src.domain.battle_report import BattleAnalysisHit, BattleBuffModifierEvidence
 
 
-CHARACTER_PASSIVE_MODEL_VERSION = "battle-character-passive-v3"
+CHARACTER_PASSIVE_MODEL_VERSION = "battle-character-passive-v4"
 MITSUKI_GRADUAL_BUFF_IDENTITY = (
     "confirmed:character_passive:1070:mitsuki-gradual-attack"
 )
@@ -81,7 +81,7 @@ def _passive(
 
 
 _CATALOG = (
-    _passive(1003, "早雾", "GA_Sagiri_Passive_1", "可以吃吗？", 2, "target_state", "dot-vulnerability", "按目标 DOT 种类重建持续伤害易伤"),
+    _passive(1003, "早雾", "GA_Sagiri_Passive_1", "可以吃吗？", 2, "target_state", "dot-final-multiplier", "按目标 DOT 种类重建专属最终乘区"),
     _passive(1003, "早雾", "GA_Sagiri_Passive_2", "鬼把戏", 4, "target_state", "control-defense-down", "按成功浮空或压制建立目标减防区间"),
     _passive(1004, "安魂曲", "GA_Lacrimosa_Passive_1", "番茄酱盛宴", 2, "derived_hit", "dissonance-toppled-hit", "保留并重放已观测失谐强化逐击"),
     _passive(1004, "安魂曲", "GA_Lacrimosa_Passive_2", "就要自然醒", 4, "action_resource", "lacrimosa-extra-e", "固定轴校验第五次 A 后的额外 E 可用性"),

@@ -34,6 +34,7 @@ class BattleBuildStatReconstructionService:
             existing_sources = {
                 str(row.get("source_group") or "") for row in existing_stats
             }
+            world_bonus_repair_required = "world_bonus" not in existing_sources
             character_id = int(character["character_id"])
             items = battle_equipment_items(character)
             try:
@@ -43,6 +44,22 @@ class BattleBuildStatReconstructionService:
                     include_inventory_contexts=False,
                     static_database_path=dependencies.static_database_path,
                 )
+                frozen_world_bonus = {
+                    str(row.get("property_id") or ""): float(
+                        row.get("value") or 0.0
+                    )
+                    for row in existing_stats
+                    if str(row.get("source_group") or "") == "world_bonus"
+                }
+                if frozen_world_bonus:
+                    detail["world_bonus"] = {
+                        "yaodao_attack_add": frozen_world_bonus.get(
+                            "AtkAdd", 0.0
+                        ),
+                        "quantao_crit_damage": frozen_world_bonus.get(
+                            "CritDamageBase", 0.0
+                        ),
+                    }
                 profile = dict(character.get("profile") or {})
                 static_shape_fields = character_shape_profile_fields(
                     detail.get("shape_bonus")
@@ -54,6 +71,7 @@ class BattleBuildStatReconstructionService:
                 if (
                     {"character", "fork", "equipment"}.issubset(existing_sources)
                     and not shape_repair_required
+                    and not world_bonus_repair_required
                 ):
                     continue
                 profile.update(static_shape_fields)
@@ -102,7 +120,11 @@ class BattleBuildStatReconstructionService:
                 if property_id in resolved_values
                 and value != resolved_values[property_id]
             )
-            rebuild_resolved = shape_repair_required or "resolved" not in existing_sources
+            rebuild_resolved = (
+                shape_repair_required
+                or world_bonus_repair_required
+                or "resolved" not in existing_sources
+            )
             if rebuild_resolved:
                 source_rows.extend(
                     {
@@ -134,5 +156,7 @@ class BattleBuildStatReconstructionService:
                 if edited_snapshot
                 else "reconstructed_current_static_shape"
                 if shape_repair_required
+                else "reconstructed_current_world_bonus"
+                if world_bonus_repair_required
                 else "reconstructed_current_static"
             )

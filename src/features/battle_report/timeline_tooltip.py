@@ -44,6 +44,7 @@ def build_timeline_tooltip(
         return (
             f"{hit_heading} · {format_time(projected_time(hit.relative_time_us))} · "
             f"{hit.character_name}\n{damage_name}{source}\n"
+            f"逐击 ID：{hit.event_id}\n"
             f"{render_battle_event_type(hit.classification, hit.attack_type, hit.damage_attribute)}"
             f" · {hit.target_name} · {format_damage(hit.damage)}"
         )

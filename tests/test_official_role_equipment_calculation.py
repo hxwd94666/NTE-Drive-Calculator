@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 from src.services.damage_calculation_service import DamageScalingStat, DirectDamageInput
 from src.services import official_role_page_service as role_service
+from src.services.official_role_attribute_service import (
+    calculate_official_role_combat_stat_sources,
+)
 from src.services import official_role_replacement_service as replacement_service
 from src.services import official_role_scoring_service as scoring_service
 from src.features.official_role.role_calculation import normalized_marginal_weights
@@ -76,7 +79,22 @@ class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
         self.assertEqual(DamageScalingStat.ATTACK, values[0].scaling_stat)
         self.assertEqual(1.0, values[0].skill_multiplier)
         self.assertEqual(200.0, values[0].attack_base)
+        self.assertEqual(20.0, values[0].attack_add)
+        self.assertAlmostEqual(0.54, values[0].crit_damage)
         self.assertIn(0.20, values[0].damage_increases)
+
+    def test_world_bonus_is_frozen_as_its_own_formula_source(self) -> None:
+        sources = calculate_official_role_combat_stat_sources(
+            {"world_bonus": {
+                "yaodao_attack_add": 12.0,
+                "quantao_crit_damage": 0.024,
+            }},
+            (),
+        )
+        values = {row.key: row.value for row in sources["world_bonus"]}
+
+        self.assertEqual(12.0, values["AtkAdd"])
+        self.assertAlmostEqual(0.024, values["CritDamageBase"])
 
     def test_visual_snapshot_items_keep_unknown_level_for_role_cards(self) -> None:
         items = [{"uid_slot": 1, "uid_serial": 2}]

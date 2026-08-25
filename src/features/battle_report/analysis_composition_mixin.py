@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
 from src.domain.battle_report import BattleRangeRoleSummary
@@ -124,10 +124,25 @@ class BattleAnalysisCompositionMixin:
             self.composition_status_label.setText(
                 "当前时段含团队倾陷，尚未加载逐角色公式。"
             )
+            if self._topple_detail_requested_analysis is not analysis:
+                QTimer.singleShot(0, self._request_topple_attribution)
         elif composition.unresolved_topple_attribution:
             self.composition_status_label.setText(
                 "倾陷缺少明确目标或公式证据，暂列未归因。"
             )
+
+    def _request_topple_attribution(self) -> None:
+        analysis = self._analysis
+        composition = self._current_composition
+        if (
+            analysis is None
+            or composition is None
+            or not composition.pending_topple_attribution
+            or self._topple_detail_requested_analysis is analysis
+        ):
+            return
+        self._topple_detail_requested_analysis = analysis
+        self._request_detailed_analysis("composition")
 
     def _set_composition_grouping(self, grouping: str) -> None:
         if grouping not in {"coarse", "fine"}:

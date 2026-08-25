@@ -1,4 +1,4 @@
-# 验证长战报后台请求只为生效副本计算逐 Buff 反事实。
+# 验证长战报后台请求冻结内存候选并保持主、边际分析隔离。
 """Behavior tests for the background battle-analysis load orchestration."""
 
 from types import SimpleNamespace
@@ -16,6 +16,9 @@ from src.services.battle_report_analysis_load_service import (
     BattleReportAnalysisLoadResult,
     BattleReportAnalysisLoadService,
 )
+from src.services.battle_marginal_candidate_service import (
+    BattleMarginalCandidateService,
+)
 
 
 class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
@@ -23,7 +26,6 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
         overview = SimpleNamespace(timeline_hits=(object(),))
         history = Mock()
         history.load_analysis.return_value = overview
-        history.load_build_edit_state.return_value = {"is_active": True}
         history.load_target_catalog.return_value = {"kinds": ()}
 
         result = BattleReportAnalysisLoadService.load(
@@ -45,19 +47,24 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             include_buff_counterfactuals=False,
         )
 
-    def test_active_edit_skips_original_buff_counterfactuals(self) -> None:
+    def test_memory_candidate_skips_persistence_and_compares_original(self) -> None:
         candidate = SimpleNamespace(timeline_hits=(object(),))
         original = SimpleNamespace(timeline_hits=(object(),))
         combined = SimpleNamespace(timeline_hits=(object(),))
         history = Mock()
         history.load_analysis.side_effect = (candidate, original)
-        history.load_build_edit_state.return_value = {"is_active": True}
         history.load_target_catalog.return_value = {"kinds": ()}
+        candidate_request = BattleMarginalCandidateService.freeze(
+            12,
+            [{"character_id": 1004}],
+            equipment_editable=True,
+        )
         request = BattleReportAnalysisLoadRequest(
             battle_record_id=12,
             start_us=10,
             end_us=20,
             detail_level="marginal",
+            marginal_candidate=candidate_request,
         )
 
         with (
@@ -82,6 +89,8 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                     start_us=10,
                     end_us=20,
                     detail_scope=None,
+                    use_build_edit=False,
+                    marginal_candidate=candidate_request,
                     include_buff_inference=True,
                     include_hit_replays=True,
                     include_buff_counterfactuals=False,
@@ -104,7 +113,6 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
         analysis = SimpleNamespace(timeline_hits=(object(),))
         history = Mock()
         history.load_analysis.return_value = analysis
-        history.load_build_edit_state.return_value = {"is_active": False}
         history.load_target_catalog.side_effect = RuntimeError(
             "catalog unavailable"
         )
@@ -138,11 +146,18 @@ class _AsyncPage:
         self.loaded_ranges.append(analysis.range_start_us)
         self.loop.quit()
 
+    def set_marginal_analysis(self, analysis) -> None:
+        self.loaded_ranges.append(analysis.range_start_us)
+        self.loop.quit()
+
     def set_target_catalog(self, _catalog) -> None:
         pass
 
     def analysis_character_id(self):
         return None
+
+    def marginal_equipment_editable(self) -> bool:
+        return True
 
 
 class _AsyncHost(BattleReportAnalysisControllerMixin, QObject):
@@ -195,6 +210,34 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
             detail_level="hit",
             completion_kind="composition",
             completion_payload=None,
+        )
+
+    def test_marginal_detail_uses_selected_role_half(self) -> None:
+        loop = QEventLoop()
+        page = _AsyncPage(loop)
+        host = _AsyncHost(page)
+        host._latest_state = SimpleNamespace(battle_record_id=12)
+
+        with patch.object(host, "_load_analysis") as load:
+            host._load_marginal_analysis(
+                1004,
+                "first",
+                [{"character_id": 1004}],
+            )
+
+        candidate = BattleMarginalCandidateService.freeze(
+            12,
+            [{"character_id": 1004}],
+            equipment_editable=True,
+        )
+
+        load.assert_called_once_with(
+            12,
+            selected_character_id=1004,
+            detail_scope="first",
+            detail_level="marginal",
+            marginal_candidate=candidate,
+            completion_kind="marginal",
         )
 
     def test_latest_scope_replaces_a_running_stale_request(self) -> None:

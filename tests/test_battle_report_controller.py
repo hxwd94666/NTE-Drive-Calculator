@@ -173,9 +173,11 @@ def test_start_freezes_raw_capture_setting_and_account_directory() -> None:
 
 def test_restored_half_scope_loads_its_range_when_no_manual_range_exists() -> None:
     calls = []
+    page_transitions = []
     page = SimpleNamespace(
         update_state=lambda _state: None,
         set_detail_scope=lambda _scope: None,
+        show_report=lambda: page_transitions.append("report"),
     )
     overlay = SimpleNamespace(update_summary=lambda _summary: None, hide=lambda: None)
     controller = SimpleNamespace(
@@ -204,6 +206,7 @@ def test_restored_half_scope_loads_its_range_when_no_manual_range_exists() -> No
     assert calls == [
         (12, {"selected_character_id": 1004, "detail_scope": "second"})
     ]
+    assert page_transitions == ["report"]
 
 
 def test_reset_analysis_range_restores_selected_half_instead_of_whole_battle() -> None:

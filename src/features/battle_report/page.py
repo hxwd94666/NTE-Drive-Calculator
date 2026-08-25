@@ -25,6 +25,11 @@ from src.features.battle_report.analysis_progress_bar import (
     BattleAnalysisProgressBar,
 )
 from src.features.battle_report.marginal_page import BattleMarginalPage
+from src.services.battle_timeline_time_service import (
+    ACTIVE_TIME_MODE,
+    projected_range_duration_us,
+    time_stop_overlap_us,
+)
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 
 
@@ -59,10 +64,10 @@ class BattleReportPage(QWidget):
     target_condition_save_requested = Signal(object)
     build_edit_requested = Signal()
     build_edit_activation_requested = Signal(bool)
-    build_role_page_import_requested = Signal()
-    build_sync_role_page_requested = Signal()
     marginal_requested = Signal()
     marginal_recalculate_requested = Signal(object)
+    marginal_restore_requested = Signal()
+    marginal_analysis_requested = Signal(int, object, object)
     analysis_details_requested = Signal(str, object)
 
     def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
@@ -202,14 +207,11 @@ class BattleReportPage(QWidget):
         self.marginal_page.recalculate_requested.connect(
             self.marginal_recalculate_requested
         )
-        self.marginal_page.import_role_page_requested.connect(
-            self.build_role_page_import_requested
+        self.marginal_page.restore_saved_requested.connect(
+            self.marginal_restore_requested
         )
-        self.marginal_page.restore_original_requested.connect(
-            lambda: self.build_edit_activation_requested.emit(False)
-        )
-        self.marginal_page.sync_role_page_requested.connect(
-            self.build_sync_role_page_requested
+        self.marginal_page.analysis_requested.connect(
+            self.marginal_analysis_requested
         )
         self._stack.addWidget(self.marginal_page)
 
@@ -218,6 +220,7 @@ class BattleReportPage(QWidget):
         self._stack.setCurrentWidget(self.marginal_page)
 
     def show_report(self) -> None:
+        self.marginal_page.clear_candidate()
         self._stack.setCurrentIndex(0)
 
     def update_state(self, state: BattleCaptureState) -> None:
@@ -265,6 +268,7 @@ class BattleReportPage(QWidget):
         return self.long_analysis_view.detail_scope()
 
     def clear_summary(self) -> None:
+        self.marginal_page.clear_candidate()
         self._latest_summary = None
         self._detail_scope = "current"
         for label in self.metric_labels.values():
@@ -283,10 +287,43 @@ class BattleReportPage(QWidget):
                 0.0,
                 raw_damage - overkill_correction,
             )
-            duration = max(0.001, self._latest_summary.duration_seconds)
+            battle_start_us = int(getattr(analysis, "battle_start_us", 0))
+            intervals = tuple(getattr(analysis, "time_stop_intervals", ()))
+            summary_duration_us = round(
+                self._latest_summary.duration_seconds * 1_000_000
+            )
+            if (
+                getattr(analysis, "time_stop_source_kind", "") == "nte_core"
+                and getattr(
+                    self._latest_summary,
+                    "dps_time_mode",
+                    "subtract_time_stop",
+                )
+                == "subtract_time_stop"
+            ):
+                interval_end_us = max(
+                    (end_us or battle_start_us for _start_us, end_us in intervals),
+                    default=battle_start_us,
+                )
+                summary_duration_us += time_stop_overlap_us(
+                    battle_start_us,
+                    max(int(analysis.battle_end_us), interval_end_us),
+                    intervals,
+                )
+            raw_duration_us = max(
+                summary_duration_us,
+                int(analysis.battle_end_us) - battle_start_us,
+            )
+            active_duration_us = projected_range_duration_us(
+                battle_start_us,
+                battle_start_us + raw_duration_us,
+                intervals=intervals,
+                mode=ACTIVE_TIME_MODE,
+            )
+            duration = max(0.001, active_duration_us / 1_000_000.0)
+            real_duration = raw_duration_us / 1_000_000.0
             self.metric_labels["damage"].setText(_format_number(corrected_damage))
             self.metric_labels["dps"].setText(_format_number(corrected_damage / duration))
-            real_duration = max(duration, analysis.battle_end_us / 1_000_000.0)
             self.metric_labels["duration"].setText(
                 f"{duration:.1f}s（{real_duration:.1f}s）"
             )
@@ -294,6 +331,11 @@ class BattleReportPage(QWidget):
             analysis,
             selected_character_id=selected_character_id,
         )
+        self.marginal_page.set_analysis(analysis)
+
+    def set_marginal_analysis(self, analysis) -> None:
+        """Update the selected-role half without replacing report scope."""
+
         self.marginal_page.set_analysis(analysis)
 
     def complete_analysis_details(self, kind: str, payload: object) -> None:
@@ -314,6 +356,15 @@ class BattleReportPage(QWidget):
     def analysis_character_id(self):
         return self.marginal_page.selected_character_id()
 
+    def marginal_detail_scope(self):
+        return self.marginal_page.selected_detail_scope()
+
+    def marginal_equipment_editable(self) -> bool:
+        return self.marginal_page.equipment_editable()
+
+    def marginal_disabled_inferred_fact_ids(self) -> tuple[str, ...]:
+        return self.marginal_page.disabled_inferred_fact_ids()
+
     def clear_analysis(self, message: str) -> None:
         self.long_analysis_view.clear(message)
 
@@ -329,6 +380,7 @@ class BattleReportPage(QWidget):
             active=active,
             available=available,
         )
+        self.long_analysis_view.audit_buttons["marginal"].setEnabled(available)
 
     def _render_summary(self, summary: BattleSummary) -> None:
         self._latest_summary = summary

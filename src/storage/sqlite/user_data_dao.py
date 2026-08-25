@@ -7,6 +7,7 @@ from .account_data_dao import AccountDataDaoMixin
 from .battle_report_dao import BattleReportDaoMixin
 from .battle_report_transfer_dao import BattleReportTransferDaoMixin
 from .battle_axis_dao import BattleAxisDaoMixin
+from .battle_axis_finalization_dao import BattleAxisFinalizationDaoMixin
 from .battle_analysis_dao import BattleAnalysisDaoMixin
 from .battle_build_edit_dao import BattleBuildEditDaoMixin
 from .custom_character_dao import CustomCharacterDaoMixin
@@ -40,6 +41,7 @@ class UserDataDao(
     AccountDataDaoMixin,
     BattleAnalysisDaoMixin,
     BattleBuildEditDaoMixin,
+    BattleAxisFinalizationDaoMixin,
     BattleAxisDaoMixin,
     BattleReportTransferDaoMixin,
     BattleReportDaoMixin,

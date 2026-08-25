@@ -369,6 +369,21 @@ def _axis_hit(value: Any, field: str, *, contract_version: int) -> dict[str, Any
         raise NteCoreProtocolError(
             f"{field}.overkill_damage cannot exceed primary damage"
         )
+    max_hp_reduction = (
+        _number(
+            item.get("max_hp_reduction"),
+            f"{field}.max_hp_reduction",
+        )
+        if contract_version >= 4
+        else _optional_number(
+            item.get("max_hp_reduction"),
+            f"{field}.max_hp_reduction",
+        )
+    )
+    if max_hp_reduction is not None and max_hp_reduction < 0:
+        raise NteCoreProtocolError(
+            f"{field}.max_hp_reduction cannot be negative"
+        )
     raw_labels = item.get("follow_up_labels")
     if raw_labels is None:
         raw_labels = [
@@ -439,6 +454,7 @@ def _axis_hit(value: Any, field: str, *, contract_version: int) -> dict[str, Any
         "direction": _text(item.get("direction"), f"{field}.direction"),
         "damage": damage,
         "overkill_damage": overkill_damage,
+        "max_hp_reduction": max_hp_reduction,
         "follow_up_damage": _number(
             item.get("follow_up_damage"),
             f"{field}.follow_up_damage",

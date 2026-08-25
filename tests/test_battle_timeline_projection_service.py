@@ -5,6 +5,8 @@ import unittest
 from dataclasses import replace
 
 from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
+from src.features.battle_report.timeline_layout import TimelineSelection
+from src.features.battle_report.timeline_tooltip import build_timeline_tooltip
 from src.services.battle_timeline_projection_service import (
     BattleTimelineProjectionService,
 )
@@ -64,6 +66,21 @@ def _action(*, kind: str, ordinal: int) -> BattleInferredAction:
 
 
 class BattleTimelineProjectionServiceTests(unittest.TestCase):
+    def test_hit_tooltip_displays_stable_event_id(self) -> None:
+        hit = _hit(
+            7,
+            1_000_000,
+            ability_id="GA_Test_Skill",
+            skill_name="测试技能",
+        )
+
+        tooltip = build_timeline_tooltip(
+            TimelineSelection("hit", hit.event_id, hit),
+            projected_time=lambda value: value,
+        )
+
+        self.assertIn("逐击 ID：7:primary", tooltip)
+
     def test_same_ability_merges_but_a_and_e_never_share_a_bar(self) -> None:
         groups = BattleTimelineProjectionService.group_damage_hits(
             (

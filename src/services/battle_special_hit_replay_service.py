@@ -11,7 +11,13 @@ from src.domain.battle_report import (
     BattleHitBuffProjection,
     BattleHitReplayFactor,
     BattleHitReplayResult,
+    BattleHitReplayTerm,
     BattleSkillDamageEvidence,
+)
+from src.services.battle_hit_replay_support import (
+    ceil_replay_damage,
+    dot_final_replay_factors,
+    literal_replay_term,
 )
 from src.services.damage_calculation_service import (
     DamageScene,
@@ -60,6 +66,8 @@ def _factor(
     value: float,
     basis: str,
     formula: str,
+    *,
+    terms: tuple[BattleHitReplayTerm, ...] = (),
 ) -> BattleHitReplayFactor:
     return BattleHitReplayFactor(
         factor_id=factor_id,
@@ -67,6 +75,7 @@ def _factor(
         value=float(value),
         evidence_basis=basis,
         formula=formula,
+        terms=terms,
     )
 
 
@@ -186,7 +195,9 @@ class BattleSpecialHitReplayService:
             if lingke_passive
             else 1.0
         )
-        predicted = triggering_hit.damage * followup_multiplier * passive_damage_zone
+        predicted = ceil_replay_damage(
+            triggering_hit.damage * followup_multiplier * passive_damage_zone
+        )
         signed_error = _signed_error(hit.damage, predicted)
         absolute_error = None if signed_error is None else abs(signed_error)
         confidence = (
@@ -293,7 +304,14 @@ class BattleSpecialHitReplayService:
         values: Mapping[str, float],
         analysis: BattleAnalysisSnapshot,
         evidence_attribute: str = "",
-    ) -> tuple[str, float, float, float, str]:
+    ) -> tuple[
+        str,
+        float,
+        float,
+        float,
+        str,
+        tuple[BattleHitReplayTerm, ...],
+    ]:
         condition = analysis.target_condition
         assert condition is not None
         attribute = BattleSpecialHitReplayService._reaction_attribute(
@@ -336,6 +354,42 @@ class BattleSpecialHitReplayService:
         )
         character_level = 80.0 if baseline is None else baseline.character_level
         defense = calculate_defense_multiplier(character_level, enemy_defense)
+        defense_terms = (
+            ()
+            if condition.enemy_defense_base is None
+            else (
+                literal_replay_term(
+                    "character:level", "CharacterLevel", "角色等级",
+                    character_level, "character", "人物",
+                    is_percent=False, basis="冻结角色等级",
+                ),
+                literal_replay_term(
+                    "target:DefBase", "DefBase", "DefBase",
+                    condition.enemy_defense_base, "target", "敌方",
+                    is_percent=False, basis=defense_basis,
+                ),
+                literal_replay_term(
+                    "target:DefUp", "DefUp", "防御提升",
+                    condition.enemy_defense_up, "target", "敌方",
+                    is_percent=True, basis=defense_basis,
+                ),
+                literal_replay_term(
+                    "target:DefAdd", "DefAdd", "额外防御",
+                    condition.enemy_defense_add, "target", "敌方",
+                    is_percent=False, basis=defense_basis,
+                ),
+                literal_replay_term(
+                    "attacker:DefIgnore", "DefIgnore", "防御穿透",
+                    defense_penetration, "resolved", "攻击者",
+                    is_percent=True, basis="命中时角色属性",
+                ),
+                literal_replay_term(
+                    "target:DefReduction", "DefReduction", "防御降低",
+                    condition.defense_reduction, "target", "敌方",
+                    is_percent=True, basis=defense_basis,
+                ),
+            )
+        )
         base_resistance = dict(condition.resistances).get(attribute, 0.20)
         resistance_properties = _ELEMENT_RESISTANCE_PROPERTIES.get(attribute, ())
         dynamic_resistance = sum(
@@ -354,7 +408,14 @@ class BattleSpecialHitReplayService:
             base_resistance + dynamic_resistance - penetration
         )
         vulnerability = 1.0 + condition.vulnerability
-        return attribute, defense, resistance, vulnerability, defense_basis
+        return (
+            attribute,
+            defense,
+            resistance,
+            vulnerability,
+            defense_basis,
+            defense_terms,
+        )
 
     @classmethod
     def _replay_standard_reaction(
@@ -385,42 +446,50 @@ class BattleSpecialHitReplayService:
             )
         ring_strength = max(0.0, float(values.get("MagBase", 0.0)))
         ring_multiplier = calculate_ring_strength_multiplier(ring_strength)
-        attribute, defense, resistance, vulnerability, defense_basis = cls._mitigation(
+        (
+            attribute,
+            defense,
+            resistance,
+            vulnerability,
+            defense_basis,
+            defense_terms,
+        ) = cls._mitigation(
             hit=hit,
             projection=projection,
             values=values,
             analysis=analysis,
             evidence_attribute=evidence.damage_attribute,
         )
-        reaction_multiplier = (
-            evidence.scaling_multiplier
-            if channel_id == "reaction_scorch"
-            else 1.0
-        )
         stack_multiplier = (
             max(1.0, evidence.state_multiplier)
             if channel_id == "reaction_scorch"
             else 1.0
         )
-        non_critical = (
+        dot_final_multiplier = (
+            max(1.0, evidence.dot_final_multiplier)
+            if channel_id == "reaction_scorch"
+            else 1.0
+        )
+        raw_non_critical = (
             level_multiplier
-            * reaction_multiplier
             * stack_multiplier
             * ring_multiplier
             * defense
             * resistance
             * vulnerability
+            * dot_final_multiplier
         )
+        non_critical = ceil_replay_damage(raw_non_critical)
         crit_damage = max(0.0, float(values.get("CritDamageBase", 0.50)))
         if channel_id == "reaction_scorch":
-            critical = non_critical * (1.0 + crit_damage)
+            critical = ceil_replay_damage(raw_non_critical * (1.0 + crit_damage))
             noncrit_error = abs(_signed_error(hit.damage, non_critical) or 0.0)
             crit_error = abs(_signed_error(hit.damage, critical) or 0.0)
             is_critical = crit_error < noncrit_error
             selected = critical if is_critical else non_critical
             critical_state = "critical" if is_critical else "non_critical"
             critical_rate = 0.50
-            expected = non_critical * (1.0 + critical_rate * crit_damage)
+            expected = non_critical * (1.0 - critical_rate) + critical * critical_rate
         else:
             critical = None
             selected = non_critical
@@ -464,17 +533,6 @@ class BattleSpecialHitReplayService:
                 evidence.evidence_basis,
                 "官方环合伤害曲线按角色等级取档",
             ),
-            _factor(
-                "reaction_multiplier",
-                "反应倍率",
-                reaction_multiplier,
-                (
-                    "浊燃静态伤害项倍率"
-                    if channel_id == "reaction_scorch"
-                    else "创生等级曲线已包含最终基础倍率"
-                ),
-                "静态倍率" if channel_id == "reaction_scorch" else "固定为 1",
-            ),
             *stack_factors,
             _factor(
                 "scaling",
@@ -483,7 +541,14 @@ class BattleSpecialHitReplayService:
                 f"命中归属角色环合强度 {ring_strength:g}",
                 "1 + 环合强度 / 600",
             ),
-            _factor("defense", "防御区", defense, defense_basis, "角色等级与敌方防御"),
+            _factor(
+                "defense",
+                "防御区",
+                defense,
+                defense_basis,
+                "角色等级与敌方防御",
+                terms=defense_terms,
+            ),
             _factor(
                 "resistance",
                 "抗性区",
@@ -497,6 +562,10 @@ class BattleSpecialHitReplayService:
                 vulnerability,
                 "敌方受到伤害提升",
                 "1 + 易伤",
+            ),
+            *(
+                dot_final_replay_factors(evidence)
+                if channel_id == "reaction_scorch" else ()
             ),
             _factor(
                 "critical",
@@ -571,7 +640,9 @@ class BattleSpecialHitReplayService:
             base_resistance + target_resistance - penetration
         )
         vulnerability = 1.0 + condition.vulnerability
-        predicted = level_multiplier * ring_multiplier * resistance * vulnerability
+        predicted = ceil_replay_damage(
+            level_multiplier * ring_multiplier * resistance * vulnerability
+        )
         signed_error = _signed_error(hit.damage, predicted)
         absolute_error = None if signed_error is None else abs(signed_error)
         confidence = (

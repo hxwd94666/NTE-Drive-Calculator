@@ -12,11 +12,18 @@ from src.domain.battle_report import (
 from src.features.battle_report.timeline_layout import build_timeline_layout
 
 
-def _action(ordinal: int, start_us: int, end_us: int) -> BattleInferredAction:
+def _action(
+    ordinal: int,
+    start_us: int,
+    end_us: int,
+    *,
+    character_id: int = 1001,
+    character_name: str = "测试角色",
+) -> BattleInferredAction:
     return BattleInferredAction(
         action_id=f"action:{ordinal}",
-        character_id=1001,
-        character_name="测试角色",
+        character_id=character_id,
+        character_name=character_name,
         action_name=f"动作 {ordinal}",
         input_kind="A",
         input_sequence="A",
@@ -32,11 +39,17 @@ def _action(ordinal: int, start_us: int, end_us: int) -> BattleInferredAction:
     )
 
 
-def _group(channel_key: str, channel_label: str) -> BattleTimelineDamageGroup:
+def _group(
+    channel_key: str,
+    channel_label: str,
+    *,
+    character_id: int = 1001,
+    character_name: str = "测试角色",
+) -> BattleTimelineDamageGroup:
     return BattleTimelineDamageGroup(
         group_id=f"group:{channel_key}",
-        character_id=1001,
-        character_name="测试角色",
+        character_id=character_id,
+        character_name=character_name,
         direction="outgoing",
         channel_key=channel_key,
         channel_label=channel_label,
@@ -127,6 +140,47 @@ class BattleTimelineLayoutTests(unittest.TestCase):
         damage_lanes = [lane for lane in layout.lanes if lane.kind == "damage"]
 
         self.assertEqual(("噩梦", "浊燃"), tuple(lane.label for lane in damage_lanes))
+        self.assertTrue(all(lane.character_id is None for lane in damage_lanes))
+
+    def test_public_reaction_owner_keeps_role_lane_without_splitting_damage_lane(
+        self,
+    ) -> None:
+        analysis = SimpleNamespace(
+            inferred_inputs=(),
+            inferred_actions=(
+                _action(
+                    1,
+                    1_000_000,
+                    1_100_000,
+                    character_id=1004,
+                    character_name="安魂曲",
+                ),
+            ),
+            timeline_hits=(
+                SimpleNamespace(character_id=1036, character_name="残虹"),
+            ),
+            timeline_damage_groups=(
+                _group(
+                    "reaction_scorch",
+                    "浊燃",
+                    character_id=1036,
+                    character_name="残虹",
+                ),
+            ),
+        )
+
+        layout = build_timeline_layout(analysis, x_for_time=lambda value: value / 10_000)
+        action_lanes = [lane for lane in layout.lanes if lane.kind == "action"]
+        damage_lanes = [lane for lane in layout.lanes if lane.kind == "damage"]
+
+        self.assertEqual(
+            ((1004, "安魂曲"), (1036, "残虹")),
+            tuple((lane.character_id, lane.character_name) for lane in action_lanes),
+        )
+        self.assertFalse(
+            any(row[0].character_id == 1036 for row in layout.action_rows),
+        )
+        self.assertEqual(("浊燃",), tuple(lane.label for lane in damage_lanes))
         self.assertTrue(all(lane.character_id is None for lane in damage_lanes))
 
 

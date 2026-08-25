@@ -287,6 +287,24 @@ def classify_battle_hit_channel(hit: BattleAnalysisHit) -> tuple[str, str]:
     return "other", "其他"
 
 
+def classify_battle_hit_reaction_trigger(
+    hit: BattleAnalysisHit,
+) -> tuple[str, str] | None:
+    """Return a reaction triggered by this hit without changing its damage lane.
+
+    A QTE is direct damage, but an ``环合·浊燃`` QTE still proves that its
+    source character participated in triggering scorch for equipment effects.
+    """
+
+    for value in (hit.damage_name, hit.skill_name, hit.attack_type):
+        reaction = _REACTION_LABELS.get(_normalized_label(value))
+        if reaction is not None:
+            return reaction
+    if hit.classification == "reaction":
+        return "reaction_unknown", "环合 / 特殊伤害"
+    return None
+
+
 def _coarse_role_channel(key: str, label: str) -> tuple[str, str]:
     if key in _REACTION_CHANNELS:
         return key, _COARSE_REACTION_LABELS.get(key, label)

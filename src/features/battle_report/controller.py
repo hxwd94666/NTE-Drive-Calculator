@@ -132,8 +132,8 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         self._page.analysis_details_requested.connect(
             self._load_analysis_details
         )
-        self._page.marginal_requested.connect(
-            lambda: self._load_analysis_details("marginal")
+        self._page.marginal_analysis_requested.connect(
+            self._load_marginal_analysis
         )
         self._state_received.connect(self._apply_state)
         self._restore_last_history()
@@ -179,6 +179,9 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
                 return
         self._overlay_capture_active = True
         self._overlay.clear_summary()
+        show_report = getattr(self._page, "show_report", None)
+        if callable(show_report):
+            show_report()
         self._page.clear_analysis("采集中；结束并保存正式逐击后生成长页分析。")
         if self._page.overlay_toggle.isChecked():
             self._overlay.show_overlay()
@@ -706,6 +709,9 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         state: BattleCaptureState,
         stored: StoredBattleSummary,
     ) -> None:
+        show_report = getattr(self._page, "show_report", None)
+        if callable(show_report):
+            show_report()
         self._latest_state = state
         self._page.update_state(state)
         self._page.set_detail_scope(stored.detail_scope)

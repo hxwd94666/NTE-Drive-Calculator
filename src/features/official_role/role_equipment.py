@@ -176,6 +176,7 @@ def _build_equipment_cards_group(
     context_key: str,
     *,
     allow_replacement: bool = True,
+    replacement_handler=None,
 ) -> QGroupBox:
     context = detail["equipment_contexts"][context_key]
     theory_items: list[tuple[str, object]] = []
@@ -256,7 +257,13 @@ def _build_equipment_cards_group(
                 item,
             )
             replacement_callback = None
-            if allow_replacement and (
+            if allow_replacement and callable(replacement_handler):
+                replacement_callback = (
+                    lambda target=dict(item), key=context_key: replacement_handler(
+                        target, key
+                    )
+                )
+            elif allow_replacement and (
                 context_key == "saved" or context_key.startswith("saved:")
             ):
                 replacement_callback = (
@@ -326,6 +333,8 @@ def _build_drive_summary_group(
     editor: dict,
     *,
     allow_replacement: bool = True,
+    show_context_selector: bool = True,
+    replacement_handler=None,
 ) -> QGroupBox:
     group = QGroupBox("空幕加成")
     group.setObjectName("officialRoleDriveGroup")
@@ -336,6 +345,7 @@ def _build_drive_summary_group(
     top.addWidget(count_label)
     top.addStretch()
     context_combo = NoWheelComboBox()
+    context_combo.setObjectName("officialRoleEquipmentContextSelector")
     for key, context in detail["equipment_contexts"].items():
         if key != "theory":
             context_combo.addItem(context["title"], key)
@@ -351,6 +361,7 @@ def _build_drive_summary_group(
         + 24
     )
     top.addWidget(context_combo)
+    context_combo.setVisible(show_context_selector)
     score_label = QLabel("配装评分: --")
     score_label.setObjectName("officialRoleLoadoutScore")
     score_label.setStyleSheet("color:#58a6ff;font-weight:bold;font-size:13px;")
@@ -419,12 +430,23 @@ def _build_drive_summary_group(
                 calculation_detail,
                 context_key,
                 allow_replacement=allow_replacement,
+                replacement_handler=(
+                    replace_in_context if callable(replacement_handler) else None
+                ),
             )
         )
 
     def change_context() -> None:
         editor["equipment_context_key"] = str(context_combo.currentData())
         _refresh_role_calculations(editor)
+
+    def replace_in_context(target: dict, context_key: str) -> bool:
+        if not callable(replacement_handler):
+            return False
+        accepted = bool(replacement_handler(target, context_key))
+        if accepted:
+            _refresh_role_calculations(editor)
+        return accepted
 
     context_combo.currentIndexChanged.connect(change_context)
     _register_calculation_refresh(editor, refresh_summary)

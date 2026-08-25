@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -98,6 +98,15 @@ class BattleSummaryWriter(Protocol):
         page: Mapping[str, Any],
     ) -> None: ...
 
+    def replace_axis_pages(
+        self,
+        *,
+        capture_operation_id: str,
+        pages: Sequence[Mapping[str, Any]],
+        source_generation: str,
+        incomplete_reason: str | None = None,
+    ) -> None: ...
+
     def discard_capture(self, *, capture_operation_id: str) -> None: ...
 
     def finalize_summary(
@@ -114,6 +123,9 @@ class BattleSummaryWriter(Protocol):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+_BATTLE_READ_CONTRACT_VERSION = 4
 
 
 class BattleCaptureService:
@@ -255,7 +267,7 @@ class BattleCaptureService:
             capture_started = False
             if self._event_error is not None:
                 raise self._event_error
-            final_record = self._poll_axis(client, maximum_pages=120)
+            final_record = self._read_final_axis(client)
             final_payload = (
                 final_record.get("summary")
                 if final_record is not None
@@ -419,6 +431,7 @@ class BattleCaptureService:
         if raw_record is None:
             return None
         record = parse_battle_record(raw_record)
+        self._require_contract_v4(record)
         source_record_id = str(record["battle_record_id"])
         if self._source_battle_record_id is None:
             self._source_battle_record_id = source_record_id
@@ -443,6 +456,7 @@ class BattleCaptureService:
             if raw_page is None:
                 break
             page = parse_battle_axis(raw_page)
+            self._require_contract_v4(page)
             writer = self._summary_writer
             if writer is not None:
                 writer.append_axis_page(
@@ -456,6 +470,117 @@ class BattleCaptureService:
             if not page["rows"]:
                 break
         return record
+
+    def _read_final_axis(
+        self,
+        client: BattleCoreClient,
+    ) -> dict[str, Any] | None:
+        raw_record = client.get_battle_record(
+            battle_record_id=self._source_battle_record_id,
+            subtract_time_stop=True,
+        )
+        if raw_record is None:
+            return None
+        record = parse_battle_record(raw_record)
+        self._require_contract_v4(record)
+        source_record_id = str(record["battle_record_id"])
+        generation = str(record["generation"])
+        incomplete_reason: str | None = None
+        pages: list[dict[str, Any]] = []
+
+        if str(record.get("state") or "") != "finalized":
+            incomplete_reason = "final_record_not_finalized"
+        else:
+            cursor: str | None = None
+            for _page_index in range(120):
+                try:
+                    raw_page = client.get_battle_axis(
+                        battle_record_id=source_record_id,
+                        cursor=cursor,
+                        limit=500,
+                    )
+                except Exception as error:
+                    if nte_core_error_has_domain_code(
+                        error,
+                        frozenset({"BATTLE_AXIS_CURSOR_EXPIRED"}),
+                    ):
+                        incomplete_reason = "final_axis_cursor_expired"
+                        break
+                    raise
+                if raw_page is None:
+                    break
+                page = parse_battle_axis(raw_page)
+                self._require_contract_v4(page)
+                if (
+                    str(page["generation"]) != generation
+                    or str(page["battle_record_id"]) != source_record_id
+                ):
+                    incomplete_reason = "final_axis_generation_changed"
+                    break
+                pages.append(page)
+                next_cursor = page.get("next_cursor")
+                if next_cursor is None or next_cursor == cursor:
+                    break
+                cursor = str(next_cursor)
+                if not page["rows"]:
+                    break
+
+            if incomplete_reason is None and (
+                not pages or pages[-1].get("next_cursor") is not None
+            ):
+                incomplete_reason = "final_axis_not_drained"
+            if incomplete_reason is None and (
+                not bool(pages[-1].get("finalized"))
+                or not bool(pages[-1].get("complete"))
+            ):
+                incomplete_reason = "final_axis_incomplete"
+
+        verified: dict[str, Any] | None = None
+        if incomplete_reason is None:
+            verify_raw = client.get_battle_record(
+                battle_record_id=source_record_id,
+                subtract_time_stop=True,
+            )
+            if verify_raw is None:
+                incomplete_reason = "final_record_disappeared"
+            else:
+                verified = parse_battle_record(verify_raw)
+                self._require_contract_v4(verified)
+                if (
+                    str(verified["generation"]) != generation
+                    or str(verified["battle_record_id"]) != source_record_id
+                    or str(verified.get("state") or "") != "finalized"
+                ):
+                    incomplete_reason = "final_axis_generation_changed"
+
+        writer = self._summary_writer
+        if incomplete_reason is None:
+            if writer is not None:
+                writer.replace_axis_pages(
+                    capture_operation_id=self._operation_context.operation_id,
+                    pages=pages,
+                    source_generation=generation,
+                )
+            return verified
+
+        if writer is not None:
+            writer.replace_axis_pages(
+                capture_operation_id=self._operation_context.operation_id,
+                pages=(),
+                source_generation=generation,
+                incomplete_reason=incomplete_reason,
+            )
+        incomplete_record = dict(record)
+        incomplete_record["axis_complete"] = False
+        incomplete_record["finalization_incomplete_reason"] = incomplete_reason
+        return incomplete_record
+
+    @staticmethod
+    def _require_contract_v4(payload: Mapping[str, Any]) -> None:
+        if int(payload.get("contract_version") or 0) < _BATTLE_READ_CONTRACT_VERSION:
+            raise RuntimeError(
+                "当前 nte-core 战斗契约低于 v4，不能开始新的战报采集"
+            )
 
     def _on_summary_event(self, event: dict[str, object]) -> None:
         try:

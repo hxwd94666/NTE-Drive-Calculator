@@ -19,6 +19,10 @@ from src.services.equipment_level_projection_service import (
 from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
 from src.services.inventory_source_capabilities import is_visual_inventory_source
 from src.services.official_role_awakening_service import resolve_awakening_profile
+from src.services.world_bonus_settings_service import (
+    WORLD_BONUS_SETTING_KEY,
+    WorldBonusSettings,
+)
 from src.services.skill_name_rendering_service import SkillNameRenderingService
 from src.services.damage_calculation_service import (
     DamageCalculationService,
@@ -53,6 +57,7 @@ from src.services.official_role_attribute_service import (
     _context_calculation_items,
     _equipment_property_stats,
     _property_stats_by_source,
+    _world_bonus_property_stats,
     _element_damage_property,
     _role_panel_damage_inputs,
     calculate_official_role_equipment_gain,
@@ -151,6 +156,7 @@ def calculate_official_role_damage_breakdown(
         if value - raw_equipment_stats.get(property_id, 0.0)
     }
     for source, source_stats in (
+        ("世界加成", _world_bonus_property_stats(detail)),
         ("弧盘", fork_stats),
         ("空幕/驱动", raw_equipment_stats),
         ("额外形状", shape_stats),
@@ -619,6 +625,9 @@ def load_official_role_detail(
             static_dao.get_character_recommended_weights(character_id) or {}
         )
         account_weight_record = user_dao.get_character_weight_preferences(character_id)
+        world_bonus = WorldBonusSettings.from_payload(
+            user_dao.list_application_setting_copies().get(WORLD_BONUS_SETTING_KEY)
+        )
         weight_record = account_weight_record or public_weight_record
         weights = {
             str(key): float(value)
@@ -694,6 +703,7 @@ def load_official_role_detail(
         "skills": skills,
         "awakenings": awakenings,
         "likeability_bonus": likeability_bonus,
+        "world_bonus": world_bonus.to_payload(),
         "forks": forks,
         "equipment_plan": equipment_plan,
         "shape_bonus": shape_bonus,

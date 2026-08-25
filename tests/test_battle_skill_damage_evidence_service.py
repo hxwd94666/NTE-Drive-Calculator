@@ -316,6 +316,54 @@ class BattleSkillDamageEvidenceServiceTests(unittest.TestCase):
         self.assertEqual(1.0, evidence.multiplier_coefficient)
         self.assertIn("原始倍率数组", evidence.evidence_basis)
 
+    def test_zankou_scorch_uses_zankou_as_formula_source(self) -> None:
+        class Dao:
+            @staticmethod
+            def get_combat_curve(_table_path: str, _curve_id: str):
+                return {"points": tuple({"value": 5.0} for _ in range(11))}
+
+            @staticmethod
+            def get_skill_damage(_damage_id: str):
+                return {
+                    "ability_id": "",
+                    "damage_type": "incantation",
+                    "damage_source_category": "R",
+                    "fixed_crit_rate": 0.5,
+                    "atk_rate_base": (1.5,),
+                    "def_rate_base": (),
+                    "hp_rate_base": (),
+                }
+
+            @staticmethod
+            def get_reaction_damage_curve(_damage_id: str):
+                return {"points": tuple({"value": value} for value in range(16))}
+
+            @staticmethod
+            def list_character_awaken_effects(_character_id: int):
+                return ()
+
+        hit = _hit(
+            "1:primary",
+            damage_id="Buff_Reaction_5_new_1036",
+            character_id=1003,
+        )
+        analysis = SimpleNamespace(hits=(hit,), time_stop_intervals=())
+        build = {"characters": [
+            {"character_id": 1003, "character_level": 1, "profile": {}},
+            {
+                "character_id": 1036,
+                "character_level": 80,
+                "breakthrough_stage": 2,
+                "profile": {},
+            },
+        ]}
+
+        evidence = BattleSkillDamageEvidenceService.load(Dao(), analysis, build)[0]
+
+        self.assertEqual(1036, evidence.source_character_id)
+        self.assertEqual(80, evidence.effective_skill_level)
+        self.assertIn("统一使用残虹", evidence.evidence_basis)
+
     def test_creation_uses_the_same_official_16_tier_lookup_as_scorch(self) -> None:
         class Dao:
             @staticmethod

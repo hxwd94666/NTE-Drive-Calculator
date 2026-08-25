@@ -255,6 +255,7 @@ class BattleReportDaoTests(unittest.TestCase):
                 "battle_character_awaken_edit",
                 "battle_character_build_edit",
                 "battle_character_build_snapshot",
+                "battle_character_import_equipment_lock",
                 "battle_character_skill_edit",
                 "battle_character_skill_snapshot",
                 "battle_character_stat_snapshot",
@@ -263,6 +264,7 @@ class BattleReportDaoTests(unittest.TestCase):
                 "battle_hit_evidence",
                 "battle_record",
                 "battle_record_retention",
+                "battle_report_import_origin",
                 "battle_report_page_state",
                 "battle_time_stop_interval",
                 "battle_target_condition",
@@ -309,6 +311,7 @@ class BattleReportDaoTests(unittest.TestCase):
         self.assertIn("'character'", table_sql)
         self.assertIn("'fork'", table_sql)
         self.assertIn("'likeability'", table_sql)
+        self.assertIn("'world_bonus'", table_sql)
 
     def test_existing_v31_database_adds_normal_target_resistance(self) -> None:
         legacy_path = Path(self.temporary.name) / "legacy_v31.sqlite3"
@@ -329,6 +332,41 @@ class BattleReportDaoTests(unittest.TestCase):
             }
 
         self.assertEqual("0.2", columns["resistance_normal"])
+
+    def test_existing_v32_database_adds_transfer_locks_and_v4_max_hp(self) -> None:
+        legacy_path = Path(self.temporary.name) / "legacy_v32.sqlite3"
+        with patch.object(user_data_base, "SCHEMA_VERSION", 32):
+            with UserDataDao(
+                legacy_path,
+                account_id="legacy",
+                account_name="旧账号",
+            ) as legacy:
+                self.assertEqual(32, legacy.summary()["schema_version"])
+
+        with UserDataDao(legacy_path) as migrated:
+            connection = migrated._db()
+            self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            hit_columns = {
+                row[1] for row in connection.execute(
+                    "PRAGMA table_info(battle_hit_evidence)"
+                )
+            }
+            capture_columns = {
+                row[1] for row in connection.execute(
+                    "PRAGMA table_info(battle_axis_capture)"
+                )
+            }
+
+        self.assertIn("battle_report_import_origin", tables)
+        self.assertIn("battle_character_import_equipment_lock", tables)
+        self.assertIn("max_hp_reduction", hit_columns)
+        self.assertIn("finalization_incomplete_reason", capture_columns)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.domain.battle_report_transfer import battle_equipment_sha256
+
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
     UserDataError,
@@ -82,6 +84,60 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
         header["characters"] = characters
         return header
 
+    def load_battle_report_import_origin(
+        self,
+        battle_record_id: int,
+    ) -> dict[str, Any] | None:
+        record_id = _integer(battle_record_id, "battle_record_id", minimum=1)
+        return self._one(
+            "SELECT * FROM battle_report_import_origin WHERE battle_record_id = ?",
+            (record_id,),
+        )
+
+    def load_battle_import_equipment_locks(
+        self,
+        battle_record_id: int,
+    ) -> dict[int, dict[str, Any]]:
+        record_id = _integer(battle_record_id, "battle_record_id", minimum=1)
+        rows = self._rows(
+            """
+            SELECT character_id, equipment_source_kind, equipment_sha256,
+                   locked_equipment_json, created_at_utc
+            FROM battle_character_import_equipment_lock
+            WHERE battle_record_id = ? ORDER BY character_id
+            """,
+            (record_id,),
+        )
+        result: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            equipment = _decoded(row.pop("locked_equipment_json"), [])
+            if not isinstance(equipment, list):
+                raise UserDataError("导入战报的固化配装不是数组")
+            digest = battle_equipment_sha256(equipment)
+            if digest != str(row["equipment_sha256"]):
+                raise UserDataError("导入战报的固化配装摘要不匹配")
+            row["equipment"] = equipment
+            result[int(row["character_id"])] = row
+        return result
+
+    def battle_report_equipment_editable(self, battle_record_id: int) -> bool:
+        return self.load_battle_report_import_origin(battle_record_id) is None
+
+    def battle_report_counterfactual_editable(self, battle_record_id: int) -> bool:
+        record_id = _integer(battle_record_id, "battle_record_id", minimum=1)
+        row = self._one(
+            """
+            SELECT contract_version, capture_state
+            FROM battle_axis_capture WHERE battle_record_id = ?
+            """,
+            (record_id,),
+        )
+        return bool(
+            row is not None
+            and str(row.get("capture_state") or "") == "finalized"
+            and int(row.get("contract_version") or 0) >= 4
+        )
+
     def repair_battle_build_edit_shape_profiles(
         self,
         shape_fields_by_character: Mapping[int, Mapping[str, Any]],
@@ -149,6 +205,41 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
             raise UserDataValidationError("战报角色修改副本不能为空")
         if len({row["character_id"] for row in normalized}) != len(normalized):
             raise UserDataValidationError("战报角色修改副本包含重复角色")
+        connection = self._db()
+        import_origin = connection.execute(
+            "SELECT 1 FROM battle_report_import_origin WHERE battle_record_id = ?",
+            (record_id,),
+        ).fetchone()
+        if import_origin is not None:
+            lock_rows = connection.execute(
+                """
+                SELECT character_id, equipment_sha256
+                FROM battle_character_import_equipment_lock
+                WHERE battle_record_id = ?
+                """,
+                (record_id,),
+            ).fetchall()
+            locks = {
+                int(row["character_id"]): str(row["equipment_sha256"])
+                for row in lock_rows
+            }
+            if {int(row["character_id"]) for row in normalized} != set(locks):
+                raise UserDataValidationError("导入战报缺少完整的逐角色配装锁")
+            for row in normalized:
+                if "equipment_override" not in row:
+                    continue
+                if battle_equipment_sha256(row["equipment_override"]) != locks[
+                    int(row["character_id"])
+                ]:
+                    raise UserDataValidationError("导入战报的空幕/驱动不可修改")
+                for key in (
+                    "equipment_override",
+                    "equipment_context_key",
+                    "equipment_context_title",
+                    "equipment_source_kind",
+                ):
+                    row.pop(key, None)
+
         equipment_owners: dict[tuple[int, int], int] = {}
         for row in normalized:
             for item in row.get("equipment_override") or ():
@@ -156,7 +247,6 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
                 previous = equipment_owners.setdefault(uid, int(row["character_id"]))
                 if previous != int(row["character_id"]):
                     raise UserDataValidationError("战报配装副本包含跨角色重复装备 UID")
-        connection = self._db()
         try:
             original_rows = connection.execute(
                 """

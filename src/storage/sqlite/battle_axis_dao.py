@@ -238,9 +238,9 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 damage_attribute, follow_up_labels_json, raw_hit_json,
                 target_context_json, follow_up_damage_name,
                 follow_up_damage_component, follow_up_attack_type,
-                follow_up_damage_attribute
+                follow_up_damage_attribute, max_hp_reduction
             ) VALUES (
-                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
             )
             """,
             (
@@ -296,6 +296,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 _optional_text(hit.get("follow_up_damage_component")),
                 _optional_text(hit.get("follow_up_attack_type")),
                 _optional_text(hit.get("follow_up_damage_attribute")),
+                hit.get("max_hp_reduction"),
             ),
         )
         return max(0, int(cursor.rowcount))
@@ -698,6 +699,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     "character",
                     "fork",
                     "likeability",
+                    "world_bonus",
                     "equipment",
                     "resolved",
                 }:
@@ -781,20 +783,3 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     _json_object(value, "time_stop_interval"),
                 ),
             )
-
-    def discard_battle_axis_capture(self, capture_operation_id: str) -> bool:
-        operation_id = _required_text(capture_operation_id, "capture_operation_id")
-        connection = self._db()
-        try:
-            cursor = connection.execute(
-                """
-                DELETE FROM battle_axis_capture
-                WHERE capture_operation_id = ? AND capture_state = 'capturing'
-                """,
-                (operation_id,),
-            )
-            connection.commit()
-            return bool(cursor.rowcount)
-        except sqlite3.Error as error:
-            connection.rollback()
-            raise UserDataError("无法清理未完成的战斗逐击记录") from error

@@ -141,10 +141,17 @@ class BattleAnalysisLogMixin:
             replay_tooltip = "当前逐击尚无公式重放结果。"
             if replay is not None:
                 if replay.selected_damage is not None:
-                    error = replay.selected_error_percent or 0.0
-                    replay_text = (
-                        f"{_number(replay.selected_damage)} / {error:.2f}%"
+                    signed_error = replay.signed_error_percent
+                    if signed_error is None and replay.observed_damage > 0:
+                        signed_error = (
+                            (replay.selected_damage - replay.observed_damage)
+                            / replay.observed_damage
+                            * 100.0
+                        )
+                    error_text = (
+                        "—" if signed_error is None else f"{signed_error:+.2f}%"
                     )
+                    replay_text = f"{_number(replay.selected_damage)} / {error_text}"
                 crit_text = (
                     f"{crit_labels[replay.critical_state]} · {replay.confidence}"
                 )

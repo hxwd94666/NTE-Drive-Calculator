@@ -137,7 +137,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(1, len(result.inferred_actions))
         self.assertEqual("battle-action-window-v10", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
-        self.assertEqual("battle-counterfactual-v13", result.formula_model_version)
+        self.assertEqual("battle-counterfactual-v15", result.formula_model_version)
 
     def test_follow_up_uses_its_own_formal_timestamp(self) -> None:
         evidence = _evidence()

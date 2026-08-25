@@ -41,6 +41,7 @@ from src.features.battle_report.analysis_timeline_detail_mixin import (
 from src.features.battle_report.composition_view import (
     BattleDamageCompositionPanel,
 )
+from src.features.battle_report.inferred_fact_view import BattleInferredFactLabel
 from src.features.battle_report.build_snapshot_control import (
     BattleBuildSnapshotControl,
 )
@@ -50,6 +51,12 @@ from src.features.battle_report.role_contribution_view import (
 )
 from src.features.battle_report.timeline_view import (
     BattleUnifiedTimelineWidget,
+)
+from src.features.battle_report.timeline_layout import (
+    format_analysis_evidence,
+    format_damage as _number,
+    format_time as _time,
+    format_time_stop_evidence,
 )
 from src.features.battle_report.target_vital_view import BattleTargetVitalPanel
 from src.services.battle_timeline_time_service import (
@@ -66,17 +73,6 @@ from src.services.skill_name_rendering_service import (
 )
 from src.ui.dashboard_widgets import metric_card
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
-
-
-def _number(value: float) -> str:
-    return f"{value:,.0f}"
-
-
-def _time(value_us: int) -> str:
-    seconds = max(0, value_us) / 1_000_000.0
-    minutes = int(seconds // 60)
-    return f"{minutes:02d}:{seconds - minutes * 60:06.3f}"
-
 
 class BattleLongAnalysisView(
     BattleAnalysisCompositionMixin,
@@ -107,6 +103,7 @@ class BattleLongAnalysisView(
         self._time_mode: BattleTimelineTimeMode = ELAPSED_TIME_MODE
         self._detail_scope = "current"
         self._composition_grouping = "coarse"
+        self._topple_detail_requested_analysis: BattleAnalysisSnapshot | None = None
         self._log_page = 0
         self._log_page_size = 200
         self._build()
@@ -287,7 +284,7 @@ class BattleLongAnalysisView(
         composition_controls.addStretch()
         self.composition_topple_button = QPushButton("计算精准倾陷归属")
         self.composition_topple_button.clicked.connect(
-            lambda: self._request_detailed_analysis("composition")
+            self._request_topple_attribution
         )
         self.composition_topple_button.hide()
         composition_controls.addWidget(self.composition_topple_button)
@@ -314,6 +311,8 @@ class BattleLongAnalysisView(
             audit_row.addWidget(button)
         audit_row.addStretch()
         audit_layout.addLayout(audit_row)
+        self.inferred_fact_label = BattleInferredFactLabel()
+        audit_layout.addWidget(self.inferred_fact_label)
         root.addWidget(audit_card)
 
         self.buff_dialog, buff_layout = self._audit_dialog("Buff 审计")
@@ -369,7 +368,7 @@ class BattleLongAnalysisView(
             lambda: self._open_lightweight_audit("skills")
         )
         self.audit_buttons["hits"].clicked.connect(
-            lambda: self._open_lightweight_audit("hits")
+            lambda: self._request_detailed_analysis("hit")
         )
         self.audit_buttons["targets"].clicked.connect(
             lambda: self._open_lightweight_audit("targets")
@@ -391,6 +390,7 @@ class BattleLongAnalysisView(
     def clear(self, message: str = "当前记录只有聚合摘要，暂无正式逐击轴。") -> None:
         self._analysis = None
         self._current_composition = None
+        self._topple_detail_requested_analysis = None
         self._analysis_record_id = None
         self._selected_character_id = None
         self.capability_label.setText(message)
@@ -403,6 +403,7 @@ class BattleLongAnalysisView(
         self.composition_topple_button.hide()
         self.buff_panel.clear()
         self.target_vital_panel.clear()
+        self.inferred_fact_label.clear_facts()
         self._hide_hit_formula_dialog()
         self._hide_hit_buff_dialog()
         for label in self.metric_labels.values():
@@ -522,6 +523,9 @@ class BattleLongAnalysisView(
         if kind == "buff" and analysis.buff_counterfactual_model_version:
             self.complete_analysis_details(kind, None)
             return
+        if kind == "hit" and analysis.hit_replays:
+            self.complete_analysis_details(kind, None)
+            return
         self.details_requested.emit(kind, None)
 
     def complete_analysis_details(self, kind: str, payload: object) -> None:
@@ -531,16 +535,17 @@ class BattleLongAnalysisView(
         if kind == "buff":
             self.buff_panel.render(analysis)
             self.buff_dialog.open()
-        elif kind == "hit" and payload is not None:
-            self._render_timeline_selection_detail(payload)
+        elif kind == "hit":
+            if payload is None:
+                self._render_log()
+                self.log_dialog.open()
+            else:
+                self._render_timeline_selection_detail(payload)
 
     def _open_lightweight_audit(self, kind: str) -> None:
         if kind == "skills":
             self._render_skills()
             self.skills_dialog.open()
-        elif kind == "hits":
-            self._render_log()
-            self.log_dialog.open()
         elif kind == "targets":
             self._render_targets()
             self.target_dialog.open()
@@ -623,7 +628,6 @@ class BattleLongAnalysisView(
             projected_time=self._display_time_us,
         )
 
-
     def _time_mode_changed(self, _index: int = -1) -> None:
         value = self.time_mode_combo.currentData()
         self._time_mode = (
@@ -668,10 +672,7 @@ class BattleLongAnalysisView(
         start_display = self._display_time_us(analysis.range_start_us)
         end_display = self._display_time_us(analysis.range_end_us)
         mode_name = "扣除时停" if self._time_mode == ACTIVE_TIME_MODE else "包含时停"
-        capability_name = {
-            "hit_axis": "正式逐击证据",
-            "summary_only": "聚合摘要",
-        }.get(analysis.capability_level, analysis.capability_level)
+        capability_name = format_analysis_evidence(analysis)
         hit_replays = getattr(analysis, "hit_replays", ())
         selected_hits, selected_actions, selected_inputs = (
             self._selected_axis_evidence()
@@ -682,7 +683,7 @@ class BattleLongAnalysisView(
             for row in hit_replays
         )
         self.capability_label.setText(
-            f"{capability_name} · {'完整轴' if analysis.axis_complete else '不完整轴'} · "
+            f"{capability_name} · "
             f"{mode_name} {_time(start_display)}—{_time(end_display)} · "
             f"伤害模型 {analysis.formula_model_version} · "
             f"输入投影 {len(selected_inputs)} 块 / "
@@ -694,6 +695,9 @@ class BattleLongAnalysisView(
             f"{getattr(analysis, 'target_vital_model_version', '未生成生命轴')} · "
             f"{getattr(analysis, 'buff_inference_version', '') or 'Buff 按需加载'} · "
             f"{getattr(analysis, 'buff_attribute_projection_version', '') or 'Buff 投影按需加载'}"
+        )
+        self.inferred_fact_label.render_facts(
+            tuple(getattr(analysis, "inferred_character_facts", ()))
         )
         action_event_ids = {
             event_id
@@ -717,7 +721,8 @@ class BattleLongAnalysisView(
         )
         zoom_percent = round(float(self.zoom_combo.currentData() or 1.0) * 100)
         self.action_summary_label.setText(
-            f"{mode_name} · 缩放 {zoom_percent}% · 当前时段推算输入 "
+            f"{mode_name} · {format_time_stop_evidence(analysis)} · "
+            f"缩放 {zoom_percent}% · 当前时段推算输入 "
             f"{len(selected_inputs):,} 块 / 动作 "
             f"{len(selected_actions):,} 段 · 引用出伤事件 "
             f"{len(action_event_ids):,}/{len(outgoing):,}（{event_coverage:.1f}%） · "

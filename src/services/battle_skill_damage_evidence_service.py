@@ -15,7 +15,6 @@ from src.services.damage_calculation_service import (
     skill_tier_for_effective_level,
 )
 from src.services.battle_dot_stack_state_service import (
-    load_official_dot_stack_rules,
     reconstruct_dot_stack_states,
 )
 from src.services.battle_character_passive_service import (
@@ -184,7 +183,6 @@ class BattleSkillDamageEvidenceService:
         dot_states = reconstruct_dot_stack_states(
             analysis,
             build,
-            rules=load_official_dot_stack_rules(static_dao),
         )
         co_timed_damage_ids = _co_timed_damage_ids(analysis)
         cache: dict[str, dict[str, Any] | None] = {}
@@ -194,7 +192,12 @@ class BattleSkillDamageEvidenceService:
             inferred_basis = ""
             if not damage_id and hit.event_id in co_timed_damage_ids:
                 damage_id, inferred_basis = co_timed_damage_ids[hit.event_id]
-            character = builds.get(hit.character_id or -1)
+            source_character_id = (
+                1036
+                if damage_id.casefold() == "buff_reaction_5_new_1036"
+                else hit.character_id
+            )
+            character = builds.get(source_character_id or -1)
             if not damage_id or character is None:
                 continue
             if damage_id not in cache:
@@ -263,6 +266,8 @@ class BattleSkillDamageEvidenceService:
                 basis += f"；{inferred_basis}：{damage_id}"
             if level_owner_basis:
                 basis += f"；{level_owner_basis}"
+            if damage_id.casefold() == "buff_reaction_5_new_1036":
+                basis += "；残虹专属浊燃统一使用残虹在触发时点的公式输入"
             character_level = int(character.get("character_level") or 80)
             reaction_level_multiplier, reaction_basis = _reaction_level_multiplier(
                 static_dao,
@@ -302,6 +307,7 @@ class BattleSkillDamageEvidenceService:
                 multiplier_coefficient=coefficient,
                 effective_skill_level=effective_level,
                 evidence_basis=basis,
+                source_character_id=source_character_id,
                 formula_kind=(
                     "reaction" if reaction_level_multiplier is not None else "skill"
                 ),
@@ -320,6 +326,14 @@ class BattleSkillDamageEvidenceService:
                 ),
                 state_confidence=(
                     dot_states[hit.event_id].confidence
+                    if hit.event_id in dot_states else ""
+                ),
+                dot_final_multiplier=float(
+                    dot_states[hit.event_id].dot_final_multiplier
+                    if hit.event_id in dot_states else 1.0
+                ),
+                dot_final_multiplier_basis=(
+                    dot_states[hit.event_id].dot_final_multiplier_basis
                     if hit.event_id in dot_states else ""
                 ),
                 critical_policy=critical_policy,

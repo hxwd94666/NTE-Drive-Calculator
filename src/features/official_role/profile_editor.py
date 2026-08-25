@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from .role_calculation import (
@@ -32,6 +34,9 @@ class OfficialRoleProfileEditor(QWidget):
         *,
         include_analysis: bool = False,
         include_equipment: bool | None = None,
+        allow_equipment_replacement: bool = False,
+        show_equipment_context_selector: bool = True,
+        equipment_replacement_handler: Callable[[dict, str], bool] | None = None,
         scoring_engine=None,
         shape_areas: dict[str, int] | None = None,
     ) -> None:
@@ -77,7 +82,9 @@ class OfficialRoleProfileEditor(QWidget):
                     self,
                     detail,
                     self._editor,
-                    allow_replacement=False,
+                    allow_replacement=allow_equipment_replacement,
+                    show_context_selector=show_equipment_context_selector,
+                    replacement_handler=equipment_replacement_handler,
                 )
             )
         if self._include_analysis:

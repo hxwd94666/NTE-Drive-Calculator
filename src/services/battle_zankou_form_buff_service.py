@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.domain.battle_report import (
+    BattleAnalysisHit,
     BattleBuffModifierEvidence,
     BattleInferredAction,
     BattleInferredBuffInterval,
@@ -19,7 +20,7 @@ from src.services.battle_timeline_time_service import (
 )
 
 
-ZANKOU_FORM_BUFF_MODEL_VERSION = "battle-zankou-form-buff-v1"
+ZANKOU_FORM_BUFF_MODEL_VERSION = "battle-zankou-form-buff-v2"
 
 _ZANKOU_CHARACTER_ID = 1036
 _CURVE_TABLE = "/Game/DataTable/Skill/GlobalCharacterData/DT_ZankouEffectFigure"
@@ -142,6 +143,7 @@ class BattleZankouFormBuffService:
         *,
         build: Mapping[str, Any] | None,
         actions: Sequence[BattleInferredAction],
+        hits: Sequence[BattleAnalysisHit] = (),
         battle_end_us: int,
         config: BattleZankouFormConfig | None,
         time_stop_intervals: Sequence[tuple[int | None, int | None]] = (),
@@ -161,6 +163,19 @@ class BattleZankouFormBuffService:
             )
 
         active_end = active_time(battle_end_us)
+        hit_times = {hit.event_id: hit.relative_time_us for hit in hits}
+
+        def transition_time(
+            action: BattleInferredAction,
+            fallback_wall_us: int,
+        ) -> int:
+            evidence_times = tuple(
+                hit_times[event_id]
+                for event_id in action.evidence_event_ids
+                if event_id in hit_times
+            )
+            return active_time(max(evidence_times, default=fallback_wall_us))
+
         fantasy_duration = round(config.fantasy_duration_seconds * 1_000_000)
         r_to_m_retention = round(
             config.reality_to_fantasy_retention_seconds * 1_000_000
@@ -211,11 +226,11 @@ class BattleZankouFormBuffService:
                 end_fantasy(start)
 
             if _has_marker(action, _REALITY_TO_FANTASY_EFFECTS):
-                begin_fantasy(end)
+                begin_fantasy(transition_time(action, action.end_us))
             elif _has_marker(action, _FANTASY_TO_REALITY_EFFECTS):
-                end_fantasy(end)
+                end_fantasy(transition_time(action, action.end_us))
             elif action.input_kind == "Q" and fantasy_start is not None:
-                end_fantasy(end)
+                end_fantasy(transition_time(action, action.end_us))
 
         if fantasy_start is not None:
             end_fantasy(min(active_end, fantasy_expiry or active_end))
@@ -295,7 +310,8 @@ class BattleZankouFormBuffService:
                     value_confidence="高",
                     inference_basis=(
                         "冻结配置确认残虹为零觉；形态由绯影闪、离魂错、Q、"
-                        "角色切换与现实/幻境伤害项推算，持续时间按静态曲线并扣除时停。"
+                        "角色切换与现实/幻境伤害项推算；技能切形态优先采用动作证据"
+                        "中的最后一击时点，持续时间按静态曲线并扣除时停。"
                     ),
                     trigger_event_type="INFERRED_ZANKOU_FORM_STATE",
                     evidence_action_ids=evidence_ids,

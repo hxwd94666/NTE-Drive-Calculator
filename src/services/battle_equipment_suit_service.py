@@ -10,7 +10,7 @@ from typing import Any
 from src.domain.battle_report import BattleBuffModifierEvidence
 
 
-EQUIPMENT_SUIT_MODEL_VERSION = "battle-equipment-suit-v1"
+EQUIPMENT_SUIT_MODEL_VERSION = "battle-equipment-suit-v2"
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,6 +15,7 @@ from src.domain.battle_report import (
 )
 from src.services.battle_hit_replay_explanation_service import (
     BattleHitReplayExplanationService,
+    _factor_lines,
 )
 
 
@@ -135,6 +136,7 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
         text = BattleHitReplayExplanationService.build(hit, replay)
 
         self.assertIn("实际伤害：36.00", text)
+        self.assertIn("逐击 ID：1:primary", text)
         self.assertIn("预计误差：+0.00%", text)
         self.assertIn("预计伤害期望：30.00", text)
         self.assertIn("伤害（未暴击） = 倍率区 × Atk 乘区 × 增伤区", text)
@@ -143,6 +145,103 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
         self.assertIn("防御区 = 结构化计算值", text)
         self.assertIn("= 0.500000", text)
         self.assertIn("推断暴击：是（置信度高）", text)
+
+    def test_resistance_formula_shows_subtraction_and_negative_branch(self) -> None:
+        factor = BattleHitReplayFactor(
+            "resistance",
+            "抗性区",
+            1.036363636,
+            "用户确认的目标属性包",
+            "抗性分段函数(目标抗性 - 属性穿透)",
+            (
+                BattleHitReplayTerm(
+                    "target:resistance", "Resistance:chaos", "属性抗性",
+                    0.20, "target", "敌方", True, "用户确认",
+                ),
+                BattleHitReplayTerm(
+                    "buff:diabolos", "DamagePenetrateChaos", "暗属性穿透",
+                    0.24, "buff", "迪亚波罗斯", True, "命中时 Buff",
+                ),
+            ),
+        )
+
+        text = "\n".join(_factor_lines(factor))
+
+        self.assertIn("属性穿透合计 = 24%", text)
+        self.assertIn("有效抗性 = 目标抗性 - 属性穿透", text)
+        self.assertIn("= 20% - 24% = -4%", text)
+        self.assertIn("采用：1 - 有效抗性 / 1.10", text)
+        self.assertIn("抗性区 = 1 - (-4% / 1.10) = 1.036364", text)
+        self.assertNotIn("20% + 24%", text)
+
+    def test_dot_formula_displays_dot_only_final_multiplier(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="nightmare:dot",
+            sequence=1,
+            relative_time_us=1_448_745,
+            character_id=1004,
+            character_name="安魂曲",
+            skill_name="安魂曲",
+            damage_name="噩梦",
+            damage_component="dot",
+            attack_type="Special Damage",
+            damage_attribute="CHAOS",
+            target_id="boss",
+            target_name="争锋目标",
+            damage=1_630.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="dot",
+            gameplay_effect_id="GE_Player_Lacrimosa_Blood_Damage_LV6",
+        )
+        factors = (
+            BattleHitReplayFactor("skill", "倍率区", 0.173, "噩梦等级倍率"),
+            BattleHitReplayFactor(
+                "state_coefficient",
+                "噩梦当前层数",
+                3.0,
+                "命中前逐层重放",
+            ),
+            BattleHitReplayFactor("scaling", "Atk 乘区", 1_934.215, "冻结面板"),
+            BattleHitReplayFactor("damage_up", "增伤区", 2.125, "本击增伤"),
+            BattleHitReplayFactor("defense", "防御区", 0.553846, "目标防御"),
+            BattleHitReplayFactor("resistance", "抗性区", 0.92, "目标抗性"),
+            BattleHitReplayFactor("vulnerability", "易伤区", 1.0, "无易伤"),
+            BattleHitReplayFactor("independent", "独立最终乘区", 1.0, "无公共最终增伤"),
+            BattleHitReplayFactor(
+                "dot_final",
+                "DOT 专属最终乘区",
+                1.5,
+                "早雾：浊燃、噩梦两种 DOT",
+            ),
+        )
+        replay = BattleHitReplayResult(
+            event_id=hit.event_id,
+            observed_damage=1_630.0,
+            non_critical_damage=1_631.0,
+            critical_damage=None,
+            selected_damage=1_631.0,
+            selected_error_percent=0.0257,
+            critical_state="non_critical",
+            confidence="中",
+            factors=factors,
+            formula_type="DOT",
+        )
+
+        text = BattleHitReplayExplanationService.build(hit, replay)
+
+        self.assertIn(
+            "伤害（未暴击） = 倍率区 × 噩梦当前层数 × Atk 乘区 × "
+            "增伤区 × 防御区 × 抗性区 × 易伤区 × 独立最终乘区 × "
+            "DOT 专属最终乘区",
+            text,
+        )
+        self.assertIn(
+            "17.300% × 3.000000 × 1,934.215 × 2.125000 × 0.553846 × "
+            "0.920000 × 1.000000 × 1.000000 × 1.500000",
+            text,
+        )
+        self.assertIn("ceil(1,630.418705) = 1,631.00", text)
 
     def test_unreplayable_hit_explains_missing_adapter(self) -> None:
         hit = BattleAnalysisHit(

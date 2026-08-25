@@ -10,6 +10,7 @@ from src.services.battle_build_counterfactual_service import (
     BattleBuildCounterfactualService,
 )
 from src.services.battle_report_history_service import BattleReportHistoryService
+from src.services.battle_marginal_candidate_service import BattleMarginalCandidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +20,7 @@ class BattleReportAnalysisLoadRequest:
     end_us: int | None = None
     detail_scope: str | None = None
     detail_level: str = "overview"
+    marginal_candidate: BattleMarginalCandidate | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,8 +41,21 @@ class BattleReportAnalysisLoadService:
         detail_level = request.detail_level
         if detail_level not in {"overview", "hit", "buff", "marginal"}:
             raise ValueError(f"unsupported battle analysis detail: {detail_level}")
+        candidate = request.marginal_candidate
+        if candidate is not None and detail_level != "marginal":
+            raise ValueError("marginal candidate requires marginal detail level")
+        if (
+            candidate is not None
+            and candidate.battle_record_id != request.battle_record_id
+        ):
+            raise ValueError("marginal candidate belongs to another battle report")
         include_hit_replays = detail_level != "overview"
         include_buff_counterfactuals = detail_level == "buff"
+        candidate_options = (
+            {}
+            if candidate is None
+            else {"use_build_edit": False, "marginal_candidate": candidate}
+        )
         analysis = history.load_analysis(
             request.battle_record_id,
             start_us=request.start_us,
@@ -49,12 +64,12 @@ class BattleReportAnalysisLoadService:
             include_buff_inference=include_hit_replays,
             include_hit_replays=include_hit_replays,
             include_buff_counterfactuals=include_buff_counterfactuals,
+            **candidate_options,
         )
-        edit_state = history.load_build_edit_state(request.battle_record_id)
         if (
             detail_level == "marginal"
             and analysis is not None
-            and edit_state["is_active"]
+            and candidate is not None
         ):
             original = history.load_analysis(
                 request.battle_record_id,

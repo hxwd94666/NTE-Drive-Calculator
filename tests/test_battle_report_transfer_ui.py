@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QCheckBox
 
 from src.domain.battle_report_transfer import BattleReportTransferEntry
 from src.features.battle_report.transfer_dialog import BattleReportTransferDialog
@@ -36,6 +37,15 @@ class BattleReportTransferDialogTests(unittest.TestCase):
             dialog.set_account_name("原昵称")
             dialog.set_entries(entries)
             self.assertEqual((), dialog.selected_report_ids())
+            selector_cell = dialog.table.cellWidget(0, 0)
+            self.assertIsNotNone(selector_cell)
+            assert selector_cell is not None
+            selector = selector_cell.findChild(QCheckBox)
+            self.assertIsNotNone(selector)
+            self.assertEqual(
+                Qt.AlignCenter,
+                selector_cell.layout().itemAt(0).alignment(),
+            )
 
             dialog.select_all_button.click()
             self.assertEqual((11, 12), dialog.selected_report_ids())

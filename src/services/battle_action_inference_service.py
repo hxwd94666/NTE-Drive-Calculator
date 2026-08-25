@@ -14,7 +14,7 @@ from typing import Literal
 from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
 
 
-ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v10"
+ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v11"
 
 _Q_TIME_STOP_FOLLOW_TOLERANCE_US = 350_000
 

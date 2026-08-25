@@ -55,6 +55,44 @@ class BattleBuildEditorActionTests(unittest.TestCase):
 
         self.assertEqual(current_label_index - 1, edit_index)
 
+    def test_imported_editor_hides_equipment_sync_and_submits_only_cultivation(self) -> None:
+        created_options = []
+
+        class FakeRoleEditor(QWidget):
+            def __init__(self, _detail, parent=None, **kwargs) -> None:
+                super().__init__(parent)
+                created_options.append(kwargs)
+
+            def profile(self):
+                return {
+                    "character_id": 1004,
+                    "character_level": 80,
+                    "skill_levels": {"melee": 10},
+                }
+
+            def selected_equipment_context(self):
+                raise AssertionError("导入战报保存不应读取装备上下文")
+
+        with patch(
+            "src.features.battle_report.build_snapshot_editor."
+            "OfficialRoleProfileEditor",
+            FakeRoleEditor,
+        ):
+            dialog = BattleBuildSnapshotEditorDialog(
+                {
+                    "has_edit": True,
+                    "equipment_editable": False,
+                    "details": [
+                        {"character": {"character_id": 1004, "name_zh": "安魂曲"}}
+                    ],
+                }
+            )
+
+        self.assertTrue(dialog.import_all_button.isHidden())
+        self.assertFalse(created_options[0]["allow_equipment_replacement"])
+        self.assertFalse(created_options[0]["show_equipment_context_selector"])
+        self.assertNotIn("equipment_override", dialog.profiles()[0])
+
 
 if __name__ == "__main__":
     unittest.main()

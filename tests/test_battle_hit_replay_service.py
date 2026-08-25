@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from math import ceil
 from types import SimpleNamespace
 
 from src.domain.battle_report import (
@@ -11,6 +12,8 @@ from src.domain.battle_report import (
     BattleCharacterSourceStat,
     BattleCharacterStat,
     BattleHitBuffProjection,
+    BattleHitReplayFactor,
+    BattleHitReplayResult,
     BattleProjectedBuffModifier,
     BattleSkillDamageEvidence,
     BattleTargetCondition,
@@ -29,6 +32,50 @@ from src.services.damage_calculation_service import calculate_resistance_multipl
 
 
 class BattleHitReplayServiceTests(unittest.TestCase):
+    def test_layered_damage_is_not_used_for_local_crit_pairing(self) -> None:
+        baseline = BattleCharacterBaseline(
+            character_id=1004,
+            character_name="安魂曲",
+            source="fixture",
+            stats=(BattleCharacterStat("CritDamageBase", "暴击伤害", 1.14, True),),
+        )
+        hits = tuple(
+            SimpleNamespace(
+                event_id=f"nightmare:{index}",
+                character_id=1004,
+                gameplay_effect_id="GE_Player_Lacrimosa_Blood_Damage_LV6",
+            )
+            for index in range(4)
+        )
+        stack_factor = BattleHitReplayFactor(
+            factor_id="state_coefficient",
+            label="噩梦当前层数",
+            value=1.0,
+            evidence_basis="fixture",
+        )
+        results = tuple(
+            BattleHitReplayResult(
+                event_id=hit.event_id,
+                observed_damage=damage,
+                non_critical_damage=565.0,
+                critical_damage=1209.1,
+                selected_damage=565.0,
+                selected_error_percent=0.0,
+                critical_state="ambiguous",
+                confidence="低",
+                factors=(stack_factor,),
+            )
+            for hit, damage in zip(hits, (565.0, 565.0, 1130.0, 1130.0))
+        )
+        analysis = SimpleNamespace(hits=hits, baselines=(baseline,))
+
+        projected = BattleHitReplayService._apply_local_crit_evidence(
+            analysis,
+            results,
+        )
+
+        self.assertEqual(results, projected)
+
     def test_daffodill_extra_topple_uses_her_defense_and_resistance(self) -> None:
         hit = BattleAnalysisHit(
             event_id="true:1",
@@ -105,7 +152,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             for factor in result.factors
             if factor.factor_id == "topple_character:1054"
         )
-        self.assertAlmostEqual(expected, result.selected_damage)
+        self.assertEqual(float(ceil(expected)), result.selected_damage)
         self.assertAlmostEqual(expected, contribution.value)
         self.assertIn(f"{defense:.6f}", contribution.formula)
         self.assertIn("0.800000", contribution.formula)
@@ -186,8 +233,8 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         )
 
         assert result is not None and result.selected_damage is not None
-        self.assertAlmostEqual(
-            1000.0 * (1.30 * 1.08 - 1.0) * (1.60 / 1.50),
+        self.assertEqual(
+            float(ceil(1000.0 * (1.30 * 1.08 - 1.0) * (1.60 / 1.50))),
             result.selected_damage,
         )
         self.assertEqual("not_applicable", result.critical_state)
@@ -223,6 +270,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             ring_strength: float,
             state_multiplier: float = 1.0,
             state_label: str = "",
+            dot_final_multiplier: float = 1.0,
         ):
             hit = BattleAnalysisHit(
                 event_id=f"{channel_id}:1",
@@ -267,6 +315,11 @@ class BattleHitReplayServiceTests(unittest.TestCase):
                 state_multiplier_label=state_label,
                 state_multiplier_basis="按目标逐击重放",
                 state_confidence="中",
+                dot_final_multiplier=dot_final_multiplier,
+                dot_final_multiplier_basis=(
+                    "早雾「可以吃吗？」：结算前 2 种 DOT"
+                    if dot_final_multiplier != 1.0 else ""
+                ),
             )
             analysis = SimpleNamespace(
                 target_condition=condition,
@@ -315,17 +368,30 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             state_multiplier=3.0,
             state_label="浊燃结算前层数",
         )
+        enhanced_scorch = replay(
+            channel_id="reaction_scorch",
+            character_id=1003,
+            attribute="incantation",
+            observed=3101.0,
+            level_multiplier=2700.0,
+            static_multiplier=1.5,
+            ring_strength=60.0,
+            dot_final_multiplier=1.5,
+        )
 
         assert creation is not None and creation.selected_damage is not None
         assert scorch is not None and scorch.selected_damage is not None
         assert stacked_scorch is not None
         assert stacked_scorch.selected_damage is not None
-        self.assertAlmostEqual(5198.854, creation.selected_damage, places=2)
-        self.assertAlmostEqual(2067.937, scorch.selected_damage, places=2)
-        self.assertAlmostEqual(
-            scorch.selected_damage * 3.0,
-            stacked_scorch.selected_damage,
-            places=6,
+        assert enhanced_scorch is not None
+        assert enhanced_scorch.selected_damage is not None
+        self.assertEqual(5199.0, creation.selected_damage)
+        self.assertEqual(1379.0, scorch.selected_damage)
+        self.assertEqual(4136.0, stacked_scorch.selected_damage)
+        self.assertEqual(2068.0, enhanced_scorch.selected_damage)
+        self.assertNotIn(
+            "reaction_multiplier",
+            {factor.factor_id for factor in scorch.factors},
         )
         self.assertEqual(
             3.0,
@@ -338,6 +404,105 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         self.assertEqual("not_applicable", creation.critical_state)
         self.assertEqual("non_critical", scorch.critical_state)
         self.assertEqual(0.50, scorch.critical_rate)
+        self.assertEqual(
+            1.5,
+            next(
+                factor.value
+                for factor in enhanced_scorch.factors
+                if factor.factor_id == "dot_final"
+            ),
+        )
+        defense = next(
+            row for row in scorch.factors if row.factor_id == "defense"
+        )
+        defense_values = {
+            row.property_id: row.value for row in defense.terms
+        }
+        self.assertEqual(80.0, defense_values["CharacterLevel"])
+        self.assertEqual(1014.0, defense_values["DefBase"])
+
+    def test_zankou_scorch_replay_uses_zankou_baseline_after_source_replacement(
+        self,
+    ) -> None:
+        hit = BattleAnalysisHit(
+            event_id="scorch:1",
+            sequence=1,
+            relative_time_us=1_000_000,
+            character_id=1003,
+            character_name="早雾",
+            skill_name="浊燃",
+            damage_name="浊燃",
+            damage_component="浊燃",
+            attack_type="浊燃",
+            damage_attribute="incantation",
+            target_id="target",
+            target_name="目标",
+            damage=300.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="reaction",
+            gameplay_effect_id="Buff_Reaction_5_new_1036",
+        )
+        baselines = (
+            BattleCharacterBaseline(
+                character_id=1003,
+                character_name="早雾",
+                source="fixture",
+                stats=(BattleCharacterStat("MagBase", "环合强度", 0.0, False),),
+            ),
+            BattleCharacterBaseline(
+                character_id=1036,
+                character_name="残虹",
+                source="fixture",
+                stats=(
+                    BattleCharacterStat("MagBase", "环合强度", 600.0, False),
+                    BattleCharacterStat("CritDamageBase", "暴击伤害", 1.0, True),
+                ),
+            ),
+        )
+        evidence = BattleSkillDamageEvidence(
+            event_id=hit.event_id,
+            damage_id=hit.gameplay_effect_id,
+            ability_id="",
+            damage_attribute="incantation",
+            damage_source_category="R",
+            fixed_crit_rate=0.5,
+            scaling_property_id="Atk",
+            scaling_multiplier=1.5,
+            multiplier_coefficient=1.0,
+            effective_skill_level=80,
+            evidence_basis="残虹专属浊燃",
+            source_character_id=1036,
+            formula_kind="reaction",
+            level_multiplier=100.0,
+            state_multiplier=1.0,
+            critical_policy="fixed",
+        )
+        analysis = SimpleNamespace(
+            hits=(hit,),
+            baselines=baselines,
+            buff_intervals=(),
+            target_condition=BattleTargetCondition(
+                target_name="目标",
+                enemy_level=80.0,
+                scene="open_world",
+                defense_reduction=0.0,
+                vulnerability=0.0,
+                resistances=(("incantation", 0.0),),
+                enemy_defense_base=0.0,
+            ),
+        )
+
+        result = BattleHitReplayService.replay(analysis, (evidence,))[0]
+
+        self.assertEqual(
+            2.0,
+            next(
+                factor.value
+                for factor in result.factors
+                if factor.factor_id == "scaling"
+            ),
+        )
 
     def test_fadia_shared_damage_has_a_specific_unreplayable_boundary(self) -> None:
         hit = BattleAnalysisHit(
@@ -415,6 +580,8 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             state_multiplier_label="噩梦当前层数",
             state_multiplier_basis="fixture stack",
             state_confidence="高",
+            dot_final_multiplier=1.5,
+            dot_final_multiplier_basis="早雾「可以吃吗？」：结算前 2 种 DOT",
         )
         analysis = BattleAnalysisSnapshot(
             battle_record_id=1,
@@ -464,6 +631,10 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             row for row in result.factors if row.factor_id == "state_coefficient"
         )
         self.assertEqual(4.0, stack.value)
+        dot_final = next(
+            row for row in result.factors if row.factor_id == "dot_final"
+        )
+        self.assertEqual(1.5, dot_final.value)
 
     def test_direct_replay_preserves_source_terms_expected_value_and_signed_error(self) -> None:
         baseline = BattleCharacterBaseline(
@@ -582,8 +753,11 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             tuple(term.source_name for term in resistance.terms),
         )
         assert result.non_critical_damage is not None
-        self.assertAlmostEqual(
-            result.non_critical_damage * 1.5,
+        assert result.critical_damage is not None
+        self.assertEqual(613.0, result.non_critical_damage)
+        self.assertEqual(1226.0, result.critical_damage)
+        self.assertEqual(
+            (result.non_critical_damage + result.critical_damage) / 2.0,
             result.expected_damage,
         )
         self.assertIsNotNone(result.signed_error_percent)
@@ -593,6 +767,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             result.signed_error_percent,
         )
         self.assertEqual("直伤", result.formula_type)
+        self.assertNotIn("dot_final", {row.factor_id for row in result.factors})
 
 
 if __name__ == "__main__":

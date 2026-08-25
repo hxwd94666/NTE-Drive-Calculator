@@ -13,8 +13,10 @@
 - 解锁：突破 2 阶段。
 - 官方说明：「浊燃」强化：「浊燃」状态下，目标身上每有一种持续伤害状态，受到的持续伤害提升25%，上限提升100%。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_003_Sagiri/PassiveEffect/Buff_Sagiri003_Passive2`。
-- 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 直接属性语义：反应扩展写入 `FinalDamageUp`，SourceTags 与 TargetTags 均要求 `State.Damage.Dot`。
+- 人工审计：已按目标前向结算状态实现 DOT 种类计数，并作为 `dot_final_multiplier` 只由 DOT 公式消费；
+  同类多层只计一种。环合触发只记录待结算反应，不向首个可见浊燃之前的 DOT 倒填浊燃状态；首次浊燃
+  跳伤在本击结算后建立状态，该首跳不消费本被动；后续 DOT 才按结算前状态消费。
 
 ### PASSIVE-1003-GA_Sagiri_Passive_2：鬼把戏
 
@@ -194,7 +196,9 @@
 - 官方说明：「浊燃」强化：「浊燃」效果可叠加，上限3层。全队对「浊燃」状态下的目标施加持续伤害效果时，每施加1层持续伤害效果，就由残虹为其施加1层「浊燃」，已有「浊燃」的伤害、元素类型、持续时间刷新为本次施加的「浊燃」的效果。施加「浊燃」不重复触发此效果。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_036_Zankou/PassiveEffect/Buff_Zankou_Passive1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 人工审计：基础浊燃 `StackLimitCount=1`；残虹专属浊燃 `StackLimitCount=3`。对已处于浊燃的目标实际
+  施加每层非浊燃 DOT 时，由残虹补 1 层；首次触发后，已有基础层和新增层统一改用残虹本次施加的伤害、
+  元素与持续时间快照，不作为两组浊燃分别结算；浊燃自身的施加和周期跳伤均不递归触发。
 
 ### PASSIVE-1036-GA_Zankou_Passive2：殷红幻景
 
