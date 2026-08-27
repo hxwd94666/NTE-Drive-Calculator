@@ -18,10 +18,10 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
+from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
-    BattleBuildHitCounterfactual,
     BattleHitReplayResult,
     BattleInferredBuffInterval,
 )

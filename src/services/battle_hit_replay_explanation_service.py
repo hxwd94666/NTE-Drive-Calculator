@@ -7,9 +7,9 @@ from collections.abc import Sequence
 from functools import reduce
 from operator import mul
 
+from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
 from src.domain.battle_report import (
     BattleAnalysisHit,
-    BattleBuildHitCounterfactual,
     BattleHitReplayFactor,
     BattleHitReplayResult,
     BattleHitReplayTerm,

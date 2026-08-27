@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from src.domain.battle_counterfactual import BattleBuildCounterfactual
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
-    BattleBuildCounterfactual,
     BattleRangeRoleSummary,
     BattleTimelineDamageGroup,
 )

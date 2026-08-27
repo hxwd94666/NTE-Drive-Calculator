@@ -10,10 +10,8 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QWidget
 
 from src.app.theme import theme_color
-from src.domain.battle_report import (
-    BattleBuildRoleCounterfactual,
-    BattleRangeRoleSummary,
-)
+from src.domain.battle_counterfactual import BattleBuildRoleCounterfactual
+from src.domain.battle_report import BattleRangeRoleSummary
 
 
 _ROLE_COLOR_VALUES = (

@@ -4,10 +4,10 @@ from __future__ import annotations
 from dataclasses import replace
 import unittest
 
+from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleBuffModifierEvidence,
-    BattleBuildHitCounterfactual,
     BattleHitReplayFactor,
     BattleHitReplayResult,
     BattleHitReplayTerm,

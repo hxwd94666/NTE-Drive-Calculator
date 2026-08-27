@@ -7,10 +7,10 @@ from collections.abc import Mapping
 from dataclasses import replace
 from math import ceil
 
+from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
-    BattleBuildHitCounterfactual,
     BattleHitReplayFactor,
     BattleHitReplayResult,
     BattleInferredBuffInterval,

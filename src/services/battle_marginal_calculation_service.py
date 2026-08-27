@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from src.domain.battle_counterfactual import BattleMarginalResult
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
     BattleCharacterBaseline,
     BattleHitBuffProjection,
     BattleHitReplayResult,
-    BattleMarginalResult,
     BattleTargetCondition,
 )
 from src.domain.official_role import ROLE_PANEL_MARGINAL_UNITS

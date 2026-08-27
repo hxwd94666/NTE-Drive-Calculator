@@ -8,13 +8,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from statistics import median
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
+from src.domain.battle_counterfactual import (
     BattleBuildCounterfactual,
     BattleBuildHitCounterfactual,
     BattleBuildRoleCounterfactual,
     BattleBuildVitalCounterfactual,
+)
+from src.domain.battle_report import (
+    BattleAnalysisHit,
+    BattleAnalysisSnapshot,
     BattleCharacterBaseline,
     BattleHitReplayResult,
     BattleRangeRoleSummary,
