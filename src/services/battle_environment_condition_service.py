@@ -9,11 +9,55 @@ from src.domain.battle_report import (
     BattleInferredBuffInterval,
     BattleTargetCondition,
 )
+from src.domain.battle_target import BattleSelectedTargetProfile
 
 
 def _text(value: object, fallback: str = "") -> str:
     normalized = str(value or "").strip()
     return normalized or fallback
+
+
+def _selected_target_profiles(value: object) -> tuple[BattleSelectedTargetProfile, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    result = []
+    for row in value:
+        if not isinstance(row, Mapping):
+            continue
+        resistances = row.get("resistances")
+        if not isinstance(resistances, Mapping):
+            resistances = {}
+        static_target_id = _text(row.get("static_target_id"))
+        max_hp = row.get("max_hp")
+        if not static_target_id or not isinstance(max_hp, (int, float)):
+            continue
+        result.append(BattleSelectedTargetProfile(
+            static_target_id=static_target_id,
+            selection_target_id=_text(
+                row.get("selection_target_id"), static_target_id
+            ),
+            target_name=_text(row.get("target_name"), static_target_id),
+            monster_class_path=_text(row.get("monster_class_path")),
+            monster_count=max(1, int(row.get("monster_count") or 1)),
+            max_hp=float(max_hp),
+            monster_level=float(row.get("monster_level") or 1.0),
+            defense_base=(
+                float(row["defense_base"])
+                if isinstance(row.get("defense_base"), (int, float))
+                else None
+            ),
+            defense_up=float(row.get("defense_up") or 0.0),
+            defense_add=float(row.get("defense_add") or 0.0),
+            topple_limit=float(row.get("topple_limit") or 50.0),
+            resistances=tuple(sorted(
+                (str(key), float(number))
+                for key, number in resistances.items()
+                if isinstance(number, (int, float))
+            )),
+            profile_set=_text(row.get("profile_set")),
+            pack_id=_text(row.get("pack_id")),
+        ))
+    return tuple(result)
 
 
 def resolve_battle_target_condition(
@@ -70,6 +114,9 @@ def resolve_battle_target_condition(
             else None
         ),
         witch_buff_is_percent=bool(value.get("witch_buff_is_percent")),
+        selected_target_profiles=_selected_target_profiles(
+            value.get("selected_target_profiles")
+        ),
     )
 
 

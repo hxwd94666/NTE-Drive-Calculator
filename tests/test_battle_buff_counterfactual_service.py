@@ -70,6 +70,7 @@ def _interval(
     *,
     start_us: int = 0,
     end_us: int = 10_000_000,
+    target_scope: str = "self",
     modifiers: tuple[BattleBuffModifierEvidence, ...] = (),
 ) -> BattleInferredBuffInterval:
     return BattleInferredBuffInterval(
@@ -80,7 +81,7 @@ def _interval(
         source_kind="equipment_suit",
         source_character_id=1,
         source_character_name="角色1",
-        target_scope="self",
+        target_scope=target_scope,
         start_us=start_us,
         end_us=end_us,
         stacks=1,
@@ -139,6 +140,42 @@ def _snapshot(
 
 
 class BattleBuffCounterfactualServiceTests(unittest.TestCase):
+    def test_team_buff_breaks_gain_down_by_actual_damage_recipient(self) -> None:
+        hits = (_hit("hit1", 115.0), _hit("hit2", 240.0, character_id=2))
+        analysis = _snapshot(
+            hits=hits,
+            intervals=(
+                _interval(
+                    "buff-1",
+                    target_scope="team",
+                    modifiers=(_modifier(0.15),),
+                ),
+            ),
+            replays=(_replay("hit1", 115.0), _replay("hit2", 120.0)),
+        )
+
+        with patch.object(
+            BattleHitReplayService,
+            "replay",
+            return_value=(_replay("hit1", 100.0), _replay("hit2", 100.0)),
+        ):
+            (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
+
+        self.assertAlmostEqual(55.0, result.damage_gain)
+        self.assertAlmostEqual(
+            result.damage_gain,
+            sum(row.damage_gain for row in result.beneficiaries)
+            + result.unattributed_damage_gain,
+        )
+        self.assertEqual([1, 2], [row.character_id for row in result.beneficiaries])
+        source, teammate = result.beneficiaries
+        self.assertAlmostEqual(15.0, source.damage_gain)
+        self.assertAlmostEqual(15.0, source.recipient_gain_percent)
+        self.assertAlmostEqual(5.0, source.team_contribution_percent)
+        self.assertAlmostEqual(40.0, teammate.damage_gain)
+        self.assertAlmostEqual(20.0, teammate.recipient_gain_percent)
+        self.assertAlmostEqual(40.0 / 300.0 * 100.0, teammate.team_contribution_percent)
+
     def test_removal_rate_uses_full_selected_period_without_buff_as_denominator(
         self,
     ) -> None:
@@ -174,7 +211,7 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
         self.assertAlmostEqual(150.0, result.damage_gain)
         self.assertAlmostEqual(10.0, result.gain_percent)
         self.assertAlmostEqual(1_150.0 / 1_650.0 * 100.0, result.quantified_percent)
-        self.assertEqual([("hit1",)], replayed_event_ids)
+        self.assertEqual([("hit1", "hit2")], replayed_event_ids)
 
     def test_linked_nightmare_max_hp_settlement_follows_removed_buff_ratio(
         self,

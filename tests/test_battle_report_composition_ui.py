@@ -15,7 +15,7 @@ class BattleReportCompositionUiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_selected_range_switches_between_coarse_and_fine_channels(self) -> None:
+    def test_selected_range_hides_empty_unknown_and_unattributed_blocks(self) -> None:
         view = BattleLongAnalysisView()
         role = BattleRangeRoleSummary(
             character_id=1036,
@@ -52,11 +52,12 @@ class BattleReportCompositionUiTests(unittest.TestCase):
 
         view._render_damage_composition()
 
-        self.assertEqual(2, view.damage_composition_panel._grid.count())
+        self.assertEqual(1, view.damage_composition_panel._grid.count())
         labels = self._composition_labels(view)
         self.assertIn("残虹", labels)
         self.assertIn("持续伤害", labels)
-        self.assertIn("未归因", labels)
+        self.assertNotIn("未知角色", labels)
+        self.assertNotIn("未归因", labels)
 
         view.composition_buttons["fine"].click()
 

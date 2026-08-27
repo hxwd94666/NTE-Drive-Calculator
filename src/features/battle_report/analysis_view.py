@@ -30,6 +30,7 @@ from src.features.battle_report.analysis_composition_mixin import (
     BattleAnalysisCompositionMixin,
 )
 from src.features.battle_report.analysis_components import (
+    apply_inferred_scope_warning,
     analysis_section as _section,
     analysis_table as _table,
 )
@@ -462,21 +463,13 @@ class BattleLongAnalysisView(
         )
         if (
             condition is not None
-            and condition.source_kind == "inferred_unique_encounter_hp_multiset"
+            and condition.source_kind == "inferred_encounter_hp_injective_default"
         ):
-            if getattr(analysis, "target_identity_inference_ambiguous", False):
-                self.current_scope_label.setText(
-                    f"{condition.target_name or '推断目标'}（歧义）"
-                )
-                self.current_scope_label.setStyleSheet(
-                    themed_style("color:#f85149;font-weight:700")
-                )
-            else:
-                self.current_scope_label.setText(condition.target_name or "推断目标")
+            self.current_scope_label.setText(condition.target_name or "推断目标")
             self.environment_button.setToolTip(
                 (
                     getattr(analysis, "target_identity_inference_basis", "")
-                    or "环境与目标由完整怪物数量和初始最大生命唯一匹配，仍可打开确认。"
+                    or "环境与目标由完整遭遇的逐目标初始最大生命推断，仍可打开确认。"
                 ) + outer_tip
             )
         elif condition is not None:
@@ -500,6 +493,7 @@ class BattleLongAnalysisView(
         else:
             self.current_scope_label.setText("未知")
             self.environment_button.setToolTip("打开后确认战斗环境和目标。")
+        apply_inferred_scope_warning(self.current_scope_label, analysis, condition)
 
     def set_target_catalog(self, catalog: dict[str, object]) -> None:
         self.target_vital_panel.set_catalog(catalog)

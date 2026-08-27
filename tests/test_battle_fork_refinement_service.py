@@ -286,7 +286,7 @@ class BattleForkRefinementServiceTests(unittest.TestCase):
         ))
         self.assertTrue(all(not row.evidence_action_ids for row in dynamic))
 
-    def test_door_falls_back_to_each_owner_e_or_q_when_treatment_is_missing(self) -> None:
+    def test_door_does_not_guess_treatment_from_owner_actions(self) -> None:
         rules = _rules(
             "upgradestar_pack_fork_Door",
             {
@@ -312,15 +312,7 @@ class BattleForkRefinementServiceTests(unittest.TestCase):
             and row.duration_policy == "HasDuration"
         )
 
-        self.assertEqual(2, len(dynamic))
-        self.assertEqual({(1_000_000, 25_000_000)}, {
-            (row.start_us, row.end_us) for row in dynamic
-        })
-        self.assertTrue(all(row.state_confidence == "低" for row in dynamic))
-        self.assertTrue(all(
-            row.evidence_action_ids == ("action:1", "action:3")
-            for row in dynamic
-        ))
+        self.assertEqual((), dynamic)
 
     def test_demon_blade_multi_target_hit_still_adds_only_one_stack(self) -> None:
         rules = _rules(

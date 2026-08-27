@@ -180,6 +180,22 @@ class BattleAxisDaoTests(unittest.TestCase):
             "environment_kind": "feast",
             "environment_ref": "DiyBossStage8",
             "selected_target_ids": ["boss_05_BP_DiyBoss"],
+            "selected_target_profiles": [{
+                "static_target_id": "boss_05_BP_DiyBoss",
+                "selection_target_id": "boss_05_BP_DiyBoss",
+                "target_name": "争锋赏宴·愿望成真",
+                "monster_class_path": "boss_05_BP_DiyBoss",
+                "monster_count": 1,
+                "max_hp": 123456.0,
+                "monster_level": 90.0,
+                "defense_base": 1050.0,
+                "defense_up": 0.0,
+                "defense_add": 0.0,
+                "topple_limit": 70.0,
+                "resistances": {"normal": 0.28, "chaos": 0.2},
+                "profile_set": "boss",
+                "pack_id": "difficulty-4",
+            }],
             "primary_target_id": "boss_05_BP_DiyBoss",
             "difficulty_id": 4,
             "feast_options": {"4": "HunOP003_challenge"},
@@ -194,6 +210,11 @@ class BattleAxisDaoTests(unittest.TestCase):
 
         self.assertEqual("feast", saved["environment_kind"])
         self.assertEqual(["boss_05_BP_DiyBoss"], saved["selected_target_ids"])
+        self.assertEqual(
+            "boss_05_BP_DiyBoss",
+            saved["selected_target_profiles"][0]["static_target_id"],
+        )
+        self.assertEqual(123456.0, saved["selected_target_profiles"][0]["max_hp"])
         self.assertEqual({"4": "HunOP003_challenge"}, saved["feast_options"])
         self.assertEqual("DamageUpGeneralBase", saved["witch_buff_property_id"])
         self.assertEqual(0.15, saved["witch_buff_value"])

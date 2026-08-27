@@ -13,6 +13,16 @@ class BattleTargetCatalogServiceTests(unittest.TestCase):
         with StaticGameDataDao(path) as dao:
             catalog = BattleTargetCatalogService.load(dao)
 
+        self.assertEqual(
+            [f"DiyBossStage{index}" for index in range(1, 9)],
+            [row["stage_id"] for row in catalog["feast"]],
+        )
+        stage3 = next(
+            row for row in catalog["feast"]
+            if row["stage_id"] == "DiyBossStage3"
+        )
+        self.assertEqual("当我们诉说爱时", stage3["name_zh"])
+        self.assertEqual(4, len(stage3["difficulties"]))
         stage = next(row for row in catalog["feast"] if row["stage_id"] == "DiyBossStage8")
         extreme = next(row for row in stage["difficulties"] if row["difficulty_id"] == 4)
         damage_buff = next(

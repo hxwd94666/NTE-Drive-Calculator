@@ -16,6 +16,7 @@ class BattleBuildEquipmentServiceTests(unittest.TestCase):
             "item_id": "Core_Test",
             "uid_slot": 7,
             "uid_serial": 11,
+            "grid_count": None,
             "main_stats": [{"property_id": "AtkAdd", "value": 100.0}],
         }
         projected = {
@@ -28,6 +29,7 @@ class BattleBuildEquipmentServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(777.0, frozen[0]["stats"][0]["value"])
+        self.assertEqual(0, frozen[0]["grid_count"])
         raw["main_stats"][0]["value"] = 999.0
         projected["main_stats"][0]["value"] = 999.0
         self.assertEqual(777.0, frozen[0]["stats"][0]["value"])

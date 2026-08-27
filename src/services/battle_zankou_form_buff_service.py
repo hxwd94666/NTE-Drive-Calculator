@@ -20,7 +20,7 @@ from src.services.battle_timeline_time_service import (
 )
 
 
-ZANKOU_FORM_BUFF_MODEL_VERSION = "battle-zankou-form-buff-v2"
+ZANKOU_FORM_BUFF_MODEL_VERSION = "battle-zankou-form-buff-v3"
 
 _ZANKOU_CHARACTER_ID = 1036
 _CURVE_TABLE = "/Game/DataTable/Skill/GlobalCharacterData/DT_ZankouEffectFigure"
@@ -51,6 +51,9 @@ class BattleZankouFormConfig:
     fantasy_duration_seconds: float
     reality_to_fantasy_retention_seconds: float
     fantasy_to_reality_retention_seconds: float
+    awakened_shou_damage_up: float = 0.40
+    awakened_huo_dot_crit_damage_up: float = 0.50
+    effect_three_recover_ratio: float = 0.04
 
 
 def _single_curve_value(static_dao: Any, curve_id: str) -> float:
@@ -68,7 +71,7 @@ def _selected_zankou(build: Mapping[str, Any] | None) -> Mapping[str, Any] | Non
     return None
 
 
-def _is_zero_awakening(character: Mapping[str, Any]) -> bool:
+def _effect_enabled(character: Mapping[str, Any], effect_id: str) -> bool:
     profile = character.get("profile") or {}
     selected = {
         str(value).casefold()
@@ -78,12 +81,18 @@ def _is_zero_awakening(character: Mapping[str, Any]) -> bool:
             else ()
         ) or ()
     }
-    awakening_level = int(
+    if bool(
+        profile.get("awakening_selection_initialized")
+        if isinstance(profile, Mapping)
+        else False
+    ):
+        return effect_id.casefold() in selected
+    ordinal = int(effect_id.removeprefix("Effect") or 0)
+    return int(
         character.get("awakening_level")
         or (profile.get("awakening_level") if isinstance(profile, Mapping) else 0)
         or 0
-    )
-    return awakening_level == 0 and "effect1" not in selected
+    ) >= ordinal
 
 
 def _has_marker(action: BattleInferredAction, markers: Sequence[str]) -> bool:
@@ -135,6 +144,18 @@ class BattleZankouFormBuffService:
                 static_dao,
                 "ZankouMtoRRetainBuffDur",
             ),
+            awakened_shou_damage_up=_single_curve_value(
+                static_dao,
+                "ZankouRealDamUpLv1",
+            ),
+            awakened_huo_dot_crit_damage_up=_single_curve_value(
+                static_dao,
+                "ZankouMagicCritDamageUpLv1",
+            ),
+            effect_three_recover_ratio=_single_curve_value(
+                static_dao,
+                "ZankouRecoverMultLv3",
+            ),
         )
 
     @classmethod
@@ -149,7 +170,7 @@ class BattleZankouFormBuffService:
         time_stop_intervals: Sequence[tuple[int | None, int | None]] = (),
     ) -> tuple[BattleInferredBuffInterval, ...]:
         character = _selected_zankou(build)
-        if character is None or config is None or not _is_zero_awakening(character):
+        if character is None or config is None:
             return ()
         if battle_end_us <= 0:
             return ()
@@ -176,6 +197,7 @@ class BattleZankouFormBuffService:
             )
             return active_time(max(evidence_times, default=fallback_wall_us))
 
+        effect_one_enabled = _effect_enabled(character, "Effect1")
         fantasy_duration = round(config.fantasy_duration_seconds * 1_000_000)
         r_to_m_retention = round(
             config.reality_to_fantasy_retention_seconds * 1_000_000
@@ -205,52 +227,54 @@ class BattleZankouFormBuffService:
             fantasy_start = None
             fantasy_expiry = None
 
-        ordered = sorted(actions, key=lambda row: (row.start_us, row.action_id))
-        for action in ordered:
-            start = active_time(action.start_us)
-            end = max(start, active_time(action.end_us))
-            if fantasy_expiry is not None and fantasy_expiry <= start:
-                end_fantasy(fantasy_expiry)
-            if (
-                previous_character_id == _ZANKOU_CHARACTER_ID
-                and action.character_id != _ZANKOU_CHARACTER_ID
-            ):
-                end_fantasy(start)
-            previous_character_id = action.character_id
-            if action.character_id != _ZANKOU_CHARACTER_ID:
-                continue
-            evidence_action_ids.append(action.action_id)
-            if _has_marker(action, _FANTASY_ACTION_MARKERS):
-                begin_fantasy(start)
-            elif _has_marker(action, _REALITY_ACTION_MARKERS):
-                end_fantasy(start)
+        if effect_one_enabled:
+            shou = huo = ((0, active_end),)
+        else:
+            ordered = sorted(actions, key=lambda row: (row.start_us, row.action_id))
+            for action in ordered:
+                start = active_time(action.start_us)
+                if fantasy_expiry is not None and fantasy_expiry <= start:
+                    end_fantasy(fantasy_expiry)
+                if (
+                    previous_character_id == _ZANKOU_CHARACTER_ID
+                    and action.character_id != _ZANKOU_CHARACTER_ID
+                ):
+                    end_fantasy(start)
+                previous_character_id = action.character_id
+                if action.character_id != _ZANKOU_CHARACTER_ID:
+                    continue
+                evidence_action_ids.append(action.action_id)
+                if _has_marker(action, _FANTASY_ACTION_MARKERS):
+                    begin_fantasy(start)
+                elif _has_marker(action, _REALITY_ACTION_MARKERS):
+                    end_fantasy(start)
 
-            if _has_marker(action, _REALITY_TO_FANTASY_EFFECTS):
-                begin_fantasy(transition_time(action, action.end_us))
-            elif _has_marker(action, _FANTASY_TO_REALITY_EFFECTS):
-                end_fantasy(transition_time(action, action.end_us))
-            elif action.input_kind == "Q" and fantasy_start is not None:
-                end_fantasy(transition_time(action, action.end_us))
+                if _has_marker(action, _REALITY_TO_FANTASY_EFFECTS):
+                    begin_fantasy(transition_time(action, action.end_us))
+                elif _has_marker(action, _FANTASY_TO_REALITY_EFFECTS):
+                    end_fantasy(transition_time(action, action.end_us))
+                elif action.input_kind == "Q" and fantasy_start is not None:
+                    end_fantasy(transition_time(action, action.end_us))
 
-        if fantasy_start is not None:
-            end_fantasy(min(active_end, fantasy_expiry or active_end))
-        fantasy = _merge_ranges(fantasy_ranges, maximum=active_end)
-        reality: list[tuple[int, int]] = []
-        cursor = 0
-        for start, end in fantasy:
-            if start > cursor:
-                reality.append((cursor, start))
-            cursor = max(cursor, end)
-        if cursor < active_end:
-            reality.append((cursor, active_end))
-        shou = _merge_ranges(
-            tuple((start, end + r_to_m_retention) for start, end in reality),
-            maximum=active_end,
-        )
-        huo = _merge_ranges(
-            tuple((start, end + m_to_r_retention) for start, end in fantasy),
-            maximum=active_end,
-        )
+            if fantasy_start is not None:
+                end_fantasy(min(active_end, fantasy_expiry or active_end))
+            fantasy = _merge_ranges(fantasy_ranges, maximum=active_end)
+            reality: list[tuple[int, int]] = []
+            cursor = 0
+            for start, end in fantasy:
+                if start > cursor:
+                    reality.append((cursor, start))
+                cursor = max(cursor, end)
+            if cursor < active_end:
+                reality.append((cursor, active_end))
+            shou = _merge_ranges(
+                tuple((start, end + r_to_m_retention) for start, end in reality),
+                maximum=active_end,
+            )
+            huo = _merge_ranges(
+                tuple((start, end + m_to_r_retention) for start, end in fantasy),
+                maximum=active_end,
+            )
 
         def wall_time(active_us: int, *, prefer_end: bool) -> int:
             return unproject_timeline_time_us(
@@ -265,6 +289,17 @@ class BattleZankouFormBuffService:
         character_name = str(character.get("observed_name") or "残虹")
         evidence_ids = tuple(dict.fromkeys(evidence_action_ids))
         intervals: list[BattleInferredBuffInterval] = []
+        form_label = "觉醒一" if effect_one_enabled else "零觉"
+        source_definition_id = (
+            "character_awaken:1036:Effect1"
+            if effect_one_enabled
+            else "character-form:1036"
+        )
+        duration_policy = (
+            "InfiniteUntilDeath"
+            if effect_one_enabled
+            else "FormStateWithRetention"
+        )
         definitions = (
             (
                 "shou",
@@ -273,7 +308,11 @@ class BattleZankouFormBuffService:
                 "狩",
                 "self",
                 "DamageUpGeneralBase",
-                config.shou_damage_up,
+                (
+                    config.awakened_shou_damage_up
+                    if effect_one_enabled
+                    else config.shou_damage_up
+                ),
                 "",
             ),
             (
@@ -283,7 +322,11 @@ class BattleZankouFormBuffService:
                 "惑",
                 "team",
                 "CritDamageBase",
-                config.huo_dot_crit_damage_up,
+                (
+                    config.awakened_huo_dot_crit_damage_up
+                    if effect_one_enabled
+                    else config.huo_dot_crit_damage_up
+                ),
                 "battle-channel:continuous-damage",
             ),
         )
@@ -296,8 +339,8 @@ class BattleZankouFormBuffService:
                 intervals.append(BattleInferredBuffInterval(
                     interval_id=f"buff:zankou-form:{kind}:{ordinal}",
                     buff_asset_path=asset_path,
-                    buff_name=f"{name}（零觉）",
-                    source_effect_definition_id=f"character-form:{_ZANKOU_CHARACTER_ID}:{kind}",
+                    buff_name=f"{name}（{form_label}）",
+                    source_effect_definition_id=f"{source_definition_id}:{kind}",
                     source_kind="confirmed_character_form",
                     source_character_id=_ZANKOU_CHARACTER_ID,
                     source_character_name=character_name,
@@ -305,13 +348,19 @@ class BattleZankouFormBuffService:
                     start_us=start_wall,
                     end_us=end_wall,
                     stacks=1,
-                    duration_policy="FormStateWithRetention",
+                    duration_policy=duration_policy,
                     state_confidence="中",
                     value_confidence="高",
                     inference_basis=(
-                        "冻结配置确认残虹为零觉；形态由绯影闪、离魂错、Q、"
-                        "角色切换与现实/幻境伤害项推算；技能切形态优先采用动作证据"
-                        "中的最后一击时点，持续时间按静态曲线并扣除时停。"
+                        (
+                            "冻结觉醒选择确认一觉生效；狩与惑从战斗开始常驻，"
+                            "切形态或离场不移除；当前轴没有残虹阵亡事实，故投影至"
+                            "战斗结束。"
+                            if effect_one_enabled
+                            else "冻结觉醒选择确认未启用一觉；形态由绯影闪、离魂错、"
+                            "Q、角色切换与现实/幻境伤害项推算；技能切形态优先采用"
+                            "动作证据中的最后一击时点，持续时间按静态曲线并扣除时停。"
+                        )
                     ),
                     trigger_event_type="INFERRED_ZANKOU_FORM_STATE",
                     evidence_action_ids=evidence_ids,

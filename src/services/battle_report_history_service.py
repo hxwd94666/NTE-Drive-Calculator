@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -48,15 +49,14 @@ from src.services.battle_import_equipment_projection_service import (
 from src.services.battle_build_edit_history_mixin import (
     BattleBuildEditHistoryMixin,
 )
+from src.services.battle_report_replay_history_mixin import (
+    BattleReportReplayHistoryMixin,
+)
 from src.services.character_shape_bonus_service import (
     static_character_shape_profile_fields,
 )
 from src.services.battle_animation_window_service import (
     BattleAnimationWindowService,
-)
-from src.services.battle_buff_inference_service import (
-    BattleBuffInferenceService,
-    BattleStaticBuffRule,
 )
 from src.services.battle_action_inference_service import (
     BattleActionAnimationCandidate,
@@ -81,20 +81,12 @@ from src.services.battle_buff_counterfactual_service import (
     BUFF_COUNTERFACTUAL_MODEL_VERSION,
     BattleBuffCounterfactualService,
 )
-from src.services.battle_inferred_target_condition_service import (
-    BattleInferredTargetConditionService,
-)
-from src.services.battle_skill_damage_evidence_service import (
-    BattleSkillDamageEvidenceService,
+from src.services.battle_inferred_target_condition_service import BattleInferredTargetConditionService
+from src.services.battle_inferred_target_resolution_support import (
+    project_resolved_target_evidence,
+    resolve_available_target_instances,
 )
 from src.services.battle_target_catalog_service import BattleTargetCatalogService
-from src.services.battle_zankou_form_buff_service import (
-    BattleZankouFormBuffService,
-    BattleZankouFormConfig,
-)
-from src.services.battle_topple_hit_replay_service import (
-    BattleToppleCharacterConfig,
-)
 from src.services.battle_outer_realm_buff_service import BattleOuterRealmBuffService
 from src.services.battle_environment_condition_service import (
     resolve_battle_target_condition,
@@ -110,6 +102,7 @@ __all__ = ["BattleReportHistoryService", "StaleBattleReportContextError"]
 
 class BattleReportHistoryService(
     BattleBuildEditHistoryMixin,
+    BattleReportReplayHistoryMixin,
     BattleReportHistoryDaoMixin,
 ):
     def __init__(
@@ -189,6 +182,7 @@ class BattleReportHistoryService(
             )
         build = normalize_inferred_battle_build(build)
         apply_import_equipment_locks(build, import_equipment_locks)
+        recognition_build = deepcopy(build)
         self._localize_axis_evidence(evidence)
         if start_us is None and end_us is None:
             scoped_range = analysis_scope_range(
@@ -196,18 +190,17 @@ class BattleReportHistoryService(
             )
             if scoped_range is not None:
                 start_us, end_us = scoped_range
-        inferred_encounter = BattleInferredTargetConditionService.infer(
-            static_database_path=self._dependencies.static_database_path,
-            combat_context_kind=str(record.get("combat_context_kind") or ""),
-            floor=(
-                None
-                if record.get("abyss_floor") is None
-                else int(record["abyss_floor"])
-            ),
-            evidence=evidence,
-            range_start_us=start_us,
-            range_end_us=end_us,
-        )
+        record_floor = record.get("abyss_floor")
+        inferred_encounter = None
+        if target_condition is None:
+            inferred_encounter = BattleInferredTargetConditionService.infer(
+                static_database_path=self._dependencies.static_database_path,
+                combat_context_kind=str(record.get("combat_context_kind") or ""),
+                floor=None if record_floor is None else int(record_floor),
+                evidence=evidence,
+                range_start_us=None,
+                range_end_us=None,
+            )
         BattleInferredTargetConditionService.project_evidence(
             evidence,
             inferred_encounter,
@@ -216,7 +209,26 @@ class BattleReportHistoryService(
             target_condition
             or (None if inferred_encounter is None else inferred_encounter.target_condition)
         )
+        target_instance_resolutions, target_instance_mapping_required = (
+            resolve_available_target_instances(
+                evidence,
+                target_condition,
+                inferred_encounter,
+                static_database_path=self._dependencies.static_database_path,
+            )
+        )
+        project_resolved_target_evidence(evidence, target_instance_resolutions)
         inferred_character_facts = BattleInferredCharacterFactService.infer(evidence)
+        if recognition_build is not None:
+            BattleInferredCharacterFactService.apply_to_build(
+                recognition_build,
+                inferred_character_facts,
+                disabled_fact_ids=frozenset(),
+            )
+            BattleBuildStatReconstructionService.enrich(
+                recognition_build,
+                self._dependencies,
+            )
         effective_disabled_fact_ids = frozenset(disabled_inferred_fact_ids)
         if marginal_candidate is not None:
             effective_disabled_fact_ids |= marginal_candidate.disabled_inferred_fact_ids
@@ -239,6 +251,13 @@ class BattleReportHistoryService(
         if include_buff_counterfactuals:
             include_hit_replays = True
         if include_hit_replays:
+            include_buff_inference = True
+        needs_encounter_fit = bool(
+            target_condition is None
+            and inferred_encounter is not None
+            and inferred_encounter.formula_profile_conflict
+        )
+        if needs_encounter_fit:
             include_buff_inference = True
         animation_candidates = self._load_animation_candidates(evidence, build)
         buff_rules = self._load_buff_rules(build) if include_buff_inference else ()
@@ -274,6 +293,64 @@ class BattleReportHistoryService(
             outer_realm_buff_config=outer_realm_buff_config,
             infer_buffs=include_buff_inference,
         )
+        if needs_encounter_fit and inferred_encounter is not None:
+            fit_analyze = partial(
+                BattleCounterfactualAnalysisService.analyze,
+                battle_record_id=battle_record_id,
+                evidence=evidence,
+                build=recognition_build,
+                capability_level=str(
+                    record.get("evidence_capability_level")
+                    or ("hit_axis" if evidence is not None else None)
+                    or record.get("capability_level")
+                    or "summary_only"
+                ),
+                requested_start_us=None,
+                requested_end_us=None,
+                animation_candidates=self._load_animation_candidates(
+                    evidence,
+                    recognition_build,
+                ),
+                buff_rules=self._load_buff_rules(recognition_build),
+                target_condition=analysis_target_condition,
+                zankou_form_config=self._load_zankou_form_config(
+                    recognition_build
+                ),
+                outer_realm_buff_config=outer_realm_buff_config,
+                infer_buffs=True,
+            )
+            inferred_encounter = self._fit_inferred_encounter(
+                inferred_encounter,
+                analyze=fit_analyze,
+                build=recognition_build,
+                evidence=evidence,
+                inferred_character_facts=inferred_character_facts,
+            )
+            analysis_target_condition = inferred_encounter.target_condition
+            outer_realm_buff_config = BattleOuterRealmBuffService.load(
+                self._dependencies.static_database_path,
+                inferred_encounter.environment_ref,
+            )
+            _analyze = partial(
+                _analyze,
+                target_condition=analysis_target_condition,
+                outer_realm_buff_config=outer_realm_buff_config,
+            )
+            target_instance_resolutions, target_instance_mapping_required = (
+                resolve_available_target_instances(
+                    evidence,
+                    None,
+                    inferred_encounter,
+                    static_database_path=self._dependencies.static_database_path,
+                )
+            )
+            target_instance_resolutions = (
+                BattleInferredTargetConditionService.apply_residual_resolution_metadata(
+                    inferred_encounter,
+                    target_instance_resolutions,
+                )
+            )
+            project_resolved_target_evidence(evidence, target_instance_resolutions)
         analysis = replace(
             _analyze(),
             inferred_character_facts=inferred_character_facts,
@@ -281,6 +358,11 @@ class BattleReportHistoryService(
         analysis = BattleInferredTargetConditionService.apply(
             analysis,
             inferred_encounter,
+        )
+        analysis = replace(
+            analysis,
+            target_instance_resolutions=target_instance_resolutions,
+            target_instance_mapping_required=target_instance_mapping_required,
         )
         if not include_hit_replays:
             return analysis
@@ -326,6 +408,11 @@ class BattleReportHistoryService(
                 ),
                 inferred_encounter,
             )
+            analysis = replace(
+                analysis,
+                target_instance_resolutions=target_instance_resolutions,
+                target_instance_mapping_required=target_instance_mapping_required,
+            )
             skill_evidence = self._load_skill_damage_evidence(analysis, build)
             topple_character_configs = self._load_topple_character_configs(analysis)
             analysis = replace(
@@ -362,24 +449,6 @@ class BattleReportHistoryService(
         self._target_catalog_cache = catalog
         return catalog
 
-    def _load_skill_damage_evidence(
-        self,
-        analysis: BattleAnalysisSnapshot,
-        build: dict[str, Any] | None,
-    ):
-        static_path = self._dependencies.static_database_path
-        if static_path is None or build is None:
-            return ()
-        try:
-            with StaticGameDataDao(static_path) as static_dao:
-                return BattleSkillDamageEvidenceService.load(
-                    static_dao,
-                    analysis,
-                    build,
-                )
-        except (OSError, RuntimeError, ValueError):
-            return ()
-
     def save_target_condition(
         self,
         battle_record_id: int,
@@ -393,64 +462,6 @@ class BattleReportHistoryService(
                 battle_record_id,
                 condition,
             )
-
-    def _load_buff_rules(
-        self,
-        build: dict[str, Any] | None,
-    ) -> tuple[BattleStaticBuffRule, ...]:
-        static_path = self._dependencies.static_database_path
-        if static_path is None or build is None:
-            return ()
-        try:
-            with StaticGameDataDao(static_path) as static_dao:
-                return BattleBuffInferenceService.load_rules(static_dao, build)
-        except (OSError, RuntimeError, ValueError):
-            return ()
-
-    def _load_zankou_form_config(
-        self,
-        build: dict[str, Any] | None,
-    ) -> BattleZankouFormConfig | None:
-        static_path = self._dependencies.static_database_path
-        characters = tuple((build or {}).get("characters") or ())
-        if static_path is None or not any(
-            int(row.get("character_id") or 0) == 1036
-            for row in characters
-        ):
-            return None
-        try:
-            with StaticGameDataDao(static_path) as static_dao:
-                return BattleZankouFormBuffService.load_config(static_dao)
-        except (OSError, RuntimeError, ValueError):
-            return None
-
-    def _load_topple_character_configs(
-        self,
-        analysis: BattleAnalysisSnapshot,
-    ) -> dict[int, BattleToppleCharacterConfig]:
-        static_path = self._dependencies.static_database_path
-        if static_path is None:
-            return {}
-        configs: dict[int, BattleToppleCharacterConfig] = {}
-        try:
-            with StaticGameDataDao(static_path) as static_dao:
-                for baseline in analysis.baselines:
-                    character = static_dao.get_character(baseline.character_id)
-                    level_multiplier = static_dao.get_topple_level_multiplier(
-                        baseline.character_level
-                    )
-                    element = str((character or {}).get("element_type") or "")
-                    marker = "CHARACTER_ELEMENT_TYPE_"
-                    if marker not in element or level_multiplier is None:
-                        continue
-                    configs[baseline.character_id] = BattleToppleCharacterConfig(
-                        character_id=baseline.character_id,
-                        damage_attribute=element.rsplit(marker, 1)[-1].casefold(),
-                        level_multiplier=level_multiplier,
-                    )
-        except (OSError, RuntimeError, ValueError):
-            return {}
-        return configs
 
     def _load_animation_candidates(
         self,

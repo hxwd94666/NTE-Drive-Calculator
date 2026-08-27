@@ -92,6 +92,26 @@ def stored_summary(record: dict) -> StoredBattleSummary:
         saved_at_utc=str(record["saved_at_utc"]),
         detail_scope=cast(Literal["current", "first", "second"], scope),
         summary=parse_battle_summary(record["raw_summary_payload"]),
+        nte_core_version=(
+            str(record["nte_core_version"])
+            if record.get("nte_core_version") is not None
+            else None
+        ),
+        nte_core_protocol_version=(
+            int(record["nte_core_protocol_version"])
+            if record.get("nte_core_protocol_version") is not None
+            else None
+        ),
+        nte_core_data_version=(
+            str(record["nte_core_data_version"])
+            if record.get("nte_core_data_version") is not None
+            else None
+        ),
+        nte_core_executable_sha256=(
+            str(record["nte_core_executable_sha256"])
+            if record.get("nte_core_executable_sha256") is not None
+            else None
+        ),
         analysis_start_us=(
             None
             if record.get("restored_analysis_start_us") is None

@@ -40,7 +40,10 @@ from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditSer
 from src.services.battle_inferred_target_condition_service import (
     INFERRED_ENCOUNTER_SOURCE_KIND,
 )
-HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v26"
+from src.services.battle_target_instance_mapping_service import (
+    BattleTargetInstanceMappingService,
+)
+HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v28"
 _DIRECT_FORMULA_CHANNELS = frozenset({
     "direct", "direct_follow_up", "attachment", "special_lacrimosa_dissonance",
     "special_nightmare", "special_zankou_erosion", "special_zankou_venom",
@@ -74,6 +77,7 @@ class BattleHitReplayService:
         topple_character_configs: (
             Mapping[int, BattleToppleCharacterConfig] | None
         ) = None,
+        apply_observed_refinements: bool = True,
     ) -> tuple[BattleHitReplayResult, ...]:
         evidence_by_event = {row.event_id: row for row in skill_evidence}
         baselines = {row.character_id: row for row in analysis.baselines}
@@ -86,7 +90,9 @@ class BattleHitReplayService:
             baseline = baselines.get(formula_hit.character_id)
             if hit.direction != "outgoing":
                 continue
-            hit_analysis = cls._analysis_for_hit(analysis, hit)
+            hit_analysis = BattleTargetInstanceMappingService.analysis_for_hit(
+                analysis, hit
+            )
             if channel_id == "special_daffodill_extra_topple":
                 result = BattleToppleHitReplayService.replay(
                     hit=hit, analysis=hit_analysis,
@@ -219,22 +225,11 @@ class BattleHitReplayService:
                 result,
                 hit,
             ))
-        replayed = cls._apply_local_crit_evidence(analysis, tuple(results))
+        raw_results = tuple(results)
+        if not apply_observed_refinements:
+            return raw_results
+        replayed = cls._apply_local_crit_evidence(analysis, raw_results)
         return BattleHitReplayAuditService.postprocess(analysis, replayed)
-    @staticmethod
-    def _analysis_for_hit(
-        analysis: BattleAnalysisSnapshot,
-        hit,
-    ) -> BattleAnalysisSnapshot:
-        if getattr(analysis, "target_condition", None) is not None:
-            return analysis
-        condition = dict(getattr(analysis, "target_conditions_by_half", ())).get(
-            getattr(hit, "scope_half", "")
-        )
-        return analysis if condition is None else replace(
-            analysis,
-            target_condition=condition,
-        )
     @classmethod
     def _apply_local_crit_evidence(
         cls,
@@ -775,6 +770,7 @@ class BattleHitReplayService:
             expected_damage=expected,
             corrected_expected_damage=corrected_expected,
             signed_error_percent=signed_error,
+            critical_policy=evidence.critical_policy,
         )
 
     @staticmethod

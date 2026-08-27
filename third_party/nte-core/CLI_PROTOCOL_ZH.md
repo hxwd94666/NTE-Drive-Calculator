@@ -307,7 +307,7 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 }
 ```
 
-`subtract_time_stop` 必填，选择与 GUI 相同的计时口径。尚无战斗或深渊数据时 result 为 null；否则包含总时长、伤害、DPS、承伤、命中数、角色行、技能行、深渊上下半和脱敏解析质量计数。稳定的 `dps_time_mode` 值为 `subtract_time_stop` 与 `wall_clock`；quality source 值为 `live`、`pcapng_replay`、`json_replay` 和 `unknown`。技能行的 `name` 优先采用与界面语言无关的 Ability 或 GameplayEffect 分组键；存在对应身份时，附加的可选字段 `ability_name` 与 `gameplay_effect_name` 提供稳定 GA/GE 标识。
+`subtract_time_stop` 必填，选择与 GUI 相同的计时口径。尚无战斗或深渊数据时 result 为 null；否则包含总时长、伤害、削减最大生命值、DPS、承伤、命中数、角色行、技能行、深渊上下半和脱敏解析质量计数。`max_hp_reduction` 是权威的削减最大生命值聚合值，并与 `total_damage` 分开返回。稳定的 `dps_time_mode` 值为 `subtract_time_stop` 与 `wall_clock`；quality source 值为 `live`、`pcapng_replay`、`json_replay` 和 `unknown`。技能行的 `name` 优先采用与界面语言无关的 Ability 或 GameplayEffect 分组键；存在对应身份时，附加的可选字段 `ability_name` 与 `gameplay_effect_name` 提供稳定 GA/GE 标识。
 
 `subtract_time_stop` 模式下，原生插件直接观测权威的 `AHTPlayerController::IsGamePausedByType` 状态。状态从零变为非零时开始时停，随后从非零回到零时结束时停；Core 配对这两个带时间戳的状态，并只扣除与伤害窗口重叠的区间。角色大招、角色专属时长表和深渊倒计时均不参与该计算；结算阶段事件也不会作为时长终点。
 
@@ -326,7 +326,7 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 
 尚无战斗或深渊状态时返回 null。记录获得进程内稳定的 `battle_record_id`；抓包停止或 Core 关闭前状态为 `live`，之后变为 `finalized`。`battle.reset` 会终止该记录的可读取周期，下一场战斗获得新 ID。传入已经失效或未知的 ID 会返回 `BATTLE_RECORD_NOT_FOUND`，不会静默切换到当前战斗。
 
-响应契约版本为 4。版本 4 新增逐击 `max_hp_reduction`；版本 3 新增权威逐击 `overkill_damage`。响应包含共享 `generation`、抓包 operation ID、状态/来源、战斗时间边界、裁剪后的时停区间、深渊标记、聚合摘要、质量计数和逐击数据完整性。`generation`、`axis_first_sequence`、`axis_total_hits` 使用十进制字符串，避免 JavaScript 丢失 64 位整数精度。只有公开战斗读取模型发生变化或记录完成时才推进 generation。
+响应契约版本为 4。版本 4 新增聚合摘要和逐击 `max_hp_reduction`；版本 3 新增权威逐击 `overkill_damage`。响应包含共享 `generation`、抓包 operation ID、状态/来源、战斗时间边界、裁剪后的时停区间、深渊标记、聚合摘要、质量计数和逐击数据完整性。`generation`、`axis_first_sequence`、`axis_total_hits` 使用十进制字符串，避免 JavaScript 丢失 64 位整数精度。只有公开战斗读取模型发生变化或记录完成时才推进 generation。
 
 ### `battle.get_axis`
 

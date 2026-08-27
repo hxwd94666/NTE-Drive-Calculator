@@ -99,13 +99,14 @@ class BattleDamageCompositionPanel(QWidget):
                 2,
             )
             next_row += 1
-        self._grid.addWidget(
-            self._unattributed_card(composition),
-            next_row,
-            0,
-            1,
-            2,
-        )
+        if composition.other_entries:
+            self._grid.addWidget(
+                self._unattributed_card(composition),
+                next_row,
+                0,
+                1,
+                2,
+            )
         self._grid.setColumnStretch(0, 1)
         self._grid.setColumnStretch(1, 1)
 

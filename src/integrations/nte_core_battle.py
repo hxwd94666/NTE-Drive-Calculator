@@ -250,6 +250,11 @@ def parse_battle_summary(value: Any, *, sequence: int = 0) -> BattleSummary:
             item.get("dps_time_mode"), "dps_time_mode", default="subtract_time_stop"
         ),
         total_damage=_number(item.get("total_damage"), "total_damage", default=0.0),
+        max_hp_reduction=_number(
+            item.get("max_hp_reduction"),
+            "max_hp_reduction",
+            default=0.0,
+        ),
         total_dps=_number(item.get("total_dps"), "total_dps", default=0.0),
         total_damage_taken=_number(
             item.get("total_damage_taken"), "total_damage_taken", default=0.0

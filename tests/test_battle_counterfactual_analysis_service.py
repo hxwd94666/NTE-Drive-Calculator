@@ -14,6 +14,9 @@ from src.services.battle_buff_attribute_projection_service import (
 from src.services.battle_counterfactual_analysis_service import (
     BattleCounterfactualAnalysisService,
 )
+from src.services.battle_marginal_calculation_service import (
+    BattleMarginalCalculationService,
+)
 
 
 def _build() -> dict:
@@ -135,7 +138,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual("weave", result.hits[1].classification)
         self.assertEqual(1, len(result.targets))
         self.assertEqual(1, len(result.inferred_actions))
-        self.assertEqual("battle-action-window-v10", result.action_inference_version)
+        self.assertEqual("battle-action-window-v12", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
         self.assertEqual("battle-counterfactual-v15", result.formula_model_version)
 
@@ -166,8 +169,8 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             capability_level="hit_axis",
         )
         baseline = analysis.baselines[0]
-        units = BattleCounterfactualAnalysisService.default_marginal_units(baseline)
-        results = BattleCounterfactualAnalysisService.calculate_margins(
+        units = BattleMarginalCalculationService.default_units(baseline)
+        results = BattleMarginalCalculationService.calculate(
             analysis=analysis,
             character_id=1072,
             edited_values={},
@@ -177,7 +180,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
 
         self.assertGreater(crit_damage.predicted_damage, crit_damage.baseline_damage)
         self.assertAlmostEqual(80.0, crit_damage.coverage_percent)
-        self.assertIn("期望暴击模型", crit_damage.assumption)
+        self.assertIn("期望伤害", crit_damage.assumption)
 
     def test_dynamic_attack_buff_reduces_attack_up_marginal_without_readding_damage(self) -> None:
         plain = BattleCounterfactualAnalysisService.analyze(
@@ -193,13 +196,13 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             capability_level="hit_axis",
             buff_rules=(_attack_buff_rule("ABILITY_EVENT|A|GA_Test|"),),
         )
-        plain_margin = BattleCounterfactualAnalysisService.calculate_margins(
+        plain_margin = BattleMarginalCalculationService.calculate(
             analysis=plain,
             character_id=1072,
             edited_values={},
             units={"AtkUp": 0.1},
         )[0]
-        buffed_margin = BattleCounterfactualAnalysisService.calculate_margins(
+        buffed_margin = BattleMarginalCalculationService.calculate(
             analysis=buffed,
             character_id=1072,
             edited_values={},
@@ -228,13 +231,13 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             capability_level="hit_axis",
             buff_rules=(_attack_buff_rule("STATIC_EQUIPPED_SOURCE"),),
         )
-        plain_margin = BattleCounterfactualAnalysisService.calculate_margins(
+        plain_margin = BattleMarginalCalculationService.calculate(
             analysis=plain,
             character_id=1072,
             edited_values={},
             units={"AtkUp": 0.1},
         )[0]
-        equipped_margin = BattleCounterfactualAnalysisService.calculate_margins(
+        equipped_margin = BattleMarginalCalculationService.calculate(
             analysis=equipped,
             character_id=1072,
             edited_values={},
@@ -277,13 +280,13 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
                 },
             },
         )
-        missing = BattleCounterfactualAnalysisService.calculate_margins(
+        missing = BattleMarginalCalculationService.calculate(
             analysis=unconfirmed,
             character_id=1072,
             edited_values={},
             units={"DefIgnore": 0.01},
         )[0]
-        available = BattleCounterfactualAnalysisService.calculate_margins(
+        available = BattleMarginalCalculationService.calculate(
             analysis=confirmed,
             character_id=1072,
             edited_values={},
@@ -342,7 +345,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             capability_level="hit_axis",
         )
 
-        result = BattleCounterfactualAnalysisService.calculate_margins(
+        result = BattleMarginalCalculationService.calculate(
             analysis=analysis,
             character_id=1072,
             edited_values={},
@@ -366,7 +369,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             build=_build(),
             capability_level="hit_axis",
         )
-        result = BattleCounterfactualAnalysisService.calculate_margins(
+        result = BattleMarginalCalculationService.calculate(
             analysis=analysis,
             character_id=1072,
             edited_values={},

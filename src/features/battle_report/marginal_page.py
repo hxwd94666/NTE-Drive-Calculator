@@ -53,12 +53,15 @@ from src.services.battle_build_timeline_projection_service import (
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidateService,
 )
+from src.services.battle_marginal_calculation_service import (
+    BattleMarginalCalculationService,
+)
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
 )
 from src.ui.dashboard_widgets import metric_card
-from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
+from src.ui.widgets import NoWheelComboBox
 
 
 def _number(value: float) -> str:
@@ -81,7 +84,6 @@ class BattleMarginalPage(QWidget):
         self._details: list[dict] = []
         self._editors: list[OfficialRoleProfileEditor | None] = []
         self._editor_character_ids: list[int] = []
-        self._attribute_edits: dict[int, dict[str, float]] = {}
         self._equipment_editable = True
         self._inferred_fact_ids: tuple[str, ...] = ()
         self._build()
@@ -135,11 +137,11 @@ class BattleMarginalPage(QWidget):
         self.change_summary = QLabel("等待角色配置")
         self.change_summary.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         selector.addWidget(self.change_summary, 1)
-        self.use_inferred_facts = QCheckBox("使用战报推断事实")
+        self.use_inferred_facts = QCheckBox("使用逐击补充的生效事实")
         self.use_inferred_facts.setChecked(True)
         self.use_inferred_facts.setToolTip(
-            "默认使用完整原始轴确认的高置信事实；取消后只影响本页候选，"
-            "不会改写战报快照或角色页。"
+            "仅在当前生效基线缺少、但完整原始逐击可精确证明角色效果已生效时显示；"
+            "取消后只影响本页候选，不会改写战报快照、修改副本或角色页。"
         )
         self.use_inferred_facts.hide()
         selector.addWidget(self.use_inferred_facts)
@@ -152,7 +154,7 @@ class BattleMarginalPage(QWidget):
         metrics = QGridLayout()
         definitions = (
             ("dps", "新 DPS", "固定轴估计"),
-            ("damage", "新总伤害", "相对原始战报"),
+            ("damage", "新总伤害", "相对当前生效基线"),
             ("role", "角色伤害", "当前分析角色"),
             ("structured", "结构化重放", "其余为分级估计"),
         )
@@ -239,21 +241,56 @@ class BattleMarginalPage(QWidget):
         timeline_layout.addWidget(self.counterfactual_timeline_scroll)
         root.addWidget(timeline_card)
 
-        attribute_card, attribute_layout = analysis_section("属性调整")
-        attribute_actions = QHBoxLayout()
-        attribute_actions.addStretch()
-        clear_attributes = QPushButton("清除手工属性")
-        clear_attributes.setToolTip("清除当前角色的手工覆盖；点击重算后恢复由养成与配装自动生成。")
-        clear_attributes.clicked.connect(self._clear_attribute_overrides)
-        attribute_actions.addWidget(clear_attributes)
-        attribute_layout.addLayout(attribute_actions)
+        attribute_card, attribute_layout = analysis_section("属性单位边际")
+        attribute_note = QLabel(
+            "默认单位为一格金色驱动词条；量化率按当前角色计算，"
+            "伤害占比按当前角色伤害占全队伤害计算。"
+        )
+        attribute_note.setStyleSheet(
+            themed_style("color:#8b949e;font-size:12px")
+        )
+        attribute_note.setWordWrap(True)
+        attribute_layout.addWidget(attribute_note)
         self.attribute_table = analysis_table(
-            ("属性", "当前候选值", "调整值"),
-            230,
-            default_widths=(240, 170, 180),
+            (
+                "属性单位",
+                "本角色收益",
+                "全队收益",
+                "量化率",
+                "伤害占比",
+                "伤害变化",
+                "计算说明",
+            ),
+            280,
+            default_widths=(220, 130, 130, 110, 110, 140, 440),
         )
         attribute_layout.addWidget(self.attribute_table)
         root.addWidget(attribute_card)
+
+        buff_card, buff_layout = analysis_section("团队 Buff 边际")
+        buff_note = QLabel(
+            "逐个独立移除 Buff，并按实际造成伤害的角色拆分收益；"
+            "角色收益之间可加总为该 Buff 的全队收益，不同 Buff 之间不可直接相加。"
+        )
+        buff_note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
+        buff_note.setWordWrap(True)
+        buff_layout.addWidget(buff_note)
+        self.buff_benefit_table = analysis_table(
+            (
+                "来源角色",
+                "Buff",
+                "受益角色",
+                "获得伤害",
+                "受益角色提升",
+                "折合全队贡献",
+                "Buff 全队增伤",
+                "量化覆盖",
+            ),
+            240,
+            default_widths=(150, 220, 150, 130, 150, 150, 190, 130),
+        )
+        buff_layout.addWidget(self.buff_benefit_table)
+        root.addWidget(buff_card)
 
         editor_card, editor_layout = analysis_section("角色配置")
         self.editor_stack = QStackedWidget()
@@ -299,7 +336,6 @@ class BattleMarginalPage(QWidget):
         self._editors.clear()
         self._details.clear()
         self._editor_character_ids.clear()
-        self._attribute_edits.clear()
         self._equipment_editable = bool(
             editor_data.get("marginal_equipment_editable", True)
         )
@@ -318,13 +354,6 @@ class BattleMarginalPage(QWidget):
             self._details.append(detail)
             self._editors.append(None)
             self._editor_character_ids.append(character_id)
-            self._attribute_edits[character_id] = {
-                str(key): float(value)
-                for key, value in (
-                    (detail.get("profile") or {}).get("battle_stat_overrides")
-                    or {}
-                ).items()
-            }
             self.editor_stack.addWidget(QWidget())
             self.character_combo.addItem(name, character_id)
         self.character_combo.blockSignals(False)
@@ -336,6 +365,7 @@ class BattleMarginalPage(QWidget):
         self._candidate_analysis = None
         self.counterfactual_timeline.set_analysis(None)
         self.composition_panel.clear()
+        self.buff_benefit_table.setRowCount(0)
 
     def set_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
         self._analysis = analysis
@@ -454,6 +484,7 @@ class BattleMarginalPage(QWidget):
             else:
                 profile = editor.profile()
                 selection = editor.selected_equipment_context()
+            profile.pop("battle_stat_overrides", None)
             if selection is None:
                 raise ValueError("战报边际候选缺少计算配装")
             context_key, context = selection
@@ -464,7 +495,6 @@ class BattleMarginalPage(QWidget):
                 ),
                 "equipment_source_kind": str(context.get("source_kind") or "edited_copy"),
                 "equipment_override": freeze_equipment_context(context),
-                "battle_stat_overrides": dict(self._attribute_edits.get(character_id, {})),
             })
             profiles.append(profile)
         return profiles
@@ -606,6 +636,7 @@ class BattleMarginalPage(QWidget):
         character_id = self.selected_character_id()
         if analysis is None or character_id is None:
             self.attribute_table.setRowCount(0)
+            self.buff_benefit_table.setRowCount(0)
             self.metric_labels["role"].setText("—")
             return
         baseline = next(
@@ -613,6 +644,7 @@ class BattleMarginalPage(QWidget):
             None,
         )
         self._render_attributes(baseline)
+        self._render_buff_benefits(analysis.buff_counterfactuals)
         comparison = analysis.build_counterfactual
         role = next(
             (row for row in (comparison.roles if comparison else ()) if row.character_id == character_id),
@@ -634,44 +666,102 @@ class BattleMarginalPage(QWidget):
             )
 
     def _render_attributes(self, baseline: BattleCharacterBaseline | None) -> None:
-        if baseline is None:
+        analysis = self._analysis
+        if baseline is None or analysis is None:
             self.attribute_table.setRowCount(0)
             return
-        edits = self._attribute_edits.setdefault(baseline.character_id, {})
-        self.attribute_table.setRowCount(len(baseline.stats))
-        for row_index, stat in enumerate(baseline.stats):
-            self.attribute_table.setItem(row_index, 0, QTableWidgetItem(stat.label))
-            current = f"{stat.value * 100:.2f}%" if stat.is_percent else f"{stat.value:,.2f}"
-            self.attribute_table.setItem(row_index, 1, QTableWidgetItem(current))
-            editor = NoWheelDoubleSpinBox()
-            editor.setDecimals(4 if stat.is_percent else 2)
-            editor.setRange(-999999.0, 9999999.0)
-            editor.setSuffix("%" if stat.is_percent else "")
-            editor.setValue(edits.get(stat.property_id, stat.value) * (100 if stat.is_percent else 1))
-            editor.valueChanged.connect(
-                lambda value, cid=baseline.character_id, key=stat.property_id, percent=stat.is_percent: self._attribute_changed(
-                    cid, key, value, percent
-                )
-            )
-            self.attribute_table.setCellWidget(row_index, 2, editor)
-
-    def _attribute_changed(
-        self,
-        character_id: int,
-        property_id: str,
-        value: float,
-        percent: bool,
-    ) -> None:
-        self._attribute_edits.setdefault(character_id, {})[property_id] = (
-            value / 100.0 if percent else value
+        units = BattleMarginalCalculationService.default_units(baseline)
+        results = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=baseline.character_id,
+            edited_values={},
+            units=units,
         )
+        self.attribute_table.setRowCount(len(results))
+        for row_index, result in enumerate(results):
+            unit = (
+                f"+{result.unit * 100:.2f}%"
+                if result.is_percent
+                else f"+{result.unit:g}"
+            )
+            values = (
+                f"{result.label} {unit}",
+                f"{result.role_gain_percent:+.2f}%",
+                f"{result.team_dps_gain_percent:+.2f}%",
+                f"{result.coverage_percent:.1f}%",
+                f"{result.damage_share_percent:.1f}%",
+                f"{result.predicted_damage - result.baseline_damage:+,.0f}",
+                result.assumption,
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(result.assumption)
+                self.attribute_table.setItem(row_index, column, item)
 
-    def _clear_attribute_overrides(self) -> None:
+    def _render_buff_benefits(self, results) -> None:
         character_id = self.selected_character_id()
-        if character_id is None:
-            return
-        self._attribute_edits[character_id] = {}
-        self._render_selected_role()
+        results = tuple(
+            result
+            for result in results
+            if character_id is not None
+            and int(result.source_character_id) == character_id
+        )
+        rows = [
+            (result, beneficiary)
+            for result in results
+            for beneficiary in result.beneficiaries
+        ]
+        unattributed = [
+            result
+            for result in results
+            if abs(float(result.unattributed_damage_gain)) >= 0.5
+            or (not result.beneficiaries and result.affected_hits > 0)
+        ]
+        self.buff_benefit_table.setRowCount(len(rows) + len(unattributed))
+        row_index = 0
+        for result, beneficiary in rows:
+            values = (
+                result.source_character_name,
+                result.buff_name,
+                beneficiary.character_name,
+                f"{beneficiary.damage_gain:+,.0f}",
+                f"{beneficiary.recipient_gain_percent:+.2f}%",
+                f"{beneficiary.team_contribution_percent:+.2f}%",
+                f"{result.damage_gain:+,.0f}（{result.gain_percent:+.2f}%）",
+                f"{beneficiary.quantified_percent:.1f}%",
+            )
+            tooltip = (
+                f"{result.explanation}\n"
+                f"作用范围：{result.target_scope}；置信度：{result.confidence}。"
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(tooltip)
+                self.buff_benefit_table.setItem(row_index, column, item)
+            row_index += 1
+        for result in unattributed:
+            team_gain = (
+                result.unattributed_damage_gain
+                / result.without_buff_damage
+                * 100.0
+                if result.without_buff_damage > 0
+                else 0.0
+            )
+            values = (
+                result.source_character_name,
+                result.buff_name,
+                "无法归因",
+                f"{result.unattributed_damage_gain:+,.0f}",
+                "—",
+                f"{team_gain:+.2f}%",
+                f"{result.damage_gain:+,.0f}（{result.gain_percent:+.2f}%）",
+                f"{result.quantified_percent:.1f}%",
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(result.explanation)
+                self.buff_benefit_table.setItem(row_index, column, item)
+            row_index += 1
 
     def _request_recalculate(self) -> None:
         self._refresh_change_summary()

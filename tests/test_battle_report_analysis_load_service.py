@@ -47,7 +47,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             include_buff_counterfactuals=False,
         )
 
-    def test_memory_candidate_skips_persistence_and_compares_original(self) -> None:
+    def test_memory_candidate_compares_current_effective_build(self) -> None:
         candidate = SimpleNamespace(timeline_hits=(object(),))
         original = SimpleNamespace(timeline_hits=(object(),))
         combined = SimpleNamespace(timeline_hits=(object(),))
@@ -93,14 +93,14 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                     marginal_candidate=candidate_request,
                     include_buff_inference=True,
                     include_hit_replays=True,
-                    include_buff_counterfactuals=False,
+                    include_buff_counterfactuals=True,
                 ),
                 call(
                     12,
                     start_us=10,
                     end_us=20,
                     detail_scope=None,
-                    use_build_edit=False,
+                    use_build_edit=True,
                     include_buff_inference=True,
                     include_hit_replays=True,
                     include_buff_counterfactuals=False,

@@ -56,6 +56,35 @@ class BattleInferredCharacterFactService:
         ),)
 
     @staticmethod
+    def applicable_to_profiles(
+        profiles: Sequence[Mapping[str, Any]],
+        facts: Sequence[BattleInferredCharacterFact],
+    ) -> tuple[BattleInferredCharacterFact, ...]:
+        """Return only facts that would supplement the effective baseline."""
+
+        profiles_by_character: dict[int, Mapping[str, Any]] = {}
+        for profile in profiles:
+            try:
+                character_id = int(profile.get("character_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if character_id > 0:
+                profiles_by_character[character_id] = profile
+
+        applicable: list[BattleInferredCharacterFact] = []
+        for fact in facts:
+            profile = profiles_by_character.get(fact.character_id)
+            if profile is None or fact.fact_kind != "awaken_effect_active":
+                continue
+            selected = {
+                str(value)
+                for value in profile.get("selected_awaken_effect_ids") or ()
+            }
+            if fact.fact_value not in selected:
+                applicable.append(fact)
+        return tuple(applicable)
+
+    @staticmethod
     def apply_to_build(
         build: Mapping[str, Any] | None,
         facts: Sequence[BattleInferredCharacterFact],

@@ -156,6 +156,39 @@ def _snapshot(
 
 
 class BattleBuildCounterfactualServiceTests(unittest.TestCase):
+    def test_comparison_preserves_original_resolved_critical_branch(self) -> None:
+        hit = _hit(
+            "hit1",
+            character_id=1,
+            character_name="甲",
+            skill_name="技能甲",
+            damage=200.0,
+        )
+        original_replay = replace(
+            _replay("hit1", 150.0),
+            observed_damage=200.0,
+            non_critical_damage=100.0,
+            critical_damage=200.0,
+            selected_damage=200.0,
+            critical_state="critical",
+        )
+        candidate_replay = replace(
+            _replay("hit1", 260.0),
+            observed_damage=200.0,
+            non_critical_damage=120.0,
+            critical_damage=400.0,
+            selected_damage=120.0,
+            critical_state="non_critical",
+        )
+
+        comparison = BattleBuildCounterfactualService.compare(
+            original=_snapshot(hits=(hit,), baselines=(), replays=(original_replay,)),
+            candidate=_snapshot(hits=(hit,), baselines=(), replays=(candidate_replay,)),
+        )
+
+        self.assertEqual("structured_selected", comparison.hits[0].method)
+        self.assertEqual(400.0, comparison.hits[0].predicted_damage)
+
     def test_every_original_hit_receives_a_candidate_from_the_estimate_ladder(self) -> None:
         hits = (
             _hit("hit1", character_id=1, character_name="甲", skill_name="技能甲", damage=100),
@@ -196,7 +229,7 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
         self.assertEqual(4, len(result.hits))
         self.assertEqual(
             (
-                "structured_expected",
+                "structured_selected",
                 "skill_peer_estimate",
                 "panel_formula_estimate",
                 "unchanged_estimate",

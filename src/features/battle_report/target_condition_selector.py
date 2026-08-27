@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.domain.battle_report import BattleTargetCondition
+from src.services.battle_target_profile_snapshot_service import (
+    battle_target_profile_snapshots,
+)
 from src.ui.widgets import NoWheelComboBox
 
 
@@ -73,7 +76,7 @@ class BattleTargetConditionSelector(QGroupBox):
         )
         self.open_world_list.setMinimumHeight(120)
         layout.addWidget(self.open_world_list, 1, 0, 1, 4)
-        layout.addWidget(QLabel("当前计算对象"), 2, 0)
+        layout.addWidget(QLabel("主要展示对象"), 2, 0)
         self.open_world_primary = NoWheelComboBox()
         layout.addWidget(self.open_world_primary, 2, 1, 1, 3)
         layout.addWidget(QLabel("世界等级 / 属性档"), 3, 0)
@@ -101,7 +104,7 @@ class BattleTargetConditionSelector(QGroupBox):
         layout.addWidget(QLabel("难度"), 1, 0)
         self.clone_difficulty_combo = NoWheelComboBox()
         layout.addWidget(self.clone_difficulty_combo, 1, 1)
-        layout.addWidget(QLabel("当前计算对象"), 1, 2)
+        layout.addWidget(QLabel("主要展示对象"), 1, 2)
         self.clone_primary_combo = NoWheelComboBox()
         layout.addWidget(self.clone_primary_combo, 1, 3)
         self.clone_targets_label = QLabel()
@@ -132,7 +135,7 @@ class BattleTargetConditionSelector(QGroupBox):
         layout.addWidget(QLabel("分区"), 0, 4)
         self.outer_half_combo = NoWheelComboBox()
         layout.addWidget(self.outer_half_combo, 0, 5)
-        layout.addWidget(QLabel("当前计算对象"), 1, 0)
+        layout.addWidget(QLabel("主要展示对象"), 1, 0)
         self.outer_primary_combo = NoWheelComboBox()
         layout.addWidget(self.outer_primary_combo, 1, 1, 1, 5)
         self.outer_targets_label = QLabel()
@@ -579,7 +582,12 @@ class BattleTargetConditionSelector(QGroupBox):
                 "profile_set": variant.get("profile_set"),
                 "pack_id": variant.get("pack_id"),
                 "profile": dict(variant.get("profile") or {}),
+                "variants": (),
             }
+            selected = [
+                primary if row.get("target_id") == primary.get("target_id") else row
+                for row in selected
+            ]
         return self._preset(
             kind="open_world",
             ref="",
@@ -645,6 +653,13 @@ class BattleTargetConditionSelector(QGroupBox):
             for key, combo in self._feast_option_combos.items()
             if combo.currentData()
         }
+        if target is not None:
+            for option in options.values():
+                if option.get("effect_kind") == "health_up":
+                    target["profile"]["health_up"] = (
+                        float(target["profile"].get("health_up") or 0.0)
+                        + float(option.get("add_value") or 0.0)
+                    )
         preset = self._preset(
             kind="feast",
             ref=str(stage.get("stage_id") or ""),
@@ -660,6 +675,11 @@ class BattleTargetConditionSelector(QGroupBox):
                     preset["resistances"].get(damage_type, 0.0)
                     + float(option.get("add_value") or 0.0)
                 )
+                for profile in preset["selected_target_profiles"]:
+                    profile["resistances"][damage_type] = (
+                        profile["resistances"].get(damage_type, 0.0)
+                        + float(option.get("add_value") or 0.0)
+                    )
         return preset
 
     @staticmethod
@@ -680,6 +700,11 @@ class BattleTargetConditionSelector(QGroupBox):
             "primary_target_id": "" if not primary else str(primary["target_id"]),
             "difficulty_id": difficulty,
             "feast_options": options,
+            "selected_target_profiles": [
+                profile
+                for row in selected
+                for profile in battle_target_profile_snapshots(row)
+            ],
             "target_name": "" if not primary else str(primary["name_zh"]),
             "enemy_level": 90.0 if not primary else float(primary["monster_level"]),
             "scene": "open_world" if kind == "open_world" else "outer_realm",
@@ -757,6 +782,7 @@ class BattleTargetConditionSelector(QGroupBox):
             self.summary_label.setText("请选择至少一个对象；保存前不会参与逐击重放。")
         else:
             self.summary_label.setText(
-                f"已选 {selected_count} 个对象；当前逐击按“{preset['target_name']}”计算。"
+                f"已选 {selected_count} 个对象；逐击将按 targetId 与血量映射各自属性。"
+                "主要目标只用于默认展示。"
             )
         self.preset_changed.emit(preset)

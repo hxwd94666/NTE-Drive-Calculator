@@ -6,6 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from src.domain.battle_buff_counterfactual import BattleBuffCounterfactualResult
+from src.domain.battle_target import (
+    BattleSelectedTargetProfile,
+    BattleTargetInstanceResolution,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class BattleCharacterSummary:
@@ -81,6 +87,7 @@ class BattleSummary:
     skills: tuple[BattleSkillSummary, ...]
     abyss: BattleAbyssSummary
     quality: BattleQualitySummary
+    max_hp_reduction: float = 0.0
     sequence: int = 0
 
 
@@ -112,6 +119,10 @@ class StoredBattleSummary:
     saved_at_utc: str
     detail_scope: Literal["current", "first", "second"]
     summary: BattleSummary
+    nte_core_version: str | None = None
+    nte_core_protocol_version: int | None = None
+    nte_core_data_version: str | None = None
+    nte_core_executable_sha256: str | None = None
     analysis_start_us: int | None = None
     analysis_end_us: int | None = None
     analysis_character_id: int | None = None
@@ -230,6 +241,30 @@ class BattleInferredAction:
 
 
 @dataclass(frozen=True, slots=True)
+class BattleTreatmentEvent:
+    """One source-side treatment occurrence derived without mutating raw hits."""
+
+    event_id: str
+    relative_time_us: int
+    source_character_id: int
+    source_character_name: str = ""
+    source_action_id: str = ""
+    treatment_kind: str = ""
+    target_scope: str = "team"
+    evidence_kind: str = "formal_skill"
+    confidence: str = "中"
+    evidence_event_ids: tuple[str, ...] = ()
+    inference_basis: str = ""
+    target_character_ids: tuple[int, ...] = ()
+    raw_healing_amount: float | None = None
+    effective_healing_amount: float | None = None
+    is_periodic: bool = False
+    application_tick: int | None = None
+    pauses_during_time_stop: bool = True
+    amount_basis: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class BattleInferredInput:
     """Low-confidence input projection backed by one inferred action."""
 
@@ -315,7 +350,7 @@ class BattleTargetSummary:
 
 @dataclass(frozen=True, slots=True)
 class BattleTargetCondition:
-    """User-confirmed single-target inputs for enemy-side damage factors."""
+    """One saved encounter plus the legacy primary-target display profile."""
 
     target_name: str
     enemy_level: float
@@ -339,6 +374,8 @@ class BattleTargetCondition:
     witch_buff_property_id: str = ""
     witch_buff_value: float | None = None
     witch_buff_is_percent: bool = False
+    selected_target_profiles: tuple["BattleSelectedTargetProfile", ...] = ()
+    resolved_monster_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -496,6 +533,7 @@ class BattleMarginalResult:
     supported_damage: float
     unsupported_damage: float
     coverage_percent: float
+    damage_share_percent: float
     assumption: str
 
 
@@ -648,32 +686,9 @@ class BattleHitReplayResult:
     expected_damage: float | None = None
     corrected_expected_damage: float | None = None
     signed_error_percent: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class BattleBuffCounterfactualResult:
-    """Selected-range damage with one inferred Buff source removed."""
-
-    buff_key: str
-    source_character_id: int
-    source_character_name: str
-    buff_name: str
-    buff_asset_path: str
-    source_effect_definition_id: str
-    target_scope: str
-    interval_count: int
-    coverage_seconds: float
-    affected_hits: int
-    quantified_hits: int
-    baseline_damage: float
-    without_buff_damage: float
-    damage_gain: float
-    gain_percent: float
-    quantified_damage: float
-    quantified_percent: float
-    confidence: str
-    method: str
-    explanation: str
+    critical_policy: Literal[
+        "character", "fixed", "disabled", "unknown"
+    ] = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -715,6 +730,8 @@ class BattleAnalysisSnapshot:
     skills: tuple[BattleRangeSkillSummary, ...]
     targets: tuple[BattleTargetSummary, ...]
     baselines: tuple[BattleCharacterBaseline, ...]
+    treatment_events: tuple[BattleTreatmentEvent, ...] = ()
+    treatment_event_model_version: str = ""
     timeline_buff_intervals: tuple[BattleInferredBuffInterval, ...] = ()
     buff_intervals: tuple[BattleInferredBuffInterval, ...] = ()
     buff_inference_version: str = ""
@@ -738,6 +755,8 @@ class BattleAnalysisSnapshot:
     estimated_max_hp_reduction_damage: float = 0.0
     target_condition: BattleTargetCondition | None = None
     target_conditions_by_half: tuple[tuple[str, BattleTargetCondition], ...] = ()
+    target_instance_resolutions: tuple[BattleTargetInstanceResolution, ...] = ()
+    target_instance_mapping_required: bool = False
     hit_replays: tuple[BattleHitReplayResult, ...] = ()
     hit_replay_model_version: str = ""
     buff_counterfactuals: tuple[BattleBuffCounterfactualResult, ...] = ()

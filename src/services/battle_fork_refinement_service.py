@@ -12,6 +12,7 @@ from src.domain.battle_report import (
     BattleBuffModifierEvidence,
     BattleInferredAction,
     BattleInferredBuffInterval,
+    BattleTreatmentEvent,
 )
 from src.services.battle_damage_stack_buff_service import (
     demon_blade_damage_stack_rules,
@@ -51,13 +52,7 @@ _AUDITED_MARKERS = frozenset({
 })
 
 
-@dataclass(frozen=True, slots=True)
-class ForkTreatmentEvent:
-    """A source-side treatment occurrence; effective healing may be zero."""
-
-    event_id: str
-    relative_time_us: int
-    source_character_id: int
+ForkTreatmentEvent = BattleTreatmentEvent
 
 
 @dataclass(slots=True)

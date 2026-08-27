@@ -149,26 +149,6 @@ _DIRECT_RULES: dict[str, tuple[dict[str, Any], ...]] = {
         "scope": "self", "event": "PASSIVE_STATIC",
         "modifiers": (("DamageUpGeneralBase", 0.80, "battle-passive|ge-prefix-any=GE_Player_Daffodill_EntryAttack"),),
     },),
-    "PASSIVE-1075-GA_Oneiroi_Passive_2": (
-        {
-            "scope": "team",
-            "event": "ABILITY_EVENT|E",
-            "duration": 20.0,
-            "modifiers": (("DefIgnore", 0.05, ""),),
-        },
-        {
-            "scope": "team",
-            "event": "ABILITY_EVENT|QTE",
-            "duration": 20.0,
-            "modifiers": (("DefIgnore", 0.05, ""),),
-        },
-        {
-            "scope": "team",
-            "event": "ABILITY_EVENT|Q",
-            "duration": 20.0,
-            "modifiers": (("DefIgnore", 0.05, ""),),
-        },
-    ),
     "PASSIVE-1070-GA_Mitsuki_Passive2": ({
         "scope": "self",
         "event": (

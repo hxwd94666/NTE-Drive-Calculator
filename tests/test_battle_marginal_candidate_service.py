@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from src.domain.battle_report import BattleInferredCharacterFact
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidateService,
 )
@@ -74,6 +75,36 @@ class BattleMarginalCandidateServiceTests(unittest.TestCase):
             detail["equipment_contexts"]["candidate"]["items"][0]["uid_serial"],
         )
         self.assertEqual("battle_frozen", prepared["marginal_baseline_kind"])
+
+    def test_explicit_effect_in_active_baseline_hides_redundant_inferred_fact(
+        self,
+    ) -> None:
+        editor_data = _editor_data(active=True)
+        editor_data["details"][0]["profile"]["selected_awaken_effect_ids"] = [
+            "Effect5"
+        ]
+        editor_data["inferred_character_facts"] = (
+            BattleInferredCharacterFact(
+                fact_id="awaken-effect-active:1004:Effect5:Blood_Damage_LV6",
+                character_id=1004,
+                fact_kind="awaken_effect_active",
+                fact_value="Effect5",
+                source_gameplay_effect_id=(
+                    "GE_Player_Lacrimosa_Blood_Damage_LV6"
+                ),
+                confidence="高",
+                evidence_event_ids=("18:primary",),
+                model_version="battle-inferred-character-fact-v1",
+                inference_basis="test",
+            ),
+        )
+
+        prepared = BattleMarginalCandidateService.prepare_editor_data(
+            editor_data,
+            equipment_editable=True,
+        )
+
+        self.assertEqual((), prepared["inferred_character_facts"])
 
     def test_read_only_equipment_policy_strips_candidate_override(self) -> None:
         prepared = BattleMarginalCandidateService.prepare_editor_data(

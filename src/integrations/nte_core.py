@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import os
@@ -226,6 +227,7 @@ class NteCoreClient(NteCoreBattleQueryMixin):
         self._closed = threading.Event()
         self._threads: list[threading.Thread] = []
         self.hello_result: JsonObject | None = None
+        self.executable_sha256: str | None = None
 
     @property
     def process_id(self) -> int | None:
@@ -264,8 +266,15 @@ class NteCoreClient(NteCoreBattleQueryMixin):
         if sys.platform == "win32":
             creation_flags = subprocess.CREATE_NO_WINDOW
         try:
+            command = self._serve_command()
+            if self._base_command is None:
+                with Path(command[0]).open("rb") as executable_stream:
+                    self.executable_sha256 = hashlib.file_digest(
+                        executable_stream,
+                        "sha256",
+                    ).hexdigest().upper()
             self._process = subprocess.Popen(
-                self._serve_command(),
+                command,
                 cwd=str(self.cwd) if self.cwd is not None else None,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,

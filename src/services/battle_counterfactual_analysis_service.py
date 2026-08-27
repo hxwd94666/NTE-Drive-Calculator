@@ -15,7 +15,6 @@ from src.domain.battle_report import (
     BattleCharacterStat,
     BattleInferredBuffInterval,
     BattleMaxHpReductionEvent,
-    BattleMarginalResult,
     BattleRangeRoleSummary,
     BattleRangeSkillSummary,
     BattleTargetCondition,
@@ -56,9 +55,6 @@ from src.services.battle_zankou_form_buff_service import (
     BattleZankouFormBuffService,
     BattleZankouFormConfig,
 )
-from src.services.battle_marginal_calculation_service import (
-    BattleMarginalCalculationService,
-)
 from src.services.battle_timeline_projection_service import (
     TIMELINE_PROJECTION_MODEL_VERSION,
     BattleTimelineProjectionService,
@@ -77,9 +73,13 @@ from src.services.battle_fork_trigger_refinement_service import ForkCriticalEven
 from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService,
 )
+from src.services.battle_treatment_replay_service import (
+    TREATMENT_EVENT_MODEL_VERSION,
+    BattleTreatmentReplayService,
+)
 
 
-FORMULA_MODEL_VERSION = "battle-counterfactual-v17"
+FORMULA_MODEL_VERSION = "battle-counterfactual-v19"
 
 _REACTION_MARKERS = ("创生", "黯星", "浊燃", "浸染", "盈蓄", "失谐", "延滞", "倾陷", "reaction", "topple")
 _WEAVE_MARKERS = ("覆纹", "weave")
@@ -457,6 +457,33 @@ class BattleCounterfactualAnalysisService:
             ),
             default=0,
         ) + 1
+        zankou_form_intervals = (
+            BattleZankouFormBuffService.infer(
+                build=build,
+                actions=inferred_actions,
+                hits=all_hits,
+                battle_end_us=maximum,
+                config=zankou_form_config,
+                time_stop_intervals=intervals,
+            )
+            if infer_buffs
+            else ()
+        )
+        treatment_projection = BattleTreatmentReplayService.infer(
+            build=build,
+            actions=inferred_actions,
+            hits=all_hits,
+            battle_end_us=maximum,
+            time_stop_intervals=intervals,
+            state_buff_intervals=zankou_form_intervals,
+            zankou_effect_three_recover_ratio=(
+                zankou_form_config.effect_three_recover_ratio
+                if zankou_form_config is not None
+                else None
+            ),
+            infer_buffs=infer_buffs,
+        )
+        treatment_events = treatment_projection.events
         buff_intervals: tuple[BattleInferredBuffInterval, ...] = ()
         if infer_buffs:
             buff_intervals = BattleBuffInferenceService.infer(
@@ -465,24 +492,19 @@ class BattleCounterfactualAnalysisService:
                 hits=all_hits,
                 battle_end_us=maximum,
                 time_stop_intervals=intervals,
+                treatment_events=treatment_events,
                 critical_events=critical_events,
             )
             buff_intervals = tuple((
                 *buff_intervals,
+                *treatment_projection.buff_intervals,
                 *BattleFadiaHpStackService.infer(
                     build=build,
                     hits=all_hits,
                     battle_end_us=maximum,
                     max_hp_events=all_max_hp_events,
                 ),
-                *BattleZankouFormBuffService.infer(
-                    build=build,
-                    actions=inferred_actions,
-                    hits=all_hits,
-                    battle_end_us=maximum,
-                    config=zankou_form_config,
-                    time_stop_intervals=intervals,
-                ),
+                *zankou_form_intervals,
                 *BattleOuterRealmBuffService.infer(
                     BattleOuterRealmBuffService.apply_target_condition(
                         outer_realm_buff_config,
@@ -705,6 +727,8 @@ class BattleCounterfactualAnalysisService:
             inferred_actions=inferred_actions,
             inferred_inputs=inferred_inputs,
             timeline_damage_groups=timeline_damage_groups,
+            treatment_events=treatment_events,
+            treatment_event_model_version=TREATMENT_EVENT_MODEL_VERSION,
             timeline_buff_intervals=buff_intervals,
             hits=hits,
             roles=roles,
@@ -762,26 +786,4 @@ class BattleCounterfactualAnalysisService:
                 for hit in all_hits
                 if hit.direction == "outgoing"
             ),
-        )
-
-    @staticmethod
-    def default_marginal_units(
-        baseline: BattleCharacterBaseline,
-    ) -> dict[str, float]:
-        return BattleMarginalCalculationService.default_units(baseline)
-
-    @classmethod
-    def calculate_margins(
-        cls,
-        *,
-        analysis: BattleAnalysisSnapshot,
-        character_id: int,
-        edited_values: Mapping[str, float],
-        units: Mapping[str, float],
-    ) -> tuple[BattleMarginalResult, ...]:
-        return BattleMarginalCalculationService.calculate(
-            analysis=analysis,
-            character_id=character_id,
-            edited_values=edited_values,
-            units=units,
         )

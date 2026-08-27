@@ -224,10 +224,10 @@ class BattleDotStackStateServiceTests(unittest.TestCase):
             "尚未确认目标处于浊燃",
             states["nightmare-dot"].dot_final_multiplier_basis,
         )
-        self.assertEqual(1.0, states["scorch-first"].dot_final_multiplier)
+        self.assertEqual(1.5, states["scorch-first"].dot_final_multiplier)
         self.assertEqual(2, states["scorch-first"].active_dot_kind_count)
         self.assertIn(
-            "尚未确认目标处于浊燃",
+            "目标结算前已处于浊燃",
             states["scorch-first"].dot_final_multiplier_basis,
         )
 

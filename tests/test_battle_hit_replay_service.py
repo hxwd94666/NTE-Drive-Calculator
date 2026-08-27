@@ -157,6 +157,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         self.assertIn(f"{defense:.6f}", contribution.formula)
         self.assertIn("0.800000", contribution.formula)
         self.assertEqual("not_applicable", result.critical_state)
+        self.assertEqual("disabled", result.critical_policy)
         self.assertEqual(0.0, result.critical_rate)
         self.assertEqual("达芙蒂尔五觉·额外倾陷伤害", result.formula_type)
         self.assertIn("静态 TRUE 标签不改变", result.missing_evidence[-1])
@@ -402,8 +403,10 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             ),
         )
         self.assertEqual("not_applicable", creation.critical_state)
+        self.assertEqual("disabled", creation.critical_policy)
         self.assertEqual("non_critical", scorch.critical_state)
         self.assertEqual(0.50, scorch.critical_rate)
+        self.assertEqual("fixed", scorch.critical_policy)
         self.assertEqual(
             1.5,
             next(
@@ -495,6 +498,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
 
         result = BattleHitReplayService.replay(analysis, (evidence,))[0]
 
+        self.assertEqual("fixed", result.critical_policy)
         self.assertEqual(
             2.0,
             next(

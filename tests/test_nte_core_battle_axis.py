@@ -4,10 +4,25 @@ from __future__ import annotations
 import unittest
 
 from src.integrations.nte_core import NteCoreProtocolError
-from src.integrations.nte_core_battle import parse_battle_axis, parse_battle_record
+from src.integrations.nte_core_battle import (
+    parse_battle_axis,
+    parse_battle_record,
+    parse_battle_summary,
+)
 
 
 class NteCoreBattleAxisTests(unittest.TestCase):
+    def test_summary_preserves_separate_max_hp_reduction_aggregate(self) -> None:
+        summary = parse_battle_summary(
+            {
+                "total_damage": 120.0,
+                "max_hp_reduction": 30.0,
+            }
+        )
+
+        self.assertEqual(120.0, summary.total_damage)
+        self.assertEqual(30.0, summary.max_hp_reduction)
+
     def test_record_preserves_decimal_identity_and_explicit_completeness(self) -> None:
         record = parse_battle_record(
             {

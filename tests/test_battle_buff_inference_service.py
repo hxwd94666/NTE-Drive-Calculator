@@ -648,7 +648,7 @@ class BattleBuffInferenceServiceTests(unittest.TestCase):
         ))
         self.assertEqual("MoveSpeedMaxMult", intervals[0].modifiers[0].property_id)
 
-    def test_suit_condition_counts_modules_matching_core_required_shapes(self):
+    def test_suit_condition_requires_distinct_core_blueprint_shapes(self):
         build = {
             "characters": [{
                 "character_id": 1003,
@@ -657,7 +657,10 @@ class BattleBuffInferenceServiceTests(unittest.TestCase):
                 "equipment": [
                     {"kind": "core", "suit_id": "Suit11", "geometry": "Core"},
                     {"kind": "module", "suit_id": "", "geometry": "ZhiJiao1"},
-                    {"kind": "module", "suit_id": "", "geometry": "ZhiJiao1"},
+                    {"kind": "module", "suit_id": "", "geometry": "ZhiJiao2"},
+                    {"kind": "module", "suit_id": "", "geometry": "ZhiJiao2"},
+                    {"kind": "module", "suit_id": "", "geometry": "ZhiJiao3"},
+                    {"kind": "module", "suit_id": "", "geometry": "ZhiJiao3"},
                     {"kind": "module", "suit_id": "", "geometry": "Hen3"},
                 ],
             }],

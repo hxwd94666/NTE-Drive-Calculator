@@ -23,6 +23,10 @@ from src.domain.battle_report import (
 from src.services.battle_damage_composition_service import (
     BattleDamageCompositionService,
 )
+from src.services.battle_replay_formula_ratio_service import (
+    paired_replay_formula,
+    replay_formula_value,
+)
 from src.services.damage_calculation_service import (
     DamageScene,
     EnemyDefenseProfileInput,
@@ -35,7 +39,7 @@ from src.services.damage_calculation_service import (
 )
 
 
-BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v1"
+BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v2"
 
 _ELEMENT_PROPERTY = {
     "chaos": "DamageUpChaosBase",
@@ -67,16 +71,6 @@ def _stats(baseline: BattleCharacterBaseline | None) -> dict[str, float]:
     if baseline is None:
         return {}
     return {row.property_id: float(row.value) for row in baseline.stats}
-
-
-def _replay_value(replay: BattleHitReplayResult | None) -> tuple[float | None, str]:
-    if replay is None:
-        return None, ""
-    if replay.expected_damage is not None and replay.expected_damage > 0:
-        return float(replay.expected_damage), "structured_expected"
-    if replay.selected_damage is not None and replay.selected_damage > 0:
-        return float(replay.selected_damage), "structured_selected"
-    return None, ""
 
 
 def _safe_ratio(candidate: float, baseline: float) -> float | None:
@@ -137,11 +131,19 @@ class BattleBuildCounterfactualService:
         projected_hits: list[BattleBuildHitCounterfactual] = []
         for event_id, hit in original_hits.items():
             candidate_hit = candidate_hits.get(event_id, hit)
-            baseline_formula_damage, _baseline_formula_method = _replay_value(
-                original_replays.get(event_id)
+            formula_pair = paired_replay_formula(
+                original_replays.get(event_id),
+                candidate_replays.get(event_id),
             )
-            candidate_formula_damage, _candidate_formula_method = _replay_value(
-                candidate_replays.get(event_id)
+            baseline_formula_damage = (
+                formula_pair.baseline_damage
+                if formula_pair is not None
+                else replay_formula_value(original_replays.get(event_id))[0]
+            )
+            candidate_formula_damage = (
+                formula_pair.candidate_damage
+                if formula_pair is not None
+                else replay_formula_value(candidate_replays.get(event_id))[0]
             )
             ratio, method, confidence, explanation = cls._estimate_ratio(
                 hit=hit,
@@ -208,6 +210,7 @@ class BattleBuildCounterfactualService:
         )
         assumptions = (
             "固定原战报动作、逐击、目标与时段，只替换角色配置后重放。",
+            "原击已识别暴击分支时，候选沿用同一分支；分支不唯一但暴击策略已知时才使用期望公式。",
             "结构化公式不可用时依次采用同技能、同类型、角色面板和同比保持估计；原轴伤害覆盖率固定为100%。",
             "已归因生命上限结算按来源机制联动：安魂曲五觉跟随对应噩梦逐击，法帝娅被动跟随其固有生命上限；证据不足时才固定原值。",
             "候选配置新增或删除动作、命中次数、技能循环和完全未知的额外结算，本阶段按零增量保守估计。",
@@ -397,23 +400,16 @@ class BattleBuildCounterfactualService:
     ) -> dict[str, tuple[float, str]]:
         result: dict[str, tuple[float, str]] = {}
         for event_id in hits:
-            original_value, original_method = _replay_value(
-                original_replays.get(event_id)
+            pair = paired_replay_formula(
+                original_replays.get(event_id),
+                candidate_replays.get(event_id),
             )
-            candidate_value, candidate_method = _replay_value(
-                candidate_replays.get(event_id)
-            )
-            if original_value is None or candidate_value is None:
+            if pair is None:
                 continue
-            ratio = _safe_ratio(candidate_value, original_value)
+            ratio = _safe_ratio(pair.candidate_damage, pair.baseline_damage)
             if ratio is None:
                 continue
-            method = (
-                "structured_expected"
-                if original_method == candidate_method == "structured_expected"
-                else "structured_selected"
-            )
-            result[event_id] = ratio, method
+            result[event_id] = ratio, pair.method
         return result
 
     @classmethod

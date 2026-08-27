@@ -21,15 +21,14 @@ def infer_mixed_outer_realm(
     range_end_us: int | None,
     infer_half: Callable[..., Any],
 ) -> Any | None:
-    """Return a season-only encounter when both selected halves resolve alike."""
+    """Return a season-only encounter when both complete halves resolve alike."""
 
+    del range_start_us, range_end_us
     if str(combat_context_kind or "").strip().casefold() != "abyss" or floor is None:
         return None
     selected_rows = tuple(
         row
         for row in (evidence or {}).get("hits") or ()
-        if (range_start_us is None or int(row.get("relative_time_us") or 0) >= range_start_us)
-        and (range_end_us is None or int(row.get("relative_time_us") or 0) < range_end_us)
     )
     grouped = {
         half: tuple(
@@ -70,9 +69,14 @@ def infer_mixed_outer_realm(
         resolved[0],
         environment_ref=f"{config_id}|{int(floor)}|mixed",
         environment_name=f"轨外之境第{int(floor)}层上下半",
+        confidence=(
+            "低" if any(item.confidence == "低" for item in resolved)
+            else "中" if any(item.confidence == "中" for item in resolved)
+            else "高"
+        ),
         inference_basis=(
-            "当前范围同时包含上下半；两半的目标数量与初始最大生命"
-            f"各自唯一命中同一轨外配置 {config_id}。只合并赛季环境，"
+            "完整遭遇同时包含上下半；两半的逐目标初始最大生命"
+            f"各自选到同一轨外配置 {config_id}。只合并赛季环境，"
             "不合并两半的敌方属性。"
         ),
         scope_half="",
@@ -84,10 +88,25 @@ def infer_mixed_outer_realm(
             for item in resolved
             for condition in item.target_conditions_by_half
         ),
+        target_mapping_conditions_by_half=tuple(
+            condition
+            for item in resolved
+            for condition in item.target_mapping_conditions_by_half
+        ),
         ambiguous=any(item.ambiguous for item in resolved),
         ambiguity_alternatives=tuple(
             alternative
             for item in resolved
             for alternative in item.ambiguity_alternatives
         ),
+        alternative_environment_refs=tuple(
+            alternative
+            for item in resolved
+            for alternative in item.alternative_environment_refs
+        ),
+        selection_mode=(
+            "ambiguous_default" if any(item.ambiguous for item in resolved)
+            else "unique_hard"
+        ),
+        default_reason="上下半默认均来自完整证据，且属于同一轨外配置。",
     )

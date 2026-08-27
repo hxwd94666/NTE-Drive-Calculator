@@ -101,6 +101,9 @@ _SYSTEM_COMPOSITION_CHANNELS = {
     "other_environment",
     "other_shared",
 }
+_CHARACTER_ATTRIBUTABLE_SYSTEM_CHANNELS = {
+    "other_reflected_projectile",
+}
 
 _DOT_CHANNELS = {
     "dot",
@@ -306,6 +309,8 @@ def classify_battle_hit_reaction_trigger(
 
 
 def _coarse_role_channel(key: str, label: str) -> tuple[str, str]:
+    if key in _CHARACTER_ATTRIBUTABLE_SYSTEM_CHANNELS:
+        return key, label
     if key in _REACTION_CHANNELS:
         return key, _COARSE_REACTION_LABELS.get(key, label)
     if key in _DOT_CHANNELS:
@@ -328,6 +333,8 @@ def _fine_hit_channel(
     key: str,
     label: str,
 ) -> tuple[str, str]:
+    if key in _CHARACTER_ATTRIBUTABLE_SYSTEM_CHANNELS:
+        return key, label
     coarse_key, _coarse_label = _coarse_role_channel(key, label)
     if key in _REACTION_CHANNELS or key == "other_topple":
         return coarse_key, _coarse_label
@@ -440,19 +447,20 @@ def _finalize_composition(
                 - classified_damage
             )
         total_damage = max(reported_damage, sum(channel_damage.values()))
-        roles.append(
-            RoleDamageComposition(
-                character_id=character_id,
-                character_name=character_name,
-                total_damage=total_damage,
-                entries=_entries(
-                    channel_damage,
-                    dict(role_labels.get(character_id, {})),
-                    denominator=total_damage,
-                    include_role_baseline=True,
-                ),
-            )
+        entries = _entries(
+            channel_damage,
+            dict(role_labels.get(character_id, {})),
+            denominator=total_damage,
+            include_role_baseline=True,
         )
+        if total_damage <= 0.0 or not entries:
+            continue
+        roles.append(RoleDamageComposition(
+            character_id=character_id,
+            character_name=character_name,
+            total_damage=total_damage,
+            entries=entries,
+        ))
 
     other_total = sum(public_damage.values())
     system_total = sum(system_damage.values())
@@ -518,10 +526,25 @@ class BattleDamageCompositionService:
 
         for skill in skills:
             public_channel = _public_other_channel(skill)
-            if public_channel is not None and public_channel[0] in _SYSTEM_COMPOSITION_CHANNELS:
+            has_character_owner = skill.character_id in known_character_ids
+            character_attributable = (
+                public_channel is not None
+                and public_channel[0] in _CHARACTER_ATTRIBUTABLE_SYSTEM_CHANNELS
+                and has_character_owner
+            )
+            if (
+                public_channel is not None
+                and public_channel[0] in _SYSTEM_COMPOSITION_CHANNELS
+                and not character_attributable
+            ):
                 key, label = public_channel
                 system_damage[key] += skill.damage
                 system_labels[key] = label
+                continue
+            if character_attributable and public_channel is not None:
+                key, label = public_channel
+                role_damage[skill.character_id][key] += skill.damage
+                role_labels[skill.character_id][key] = label
                 continue
             if public_channel is not None or skill.character_id not in known_character_ids:
                 key, label = ("other_unattributed", "未归因伤害")
@@ -611,7 +634,11 @@ class BattleDamageCompositionService:
                     role_damage[character_id]["topple"] += damage
                     role_labels[character_id]["topple"] = "倾陷"
                 continue
-            if key in _SYSTEM_COMPOSITION_CHANNELS:
+            character_attributable = (
+                key in _CHARACTER_ATTRIBUTABLE_SYSTEM_CHANNELS
+                and hit.character_id is not None
+            )
+            if key in _SYSTEM_COMPOSITION_CHANNELS and not character_attributable:
                 system_damage[key] += hit.damage
                 system_labels[key] = label
                 continue

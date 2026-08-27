@@ -389,8 +389,10 @@ content are never sent to stdout.
 
 `subtract_time_stop` is required and selects the same timing calculation used by
 the GUI. The result is null before any combat or abyss data exists. Otherwise it
-contains total duration, damage, DPS, damage taken, hit count, character rows,
-skill rows, both abyss halves, and the redacted parse-quality counters. Stable
+contains total duration, damage, maximum-HP reduction, DPS, damage taken, hit
+count, character rows, skill rows, both abyss halves, and the redacted
+parse-quality counters. `max_hp_reduction` is the authoritative aggregate of
+maximum-HP reduction and remains separate from `total_damage`. Stable
 `dps_time_mode` values are `subtract_time_stop` and `wall_clock`; quality source
 values are `live`, `pcapng_replay`, `json_replay`, and `unknown`. Each skill row's
 `name` prefers a stable ability or GameplayEffect grouping key over a localized
@@ -427,7 +429,7 @@ Core shuts down; `battle.reset` ends its availability and the next battle gets
 a new ID. Passing a no-longer-available or unknown ID returns
 `BATTLE_RECORD_NOT_FOUND` instead of silently switching to the current battle.
 
-The response contract is version 4. Version 4 adds per-hit
+The response contract is version 4. Version 4 adds aggregate summary and per-hit
 `max_hp_reduction`; version 3 added authoritative per-hit `overkill_damage`.
 The response includes the shared `generation`,
 capture operation ID, state/source, battle bounds, clipped time-stop intervals,

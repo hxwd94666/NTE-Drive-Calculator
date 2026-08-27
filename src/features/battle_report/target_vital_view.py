@@ -394,9 +394,10 @@ class BattleTargetVitalPanel(QWidget):
                 "若实战存在多个敌人，本页生命上限结算不可作为可靠结果。"
             ),
             "user_confirmed_single_target": (
-                "本记录没有正式目标实例 ID；用户已明确只选择一个当前计算对象，"
+                "本记录没有正式目标实例 ID；用户已明确只选择一个对象，"
                 "分析投影已把全部对敌逐击绑定到该对象。该身份属于用户证据，"
-                "不会写回或冒充 nte-core 原始实例 ID。"
+                "只用于生命证据分组，不会写回、冒充 nte-core 原始实例 ID，"
+                "也不会作为新逐击敌方属性的主要目标回退。"
             ),
         }.get(
             analysis.target_identity_mode,
@@ -454,6 +455,7 @@ class BattleTargetVitalPanel(QWidget):
                 "environment_kind",
                 "environment_ref",
                 "selected_target_ids",
+                "selected_target_profiles",
                 "primary_target_id",
                 "difficulty_id",
                 "feast_options",

@@ -54,6 +54,10 @@ _HISTORY_SELECT = """
         record.raw_summary_sha256,
         record.nte_core_record_id,
         record.nte_core_contract_version,
+        record.nte_core_version,
+        record.nte_core_protocol_version,
+        record.nte_core_data_version,
+        record.nte_core_executable_sha256,
         record.axis_complete,
         record.axis_first_sequence,
         record.axis_total_hits,
@@ -86,6 +90,24 @@ def _non_negative_number(value: Any, label: str) -> float:
     if not math.isfinite(number) or number < 0:
         raise UserDataValidationError(f"{label} 必须是有限非负数")
     return number
+
+
+def _optional_text(value: Any) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _optional_sha256(value: Any, label: str) -> str | None:
+    normalized = _optional_text(value)
+    if normalized is None:
+        return None
+    if len(normalized) != 64:
+        raise UserDataValidationError(f"{label} 必须是 64 位 SHA-256")
+    try:
+        int(normalized, 16)
+    except ValueError as error:
+        raise UserDataValidationError(f"{label} 必须是十六进制 SHA-256") from error
+    return normalized.upper()
 
 
 class BattleReportDaoMixin(UserDataDaoMixinHost):
@@ -146,6 +168,10 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
         payload_schema_version: int,
         raw_summary_json: str,
         raw_summary_sha256: str,
+        nte_core_version: str | None = None,
+        nte_core_protocol_version: int | None = None,
+        nte_core_data_version: str | None = None,
+        nte_core_executable_sha256: str | None = None,
     ) -> dict[str, Any]:
         """Insert one final summary and enforce account-wide automatic FIFO."""
 
@@ -192,6 +218,21 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
             payload_schema_version,
             "payload_schema_version",
             minimum=1,
+        )
+        normalized_core_version = _optional_text(nte_core_version)
+        normalized_core_protocol_version = (
+            None
+            if nte_core_protocol_version is None
+            else _integer(
+                nte_core_protocol_version,
+                "nte_core_protocol_version",
+                minimum=1,
+            )
+        )
+        normalized_core_data_version = _optional_text(nte_core_data_version)
+        normalized_core_sha256 = _optional_sha256(
+            nte_core_executable_sha256,
+            "nte_core_executable_sha256",
         )
         captured_at = _required_text(captured_at_utc, "captured_at_utc")
         finalized_at = _required_text(finalized_at_utc, "finalized_at_utc")
@@ -240,10 +281,12 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
                     total_damage_taken, total_hits, character_count, skill_count,
                     character_ids_json, abyss_detected, abyss_success,
                     payload_schema_version, raw_summary_json, raw_summary_sha256,
+                    nte_core_version, nte_core_protocol_version,
+                    nte_core_data_version, nte_core_executable_sha256,
                     created_at_utc
                 ) VALUES (
                     ?, 'nte_core_summary', 'summary_only', ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -268,6 +311,10 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
                     normalized_schema_version,
                     raw_json,
                     supplied_sha256,
+                    normalized_core_version,
+                    normalized_core_protocol_version,
+                    normalized_core_data_version,
+                    normalized_core_sha256,
                     now,
                 ),
             )

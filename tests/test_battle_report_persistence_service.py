@@ -23,7 +23,12 @@ from src.services.battle_report_history_service import (
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
-def _summary(*, total_damage: float = 120.0, total_hits: int = 12) -> BattleSummary:
+def _summary(
+    *,
+    total_damage: float = 120.0,
+    total_hits: int = 12,
+    max_hp_reduction: float = 0.0,
+) -> BattleSummary:
     character = BattleCharacterSummary(
         character_id=1051,
         name="测试角色",
@@ -43,6 +48,7 @@ def _summary(*, total_damage: float = 120.0, total_hits: int = 12) -> BattleSumm
         skills=(),
         abyss=BattleAbyssSummary(detected=False),
         quality=BattleQualitySummary(),
+        max_hp_reduction=max_hp_reduction,
     )
 
 
@@ -80,16 +86,23 @@ class BattleReportPersistenceServiceTests(unittest.TestCase):
     def test_final_summary_is_saved_with_complete_raw_payload(self) -> None:
         payload = {
             "total_damage": 120.0,
+            "max_hp_reduction": 30.0,
             "total_hits": 12,
             "abyss": {"detected": False, "floor": None},
             "quality": {"abyss_event_count": 4},
         }
         outcome = self._service().finalize_summary(
             raw_summary_payload=payload,
-            summary=_summary(),
+            summary=_summary(max_hp_reduction=30.0),
             capture_operation_id=self.operation.operation_id,
             captured_at_utc="2026-08-07T00:00:00+00:00",
             finalized_at_utc="2026-08-07T00:00:10+00:00",
+            nte_core_provenance={
+                "core_version": "0.4.3",
+                "protocol_version": 1,
+                "data_version": "1",
+                "executable_sha256": "A" * 64,
+            },
         )
 
         self.assertEqual("saved", outcome.status)
@@ -100,6 +113,11 @@ class BattleReportPersistenceServiceTests(unittest.TestCase):
         assert record is not None
         self.assertEqual(payload, record["raw_summary_payload"])
         self.assertEqual((1051,), record["character_ids"])
+        self.assertNotIn("max_hp_reduction", record)
+        self.assertEqual("0.4.3", record["nte_core_version"])
+        self.assertEqual(1, record["nte_core_protocol_version"])
+        self.assertEqual("1", record["nte_core_data_version"])
+        self.assertEqual("A" * 64, record["nte_core_executable_sha256"])
 
     def test_empty_summary_is_not_persisted(self) -> None:
         outcome = self._service().finalize_summary(

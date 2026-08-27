@@ -151,7 +151,7 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
         self.assertEqual(100.0, entries["direct"])
         self.assertEqual(50.0, entries["reaction_scorch"])
 
-    def test_selected_hit_range_builds_every_role_composition(self) -> None:
+    def test_attributed_reflection_stays_with_its_packet_character(self) -> None:
         def hit(
             event_id: str,
             damage: float,
@@ -207,13 +207,70 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
         entries = {entry.key: entry.damage for entry in composition.roles[0].entries}
         self.assertEqual(100.0, entries["direct"])
         self.assertEqual(50.0, entries["reaction_nova"])
-        self.assertEqual(150.0, composition.roles[0].total_damage)
+        self.assertEqual(30.0, entries["other_reflected_projectile"])
+        self.assertEqual(180.0, composition.roles[0].total_damage)
+        self.assertEqual(0.0, composition.other_total_damage)
+        self.assertEqual(0.0, composition.system_total_damage)
+        self.assertEqual(
+            "敌方飞弹反射伤害",
+            next(
+                entry.label
+                for entry in composition.roles[0].entries
+                if entry.key == "other_reflected_projectile"
+            ),
+        )
+
+    def test_reflection_without_character_evidence_stays_in_system_damage(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="1:primary",
+            sequence=1,
+            relative_time_us=1_000_000,
+            character_id=None,
+            character_name="未知角色",
+            skill_name="敌方飞弹反射伤害",
+            damage_name="敌方飞弹反射伤害",
+            damage_component="",
+            attack_type="其他",
+            damage_attribute="unknown",
+            target_id="target",
+            target_name="目标",
+            damage=30.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="mechanic",
+            gameplay_effect_id="GE_boss_05_HitBullet_Dmg_BP",
+        )
+
+        composition = BattleDamageCompositionService.calculate_from_hits(
+            roles=(),
+            hits=(hit,),
+            segment_total_damage=30.0,
+        )
+
+        self.assertEqual((), composition.roles)
         self.assertEqual(0.0, composition.other_total_damage)
         self.assertEqual(30.0, composition.system_total_damage)
         self.assertEqual(
             "敌方飞弹反射伤害",
             composition.system_entries[0].label,
         )
+
+    def test_zero_damage_unknown_role_is_not_returned(self) -> None:
+        composition = BattleDamageCompositionService.calculate(
+            characters=(BattleCharacterSummary(
+                character_id=0,
+                name="未知角色",
+                hits=0,
+                damage=0.0,
+                dps=0.0,
+                damage_share_percent=0.0,
+            ),),
+            skills=(),
+            segment_total_damage=0.0,
+        )
+
+        self.assertEqual((), composition.roles)
+        self.assertEqual((), composition.other_entries)
 
     def test_selected_range_adds_attributed_max_hp_settlement_channel(self) -> None:
         event = BattleMaxHpReductionEvent(

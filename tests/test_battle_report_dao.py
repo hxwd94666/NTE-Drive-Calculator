@@ -368,6 +368,26 @@ class BattleReportDaoTests(unittest.TestCase):
         self.assertIn("max_hp_reduction", hit_columns)
         self.assertIn("finalization_incomplete_reason", capture_columns)
 
+    def test_existing_v34_database_adds_frozen_target_profiles(self) -> None:
+        legacy_path = Path(self.temporary.name) / "legacy_v34.sqlite3"
+        with patch.object(user_data_base, "SCHEMA_VERSION", 34):
+            with UserDataDao(
+                legacy_path,
+                account_id="legacy",
+                account_name="旧账号",
+            ) as legacy:
+                self.assertEqual(34, legacy.summary()["schema_version"])
+
+        with UserDataDao(legacy_path) as migrated:
+            columns = {
+                row[1]: row[4]
+                for row in migrated._db().execute(
+                    "PRAGMA table_info(battle_target_condition)"
+                )
+            }
+
+        self.assertEqual("'[]'", columns["selected_target_profiles_json"])
+
 
 if __name__ == "__main__":
     unittest.main()

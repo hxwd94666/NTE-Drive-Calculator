@@ -28,6 +28,86 @@ _TARGET_RESISTANCE_COLUMNS = {
 }
 
 
+def _selected_target_profiles(value: object) -> list[dict[str, Any]]:
+    if value in (None, ()):
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise UserDataValidationError("目标属性档案必须是数组")
+    result = []
+    for ordinal, raw in enumerate(value, start=1):
+        if not isinstance(raw, dict):
+            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案必须是对象")
+        static_target_id = str(raw.get("static_target_id") or "").strip()
+        selection_target_id = str(
+            raw.get("selection_target_id") or static_target_id
+        ).strip()
+        if not static_target_id or not selection_target_id:
+            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案缺少正式 ID")
+        resistances = raw.get("resistances") or {}
+        if not isinstance(resistances, dict):
+            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案抗性必须是对象")
+        result.append({
+            "static_target_id": static_target_id,
+            "selection_target_id": selection_target_id,
+            "target_name": str(raw.get("target_name") or static_target_id).strip(),
+            "monster_class_path": str(raw.get("monster_class_path") or "").strip(),
+            "monster_count": _integer(
+                raw.get("monster_count") or 1,
+                f"第 {ordinal} 个目标数量",
+                minimum=1,
+            ),
+            "max_hp": _finite_number(
+                raw.get("max_hp"), f"第 {ordinal} 个目标最大生命", minimum=1.0
+            ),
+            "monster_level": _finite_number(
+                raw.get("monster_level"),
+                f"第 {ordinal} 个目标等级",
+                minimum=1.0,
+                maximum=999.0,
+            ),
+            "defense_base": (
+                None
+                if raw.get("defense_base") in (None, "")
+                else _finite_number(
+                    raw.get("defense_base"),
+                    f"第 {ordinal} 个目标 DefBase",
+                    minimum=0.0,
+                )
+            ),
+            "defense_up": _finite_number(
+                raw.get("defense_up") or 0.0,
+                f"第 {ordinal} 个目标 DefUp",
+                minimum=-1.0,
+                maximum=10.0,
+            ),
+            "defense_add": _finite_number(
+                raw.get("defense_add") or 0.0,
+                f"第 {ordinal} 个目标 DefAdd",
+                minimum=-1_000_000_000.0,
+                maximum=1_000_000_000.0,
+            ),
+            "topple_limit": _finite_number(
+                raw.get("topple_limit") or 50.0,
+                f"第 {ordinal} 个目标 UnbalMax",
+                minimum=0.0,
+                maximum=1_000_000.0,
+            ),
+            "resistances": {
+                str(key): _finite_number(
+                    number,
+                    f"第 {ordinal} 个目标 {key} 抗性",
+                    minimum=-5.0,
+                    maximum=5.0,
+                )
+                for key, number in resistances.items()
+                if str(key).strip()
+            },
+            "profile_set": str(raw.get("profile_set") or "").strip(),
+            "pack_id": str(raw.get("pack_id") or "").strip(),
+        })
+    return result
+
+
 class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
     def load_battle_target_condition(
         self,
@@ -48,6 +128,10 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
         }
         row["selected_target_ids"] = _decoded(
             row.pop("selected_target_ids_json"),
+            [],
+        )
+        row["selected_target_profiles"] = _decoded(
+            row.pop("selected_target_profiles_json"),
             [],
         )
         row["feast_options"] = _decoded(
@@ -86,6 +170,14 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
         selected_target_ids = tuple(dict.fromkeys(
             str(value).strip() for value in raw_target_ids if str(value).strip()
         ))
+        selected_target_profiles = _selected_target_profiles(
+            condition.get("selected_target_profiles")
+        )
+        profile_selection_ids = {
+            row["selection_target_id"] for row in selected_target_profiles
+        }
+        if profile_selection_ids - set(selected_target_ids):
+            raise UserDataValidationError("目标属性档案必须属于已选目标")
         primary_target_id = str(
             condition.get("primary_target_id") or ""
         ).strip()
@@ -221,6 +313,7 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
                     environment_kind,
                     environment_ref,
                     selected_target_ids_json,
+                    selected_target_profiles_json,
                     primary_target_id,
                     difficulty_id,
                     feast_options_json,
@@ -232,7 +325,7 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
                     updated_at_utc
                 ) VALUES (
                     ?, 'user_confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(battle_record_id) DO UPDATE SET
                     source_kind = excluded.source_kind,
@@ -256,6 +349,7 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
                     environment_kind = excluded.environment_kind,
                     environment_ref = excluded.environment_ref,
                     selected_target_ids_json = excluded.selected_target_ids_json,
+                    selected_target_profiles_json = excluded.selected_target_profiles_json,
                     primary_target_id = excluded.primary_target_id,
                     difficulty_id = excluded.difficulty_id,
                     feast_options_json = excluded.feast_options_json,
@@ -281,6 +375,7 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
                     environment_kind,
                     environment_ref or None,
                     _json(list(selected_target_ids)),
+                    _json(selected_target_profiles),
                     primary_target_id or None,
                     difficulty_id,
                     _json(feast_options),

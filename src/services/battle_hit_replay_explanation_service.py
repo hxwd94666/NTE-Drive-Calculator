@@ -70,7 +70,7 @@ _CRIT_STATES = {
 
 _COUNTERFACTUAL_METHOD_LABELS = {
     "structured_expected": "原始/候选结构化期望公式比值",
-    "structured_selected": "原始/候选结构化已选公式比值",
+    "structured_selected": "原始/候选结构化同一实测分支公式比值",
     "skill_peer_estimate": "同技能已重放逐击中位比值",
     "type_peer_estimate": "同角色同伤害类型中位比值",
     "panel_formula_estimate": "角色面板与目标乘区比值",

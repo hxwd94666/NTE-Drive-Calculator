@@ -83,6 +83,33 @@ class BattleInferredCharacterFactServiceTests(unittest.TestCase):
             "selected_awaken_effect_ids"
         ])
 
+    def test_only_facts_missing_from_effective_profiles_are_applicable(self) -> None:
+        evidence = {
+            "hits": [
+                {
+                    "sequence_text": "18",
+                    "direction": "outgoing",
+                    "character_id": 1004,
+                    "gameplay_effect_name": (
+                        "GE_Player_Lacrimosa_Blood_Damage_LV6"
+                    ),
+                }
+            ]
+        }
+        facts = BattleInferredCharacterFactService.infer(evidence)
+
+        missing = BattleInferredCharacterFactService.applicable_to_profiles(
+            [{"character_id": 1004, "selected_awaken_effect_ids": []}],
+            facts,
+        )
+        explicit = BattleInferredCharacterFactService.applicable_to_profiles(
+            [{"character_id": 1004, "selected_awaken_effect_ids": ["Effect5"]}],
+            facts,
+        )
+
+        self.assertEqual(facts, missing)
+        self.assertEqual((), explicit)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -111,6 +111,13 @@ def freeze_equipment_context(context: Mapping[str, Any]) -> list[dict[str, Any]]
             for field in _ITEM_FIELDS
             if field in source
         }
+        # Inventory cores legitimately have no occupied-grid count.  Battle edit
+        # copies use one pointer-free shape for cores and modules, where the
+        # persisted canonical value is 0 for a core instead of SQLite/JSON null.
+        # Keep module values untouched so missing or malformed drive geometry is
+        # still rejected by the persistence boundary.
+        if row.get("kind") == "core" and row.get("grid_count") is None:
+            row["grid_count"] = 0
         row.update(
             {
                 "uid_slot": uid_slot,

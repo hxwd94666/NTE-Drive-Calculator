@@ -1,5 +1,5 @@
-# 在正式治疗事件缺失时用装备者 E/Q 起点补足错误的门触发轴。
-"""Door fork inference with formal-event priority and an explicit fallback."""
+# 仅按来源侧正式治疗事件重放错误的门，不从技能动作猜治疗。
+"""Door fork inference driven by the shared treatment-event axis."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from src.domain.battle_report import (
     BattleInferredAction,
     BattleInferredBuffInterval,
 )
-from src.services.battle_fork_default_policy import DOOR_FALLBACK_INPUT_KINDS
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
     project_timeline_time_us,
@@ -63,7 +62,7 @@ def _expiry(
 
 
 class BattleForkDoorRefinementService:
-    """Infer Door intervals without double-counting formal and fallback events."""
+    """Infer Door intervals only from the shared formal treatment-event axis."""
 
     @classmethod
     def infer(
@@ -75,6 +74,7 @@ class BattleForkDoorRefinementService:
         battle_end_us: int,
         time_stop_intervals: Sequence[tuple[int | None, int | None]],
     ) -> tuple[BattleInferredBuffInterval, ...]:
+        del actions
         results: list[BattleInferredBuffInterval] = []
         for rule in (row for row in rules if row.event_type in _DOOR_EVENTS):
             if rule.duration_seconds is None:
@@ -86,17 +86,9 @@ class BattleForkDoorRefinementService:
                 ),
                 key=lambda row: (row.relative_time_us, row.event_id),
             )
-            fallback = () if formal else tuple(sorted(
-                (
-                    row for row in actions
-                    if row.character_id == rule.source_character_id
-                    and row.input_kind in DOOR_FALLBACK_INPUT_KINDS
-                ),
-                key=lambda row: (row.start_us, row.action_id),
-            ))
             occurrences = tuple(
                 (row.relative_time_us, "", row.event_id) for row in formal
-            ) or tuple((row.start_us, row.action_id, "") for row in fallback)
+            )
             duration_us = round(rule.duration_seconds * 1_000_000)
             chains: list[_Chain] = []
             for raw_us, action_id, event_id in occurrences:
@@ -123,10 +115,6 @@ class BattleForkDoorRefinementService:
                 ))
                 if end_us <= chain.start_us:
                     continue
-                fallback_basis = (
-                    "战报缺少正式治疗事件，按用户确认默认将装备者每次 E/Q 起点"
-                    "视作低置信治疗触发；未来正式治疗事件覆盖本回退。"
-                )
                 results.append(BattleInferredBuffInterval(
                     interval_id=f"buff:fork:door:{index}:{rule.rule_id}",
                     buff_asset_path=rule.target_asset_path,
@@ -140,11 +128,10 @@ class BattleForkDoorRefinementService:
                     end_us=end_us,
                     stacks=1,
                     duration_policy=rule.duration_policy,
-                    state_confidence="中" if formal else "低",
+                    state_confidence="中",
                     value_confidence="高",
                     inference_basis=(
-                        "按来源侧正式治疗事件刷新；满血或零有效治疗仍可触发。"
-                        if formal else fallback_basis
+                        "按统一来源侧治疗事件刷新；满血或零有效治疗仍可触发。"
                     ),
                     trigger_event_type=rule.event_type,
                     evidence_action_ids=tuple(chain.action_ids),

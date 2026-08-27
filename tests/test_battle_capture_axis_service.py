@@ -46,6 +46,12 @@ class _Core:
         self.capture_params: dict[str, Any] = {}
         self.contract_version = contract_version
         self.axis_requests: list[dict[str, Any]] = []
+        self.hello_result = {
+            "core_version": "0.4.3",
+            "protocol_version": 1,
+            "data_version": "1",
+        }
+        self.executable_sha256 = "A" * 64
 
     def start(self) -> None:
         return None
@@ -147,6 +153,7 @@ class _Writer:
         self.final_pages: list[Mapping[str, Any]] = []
         self.final_generation: str | None = None
         self.final_incomplete_reason: str | None = None
+        self.provenance: Mapping[str, Any] | None = None
 
     def begin_capture(self, **_kwargs: Any) -> None:
         self.begun = True
@@ -173,9 +180,11 @@ class _Writer:
         self,
         *,
         raw_record_payload: Mapping[str, Any] | None = None,
+        nte_core_provenance: Mapping[str, Any] | None = None,
         **_kwargs: Any,
     ) -> BattleSummaryPersistenceOutcome:
         self.record = raw_record_payload
+        self.provenance = nte_core_provenance
         return BattleSummaryPersistenceOutcome(
             status="saved",
             battle_record_id=7,
@@ -204,6 +213,10 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         self.assertEqual("1", writer.pages[0]["rows"][0]["sequence"])
         self.assertEqual("2", writer.final_generation)
         self.assertEqual("1", writer.final_pages[0]["rows"][0]["sequence"])
+        self.assertIsNotNone(writer.provenance)
+        assert writer.provenance is not None
+        self.assertEqual("0.4.3", writer.provenance["core_version"])
+        self.assertEqual("A" * 64, writer.provenance["executable_sha256"])
         self.assertTrue(any(
             request["cursor"] is None
             and request["finalized"]

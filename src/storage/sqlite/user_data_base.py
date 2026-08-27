@@ -141,6 +141,7 @@ class UserDataDaoCore:
                     connection.execute("PRAGMA foreign_keys = OFF")
                 try:
                     connection.execute("BEGIN IMMEDIATE")
+                    self._prepare_migration(connection, target_version)
                     self._execute_migration_script(connection, migration_sql)
                     connection.execute(
                         "INSERT INTO schema_migration(version, applied_at_utc) VALUES (?, ?)",
@@ -162,6 +163,25 @@ class UserDataDaoCore:
         except (OSError, sqlite3.Error) as exc:
             connection.rollback()
             raise UserDataError("无法升级用户数据库结构") from exc
+
+    @staticmethod
+    def _prepare_migration(
+        connection: sqlite3.Connection,
+        target_version: int,
+    ) -> None:
+        """在同一迁移事务内修复会阻断后续 DDL 的历史存储形态。"""
+
+        if target_version != 35:
+            return
+        # v32 通过 ADD COLUMN 引入普通抗性；旧行只在读取时获得 0.2 默认值，
+        # 部分 SQLite 版本会在下一次 ALTER TABLE 时把未物化的值判为 NULL。
+        # 自赋值保留所有有效值，并把虚拟默认值物化；失败时随 v35 一起回滚。
+        connection.execute(
+            """
+            UPDATE battle_target_condition
+            SET resistance_normal = COALESCE(resistance_normal, 0.2)
+            """
+        )
 
     @staticmethod
     def _execute_migration_script(connection: sqlite3.Connection, script: str) -> None:

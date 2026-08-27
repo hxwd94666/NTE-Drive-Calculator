@@ -6,9 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
+from src.domain.battle_buff_rule import BattleStaticBuffRule
 from src.domain.battle_report import (
     BattleAnalysisHit, BattleBuffModifierEvidence, BattleInferredAction,
-    BattleInferredBuffInterval,
+    BattleInferredBuffInterval, BattleTreatmentEvent,
 )
 from src.services.battle_buff_interval_support import BattleBuffIntervalSupportMixin
 from src.services.battle_buff_semantic_service import (
@@ -29,35 +30,13 @@ from src.services.battle_character_awakening_hit_service import (
 from src.services.battle_equipment_suit_service import BattleEquipmentSuitService
 from src.services.battle_fork_refinement_service import BattleForkRefinementService
 
-BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v23"
+BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v25"
 _CONFIRMED_REPLACES_GENERIC = frozenset({
-    "character_awaken:1036:Effect5", "character_awaken:1039:resonance_6",
+    "character_awaken:1036:Effect1", "character_awaken:1036:Effect5",
+    "character_awaken:1039:resonance_6",
     "character_awaken:1070:Effect5", "character_awaken:1003:Effect4",
+    "character_awaken:1075:Effect5",
 })
-
-
-@dataclass(frozen=True, slots=True)
-class BattleStaticBuffRule:
-    rule_id: str
-    source_effect_definition_id: str
-    source_kind: str
-    source_character_id: int
-    source_character_name: str
-    source_asset_path: str
-    target_asset_path: str
-    target_name: str
-    target_scope: str
-    event_type: str
-    effect_type: str
-    duration_policy: str
-    duration_seconds: float | None
-    stack_count: int
-    modifiers: tuple[BattleBuffModifierEvidence, ...]
-    stacking_type: str = ""
-    stack_limit_count: int = 1
-    cooldown_seconds: float | None = None
-    application_requirement_asset_path: str = ""
-
 
 @dataclass(frozen=True, slots=True)
 class _SelectedEffect:
@@ -319,11 +298,11 @@ def _selected_effects(
                 _geometry_id(shape_id)
                 for shape_id in (suit or {}).get("required_shape_ids") or ()
             }
-            active_count = sum(
-                str(item.get("kind") or "") == "module"
-                and _geometry_id(item.get("geometry")) in required_shapes
+            active_count = len({
+                _geometry_id(item.get("geometry"))
                 for item in equipment
-            )
+                if str(item.get("kind") or "") == "module"
+            }.intersection(required_shapes))
             definitions = static_dao.list_combat_effect_definitions(
                 owner_kind="equipment_suit",
                 owner_id=suit_id,
@@ -465,10 +444,6 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
                     "初明凝视：铭隙鉴刻额外伤害（觉醒一）",
                     "self", "STATIC_EQUIPPED_SOURCE", None,
                     (("DefIgnore", 0.75, ZERO_FIRST_GAZE_REQUIREMENT),),
-                ),
-                "character_awaken:1036:Effect1": (
-                    "狩（觉醒一）", "self", "STATIC_EQUIPPED_SOURCE", None,
-                    (("DamageUpGeneralBase", 0.40),),
                 ),
                 "character_awaken:1036:Effect5": (
                     "花开见血（觉醒五）", "team", "STATIC_EQUIPPED_SOURCE", None,
@@ -705,6 +680,7 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
         hits: Sequence[BattleAnalysisHit],
         battle_end_us: int,
         time_stop_intervals: Sequence[tuple[int | None, int | None]] = (),
+        treatment_events: Sequence[BattleTreatmentEvent] = (),
         critical_events: Sequence[Any] = (),
     ) -> tuple[BattleInferredBuffInterval, ...]:
         grouped: dict[
@@ -787,6 +763,7 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
             hits=hits,
             battle_end_us=battle_end_us,
             time_stop_intervals=time_stop_intervals,
+            treatment_events=treatment_events,
             critical_events=critical_events,
         ))
         return tuple(sorted(

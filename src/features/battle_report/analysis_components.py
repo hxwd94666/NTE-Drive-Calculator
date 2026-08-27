@@ -19,6 +19,70 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 
 
+def _conflict_environment_name(analysis: object, condition: object) -> str:
+    name = str(
+        getattr(condition, "target_name", "")
+        or getattr(analysis, "detected_environment_name", "")
+        or "已推断环境"
+    ).strip()
+    if getattr(condition, "environment_kind", "") != "feast":
+        return name
+    parts = tuple(part.strip() for part in name.split("·") if part.strip())
+    return " · ".join(parts[:2]) if len(parts) >= 2 else name
+
+
+def _highest_max_hp_target_name(analysis: object) -> str:
+    resolved = []
+    for index, row in enumerate(
+        tuple(getattr(analysis, "target_instance_resolutions", ()) or ())
+    ):
+        target_condition = getattr(row, "target_condition", None)
+        name = str(getattr(target_condition, "target_name", "") or "").strip()
+        if name and name != "未知目标":
+            resolved.append((float(getattr(row, "initial_max_hp", 0.0)), -index, name))
+    if resolved:
+        return max(resolved)[2]
+    targets = []
+    for index, row in enumerate(tuple(getattr(analysis, "targets", ()) or ())):
+        name = str(getattr(row, "target_name", "") or "").strip()
+        max_hp = getattr(row, "max_hp", None)
+        if name and name != "未知目标" and max_hp is not None:
+            targets.append((float(max_hp), -index, name))
+    return "" if not targets else max(targets)[2]
+
+
+def apply_inferred_scope_warning(
+    label: QLabel,
+    analysis: object,
+    condition: object,
+) -> None:
+    """Keep a residual-selected scope visible while marking weak evidence."""
+
+    inferred_source = getattr(condition, "source_kind", "") == (
+        "inferred_encounter_hp_injective_default"
+    )
+    detected = condition is None and bool(
+        getattr(analysis, "detected_environment_kind", "")
+    )
+    confidence = str(
+        getattr(analysis, "target_identity_inference_confidence", "") or "低"
+    )
+    ambiguous = bool(
+        getattr(analysis, "target_identity_inference_ambiguous", False)
+    )
+    if not (inferred_source or detected) or not (ambiguous or confidence == "低"):
+        return
+    environment_name = _conflict_environment_name(analysis, condition)
+    target_name = _highest_max_hp_target_name(analysis)
+    suffix = (
+        ""
+        if not target_name or target_name in environment_name
+        else f" · {target_name}"
+    )
+    label.setText(f"候选冲突：{environment_name}{suffix}")
+    label.setStyleSheet(themed_style("color:#f85149;font-weight:700"))
+
+
 def analysis_table(
     headers: tuple[str, ...],
     minimum_height: int,

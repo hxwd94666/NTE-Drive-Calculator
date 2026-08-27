@@ -7,6 +7,7 @@ from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import replace
+from math import log
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
@@ -22,9 +23,10 @@ from src.services.battle_hit_replay_support import (
 
 
 _NIGHTMARE_MARKER = "lacrimosa_blood_damage"
+_EROSION_ID = "ge_player_zankou_dotdamage"
 _OBSERVED_UNIT_WINDOW_US = 10_000_000
 _RECENT_APPLICATION_WINDOW_US = 700_000
-_DUPLICATE_DAMAGE_WINDOW_US = 100_000
+_DUPLICATE_DAMAGE_WINDOW_US = 700_000
 
 
 def _target_key(hit: BattleAnalysisHit) -> tuple[str, str]:
@@ -68,7 +70,159 @@ class BattleHitReplayAuditService:
         results: tuple[BattleHitReplayResult, ...],
     ) -> tuple[BattleHitReplayResult, ...]:
         adjusted = cls.apply_nightmare_observed_layer_adjustment(analysis, results)
+        adjusted = cls.apply_erosion_settlement_adjustment(analysis, adjusted)
         return cls.apply_damage_attribution_conflicts(analysis, adjusted)
+
+    @classmethod
+    def apply_erosion_settlement_adjustment(
+        cls,
+        analysis: BattleAnalysisSnapshot,
+        results: tuple[BattleHitReplayResult, ...],
+    ) -> tuple[BattleHitReplayResult, ...]:
+        """Choose only single-share or formal-full erosion settlement modes.
+
+        The formal stack remains forward-replayed. This adjustment changes the
+        current hit's formula coefficient only; it never back-writes the stack
+        or opens an unconstrained 1..10 nearest-damage search.
+        """
+
+        hits_by_event = {hit.event_id: hit for hit in analysis.hits}
+        conflicts = cls._damage_attribution_conflict_ids(analysis.hits)
+        replacements: dict[str, BattleHitReplayResult] = {}
+        for result in results:
+            hit = hits_by_event.get(result.event_id)
+            stack_factor = _factor(result, "state_coefficient")
+            if (
+                hit is None
+                or result.event_id in conflicts
+                or hit.gameplay_effect_id.casefold() != _EROSION_ID
+                or stack_factor is None
+                or stack_factor.value <= 1.0
+                or result.non_critical_damage is None
+                or result.non_critical_damage <= 0.0
+                or result.observed_damage <= 0.0
+            ):
+                continue
+            formal_layers = float(stack_factor.value)
+            single_noncritical = ceil_replay_damage(
+                result.non_critical_damage / formal_layers
+            )
+            single_critical = (
+                None
+                if result.critical_damage is None
+                else ceil_replay_damage(result.critical_damage / formal_layers)
+            )
+            candidates: list[tuple[str, float, bool, float]] = [
+                ("正式满份", formal_layers, False, result.non_critical_damage),
+                ("单份", 1.0, False, single_noncritical),
+            ]
+            if result.critical_damage is not None:
+                candidates.append(
+                    ("正式满份", formal_layers, True, result.critical_damage)
+                )
+            if single_critical is not None:
+                candidates.append(("单份", 1.0, True, single_critical))
+            ranked: list[tuple[float, str, float, bool, float]] = sorted(
+                (
+                    abs(log(result.observed_damage / predicted)),
+                    mode,
+                    coefficient,
+                    is_critical,
+                    predicted,
+                )
+                for mode, coefficient, is_critical, predicted in candidates
+                if predicted > 0.0
+            )
+            if not ranked:
+                continue
+            best = ranked[0]
+            separation = (
+                ranked[1][0] - best[0] if len(ranked) > 1 else float("inf")
+            )
+            _loss, mode, coefficient, inferred_critical, selected = best
+            error = replay_error_percent(result.observed_damage, selected)
+            signed_error = replay_signed_error_percent(
+                result.observed_damage,
+                selected,
+            )
+            if error > 20.0 or separation < 0.015:
+                replacements[result.event_id] = replace(
+                    result,
+                    critical_state="ambiguous",
+                    confidence="低",
+                    missing_evidence=tuple(dict.fromkeys((
+                        *result.missing_evidence,
+                        "蚀心单份/正式满份与暴击候选未唯一分离，保留正向状态公式并输出低置信",
+                    ))),
+                )
+                continue
+            confidence = (
+                "高"
+                if error <= 2.0 and separation >= 0.03
+                else "中"
+            )
+            basis = (
+                f"正式状态机在本击前为 {formal_layers:g} 层；历史纯自跳轴证明"
+                f"蚀心可能按单份或正式满份结算，本击仅在这两类中匹配为{mode}；"
+                "暴击按整跳选择一次；该选择不反写正式层数"
+            )
+            factors = tuple(
+                replace(
+                    row,
+                    label="蚀心本跳有效结算系数",
+                    value=coefficient,
+                    evidence_basis=basis,
+                    formula="有效系数 ∈ {1, 正式层数}",
+                )
+                if row.factor_id == "state_coefficient"
+                else row
+                for row in result.factors
+            )
+            noncritical = (
+                result.non_critical_damage
+                if coefficient == formal_layers
+                else single_noncritical
+            )
+            critical = (
+                result.critical_damage
+                if coefficient == formal_layers
+                else single_critical
+            )
+            expected = (
+                None
+                if result.critical_rate is None
+                else noncritical
+                if critical is None
+                else (
+                    noncritical * (1.0 - result.critical_rate)
+                    + critical * result.critical_rate
+                )
+            )
+            corrected_expected = (
+                expected * result.observed_damage / selected
+                if expected is not None and selected > 0.0
+                else None
+            )
+            replacements[result.event_id] = replace(
+                result,
+                non_critical_damage=noncritical,
+                critical_damage=critical,
+                selected_damage=selected,
+                selected_error_percent=error,
+                signed_error_percent=signed_error,
+                critical_state=(
+                    "critical" if inferred_critical else "non_critical"
+                ),
+                confidence=confidence,
+                factors=factors,
+                missing_evidence=tuple(dict.fromkeys((
+                    *result.missing_evidence,
+                    "蚀心结算模式来自受约束的单份/正式满份反算，待受控战报确认引擎内部批次语义",
+                ))),
+                expected_damage=expected,
+                corrected_expected_damage=corrected_expected,
+            )
+        return tuple(replacements.get(row.event_id, row) for row in results)
 
     @classmethod
     def apply_nightmare_observed_layer_adjustment(
@@ -279,8 +433,8 @@ class BattleHitReplayAuditService:
     ) -> tuple[BattleHitReplayResult, ...]:
         conflicts = cls._damage_attribution_conflict_ids(analysis.hits)
         reason = (
-            "伤害归属污染：同一目标 100ms 内另一伤害项上报相同伤害，且 HP 区间"
-            "互相重叠；保留原始逐击与公式候选，但本击不参与暴击或层数校准"
+            "伤害归属污染：同一目标 700ms 内另一伤害项上报相同伤害，且 HP 区间"
+            "重叠或结算端点一致；保留原始逐击与公式候选，但本击不参与暴击或层数校准"
         )
         return tuple(
             replace(
@@ -329,6 +483,11 @@ class BattleHitReplayAuditService:
                     second.target_hp_after,
                     second.target_hp_before,
                 ))
-                if max(first_low, second_low) < min(first_high, second_high):
+                hp_tolerance = max(0.5, abs(first.damage) * 0.000_001)
+                overlaps = max(first_low, second_low) < min(first_high, second_high)
+                same_endpoint = abs(
+                    first.target_hp_after - second.target_hp_after
+                ) <= hp_tolerance
+                if overlaps or same_endpoint:
                     conflicts.update((first.event_id, second.event_id))
         return frozenset(conflicts)

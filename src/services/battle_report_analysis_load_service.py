@@ -50,7 +50,7 @@ class BattleReportAnalysisLoadService:
         ):
             raise ValueError("marginal candidate belongs to another battle report")
         include_hit_replays = detail_level != "overview"
-        include_buff_counterfactuals = detail_level == "buff"
+        include_buff_counterfactuals = detail_level in {"buff", "marginal"}
         candidate_options = (
             {}
             if candidate is None
@@ -71,21 +71,21 @@ class BattleReportAnalysisLoadService:
             and analysis is not None
             and candidate is not None
         ):
-            original = history.load_analysis(
+            baseline = history.load_analysis(
                 request.battle_record_id,
                 start_us=request.start_us,
                 end_us=request.end_us,
                 detail_scope=request.detail_scope,
-                use_build_edit=False,
+                use_build_edit=True,
                 include_buff_inference=True,
                 include_hit_replays=True,
                 include_buff_counterfactuals=False,
             )
-            if original is not None:
+            if baseline is not None:
                 analysis = replace(
                     analysis,
                     build_counterfactual=BattleBuildCounterfactualService.compare(
-                        original=original,
+                        original=baseline,
                         candidate=analysis,
                     ),
                 )

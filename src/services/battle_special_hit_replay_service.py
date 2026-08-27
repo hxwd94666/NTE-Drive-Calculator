@@ -269,6 +269,7 @@ class BattleSpecialHitReplayService:
             expected_damage=predicted,
             corrected_expected_damage=(hit.damage if predicted > 0.0 else None),
             signed_error_percent=signed_error,
+            critical_policy="disabled",
         )
 
     @staticmethod
@@ -593,6 +594,9 @@ class BattleSpecialHitReplayService:
                 expected * hit.damage / selected if selected > 0.0 else None
             ),
             signed_error_percent=signed_error,
+            critical_policy=(
+                "fixed" if channel_id == "reaction_scorch" else "disabled"
+            ),
         )
 
     @staticmethod
@@ -707,4 +711,5 @@ class BattleSpecialHitReplayService:
             expected_damage=predicted,
             corrected_expected_damage=(hit.damage if predicted > 0.0 else None),
             signed_error_percent=signed_error,
+            critical_policy="disabled",
         )

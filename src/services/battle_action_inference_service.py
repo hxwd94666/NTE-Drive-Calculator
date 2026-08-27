@@ -14,7 +14,7 @@ from typing import Literal
 from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
 
 
-ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v11"
+ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v12"
 
 _Q_TIME_STOP_FOLLOW_TOLERANCE_US = 350_000
 
@@ -107,7 +107,7 @@ def _is_action_evidence(hit: BattleAnalysisHit) -> bool:
     effect = hit.gameplay_effect_id.casefold()
     if any(marker in effect for marker in _SECONDARY_EFFECT_MARKERS):
         return False
-    if hit.classification in {"weave"}:
+    if hit.classification == "weave" and _action_kind(hit) != "QTE":
         return False
     if hit.classification == "reaction" and _action_kind(hit) != "QTE":
         return False

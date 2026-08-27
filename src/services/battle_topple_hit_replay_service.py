@@ -303,6 +303,7 @@ class BattleToppleHitReplayService:
             expected_damage=predicted,
             corrected_expected_damage=hit.damage if predicted > 0.0 else None,
             signed_error_percent=signed_error,
+            critical_policy="disabled",
         )
 
     @staticmethod

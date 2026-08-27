@@ -120,6 +120,36 @@ class BattleReplayAuditRepairTests(unittest.TestCase):
             for row in marked
         ))
 
+    def test_equal_damage_same_hp_endpoint_detects_delayed_attribution(self) -> None:
+        first = replace(
+            _hit(
+                "576:primary",
+                100_000,
+                "GE_Player_Zankou_DotDamage",
+                damage=11_902.0,
+            ),
+            target_hp_before=500_000.0,
+            target_hp_after=488_098.0,
+        )
+        second = replace(
+            _hit(
+                "579:primary",
+                638_000,
+                "Buff_Reaction_5_new_1036",
+                character_id=1036,
+                damage=11_902.0,
+                classification="reaction",
+            ),
+            target_hp_before=488_098.0,
+            target_hp_after=488_098.0,
+        )
+
+        conflicts = BattleHitReplayAuditService._damage_attribution_conflict_ids(
+            (first, second)
+        )
+
+        self.assertEqual({first.event_id, second.event_id}, set(conflicts))
+
     def test_recent_application_can_backsolve_one_missing_server_nightmare_layer(self) -> None:
         reference_hit = _hit(
             "60:primary",
@@ -157,7 +187,34 @@ class BattleReplayAuditRepairTests(unittest.TestCase):
         self.assertEqual("non_critical", current.critical_state)
         self.assertIn("服务器少接收 1 层", stack.evidence_basis)
 
-    def test_erosion_uses_report_clock_while_nightmare_keeps_active_clock(self) -> None:
+    def test_erosion_only_selects_single_or_formal_full_settlement(self) -> None:
+        hit = _hit(
+            "erosion:1",
+            1_000_000,
+            "GE_Player_Zankou_DotDamage",
+            character_id=1036,
+            damage=250.0,
+            classification="dot",
+        )
+        replay = replace(
+            _replay(hit.event_id, 250.0, 10.0, 1_000.0),
+            formula_type="持续伤害（蚀心）",
+        )
+
+        adjusted = BattleHitReplayAuditService.apply_erosion_settlement_adjustment(
+            SimpleNamespace(hits=(hit,)),
+            (replay,),
+        )[0]
+
+        stack = next(
+            row for row in adjusted.factors if row.factor_id == "state_coefficient"
+        )
+        self.assertEqual(1.0, stack.value)
+        self.assertEqual("critical", adjusted.critical_state)
+        self.assertEqual(250.0, adjusted.selected_damage)
+        self.assertIn("单份", stack.evidence_basis)
+
+    def test_erosion_and_nightmare_both_pause_during_time_stop(self) -> None:
         hits = (
             _hit("nightmare-a", 0, "GE_Player_Lacrimosa_Melee1_Damage"),
             _hit("erosion-e", 50_000, "GE_Player_Zankou_Skill2_1_Damage", character_id=1036),
@@ -184,7 +241,7 @@ class BattleReplayAuditRepairTests(unittest.TestCase):
         states = reconstruct_dot_stack_states(analysis, None)
 
         self.assertEqual(2, states["nightmare-dot"].coefficient)
-        self.assertEqual(1, states["erosion-dot"].coefficient)
+        self.assertEqual(5, states["erosion-dot"].coefficient)
 
     def test_zankou_transition_uses_last_evidence_hit_before_overlapping_swap(self) -> None:
         transition = BattleInferredAction(

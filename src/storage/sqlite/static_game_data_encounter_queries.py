@@ -456,11 +456,12 @@ class StaticGameDataEncounterQueriesMixin:
         )
 
     def list_feast_stages(self) -> list[dict[str, Any]]:
+        """Return all official feast stages in stable stage order."""
+
         stages = self._rows(
             """
             SELECT stage_id, name_zh, boss_monster_id, special_high_difficulty
             FROM feast_stage
-            WHERE special_high_difficulty = 1
             ORDER BY CAST(substr(stage_id, 13) AS INTEGER), stage_id
             """
         )

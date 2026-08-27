@@ -43,6 +43,13 @@ Core 已脱敏字段，战报数据库不保存网络包、端点或 PCAP。设�
 启动时会冻结该设置，并由 Core 把 `.pcapng` 独立写入当前账号日志目录；这些文件不属于业务数据，不随战报
 历史读取、导出或数据库迁移。
 
+`battle.get_summary.max_hp_reduction` 是与 `total_damage` 分离的原始削减量聚合值，只随原始 summary JSON
+保留供逐击合计审计，不新增页面业务指标、不单独投影为历史字段，也不进入伤害、DPS、角色贡献或生命上限
+结算公式。正式生命上限结算仍只消费最终完整轴的逐击 `max_hp_reduction`，并按结算前生命比例计算有效损失。
+每场采集在握手后冻结 `core_version`、协商协议、数据版本和 nte-core EXE SHA-256，并随战报持久化；同为
+battle contract v4 但 Core 构建不同的记录不得仅凭 contract version 视为同一解析语义。原始 summary、
+record 和逐击 JSON 仍保持 Core 返回值，不注入应用来源字段。
+
 `team_snapshot_id` 当前为空，逐击也没有暴击事实、Buff/Debuff 区间、护盾/治疗或角色施法事件。应用不得
 用当前 UI 队伍、固定暴击率或相邻血量补造这些事实。完整队伍、正式敌人实例、场景 ID、时间线 UI 和
 实测 Buff 轴仍未成为 Core 能力。

@@ -173,7 +173,7 @@ class BattleZankouFormBuffServiceTests(unittest.TestCase):
         huo = next(row for row in intervals if "huo" in row.interval_id)
         self.assertEqual((2_000_000, 14_000_000), (huo.start_us, huo.end_us))
 
-    def test_nonzero_awakening_does_not_use_zero_awakening_adapter(self) -> None:
+    def test_effect_one_keeps_both_upgraded_states_for_the_whole_battle(self) -> None:
         intervals = BattleZankouFormBuffService.infer(
             build=_build(awakening_level=1),
             actions=(),
@@ -181,7 +181,17 @@ class BattleZankouFormBuffServiceTests(unittest.TestCase):
             config=_CONFIG,
         )
 
-        self.assertEqual((), intervals)
+        self.assertEqual(2, len(intervals))
+        self.assertEqual({"狩（觉醒一）", "惑（觉醒一）"}, {
+            row.buff_name for row in intervals
+        })
+        self.assertTrue(all(
+            (row.start_us, row.end_us) == (0, 20_000_000)
+            for row in intervals
+        ))
+        self.assertEqual({0.40, 0.50}, {
+            row.modifiers[0].magnitude_value for row in intervals
+        })
 
 
 if __name__ == "__main__":

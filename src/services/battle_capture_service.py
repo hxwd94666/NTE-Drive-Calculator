@@ -118,11 +118,30 @@ class BattleSummaryWriter(Protocol):
         captured_at_utc: str,
         finalized_at_utc: str,
         raw_record_payload: Mapping[str, Any] | None = None,
+        nte_core_provenance: Mapping[str, Any] | None = None,
     ) -> BattleSummaryPersistenceOutcome: ...
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _freeze_nte_core_provenance(client: BattleCoreClient) -> dict[str, Any]:
+    hello = getattr(client, "hello_result", None)
+    hello_payload = dict(hello) if isinstance(hello, Mapping) else {}
+    executable_sha256 = str(
+        getattr(client, "executable_sha256", None) or ""
+    ).strip()
+    return {
+        "core_version": (
+            str(hello_payload.get("core_version") or "").strip() or None
+        ),
+        "protocol_version": hello_payload.get("protocol_version"),
+        "data_version": (
+            str(hello_payload.get("data_version") or "").strip() or None
+        ),
+        "executable_sha256": executable_sha256 or None,
+    }
 
 
 _BATTLE_READ_CONTRACT_VERSION = 4
@@ -231,6 +250,7 @@ class BattleCaptureService:
         capture_staged = False
         capture_finalized = False
         final_record: dict[str, Any] | None = None
+        nte_core_provenance: dict[str, Any] | None = None
         try:
             if self._raw_capture_enabled:
                 assert self._raw_capture_directory is not None
@@ -245,6 +265,7 @@ class BattleCaptureService:
             client = self._client_factory()
             self._client = client
             client.start()
+            nte_core_provenance = _freeze_nte_core_provenance(client)
             client.add_event_handler("event.battle.summary", self._on_summary_event)
             client.start_capture(
                 profile="combat",
@@ -287,6 +308,7 @@ class BattleCaptureService:
                         captured_at_utc=captured_at_utc,
                         finalized_at_utc=_utc_now(),
                         raw_record_payload=final_record,
+                        nte_core_provenance=nte_core_provenance,
                     )
                     capture_finalized = True
         except Exception as error:

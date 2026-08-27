@@ -137,73 +137,15 @@ class BattleCharacterPassiveServiceTests(unittest.TestCase):
             values[("PASSIVE-1046-GA_Female_Passive_2", "DamageUpGeneralBase")],
         )
 
-    def test_oneiroi_healing_actions_refresh_team_defense_ignore(self):
-        locked = BattleCharacterPassiveService.rule_specs({
-            "characters": [_character(1075, 3, "伊洛伊")],
-        })
-        unlocked = BattleCharacterPassiveService.rule_specs({
+    def test_oneiroi_healing_passive_is_not_materialized_from_actions(self):
+        specs = BattleCharacterPassiveService.rule_specs({
             "characters": [_character(1075, 4, "伊洛伊")],
         })
 
         self.assertFalse(any(
             row.passive_id == "PASSIVE-1075-GA_Oneiroi_Passive_2"
-            for row in locked
+            for row in specs
         ))
-        rules = tuple(
-            row for row in unlocked
-            if row.passive_id == "PASSIVE-1075-GA_Oneiroi_Passive_2"
-        )
-        self.assertEqual(
-            {"ABILITY_EVENT|E", "ABILITY_EVENT|QTE", "ABILITY_EVENT|Q"},
-            {row.event_type for row in rules},
-        )
-        self.assertTrue(all(row.target_scope == "team" for row in rules))
-        self.assertTrue(all(row.duration_seconds == 20.0 for row in rules))
-        self.assertTrue(all(
-            len(row.modifiers) == 1
-            and row.modifiers[0].property_id == "DefIgnore"
-            and row.modifiers[0].magnitude_value == 0.05
-            for row in rules
-        ))
-
-        intervals = BattleBuffInferenceService.infer(
-            BattleCharacterPassiveService.load_rules(
-                {"characters": [_character(1075, 4, "伊洛伊")]},
-                BattleStaticBuffRule,
-            ),
-            actions=(_action("E", 1_000_000), _action("QTE", 15_000_000)),
-            hits=(),
-            battle_end_us=40_000_000,
-        )
-        overlapping = BattleBuffAttributeProjectionService.project_hit(
-            replace(
-                _hit(character_id=1003),
-                relative_time_us=16_000_000,
-            ),
-            intervals,
-        )
-        refreshed = BattleBuffAttributeProjectionService.project_hit(
-            replace(
-                _hit(character_id=1003),
-                relative_time_us=25_000_000,
-            ),
-            intervals,
-        )
-
-        self.assertEqual(
-            0.05,
-            next(
-                row for row in overlapping.modifiers
-                if row.property_id == "DefIgnore"
-            ).additive_value,
-        )
-        self.assertEqual(
-            0.05,
-            next(
-                row for row in refreshed.modifiers
-                if row.property_id == "DefIgnore"
-            ).additive_value,
-        )
 
     def test_skill_requirement_is_exactly_scoped_to_named_damage_family(self):
         requirement = (

@@ -7,10 +7,13 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
+from src.domain.battle_buff_counterfactual import (
+    BattleBuffBeneficiaryResult,
+    BattleBuffCounterfactualResult,
+)
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
-    BattleBuffCounterfactualResult,
     BattleHitReplayResult,
     BattleInferredBuffInterval,
     BattleSkillDamageEvidence,
@@ -20,10 +23,11 @@ from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
 from src.services.battle_hit_replay_service import BattleHitReplayService
+from src.services.battle_replay_formula_ratio_service import paired_replay_formula
 from src.services.battle_topple_hit_replay_service import BattleToppleCharacterConfig
 
 
-BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v1"
+BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v3"
 _CONFIDENCE_ORDER = {"未解析": 0, "低": 1, "中": 2, "高": 3}
 
 
@@ -41,16 +45,6 @@ def battle_buff_counterfactual_key(interval: BattleInferredBuffInterval) -> str:
         getattr(interval, "buff_asset_path", ""),
         getattr(interval, "target_scope", "unknown"),
     ))
-
-
-def _replay_value(replay: BattleHitReplayResult | None) -> float | None:
-    if replay is None:
-        return None
-    if replay.expected_damage is not None and replay.expected_damage > 0:
-        return float(replay.expected_damage)
-    if replay.selected_damage is not None and replay.selected_damage > 0:
-        return float(replay.selected_damage)
-    return None
 
 
 def _safe_ratio(candidate: float, baseline: float) -> float | None:
@@ -189,7 +183,7 @@ class BattleBuffCounterfactualService:
             removed_ids = {row.interval_id for row in group_intervals}
             without_analysis = replace(
                 analysis,
-                hits=active_hits,
+                hits=tuple(outgoing_hits),
                 buff_intervals=tuple(
                     row
                     for row in analysis.buff_intervals
@@ -210,12 +204,14 @@ class BattleBuffCounterfactualService:
         for hit in outgoing_hits:
             predicted = float(hit.damage)
             if hit.event_id in active_ids:
-                baseline_value = _replay_value(baseline_by_event.get(hit.event_id))
-                without_value = _replay_value(without_by_event.get(hit.event_id))
+                pair = paired_replay_formula(
+                    baseline_by_event.get(hit.event_id),
+                    without_by_event.get(hit.event_id),
+                )
                 ratio = (
                     None
-                    if baseline_value is None or without_value is None
-                    else _safe_ratio(without_value, baseline_value)
+                    if pair is None
+                    else _safe_ratio(pair.candidate_damage, pair.baseline_damage)
                 )
                 if ratio is not None:
                     predicted *= ratio
@@ -229,7 +225,13 @@ class BattleBuffCounterfactualService:
             max(0.0, float(event.effective_hp_loss))
             for event in analysis.max_hp_events
         )
-        without_vital_damage, quantified_vital_damage = cls._without_vital_damage(
+        (
+            without_vital_damage,
+            quantified_vital_damage,
+            vital_baseline_by_character,
+            vital_without_by_character,
+            vital_quantified_by_character,
+        ) = cls._without_vital_damage(
             analysis,
             predicted_hits,
             {hit.event_id: hit for hit in outgoing_hits},
@@ -260,6 +262,54 @@ class BattleBuffCounterfactualService:
             if derived_baseline > 0
             else 0.0
         )
+        beneficiary_ids = {
+            int(hit.character_id)
+            for hit in active_hits
+            if hit.character_id is not None and int(hit.character_id) > 0
+        } | {
+            character_id
+            for character_id, baseline in vital_baseline_by_character.items()
+            if abs(
+                baseline
+                - vital_without_by_character.get(character_id, baseline)
+            ) > 1e-9
+        }
+        character_names = {
+            int(hit.character_id): hit.character_name
+            for hit in outgoing_hits
+            if hit.character_id is not None and int(hit.character_id) > 0
+        }
+        character_names.update({
+            int(event.source_character_id): event.source_character_name
+            for event in analysis.max_hp_events
+            if event.source_character_id is not None
+            and int(event.source_character_id) > 0
+        })
+        beneficiaries = tuple(
+            cls._beneficiary_result(
+                character_id=character_id,
+                character_name=character_names.get(
+                    character_id,
+                    f"角色 {character_id}",
+                ),
+                outgoing_hits=outgoing_hits,
+                active_ids=active_ids,
+                quantified_ids=quantified_ids,
+                predicted_hits=predicted_hits,
+                vital_baseline=vital_baseline_by_character.get(character_id, 0.0),
+                vital_without=vital_without_by_character.get(character_id, 0.0),
+                vital_quantified=vital_quantified_by_character.get(
+                    character_id,
+                    0.0,
+                ),
+                team_without_damage=without_damage,
+            )
+            for character_id in sorted(beneficiary_ids)
+        )
+        attributed_gain = sum(row.damage_gain for row in beneficiaries)
+        unattributed_damage_gain = damage_gain - attributed_gain
+        if abs(unattributed_damage_gain) < 1e-9:
+            unattributed_damage_gain = 0.0
         if not active_hits:
             method = "not_covered"
             confidence = "未解析"
@@ -303,6 +353,63 @@ class BattleBuffCounterfactualService:
             confidence=confidence,
             method=method,
             explanation=explanation,
+            beneficiaries=beneficiaries,
+            unattributed_damage_gain=unattributed_damage_gain,
+        )
+
+    @staticmethod
+    def _beneficiary_result(
+        *,
+        character_id: int,
+        character_name: str,
+        outgoing_hits: Sequence[BattleAnalysisHit],
+        active_ids: set[str],
+        quantified_ids: set[str],
+        predicted_hits: Mapping[str, float],
+        vital_baseline: float,
+        vital_without: float,
+        vital_quantified: float,
+        team_without_damage: float,
+    ) -> BattleBuffBeneficiaryResult:
+        role_hits = tuple(
+            hit for hit in outgoing_hits if hit.character_id == character_id
+        )
+        baseline_damage = (
+            sum(float(hit.damage) for hit in role_hits) + vital_baseline
+        )
+        without_damage = (
+            sum(predicted_hits[hit.event_id] for hit in role_hits) + vital_without
+        )
+        damage_gain = baseline_damage - without_damage
+        quantified_damage = sum(
+            float(hit.damage)
+            for hit in role_hits
+            if hit.event_id in quantified_ids
+        ) + vital_quantified
+        return BattleBuffBeneficiaryResult(
+            character_id=character_id,
+            character_name=character_name,
+            affected_hits=sum(hit.event_id in active_ids for hit in role_hits),
+            quantified_hits=sum(hit.event_id in quantified_ids for hit in role_hits),
+            baseline_damage=baseline_damage,
+            without_buff_damage=without_damage,
+            damage_gain=damage_gain,
+            recipient_gain_percent=(
+                damage_gain / without_damage * 100.0
+                if without_damage > 0
+                else 0.0
+            ),
+            team_contribution_percent=(
+                damage_gain / team_without_damage * 100.0
+                if team_without_damage > 0
+                else 0.0
+            ),
+            quantified_damage=quantified_damage,
+            quantified_percent=(
+                quantified_damage / baseline_damage * 100.0
+                if baseline_damage > 0
+                else 0.0
+            ),
         )
 
     @staticmethod
@@ -310,12 +417,27 @@ class BattleBuffCounterfactualService:
         analysis: BattleAnalysisSnapshot,
         predicted_hits: Mapping[str, float],
         hits_by_event: Mapping[str, BattleAnalysisHit],
-    ) -> tuple[float, float]:
+    ) -> tuple[
+        float,
+        float,
+        dict[int, float],
+        dict[int, float],
+        dict[int, float],
+    ]:
         total = 0.0
         quantified = 0.0
+        baseline_by_character: dict[int, float] = defaultdict(float)
+        without_by_character: dict[int, float] = defaultdict(float)
+        quantified_by_character: dict[int, float] = defaultdict(float)
         for event in analysis.max_hp_events:
             baseline = max(0.0, float(event.effective_hp_loss))
             predicted = baseline
+            character_id = (
+                int(event.source_character_id)
+                if event.source_character_id is not None
+                and int(event.source_character_id) > 0
+                else None
+            )
             if event.mechanic_kind == "lacrimosa_nightmare_awaken_5":
                 linked_ids = tuple(
                     event_id
@@ -337,5 +459,16 @@ class BattleBuffCounterfactualService:
                 if ratio is not None and abs(ratio - 1.0) > 1e-12:
                     predicted *= ratio
                     quantified += baseline
+                    if character_id is not None:
+                        quantified_by_character[character_id] += baseline
             total += predicted
-        return total, quantified
+            if character_id is not None:
+                baseline_by_character[character_id] += baseline
+                without_by_character[character_id] += predicted
+        return (
+            total,
+            quantified,
+            dict(baseline_by_character),
+            dict(without_by_character),
+            dict(quantified_by_character),
+        )

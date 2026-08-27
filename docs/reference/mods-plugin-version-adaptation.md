@@ -1,10 +1,11 @@
 # Mods 插件版本适配
 
 本项目当前发行基线为 nte-dps-toolkit
-`v0.4.1-build-138-12ef5e8`：
+`v0.4.3-build-146-bff9f56`（源码提交
+`bff9f569ae19fc659b61a3a810407c01be5fc71a`，本地 Windows x64 Release 构建）：
 
-- `dwmapi.dll`：`46DA088EB62EB0A02C5488356F5B47E63A25E3D887D6B365DB98F3A7828EA5D5`；
-- `nte-mod-loader.exe`：`7DEC440B5935162AD2F67B95E512CCE619460AD4D89E26A3B5011A9411333E48`；
+- `dwmapi.dll`：`4CAA672401237D511CFF756F2694C7785B20B4C615FEFBD9EF09282E90C10F07`；
+- `nte-mod-loader.exe`：`B73E0DEDA463418ABF55FAB53447A402F0084346AF068A584EBC7BA80EA2443D`；
 - 工作区元数据：`0.3.6`；
 - DLL 公共签名：`NTE_DPS_TOOL_MODS_PLUGIN_V1`；
 - IPC：ABI v4 / IPC v7，命名管道 `nte-mods-plugin-v7`。
@@ -25,7 +26,7 @@
 
 ## 运行依赖
 
-0.4.1 DLL动态依赖 Microsoft Visual C++ 2015–2022 Redistributable x64 的 `MSVCP140.dll`、
+0.4.3 DLL 动态依赖 Microsoft Visual C++ 2015–2022 Redistributable x64 的 `MSVCP140.dll`、
 `VCRUNTIME140.dll` 和 `VCRUNTIME140_1.dll`。Loader 静态链接 MSVC Runtime。诊断必须分别报告文件缺失、
 Loader 缺失、payload 缺失、UAC取消、管道缺失和停止超时。
 

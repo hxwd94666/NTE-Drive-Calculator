@@ -64,7 +64,7 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual("battle-action-window-v10", ACTION_INFERENCE_MODEL_VERSION)
+        self.assertEqual("battle-action-window-v12", ACTION_INFERENCE_MODEL_VERSION)
         self.assertEqual(1, len(actions))
         self.assertEqual("E", actions[0].input_kind)
         self.assertEqual("E1 E2", actions[0].input_sequence)
@@ -134,7 +134,7 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual("battle-action-window-v10", ACTION_INFERENCE_MODEL_VERSION)
+        self.assertEqual("battle-action-window-v12", ACTION_INFERENCE_MODEL_VERSION)
         self.assertEqual(("A", "A"), tuple(action.input_kind for action in actions))
 
     def test_simultaneous_melee_and_parry_damage_are_one_a_operation(self) -> None:
@@ -213,6 +213,21 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
         ))
 
         self.assertEqual((), actions)
+
+    def test_player_qte_remains_action_evidence_when_classified_as_weave(self) -> None:
+        actions = BattleActionInferenceService.infer((
+            _hit(
+                1,
+                1_000_000,
+                ability_id="GA_Oneiroi_QTE",
+                effect_id="GE_Player_Oneiroi_QTE_Damage",
+                attack_type="环合·援护技",
+                classification="weave",
+            ),
+        ))
+
+        self.assertEqual(1, len(actions))
+        self.assertEqual("QTE", actions[0].input_kind)
 
     def test_q_action_uses_the_head_and_tail_of_its_time_stop_interval(self) -> None:
         actions = BattleActionInferenceService.infer(

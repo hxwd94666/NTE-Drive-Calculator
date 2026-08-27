@@ -271,6 +271,7 @@ class BattleReportPersistenceService:
         captured_at_utc: str,
         finalized_at_utc: str,
         raw_record_payload: Mapping[str, Any] | None = None,
+        nte_core_provenance: Mapping[str, Any] | None = None,
     ) -> BattleSummaryPersistenceOutcome:
         if summary.total_damage <= 0 and summary.total_hits <= 0:
             self.discard_capture(capture_operation_id=capture_operation_id)
@@ -367,6 +368,14 @@ class BattleReportPersistenceService:
                 payload_schema_version=self.PAYLOAD_SCHEMA_VERSION,
                 raw_summary_json=raw_json,
                 raw_summary_sha256=raw_sha256,
+                nte_core_version=(nte_core_provenance or {}).get("core_version"),
+                nte_core_protocol_version=(nte_core_provenance or {}).get(
+                    "protocol_version"
+                ),
+                nte_core_data_version=(nte_core_provenance or {}).get("data_version"),
+                nte_core_executable_sha256=(nte_core_provenance or {}).get(
+                    "executable_sha256"
+                ),
             )
             if post_battle_build is not None:
                 user_dao.finalize_battle_axis_capture(

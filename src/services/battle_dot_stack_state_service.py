@@ -25,6 +25,7 @@ _VENOM_ID = "ge_player_zankou_dotultradamage"
 _SCORCH_ID = "buff_reaction_5_new_1036"
 _CANG_FIELD_DOT_ID = "ge_player_cang_ultraskill_damage"
 _ADLER_SKILL_DOT_ID = "ge_player_adler_skill_damage"
+_RECENT_DOT_OBSERVATION_US = 1_500_000
 _CANG_CAST_DAMAGE_IDS = frozenset({"ge_player_cang_ultraskill2_damage"})
 _ADLER_CAST_DAMAGE_IDS = frozenset({
     "ge_player_adler_skill2_damage",
@@ -100,6 +101,11 @@ class _Stack:
             return
         self.count = min(10, self.count + max(0, amount))
         if self.count:
+            self.expires_at_active_us = active_us + self.duration_us
+
+    def refresh(self, active_us: int) -> None:
+        self.advance(active_us)
+        if self.count > 0:
             self.expires_at_active_us = active_us + self.duration_us
 
     def clear(self) -> None:
@@ -178,6 +184,7 @@ class _ScorchState:
         if not self.dot_activation_required or self.count <= 0:
             return
         self.count = min(self.stack_limit, self.count + 1)
+        self.present = True
         self.expires_at_active_us = active_us + self.duration_us
 
 
@@ -272,7 +279,7 @@ def _is_erosion_application(hit: BattleAnalysisHit) -> int:
     effect = hit.gameplay_effect_id.casefold()
     if hit.character_id != 1036:
         return 0
-    if "zankou_magicmelee" in effect or "zankou_magicbranch" in effect:
+    if _is_zankou_magic_melee(hit) or "zankou_magicbranch" in effect:
         return 1
     if effect in {
         "ge_player_zankou_skill1_1_damage",
@@ -280,6 +287,14 @@ def _is_erosion_application(hit: BattleAnalysisHit) -> int:
     }:
         return 5
     return 0
+
+
+def _is_zankou_magic_melee(hit: BattleAnalysisHit) -> bool:
+    return (
+        hit.character_id == 1036
+        and hit.classification == "direct"
+        and "zankou_magicmelee" in hit.gameplay_effect_id.casefold()
+    )
 
 
 def _burst_final_markers(
@@ -417,6 +432,10 @@ def reconstruct_dot_stack_states(
     cang_cast_serial = 0
     adler_cast_serial = 0
     results: dict[str, BattleDotStackState] = {}
+    recent_dot_observations: dict[
+        tuple[str, str],
+        dict[str, int],
+    ] = {}
     settlement_pending_by_target: dict[tuple[str, str], int] = {}
     ordered = sorted(
         (hit for hit in analysis.hits if hit.direction == "outgoing"),
@@ -472,8 +491,8 @@ def reconstruct_dot_stack_states(
             ),
         )
         nightmare.advance(now)
-        erosion.advance(state_wall_now)
-        venom.advance(state_wall_now)
+        erosion.advance(now)
+        venom.advance(now)
         cang_field.advance(now)
         adler_skill.advance(now)
         scorch.advance(now)
@@ -509,7 +528,14 @@ def reconstruct_dot_stack_states(
         if state is not None:
             is_scorch = effect == _SCORCH_ID
             current_kind = _DOT_KIND_BY_EFFECT[effect]
-            active_kinds = {
+            coefficient_is_lower_bound = bool(
+                not is_early_settlement
+                and not is_scorch
+                and state.count <= 0
+            )
+            if coefficient_is_lower_bound:
+                label = f"{_DOT_KIND_NAMES[current_kind]}观测下限"
+            modeled_kinds = {
                 kind
                 for kind, count in (
                     ("nightmare", nightmare.count),
@@ -521,6 +547,15 @@ def reconstruct_dot_stack_states(
                 )
                 if count > 0
             }
+            recent_kinds = {
+                kind
+                for kind, observed_at_us in recent_dot_observations.get(
+                    target_key,
+                    {},
+                ).items()
+                if 0 <= state_wall_now - observed_at_us <= _RECENT_DOT_OBSERVATION_US
+            }
+            active_kinds = modeled_kinds | recent_kinds
             active_kinds.add(current_kind)
             scorch_confirmed_for_hit = scorch_was_active
             scorch_started_for_hit = scorch.count > 0 or is_scorch
@@ -538,11 +573,21 @@ def reconstruct_dot_stack_states(
                     kind_names = "、".join(
                         _DOT_KIND_NAMES[kind] for kind in sorted(active_kinds)
                     )
+                    recent_only = sorted(recent_kinds - modeled_kinds)
+                    recent_basis = (
+                        "；其中 "
+                        + "、".join(_DOT_KIND_NAMES[kind] for kind in recent_only)
+                        + " 由本击前 1.5 秒内近期正式跳伤确认，"
+                        "不据此刷新其完整持续时间"
+                        if recent_only
+                        else ""
+                    )
                     dot_final_basis = (
                         "早雾突破 2 被动「可以吃吗？」；"
                         + "目标结算前已处于浊燃；"
                         + f"活跃 DOT 种类为 {kind_names}，共 {dot_kind_count} 种；"
                         + "1 + min(种类数 × 25%, 100%)"
+                        + recent_basis
                     )
                 else:
                     dot_final_basis = (
@@ -571,19 +616,37 @@ def reconstruct_dot_stack_states(
                     "学习 E 外，每个有效直伤 hit 施加 1 层噩梦；每次噩梦"
                     "实际跳伤后再触发残虹浊燃补 1 层；最大 10 层；"
                     "每层独立按扣时停时钟计算到期时间；"
-                    + ("本击前未找到施加事件，暂按 1 层" if not state.count else "")
+                    + (
+                        "本击前未找到施加事件；本跳只证明至少存在 1 份噩梦，"
+                        "不反推精确层数"
+                        if coefficient_is_lower_bound
+                        else ""
+                    )
                 )
             elif effect == _EROSION_ID:
                 state_basis = (
-                    "按同一目标逐击正向重放蚀心施加；普通/分支命中加 1 层，"
-                    "强化技能命中加 5 层；30 秒持续时间按服务器战报时钟计算，"
-                    "不因本地时停投影延长"
+                    "按同一目标逐击正向重放蚀心施加；幻境形态普通/分支命中"
+                    "加 1 层，强化技能命中加 5 层；最大 10 层；30 秒持续时间"
+                    "按扣除时停的有效战斗时钟计算，时停期间不流逝"
+                    + (
+                        "；本击前缺少可见施加事件，本跳只证明至少存在 1 份蚀心，"
+                        "不把观测下限解释成精确 1 层"
+                        if coefficient_is_lower_bound
+                        else ""
+                    )
                 )
             elif effect == _VENOM_ID:
                 state_basis = (
-                    "按同一目标逐击正向重放鸩火施加；狩形态极轨终结最终施加点"
-                    "加 5 层；30 秒持续时间按服务器战报时钟计算，不因本地时停"
-                    "投影延长"
+                    "按同一目标逐击正向重放鸩火施加；「血宴入梦时」最终施加点"
+                    "加 5 层；幻境形态普通攻击扩散只刷新已有鸩火持续时间，"
+                    "不增加层数；最大 10 层；30 秒持续时间按扣除时停的有效"
+                    "战斗时钟计算，时停期间不流逝"
+                    + (
+                        "；本击前缺少可见施加事件，本跳只证明至少存在 1 份鸩火，"
+                        "不把观测下限解释成精确 1 层"
+                        if coefficient_is_lower_bound
+                        else ""
+                    )
                 )
             results[hit.event_id] = BattleDotStackState(
                 event_id=hit.event_id,
@@ -595,7 +658,9 @@ def reconstruct_dot_stack_states(
                     else (
                         "中"
                         if is_scorch and scorch_stack_enabled and state.count > 1
-                        else "低" if is_scorch else ("中" if state.count else "低")
+                        else "低"
+                        if is_scorch or coefficient_is_lower_bound
+                        else "中"
                     )
                 ),
                 evidence_basis=(
@@ -626,6 +691,10 @@ def reconstruct_dot_stack_states(
                 settlement_pending_by_target.pop(target_key, None)
             if is_scorch:
                 scorch.observe_settlement(now)
+            if effect != _SCORCH_ID:
+                recent_dot_observations.setdefault(target_key, {})[
+                    current_kind
+                ] = state_wall_now
         nightmare.add(_is_nightmare_application(hit), now)
         if early_settlement_enabled and effect in {
             "ge_player_lacrimosa_melee5_damage",
@@ -643,9 +712,11 @@ def reconstruct_dot_stack_states(
             adler_batch.observe(now, adler_cast_serial)
             if effect == _ADLER_SKILL_DOT_ID else 0
         )
-        erosion.add(erosion_application, state_wall_now)
+        erosion.add(erosion_application, now)
+        if _is_zankou_magic_melee(hit):
+            venom.refresh(now)
         if venom_application:
-            venom.add(venom_application, state_wall_now)
+            venom.add(venom_application, now)
         if cang_field_application:
             cang_field.set_single(now)
         if adler_skill_application:

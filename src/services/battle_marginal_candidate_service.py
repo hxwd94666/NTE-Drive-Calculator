@@ -7,6 +7,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from src.services.battle_inferred_character_fact_service import (
+    BattleInferredCharacterFactService,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class BattleMarginalCandidate:
@@ -114,6 +118,12 @@ class BattleMarginalCandidateService:
         prepared["marginal_equipment_editable"] = bool(equipment_editable)
         prepared["marginal_baseline_kind"] = (
             "active_build_edit" if use_active_edit else "battle_frozen"
+        )
+        prepared["inferred_character_facts"] = (
+            BattleInferredCharacterFactService.applicable_to_profiles(
+                [detail["profile"] for detail in details],
+                tuple(prepared.get("inferred_character_facts") or ()),
+            )
         )
         return prepared
 
