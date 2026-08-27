@@ -10,6 +10,11 @@ from src.domain.battle_report import (
     BattleAnalysisSnapshot,
     BattleBuildCounterfactual,
     BattleRangeRoleSummary,
+    BattleTimelineDamageGroup,
+)
+from src.services.battle_daffodill_marginal_service import (
+    DAFFODILL_EFFECT_FIVE_METHOD,
+    BattleDaffodillMarginalService,
 )
 
 
@@ -23,6 +28,16 @@ class BattleBuildTimelineProjectionService:
     ) -> BattleAnalysisSnapshot:
         projected = {row.event_id: row for row in counterfactual.hits}
         projected_vital = {row.event_id: row for row in counterfactual.vital_events}
+        source_hits = {hit.event_id: hit for hit in analysis.hits}
+        source_replays = {row.event_id: row for row in analysis.hit_replays}
+        derived_rows = tuple(
+            row for row in counterfactual.hits
+            if row.method == DAFFODILL_EFFECT_FIVE_METHOD
+        )
+        derived_hits = tuple(
+            BattleDaffodillMarginalService.composition_hit(row, source_hits)
+            for row in derived_rows
+        )
 
         def project_hit(hit: BattleAnalysisHit) -> BattleAnalysisHit:
             row = projected.get(hit.event_id)
@@ -30,8 +45,14 @@ class BattleBuildTimelineProjectionService:
                 return hit
             return replace(hit, damage=row.predicted_damage)
 
-        timeline_hits = tuple(project_hit(hit) for hit in analysis.timeline_hits)
-        selected_hits = tuple(project_hit(hit) for hit in analysis.hits)
+        timeline_hits = tuple(sorted(
+            (*map(project_hit, analysis.timeline_hits), *derived_hits),
+            key=lambda hit: (hit.relative_time_us, hit.event_id),
+        ))
+        selected_hits = tuple(sorted(
+            (*map(project_hit, analysis.hits), *derived_hits),
+            key=lambda hit: (hit.relative_time_us, hit.event_id),
+        ))
 
         actions = tuple(
             replace(
@@ -82,7 +103,30 @@ class BattleBuildTimelineProjectionService:
                         ),
                 ),
             ))
-        groups = tuple(groups)
+        groups.extend(
+            BattleTimelineDamageGroup(
+                group_id=f"candidate:{row.event_id}",
+                character_id=1054,
+                character_name="达芙蒂尔",
+                direction="outgoing",
+                channel_key="special_daffodill_extra_topple",
+                channel_label="候选五觉·额外倾陷",
+                damage_name=row.damage_name,
+                source_skill_name=row.skill_name,
+                ability_id="character_awaken:1054:Effect5",
+                start_us=source_hits[row.source_event_id].relative_time_us + 1,
+                end_us=source_hits[row.source_event_id].relative_time_us + 2,
+                hits=1,
+                damage=row.predicted_damage,
+                evidence_event_ids=(row.event_id,),
+                detail_lines=(row.explanation, f"置信度 {row.confidence}"),
+            )
+            for row in derived_rows
+        )
+        groups = tuple(sorted(
+            groups,
+            key=lambda group: (group.start_us, group.end_us, group.group_id),
+        ))
         projected_timeline_vital_events = tuple(
             replace(
                 event,
@@ -121,14 +165,15 @@ class BattleBuildTimelineProjectionService:
             vital_events_by_role[event.source_character_id] = (
                 vital_events_by_role.get(event.source_character_id, 0) + 1
             )
-        original_roles = {row.character_id: row for row in analysis.roles}
         roles = tuple(
             BattleRangeRoleSummary(
                 character_id=row.character_id,
                 character_name=row.character_name,
-                hits=original_roles.get(row.character_id).hits
-                if row.character_id in original_roles
-                else 0,
+                hits=sum(
+                    hit.direction == "outgoing"
+                    and hit.character_id == row.character_id
+                    for hit in selected_hits
+                ),
                 damage=row.predicted_damage,
                 dps=row.predicted_damage / max(0.001, analysis.duration_seconds),
                 share_percent=(
@@ -165,4 +210,13 @@ class BattleBuildTimelineProjectionService:
             total_dps=projected_hit_damage / max(0.001, analysis.duration_seconds),
             effective_damage=counterfactual.predicted_damage,
             effective_dps=counterfactual.predicted_dps,
+            hit_replays=tuple((
+                *analysis.hit_replays,
+                *(
+                    BattleDaffodillMarginalService.composition_replay(
+                        row, source_hits, source_replays,
+                    )
+                    for row in derived_rows
+                ),
+            )),
         )

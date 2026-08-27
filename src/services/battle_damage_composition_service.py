@@ -56,7 +56,7 @@ _SPECIAL_EFFECT_LABELS = {
     "ge_player_kuhara_seedreaction_damage": ("direct_follow_up", "追加攻击"),
     "ge_player_daffodill_extraunbalance_damage": (
         "special_daffodill_extra_topple",
-        "达芙蒂尔五觉·额外倾陷伤害",
+        "达芙蒂尔·额外倾陷伤害",
     ),
     "ge_player_lacrimosa_blood_damage": ("special_nightmare", "噩梦"),
     "ge_player_lacrimosa_blood_damage_lv6": ("special_nightmare", "噩梦"),

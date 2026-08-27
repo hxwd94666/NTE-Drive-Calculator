@@ -554,6 +554,7 @@ class BattleBuildHitCounterfactual:
     explanation: str
     baseline_formula_damage: float | None = None
     candidate_formula_damage: float | None = None
+    source_event_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

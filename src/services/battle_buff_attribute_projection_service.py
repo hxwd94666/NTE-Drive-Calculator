@@ -32,7 +32,7 @@ from src.services.battle_outer_realm_buff_service import (
 )
 
 
-BUFF_ATTRIBUTE_PROJECTION_VERSION = "battle-buff-attribute-v19"
+BUFF_ATTRIBUTE_PROJECTION_VERSION = "battle-buff-attribute-v20"
 _INFERRED_HIT_TARGET_PREFIX = "battle-hit-target|id="
 
 _CONTINUOUS_DAMAGE_CHANNELS = frozenset({
@@ -107,6 +107,10 @@ _TOPPLE_ONLY_PROPERTIES = frozenset({
     "UnbalIntensityUp",
     "UnbalIntensityAdd",
     "UnbalDamageUp",
+})
+_TOPPLE_CHANNELS = frozenset({
+    "other_topple",
+    "special_daffodill_extra_topple",
 })
 _TOPPLE_FORMULA_PROPERTIES = frozenset({
     *_TOPPLE_ONLY_PROPERTIES,
@@ -227,7 +231,7 @@ def _confirmed_source_tags_apply(
         "state.damage.melee": is_melee,
         "state.damage.normalattack": is_melee,
         "state.damage.dot": channel_id in _CONTINUOUS_DAMAGE_CHANNELS,
-        "state.damage.unbalance": channel_id == "other_topple",
+        "state.damage.unbalance": channel_id in _TOPPLE_CHANNELS,
         "state.damage.perfectevadedamage": (
             "perfectevade" in identity or "闪避反击" in hit.attack_type
         ),
@@ -391,14 +395,14 @@ class BattleBuffAttributeProjectionService:
                     )
                     if (
                         property_id in _TOPPLE_ONLY_PROPERTIES
-                        and channel_id != "other_topple"
+                        and channel_id not in _TOPPLE_CHANNELS
                     ):
                         interval_reasons.append(
                             f"{property_id} 只进入倾陷伤害的逐角色格子"
                         )
                         continue
                     if (
-                        channel_id == "other_topple"
+                        channel_id in _TOPPLE_CHANNELS
                         and property_id not in _TOPPLE_FORMULA_PROPERTIES
                     ):
                         interval_reasons.append(

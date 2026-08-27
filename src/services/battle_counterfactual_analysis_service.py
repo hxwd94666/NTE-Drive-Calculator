@@ -77,9 +77,10 @@ from src.services.battle_treatment_replay_service import (
     TREATMENT_EVENT_MODEL_VERSION,
     BattleTreatmentReplayService,
 )
+from src.services.battle_daffodill_awakening_service import BattleDaffodillAwakeningService
 
 
-FORMULA_MODEL_VERSION = "battle-counterfactual-v19"
+FORMULA_MODEL_VERSION = "battle-counterfactual-v20"
 
 _REACTION_MARKERS = ("创生", "黯星", "浊燃", "浸染", "盈蓄", "失谐", "延滞", "倾陷", "reaction", "topple")
 _WEAVE_MARKERS = ("覆纹", "weave")
@@ -505,6 +506,16 @@ class BattleCounterfactualAnalysisService:
                     max_hp_events=all_max_hp_events,
                 ),
                 *zankou_form_intervals,
+                *BattleDaffodillAwakeningService.infer(
+                    build=build,
+                    actions=inferred_actions,
+                    hits=all_hits,
+                    battle_end_us=maximum,
+                    time_stop_intervals=intervals,
+                    topple_duration_us=BattleDaffodillAwakeningService.reliable_topple_duration_us(
+                        outer_realm_buff_config
+                    ),
+                ),
                 *BattleOuterRealmBuffService.infer(
                     BattleOuterRealmBuffService.apply_target_condition(
                         outer_realm_buff_config,

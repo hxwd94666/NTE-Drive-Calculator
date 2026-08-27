@@ -27,7 +27,6 @@ from src.app.dialogs import show_help
 from src.domain.battle_report import (
     BattleAnalysisSnapshot,
     BattleCharacterBaseline,
-    BattleRangeRoleSummary,
 )
 from src.features.battle_report.analysis_components import (
     analysis_section,
@@ -35,13 +34,13 @@ from src.features.battle_report.analysis_components import (
 )
 from src.features.battle_report.composition_view import BattleDamageCompositionPanel
 from src.features.battle_report.hit_formula_dialog import BattleHitFormulaDialog
+from src.features.battle_report.marginal_derived_settlement_view import BattleMarginalDerivedSettlementView
 from src.features.battle_report.marginal_replacement_controller import (
     show_marginal_equipment_replacement,
 )
 from src.features.battle_report.role_contribution_view import (
     BattleRoleDamagePieWidget,
-    BattleRoleShareBar,
-    role_contribution_color,
+    render_counterfactual_roles,
 )
 from src.features.battle_report.timeline_layout import TimelineSelection
 from src.features.battle_report.timeline_view import BattleUnifiedTimelineWidget
@@ -166,6 +165,12 @@ class BattleMarginalPage(QWidget):
             self.metric_subtitles[key] = sub
             metrics.addWidget(card, 0, column)
         root.addLayout(metrics)
+
+        self.derived_settlements = BattleMarginalDerivedSettlementView()
+        self.derived_settlements.hit_activated.connect(
+            lambda event_id: self._open_counterfactual_hit(TimelineSelection("hit", event_id, None))
+        )
+        root.addWidget(self.derived_settlements)
 
         timeline_card, timeline_layout = analysis_section("调整后逐击轴")
         timeline_controls = QHBoxLayout()
@@ -366,10 +371,12 @@ class BattleMarginalPage(QWidget):
         self.counterfactual_timeline.set_analysis(None)
         self.composition_panel.clear()
         self.buff_benefit_table.setRowCount(0)
+        self.derived_settlements.render(None)
 
     def set_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
         self._analysis = analysis
         comparison = analysis.build_counterfactual
+        self.derived_settlements.render(comparison)
         if comparison is None:
             self._candidate_analysis = None
             self.counterfactual_timeline.set_analysis(None)
@@ -397,7 +404,10 @@ class BattleMarginalPage(QWidget):
             self.metric_subtitles["structured"].setText(
                 f"估计 {100.0 - comparison.structured_percent:.1f}%"
             )
-            self._render_roles(comparison.roles, comparison.predicted_damage)
+            render_counterfactual_roles(
+                self.roles_table, self.roles_pie,
+                comparison.roles, comparison.predicted_damage,
+            )
             self.composition_panel.render(comparison.composition)
         self._render_selected_role()
 
@@ -431,12 +441,17 @@ class BattleMarginalPage(QWidget):
             or selection.kind != "hit"
         ):
             return
+        related_counterfactuals = tuple(
+            row
+            for row in comparison.hits
+            if row.source_event_id == selection.item_id
+        )
         projection = next(
             (row for row in comparison.hits if row.event_id == selection.item_id),
             None,
         )
         original_hit = next(
-            (row for row in analysis.hits if row.event_id == selection.item_id),
+            (row for row in candidate.hits if row.event_id == selection.item_id),
             None,
         )
         if projection is None or original_hit is None:
@@ -467,6 +482,8 @@ class BattleMarginalPage(QWidget):
             replay,
             active_buffs=active_buffs,
             counterfactual=projection,
+            related_counterfactuals=related_counterfactuals,
+            related_analysis=candidate,
         )
 
     def profiles(self) -> list[dict]:
@@ -766,26 +783,3 @@ class BattleMarginalPage(QWidget):
     def _request_recalculate(self) -> None:
         self._refresh_change_summary()
         self.recalculate_requested.emit(self.profiles())
-
-    def _render_roles(self, roles, predicted_total: float) -> None:
-        self.roles_table.setRowCount(len(roles))
-        pie_rows = []
-        for row_index, role in enumerate(roles):
-            share = role.predicted_damage / predicted_total * 100.0 if predicted_total else 0.0
-            self.roles_table.setItem(row_index, 0, QTableWidgetItem(role.character_name))
-            self.roles_table.setItem(row_index, 1, QTableWidgetItem(_number(role.predicted_damage)))
-            self.roles_table.setCellWidget(
-                row_index,
-                2,
-                BattleRoleShareBar(share_percent=share, color=role_contribution_color(row_index)),
-            )
-            self.roles_table.setItem(row_index, 3, QTableWidgetItem(f"{role.gain_percent:+.2f}%"))
-            pie_rows.append(BattleRangeRoleSummary(
-                character_id=role.character_id,
-                character_name=role.character_name,
-                hits=0,
-                damage=role.predicted_damage,
-                dps=0.0,
-                share_percent=share,
-            ))
-        self.roles_pie.set_roles(tuple(pie_rows))

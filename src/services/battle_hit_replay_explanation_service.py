@@ -76,6 +76,7 @@ _COUNTERFACTUAL_METHOD_LABELS = {
     "panel_formula_estimate": "角色面板与目标乘区比值",
     "role_peer_estimate": "该角色可重放逐击中位比值",
     "unchanged_estimate": "原击同比保持",
+    "candidate_derived_daffodill_effect5": "候选五觉按洞察层数新增结算",
 }
 
 
@@ -370,7 +371,7 @@ class BattleHitReplayExplanationService:
             gain_percent = (
                 delta / counterfactual.baseline_damage * 100.0
                 if counterfactual.baseline_damage
-                else 0.0
+                else None
             )
             direction = "提升" if delta > 0 else "下降" if delta < 0 else "持平"
             method = _COUNTERFACTUAL_METHOD_LABELS.get(
@@ -384,7 +385,8 @@ class BattleHitReplayExplanationService:
                     f"调整后预计：{counterfactual.predicted_damage:,.2f}"
                 ),
                 (
-                    f"预计{direction}：{delta:+,.2f}（{gain_percent:+.2f}%）    "
+                    f"预计{direction}：{delta:+,.2f}（"
+                    f"{'新增，基线为 0' if gain_percent is None else f'{gain_percent:+.2f}%'}）    "
                     f"证据置信度：{counterfactual.confidence}"
                 ),
                 (
@@ -393,7 +395,18 @@ class BattleHitReplayExplanationService:
                 ),
                 f"估计方法：{method}",
                 f"说明：{counterfactual.explanation}",
-                "口径：固定原战报动作与命中，只改变该击候选伤害；这不是新的实测逐击。",
+                *(
+                    (
+                        f"原轴触发逐击：{counterfactual.source_event_id}",
+                        "口径：这是候选配置在既有触发时点新增的派生结算；"
+                        "基线为 0，不改写原始触发逐击，也不是新的实测逐击。",
+                    )
+                    if counterfactual.source_event_id
+                    else (
+                        "口径：固定原战报动作与命中，只改变该击候选伤害；"
+                        "这不是新的实测逐击。",
+                    )
+                ),
                 "",
             ))
         if replay is None:

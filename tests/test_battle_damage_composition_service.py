@@ -41,7 +41,7 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            ("special_daffodill_extra_topple", "达芙蒂尔五觉·额外倾陷伤害"),
+            ("special_daffodill_extra_topple", "达芙蒂尔·额外倾陷伤害"),
             classify_battle_hit_channel(hit),
         )
 

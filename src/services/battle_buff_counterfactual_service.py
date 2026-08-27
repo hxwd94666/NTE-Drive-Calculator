@@ -125,6 +125,8 @@ class BattleBuffCounterfactualService:
         baseline_by_event = {row.event_id: row for row in baseline_replays}
         groups: dict[str, list[BattleInferredBuffInterval]] = defaultdict(list)
         for interval in analysis.buff_intervals:
+            if interval.source_kind == "candidate_derived_awakening_settlement":
+                continue
             groups[battle_buff_counterfactual_key(interval)].append(interval)
         return tuple(
             cls._calculate_group(

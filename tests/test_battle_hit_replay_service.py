@@ -159,7 +159,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         self.assertEqual("not_applicable", result.critical_state)
         self.assertEqual("disabled", result.critical_policy)
         self.assertEqual(0.0, result.critical_rate)
-        self.assertEqual("达芙蒂尔五觉·额外倾陷伤害", result.formula_type)
+        self.assertEqual("达芙蒂尔·额外倾陷伤害", result.formula_type)
         self.assertIn("静态 TRUE 标签不改变", result.missing_evidence[-1])
 
     def test_weave_replays_from_same_event_and_applies_lingke_team_passive(self) -> None:

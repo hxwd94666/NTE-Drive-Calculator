@@ -20,6 +20,7 @@ from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.domain.battle_report import (
     BattleAnalysisHit,
+    BattleAnalysisSnapshot,
     BattleBuildHitCounterfactual,
     BattleHitReplayResult,
     BattleInferredBuffInterval,
@@ -65,6 +66,8 @@ class BattleHitFormulaDialog(QDialog):
         *,
         active_buffs: Sequence[BattleInferredBuffInterval] = (),
         counterfactual: BattleBuildHitCounterfactual | None = None,
+        related_counterfactuals: Sequence[BattleBuildHitCounterfactual] = (),
+        related_analysis: BattleAnalysisSnapshot | None = None,
     ) -> None:
         damage_name = preferred_battle_damage_name(
             hit.damage_name,
@@ -72,13 +75,71 @@ class BattleHitFormulaDialog(QDialog):
             hit.ability_id,
         )
         self.title_label.setText(f"{hit.character_name} · {damage_name}")
-        self.detail.setPlainText(
-            BattleHitReplayExplanationService.build(
-                hit,
-                replay,
-                active_buffs=active_buffs,
-                counterfactual=counterfactual,
+        sections = [BattleHitReplayExplanationService.build(
+            hit,
+            replay,
+            active_buffs=active_buffs,
+            counterfactual=counterfactual,
+        )]
+        related_hits = {
+            row.event_id: row for row in (() if related_analysis is None else related_analysis.hits)
+        }
+        related_replays = {
+            row.event_id: row
+            for row in (() if related_analysis is None else related_analysis.hit_replays)
+        }
+        quantified = tuple(
+            row for row in related_counterfactuals
+            if row.event_id in related_hits
+        )
+        if quantified and related_analysis is not None:
+            added = sum(row.predicted_damage - row.baseline_damage for row in quantified)
+            base = hit.damage if counterfactual is None else counterfactual.predicted_damage
+            formula_base = (
+                base
+                if counterfactual is None or counterfactual.candidate_formula_damage is None
+                else counterfactual.candidate_formula_damage
             )
+            formula_added = sum(
+                row.predicted_damage
+                if row.candidate_formula_damage is None
+                else row.candidate_formula_damage
+                for row in quantified
+            )
+            sections.append(
+                "【关联候选新增结算】\n"
+                "上方团队倾陷及所有角色贡献完整保留；下列候选事件只是在同一"
+                "触发时点额外追加，不替代原始团队倾陷。\n"
+                f"固定轴结算簇 = 上方调整后逐击 {base:,.2f} + "
+                f"关联新增 {added:,.2f} = {base + added:,.2f}\n"
+                f"候选公式审计合计 = 团队倾陷公式 {formula_base:,.2f} + "
+                f"五觉新增公式 {formula_added:,.2f} = "
+                f"{formula_base + formula_added:,.2f}"
+            )
+            for row in quantified:
+                related_hit = related_hits[row.event_id]
+                related_buffs = tuple(
+                    interval
+                    for interval in related_analysis.buff_intervals
+                    if interval.source_kind != "candidate_derived_awakening_settlement"
+                    and interval.start_us <= related_hit.relative_time_us < interval.end_us
+                    and (
+                        interval.target_scope in {"team", "target", "unknown"}
+                        or interval.target_scope == f"character:{related_hit.character_id}"
+                        or (
+                            interval.target_scope == "self"
+                            and interval.source_character_id == related_hit.character_id
+                        )
+                    )
+                )
+                sections.append(BattleHitReplayExplanationService.build(
+                    related_hit,
+                    related_replays.get(row.event_id),
+                    active_buffs=related_buffs,
+                    counterfactual=row,
+                ))
+        self.detail.setPlainText(
+            "\n\n".join(sections)
         )
         self.detail.moveCursor(QTextCursor.MoveOperation.Start)
 
@@ -89,12 +150,16 @@ class BattleHitFormulaDialog(QDialog):
         *,
         active_buffs: Sequence[BattleInferredBuffInterval] = (),
         counterfactual: BattleBuildHitCounterfactual | None = None,
+        related_counterfactuals: Sequence[BattleBuildHitCounterfactual] = (),
+        related_analysis: BattleAnalysisSnapshot | None = None,
     ) -> None:
         self.set_hit(
             hit,
             replay,
             active_buffs=active_buffs,
             counterfactual=counterfactual,
+            related_counterfactuals=related_counterfactuals,
+            related_analysis=related_analysis,
         )
         fit_dialog_to_available_screen(self, QSize(960, 760))
         self.show()

@@ -293,7 +293,7 @@ class BattleToppleHitReplayService:
             confidence=confidence,
             factors=tuple(factors),
             missing_evidence=((
-                "达芙蒂尔五觉追加结算只重放达芙蒂尔本人的倾陷贡献；"
+                "达芙蒂尔额外倾陷结算只重放达芙蒂尔本人的倾陷贡献；"
                 "静态 TRUE 标签不改变倾陷的防御与抗性规则"
             ),) if source_character_id is not None else (
                 "倾陷事件的逐角色分量来自公式重放；nte-core 当前仅上报团队合计",

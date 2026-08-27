@@ -23,6 +23,10 @@ from src.domain.battle_report import (
 from src.services.battle_damage_composition_service import (
     BattleDamageCompositionService,
 )
+from src.services.battle_daffodill_marginal_service import (
+    DAFFODILL_EFFECT_FIVE_METHOD,
+    BattleDaffodillMarginalService,
+)
 from src.services.battle_replay_formula_ratio_service import (
     paired_replay_formula,
     replay_formula_value,
@@ -39,7 +43,7 @@ from src.services.damage_calculation_service import (
 )
 
 
-BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v2"
+BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v3"
 
 _ELEMENT_PROPERTY = {
     "chaos": "DamageUpChaosBase",
@@ -59,7 +63,11 @@ _PENETRATION_PROPERTY = {
     "psyche": "DamagePenetratePsyche",
     "psychically": "DamagePenetratePsychically",
 }
-_STRUCTURED_METHODS = {"structured_expected", "structured_selected"}
+_STRUCTURED_METHODS = {
+    "structured_expected",
+    "structured_selected",
+    DAFFODILL_EFFECT_FIVE_METHOD,
+}
 _STRUCTURED_VITAL_METHODS = {
     "linked_source_hit_ratio",
     "fadia_inherent_hp_ratio",
@@ -171,6 +179,10 @@ class BattleBuildCounterfactualService:
                 baseline_formula_damage=baseline_formula_damage,
                 candidate_formula_damage=candidate_formula_damage,
             ))
+        projected_hits.extend(BattleDaffodillMarginalService.derived_rows(
+            original=original,
+            candidate=candidate,
+        ))
 
         projected_vital_events = cls._vital_events(
             original=original,
@@ -213,7 +225,7 @@ class BattleBuildCounterfactualService:
             "原击已识别暴击分支时，候选沿用同一分支；分支不唯一但暴击策略已知时才使用期望公式。",
             "结构化公式不可用时依次采用同技能、同类型、角色面板和同比保持估计；原轴伤害覆盖率固定为100%。",
             "已归因生命上限结算按来源机制联动：安魂曲五觉跟随对应噩梦逐击，法帝娅被动跟随其固有生命上限；证据不足时才固定原值。",
-            "候选配置新增或删除动作、命中次数、技能循环和完全未知的额外结算，本阶段按零增量保守估计。",
+            "候选配置不会新增动作或改动循环；只有已审计且具备原轴触发、目标、层数和公式锚点的派生结算进入增量，其余仍按零增量保守估计。",
         )
         projected_damage_by_event = {
             row.event_id: row.predicted_damage for row in projected_hits
@@ -222,6 +234,17 @@ class BattleBuildCounterfactualService:
             replace(hit, damage=projected_damage_by_event.get(hit.event_id, hit.damage))
             for hit in original.hits
         )
+        derived_rows = tuple(
+            row for row in projected_hits
+            if row.method == DAFFODILL_EFFECT_FIVE_METHOD
+        )
+        composition_hits = tuple((
+            *composition_hits,
+            *(
+                BattleDaffodillMarginalService.composition_hit(row, candidate_hits)
+                for row in derived_rows
+            ),
+        ))
         composition_roles = tuple(
             BattleRangeRoleSummary(
                 character_id=row.character_id,
@@ -253,7 +276,15 @@ class BattleBuildCounterfactualService:
             roles=composition_roles,
             hits=composition_hits,
             max_hp_events=composition_vital_events,
-            hit_replays=candidate.hit_replays,
+            hit_replays=tuple((
+                *candidate.hit_replays,
+                *(
+                    BattleDaffodillMarginalService.composition_replay(
+                        row, candidate_hits, candidate_replays,
+                    )
+                    for row in derived_rows
+                ),
+            )),
             role_identities=tuple(
                 (row.character_id, row.character_name)
                 for row in candidate.baselines

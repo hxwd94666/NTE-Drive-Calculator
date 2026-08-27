@@ -3,12 +3,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QWidget
 
 from src.app.theme import theme_color
-from src.domain.battle_report import BattleRangeRoleSummary
+from src.domain.battle_report import (
+    BattleBuildRoleCounterfactual,
+    BattleRangeRoleSummary,
+)
 
 
 _ROLE_COLOR_VALUES = (
@@ -183,3 +188,37 @@ class BattleRoleDamagePieWidget(QWidget):
                 Qt.AlignLeft | Qt.AlignVCenter,
                 f"{role.share_percent:.2f}% · {_number(role.damage)}",
             )
+
+
+def render_counterfactual_roles(
+    table: QTableWidget,
+    pie: BattleRoleDamagePieWidget,
+    roles: Sequence[BattleBuildRoleCounterfactual],
+    predicted_total: float,
+) -> None:
+    """Render the marginal role table and donut from the same immutable rows."""
+
+    table.setRowCount(len(roles))
+    pie_rows = []
+    for row_index, role in enumerate(roles):
+        share = role.predicted_damage / predicted_total * 100.0 if predicted_total else 0.0
+        table.setItem(row_index, 0, QTableWidgetItem(role.character_name))
+        table.setItem(row_index, 1, QTableWidgetItem(_number(role.predicted_damage)))
+        table.setCellWidget(
+            row_index,
+            2,
+            BattleRoleShareBar(
+                share_percent=share,
+                color=role_contribution_color(row_index),
+            ),
+        )
+        table.setItem(row_index, 3, QTableWidgetItem(f"{role.gain_percent:+.2f}%"))
+        pie_rows.append(BattleRangeRoleSummary(
+            character_id=role.character_id,
+            character_name=role.character_name,
+            hits=0,
+            damage=role.predicted_damage,
+            dps=0.0,
+            share_percent=share,
+        ))
+    pie.set_roles(tuple(pie_rows))

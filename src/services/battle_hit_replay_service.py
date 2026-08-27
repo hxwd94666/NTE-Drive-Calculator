@@ -97,7 +97,7 @@ class BattleHitReplayService:
                 result = BattleToppleHitReplayService.replay(
                     hit=hit, analysis=hit_analysis,
                     character_configs=topple_character_configs or {},
-                    source_character_id=1054, formula_type="达芙蒂尔五觉·额外倾陷伤害",
+                    source_character_id=1054, formula_type="达芙蒂尔·额外倾陷伤害",
                 )
                 results.append(apply_observed_damage_correction(result, hit))
                 continue
