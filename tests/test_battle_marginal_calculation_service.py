@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 from src.domain.battle_report import (
@@ -11,13 +12,30 @@ from src.domain.battle_report import (
     BattleHitReplayFactor,
     BattleHitReplayResult,
     BattleHitReplayTerm,
+    BattleTargetCondition,
 )
+from src.domain.battle_target import BattleTargetInstanceResolution
 from src.services.battle_marginal_calculation_service import (
     BattleMarginalCalculationService,
 )
 
 
 CHARACTER_ID = 1072
+
+
+@dataclass
+class _AnalysisFixture:
+    baselines: tuple
+    hits: tuple
+    hit_replays: tuple
+    buff_intervals: tuple
+    roles: tuple
+    effective_damage: float
+    build_counterfactual: object | None
+    target_condition: BattleTargetCondition | None
+    target_conditions_by_half: tuple
+    target_instance_resolutions: tuple
+    target_instance_mapping_required: bool
 
 
 def _baseline() -> BattleCharacterBaseline:
@@ -41,9 +59,16 @@ def _baseline() -> BattleCharacterBaseline:
     )
 
 
-def _hit(*, classification: str = "direct", damage: float = 1000.0):
+def _hit(
+    *,
+    event_id: str = "hit:1",
+    classification: str = "direct",
+    damage: float = 1000.0,
+    scope_half: str = "",
+    target_id: str = "target:1",
+):
     return BattleAnalysisHit(
-        event_id="hit:1",
+        event_id=event_id,
         sequence=1,
         relative_time_us=1_000_000,
         character_id=CHARACTER_ID,
@@ -53,17 +78,25 @@ def _hit(*, classification: str = "direct", damage: float = 1000.0):
         damage_component="skill",
         attack_type="normal",
         damage_attribute="nature",
-        target_id="target:1",
+        target_id=target_id,
         target_name="目标",
         damage=damage,
         direction="outgoing",
         is_follow_up=False,
         classification=classification,
+        scope_half=scope_half,
     )
 
 
-def _analysis(hit, replay):
-    return SimpleNamespace(
+def _analysis(
+    hit,
+    replay,
+    *,
+    target_condition=None,
+    target_instance_resolutions=(),
+    target_instance_mapping_required=False,
+):
+    return _AnalysisFixture(
         baselines=(_baseline(),),
         hits=(hit,),
         hit_replays=(replay,),
@@ -76,7 +109,40 @@ def _analysis(hit, replay):
         ),
         effective_damage=hit.damage,
         build_counterfactual=None,
-        target_condition=None,
+        target_condition=target_condition,
+        target_conditions_by_half=(),
+        target_instance_resolutions=target_instance_resolutions,
+        target_instance_mapping_required=target_instance_mapping_required,
+    )
+
+
+def _target_condition(*, defense: float, resistance: float) -> BattleTargetCondition:
+    return BattleTargetCondition(
+        target_name="测试目标",
+        enemy_level=90.0,
+        scene="outer_realm",
+        defense_reduction=0.0,
+        vulnerability=0.0,
+        resistances=(("nature", resistance),),
+        enemy_defense_base=defense,
+    )
+
+
+def _target_resolution(
+    *,
+    scope_half: str,
+    target_id: str,
+    condition: BattleTargetCondition | None,
+) -> BattleTargetInstanceResolution:
+    return BattleTargetInstanceResolution(
+        scope_half=scope_half,
+        captured_target_id=target_id,
+        resolved_monster_id="",
+        default_monster_id="",
+        possible_monster_ids=(),
+        resolution_mode="fixture",
+        initial_max_hp=1000.0,
+        target_condition=condition,
     )
 
 
@@ -98,11 +164,16 @@ def _critical_replay(hit, policy: str, rate: float | None):
 
 
 class BattleMarginalCalculationServiceTests(unittest.TestCase):
-    def test_unit_margin_anchors_on_current_candidate_projection(self) -> None:
+    def test_unknown_target_attack_margin_anchors_on_candidate_projection(self) -> None:
         hit = _hit()
         analysis = _analysis(hit, _critical_replay(hit, "character", 0.5))
         analysis.build_counterfactual = SimpleNamespace(
-            hits=(SimpleNamespace(event_id=hit.event_id, predicted_damage=1500.0),),
+            hits=(
+                SimpleNamespace(
+                    event_id=hit.event_id,
+                    predicted_damage=1500.0,
+                ),
+            ),
             roles=(
                 SimpleNamespace(
                     character_id=CHARACTER_ID,
@@ -125,6 +196,115 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         self.assertAlmostEqual(0.9375, result.team_dps_gain_percent)
         self.assertAlmostEqual(100.0, result.coverage_percent)
         self.assertAlmostEqual(75.0, result.damage_share_percent)
+
+    def test_legacy_single_target_condition_remains_supported(self) -> None:
+        hit = _hit()
+        condition = _target_condition(defense=1000.0, resistance=0.2)
+        analysis = _analysis(
+            hit,
+            _critical_replay(hit, "character", 0.5),
+            target_condition=condition,
+        )
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"DefIgnore": 0.01},
+        )[0]
+
+        self.assertGreater(result.role_gain_percent, 0.0)
+        self.assertEqual(100.0, result.coverage_percent)
+
+    def test_same_target_id_in_two_halves_uses_each_frozen_profile(self) -> None:
+        upper = _hit(event_id="hit:upper", scope_half="upper", target_id="7")
+        lower = _hit(event_id="hit:lower", scope_half="lower", target_id="7")
+        upper_condition = _target_condition(defense=600.0, resistance=0.1)
+        lower_condition = _target_condition(defense=1600.0, resistance=0.4)
+        upper_replay = _critical_replay(upper, "character", 0.5)
+        lower_replay = _critical_replay(lower, "character", 0.5)
+        combined = _analysis(
+            upper,
+            upper_replay,
+            target_condition=upper_condition,
+            target_instance_resolutions=(
+                _target_resolution(
+                    scope_half="upper",
+                    target_id="7",
+                    condition=upper_condition,
+                ),
+                _target_resolution(
+                    scope_half="lower",
+                    target_id="7",
+                    condition=lower_condition,
+                ),
+            ),
+            target_instance_mapping_required=True,
+        )
+        combined.hits = (upper, lower)
+        combined.hit_replays = (upper_replay, lower_replay)
+        combined.effective_damage = upper.damage + lower.damage
+
+        combined_result = BattleMarginalCalculationService.calculate(
+            analysis=combined,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"DefIgnore": 0.01},
+        )[0]
+        upper_result = BattleMarginalCalculationService.calculate(
+            analysis=_analysis(
+                upper,
+                upper_replay,
+                target_condition=upper_condition,
+            ),
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"DefIgnore": 0.01},
+        )[0]
+        lower_result = BattleMarginalCalculationService.calculate(
+            analysis=_analysis(
+                lower,
+                lower_replay,
+                target_condition=lower_condition,
+            ),
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"DefIgnore": 0.01},
+        )[0]
+
+        expected_increment = (
+            upper_result.predicted_damage
+            - upper_result.baseline_damage
+            + lower_result.predicted_damage
+            - lower_result.baseline_damage
+        )
+        self.assertAlmostEqual(
+            expected_increment,
+            combined_result.predicted_damage - combined_result.baseline_damage,
+        )
+        self.assertEqual(100.0, combined_result.coverage_percent)
+
+    def test_missing_instance_profile_does_not_fall_back_to_primary(self) -> None:
+        hit = _hit(scope_half="lower", target_id="7")
+        primary = _target_condition(defense=1000.0, resistance=0.2)
+        analysis = _analysis(
+            hit,
+            _critical_replay(hit, "character", 0.5),
+            target_condition=primary,
+            target_instance_resolutions=(),
+            target_instance_mapping_required=True,
+        )
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"DefIgnore": 0.01},
+        )[0]
+
+        self.assertEqual(result.baseline_damage, result.predicted_damage)
+        self.assertEqual(0.0, result.coverage_percent)
+        self.assertIn("0% 表示未量化", result.assumption)
 
     def test_crit_units_follow_each_hit_critical_policy(self) -> None:
         hit = _hit()

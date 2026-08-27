@@ -18,6 +18,9 @@ from src.domain.official_role import ROLE_PANEL_MARGINAL_UNITS
 from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
+from src.services.battle_target_instance_mapping_service import (
+    BattleTargetInstanceMappingService,
+)
 from src.services.damage_calculation_service import (
     DamageScene,
     EnemyDefenseProfileInput,
@@ -136,6 +139,13 @@ class BattleMarginalCalculationService:
             )
             for hit in role_hits
         }
+        target_conditions = {
+            hit.event_id: BattleTargetInstanceMappingService.analysis_for_hit(
+                analysis,
+                hit,
+            ).target_condition
+            for hit in role_hits
+        }
         applied_intervals = {
             interval_id
             for projection in projections.values()
@@ -193,7 +203,7 @@ class BattleMarginalCalculationService:
                 if cls._supports(
                     property_id,
                     hit,
-                    target_condition=analysis.target_condition,
+                    target_condition=target_conditions[hit.event_id],
                     replay=replays.get(hit.event_id),
                     character_id=character_id,
                 )
@@ -227,7 +237,7 @@ class BattleMarginalCalculationService:
                     hit,
                     projections[hit.event_id],
                     baseline,
-                    analysis.target_condition,
+                    target_conditions[hit.event_id],
                     replays.get(hit.event_id),
                 )
                 for hit in formula_hits
@@ -239,7 +249,7 @@ class BattleMarginalCalculationService:
                     hit,
                     projections[hit.event_id],
                     baseline,
-                    analysis.target_condition,
+                    target_conditions[hit.event_id],
                     replays.get(hit.event_id),
                 )
                 for hit in formula_hits
@@ -600,9 +610,15 @@ class BattleMarginalCalculationService:
     ) -> str:
         if not supported:
             if property_id == "DefIgnore":
-                return "尚未保存用户确认的单目标等级/场景，防御忽略暂不计算。"
+                return (
+                    "当前相关逐击缺少可靠冻结敌方防御画像；"
+                    "0% 表示未量化，不表示没有收益。"
+                )
             if property_id in _DAMAGE_PENETRATION_PROPERTY.values():
-                return "尚未保存用户确认的单目标分属性抗性，抗性穿透暂不计算。"
+                return (
+                    "当前相关逐击缺少可靠冻结敌方分属性抗性画像；"
+                    "0% 表示未量化，不表示没有收益。"
+                )
             if property_id in {"CritBase", "CritDamageBase"}:
                 policies = "/".join(sorted(set(critical_policies))) or "unknown"
                 return (
