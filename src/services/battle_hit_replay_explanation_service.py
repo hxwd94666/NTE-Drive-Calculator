@@ -75,8 +75,11 @@ _COUNTERFACTUAL_METHOD_LABELS = {
     "type_peer_estimate": "同角色同伤害类型中位比值",
     "panel_formula_estimate": "角色面板与目标乘区比值",
     "role_peer_estimate": "该角色可重放逐击中位比值",
-    "unchanged_estimate": "原击同比保持",
     "candidate_derived_daffodill_effect5": "候选五觉按洞察层数新增结算",
+    "component_ratio": "变化乘区完整比值",
+    "component_ratio_partial": "变化乘区已量化分量比值",
+    "component_ratio_unavailable": "变化乘区缺少必要输入",
+    "component_ratio_not_applicable": "已证明本击不受变化影响",
 }
 
 
@@ -364,37 +367,68 @@ class BattleHitReplayExplanationService:
             "",
         ]
         if counterfactual is not None:
+            quantification = counterfactual.quantification
+            projection = (
+                counterfactual.candidate_damage
+                if counterfactual.candidate_damage is not None
+                else counterfactual.known_projection_damage
+            )
             delta = (
-                counterfactual.predicted_damage
-                - counterfactual.baseline_damage
+                None
+                if projection is None
+                else projection - counterfactual.baseline_damage
             )
             gain_percent = (
                 delta / counterfactual.baseline_damage * 100.0
-                if counterfactual.baseline_damage
+                if delta is not None and counterfactual.baseline_damage
                 else None
             )
-            direction = "提升" if delta > 0 else "下降" if delta < 0 else "持平"
+            direction = (
+                "未量化"
+                if delta is None
+                else "提升" if delta > 0 else "下降" if delta < 0 else "持平"
+            )
             method = _COUNTERFACTUAL_METHOD_LABELS.get(
-                counterfactual.method,
-                counterfactual.method,
+                quantification.method,
+                quantification.method,
+            )
+            projection_label = (
+                "完整候选"
+                if counterfactual.candidate_damage is not None
+                else "已量化变化"
+                if counterfactual.known_projection_damage is not None
+                else "候选未量化"
             )
             lines.extend((
                 "【调整后边际】",
                 (
                     f"原始逐击：{counterfactual.baseline_damage:,.2f}    "
-                    f"调整后预计：{counterfactual.predicted_damage:,.2f}"
+                    f"{projection_label}：{_damage(projection)}"
                 ),
                 (
-                    f"预计{direction}：{delta:+,.2f}（"
-                    f"{'新增，基线为 0' if gain_percent is None else f'{gain_percent:+.2f}%'}）    "
-                    f"证据置信度：{counterfactual.confidence}"
+                    f"{direction}：{_damage(delta)}（"
+                    f"{'—' if gain_percent is None else f'{gain_percent:+.2f}%'}）    "
+                    f"量化状态：{quantification.status}    "
+                    f"证据置信度：{quantification.confidence}"
                 ),
                 (
                     f"原始公式值：{_damage(counterfactual.baseline_formula_damage)}    "
                     f"候选公式值：{_damage(counterfactual.candidate_formula_damage)}"
                 ),
-                f"估计方法：{method}",
-                f"说明：{counterfactual.explanation}",
+                f"量化方法：{method}",
+                f"说明：{quantification.explanation}",
+                *(
+                    (f"启发式参考：{counterfactual.heuristic_projection_damage:,.2f}（不进入量化收益）",)
+                    if counterfactual.heuristic_projection_damage is not None
+                    else ()
+                ),
+                *(
+                    ("未决依赖：" + "；".join(
+                        gap.explanation for gap in quantification.gaps
+                    ),)
+                    if quantification.gaps
+                    else ()
+                ),
                 *(
                     (
                         f"原轴触发逐击：{counterfactual.source_event_id}",

@@ -140,7 +140,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(1, len(result.inferred_actions))
         self.assertEqual("battle-action-window-v12", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
-        self.assertEqual("battle-counterfactual-v15", result.formula_model_version)
+        self.assertEqual("battle-counterfactual-v20", result.formula_model_version)
 
     def test_follow_up_uses_its_own_formal_timestamp(self) -> None:
         evidence = _evidence()
@@ -161,28 +161,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(1, len(result.inferred_inputs))
         self.assertEqual(3, len(result.timeline_damage_groups))
 
-    def test_crit_damage_margin_uses_expected_crit_and_reports_coverage(self) -> None:
-        analysis = BattleCounterfactualAnalysisService.analyze(
-            battle_record_id=7,
-            evidence=_evidence(),
-            build=_build(),
-            capability_level="hit_axis",
-        )
-        baseline = analysis.baselines[0]
-        units = BattleMarginalCalculationService.default_units(baseline)
-        results = BattleMarginalCalculationService.calculate(
-            analysis=analysis,
-            character_id=1072,
-            edited_values={},
-            units=units,
-        )
-        crit_damage = next(row for row in results if row.property_id == "CritDamageBase")
-
-        self.assertGreater(crit_damage.predicted_damage, crit_damage.baseline_damage)
-        self.assertAlmostEqual(80.0, crit_damage.coverage_percent)
-        self.assertIn("期望伤害", crit_damage.assumption)
-
-    def test_dynamic_attack_buff_reduces_attack_up_marginal_without_readding_damage(self) -> None:
+    def test_dynamic_attack_buff_is_retained_when_scaling_is_unknown(self) -> None:
         plain = BattleCounterfactualAnalysisService.analyze(
             battle_record_id=7,
             evidence=_evidence(),
@@ -210,14 +189,16 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         )[0]
 
         self.assertEqual(plain_margin.baseline_damage, buffed_margin.baseline_damage)
-        self.assertLess(buffed_margin.role_gain_percent, plain_margin.role_gain_percent)
+        self.assertEqual("unavailable", plain_margin.quantification.status)
+        self.assertEqual("unavailable", buffed_margin.quantification.status)
+        self.assertIsNone(buffed_margin.full_role_gain_percent)
         self.assertIn("已将 1 个动态 Buff 区间", buffed_margin.assumption)
         self.assertEqual(
-            "battle-buff-attribute-v19",
+            "battle-buff-attribute-v20",
             buffed.buff_attribute_projection_version,
         )
 
-    def test_static_equipped_runtime_buff_is_added_to_precombat_frozen_panel(self) -> None:
+    def test_static_equipped_buff_is_retained_when_scaling_is_unknown(self) -> None:
         plain = BattleCounterfactualAnalysisService.analyze(
             battle_record_id=7,
             evidence=_evidence(),
@@ -244,10 +225,9 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             units={"AtkUp": 0.1},
         )[0]
 
-        self.assertLess(
-            equipped_margin.role_gain_percent,
-            plain_margin.role_gain_percent,
-        )
+        self.assertEqual("unavailable", plain_margin.quantification.status)
+        self.assertEqual("unavailable", equipped_margin.quantification.status)
+        self.assertIsNone(equipped_margin.full_role_gain_percent)
         self.assertIn("已将 1 个动态 Buff 区间", equipped_margin.assumption)
 
     def test_defense_ignore_requires_user_confirmed_target_condition(self) -> None:
@@ -293,8 +273,9 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             units={"DefIgnore": 0.01},
         )[0]
 
-        self.assertEqual(0.0, missing.role_gain_percent)
-        self.assertGreater(available.role_gain_percent, 0.0)
+        self.assertEqual("unavailable", missing.quantification.status)
+        self.assertIsNone(missing.full_role_gain_percent)
+        self.assertGreater(available.full_role_gain_percent, 0.0)
         self.assertEqual("user_confirmed", confirmed.target_condition.source_kind)
 
     def test_selected_witch_buff_projects_over_the_whole_battle(self) -> None:
@@ -359,8 +340,14 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             and hit.damage_attribute == "nature"
             and hit.classification in {"direct", "direct_follow_up", "weave"}
         )
-        self.assertEqual(nature_damage, result.supported_damage)
-        self.assertLess(result.supported_damage, result.baseline_damage)
+        self.assertEqual(
+            nature_damage,
+            result.quantification.fully_quantified_damage,
+        )
+        self.assertLess(
+            result.quantification.fully_quantified_damage,
+            result.baseline_damage,
+        )
 
     def test_ring_strength_only_replays_identified_weave_damage(self) -> None:
         analysis = BattleCounterfactualAnalysisService.analyze(
@@ -376,9 +363,14 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             units={"MagBase": 10.0},
         )[0]
 
-        self.assertEqual(200.0, result.supported_damage)
-        self.assertAlmostEqual(200 / 1500 * 100, result.coverage_percent)
-        self.assertGreater(result.role_gain_percent, 0.0)
+        self.assertEqual(200.0, result.quantification.fully_quantified_damage)
+        self.assertAlmostEqual(
+            200 / 1500 * 100,
+            result.quantification.fully_quantified_damage
+            / result.quantification.basis_damage
+            * 100,
+        )
+        self.assertGreater(result.full_role_gain_percent, 0.0)
 
     def test_qte_own_hit_is_direct_even_when_attack_type_names_a_reaction(self) -> None:
         evidence = _evidence()

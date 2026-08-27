@@ -3,34 +3,32 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 
 from src.domain.battle_counterfactual import BattleMarginalResult
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+    BattleDamageQuantification,
+    BattleQuantificationGap,
+    QuantificationStatus,
+)
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
     BattleCharacterBaseline,
-    BattleHitBuffProjection,
+    BattleCharacterStat,
     BattleHitReplayResult,
-    BattleTargetCondition,
 )
 from src.domain.official_role import ROLE_PANEL_MARGINAL_UNITS
 from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
+from src.services.battle_hit_counterfactual_ratio_service import (
+    BattleHitCounterfactualRatioService,
+)
 from src.services.battle_target_instance_mapping_service import (
     BattleTargetInstanceMappingService,
-)
-from src.services.damage_calculation_service import (
-    DamageScene,
-    EnemyDefenseProfileInput,
-    calculate_attribute_value,
-    calculate_critical_multiplier,
-    calculate_defense_multiplier,
-    calculate_enemy_defense,
-    calculate_enemy_defense_from_profile,
-    calculate_resistance_multiplier,
-    calculate_weave_followup_damage,
 )
 
 
@@ -167,7 +165,17 @@ class BattleMarginalCalculationService:
         observed_role_damage = sum(hit.damage for hit in role_hits) + derived_damage
         comparison = analysis.build_counterfactual
         comparison_hits = {
-            row.event_id: max(0.0, float(row.predicted_damage))
+            row.event_id: cls._counterfactual_projection(
+                row,
+                fallback=next(
+                    (
+                        float(hit.damage)
+                        for hit in role_hits
+                        if hit.event_id == row.event_id
+                    ),
+                    0.0,
+                ),
+            )
             for row in (() if comparison is None else comparison.hits)
         }
 
@@ -185,29 +193,49 @@ class BattleMarginalCalculationService:
         role_damage = (
             observed_role_damage
             if comparison_role is None
-            else max(0.0, float(comparison_role.predicted_damage))
+            else cls._counterfactual_projection(
+                comparison_role,
+                fallback=observed_role_damage,
+            )
         )
         team_damage = (
             max(0.0, float(analysis.effective_damage))
             if comparison is None
-            else max(0.0, float(comparison.predicted_damage))
+            else cls._counterfactual_projection(
+                comparison,
+                fallback=max(0.0, float(analysis.effective_damage)),
+            )
         )
         results = []
         for property_id, raw_unit in units.items():
             unit = float(raw_unit)
             changed = dict(edited)
             changed[property_id] = changed.get(property_id, 0.0) + unit
-            supported_hits = tuple(
+            edited_baseline = cls._baseline_with_values(baseline, edited)
+            changed_baseline = cls._baseline_with_values(baseline, changed)
+            relevant_hits = tuple(
                 hit
                 for hit in role_hits
-                if cls._supports(
+                if hit.classification in {"direct", "direct_follow_up", "weave"}
+                and cls._supports(
                     property_id,
                     hit,
-                    target_condition=target_conditions[hit.event_id],
                     replay=replays.get(hit.event_id),
                     character_id=character_id,
                 )
             )
+            hit_ratios = {
+                hit.event_id: BattleHitCounterfactualRatioService.compare(
+                    hit=hit,
+                    original_baseline=edited_baseline,
+                    candidate_baseline=changed_baseline,
+                    original_projection=projections[hit.event_id],
+                    candidate_projection=projections[hit.event_id],
+                    original_replay=replays.get(hit.event_id),
+                    target_condition=target_conditions[hit.event_id],
+                )
+                for hit in relevant_hits
+            }
             topple_hits = tuple(
                 hit
                 for hit in outgoing_hits
@@ -218,44 +246,8 @@ class BattleMarginalCalculationService:
                     unit=0.0,
                 ) is not None
             )
-            supported_by_id = {
-                hit.event_id: hit for hit in (*supported_hits, *topple_hits)
-            }
-            supported_damage = sum(
-                anchor_damage(hit) for hit in supported_by_id.values()
-            )
-            formula_hits = tuple(
-                hit
-                for hit in supported_hits
-                if hit.classification in {"direct", "direct_follow_up", "weave"}
-            )
-            formula_damage = sum(anchor_damage(hit) for hit in formula_hits)
-            edited_formula = sum(
-                anchor_damage(hit) * cls._factor_ratio(
-                    frozen,
-                    edited,
-                    hit,
-                    projections[hit.event_id],
-                    baseline,
-                    target_conditions[hit.event_id],
-                    replays.get(hit.event_id),
-                )
-                for hit in formula_hits
-            )
-            changed_formula = sum(
-                anchor_damage(hit) * cls._factor_ratio(
-                    frozen,
-                    changed,
-                    hit,
-                    projections[hit.event_id],
-                    baseline,
-                    target_conditions[hit.event_id],
-                    replays.get(hit.event_id),
-                )
-                for hit in formula_hits
-            )
-            topple_increment = sum(
-                anchor_damage(hit) * (ratio - 1.0)
+            topple_ratios = {
+                hit.event_id: ratio
                 for hit in topple_hits
                 if (
                     ratio := cls._topple_ratio(
@@ -264,17 +256,44 @@ class BattleMarginalCalculationService:
                         unit=unit,
                     )
                 ) is not None
+            }
+            quantification, known_increment = cls._quantification(
+                role_damage=role_damage,
+                relevant_hits=relevant_hits,
+                hit_ratios=hit_ratios,
+                topple_hits=topple_hits,
+                topple_ratios=topple_ratios,
+                anchor_damage=anchor_damage,
             )
-            baseline_damage = role_damage - formula_damage + edited_formula
-            predicted_damage = (
-                baseline_damage + changed_formula - edited_formula + topple_increment
+            baseline_damage = quantification.basis_damage
+            known_projection_damage = (
+                None
+                if known_increment is None
+                else baseline_damage + known_increment
             )
-            increment = predicted_damage - baseline_damage
-            role_gain = increment / baseline_damage * 100.0 if baseline_damage else 0.0
-            team_gain = (
-                increment / team_damage * 100.0
-                if team_damage
-                else 0.0
+            quantified_role_gain = (
+                None
+                if known_increment is None
+                else (
+                    known_increment / baseline_damage * 100.0
+                    if baseline_damage
+                    else 0.0
+                )
+            )
+            quantified_team_gain = (
+                None
+                if known_increment is None
+                else known_increment / team_damage * 100.0 if team_damage else 0.0
+            )
+            full_role_gain = (
+                quantified_role_gain
+                if quantification.status in {"complete", "not_applicable"}
+                else None
+            )
+            full_team_gain = (
+                quantified_team_gain
+                if quantification.status in {"complete", "not_applicable"}
+                else None
             )
             percent = property_id not in {
                 "AtkAdd", "HPMaxAdd", "DefAdd", "MagBase", "UnbalIntensityBase",
@@ -285,22 +304,19 @@ class BattleMarginalCalculationService:
                 unit=unit,
                 is_percent=percent,
                 baseline_damage=baseline_damage,
-                predicted_damage=predicted_damage,
-                role_gain_percent=role_gain,
-                team_dps_gain_percent=team_gain,
-                supported_damage=supported_damage,
-                unsupported_damage=max(0.0, role_damage - supported_damage),
-                coverage_percent=(
-                    min(100.0, supported_damage / role_damage * 100.0)
-                    if role_damage else 0.0
-                ),
+                known_projection_damage=known_projection_damage,
+                quantified_role_gain_percent=quantified_role_gain,
+                quantified_team_gain_percent=quantified_team_gain,
+                full_role_gain_percent=full_role_gain,
+                full_team_gain_percent=full_team_gain,
                 damage_share_percent=(
-                    min(100.0, role_damage / team_damage * 100.0)
+                    min(100.0, baseline_damage / team_damage * 100.0)
                     if team_damage else 0.0
                 ),
+                quantification=quantification,
                 assumption=cls._assumption(
                     property_id,
-                    supported_damage > 0,
+                    quantification.status,
                     applied_count=len(applied_intervals),
                     excluded_count=len(excluded_intervals),
                     critical_policies=tuple(
@@ -313,16 +329,142 @@ class BattleMarginalCalculationService:
             ))
         return tuple(sorted(
             results,
-            key=lambda row: row.role_gain_percent,
+            key=lambda row: (
+                row.quantified_role_gain_percent
+                if row.quantified_role_gain_percent is not None
+                else float("-inf")
+            ),
             reverse=True,
         ))
+
+    @staticmethod
+    def _counterfactual_projection(row: object, *, fallback: float) -> float:
+        """Use only complete or known-component projections, never heuristics."""
+
+        for field_name in ("candidate_damage", "known_projection_damage"):
+            value = getattr(row, field_name, None)
+            if value is not None:
+                return max(0.0, float(value))
+        return max(0.0, float(fallback))
+
+    @staticmethod
+    def _baseline_with_values(
+        baseline: BattleCharacterBaseline,
+        values: Mapping[str, float],
+    ) -> BattleCharacterBaseline:
+        existing = {row.property_id: row for row in baseline.stats}
+        stats = tuple(
+            replace(row, value=float(values.get(row.property_id, row.value)))
+            for row in baseline.stats
+        )
+        additions = tuple(
+            BattleCharacterStat(
+                property_id=property_id,
+                label=property_id,
+                value=float(value),
+                is_percent=property_id not in {
+                    "AtkBase", "AtkAdd", "HPMaxBase", "HPMaxAdd",
+                    "DefBase", "DefAdd", "MagBase", "UnbalIntensityBase",
+                },
+            )
+            for property_id, value in sorted(values.items())
+            if property_id not in existing
+        )
+        return replace(baseline, stats=tuple((*stats, *additions)))
+
+    @classmethod
+    def _quantification(
+        cls,
+        *,
+        role_damage: float,
+        relevant_hits: Sequence[BattleAnalysisHit],
+        hit_ratios: Mapping[str, BattleCounterfactualRatio],
+        topple_hits: Sequence[BattleAnalysisHit],
+        topple_ratios: Mapping[str, float],
+        anchor_damage: Callable[[BattleAnalysisHit], float],
+    ) -> tuple[BattleDamageQuantification, float | None]:
+        fully_quantified_damage = 0.0
+        partially_quantified_damage = 0.0
+        unavailable_damage = 0.0
+        known_increment = 0.0
+        statuses: list[QuantificationStatus] = []
+        gaps: list[BattleQuantificationGap] = []
+        relevant_event_ids: set[str] = set()
+
+        for hit in relevant_hits:
+            ratio = hit_ratios[hit.event_id]
+            damage = anchor_damage(hit)
+            relevant_event_ids.add(hit.event_id)
+            statuses.append(ratio.status)
+            gaps.extend(ratio.gaps)
+            if ratio.status == "complete":
+                fully_quantified_damage += damage
+            elif ratio.status == "partial":
+                partially_quantified_damage += damage
+            elif ratio.status == "unavailable":
+                unavailable_damage += damage
+            if ratio.quantified_ratio is not None and ratio.status in {
+                "complete", "partial",
+            }:
+                known_increment += damage * (ratio.quantified_ratio - 1.0)
+
+        for hit in topple_hits:
+            ratio = topple_ratios.get(hit.event_id)
+            if ratio is None or hit.event_id in relevant_event_ids:
+                continue
+            damage = anchor_damage(hit)
+            relevant_event_ids.add(hit.event_id)
+            statuses.append("complete")
+            fully_quantified_damage += damage
+            known_increment += damage * (ratio - 1.0)
+
+        quantified_basis = (
+            fully_quantified_damage
+            + partially_quantified_damage
+            + unavailable_damage
+        )
+        basis_damage = max(0.0, float(role_damage), quantified_basis)
+        proven_unchanged_damage = max(0.0, basis_damage - quantified_basis)
+        active_statuses = tuple(
+            status for status in statuses if status != "not_applicable"
+        )
+        has_known = any(
+            status in {"complete", "partial"} for status in active_statuses
+        )
+        has_unavailable = "unavailable" in active_statuses
+        has_partial = "partial" in active_statuses
+        if not active_statuses:
+            status: QuantificationStatus = "not_applicable"
+            quantified_increment: float | None = 0.0
+        elif has_partial or (has_known and has_unavailable):
+            status = "partial"
+            quantified_increment = known_increment
+        elif has_unavailable:
+            status = "unavailable"
+            quantified_increment = None
+        else:
+            status = "complete"
+            quantified_increment = known_increment
+        unique_gaps = tuple(dict.fromkeys(gaps))
+        return (
+            BattleDamageQuantification(
+                status=status,
+                basis_damage=basis_damage,
+                fully_quantified_damage=fully_quantified_damage,
+                partially_quantified_damage=partially_quantified_damage,
+                unavailable_damage=unavailable_damage,
+                proven_unchanged_damage=proven_unchanged_damage,
+                quantified_increment=quantified_increment,
+                gaps=unique_gaps,
+            ),
+            quantified_increment,
+        )
 
     @staticmethod
     def _supports(
         property_id: str,
         hit: BattleAnalysisHit,
         *,
-        target_condition: BattleTargetCondition | None,
         replay: BattleHitReplayResult | None,
         character_id: int,
     ) -> bool:
@@ -340,15 +482,12 @@ class BattleMarginalCalculationService:
                 return False
             policy = BattleMarginalCalculationService._critical_policy(replay)
             if property_id == "CritBase":
-                return policy == "character"
-            return policy in {"character", "fixed"}
+                return policy in {"character", "unknown"}
+            return policy in {"character", "fixed", "unknown"}
         if property_id == "MagBase":
             return hit.classification == "weave"
         if property_id == "DefIgnore":
-            return (
-                target_condition is not None
-                and hit.classification in {"direct", "direct_follow_up", "weave"}
-            )
+            return hit.classification in {"direct", "direct_follow_up", "weave"}
         if property_id in _DAMAGE_PENETRATION_PROPERTY.values():
             expected_attribute = next(
                 damage_type
@@ -356,8 +495,7 @@ class BattleMarginalCalculationService:
                 if candidate == property_id
             )
             return (
-                target_condition is not None
-                and hit.damage_attribute.casefold() == expected_attribute
+                hit.damage_attribute.casefold() == expected_attribute
                 and hit.classification in {"direct", "direct_follow_up", "weave"}
             )
         if property_id in _ELEMENT_PROPERTIES:
@@ -366,158 +504,7 @@ class BattleMarginalCalculationService:
                 == property_id
                 and hit.classification in {"direct", "direct_follow_up", "weave"}
             )
-        if property_id in {"HPMaxUp", "HPMaxAdd", "DefUp", "DefAdd"}:
-            return False
         return hit.classification in {"direct", "direct_follow_up", "weave"}
-
-    @staticmethod
-    def _direct_factor(
-        values: Mapping[str, float],
-        damage_attribute: str,
-        replay: BattleHitReplayResult | None,
-    ) -> float:
-        attack = calculate_attribute_value(
-            values.get("AtkBase", 0.0),
-            values.get("AtkUp", 0.0),
-            values.get("AtkAdd", 0.0),
-        )
-        policy = BattleMarginalCalculationService._critical_policy(replay)
-        if policy in {"disabled", "unknown"}:
-            critical = 1.0
-        else:
-            critical_rate = (
-                float(replay.critical_rate or 0.0)
-                if policy == "fixed" and replay is not None
-                else values.get("CritBase", 0.05)
-            )
-            critical = calculate_critical_multiplier(
-                min(1.0, max(0.0, critical_rate)),
-                max(0.0, values.get("CritDamageBase", 0.50)),
-            )
-        element_property = _ATTRIBUTE_ELEMENT_PROPERTY.get(
-            damage_attribute.casefold()
-        )
-        element = values.get(element_property, 0.0) if element_property else 0.0
-        increase = 1.0 + values.get("DamageUpGeneralBase", 0.0) + element
-        return max(0.0, attack) * max(0.0, critical) * max(0.0, increase)
-
-    @classmethod
-    def _factor_ratio(
-        cls,
-        frozen: Mapping[str, float],
-        current: Mapping[str, float],
-        hit: BattleAnalysisHit,
-        projection: BattleHitBuffProjection,
-        baseline: BattleCharacterBaseline,
-        target_condition: BattleTargetCondition | None,
-        replay: BattleHitReplayResult | None,
-    ) -> float:
-        frozen_with_buff = BattleBuffAttributeProjectionService.apply_additive(
-            frozen,
-            projection,
-        )
-        current_with_buff = BattleBuffAttributeProjectionService.apply_additive(
-            current,
-            projection,
-        )
-        base_direct = cls._direct_factor(
-            frozen_with_buff,
-            hit.damage_attribute,
-            replay,
-        )
-        current_direct = cls._direct_factor(
-            current_with_buff,
-            hit.damage_attribute,
-            replay,
-        )
-        base_enemy = cls._enemy_factor(
-            frozen_with_buff,
-            baseline,
-            target_condition,
-            hit,
-            projection,
-        )
-        current_enemy = cls._enemy_factor(
-            current_with_buff,
-            baseline,
-            target_condition,
-            hit,
-            projection,
-        )
-        base_factor = base_direct * base_enemy
-        current_factor = current_direct * current_enemy
-        direct_ratio = current_factor / base_factor if base_factor > 0 else 1.0
-        if hit.classification != "weave":
-            return direct_ratio
-        base_weave = calculate_weave_followup_damage(
-            1.0,
-            max(0.0, frozen_with_buff.get("MagBase", 0.0)),
-        )
-        current_weave = calculate_weave_followup_damage(
-            1.0,
-            max(0.0, current_with_buff.get("MagBase", 0.0)),
-        )
-        return direct_ratio * (
-            current_weave / base_weave if base_weave > 0 else 1.0
-        )
-
-    @staticmethod
-    def _enemy_factor(
-        values: Mapping[str, float],
-        baseline: BattleCharacterBaseline,
-        condition: BattleTargetCondition | None,
-        hit: BattleAnalysisHit,
-        projection: BattleHitBuffProjection,
-    ) -> float:
-        if condition is None:
-            return 1.0
-        scene = (
-            DamageScene.OPEN_WORLD
-            if condition.scene == "open_world"
-            else DamageScene.OUTER_REALM
-        )
-        defense_penetration = min(1.0, max(-1.0, values.get("DefIgnore", 0.0)))
-        if condition.enemy_defense_base is not None:
-            enemy_defense = calculate_enemy_defense_from_profile(
-                EnemyDefenseProfileInput(
-                    defense_base=condition.enemy_defense_base,
-                    defense_up=condition.enemy_defense_up,
-                    defense_add=condition.enemy_defense_add,
-                ),
-                defense_penetration,
-                condition.defense_reduction,
-            )
-        else:
-            enemy_defense = calculate_enemy_defense(
-                condition.enemy_level,
-                defense_penetration,
-                condition.defense_reduction,
-                scene,
-            )
-        damage_attribute = hit.damage_attribute.casefold()
-        defense = (
-            1.0
-            if damage_attribute == "psychically"
-            else calculate_defense_multiplier(
-                baseline.character_level,
-                enemy_defense,
-            )
-        )
-        resistance = dict(condition.resistances).get(damage_attribute, 0.20)
-        resistance += sum(
-            modifier.additive_value
-            for modifier in projection.modifiers
-            if modifier.target_scope == "target"
-            and modifier.property_id.startswith("DamageResist")
-        )
-        penetration_property = _DAMAGE_PENETRATION_PROPERTY.get(
-            damage_attribute
-        )
-        if penetration_property is not None:
-            resistance -= values.get(penetration_property, 0.0)
-        resistance_factor = max(0.0, calculate_resistance_multiplier(resistance))
-        vulnerability = max(0.0, 1.0 + condition.vulnerability)
-        return max(0.0, defense) * resistance_factor * vulnerability
 
     @staticmethod
     def _critical_policy(
@@ -602,30 +589,44 @@ class BattleMarginalCalculationService:
     @staticmethod
     def _assumption(
         property_id: str,
-        supported: bool,
+        status: QuantificationStatus,
         *,
         applied_count: int,
         excluded_count: int,
         critical_policies: tuple[str, ...],
     ) -> str:
-        if not supported:
+        if status == "unavailable":
             if property_id == "DefIgnore":
                 return (
                     "当前相关逐击缺少可靠冻结敌方防御画像；"
-                    "0% 表示未量化，不表示没有收益。"
+                    "本项未量化，不表示没有收益。"
                 )
             if property_id in _DAMAGE_PENETRATION_PROPERTY.values():
                 return (
                     "当前相关逐击缺少可靠冻结敌方分属性抗性画像；"
-                    "0% 表示未量化，不表示没有收益。"
+                    "本项未量化，不表示没有收益。"
                 )
             if property_id in {"CritBase", "CritDamageBase"}:
                 policies = "/".join(sorted(set(critical_policies))) or "unknown"
                 return (
-                    f"当前相关逐击暴击策略为 {policies}，该属性没有可量化逐击；"
-                    "固定暴击、不可暴击和未知策略不会退回本场暴击拟合。"
+                    f"当前相关逐击暴击策略为 {policies}，变化缺少正式策略；"
+                    "未知不会退回本场暴击拟合，也不会显示为零收益。"
                 )
-            return "当前逐击缺少可复用的倍率或缩放属性证据，暂不计算。"
+            return (
+                "当前相关变化缺少必要公式输入，本项未量化；"
+                f"已将 {applied_count} 个动态 Buff 区间按击投影，"
+                f"{excluded_count} 个区间未进入数值。"
+            )
+        if status == "partial":
+            return (
+                "只计算具备冻结公式输入的逐击分量；其余逐击仍保留原始事实，"
+                "该数值不代表完整收益或收益下限。"
+            )
+        if status == "not_applicable":
+            if property_id in {"CritBase", "CritDamageBase"}:
+                policies = "/".join(sorted(set(critical_policies))) or "unknown"
+                return f"当前相关逐击暴击策略为 {policies}，已证明该单位变化不作用。"
+            return "已证明该属性单位变化不作用于当前相关逐击，收益精确为零。"
         if property_id in {"CritBase", "CritDamageBase"}:
             policies = "/".join(sorted(set(critical_policies))) or "character"
             basis = f"按逐击 {policies} 暴击策略使用期望伤害，不拟合本场暴击结果。"

@@ -7,12 +7,17 @@ from dataclasses import replace
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
+    BattleBuffModifierEvidence,
     BattleCharacterBaseline,
     BattleCharacterStat,
     BattleHitReplayResult,
+    BattleHitReplayFactor,
+    BattleHitReplayTerm,
+    BattleInferredBuffInterval,
     BattleInferredAction,
     BattleMaxHpReductionEvent,
     BattleRangeRoleSummary,
+    BattleTargetCondition,
     BattleTimelineDamageGroup,
 )
 from src.services.battle_build_counterfactual_service import (
@@ -100,6 +105,32 @@ def _vital_event(
     )
 
 
+def _buff_interval(
+    modifiers: tuple[BattleBuffModifierEvidence, ...] = (),
+) -> BattleInferredBuffInterval:
+    return BattleInferredBuffInterval(
+        interval_id="buff-1",
+        buff_asset_path="/Game/Buff_Test",
+        buff_name="候选 Buff",
+        source_effect_definition_id="fixture",
+        source_kind="fixture",
+        source_character_id=1,
+        source_character_name="甲",
+        target_scope="self",
+        start_us=0,
+        end_us=10_000_000,
+        stacks=1,
+        duration_policy="HasDuration",
+        state_confidence="中",
+        value_confidence="中",
+        inference_basis="fixture",
+        trigger_event_type="fixture",
+        evidence_action_ids=(),
+        evidence_event_ids=(),
+        modifiers=modifiers,
+    )
+
+
 def _snapshot(
     *,
     hits: tuple[BattleAnalysisHit, ...],
@@ -156,6 +187,109 @@ def _snapshot(
 
 
 class BattleBuildCounterfactualServiceTests(unittest.TestCase):
+    def test_changed_unmodeled_buff_does_not_promote_unknown_hit_to_unchanged(self) -> None:
+        hit = _hit(
+            "hit1", character_id=1, character_name="甲", skill_name="未知机制", damage=100,
+        )
+        original = _snapshot(hits=(hit,), baselines=(), replays=())
+
+        result = BattleBuildCounterfactualService.compare(
+            original=original,
+            candidate=replace(original, buff_intervals=(_buff_interval(),)),
+        )
+
+        self.assertEqual("unavailable", result.hits[0].quantification.status)
+        self.assertIsNone(result.hits[0].candidate_damage)
+        self.assertIsNone(result.candidate_damage)
+
+    def test_build_fallback_consumes_per_hit_buff_projection(self) -> None:
+        hit = _hit(
+            "hit1", character_id=1, character_name="甲", skill_name="技能甲", damage=100,
+        )
+        baseline = BattleCharacterBaseline(
+            1, "甲", "fixture", (BattleCharacterStat("AtkBase", "攻击力", 100, False),),
+        )
+        unavailable_replay = replace(
+            _replay("hit1", 100),
+            non_critical_damage=None,
+            selected_damage=None,
+            expected_damage=None,
+            critical_state="unreplayable",
+        )
+        original = _snapshot(
+            hits=(hit,), baselines=(baseline,), replays=(unavailable_replay,),
+        )
+        modifier = BattleBuffModifierEvidence(
+            property_id="DamageUpGeneralBase",
+            modifier_operation="EGameplayModOp::Additive",
+            magnitude_kind="ScalableFloat",
+            magnitude_value=0.1,
+            calculation_asset_path="",
+            value_confidence="高",
+        )
+
+        result = BattleBuildCounterfactualService.compare(
+            original=original,
+            candidate=replace(original, buff_intervals=(_buff_interval((modifier,)),)),
+        )
+
+        self.assertEqual("complete", result.hits[0].quantification.status)
+        self.assertAlmostEqual(110.0, result.hits[0].candidate_damage)
+
+    def test_zero_candidate_is_not_replaced_by_baseline_in_composition(self) -> None:
+        hit = _hit(
+            "hit1", character_id=1, character_name="甲", skill_name="技能甲", damage=100,
+        )
+        scaling = BattleHitReplayFactor(
+            factor_id="scaling",
+            label="攻击力乘区",
+            value=100.0,
+            evidence_basis="fixture",
+            terms=(BattleHitReplayTerm(
+                term_id="AtkBase",
+                property_id="AtkBase",
+                label="攻击力",
+                value=100.0,
+                source_group="fixture",
+                source_name="fixture",
+                is_percent=False,
+                evidence_basis="fixture",
+            ),),
+        )
+        replay = replace(
+            _replay("hit1", 100),
+            non_critical_damage=None,
+            selected_damage=None,
+            expected_damage=None,
+            critical_state="unreplayable",
+            factors=(scaling,),
+        )
+        original_baseline = BattleCharacterBaseline(
+            1, "甲", "fixture", (BattleCharacterStat("AtkBase", "攻击力", 100, False),),
+        )
+        candidate_baseline = replace(
+            original_baseline,
+            stats=(BattleCharacterStat("AtkBase", "攻击力", 0, False),),
+        )
+        original = _snapshot(
+            hits=(hit,), baselines=(original_baseline,), replays=(replay,),
+        )
+        candidate = _snapshot(
+            hits=(hit,), baselines=(candidate_baseline,), replays=(replay,),
+        )
+
+        result = BattleBuildCounterfactualService.compare(
+            original=original,
+            candidate=candidate,
+        )
+
+        self.assertEqual(0.0, result.candidate_damage)
+        self.assertEqual(0.0, result.roles[0].candidate_damage)
+        self.assertEqual(0.0, sum(
+            row.total_damage for row in result.composition.roles
+        ))
+        self.assertEqual(0.0, result.composition.other_total_damage)
+
     def test_comparison_preserves_original_resolved_critical_branch(self) -> None:
         hit = _hit(
             "hit1",
@@ -186,10 +320,13 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             candidate=_snapshot(hits=(hit,), baselines=(), replays=(candidate_replay,)),
         )
 
-        self.assertEqual("structured_selected", comparison.hits[0].method)
-        self.assertEqual(400.0, comparison.hits[0].predicted_damage)
+        self.assertEqual(
+            "structured_selected",
+            comparison.hits[0].quantification.method,
+        )
+        self.assertEqual(400.0, comparison.hits[0].candidate_damage)
 
-    def test_every_original_hit_receives_a_candidate_from_the_estimate_ladder(self) -> None:
+    def test_unknown_rows_do_not_become_numeric_candidates(self) -> None:
         hits = (
             _hit("hit1", character_id=1, character_name="甲", skill_name="技能甲", damage=100),
             _hit("hit2", character_id=1, character_name="甲", skill_name="技能甲", damage=50),
@@ -228,21 +365,27 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
 
         self.assertEqual(4, len(result.hits))
         self.assertEqual(
-            (
-                "structured_selected",
-                "skill_peer_estimate",
-                "panel_formula_estimate",
-                "unchanged_estimate",
-            ),
-            tuple(hit.method for hit in result.hits),
+            ("complete", "unavailable", "unavailable", "unavailable"),
+            tuple(hit.quantification.status for hit in result.hits),
         )
-        self.assertAlmostEqual(288.0, result.predicted_damage)
+        self.assertEqual(60.0, result.hits[1].heuristic_projection_damage)
+        self.assertIsNone(result.hits[1].candidate_damage)
+        self.assertIsNone(result.hits[3].heuristic_projection_damage)
+        self.assertIsNone(result.candidate_damage)
+        self.assertAlmostEqual(270.0, result.known_projection_damage)
+        self.assertAlmostEqual(280.0, result.heuristic_projection_damage)
         self.assertAlmostEqual(100.0, result.structured_damage)
-        self.assertAlmostEqual(150.0, result.estimated_damage)
         self.assertAlmostEqual(40.0, result.structured_percent)
-        self.assertAlmostEqual(15.2, result.gain_percent)
+        self.assertAlmostEqual(8.0, result.known_gain_percent)
+        self.assertIsNone(result.gain_percent)
+        self.assertEqual("partial", result.quantification.status)
         self.assertEqual(3, len(result.roles))
         self.assertEqual(3, len(result.composition.roles))
+        timeline = BattleBuildTimelineProjectionService.project(original, result)
+        unavailable_names = {
+            hit.damage_name for hit in timeline.hits if hit.event_id in {"hit2", "hit3", "hit4"}
+        }
+        self.assertTrue(all("原轴占位·未量化" in name for name in unavailable_names))
 
     def test_comparison_rejects_different_ranges(self) -> None:
         hits = (_hit("hit1", character_id=1, character_name="甲", skill_name="A", damage=10),)
@@ -301,10 +444,13 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             candidate=candidate,
         )
 
-        self.assertEqual(156.0, result.predicted_damage)
-        self.assertEqual(156.0, result.roles[0].predicted_damage)
-        self.assertEqual(36.0, result.roles[0].predicted_damage - 120.0)
-        self.assertEqual("linked_source_hit_ratio", result.vital_events[0].method)
+        self.assertEqual(156.0, result.candidate_damage)
+        self.assertEqual(156.0, result.roles[0].candidate_damage)
+        self.assertEqual(36.0, result.roles[0].candidate_damage - 120.0)
+        self.assertEqual(
+            "linked_source_hit_ratio",
+            result.vital_events[0].quantification.method,
+        )
 
     def test_fadia_max_hp_damage_follows_inherent_hp(self) -> None:
         hit = _hit(
@@ -365,9 +511,12 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             candidate=candidate,
         )
 
-        self.assertEqual(340.0, result.predicted_damage)
-        self.assertEqual(240.0, result.vital_events[0].predicted_damage)
-        self.assertEqual("fadia_inherent_hp_ratio", result.vital_events[0].method)
+        self.assertEqual(340.0, result.candidate_damage)
+        self.assertEqual(240.0, result.vital_events[0].candidate_damage)
+        self.assertEqual(
+            "fadia_inherent_hp_ratio",
+            result.vital_events[0].quantification.method,
+        )
 
     def test_adjusted_timeline_changes_hit_group_and_action_damage_only(self) -> None:
         hits = (
@@ -466,13 +615,108 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             comparison,
         )
 
-        self.assertEqual((120.0, 60.0), tuple(hit.damage for hit in projected.hits))
-        self.assertEqual(180.0, projected.inferred_actions[0].damage)
-        self.assertEqual(180.0, projected.timeline_damage_groups[0].damage)
+        self.assertEqual((120.0, 50.0), tuple(hit.damage for hit in projected.hits))
+        self.assertEqual(170.0, projected.inferred_actions[0].damage)
+        self.assertEqual(170.0, projected.timeline_damage_groups[0].damage)
         self.assertEqual(36.0, projected.timeline_damage_groups[1].damage)
         self.assertIn("候选/原始伤害比", projected.timeline_damage_groups[1].detail_lines[-1])
         self.assertEqual(36.0, projected.roles[0].max_hp_reduction_damage)
         self.assertEqual((100.0, 50.0), tuple(hit.damage for hit in original.hits))
+
+    def test_target_sensitive_peer_does_not_cross_target(self) -> None:
+        hit_a = _hit(
+            "hit1", character_id=1, character_name="甲", skill_name="技能甲", damage=100,
+        )
+        hit_b = replace(
+            _hit(
+                "hit2", character_id=1, character_name="甲", skill_name="技能甲", damage=50,
+            ),
+            target_id="target-b",
+        )
+        original = _snapshot(hits=(hit_a, hit_b), baselines=(), replays=(_replay("hit1", 100),))
+        candidate = _snapshot(hits=(hit_a, hit_b), baselines=(), replays=(_replay("hit1", 120),))
+
+        result = BattleBuildCounterfactualService.compare(
+            original=original,
+            candidate=candidate,
+        )
+
+        self.assertEqual("unavailable", result.hits[1].quantification.status)
+        self.assertIsNone(result.hits[1].heuristic_projection_damage)
+        self.assertIsNone(result.hits[1].candidate_damage)
+
+    def test_unknown_scaling_and_target_profile_remain_separate(self) -> None:
+        hit = _hit(
+            "hit1", character_id=1, character_name="甲", skill_name="技能甲", damage=100,
+        )
+        original_baseline = BattleCharacterBaseline(
+            1,
+            "甲",
+            "original",
+            (
+                BattleCharacterStat("AtkBase", "攻击力", 100, False),
+                BattleCharacterStat("AtkUp", "攻击力提升", 0, True),
+                BattleCharacterStat("DefIgnore", "防御忽略", 0, True),
+            ),
+        )
+        original = _snapshot(
+            hits=(hit,), baselines=(original_baseline,), replays=(),
+        )
+        attack_candidate = replace(
+            original_baseline,
+            stats=tuple(
+                replace(row, value=0.1) if row.property_id == "AtkUp" else row
+                for row in original_baseline.stats
+            ),
+        )
+        defense_candidate = replace(
+            original_baseline,
+            stats=tuple(
+                replace(row, value=0.1) if row.property_id == "DefIgnore" else row
+                for row in original_baseline.stats
+            ),
+        )
+
+        attack_result = BattleBuildCounterfactualService.compare(
+            original=original,
+            candidate=_snapshot(
+                hits=(hit,), baselines=(attack_candidate,), replays=(),
+            ),
+        )
+        defense_result = BattleBuildCounterfactualService.compare(
+            original=original,
+            candidate=_snapshot(
+                hits=(hit,), baselines=(defense_candidate,), replays=(),
+            ),
+        )
+
+        self.assertEqual("unavailable", attack_result.hits[0].quantification.status)
+        self.assertIsNone(attack_result.hits[0].candidate_damage)
+        self.assertEqual("unavailable", defense_result.hits[0].quantification.status)
+        self.assertIsNone(defense_result.hits[0].known_projection_damage)
+
+        profiled_original = replace(
+            original,
+            target_condition=BattleTargetCondition(
+                target_name="身份未知",
+                enemy_level=80,
+                scene="outer_realm",
+                defense_reduction=0.0,
+                vulnerability=0.0,
+                resistances=(("chaos", 0.2),),
+                enemy_defense_base=600,
+                resolved_monster_id="",
+            ),
+        )
+        profiled_result = BattleBuildCounterfactualService.compare(
+            original=profiled_original,
+            candidate=replace(
+                profiled_original,
+                baselines=(defense_candidate,),
+            ),
+        )
+        self.assertEqual("complete", profiled_result.hits[0].quantification.status)
+        self.assertIsNotNone(profiled_result.hits[0].candidate_damage)
 
 
 if __name__ == "__main__":

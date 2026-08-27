@@ -5,15 +5,22 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from src.domain.battle_buff_counterfactual import (
     BattleBuffBeneficiaryResult,
     BattleBuffCounterfactualResult,
 )
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+    BattleDamageQuantification,
+    BattleQuantificationGap,
+    QuantificationStatus,
+)
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
+    BattleHitBuffProjection,
     BattleHitReplayResult,
     BattleInferredBuffInterval,
     BattleSkillDamageEvidence,
@@ -23,12 +30,34 @@ from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
 from src.services.battle_hit_replay_service import BattleHitReplayService
-from src.services.battle_replay_formula_ratio_service import paired_replay_formula
+from src.services.battle_hit_counterfactual_ratio_service import (
+    BattleHitCounterfactualRatioService,
+)
+from src.services.battle_target_instance_mapping_service import (
+    BattleTargetInstanceMappingService,
+)
 from src.services.battle_topple_hit_replay_service import BattleToppleCharacterConfig
 
 
-BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v3"
+BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v4"
 _CONFIDENCE_ORDER = {"未解析": 0, "低": 1, "中": 2, "高": 3}
+
+
+@dataclass(frozen=True, slots=True)
+class _HitProjection:
+    hit: BattleAnalysisHit
+    predicted_damage: float
+    quantification: BattleCounterfactualRatio
+
+
+@dataclass(frozen=True, slots=True)
+class _VitalProjection:
+    event_id: str
+    character_id: int | None
+    baseline_damage: float
+    predicted_damage: float
+    status: QuantificationStatus
+    gaps: tuple[BattleQuantificationGap, ...] = ()
 
 
 def battle_buff_counterfactual_key(interval: BattleInferredBuffInterval) -> str:
@@ -169,28 +198,17 @@ class BattleBuffCounterfactualService:
             if BattleBuffInferenceService.active_for_hit(group_intervals, hit)
         )
         active_ids = {hit.event_id for hit in active_hits}
-        projected_ids = {
-            hit.event_id
-            for hit in active_hits
-            if any(
-                decision.status == "applied"
-                for decision in BattleBuffAttributeProjectionService.project_hit(
-                    hit,
-                    group_intervals,
-                ).decisions
-            )
-        }
         without_by_event: dict[str, BattleHitReplayResult] = {}
+        without_intervals = tuple(
+            row
+            for row in analysis.buff_intervals
+            if row.interval_id not in {item.interval_id for item in group_intervals}
+        )
         if active_hits and any(row.modifiers for row in group_intervals):
-            removed_ids = {row.interval_id for row in group_intervals}
             without_analysis = replace(
                 analysis,
                 hits=tuple(outgoing_hits),
-                buff_intervals=tuple(
-                    row
-                    for row in analysis.buff_intervals
-                    if row.interval_id not in removed_ids
-                ),
+                buff_intervals=without_intervals,
                 hit_replays=(),
                 buff_counterfactuals=(),
             )
@@ -201,25 +219,74 @@ class BattleBuffCounterfactualService:
             )
             without_by_event = {row.event_id: row for row in without_replays}
 
-        predicted_hits: dict[str, float] = {}
-        quantified_ids: set[str] = set()
+        baselines = {row.character_id: row for row in analysis.baselines}
+        evidence_by_event = {row.event_id: row for row in skill_evidence}
+        hit_projections: dict[str, _HitProjection] = {}
         for hit in outgoing_hits:
-            predicted = float(hit.damage)
-            if hit.event_id in active_ids:
-                pair = paired_replay_formula(
-                    baseline_by_event.get(hit.event_id),
-                    without_by_event.get(hit.event_id),
+            if hit.event_id not in active_ids:
+                ratio = BattleCounterfactualRatio.not_applicable(
+                    method="buff_not_active",
+                    explanation="该 Buff 在本击时刻未生效，原击确定保持不变。",
                 )
-                ratio = (
-                    None
-                    if pair is None
-                    else _safe_ratio(pair.candidate_damage, pair.baseline_damage)
+            else:
+                group_projection = BattleBuffAttributeProjectionService.project_hit(
+                    hit,
+                    group_intervals,
                 )
-                if ratio is not None:
-                    predicted *= ratio
-                    if hit.event_id in projected_ids or abs(ratio - 1.0) > 1e-12:
-                        quantified_ids.add(hit.event_id)
-            predicted_hits[hit.event_id] = predicted
+                original_projection = BattleBuffAttributeProjectionService.project_hit(
+                    hit,
+                    analysis.buff_intervals,
+                )
+                candidate_projection = BattleBuffAttributeProjectionService.project_hit(
+                    hit,
+                    without_intervals,
+                )
+                evidence = evidence_by_event.get(hit.event_id)
+                formula_character_id = (
+                    evidence.source_character_id
+                    if evidence is not None
+                    and evidence.source_character_id is not None
+                    else hit.character_id
+                )
+                hit_analysis = BattleTargetInstanceMappingService.analysis_for_hit(
+                    analysis,
+                    hit,
+                )
+                ratio = BattleHitCounterfactualRatioService.compare(
+                    hit=hit,
+                    original_baseline=baselines.get(formula_character_id),
+                    candidate_baseline=baselines.get(formula_character_id),
+                    original_projection=original_projection,
+                    candidate_projection=candidate_projection,
+                    skill_evidence=evidence,
+                    original_replay=baseline_by_event.get(hit.event_id),
+                    candidate_replay=without_by_event.get(hit.event_id),
+                    target_condition=hit_analysis.target_condition,
+                )
+                ratio = cls._resolve_inactive_projection(
+                    ratio,
+                    group_projection=group_projection,
+                    group_intervals=group_intervals,
+                )
+            quantified_ratio = ratio.quantified_ratio
+            predicted = float(hit.damage) * (
+                quantified_ratio if quantified_ratio is not None else 1.0
+            )
+            hit_projections[hit.event_id] = _HitProjection(
+                hit=hit,
+                predicted_damage=predicted,
+                quantification=ratio,
+            )
+
+        predicted_hits = {
+            event_id: row.predicted_damage
+            for event_id, row in hit_projections.items()
+        }
+        quantified_ids = {
+            event_id
+            for event_id, row in hit_projections.items()
+            if row.quantification.status in {"complete", "partial"}
+        }
 
         baseline_hit_damage = sum(float(hit.damage) for hit in outgoing_hits)
         without_hit_damage = sum(predicted_hits.values())
@@ -227,16 +294,12 @@ class BattleBuffCounterfactualService:
             max(0.0, float(event.effective_hp_loss))
             for event in analysis.max_hp_events
         )
-        (
-            without_vital_damage,
-            quantified_vital_damage,
-            vital_baseline_by_character,
-            vital_without_by_character,
-            vital_quantified_by_character,
-        ) = cls._without_vital_damage(
+        vital_projections = cls._vital_projections(
             analysis,
-            predicted_hits,
-            {hit.event_id: hit for hit in outgoing_hits},
+            hit_projections,
+        )
+        without_vital_damage = sum(
+            row.predicted_damage for row in vital_projections
         )
         derived_baseline = (
             float(analysis.effective_damage)
@@ -250,31 +313,37 @@ class BattleBuffCounterfactualService:
         without_damage = (
             without_hit_damage + without_vital_damage + fixed_derived_damage
         )
-        damage_gain = derived_baseline - without_damage
-        gain_percent = (
-            damage_gain / without_damage * 100.0 if without_damage > 0 else 0.0
+        known_damage_gain = derived_baseline - without_damage
+        quantification = cls._aggregate_quantification(
+            hit_projections=tuple(hit_projections.values()),
+            vital_projections=vital_projections,
+            fixed_derived_damage=fixed_derived_damage,
+            quantified_increment=known_damage_gain,
         )
-        quantified_damage = sum(
-            float(hit.damage)
-            for hit in outgoing_hits
-            if hit.event_id in quantified_ids
-        ) + quantified_vital_damage
-        quantified_percent = (
-            quantified_damage / derived_baseline * 100.0
-            if derived_baseline > 0
-            else 0.0
+        quantified_damage_gain = (
+            None
+            if quantification.status == "unavailable"
+            else known_damage_gain
         )
+        quantified_gain_percent = (
+            quantified_damage_gain / without_damage * 100.0
+            if quantified_damage_gain is not None and without_damage > 0
+            else (0.0 if quantified_damage_gain is not None else None)
+        )
+        full_available = quantification.status in {"complete", "not_applicable"}
+        without_buff_damage = without_damage if full_available else None
+        damage_gain = known_damage_gain if full_available else None
+        gain_percent = quantified_gain_percent if full_available else None
         beneficiary_ids = {
             int(hit.character_id)
             for hit in active_hits
             if hit.character_id is not None and int(hit.character_id) > 0
         } | {
-            character_id
-            for character_id, baseline in vital_baseline_by_character.items()
-            if abs(
-                baseline
-                - vital_without_by_character.get(character_id, baseline)
-            ) > 1e-9
+            int(row.character_id)
+            for row in vital_projections
+            if row.character_id is not None
+            and int(row.character_id) > 0
+            and row.status in {"complete", "partial", "unavailable"}
         }
         character_names = {
             int(hit.character_id): hit.character_name
@@ -294,35 +363,63 @@ class BattleBuffCounterfactualService:
                     character_id,
                     f"角色 {character_id}",
                 ),
-                outgoing_hits=outgoing_hits,
+                hit_projections=tuple(hit_projections.values()),
                 active_ids=active_ids,
-                quantified_ids=quantified_ids,
-                predicted_hits=predicted_hits,
-                vital_baseline=vital_baseline_by_character.get(character_id, 0.0),
-                vital_without=vital_without_by_character.get(character_id, 0.0),
-                vital_quantified=vital_quantified_by_character.get(
-                    character_id,
-                    0.0,
+                vital_projections=tuple(
+                    row
+                    for row in vital_projections
+                    if row.character_id == character_id
                 ),
-                team_without_damage=without_damage,
+                team_without_quantified_effect_damage=(
+                    without_damage
+                    if quantification.status != "unavailable"
+                    else None
+                ),
+                team_without_buff_damage=without_buff_damage,
             )
             for character_id in sorted(beneficiary_ids)
         )
-        attributed_gain = sum(row.damage_gain for row in beneficiaries)
-        unattributed_damage_gain = damage_gain - attributed_gain
-        if abs(unattributed_damage_gain) < 1e-9:
+        quantified_attributed_gain = sum(
+            row.quantified_damage_gain or 0.0 for row in beneficiaries
+        )
+        quantified_unattributed_damage_gain = (
+            None
+            if quantified_damage_gain is None
+            else quantified_damage_gain - quantified_attributed_gain
+        )
+        if (
+            quantified_unattributed_damage_gain is not None
+            and abs(quantified_unattributed_damage_gain) < 1e-9
+        ):
+            quantified_unattributed_damage_gain = 0.0
+        attributed_gain = sum(row.damage_gain or 0.0 for row in beneficiaries)
+        unattributed_damage_gain = (
+            None if damage_gain is None else damage_gain - attributed_gain
+        )
+        if unattributed_damage_gain is not None and abs(unattributed_damage_gain) < 1e-9:
             unattributed_damage_gain = 0.0
         if not active_hits:
             method = "not_covered"
             confidence = "未解析"
-            explanation = "该 Buff 在当前选定时段没有覆盖对敌逐击，收益按 0 计。"
-        elif not quantified_ids and quantified_vital_damage <= 0:
-            method = "unquantified_zero_estimate"
+            explanation = "该 Buff 在当前选定时段没有覆盖对敌逐击。"
+        elif quantification.status == "unavailable":
+            method = "component_ratio_unavailable"
             confidence = "低"
             explanation = (
-                "当前已结构化公式不能量化该 Buff；原轴仍完整保留，"
-                "本次移除增量暂估为 0。"
+                "该 Buff 的相关变化缺少必要公式输入；原轴仍完整保留，"
+                "未量化收益不记为 0。"
             )
+        elif quantification.status == "partial":
+            method = "component_ratio_partial"
+            confidence = "低"
+            explanation = (
+                "以真实逐击为锚，只缩放可安全相消或公式已完整的变化；"
+                "已量化分量不代表完整 Buff 收益或收益下限。"
+            )
+        elif quantification.status == "not_applicable":
+            method = "not_applicable"
+            confidence = _minimum_confidence(group_intervals)
+            explanation = "已证明该 Buff 在当前时段不改变任何相关对敌逐击。"
         else:
             method = "observed_axis_remove_replay"
             confidence = _minimum_confidence(group_intervals)
@@ -347,15 +444,22 @@ class BattleBuffCounterfactualService:
             affected_hits=len(active_hits),
             quantified_hits=len(quantified_ids),
             baseline_damage=derived_baseline,
-            without_buff_damage=without_damage,
+            without_quantified_effect_damage=(
+                without_damage
+                if quantification.status != "unavailable"
+                else None
+            ),
+            quantified_damage_gain=quantified_damage_gain,
+            quantified_gain_percent=quantified_gain_percent,
+            without_buff_damage=without_buff_damage,
             damage_gain=damage_gain,
             gain_percent=gain_percent,
-            quantified_damage=quantified_damage,
-            quantified_percent=quantified_percent,
             confidence=confidence,
             method=method,
             explanation=explanation,
+            quantification=quantification,
             beneficiaries=beneficiaries,
+            quantified_unattributed_damage_gain=quantified_unattributed_damage_gain,
             unattributed_damage_gain=unattributed_damage_gain,
         )
 
@@ -364,73 +468,138 @@ class BattleBuffCounterfactualService:
         *,
         character_id: int,
         character_name: str,
-        outgoing_hits: Sequence[BattleAnalysisHit],
+        hit_projections: Sequence[_HitProjection],
         active_ids: set[str],
-        quantified_ids: set[str],
-        predicted_hits: Mapping[str, float],
-        vital_baseline: float,
-        vital_without: float,
-        vital_quantified: float,
-        team_without_damage: float,
+        vital_projections: Sequence[_VitalProjection],
+        team_without_quantified_effect_damage: float | None,
+        team_without_buff_damage: float | None,
     ) -> BattleBuffBeneficiaryResult:
         role_hits = tuple(
-            hit for hit in outgoing_hits if hit.character_id == character_id
+            row for row in hit_projections if row.hit.character_id == character_id
         )
         baseline_damage = (
-            sum(float(hit.damage) for hit in role_hits) + vital_baseline
+            sum(float(row.hit.damage) for row in role_hits)
+            + sum(row.baseline_damage for row in vital_projections)
         )
         without_damage = (
-            sum(predicted_hits[hit.event_id] for hit in role_hits) + vital_without
+            sum(row.predicted_damage for row in role_hits)
+            + sum(row.predicted_damage for row in vital_projections)
         )
-        damage_gain = baseline_damage - without_damage
-        quantified_damage = sum(
-            float(hit.damage)
-            for hit in role_hits
-            if hit.event_id in quantified_ids
-        ) + vital_quantified
+        known_gain = baseline_damage - without_damage
+        quantification = BattleBuffCounterfactualService._aggregate_quantification(
+            hit_projections=role_hits,
+            vital_projections=vital_projections,
+            fixed_derived_damage=0.0,
+            quantified_increment=known_gain,
+        )
+        quantified_gain = (
+            None if quantification.status == "unavailable" else known_gain
+        )
+        full_available = quantification.status in {"complete", "not_applicable"}
+        full_gain = known_gain if full_available else None
         return BattleBuffBeneficiaryResult(
             character_id=character_id,
             character_name=character_name,
-            affected_hits=sum(hit.event_id in active_ids for hit in role_hits),
-            quantified_hits=sum(hit.event_id in quantified_ids for hit in role_hits),
+            affected_hits=sum(row.hit.event_id in active_ids for row in role_hits),
+            quantified_hits=sum(
+                row.quantification.status in {"complete", "partial"}
+                for row in role_hits
+            ),
             baseline_damage=baseline_damage,
-            without_buff_damage=without_damage,
-            damage_gain=damage_gain,
+            without_quantified_effect_damage=(
+                without_damage
+                if quantification.status != "unavailable"
+                else None
+            ),
+            quantified_damage_gain=quantified_gain,
+            quantified_recipient_gain_percent=(
+                quantified_gain / without_damage * 100.0
+                if quantified_gain is not None and without_damage > 0
+                else (0.0 if quantified_gain is not None else None)
+            ),
+            quantified_team_contribution_percent=(
+                quantified_gain / team_without_quantified_effect_damage * 100.0
+                if quantified_gain is not None
+                and team_without_quantified_effect_damage is not None
+                and team_without_quantified_effect_damage > 0
+                else (0.0 if quantified_gain is not None else None)
+            ),
+            without_buff_damage=without_damage if full_available else None,
+            damage_gain=full_gain,
             recipient_gain_percent=(
-                damage_gain / without_damage * 100.0
-                if without_damage > 0
-                else 0.0
+                full_gain / without_damage * 100.0
+                if full_gain is not None and without_damage > 0
+                else (0.0 if full_gain is not None else None)
             ),
             team_contribution_percent=(
-                damage_gain / team_without_damage * 100.0
-                if team_without_damage > 0
-                else 0.0
+                full_gain / team_without_buff_damage * 100.0
+                if full_gain is not None
+                and team_without_buff_damage is not None
+                and team_without_buff_damage > 0
+                else (0.0 if full_gain is not None else None)
             ),
-            quantified_damage=quantified_damage,
-            quantified_percent=(
-                quantified_damage / baseline_damage * 100.0
-                if baseline_damage > 0
-                else 0.0
-            ),
+            quantification=quantification,
         )
 
-    @staticmethod
-    def _without_vital_damage(
+    @classmethod
+    def _resolve_inactive_projection(
+        cls,
+        ratio: BattleCounterfactualRatio,
+        *,
+        group_projection: BattleHitBuffProjection,
+        group_intervals: Sequence[BattleInferredBuffInterval],
+    ) -> BattleCounterfactualRatio:
+        if ratio.status != "not_applicable":
+            return ratio
+        applied = any(
+            decision.status == "applied"
+            for decision in group_projection.decisions
+        )
+        unresolved = tuple(
+            reason
+            for decision in group_projection.decisions
+            if decision.status == "unresolved"
+            for reason in decision.reasons
+        )
+        lacks_formula = not any(row.modifiers for row in group_intervals)
+        if not applied and not unresolved and not lacks_formula:
+            return ratio
+        explanation = (
+            "Buff 修正已投影，但当前逐击公式尚未映射该变化。"
+            if applied
+            else (
+                "Buff 存在未解析的数值或 Calculation，不能证明本击不受影响。"
+                if unresolved
+                else "Buff 缺少可计算的属性修正，不能把收益记为 0。"
+            )
+        )
+        gap = BattleQuantificationGap(
+            code="formula_family_unsupported",
+            dimension_id="buff_projection",
+            dependency_scope="mechanic_specific",
+            property_ids=tuple(sorted({
+                modifier.property_id
+                for row in group_intervals
+                for modifier in row.modifiers
+            })),
+            explanation=explanation,
+        )
+        return BattleCounterfactualRatio.unavailable(
+            method="buff_projection_unavailable",
+            confidence="低",
+            dependency_scope="mechanic_specific",
+            cancelled_dimension_ids=ratio.cancelled_dimension_ids,
+            gaps=(gap,),
+            explanation=explanation,
+        )
+
+    @classmethod
+    def _vital_projections(
+        cls,
         analysis: BattleAnalysisSnapshot,
-        predicted_hits: Mapping[str, float],
-        hits_by_event: Mapping[str, BattleAnalysisHit],
-    ) -> tuple[
-        float,
-        float,
-        dict[int, float],
-        dict[int, float],
-        dict[int, float],
-    ]:
-        total = 0.0
-        quantified = 0.0
-        baseline_by_character: dict[int, float] = defaultdict(float)
-        without_by_character: dict[int, float] = defaultdict(float)
-        quantified_by_character: dict[int, float] = defaultdict(float)
+        hit_projections: Mapping[str, _HitProjection],
+    ) -> tuple[_VitalProjection, ...]:
+        result = []
         for event in analysis.max_hp_events:
             baseline = max(0.0, float(event.effective_hp_loss))
             predicted = baseline
@@ -440,37 +609,131 @@ class BattleBuffCounterfactualService:
                 and int(event.source_character_id) > 0
                 else None
             )
+            status: QuantificationStatus = "not_applicable"
+            gaps: tuple[BattleQuantificationGap, ...] = ()
             if event.mechanic_kind == "lacrimosa_nightmare_awaken_5":
                 linked_ids = tuple(
                     event_id
                     for event_id in event.evidence_event_ids
-                    if event_id in hits_by_event
+                    if event_id in hit_projections
                 )
                 linked_baseline = sum(
-                    float(hits_by_event[event_id].damage)
+                    float(hit_projections[event_id].hit.damage)
                     for event_id in linked_ids
                 )
                 linked_without = sum(
-                    predicted_hits.get(
-                        event_id,
-                        float(hits_by_event[event_id].damage),
-                    )
+                    hit_projections[event_id].predicted_damage
                     for event_id in linked_ids
                 )
                 ratio = _safe_ratio(linked_without, linked_baseline)
-                if ratio is not None and abs(ratio - 1.0) > 1e-12:
+                linked_rows = tuple(hit_projections[event_id] for event_id in linked_ids)
+                gaps = tuple(dict.fromkeys(
+                    gap
+                    for row in linked_rows
+                    for gap in row.quantification.gaps
+                ))
+                quantified = any(
+                    row.quantification.status in {"complete", "partial"}
+                    for row in linked_rows
+                )
+                unresolved = any(
+                    row.quantification.status in {"partial", "unavailable"}
+                    for row in linked_rows
+                )
+                if quantified and unresolved:
+                    status = "partial"
+                elif quantified:
+                    status = "complete"
+                elif unresolved:
+                    status = "unavailable"
+                if ratio is not None and status in {"complete", "partial"}:
                     predicted *= ratio
-                    quantified += baseline
-                    if character_id is not None:
-                        quantified_by_character[character_id] += baseline
-            total += predicted
-            if character_id is not None:
-                baseline_by_character[character_id] += baseline
-                without_by_character[character_id] += predicted
-        return (
-            total,
-            quantified,
-            dict(baseline_by_character),
-            dict(without_by_character),
-            dict(quantified_by_character),
+            result.append(_VitalProjection(
+                event_id=event.event_id,
+                character_id=character_id,
+                baseline_damage=baseline,
+                predicted_damage=predicted,
+                status=status,
+                gaps=gaps,
+            ))
+        return tuple(result)
+
+    @staticmethod
+    def _aggregate_quantification(
+        *,
+        hit_projections: Sequence[_HitProjection],
+        vital_projections: Sequence[_VitalProjection],
+        fixed_derived_damage: float,
+        quantified_increment: float,
+    ) -> BattleDamageQuantification:
+        fully_quantified = sum(
+            float(row.hit.damage)
+            for row in hit_projections
+            if row.quantification.status == "complete"
+        ) + sum(
+            row.baseline_damage
+            for row in vital_projections
+            if row.status == "complete"
+        )
+        partially_quantified = sum(
+            float(row.hit.damage)
+            for row in hit_projections
+            if row.quantification.status == "partial"
+        ) + sum(
+            row.baseline_damage
+            for row in vital_projections
+            if row.status == "partial"
+        )
+        unavailable = sum(
+            float(row.hit.damage)
+            for row in hit_projections
+            if row.quantification.status == "unavailable"
+        ) + sum(
+            row.baseline_damage
+            for row in vital_projections
+            if row.status == "unavailable"
+        )
+        proven_unchanged = fixed_derived_damage + sum(
+            float(row.hit.damage)
+            for row in hit_projections
+            if row.quantification.status == "not_applicable"
+        ) + sum(
+            row.baseline_damage
+            for row in vital_projections
+            if row.status == "not_applicable"
+        )
+        gaps = tuple(dict.fromkeys((
+            *(
+                gap
+                for row in hit_projections
+                for gap in row.quantification.gaps
+            ),
+            *(
+                gap
+                for row in vital_projections
+                for gap in row.gaps
+            ),
+        )))
+        quantified_damage = fully_quantified + partially_quantified
+        if unavailable > 0.0 and quantified_damage <= 0.0:
+            status: QuantificationStatus = "unavailable"
+        elif partially_quantified > 0.0 or unavailable > 0.0:
+            status = "partial"
+        elif fully_quantified > 0.0:
+            status = "complete"
+        else:
+            status = "not_applicable"
+        increment = (
+            None
+            if status == "unavailable"
+            else (0.0 if status == "not_applicable" else quantified_increment)
+        )
+        return BattleDamageQuantification.from_buckets(
+            status=status,
+            fully_quantified_damage=fully_quantified,
+            partially_quantified_damage=partially_quantified,
+            unavailable_damage=unavailable,
+            proven_unchanged_damage=proven_unchanged,
+            quantified_increment=increment,
+            gaps=gaps,
         )

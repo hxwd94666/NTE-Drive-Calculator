@@ -192,16 +192,43 @@ def render_counterfactual_roles(
     table: QTableWidget,
     pie: BattleRoleDamagePieWidget,
     roles: Sequence[BattleBuildRoleCounterfactual],
-    predicted_total: float,
+    predicted_total: float | None,
 ) -> None:
-    """Render the marginal role table and donut from the same immutable rows."""
+    """Render complete/known role projections without promoting heuristics."""
 
     table.setRowCount(len(roles))
     pie_rows = []
+    displayed_total = sum(
+        role.candidate_damage
+        if role.candidate_damage is not None
+        else role.known_projection_damage
+        if role.known_projection_damage is not None
+        else role.baseline_damage
+        for role in roles
+    ) or predicted_total
     for row_index, role in enumerate(roles):
-        share = role.predicted_damage / predicted_total * 100.0 if predicted_total else 0.0
+        damage = (
+            role.candidate_damage
+            if role.candidate_damage is not None
+            else role.known_projection_damage
+            if role.known_projection_damage is not None
+            else role.baseline_damage
+        )
+        share = damage / displayed_total * 100.0 if displayed_total else 0.0
+        damage_label = (
+            _number(damage)
+            if role.candidate_damage is not None
+            else f"已量化 {_number(damage)}"
+            if role.known_projection_damage is not None
+            else f"原轴 {_number(damage)}"
+        )
+        gain = (
+            role.gain_percent
+            if role.gain_percent is not None
+            else role.known_gain_percent
+        )
         table.setItem(row_index, 0, QTableWidgetItem(role.character_name))
-        table.setItem(row_index, 1, QTableWidgetItem(_number(role.predicted_damage)))
+        table.setItem(row_index, 1, QTableWidgetItem(damage_label))
         table.setCellWidget(
             row_index,
             2,
@@ -210,12 +237,16 @@ def render_counterfactual_roles(
                 color=role_contribution_color(row_index),
             ),
         )
-        table.setItem(row_index, 3, QTableWidgetItem(f"{role.gain_percent:+.2f}%"))
+        table.setItem(
+            row_index,
+            3,
+            QTableWidgetItem("—" if gain is None else f"{gain:+.2f}%"),
+        )
         pie_rows.append(BattleRangeRoleSummary(
             character_id=role.character_id,
             character_name=role.character_name,
             hits=0,
-            damage=role.predicted_damage,
+            damage=damage,
             dps=0.0,
             share_percent=share,
         ))

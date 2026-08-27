@@ -47,6 +47,12 @@ def _baseline() -> BattleCharacterBaseline:
             BattleCharacterStat("AtkBase", "基础攻击力", 1000.0, False),
             BattleCharacterStat("AtkUp", "攻击力提升", 0.0, True),
             BattleCharacterStat("AtkAdd", "固定攻击力", 0.0, False),
+            BattleCharacterStat("HPMaxBase", "基础生命值", 2000.0, False),
+            BattleCharacterStat("HPMaxUp", "生命值提升", 0.0, True),
+            BattleCharacterStat("HPMaxAdd", "固定生命值", 0.0, False),
+            BattleCharacterStat("DefBase", "基础防御力", 500.0, False),
+            BattleCharacterStat("DefUp", "防御力提升", 0.0, True),
+            BattleCharacterStat("DefAdd", "固定防御力", 0.0, False),
             BattleCharacterStat("CritBase", "暴击率", 0.5, True),
             BattleCharacterStat("CritDamageBase", "暴击伤害", 1.0, True),
             BattleCharacterStat(
@@ -146,7 +152,37 @@ def _target_resolution(
     )
 
 
-def _critical_replay(hit, policy: str, rate: float | None):
+def _scaling_factor(scaling_id: str) -> BattleHitReplayFactor:
+    base_id = {
+        "Atk": "AtkBase",
+        "HPMax": "HPMaxBase",
+        "Def": "DefBase",
+    }[scaling_id]
+    return BattleHitReplayFactor(
+        factor_id="scaling",
+        label=f"{scaling_id} 乘区",
+        value=1000.0,
+        evidence_basis="fixture",
+        terms=(BattleHitReplayTerm(
+            term_id=f"scaling:{base_id}",
+            property_id=base_id,
+            label=base_id,
+            value=1000.0,
+            source_group="panel",
+            source_name="fixture",
+            is_percent=False,
+            evidence_basis="fixture",
+        ),),
+    )
+
+
+def _critical_replay(
+    hit,
+    policy: str,
+    rate: float | None,
+    *,
+    scaling_id: str | None = "Atk",
+):
     return BattleHitReplayResult(
         event_id=hit.event_id,
         observed_damage=hit.damage,
@@ -156,7 +192,7 @@ def _critical_replay(hit, policy: str, rate: float | None):
         selected_error_percent=0.0,
         critical_state=("not_applicable" if policy == "disabled" else "ambiguous"),
         confidence="高",
-        factors=(),
+        factors=(() if scaling_id is None else (_scaling_factor(scaling_id),)),
         critical_rate=rate,
         expected_damage=None if policy == "unknown" else hit.damage,
         critical_policy=policy,
@@ -164,6 +200,49 @@ def _critical_replay(hit, policy: str, rate: float | None):
 
 
 class BattleMarginalCalculationServiceTests(unittest.TestCase):
+    def test_hp_and_def_scaling_margins_use_replay_scaling_terms(self) -> None:
+        hit = _hit()
+        for scaling_id, property_id in (("HPMax", "HPMaxUp"), ("Def", "DefUp")):
+            with self.subTest(scaling_id=scaling_id):
+                analysis = _analysis(
+                    hit,
+                    _critical_replay(
+                        hit,
+                        "character",
+                        0.5,
+                        scaling_id=scaling_id,
+                    ),
+                )
+                result = BattleMarginalCalculationService.calculate(
+                    analysis=analysis,
+                    character_id=CHARACTER_ID,
+                    edited_values={},
+                    units={property_id: 0.1},
+                )[0]
+
+                self.assertEqual("complete", result.quantification.status)
+                self.assertAlmostEqual(1100.0, result.known_projection_damage)
+                self.assertAlmostEqual(10.0, result.full_role_gain_percent)
+
+    def test_unknown_scaling_margin_is_unavailable_not_zero(self) -> None:
+        hit = _hit()
+        analysis = _analysis(
+            hit,
+            _critical_replay(hit, "character", 0.5, scaling_id=None),
+        )
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"AtkUp": 0.1},
+        )[0]
+
+        self.assertEqual("unavailable", result.quantification.status)
+        self.assertIsNone(result.known_projection_damage)
+        self.assertIsNone(result.quantified_role_gain_percent)
+        self.assertIsNone(result.full_role_gain_percent)
+
     def test_unknown_target_attack_margin_anchors_on_candidate_projection(self) -> None:
         hit = _hit()
         analysis = _analysis(hit, _critical_replay(hit, "character", 0.5))
@@ -171,16 +250,19 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
             hits=(
                 SimpleNamespace(
                     event_id=hit.event_id,
-                    predicted_damage=1500.0,
+                    candidate_damage=1500.0,
+                    known_projection_damage=1500.0,
                 ),
             ),
             roles=(
                 SimpleNamespace(
                     character_id=CHARACTER_ID,
-                    predicted_damage=1500.0,
+                    candidate_damage=1500.0,
+                    known_projection_damage=1500.0,
                 ),
             ),
-            predicted_damage=2000.0,
+            candidate_damage=2000.0,
+            known_projection_damage=2000.0,
         )
 
         result = BattleMarginalCalculationService.calculate(
@@ -191,10 +273,14 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         )[0]
 
         self.assertAlmostEqual(1500.0, result.baseline_damage)
-        self.assertAlmostEqual(1518.75, result.predicted_damage)
-        self.assertAlmostEqual(1.25, result.role_gain_percent)
-        self.assertAlmostEqual(0.9375, result.team_dps_gain_percent)
-        self.assertAlmostEqual(100.0, result.coverage_percent)
+        self.assertAlmostEqual(1518.75, result.known_projection_damage)
+        self.assertAlmostEqual(1.25, result.quantified_role_gain_percent)
+        self.assertAlmostEqual(1.25, result.full_role_gain_percent)
+        self.assertAlmostEqual(0.9375, result.quantified_team_gain_percent)
+        self.assertAlmostEqual(0.9375, result.full_team_gain_percent)
+        self.assertEqual("complete", result.quantification.status)
+        self.assertEqual(1500.0, result.quantification.fully_quantified_damage)
+        self.assertEqual(0.0, result.quantification.unavailable_damage)
         self.assertAlmostEqual(75.0, result.damage_share_percent)
 
     def test_legacy_single_target_condition_remains_supported(self) -> None:
@@ -213,8 +299,9 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
             units={"DefIgnore": 0.01},
         )[0]
 
-        self.assertGreater(result.role_gain_percent, 0.0)
-        self.assertEqual(100.0, result.coverage_percent)
+        self.assertGreater(result.full_role_gain_percent, 0.0)
+        self.assertEqual("complete", result.quantification.status)
+        self.assertEqual(1000.0, result.quantification.fully_quantified_damage)
 
     def test_same_target_id_in_two_halves_uses_each_frozen_profile(self) -> None:
         upper = _hit(event_id="hit:upper", scope_half="upper", target_id="7")
@@ -273,16 +360,58 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         )[0]
 
         expected_increment = (
-            upper_result.predicted_damage
+            upper_result.known_projection_damage
             - upper_result.baseline_damage
-            + lower_result.predicted_damage
+            + lower_result.known_projection_damage
             - lower_result.baseline_damage
         )
         self.assertAlmostEqual(
             expected_increment,
-            combined_result.predicted_damage - combined_result.baseline_damage,
+            combined_result.known_projection_damage
+            - combined_result.baseline_damage,
         )
-        self.assertEqual(100.0, combined_result.coverage_percent)
+        self.assertEqual("complete", combined_result.quantification.status)
+        self.assertEqual(
+            2000.0,
+            combined_result.quantification.fully_quantified_damage,
+        )
+
+    def test_one_known_and_one_unknown_target_profile_is_partial(self) -> None:
+        upper = _hit(event_id="hit:upper", scope_half="upper", target_id="7")
+        lower = _hit(event_id="hit:lower", scope_half="lower", target_id="7")
+        upper_condition = _target_condition(defense=600.0, resistance=0.1)
+        upper_replay = _critical_replay(upper, "character", 0.5)
+        lower_replay = _critical_replay(lower, "character", 0.5)
+        analysis = _analysis(
+            upper,
+            upper_replay,
+            target_instance_resolutions=(
+                _target_resolution(
+                    scope_half="upper",
+                    target_id="7",
+                    condition=upper_condition,
+                ),
+            ),
+            target_instance_mapping_required=True,
+        )
+        analysis.hits = (upper, lower)
+        analysis.hit_replays = (upper_replay, lower_replay)
+        analysis.effective_damage = 2000.0
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"DefIgnore": 0.01},
+        )[0]
+
+        self.assertEqual("partial", result.quantification.status)
+        self.assertIsNotNone(result.known_projection_damage)
+        self.assertIsNotNone(result.quantified_role_gain_percent)
+        self.assertIsNone(result.full_role_gain_percent)
+        self.assertEqual(1000.0, result.quantification.fully_quantified_damage)
+        self.assertEqual(1000.0, result.quantification.unavailable_damage)
+        self.assertIn("不代表完整收益", result.assumption)
 
     def test_missing_instance_profile_does_not_fall_back_to_primary(self) -> None:
         hit = _hit(scope_half="lower", target_id="7")
@@ -302,9 +431,12 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
             units={"DefIgnore": 0.01},
         )[0]
 
-        self.assertEqual(result.baseline_damage, result.predicted_damage)
-        self.assertEqual(0.0, result.coverage_percent)
-        self.assertIn("0% 表示未量化", result.assumption)
+        self.assertIsNone(result.known_projection_damage)
+        self.assertIsNone(result.quantified_role_gain_percent)
+        self.assertIsNone(result.full_role_gain_percent)
+        self.assertEqual("unavailable", result.quantification.status)
+        self.assertEqual(1000.0, result.quantification.unavailable_damage)
+        self.assertIn("本项未量化", result.assumption)
 
     def test_crit_units_follow_each_hit_critical_policy(self) -> None:
         hit = _hit()
@@ -318,7 +450,7 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         )
         self.assertGreater(
             next(row for row in character_rows if row.property_id == "CritBase")
-            .role_gain_percent,
+            .full_role_gain_percent,
             0.0,
         )
 
@@ -332,19 +464,38 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         fixed_damage = next(
             row for row in fixed_rows if row.property_id == "CritDamageBase"
         )
-        self.assertEqual(fixed_rate.baseline_damage, fixed_rate.predicted_damage)
-        self.assertEqual(0.0, fixed_rate.coverage_percent)
-        self.assertGreater(fixed_damage.role_gain_percent, 0.0)
+        self.assertEqual("not_applicable", fixed_rate.quantification.status)
+        self.assertEqual(0.0, fixed_rate.full_role_gain_percent)
+        self.assertEqual(
+            fixed_rate.baseline_damage,
+            fixed_rate.known_projection_damage,
+        )
+        self.assertGreater(fixed_damage.full_role_gain_percent, 0.0)
 
-        for policy, rate in (("disabled", 0.0), ("unknown", None)):
-            rows = BattleMarginalCalculationService.calculate(
-                analysis=_analysis(hit, _critical_replay(hit, policy, rate)),
-                character_id=CHARACTER_ID,
-                edited_values={},
-                units=units,
-            )
-            self.assertTrue(all(row.role_gain_percent == 0.0 for row in rows))
-            self.assertTrue(all(row.coverage_percent == 0.0 for row in rows))
+        disabled = BattleMarginalCalculationService.calculate(
+            analysis=_analysis(hit, _critical_replay(hit, "disabled", 0.0)),
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units=units,
+        )
+        self.assertTrue(all(
+            row.quantification.status == "not_applicable"
+            and row.full_role_gain_percent == 0.0
+            for row in disabled
+        ))
+
+        unknown = BattleMarginalCalculationService.calculate(
+            analysis=_analysis(hit, _critical_replay(hit, "unknown", None)),
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units=units,
+        )
+        self.assertTrue(all(
+            row.quantification.status == "unavailable"
+            and row.full_role_gain_percent is None
+            and row.quantified_role_gain_percent is None
+            for row in unknown
+        ))
 
     def test_topple_unit_reuses_source_character_contribution(self) -> None:
         hit = _hit(classification="topple")
@@ -399,11 +550,11 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
             units={"UnbalIntensityBase": 6.0},
         )[0]
 
-        self.assertEqual(1000.0, result.supported_damage)
-        self.assertAlmostEqual(100.0, result.coverage_percent)
-        self.assertAlmostEqual(1010.0, result.predicted_damage)
-        self.assertAlmostEqual(1.0, result.role_gain_percent)
-        self.assertAlmostEqual(1.0, result.team_dps_gain_percent)
+        self.assertEqual("complete", result.quantification.status)
+        self.assertEqual(1000.0, result.quantification.fully_quantified_damage)
+        self.assertAlmostEqual(1010.0, result.known_projection_damage)
+        self.assertAlmostEqual(1.0, result.full_role_gain_percent)
+        self.assertAlmostEqual(1.0, result.full_team_gain_percent)
 
 
 if __name__ == "__main__":

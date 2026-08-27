@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QApplication
 
+from src.domain.battle_counterfactual_quantification import BattleDamageQuantification
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
@@ -215,10 +216,17 @@ class BattleReportScopeUiTests(unittest.TestCase):
             affected_hits=12,
             quantified_hits=10,
             baseline_damage=1_150.0,
+            without_quantified_effect_damage=1_000.0,
+            quantified_damage_gain=150.0,
+            quantified_gain_percent=15.0,
             without_buff_damage=1_000.0,
             damage_gain=150.0,
             gain_percent=15.0,
-            quantified_percent=90.0,
+            quantification=BattleDamageQuantification.from_buckets(
+                status="complete",
+                fully_quantified_damage=1_150.0,
+                quantified_increment=150.0,
+            ),
             confidence="中",
             method="observed_axis_remove_replay",
             explanation="按逐击移除重放。",
@@ -236,8 +244,8 @@ class BattleReportScopeUiTests(unittest.TestCase):
         self.assertEqual("1,000.00", panel.table.item(0, 7).text())
         self.assertEqual("+150.00", panel.table.item(0, 8).text())
         self.assertEqual("+15.00%", panel.table.item(0, 9).text())
-        self.assertEqual("10 击 / 90.0%伤害", panel.table.item(0, 10).text())
-        self.assertIn("收益率 =", panel.table.item(0, 9).toolTip())
+        self.assertEqual("完整 100.0%", panel.table.item(0, 10).text())
+        self.assertIn("完整收益率", panel.table.item(0, 9).toolTip())
 
     def test_selected_half_focuses_the_full_timeline_viewport(self) -> None:
         scrollbar = SimpleNamespace(value=None)

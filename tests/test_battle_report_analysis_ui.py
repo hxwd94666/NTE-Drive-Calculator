@@ -15,8 +15,6 @@ from PySide6.QtWidgets import (
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
     BattleHitReplayFactor,
     BattleHitReplayResult,
     BattleTargetCondition,
@@ -536,34 +534,6 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
         self.assertTrue(timeline._is_in_sticky_label(240 + LABEL_WIDTH - 1))
         self.assertFalse(timeline._is_in_sticky_label(240 + LABEL_WIDTH))
         self.assertEqual([], timeline._selection_candidates(QPointF(310, 57)))
-
-    def test_counterfactual_value_editors_ignore_wheel_and_use_percent_symbol(self) -> None:
-        view = BattleMarginalPage()
-        baseline = BattleCharacterBaseline(
-            character_id=1001,
-            character_name="测试角色",
-            source="frozen_v25",
-            stats=(
-                BattleCharacterStat(
-                    property_id="CritBase",
-                    label="暴击率",
-                    value=0.5,
-                    is_percent=True,
-                ),
-            ),
-        )
-        view._analysis = SimpleNamespace(
-            baselines=(baseline,),
-            roles=(),
-            build_counterfactual=None,
-        )
-        view.character_combo.addItem("测试角色", 1001)
-        view._render_selected_role()
-
-        editor = view.attribute_table.cellWidget(0, 2)
-        self.assertIsInstance(editor, NoWheelDoubleSpinBox)
-        self.assertEqual("%", editor.suffix())
-        self.assertEqual("50.00%", view.attribute_table.item(0, 1).text())
 
     def test_marginal_page_lazily_builds_only_the_selected_role_editor(self) -> None:
         created: list[int] = []

@@ -12,7 +12,10 @@ from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleCharacterBaseline,
     BattleCharacterStat,
+    BattleHitReplayFactor,
     BattleHitReplayResult,
+    BattleHitReplayTerm,
+    BattleSkillDamageEvidence,
     BattleTargetCondition,
 )
 from src.services.battle_hit_counterfactual_ratio_service import (
@@ -25,6 +28,12 @@ def _baseline(**changes: float) -> BattleCharacterBaseline:
         "AtkBase": 1000.0,
         "AtkUp": 0.0,
         "AtkAdd": 0.0,
+        "HPMaxBase": 2000.0,
+        "HPMaxUp": 0.0,
+        "HPMaxAdd": 0.0,
+        "DefBase": 500.0,
+        "DefUp": 0.0,
+        "DefAdd": 0.0,
         "CritBase": 0.5,
         "CritDamageBase": 1.0,
         "DamageUpGeneralBase": 0.0,
@@ -44,7 +53,7 @@ def _baseline(**changes: float) -> BattleCharacterBaseline:
     )
 
 
-def _hit() -> BattleAnalysisHit:
+def _hit(*, damage_attribute: str = "nature") -> BattleAnalysisHit:
     return BattleAnalysisHit(
         event_id="hit:1",
         sequence=1,
@@ -55,7 +64,7 @@ def _hit() -> BattleAnalysisHit:
         damage_name="测试伤害",
         damage_component="skill",
         attack_type="skill",
-        damage_attribute="nature",
+        damage_attribute=damage_attribute,
         target_id="target:1",
         target_name="目标",
         damage=1000.0,
@@ -65,7 +74,31 @@ def _hit() -> BattleAnalysisHit:
     )
 
 
-def _unknown_replay() -> BattleHitReplayResult:
+def _scaling_factor(scaling_id: str) -> BattleHitReplayFactor:
+    base_id = {
+        "Atk": "AtkBase",
+        "HPMax": "HPMaxBase",
+        "Def": "DefBase",
+    }[scaling_id]
+    return BattleHitReplayFactor(
+        factor_id="scaling",
+        label=f"{scaling_id} 乘区",
+        value=1000.0,
+        evidence_basis="fixture",
+        terms=(BattleHitReplayTerm(
+            term_id=f"scaling:{base_id}",
+            property_id=base_id,
+            label=base_id,
+            value=1000.0,
+            source_group="panel",
+            source_name="fixture",
+            is_percent=False,
+            evidence_basis="fixture",
+        ),),
+    )
+
+
+def _unknown_replay(scaling_id: str | None = "Atk") -> BattleHitReplayResult:
     return BattleHitReplayResult(
         event_id="hit:1",
         observed_damage=1000.0,
@@ -75,7 +108,7 @@ def _unknown_replay() -> BattleHitReplayResult:
         selected_error_percent=None,
         critical_state="unreplayable",
         confidence="低",
-        factors=(),
+        factors=(() if scaling_id is None else (_scaling_factor(scaling_id),)),
         critical_policy="unknown",
     )
 
@@ -110,7 +143,7 @@ def _condition() -> BattleTargetCondition:
 class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
     def _compare(self, candidate, **kwargs):
         return BattleHitCounterfactualRatioService.compare(
-            hit=_hit(),
+            hit=kwargs.pop("hit", _hit()),
             original_baseline=_baseline(),
             candidate_baseline=candidate,
             original_replay=kwargs.pop("original_replay", _unknown_replay()),
@@ -129,6 +162,48 @@ class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
         self.assertIn("target_defense", result.cancelled_dimension_ids)
         self.assertIn("target_resistance", result.cancelled_dimension_ids)
 
+    def test_unknown_scaling_does_not_default_to_attack(self) -> None:
+        result = self._compare(
+            _baseline(AtkUp=0.1),
+            original_replay=_unknown_replay(None),
+        )
+
+        self.assertEqual("unavailable", result.status)
+        self.assertIsNone(result.quantified_ratio)
+        self.assertEqual("scaling_dependency_unresolved", result.gaps[0].code)
+
+    def test_replay_scaling_terms_identify_hp_scaling(self) -> None:
+        result = self._compare(
+            _baseline(HPMaxUp=0.1),
+            original_replay=_unknown_replay("HPMax"),
+        )
+
+        self.assertEqual("complete", result.status)
+        self.assertAlmostEqual(1.1, result.quantified_ratio)
+
+    def test_skill_evidence_takes_priority_over_replay_scaling(self) -> None:
+        evidence = BattleSkillDamageEvidence(
+            event_id="hit:1",
+            damage_id="damage:1",
+            ability_id="ability:1",
+            damage_attribute="nature",
+            damage_source_category="skill",
+            fixed_crit_rate=0.0,
+            scaling_property_id="Def",
+            scaling_multiplier=1.0,
+            multiplier_coefficient=1.0,
+            effective_skill_level=1,
+            evidence_basis="fixture",
+        )
+        result = self._compare(
+            _baseline(DefUp=0.1),
+            original_replay=_unknown_replay("Atk"),
+            skill_evidence=evidence,
+        )
+
+        self.assertEqual("complete", result.status)
+        self.assertAlmostEqual(1.1, result.quantified_ratio)
+
     def test_unknown_target_defense_ignore_is_unavailable(self) -> None:
         result = self._compare(_baseline(DefIgnore=0.1))
 
@@ -138,6 +213,15 @@ class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
             "target_defense_dependency_changed",
             result.gaps[0].code,
         )
+
+    def test_psychically_defense_ignore_is_not_applicable(self) -> None:
+        result = self._compare(
+            _baseline(DefIgnore=0.1),
+            hit=_hit(damage_attribute="psychically"),
+        )
+
+        self.assertEqual("not_applicable", result.status)
+        self.assertEqual(1.0, result.quantified_ratio)
 
     def test_unknown_target_penetration_is_unavailable(self) -> None:
         result = self._compare(_baseline(DamagePenetrateNature=0.1))

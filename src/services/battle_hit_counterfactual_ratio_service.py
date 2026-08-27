@@ -195,16 +195,30 @@ class BattleHitCounterfactualRatioService:
         target_sensitive_change = False
         mechanic_specific_change = False
 
-        scaling_id = cls._scaling_id(skill_evidence)
-        scaling_properties = _SCALING_PROPERTIES[scaling_id]
+        scaling_id = cls._scaling_id(
+            skill_evidence,
+            original_replay,
+            candidate_replay,
+        )
+        handled_properties.update(_ALL_SCALING_PROPERTIES)
+        all_scaling_changes = _changed(
+            original,
+            candidate,
+            _ALL_SCALING_PROPERTIES,
+        )
+        scaling_properties = (
+            () if scaling_id is None else _SCALING_PROPERTIES[scaling_id]
+        )
         scaling_changes = _changed(original, candidate, scaling_properties)
-        handled_properties.update(scaling_properties)
-        if (
-            skill_evidence is not None
-            and skill_evidence.scaling_property_id in _SCALING_PROPERTIES
-        ):
-            handled_properties.update(_ALL_SCALING_PROPERTIES)
-        if scaling_changes:
+        if scaling_id is None and all_scaling_changes:
+            gaps.append(_gap(
+                "scaling_dependency_unresolved",
+                "scaling",
+                "character_only",
+                all_scaling_changes,
+                "角色缩放属性发生变化，但该击缺少正式缩放属性证据。",
+            ))
+        elif scaling_changes:
             ratio = cls._scaling_ratio(
                 original,
                 candidate,
@@ -302,10 +316,10 @@ class BattleHitCounterfactualRatioService:
         defense_changes = _changed(original, candidate, ("DefIgnore",))
         handled_properties.add("DefIgnore")
         if defense_changes or level_changed:
-            target_sensitive_change = True
             if attribute == "psychically":
-                included.append("target_defense")
+                cancelled.append("target_defense")
             elif target_condition is None:
+                target_sensitive_change = True
                 property_ids = tuple((
                     *defense_changes,
                     *(("character_level",) if level_changed else ()),
@@ -318,6 +332,7 @@ class BattleHitCounterfactualRatioService:
                     "防御乘区发生变化，但该击缺少冻结敌方防御画像。",
                 ))
             else:
+                target_sensitive_change = True
                 ratio = cls._defense_ratio(
                     original,
                     candidate,
@@ -477,9 +492,32 @@ class BattleHitCounterfactualRatioService:
         )
 
     @staticmethod
-    def _scaling_id(evidence: BattleSkillDamageEvidence | None) -> str:
+    def _scaling_id(
+        evidence: BattleSkillDamageEvidence | None,
+        original_replay: BattleHitReplayResult | None,
+        candidate_replay: BattleHitReplayResult | None,
+    ) -> str | None:
         value = "" if evidence is None else str(evidence.scaling_property_id)
-        return value if value in _SCALING_PROPERTIES else "Atk"
+        if value in _SCALING_PROPERTIES:
+            return value
+
+        for replay in (original_replay, candidate_replay):
+            if replay is None:
+                continue
+            candidates: set[str] = set()
+            for factor in replay.factors:
+                if factor.factor_id != "scaling":
+                    continue
+                term_properties = {term.property_id for term in factor.terms}
+                for scaling_id, property_ids in _SCALING_PROPERTIES.items():
+                    if term_properties & set((*property_ids, scaling_id)):
+                        candidates.add(scaling_id)
+                label_id = factor.label.partition(" ")[0]
+                if label_id in _SCALING_PROPERTIES:
+                    candidates.add(label_id)
+            if len(candidates) == 1:
+                return next(iter(candidates))
+        return None
 
     @staticmethod
     def _scaling_ratio(

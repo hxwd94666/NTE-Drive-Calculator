@@ -5,6 +5,9 @@ from dataclasses import replace
 import unittest
 
 from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+)
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleBuffModifierEvidence,
@@ -142,8 +145,8 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
         self.assertIn("伤害（未暴击） = 倍率区 × Atk 乘区 × 增伤区", text)
         self.assertIn("= (人物:基础攻击力 + 弧盘:基础攻击力)", text)
         self.assertIn("= (80.000 + 20.000)", text)
-        self.assertIn("防御区 = 结构化计算值", text)
-        self.assertIn("= 0.500000", text)
+        self.assertIn("防御区 = L / (敌方有效防御 + L)", text)
+        self.assertIn("防御区 = 100 / (0 + 100) = 0.500000", text)
         self.assertIn("推断暴击：是（置信度高）", text)
 
     def test_resistance_formula_shows_subtraction_and_negative_branch(self) -> None:
@@ -503,11 +506,17 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
             skill_name=hit.skill_name,
             damage_name=hit.damage_name,
             baseline_damage=1_000.0,
-            predicted_damage=1_150.0,
-            ratio=1.15,
-            method="panel_formula_estimate",
-            confidence="低",
-            explanation="按角色面板、属性与已确认目标乘区估计",
+            known_projection_damage=1_150.0,
+            candidate_damage=1_150.0,
+            heuristic_projection_damage=None,
+            quantification=BattleCounterfactualRatio.complete(
+                1.15,
+                method="component_ratio",
+                confidence="中",
+                dependency_scope="target_sensitive",
+                included_dimension_ids=("scaling", "target_defense"),
+                explanation="变化乘区已经完整量化。",
+            ),
             baseline_formula_damage=900.0,
             candidate_formula_damage=1_035.0,
         )
@@ -519,9 +528,9 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
         )
 
         self.assertIn("【调整后边际】", text)
-        self.assertIn("调整后预计：1,150.00", text)
-        self.assertIn("预计提升：+150.00（+15.00%）", text)
-        self.assertIn("角色面板与目标乘区比值", text)
+        self.assertIn("完整候选：1,150.00", text)
+        self.assertIn("提升：150.00（+15.00%）", text)
+        self.assertIn("变化乘区完整比值", text)
         self.assertIn("【候选配置伤害公式】", text)
         self.assertNotIn("预计误差：", text)
 

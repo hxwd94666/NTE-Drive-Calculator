@@ -341,12 +341,12 @@ class BattleDaffodillAwakeningServiceTests(unittest.TestCase):
 
         derived = next(
             row for row in result.hits
-            if row.method == "candidate_derived_daffodill_effect5"
+            if row.quantification.method == "candidate_derived_daffodill_effect5"
         )
         self.assertEqual(0.0, derived.baseline_damage)
-        self.assertEqual(250.0, derived.predicted_damage)
+        self.assertEqual(250.0, derived.candidate_damage)
         self.assertEqual(1_050.0, result.baseline_damage)
-        self.assertEqual(1_300.0, result.predicted_damage)
+        self.assertEqual(1_300.0, result.candidate_damage)
         projected = BattleBuildTimelineProjectionService.project(candidate, result)
         self.assertIn(derived.event_id, {hit.event_id for hit in projected.hits})
         self.assertIn(

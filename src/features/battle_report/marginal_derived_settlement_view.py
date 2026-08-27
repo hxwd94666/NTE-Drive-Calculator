@@ -66,15 +66,20 @@ class BattleMarginalDerivedSettlementView(QFrame):
         rows = () if comparison is None else tuple(
             row
             for row in comparison.hits
-            if row.method == DAFFODILL_EFFECT_FIVE_METHOD
+            if row.quantification.method == DAFFODILL_EFFECT_FIVE_METHOD
+            and row.candidate_damage is not None
         )
         grouped = defaultdict(list)
         for row in rows:
-            grouped[(row.method, row.source_event_id)].append(row)
+            grouped[(row.quantification.method, row.source_event_id)].append(row)
         groups = tuple(grouped.values())
         self._event_ids = [group[0].event_id for group in groups]
         self.table.setRowCount(len(groups))
-        total_gain = sum(row.predicted_damage - row.baseline_damage for row in rows)
+        total_gain = sum(
+            row.candidate_damage - row.baseline_damage
+            for row in rows
+            if row.candidate_damage is not None
+        )
         team_gain = (
             total_gain / comparison.baseline_damage * 100.0
             if comparison is not None and comparison.baseline_damage > 0.0
@@ -90,7 +95,11 @@ class BattleMarginalDerivedSettlementView(QFrame):
         }
         for row_index, group in enumerate(groups):
             first = group[0]
-            gain = sum(row.predicted_damage - row.baseline_damage for row in group)
+            gain = sum(
+                row.candidate_damage - row.baseline_damage
+                for row in group
+                if row.candidate_damage is not None
+            )
             per_settlement = gain / len(group)
             role_baseline = role_baselines.get(first.character_id, 0.0)
             role_gain = gain / role_baseline * 100.0 if role_baseline > 0.0 else 0.0
@@ -101,7 +110,7 @@ class BattleMarginalDerivedSettlementView(QFrame):
             )
             formula = (
                 f"{len(group)} × {per_settlement:,.2f} = {gain:,.2f}；"
-                f"{first.explanation}"
+                f"{first.quantification.explanation}"
             )
             values = (
                 "达芙蒂尔五觉·额外倾陷",
@@ -116,7 +125,8 @@ class BattleMarginalDerivedSettlementView(QFrame):
             tooltip = (
                 f"总次数 = 零觉基础 1 次 + 五觉追加 {len(group)} 次；\n"
                 f"新增收益 = 洞察层数 {len(group)} × 单次达芙蒂尔个人倾陷"
-                f" {per_settlement:,.2f} = {gain:,.2f}\n{first.explanation}\n"
+                f" {per_settlement:,.2f} = {gain:,.2f}\n"
+                f"{first.quantification.explanation}\n"
                 "双击查看候选伤害公式；原轴触发逐击本身保持独立。"
             )
             for column, value in enumerate(values):

@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any
 
-if TYPE_CHECKING:
-    from src.domain.battle_report import BattleDamageComposition
-
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+    BattleDamageQuantification,
+)
 
 @dataclass(frozen=True, slots=True)
 class BattleMarginalResult:
@@ -17,13 +18,13 @@ class BattleMarginalResult:
     unit: float
     is_percent: bool
     baseline_damage: float
-    predicted_damage: float
-    role_gain_percent: float
-    team_dps_gain_percent: float
-    supported_damage: float
-    unsupported_damage: float
-    coverage_percent: float
+    known_projection_damage: float | None
+    quantified_role_gain_percent: float | None
+    quantified_team_gain_percent: float | None
+    full_role_gain_percent: float | None
+    full_team_gain_percent: float | None
     damage_share_percent: float
+    quantification: BattleDamageQuantification
     assumption: str
 
 
@@ -37,11 +38,10 @@ class BattleBuildHitCounterfactual:
     skill_name: str
     damage_name: str
     baseline_damage: float
-    predicted_damage: float
-    ratio: float
-    method: str
-    confidence: str
-    explanation: str
+    known_projection_damage: float | None
+    candidate_damage: float | None
+    heuristic_projection_damage: float | None
+    quantification: BattleCounterfactualRatio
     baseline_formula_damage: float | None = None
     candidate_formula_damage: float | None = None
     source_event_id: str = ""
@@ -57,11 +57,10 @@ class BattleBuildVitalCounterfactual:
     mechanic_kind: str
     mechanic_name: str
     baseline_damage: float
-    predicted_damage: float
-    ratio: float
-    method: str
-    confidence: str
-    explanation: str
+    known_projection_damage: float | None
+    candidate_damage: float | None
+    heuristic_projection_damage: float | None
+    quantification: BattleCounterfactualRatio
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,11 +70,15 @@ class BattleBuildRoleCounterfactual:
     character_id: int
     character_name: str
     baseline_damage: float
-    predicted_damage: float
-    gain_percent: float
-    team_gain_percent: float
+    known_projection_damage: float | None
+    candidate_damage: float | None
+    heuristic_projection_damage: float | None
+    known_gain_percent: float | None
+    gain_percent: float | None
+    known_team_gain_percent: float | None
+    team_gain_percent: float | None
+    quantification: BattleDamageQuantification
     structured_damage: float
-    estimated_damage: float
     structured_percent: float
 
 
@@ -85,16 +88,21 @@ class BattleBuildCounterfactual:
 
     model_version: str
     baseline_damage: float
-    predicted_damage: float
-    gain_percent: float
+    known_projection_damage: float | None
+    candidate_damage: float | None
+    heuristic_projection_damage: float | None
+    known_gain_percent: float | None
+    gain_percent: float | None
     baseline_dps: float
-    predicted_dps: float
+    known_projection_dps: float | None
+    candidate_dps: float | None
+    heuristic_projection_dps: float | None
+    quantification: BattleDamageQuantification
     structured_damage: float
-    estimated_damage: float
     structured_percent: float
     roles: tuple[BattleBuildRoleCounterfactual, ...]
     hits: tuple[BattleBuildHitCounterfactual, ...]
-    composition: BattleDamageComposition
+    composition: Any
     assumptions: tuple[str, ...]
     vital_events: tuple[BattleBuildVitalCounterfactual, ...] = ()
 

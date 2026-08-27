@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QStackedWidget,
     QSpinBox,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -35,6 +34,13 @@ from src.features.battle_report.analysis_components import (
 from src.features.battle_report.composition_view import BattleDamageCompositionPanel
 from src.features.battle_report.hit_formula_dialog import BattleHitFormulaDialog
 from src.features.battle_report.marginal_derived_settlement_view import BattleMarginalDerivedSettlementView
+from src.features.battle_report.marginal_result_table_view import (
+    render_attribute_results,
+    render_buff_benefit_results,
+)
+from src.features.battle_report.marginal_quantification_view import (
+    quantification_status_text,
+)
 from src.features.battle_report.marginal_replacement_controller import (
     show_marginal_equipment_replacement,
 )
@@ -107,13 +113,13 @@ class BattleMarginalPage(QWidget):
         title.setObjectName("pageTitle")
         title.setToolTip(
             "冻结本场动作、逐击、目标和时段，只替换角色属性与配置。"
-            "所有原轴逐击都会得到候选估计；特殊机制尚不能量化时按零增量保守估计。"
+            "缺少变化依赖时分别展示已量化分量与缺口，不把未知记为零收益。"
         )
         header.addWidget(title)
         header.addStretch()
         help_text = (
             "冻结本场动作、逐击、目标和时段，只替换角色属性与配置。"
-            "所有原轴逐击都会得到候选估计；特殊机制尚不能量化时按零增量保守估计。"
+            "缺少变化依赖时分别展示已量化分量与缺口，不把未知记为零收益。"
         )
         help_button = QPushButton("?")
         help_button.setObjectName("btnHelp")
@@ -152,10 +158,10 @@ class BattleMarginalPage(QWidget):
 
         metrics = QGridLayout()
         definitions = (
-            ("dps", "新 DPS", "固定轴估计"),
-            ("damage", "新总伤害", "相对当前生效基线"),
-            ("role", "角色伤害", "当前分析角色"),
-            ("structured", "结构化重放", "其余为分级估计"),
+            ("dps", "投影 DPS", "等待候选重算"),
+            ("damage", "投影总伤害", "相对当前生效基线"),
+            ("role", "角色投影", "当前分析角色"),
+            ("structured", "结构化重放", "与变化完整性分开统计"),
         )
         self.metric_labels: dict[str, QLabel] = {}
         self.metric_subtitles: dict[str, QLabel] = {}
@@ -198,7 +204,8 @@ class BattleMarginalPage(QWidget):
         timeline_controls.addWidget(self.timeline_zoom_combo)
         timeline_controls.addStretch()
         timeline_help_text = (
-            "沿用原战报动作、命中和时段；条与点的伤害大小使用调整后候选值。"
+            "沿用原战报动作、命中和时段；完整或部分量化项使用相应投影值，"
+            "未量化项保留原轴数值并在伤害名标成原轴占位。"
             "生命上限结算保留原角色归因；安魂曲五觉跟随噩梦伤害，"
             "法帝娅被动跟随其固有生命，证据不足才固定原值。"
         )
@@ -217,7 +224,9 @@ class BattleMarginalPage(QWidget):
         self.counterfactual_timeline = BattleUnifiedTimelineWidget(
             game_ui_asset_root=self._game_ui_asset_root
         )
-        self.counterfactual_timeline.set_hit_heading("调整后逐击（固定轴估计）")
+        self.counterfactual_timeline.set_hit_heading(
+            "调整后逐击（未量化项为原轴占位）"
+        )
         self.counterfactual_timeline.selection_activated.connect(
             self._open_counterfactual_hit
         )
@@ -259,6 +268,7 @@ class BattleMarginalPage(QWidget):
         self.attribute_table = analysis_table(
             (
                 "属性单位",
+                "变化状态",
                 "本角色收益",
                 "全队收益",
                 "量化率",
@@ -267,7 +277,7 @@ class BattleMarginalPage(QWidget):
                 "计算说明",
             ),
             280,
-            default_widths=(220, 130, 130, 110, 110, 140, 440),
+            default_widths=(220, 110, 150, 150, 110, 110, 140, 440),
         )
         attribute_layout.addWidget(self.attribute_table)
         root.addWidget(attribute_card)
@@ -393,22 +403,51 @@ class BattleMarginalPage(QWidget):
                 comparison,
             )
             self.counterfactual_timeline.set_analysis(self._candidate_analysis)
-            self.metric_labels["dps"].setText(_number(comparison.predicted_dps))
-            self.metric_labels["damage"].setText(_number(comparison.predicted_damage))
+            is_complete = comparison.quantification.status in {
+                "complete", "not_applicable",
+            }
+            projected_damage = (
+                comparison.candidate_damage
+                if is_complete
+                else comparison.known_projection_damage
+            )
+            projected_dps = (
+                comparison.candidate_dps
+                if is_complete
+                else comparison.known_projection_dps
+            )
+            gain = (
+                comparison.gain_percent
+                if is_complete
+                else comparison.known_gain_percent
+            )
+            prefix = "" if is_complete else "已量化变化下 "
+            self.metric_labels["dps"].setText(
+                "—" if projected_dps is None else f"{prefix}{_number(projected_dps)}"
+            )
+            self.metric_labels["damage"].setText(
+                "—" if projected_damage is None else f"{prefix}{_number(projected_damage)}"
+            )
             self.metric_subtitles["damage"].setText(
-                f"{comparison.gain_percent:+.2f}% · 原始 {_number(comparison.baseline_damage)}"
+                "未量化 · 不把未知记为 0"
+                if gain is None
+                else f"{prefix}{gain:+.2f}% · 原始 {_number(comparison.baseline_damage)}"
             )
             self.metric_labels["structured"].setText(
                 f"{comparison.structured_percent:.1f}%"
             )
             self.metric_subtitles["structured"].setText(
-                f"估计 {100.0 - comparison.structured_percent:.1f}%"
+                "变化状态："
+                f"{quantification_status_text(comparison.quantification.status)}"
             )
             render_counterfactual_roles(
                 self.roles_table, self.roles_pie,
-                comparison.roles, comparison.predicted_damage,
+                comparison.roles, projected_damage,
             )
-            self.composition_panel.render(comparison.composition)
+            if comparison.quantification.status == "unavailable":
+                self.composition_panel.clear()
+            else:
+                self.composition_panel.render(comparison.composition)
         self._render_selected_role()
 
     def _timeline_time_mode_changed(self, _index: int = -1) -> None:
@@ -677,9 +716,21 @@ class BattleMarginalPage(QWidget):
             )
             self.metric_subtitles["role"].setText("等待候选重算")
         else:
-            self.metric_labels["role"].setText(_number(role.predicted_damage))
+            is_complete = role.quantification.status in {
+                "complete", "not_applicable",
+            }
+            projected_damage = (
+                role.candidate_damage if is_complete else role.known_projection_damage
+            )
+            gain = role.gain_percent if is_complete else role.known_gain_percent
+            prefix = "" if is_complete else "已量化变化下 "
+            self.metric_labels["role"].setText(
+                "—" if projected_damage is None else f"{prefix}{_number(projected_damage)}"
+            )
             self.metric_subtitles["role"].setText(
-                f"{role.gain_percent:+.2f}% · 原始 {_number(role.baseline_damage)}"
+                "未量化 · 不把未知记为 0"
+                if gain is None
+                else f"{prefix}{gain:+.2f}% · 原始 {_number(role.baseline_damage)}"
             )
 
     def _render_attributes(self, baseline: BattleCharacterBaseline | None) -> None:
@@ -694,91 +745,14 @@ class BattleMarginalPage(QWidget):
             edited_values={},
             units=units,
         )
-        self.attribute_table.setRowCount(len(results))
-        for row_index, result in enumerate(results):
-            unit = (
-                f"+{result.unit * 100:.2f}%"
-                if result.is_percent
-                else f"+{result.unit:g}"
-            )
-            values = (
-                f"{result.label} {unit}",
-                f"{result.role_gain_percent:+.2f}%",
-                f"{result.team_dps_gain_percent:+.2f}%",
-                f"{result.coverage_percent:.1f}%",
-                f"{result.damage_share_percent:.1f}%",
-                f"{result.predicted_damage - result.baseline_damage:+,.0f}",
-                result.assumption,
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(result.assumption)
-                self.attribute_table.setItem(row_index, column, item)
+        render_attribute_results(self.attribute_table, results)
 
     def _render_buff_benefits(self, results) -> None:
-        character_id = self.selected_character_id()
-        results = tuple(
-            result
-            for result in results
-            if character_id is not None
-            and int(result.source_character_id) == character_id
+        render_buff_benefit_results(
+            self.buff_benefit_table,
+            results,
+            source_character_id=self.selected_character_id(),
         )
-        rows = [
-            (result, beneficiary)
-            for result in results
-            for beneficiary in result.beneficiaries
-        ]
-        unattributed = [
-            result
-            for result in results
-            if abs(float(result.unattributed_damage_gain)) >= 0.5
-            or (not result.beneficiaries and result.affected_hits > 0)
-        ]
-        self.buff_benefit_table.setRowCount(len(rows) + len(unattributed))
-        row_index = 0
-        for result, beneficiary in rows:
-            values = (
-                result.source_character_name,
-                result.buff_name,
-                beneficiary.character_name,
-                f"{beneficiary.damage_gain:+,.0f}",
-                f"{beneficiary.recipient_gain_percent:+.2f}%",
-                f"{beneficiary.team_contribution_percent:+.2f}%",
-                f"{result.damage_gain:+,.0f}（{result.gain_percent:+.2f}%）",
-                f"{beneficiary.quantified_percent:.1f}%",
-            )
-            tooltip = (
-                f"{result.explanation}\n"
-                f"作用范围：{result.target_scope}；置信度：{result.confidence}。"
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(tooltip)
-                self.buff_benefit_table.setItem(row_index, column, item)
-            row_index += 1
-        for result in unattributed:
-            team_gain = (
-                result.unattributed_damage_gain
-                / result.without_buff_damage
-                * 100.0
-                if result.without_buff_damage > 0
-                else 0.0
-            )
-            values = (
-                result.source_character_name,
-                result.buff_name,
-                "无法归因",
-                f"{result.unattributed_damage_gain:+,.0f}",
-                "—",
-                f"{team_gain:+.2f}%",
-                f"{result.damage_gain:+,.0f}（{result.gain_percent:+.2f}%）",
-                f"{result.quantified_percent:.1f}%",
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(result.explanation)
-                self.buff_benefit_table.setItem(row_index, column, item)
-            row_index += 1
 
     def _request_recalculate(self) -> None:
         self._refresh_change_summary()

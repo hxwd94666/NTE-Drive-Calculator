@@ -91,20 +91,34 @@ class BattleHitFormulaDialog(QDialog):
         quantified = tuple(
             row for row in related_counterfactuals
             if row.event_id in related_hits
+            and row.candidate_damage is not None
         )
         if quantified and related_analysis is not None:
-            added = sum(row.predicted_damage - row.baseline_damage for row in quantified)
-            base = hit.damage if counterfactual is None else counterfactual.predicted_damage
+            added = sum(
+                row.candidate_damage - row.baseline_damage
+                for row in quantified
+                if row.candidate_damage is not None
+            )
+            base = (
+                hit.damage
+                if counterfactual is None
+                else counterfactual.candidate_damage
+                if counterfactual.candidate_damage is not None
+                else counterfactual.known_projection_damage
+                if counterfactual.known_projection_damage is not None
+                else counterfactual.baseline_damage
+            )
             formula_base = (
                 base
                 if counterfactual is None or counterfactual.candidate_formula_damage is None
                 else counterfactual.candidate_formula_damage
             )
             formula_added = sum(
-                row.predicted_damage
+                row.candidate_damage
                 if row.candidate_formula_damage is None
                 else row.candidate_formula_damage
                 for row in quantified
+                if row.candidate_damage is not None
             )
             sections.append(
                 "【关联候选新增结算】\n"

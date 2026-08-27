@@ -39,6 +39,93 @@ def _modifier_text(interval) -> str:
     return "、".join(values) or "未提取数值属性"
 
 
+def _coverage_text(counterfactual) -> str:
+    quantification = counterfactual.quantification
+    basis = quantification.basis_damage
+    if quantification.status == "not_applicable":
+        return "不适用"
+    if basis <= 0.0:
+        return "无伤害基数"
+    complete = quantification.fully_quantified_damage / basis * 100.0
+    partial = quantification.partially_quantified_damage / basis * 100.0
+    unavailable = quantification.unavailable_damage / basis * 100.0
+    if quantification.status == "complete":
+        return f"完整 {complete:.1f}%"
+    if quantification.status == "unavailable":
+        return f"未量化 {unavailable:.1f}%"
+    return (
+        f"完整 {complete:.1f}% / 部分 {partial:.1f}% / "
+        f"未量化 {unavailable:.1f}%"
+    )
+
+
+def _counterfactual_cells(counterfactual) -> tuple[str, str, str, str]:
+    status = counterfactual.quantification.status
+    if status == "not_applicable":
+        return "不适用", "不适用", "不适用", _coverage_text(counterfactual)
+    if status == "unavailable":
+        return "—", "未量化", "—", _coverage_text(counterfactual)
+    if status == "partial":
+        without = counterfactual.without_quantified_effect_damage
+        gain = counterfactual.quantified_damage_gain
+        percent = counterfactual.quantified_gain_percent
+        return (
+            "—" if without is None else f"已量化 {without:,.2f}",
+            "—" if gain is None else f"已量化 {gain:+,.2f}",
+            "—" if percent is None else f"已量化 {percent:+.2f}%",
+            _coverage_text(counterfactual),
+        )
+    without = counterfactual.without_buff_damage
+    gain = counterfactual.damage_gain
+    percent = counterfactual.gain_percent
+    return (
+        "—" if without is None else f"{without:,.2f}",
+        "—" if gain is None else f"{gain:+,.2f}",
+        "—" if percent is None else f"{percent:+.2f}%",
+        _coverage_text(counterfactual),
+    )
+
+
+def _optional_number(value: float | None, format_spec: str) -> str:
+    return "—" if value is None else format(value, format_spec)
+
+
+def _counterfactual_tooltip(counterfactual) -> str:
+    status = counterfactual.quantification.status
+    gaps = "\n".join(
+        f"- {gap.explanation}" for gap in counterfactual.quantification.gaps
+    )
+    if status == "not_applicable":
+        detail = "当前时段没有可归给该 Buff 的伤害变化。"
+    elif status == "unavailable":
+        detail = "完整 Buff 收益暂不可量化；未知不记为 0。"
+    elif status == "partial":
+        detail = (
+            f"已量化改动下伤害："
+            f"{_optional_number(counterfactual.without_quantified_effect_damage, ',.2f')}\n"
+            "已量化分量："
+            f"{_optional_number(counterfactual.quantified_damage_gain, '+,.2f')}\n"
+            "该数值不代表完整 Buff 收益或收益下限。"
+        )
+    else:
+        detail = (
+            "移除后伤害："
+            f"{_optional_number(counterfactual.without_buff_damage, ',.2f')}\n"
+            "完整伤害增量："
+            f"{_optional_number(counterfactual.damage_gain, '+,.2f')}\n"
+            "完整收益率："
+            f"{_optional_number(counterfactual.gain_percent, '+.4f')}%"
+        )
+    return (
+        f"当前时段伤害：{counterfactual.baseline_damage:,.2f}\n"
+        f"量化状态：{status}\n{detail}\n"
+        f"量化逐击：{counterfactual.quantified_hits:,} / "
+        f"覆盖逐击：{counterfactual.affected_hits:,}\n"
+        f"{counterfactual.explanation}"
+        + (f"\n未量化缺口：\n{gaps}" if gaps else "")
+    )
+
+
 class BattleBuffEvidencePanel(QWidget):
     """Aggregate inferred intervals while hit rows expose per-hit coverage."""
 
@@ -62,10 +149,10 @@ class BattleBuffEvidencePanel(QWidget):
                 "区间数",
                 "覆盖时长",
                 "覆盖逐击",
-                "无此 Buff 伤害",
-                "伤害增量",
-                "时段收益率",
-                "量化覆盖",
+                "移除后 / 已量化伤害",
+                "Buff 收益",
+                "收益率",
+                "量化状态",
                 "属性证据",
                 "置信度",
             ),
@@ -134,25 +221,10 @@ class BattleBuffEvidencePanel(QWidget):
                 result_tooltip = "当前分析结果尚未生成逐 Buff 移除反事实。"
             else:
                 affected_hits = f"{counterfactual.affected_hits:,}"
-                without_damage = f"{counterfactual.without_buff_damage:,.2f}"
-                damage_gain = f"{counterfactual.damage_gain:+,.2f}"
-                gain_percent = f"{counterfactual.gain_percent:+.2f}%"
-                quantified = (
-                    f"{counterfactual.quantified_hits:,} 击 / "
-                    f"{counterfactual.quantified_percent:.1f}%伤害"
+                without_damage, damage_gain, gain_percent, quantified = (
+                    _counterfactual_cells(counterfactual)
                 )
-                if counterfactual.method == "unquantified_zero_estimate":
-                    gain_percent = "暂估 +0.00%"
-                result_tooltip = (
-                    f"当前时段伤害：{counterfactual.baseline_damage:,.2f}\n"
-                    f"移除后伤害：{counterfactual.without_buff_damage:,.2f}\n"
-                    f"伤害增量：{counterfactual.damage_gain:+,.2f}\n"
-                    "收益率 = (当前伤害 - 移除后伤害) / 移除后伤害\n"
-                    f"= {counterfactual.gain_percent:+.4f}%\n"
-                    f"量化逐击：{counterfactual.quantified_hits:,} / "
-                    f"覆盖逐击：{counterfactual.affected_hits:,}\n"
-                    f"{counterfactual.explanation}"
-                )
+                result_tooltip = _counterfactual_tooltip(counterfactual)
             values = (
                 first.source_character_name,
                 first.buff_name,

@@ -8,6 +8,9 @@ from dataclasses import replace
 from math import ceil
 
 from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+)
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
@@ -28,6 +31,34 @@ _SETTLEMENT_SOURCE_KIND = "candidate_derived_awakening_settlement"
 
 class BattleDaffodillMarginalService:
     """Add only candidate settlements backed by a real topple and formula."""
+
+    @staticmethod
+    def direct_formula_intervals(
+        analysis: BattleAnalysisSnapshot,
+    ) -> tuple[BattleInferredBuffInterval, ...]:
+        """Exclude Effect5 settlements owned by this derived-row adapter."""
+
+        return tuple(
+            interval for interval in analysis.buff_intervals
+            if not (
+                interval.source_kind == _SETTLEMENT_SOURCE_KIND
+                and interval.source_effect_definition_id == _EFFECT_FIVE_DEFINITION
+            )
+        )
+
+    @classmethod
+    def direct_formula_inputs_unchanged(
+        cls,
+        original: BattleAnalysisSnapshot,
+        candidate: BattleAnalysisSnapshot,
+    ) -> bool:
+        return replace(
+            original,
+            buff_intervals=cls.direct_formula_intervals(original),
+        ) == replace(
+            candidate,
+            buff_intervals=cls.direct_formula_intervals(candidate),
+        )
 
     @staticmethod
     def _settlements(
@@ -115,15 +146,21 @@ class BattleDaffodillMarginalService:
                     skill_name="完美真相",
                     damage_name=f"五觉额外倾陷·洞察第{ordinal}层",
                     baseline_damage=0.0,
-                    predicted_damage=float(settlement),
-                    ratio=1.0,
-                    method=DAFFODILL_EFFECT_FIVE_METHOD,
-                    confidence=confidence,
-                    explanation=(
-                        f"候选五觉按原轴同目标洞察第 {ordinal} 层，在既有倾陷"
-                        f"时点追加一次达芙蒂尔个人倾陷结算；零觉基础的一次结算"
-                        f"仍由原始逐击保留，因此总次数为 1 + 洞察层数；公式锚点为"
-                        f"{anchor_basis}"
+                    known_projection_damage=float(settlement),
+                    candidate_damage=float(settlement),
+                    heuristic_projection_damage=None,
+                    quantification=BattleCounterfactualRatio.complete(
+                        1.0,
+                        method=DAFFODILL_EFFECT_FIVE_METHOD,
+                        confidence=confidence,
+                        dependency_scope="mechanic_specific",
+                        included_dimension_ids=("candidate_derived_settlement",),
+                        explanation=(
+                            f"候选五觉按原轴同目标洞察第 {ordinal} 层，在既有倾陷"
+                            f"时点追加一次达芙蒂尔个人倾陷结算；零觉基础的一次结算"
+                            f"仍由原始逐击保留，因此总次数为 1 + 洞察层数；公式锚点为"
+                            f"{anchor_basis}"
+                        ),
                     ),
                     baseline_formula_damage=0.0,
                     candidate_formula_damage=float(settlement),
@@ -148,7 +185,7 @@ class BattleDaffodillMarginalService:
             damage_component="candidate_derived",
             attack_type="Awakening Damage",
             damage_attribute="chaos",
-            damage=row.predicted_damage,
+            damage=BattleDaffodillMarginalService.candidate_damage(row),
             classification="direct",
             gameplay_effect_id="GE_Player_Daffodill_ExtraUnbalance_Damage",
             raw_damage=None,
@@ -189,18 +226,18 @@ class BattleDaffodillMarginalService:
             factors = (BattleHitReplayFactor(
                 factor_id="topple_character:1054",
                 label="达芙蒂尔倾陷贡献",
-                value=row.predicted_damage,
-                evidence_basis=row.explanation,
+                value=BattleDaffodillMarginalService.candidate_damage(row),
+                evidence_basis=row.quantification.explanation,
             ),)
         return BattleHitReplayResult(
             event_id=row.event_id,
-            observed_damage=row.predicted_damage,
-            non_critical_damage=row.predicted_damage,
+            observed_damage=BattleDaffodillMarginalService.candidate_damage(row),
+            non_critical_damage=BattleDaffodillMarginalService.candidate_damage(row),
             critical_damage=None,
-            selected_damage=row.predicted_damage,
+            selected_damage=BattleDaffodillMarginalService.candidate_damage(row),
             selected_error_percent=0.0,
             critical_state="not_applicable",
-            confidence=row.confidence,
+            confidence=row.quantification.confidence,
             factors=factors,
             missing_evidence=(
                 "候选五觉按洞察层数追加达芙蒂尔个人倾陷结算；"
@@ -208,9 +245,15 @@ class BattleDaffodillMarginalService:
             ),
             formula_type="候选五觉·额外倾陷伤害",
             critical_rate=0.0,
-            expected_damage=row.predicted_damage,
+            expected_damage=BattleDaffodillMarginalService.candidate_damage(row),
             critical_policy="disabled",
         )
+
+    @staticmethod
+    def candidate_damage(row: BattleBuildHitCounterfactual) -> float:
+        if row.candidate_damage is None:
+            raise ValueError("达芙蒂尔候选派生结算必须具有完整候选伤害")
+        return row.candidate_damage
 
 
 __all__ = [
