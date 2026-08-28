@@ -154,15 +154,21 @@ def apply_observed_damage_correction(
     source = result.observed_damage_source
     basis = result.observed_damage_basis
     reported_damage = result.reported_damage
-    if (
-        hit.damage_correction_kind == "nte_core_overkill_v3"
-        and hit.raw_damage > hit.damage
-    ):
+    if hit.damage_correction_kind in {
+        "nte_core_overkill_v3",
+        "calc_hp_pool_alias_reconciliation_v1",
+    } and hit.raw_damage > hit.damage:
         formula_observed = float(hit.raw_damage)
         source = "reported_hit_before_overkill"
         basis = (
-            "nte-core 原始上报伤害；overkill 只从战报有效总伤害扣除，"
-            "不改变本击公式结算值"
+            "nte-core 原始上报伤害；Calc 的共享生命池重叠扣减只影响战报有效"
+            "伤害，不改变本击公式结算值"
+            if hit.damage_correction_kind
+            == "calc_hp_pool_alias_reconciliation_v1"
+            else (
+                "nte-core 原始上报伤害；overkill 只从战报有效总伤害扣除，"
+                "不改变本击公式结算值"
+            )
         )
         reported_damage = float(hit.damage)
     selected_error = (

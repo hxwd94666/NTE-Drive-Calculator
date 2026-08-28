@@ -65,7 +65,12 @@ from src.services.battle_target_vital_analysis_service import (
     BattleTargetVitalAnalysisService,
     battle_target_identity_mode,
     bind_confirmed_single_target,
-    resolve_battle_target_identity,
+)
+from src.services.battle_axis_hit_projection_service import (
+    project_battle_axis_hits,
+)
+from src.services.battle_target_hp_pool_reconciliation_service import (
+    BattleTargetHpPoolReconciliationService,
 )
 from src.services.battle_single_target_damage_normalization_service import (
     BattleSingleTargetDamageNormalizationService,
@@ -81,231 +86,11 @@ from src.services.battle_treatment_replay_service import (
 from src.services.battle_daffodill_awakening_service import BattleDaffodillAwakeningService
 
 
-FORMULA_MODEL_VERSION = "battle-counterfactual-v21"
-
-_REACTION_MARKERS = ("创生", "黯星", "浊燃", "浸染", "盈蓄", "失谐", "延滞", "倾陷", "reaction", "topple")
-_WEAVE_MARKERS = ("覆纹", "weave")
-_TOPPLE_MARKERS = ("倾陷", "topple", "tenacity")
-_MECHANIC_MARKERS = ("ge_boss_05_hitbullet", "敌方飞弹反射")
-
+FORMULA_MODEL_VERSION = "battle-counterfactual-v22"
 
 def _text(value: Any, fallback: str = "") -> str:
     normalized = str(value or "").strip()
     return normalized or fallback
-
-
-def _classification(
-    *values: Any,
-    ability_name: Any = None,
-    gameplay_effect_name: Any = None,
-    gameplay_tags: Sequence[str] = (),
-    follow_up: bool = False,
-) -> str:
-    ability = _text(ability_name).casefold()
-    effect = _text(gameplay_effect_name).casefold()
-    normalized_values = tuple(_text(value) for value in values)
-    joined = " ".join(
-        (ability, effect, *(value.casefold() for value in normalized_values))
-    )
-    if any(marker.casefold() in joined for marker in _WEAVE_MARKERS):
-        return "weave"
-    if any(marker.casefold() in joined for marker in _TOPPLE_MARKERS):
-        return "topple"
-    if any(marker.casefold() in joined for marker in _MECHANIC_MARKERS):
-        return "mechanic"
-    if follow_up and any(
-        marker.casefold() in " ".join(value.casefold() for value in normalized_values)
-        for marker in _REACTION_MARKERS
-    ):
-        return "reaction"
-    if effect.startswith(("buff_reaction_", "ge_actorreaction_")):
-        return "reaction"
-    normalized_tags = {str(value).casefold() for value in gameplay_tags}
-    if "state.damage.dot" in normalized_tags:
-        return "dot"
-    if "state.damage.attachment" in normalized_tags:
-        return "attachment"
-    qte_direct = (
-        "qte" in ability
-        or "qte" in effect
-        or any(value.startswith("环合·") for value in normalized_values)
-    ) and not ("reaction" in effect and "qte" not in effect)
-    if qte_direct:
-        return "direct_follow_up" if follow_up else "direct"
-    if any(marker.casefold() in joined for marker in _REACTION_MARKERS):
-        return "reaction"
-    return "direct_follow_up" if follow_up else "direct"
-
-
-def _split_hits(
-    rows: Sequence[Mapping[str, Any]],
-    *,
-    origin_us: int | None = None,
-) -> tuple[BattleAnalysisHit, ...]:
-    events: list[BattleAnalysisHit] = []
-    for row in rows:
-        sequence = int(row.get("sequence_order") or row.get("sequence_text") or 0)
-        relative_time_us = int(row.get("relative_time_us") or 0)
-        character_id = row.get("character_id")
-        raw_character_id = None if character_id is None else int(character_id)
-        character_known = bool(
-            row.get(
-                "character_known",
-                raw_character_id is not None and raw_character_id > 0,
-            )
-        )
-        normalized_character_id = (
-            raw_character_id
-            if character_known and raw_character_id is not None and raw_character_id > 0
-            else None
-        )
-        target_id, target_name = resolve_battle_target_identity(row)
-        common = {
-            "sequence": sequence,
-            "relative_time_us": relative_time_us,
-            "character_id": normalized_character_id,
-            "character_name": _text(row.get("character_name"), "未知角色"),
-            "target_id": target_id,
-            "target_name": target_name,
-            "direction": _text(row.get("direction"), "unknown"),
-            "scope_half": _text(row.get("abyss_half")).casefold(),
-            "target_hp_before": row.get("target_hp_before"),
-            "target_hp_after": row.get("target_hp_after"),
-            "target_max_hp": row.get("target_max_hp"),
-            "ability_id": _text(row.get("ability_name")),
-            "gameplay_effect_id": _text(row.get("gameplay_effect_name")),
-        }
-        primary_damage = max(0.0, float(row.get("damage") or 0.0))
-        raw_overkill = row.get("overkill_damage")
-        overkill_damage = (
-            None
-            if raw_overkill is None
-            else min(primary_damage, max(0.0, float(raw_overkill)))
-        )
-        if primary_damage > 0:
-            damage_name = _text(
-                row.get("damage_display_name"),
-                _text(
-                    row.get("damage_name"),
-                    _text(
-                        row.get("gameplay_effect_name"),
-                        _text(
-                            row.get("damage_component"),
-                            _text(row.get("attack_type"), "未识别伤害"),
-                        ),
-                    ),
-                ),
-            )
-            component = _text(row.get("damage_component"), "unknown")
-            attack_type = _text(row.get("attack_type"), "unknown")
-            events.append(
-                BattleAnalysisHit(
-                    event_id=f"{sequence}:primary",
-                    skill_name=_text(
-                        row.get("ability_display_name"),
-                        _text(row.get("ability_name"), damage_name),
-                    ),
-                    damage_name=damage_name,
-                    damage_component=component,
-                    attack_type=attack_type,
-                    damage_attribute=_text(row.get("damage_attribute"), "unknown"),
-                    damage=primary_damage - (overkill_damage or 0.0),
-                    is_follow_up=False,
-                    raw_damage=(
-                        primary_damage if overkill_damage is not None else None
-                    ),
-                    overkill_damage=overkill_damage,
-                    damage_correction_kind=(
-                        "nte_core_overkill_v3"
-                        if overkill_damage is not None
-                        else ""
-                    ),
-                    damage_correction_confidence=(
-                        "高" if overkill_damage is not None else ""
-                    ),
-                    damage_correction_basis=(
-                        "nte-core v3 权威 overkill_damage；仅从主伤害扣除，追击不扣。"
-                        if overkill_damage is not None
-                        else ""
-                    ),
-                    classification=_classification(
-                        damage_name,
-                        component,
-                        attack_type,
-                        ability_name=row.get("ability_name"),
-                        gameplay_effect_name=row.get("gameplay_effect_name"),
-                        gameplay_tags=tuple(row.get("formal_gameplay_tags") or ()),
-                    ),
-                    **common,
-                )
-            )
-        follow_up_damage = max(0.0, float(row.get("follow_up_damage") or 0.0))
-        if follow_up_damage > 0:
-            follow_up_relative_us = relative_time_us
-            follow_up_timestamp_us = row.get("follow_up_timestamp_unix_us")
-            if follow_up_timestamp_us is None:
-                follow_up_timestamp = row.get("follow_up_timestamp_unix")
-                if isinstance(follow_up_timestamp, (int, float)):
-                    follow_up_timestamp_us = round(float(follow_up_timestamp) * 1_000_000)
-            if origin_us is not None and isinstance(
-                follow_up_timestamp_us,
-                (int, float),
-            ):
-                follow_up_relative_us = max(
-                    0,
-                    int(follow_up_timestamp_us) - origin_us,
-                )
-            labels = tuple(row.get("follow_up_labels") or ())
-            damage_name = _text(
-                row.get("follow_up_damage_display_name"),
-                _text(
-                    row.get("follow_up_damage_name"),
-                    _text(labels[0] if labels else None, "追加攻击"),
-                ),
-            )
-            component = _text(row.get("follow_up_damage_component"), "follow_up")
-            attack_type = _text(row.get("follow_up_attack_type"), "follow_up")
-            events.append(
-                BattleAnalysisHit(
-                    event_id=f"{sequence}:follow_up",
-                    skill_name=_text(
-                        row.get("ability_display_name"),
-                        _text(row.get("ability_name"), damage_name),
-                    ),
-                    damage_name=damage_name,
-                    damage_component=component,
-                    attack_type=attack_type,
-                    damage_attribute=_text(
-                        row.get("follow_up_damage_attribute"),
-                        _text(row.get("damage_attribute"), "unknown"),
-                    ),
-                    damage=follow_up_damage,
-                    is_follow_up=True,
-                    overkill_damage=None,
-                    classification=_classification(
-                        damage_name,
-                        component,
-                        attack_type,
-                        *labels,
-                        ability_name=row.get("ability_name"),
-                        gameplay_effect_name=row.get("gameplay_effect_name"),
-                        gameplay_tags=tuple(row.get("formal_gameplay_tags") or ()),
-                        follow_up=True,
-                    ),
-                    **{
-                        **common,
-                        "relative_time_us": follow_up_relative_us,
-                    },
-                )
-            )
-    return tuple(sorted(
-        events,
-        key=lambda item: (
-            item.relative_time_us,
-            item.sequence,
-            item.is_follow_up,
-        ),
-    ))
 
 
 def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline, ...]:
@@ -409,8 +194,15 @@ class BattleCounterfactualAnalysisService:
     ) -> BattleAnalysisSnapshot:
         resolved_target_condition = resolve_battle_target_condition(target_condition)
         source_hits = (evidence or {}).get("hits") or ()
+        hp_pool_reconciliation = (
+            BattleTargetHpPoolReconciliationService.reconcile(
+                source_hits,
+                axis_complete=bool((evidence or {}).get("axis_complete", False)),
+            )
+        )
+        projected_source_hits = hp_pool_reconciliation.rows
         raw_hits, confirmed_single_target = bind_confirmed_single_target(
-            source_hits,
+            projected_source_hits,
             resolved_target_condition,
         )
         origin_candidates = [
@@ -429,7 +221,7 @@ class BattleCounterfactualAnalysisService:
             ),
         )
         all_hits = BattleSingleTargetDamageNormalizationService.normalize(
-            _split_hits(raw_hits, origin_us=origin_us),
+            project_battle_axis_hits(raw_hits, origin_us=origin_us),
             confirmed_single_target=confirmed_single_target,
         )
         all_estimated_max_hp_events = (
@@ -801,7 +593,7 @@ class BattleCounterfactualAnalysisService:
             target_identity_mode=(
                 "user_confirmed_single_target"
                 if confirmed_single_target
-                else battle_target_identity_mode(source_hits)
+                else battle_target_identity_mode(projected_source_hits)
             ),
             timeline_estimated_max_hp_events=all_estimated_max_hp_events,
             estimated_max_hp_events=estimated_max_hp_events,
