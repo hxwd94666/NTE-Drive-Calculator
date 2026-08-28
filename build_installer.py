@@ -55,6 +55,7 @@ APP_NAME = "NTE Drive Calc"
 APP_EXE_NAME = "NTE_Drive_Calc.exe"
 APP_ID = "{{D7DA28BE-8A19-4E05-9216-3F16C4C2C820}"
 CORE_CONFIG_FILES = ("stats.json",)
+STALE_AMBIENT_ICU_DLLS = ("icuuc.dll", "icudt78.dll")
 LOCAL_CONFIG_ENV = "NTE_LOCAL_CONFIG"
 
 
@@ -246,6 +247,10 @@ def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
         'Flags: ignoreversion'
         for name in CORE_CONFIG_FILES
     )
+    stale_icu_delete_lines = "\n".join(
+        f'Type: files; Name: "{{app}}\\_internal\\{name}"'
+        for name in STALE_AMBIENT_ICU_DLLS
+    )
     if vigem_is_exe:
         vigem_install_filename = "{app}\\drivers\\ViGEmBus_Setup.exe"
         vigem_install_params = "/qn /norestart"
@@ -388,6 +393,9 @@ Source: "{_inno_path(APP_EXE)}"; DestDir: "{{app}}"; Flags: ignoreversion
 Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 {core_runtime_config_lines}
 {vigem_file_line}
+
+[InstallDelete]
+{stale_icu_delete_lines}
 
 [Dirs]
 Name: "{{app}}\\config"; Permissions: users-modify

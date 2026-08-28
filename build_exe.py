@@ -11,6 +11,7 @@ import importlib.util
 import os
 import shutil
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import PyInstaller.__main__
@@ -55,6 +56,60 @@ NTE_CORE_RELEASE_FILES = (
 )
 
 EXPLICIT_WORKSHOP_ARGS = {"--skip-workshop-sync", "--require-workshop-sync", "--prompt-workshop-key"}
+SYSTEM_ICU_SHADOW_DLL = "icuuc.dll"
+FORBIDDEN_AMBIENT_ICU_DLLS = ("icuuc.dll", "icudt78.dll")
+
+
+def _is_same_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return False
+
+
+@contextmanager
+def _without_ambient_system_icu_on_path():
+    """Prevent build-tool DLLs from shadowing the Windows system ICU runtime."""
+
+    original = os.environ.get("PATH")
+    system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+    system32 = system_root / "System32"
+    kept: list[str] = []
+    removed_count = 0
+    for raw_entry in (original or "").split(os.pathsep):
+        if not raw_entry:
+            continue
+        entry = Path(os.path.expandvars(raw_entry)).expanduser()
+        shadows_system_icu = (entry / SYSTEM_ICU_SHADOW_DLL).is_file()
+        if shadows_system_icu and not _is_same_path(entry, system32):
+            removed_count += 1
+            continue
+        kept.append(raw_entry)
+
+    if removed_count:
+        build_cli.info(
+            f"[BUILD] 已隔离 {removed_count} 个携带外部 ICU DLL 的 PATH 目录"
+        )
+    os.environ["PATH"] = os.pathsep.join(kept)
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = original
+
+
+def _validate_no_ambient_icu_dlls(output: Path) -> None:
+    """Reject a package that would override Qt's Windows system ICU dependency."""
+
+    if not output.is_dir():
+        return
+    internal = output / "_internal"
+    found = [name for name in FORBIDDEN_AMBIENT_ICU_DLLS if (internal / name).is_file()]
+    if found:
+        joined = ", ".join(found)
+        raise RuntimeError(f"打包产物混入外部 ICU DLL，已拒绝发布：{joined}")
 
 
 def _running_in_automation() -> bool:
@@ -385,13 +440,15 @@ if vg_path is not None:
 args.append("--upx-dir=.")
 
 build_cli.info(f"[BUILD] Mode: {'Single File' if onefile else 'Single Dir'}")
-PyInstaller.__main__.run(args)
+with _without_ambient_system_icu_on_path():
+    PyInstaller.__main__.run(args)
 
 output = PACKAGE_ONEDIR_DIR
 if onefile:
     output = PACKAGE_ONEFILE_EXE
 
 if output.exists():
+    _validate_no_ambient_icu_dlls(output)
     size_mb = sum(
         f.stat().st_size for f in output.rglob("*") if f.is_file()
     ) / (1024 * 1024)
