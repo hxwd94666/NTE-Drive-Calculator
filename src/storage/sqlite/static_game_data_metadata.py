@@ -1,7 +1,7 @@
 # 静态游戏数据库版本与摘要表清单。
 """Shared metadata for the normalized static game database."""
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 29
 
 SUMMARY_TABLES = (
     "source_file",
@@ -90,4 +90,8 @@ SUMMARY_TABLES = (
     "clone_spawn_member",
     "monster_template_binding",
     "outer_realm_rotation",
+    "high_risk_commission",
+    "high_risk_commission_difficulty",
+    "high_risk_monster_pool_member",
+    "monster_boss_support",
 )

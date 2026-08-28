@@ -135,7 +135,8 @@ def inferred_mapping_condition(
         return None
     primary = profiles[0]
     condition_kind = (
-        "open_world" if candidate.environment_kind == "clone"
+        "open_world"
+        if candidate.environment_kind in {"clone", "high_risk_commission"}
         else candidate.environment_kind
     )
     return BattleTargetCondition(
@@ -143,7 +144,8 @@ def inferred_mapping_condition(
         enemy_level=primary.monster_level,
         scene=(
             "open_world"
-            if candidate.environment_kind in {"open_world", "clone"}
+            if candidate.environment_kind
+            in {"open_world", "clone", "high_risk_commission"}
             else "outer_realm"
         ),
         defense_reduction=0.0,

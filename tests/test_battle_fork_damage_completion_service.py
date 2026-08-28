@@ -1,6 +1,7 @@
 # 验证剩余伤害弧盘的消费者、叠层、时序和精炼参数契约。
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 
@@ -15,20 +16,31 @@ from src.services.battle_buff_inference_service import (
 from src.services.battle_fork_refinement_service import (
     BattleForkRefinementService,
 )
+from src.services.battle_target_control_policy_service import CONTROL_BLOCKED_BOSS
 
 
-def _selected(owner_id: str, parameters: dict[str, float]) -> SimpleNamespace:
+def _selected(
+    owner_id: str,
+    parameters: dict[str, float],
+    *,
+    character_id: int = 1001,
+) -> SimpleNamespace:
     return SimpleNamespace(
         effect_definition_id=f"fork_star:{owner_id}:1",
-        character_id=1001,
+        character_id=character_id,
         character_name="弧盘装备者",
         definition={"parameters": parameters},
     )
 
 
-def _rules(owner_id: str, parameters: dict[str, float]):
+def _rules(
+    owner_id: str,
+    parameters: dict[str, float],
+    *,
+    character_id: int = 1001,
+):
     return BattleForkRefinementService.rules_for_selected_effect(
-        _selected(owner_id, parameters),
+        _selected(owner_id, parameters, character_id=character_id),
         BattleStaticBuffRule,
     )
 
@@ -134,6 +146,7 @@ def _project(
     *,
     battle_end_us=40_000_000,
     time_stop_intervals=(),
+    target_control_policy="eligible_default",
 ):
     intervals = BattleBuffInferenceService.infer(
         rules,
@@ -141,6 +154,7 @@ def _project(
         hits=hits,
         battle_end_us=battle_end_us,
         time_stop_intervals=time_stop_intervals,
+        target_control_policy=target_control_policy,
     )
     return intervals, BattleBuffAttributeProjectionService.project_hit(hit, intervals)
 
@@ -543,7 +557,7 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
             time_interval.evidence_action_ids,
         )
 
-    def test_mofeikesi_keeps_controlled_extra_unresolved(self) -> None:
+    def test_mofeikesi_defaults_unknown_target_to_controlled_after_q_hit(self) -> None:
         rules = _rules(
             "upgradestar_pack_fork_mofeikesi",
             {
@@ -552,22 +566,145 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
                 "buff_mofeikesi_Atk": 0.10,
                 "buff_mofeikesi_Up": 0.06,
             },
+            character_id=1003,
         )
-        actions = (_action(1, 1001, "Q", 1_000_000, 2_000_000),)
+        actions = (_action(
+            1,
+            1003,
+            "Q",
+            1_000_000,
+            2_000_000,
+            gameplay_effect_ids=("GE_Player_Sagiri_UltraSkill1_Damage",),
+        ),)
+        first_q_hit = replace(
+            _hit(1, 1_300_000, input_kind="Q", target_id="unknown"),
+            character_id=1003,
+            ability_id="GA_Sagiri_UltraSkill",
+            gameplay_effect_id="GE_Player_Sagiri_UltraSkill1_Damage",
+        )
+        second_q_hit = replace(
+            _hit(2, 1_500_000, input_kind="Q", target_id="unknown"),
+            character_id=1003,
+            ability_id="GA_Sagiri_UltraSkill",
+            gameplay_effect_id="GE_Player_Sagiri_UltraSkill2_Damage",
+        )
         intervals, projection = _project(
             rules,
             actions,
-            (),
-            _hit(1, 3_000_000, input_kind="E"),
+            (first_q_hit, second_q_hit),
+            _hit(3, 3_000_000, input_kind="E"),
         )
 
         self.assertEqual(3, len(rules))
-        self.assertAlmostEqual(0.10, _property(projection, "AtkUp"))
+        self.assertAlmostEqual(0.16, _property(projection, "AtkUp"))
         self.assertTrue(any(
-            "缺少控制命中事实" in row.buff_name
-            and row.target_scope == "unknown"
+            "控制触发后额外攻击" in row.buff_name
+            and row.target_scope == "team"
+            and row.start_us == second_q_hit.relative_time_us
             for row in intervals
         ))
+
+    def test_mofeikesi_does_not_default_confirmed_boss_to_controlled(self) -> None:
+        rules = _rules(
+            "upgradestar_pack_fork_mofeikesi",
+            {
+                "buff_mofeikesi_ChargeGetEfficiency": 0.18,
+                "buff_mofeikesi_CD": 20.0,
+                "buff_mofeikesi_Atk": 0.10,
+                "buff_mofeikesi_Up": 0.06,
+            },
+            character_id=1003,
+        )
+        first_q_hit = replace(
+            _hit(1, 1_300_000, input_kind="Q", target_id="boss-wire"),
+            character_id=1003,
+            ability_id="GA_Sagiri_UltraSkill",
+            gameplay_effect_id="GE_Player_Sagiri_UltraSkill1_Damage",
+        )
+        second_q_hit = replace(
+            _hit(2, 1_500_000, input_kind="Q", target_id="boss-wire"),
+            character_id=1003,
+            ability_id="GA_Sagiri_UltraSkill",
+            gameplay_effect_id="GE_Player_Sagiri_UltraSkill2_Damage",
+        )
+        intervals, projection = _project(
+            rules,
+            (_action(
+                1,
+                1003,
+                "Q",
+                1_000_000,
+                2_000_000,
+                gameplay_effect_ids=("GE_Player_Sagiri_UltraSkill1_Damage",),
+            ),),
+            (first_q_hit, second_q_hit),
+            _hit(3, 3_000_000, input_kind="E"),
+            target_control_policy=CONTROL_BLOCKED_BOSS,
+        )
+
+        self.assertAlmostEqual(0.10, _property(projection, "AtkUp"))
+        blocked = next(
+            row for row in intervals if "控制触发后额外攻击" in row.buff_name
+        )
+        self.assertEqual("unknown", blocked.target_scope)
+        self.assertIn("Boss", blocked.inference_basis)
+
+    def test_mofeikesi_requires_formal_control_producer_and_keeps_q_window_end(
+        self,
+    ) -> None:
+        rules = _rules(
+            "upgradestar_pack_fork_mofeikesi",
+            {
+                "buff_mofeikesi_ChargeGetEfficiency": 0.18,
+                "buff_mofeikesi_CD": 20.0,
+                "buff_mofeikesi_Atk": 0.10,
+                "buff_mofeikesi_Up": 0.06,
+            },
+            character_id=1003,
+        )
+        action = _action(
+            1,
+            1003,
+            "Q",
+            1_000_000,
+            2_000_000,
+            gameplay_effect_ids=("GE_Player_Sagiri_UltraSkill1_Damage",),
+        )
+        no_control, projection = _project(
+            rules,
+            (action,),
+            (),
+            _hit(2, 3_000_000, input_kind="E"),
+        )
+        self.assertAlmostEqual(0.10, _property(projection, "AtkUp"))
+        self.assertFalse(any(
+            "控制触发后额外攻击" in row.buff_name for row in no_control
+        ))
+
+        late_action = replace(action, end_us=20_000_000)
+        first_control_hit = replace(
+            _hit(3, 18_500_000, input_kind="Q"),
+            character_id=1003,
+            ability_id="GA_Sagiri_UltraSkill",
+            gameplay_effect_id="GE_Player_Sagiri_UltraSkill1_Damage",
+        )
+        late_control_hit = replace(
+            _hit(4, 19_000_000, input_kind="Q"),
+            character_id=1003,
+            ability_id="GA_Sagiri_UltraSkill",
+            gameplay_effect_id="GE_Player_Sagiri_UltraSkill2_Damage",
+        )
+        intervals, _ = _project(
+            rules,
+            (late_action,),
+            (first_control_hit, late_control_hit),
+            _hit(5, 20_000_000, input_kind="E"),
+        )
+        base = next(row for row in intervals if "Q 后全队攻击力" in row.buff_name)
+        extra = next(
+            row for row in intervals if "控制触发后额外攻击" in row.buff_name
+        )
+        self.assertEqual(base.end_us, extra.end_us)
 
     def test_moon_and_oula_use_hit_timed_independent_stacks(self) -> None:
         moon_rules = _rules(

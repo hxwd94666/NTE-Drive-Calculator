@@ -695,13 +695,12 @@ Page 只拥有角色选择、配置控件和可丢弃展示状态。边际页删
 
 ## 5. 测试服资源收尾
 
-当前静态 schema v27 已包含角色 1036、1072 的目录、成长、好感度 10 级、技能、觉醒、培养指南、推荐权重和毕业模板，
+当前静态 schema v29 已包含角色 1036、1072 的目录、成长、好感度 10 级、技能、觉醒、培养指南、推荐权重和毕业模板，
 并增加角色战斗 Blueprint 的输入绑定、效果引用、动画时间证据、规范化 Buff/GE，以及敌方生命与 RogueLike
 属性修正。
 角色 1072 尚未实装、工坊 API 缺行期间使用临时发行权重，工坊以后返回该角色时改以工坊权重为准；首选
-`fork_GoldRecord` 已进入发行库。新增武器
-`fork_DemonBlade`、`fork_GoldRecord` 的图标仍在 `assets/game_ui/manifest.json` 中显式标为
-`unresolved_assets`。取得正式导出后重新运行资源构建与 `tests.test_game_ui_assets`，不使用相似图替代。
+`fork_GoldRecord` 已进入发行库。`fork_DemonBlade`、`fork_GoldRecord` 的正式图标与更新后的
+`player_005_256` 头像均已由 CN 1.3.13 官方导出生成并进入发行 UI 资源。
 
 官方资源仍保留 `DT_AbyssCommanderConfig` 与 `DT_AbyssModifyPackData`，内容表现为部分角色担任某种
 Commander 时给全队对应属性伤害 15%。当前尚未找到现行轨外 UI、关卡配置或战报字段对该机制的有效引用，

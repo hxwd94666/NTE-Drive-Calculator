@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
 from src.services.battle_skill_damage_evidence_service import (
     BattleSkillDamageEvidenceService,
     _co_timed_damage_ids,
@@ -41,6 +41,199 @@ def _hit(
 
 
 class BattleSkillDamageEvidenceServiceTests(unittest.TestCase):
+    def test_kuhara_effect_two_doubles_only_attachment_damage(self) -> None:
+        class Dao:
+            @staticmethod
+            def get_combat_curve(_table_path: str, _curve_id: str):
+                return None
+
+            @staticmethod
+            def get_skill_damage(_damage_id: str):
+                return {
+                    "ability_id": "GA_Kuhara_Melee",
+                    "damage_type": "nature",
+                    "damage_source_category": "NORMAL",
+                    "fixed_crit_rate": 0.0,
+                    "atk_rate_base": (0.15,),
+                    "def_rate_base": (),
+                    "hp_rate_base": (),
+                }
+
+            @staticmethod
+            def get_reaction_damage_curve(_damage_id: str):
+                return None
+
+            @staticmethod
+            def list_character_awaken_effects(_character_id: int):
+                return ()
+
+        analysis = SimpleNamespace(
+            hits=(
+                _hit(
+                    "1:primary",
+                    damage_id="GE_Player_Kuhara_Seed_Damage",
+                    character_id=1055,
+                ),
+                _hit(
+                    "2:primary",
+                    damage_id="GE_Player_Kuhara_SeedReaction_Damage",
+                    character_id=1055,
+                ),
+                _hit(
+                    "3:primary",
+                    damage_id="GE_Player_Kuhara_BudBoom_Damage",
+                    character_id=1055,
+                ),
+            ),
+            inferred_actions=(),
+            time_stop_intervals=(),
+        )
+        character = {
+            "character_id": 1055,
+            "character_level": 80,
+            "skills": [{"skill_id": "GA_Kuhara_Melee", "skill_level": 1}],
+            "profile": {
+                "awakening_selection_initialized": True,
+                "selected_awaken_effect_ids": ["Effect2"],
+            },
+        }
+
+        evidence = BattleSkillDamageEvidenceService.load(
+            Dao(), analysis, {"characters": [character]}
+        )
+
+        self.assertEqual(2.0, evidence[0].multiplier_coefficient)
+        self.assertIn("致命玫约伤害额外提升 100%", evidence[0].evidence_basis)
+        self.assertEqual(1.0, evidence[1].multiplier_coefficient)
+        self.assertEqual(1.0, evidence[2].multiplier_coefficient)
+        character["profile"]["selected_awaken_effect_ids"] = []
+        disabled = BattleSkillDamageEvidenceService.load(
+            Dao(), analysis, {"characters": [character]}
+        )
+        self.assertEqual(1.0, disabled[0].multiplier_coefficient)
+
+    def test_kuhara_q_settlement_uses_formal_state_coefficient(self) -> None:
+        class Dao:
+            @staticmethod
+            def get_combat_curve(_table_path: str, curve_id: str):
+                if curve_id == "Kuhara_BudBoom_CoefAddUltraSkill":
+                    return {"points": ({"value": 4.0},)}
+                return None
+
+            @staticmethod
+            def get_skill_damage(_damage_id: str):
+                return {
+                    "ability_id": "GA_Kuhara_UltraSkill",
+                    "damage_type": "nature",
+                    "damage_source_category": "NORMAL",
+                    "fixed_crit_rate": 0.0,
+                    "atk_rate_base": (1.0,),
+                    "def_rate_base": (),
+                    "hp_rate_base": (),
+                }
+
+            @staticmethod
+            def get_reaction_damage_curve(_damage_id: str):
+                return None
+
+            @staticmethod
+            def list_character_awaken_effects(_character_id: int):
+                return ()
+
+        hit = _hit(
+            "2:primary",
+            damage_id="GE_Player_Kuhara_BudBoom_Damage",
+            character_id=1055,
+            relative_time_us=1_500_000,
+        )
+        action = BattleInferredAction(
+            action_id="action:1055:1:1",
+            character_id=1055,
+            character_name="九原",
+            action_name="Q技能",
+            input_kind="Q",
+            input_sequence="Q4",
+            start_us=1_000_000,
+            end_us=1_400_000,
+            hits=1,
+            damage=10.0,
+            identity_confidence="中",
+            timing_confidence="中",
+            inference_basis="正式 Q 逐击",
+            evidence_event_ids=("1:primary",),
+            gameplay_effect_ids=("GE_Player_Kuhara_UltraSkill4_Damage",),
+        )
+        analysis = SimpleNamespace(
+            hits=(hit,),
+            inferred_actions=(action,),
+            time_stop_intervals=(),
+        )
+        build = {"characters": [{
+            "character_id": 1055,
+            "character_level": 80,
+            "skills": [{
+                "skill_id": "GA_Kuhara_UltraSkill",
+                "skill_level": 1,
+            }],
+            "profile": {},
+        }]}
+
+        evidence = BattleSkillDamageEvidenceService.load(
+            Dao(), analysis, build
+        )[0]
+
+        self.assertEqual(4.0, evidence.multiplier_coefficient)
+        self.assertIn("Kuhara_BudBoom_CoefAddUltraSkill=4", evidence.evidence_basis)
+
+    def test_kuhara_non_q_settlement_does_not_use_q_curve(self) -> None:
+        class Dao:
+            @staticmethod
+            def get_combat_curve(_table_path: str, _curve_id: str):
+                return {"points": ({"value": 4.0},)}
+
+            @staticmethod
+            def get_skill_damage(_damage_id: str):
+                return {
+                    "ability_id": "GA_Kuhara_Melee",
+                    "damage_type": "nature",
+                    "damage_source_category": "NORMAL",
+                    "fixed_crit_rate": 0.0,
+                    "atk_rate_base": (1.0,),
+                    "def_rate_base": (),
+                    "hp_rate_base": (),
+                }
+
+            @staticmethod
+            def get_reaction_damage_curve(_damage_id: str):
+                return None
+
+            @staticmethod
+            def list_character_awaken_effects(_character_id: int):
+                return ()
+
+        hit = _hit(
+            "2:primary",
+            damage_id="GE_Player_Kuhara_BudBoom_Damage",
+            character_id=1055,
+            relative_time_us=3_000_000,
+        )
+        analysis = SimpleNamespace(
+            hits=(hit,),
+            inferred_actions=(),
+            time_stop_intervals=(),
+        )
+        build = {"characters": [{
+            "character_id": 1055,
+            "character_level": 80,
+            "skills": [{"skill_id": "GA_Kuhara_Melee", "skill_level": 1}],
+            "profile": {},
+        }]}
+
+        evidence = BattleSkillDamageEvidenceService.load(
+            Dao(), analysis, build
+        )[0]
+
+        self.assertEqual(1.0, evidence.multiplier_coefficient)
     def test_derived_damage_uses_formal_parent_skill_level(self) -> None:
         class Dao:
             @staticmethod
@@ -363,6 +556,65 @@ class BattleSkillDamageEvidenceServiceTests(unittest.TestCase):
         self.assertEqual(1036, evidence.source_character_id)
         self.assertEqual(80, evidence.effective_skill_level)
         self.assertIn("统一使用残虹", evidence.evidence_basis)
+
+    def test_formal_skill_owner_conflict_never_uses_core_session_owner_panel(self) -> None:
+        class Dao:
+            @staticmethod
+            def get_combat_curve(_table_path: str, _curve_id: str):
+                return None
+
+            @staticmethod
+            def get_skill_damage(_damage_id: str):
+                return {
+                    "ability_id": "GA_Chaos071_Melee",
+                    "damage_type": "chaos",
+                    "damage_source_category": "NORMAL",
+                    "fixed_crit_rate": 0.0,
+                    "atk_rate_base": (1.0,),
+                    "def_rate_base": (),
+                    "hp_rate_base": (),
+                }
+
+            @staticmethod
+            def list_skill_damage_owner_character_ids(_damage_id: str):
+                return [1071]
+
+            @staticmethod
+            def get_reaction_damage_curve(_damage_id: str):
+                return None
+
+            @staticmethod
+            def list_character_awaken_effects(_character_id: int):
+                return ()
+
+        hit = _hit(
+            "1:primary",
+            damage_id="GE_Player_Chaos071_Melee1_Damage",
+            character_id=1077,
+        )
+        analysis = SimpleNamespace(hits=(hit,), time_stop_intervals=())
+        core_owner_only = {"characters": [{
+            "character_id": 1077,
+            "character_level": 80,
+            "profile": {},
+        }]}
+
+        self.assertEqual(
+            (),
+            BattleSkillDamageEvidenceService.load(Dao(), analysis, core_owner_only),
+        )
+
+        formal_owner = {"characters": [{
+            "character_id": 1071,
+            "character_level": 80,
+            "skills": [{"skill_id": "GA_Chaos071_Melee", "skill_level": 1}],
+            "profile": {},
+        }]}
+        evidence = BattleSkillDamageEvidenceService.load(
+            Dao(), analysis, formal_owner
+        )[0]
+        self.assertEqual(1071, evidence.source_character_id)
+        self.assertIn("不采用 Core 会话归属角色 1077", evidence.evidence_basis)
 
     def test_creation_uses_the_same_official_16_tier_lookup_as_scorch(self) -> None:
         class Dao:

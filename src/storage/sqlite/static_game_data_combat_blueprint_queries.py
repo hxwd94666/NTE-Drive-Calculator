@@ -10,6 +10,68 @@ from .protocols import StaticDataDaoMixinHost
 
 
 class StaticGameDataCombatBlueprintQueriesMixin(StaticDataDaoMixinHost):
+    def list_gameplay_effect_tags(
+        self,
+        gameplay_effect_ids: tuple[str, ...],
+    ) -> dict[str, tuple[str, ...]]:
+        """Return imported GameplayTags for the requested formal GE classes."""
+
+        effect_ids = tuple(dict.fromkeys(
+            str(value).strip() for value in gameplay_effect_ids if str(value).strip()
+        ))
+        if not effect_ids:
+            return {}
+        placeholders = ", ".join("?" for _value in effect_ids)
+        rows = self._rows(
+            f"""
+            SELECT effect.gameplay_effect_id, tag.tag_name
+            FROM gameplay_effect_catalog AS effect
+            JOIN combat_blueprint_tag AS tag
+              ON tag.source_asset_path = substr(
+                   effect.class_path,
+                   1,
+                   instr(effect.class_path, '.') - 1
+                 )
+            WHERE effect.gameplay_effect_id IN ({placeholders})
+            ORDER BY effect.gameplay_effect_id, tag.tag_name
+            """,
+            effect_ids,
+        )
+        grouped: dict[str, list[str]] = {}
+        for row in rows:
+            grouped.setdefault(str(row["gameplay_effect_id"]), []).append(
+                str(row["tag_name"])
+            )
+        return {key: tuple(values) for key, values in grouped.items()}
+
+    def gameplay_effect_has_tag(
+        self,
+        gameplay_effect_id: str,
+        tag_name: str,
+    ) -> bool:
+        """Return whether the formal GE class owns one imported GameplayTag."""
+
+        effect_id = str(gameplay_effect_id).strip()
+        normalized_tag = str(tag_name).strip()
+        if not effect_id or not normalized_tag:
+            raise ValueError("gameplay_effect_id 和 tag_name 不能为空")
+        row = self._one(
+            """
+            SELECT 1 AS matched
+            FROM gameplay_effect_catalog AS effect
+            JOIN combat_blueprint_tag AS tag
+              ON tag.source_asset_path = substr(
+                   effect.class_path,
+                   1,
+                   instr(effect.class_path, '.') - 1
+                 )
+            WHERE effect.gameplay_effect_id = ? AND tag.tag_name = ?
+            LIMIT 1
+            """,
+            (effect_id, normalized_tag),
+        )
+        return row is not None
+
     def list_character_combat_bindings(self, character_id: int) -> list[dict[str, Any]]:
         """Return official active/passive ability bindings for one character."""
 

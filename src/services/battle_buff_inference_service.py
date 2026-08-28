@@ -29,8 +29,11 @@ from src.services.battle_character_awakening_hit_service import (
 )
 from src.services.battle_equipment_suit_service import BattleEquipmentSuitService
 from src.services.battle_fork_refinement_service import BattleForkRefinementService
+from src.services.battle_target_control_policy_service import (
+    BattleTargetControlPolicyService,
+)
 
-BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v25"
+BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v26"
 _CONFIRMED_REPLACES_GENERIC = frozenset({
     "character_awaken:1036:Effect1", "character_awaken:1036:Effect5",
     "character_awaken:1039:resonance_6",
@@ -682,6 +685,7 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
         time_stop_intervals: Sequence[tuple[int | None, int | None]] = (),
         treatment_events: Sequence[BattleTreatmentEvent] = (),
         critical_events: Sequence[Any] = (),
+        target_control_policy: str = "eligible_default",
     ) -> tuple[BattleInferredBuffInterval, ...]:
         grouped: dict[
             tuple[int, str, str],
@@ -716,6 +720,17 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
                 key=lambda row: row.time_us,
             )
             for rule in add_rules:
+                control_policy_basis = ""
+                if BattleTargetControlPolicyService.is_mofeikesi_control_requirement(
+                    rule.application_requirement_asset_path
+                ):
+                    succeeds, control_policy_basis = (
+                        BattleTargetControlPolicyService.default_control_succeeds(
+                            target_control_policy
+                        )
+                    )
+                    if not succeeds:
+                        rule = replace(rule, target_scope="unknown")
                 occurrences = cls._occurrences(
                     rule,
                     actions=actions,
@@ -747,7 +762,14 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
                         duration_policy=rule.duration_policy,
                         state_confidence=occurrence.state_confidence,
                         value_confidence=_definition_value_confidence(rule),
-                        inference_basis=cls._basis(rule, occurrence),
+                        inference_basis=(
+                            cls._basis(rule, occurrence)
+                            + (
+                                f" {control_policy_basis}"
+                                if control_policy_basis
+                                else ""
+                            )
+                        ),
                         trigger_event_type=rule.event_type,
                         evidence_action_ids=occurrence.action_ids,
                         evidence_event_ids=occurrence.event_ids,
@@ -766,6 +788,31 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
             treatment_events=treatment_events,
             critical_events=critical_events,
         ))
+        base_mofeikesi = tuple(
+            row
+            for row in intervals
+            if "mofeikesi-q-team-attack" in row.buff_asset_path.casefold()
+        )
+        intervals = [
+            replace(
+                row,
+                end_us=min(
+                    row.end_us,
+                    next(
+                        (
+                            base.end_us
+                            for base in base_mofeikesi
+                            if base.source_character_id == row.source_character_id
+                            and base.start_us <= row.start_us < base.end_us
+                        ),
+                        row.end_us,
+                    ),
+                ),
+            )
+            if "mofeikesi-controlled-extra" in row.buff_asset_path.casefold()
+            else row
+            for row in intervals
+        ]
         return tuple(sorted(
             intervals,
             key=lambda row: (

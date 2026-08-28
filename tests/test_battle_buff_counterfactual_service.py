@@ -4,6 +4,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+    BattleQuantificationGap,
+)
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
@@ -16,6 +20,9 @@ from src.domain.battle_report import (
 )
 from src.services.battle_buff_counterfactual_service import (
     BattleBuffCounterfactualService,
+)
+from src.services.battle_hit_counterfactual_ratio_service import (
+    BattleHitCounterfactualRatioService,
 )
 from src.services.battle_hit_replay_service import BattleHitReplayService
 
@@ -481,6 +488,55 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
         self.assertEqual("not_applicable", result.quantification.status)
         self.assertEqual(0, result.affected_hits)
         self.assertEqual(0.0, result.damage_gain)
+
+    def test_zero_damage_unavailable_hit_does_not_add_a_public_result_gap(self) -> None:
+        gap = BattleQuantificationGap(
+            code="formula_family_unsupported",
+            dimension_id="formula_family",
+            dependency_scope="mechanic_specific",
+            property_ids=(),
+            explanation="零伤害标记缺少公式。",
+        )
+        def compare(*, hit, **_kwargs):
+            if hit.damage > 0.0:
+                return BattleCounterfactualRatio.complete(
+                    1.2,
+                    method="fixture",
+                    confidence="高",
+                    dependency_scope="character_only",
+                    included_dimension_ids=("damage_up",),
+                    explanation="完整量化。",
+                )
+            return BattleCounterfactualRatio.unavailable(
+                method="fixture",
+                confidence="低",
+                dependency_scope="mechanic_specific",
+                cancelled_dimension_ids=(),
+                gaps=(gap,),
+                explanation="零伤害标记不可量化。",
+            )
+
+        hits = (_hit("damage", 100.0), _hit("marker", 0.0))
+        analysis = _snapshot(
+            hits=hits,
+            intervals=(_interval("buff-1", modifiers=(_modifier(0.15),)),),
+            replays=(_replay("damage", 100.0), _replay("marker", 0.0)),
+        )
+
+        with (
+            patch.object(
+                BattleHitCounterfactualRatioService,
+                "compare",
+                side_effect=compare,
+            ),
+            patch.object(BattleHitReplayService, "replay", return_value=()),
+        ):
+            (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
+
+        self.assertEqual("complete", result.quantification.status)
+        self.assertEqual((), result.quantification.gaps)
+        self.assertEqual(100.0, result.quantification.basis_damage)
+        self.assertEqual(-20.0, result.quantified_damage_gain)
 
 
 if __name__ == "__main__":

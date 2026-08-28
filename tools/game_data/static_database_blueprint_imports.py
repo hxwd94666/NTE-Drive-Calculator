@@ -46,8 +46,31 @@ _SEMANTIC_PROPERTY_NAMES = frozenset(
         "StackingType",
         "StackLimitCount",
         "TargetTagsGameplayEffectComponent",
+        "ExtractAttributeType",
+        "SourceAddRatio",
+        "TargetLostRatio",
+        "LimitRatio",
+        "UseSourceObject",
     }
 )
+_STRING_GAMEPLAY_TAG_CONTAINERS = (
+    "inheritableassettags",
+    "inheritablegameplayeffecttags",
+)
+
+
+def _string_gameplay_tag(property_path: str, value: Any) -> str | None:
+    """Read UE5 inherited GameplayTag containers that export as strings."""
+
+    if not isinstance(value, str) or value in {"", "None"}:
+        return None
+    normalized_path = property_path.casefold()
+    if not any(
+        container in normalized_path
+        for container in _STRING_GAMEPLAY_TAG_CONTAINERS
+    ):
+        return None
+    return value
 
 
 def _asset_path_from_file(root: Path, path: Path) -> str:
@@ -495,6 +518,9 @@ class BlueprintImportMixin:
             # represented by the dedicated montage/section/notify tables below.
             if asset_kind not in {"montage", "animation"}:
                 for property_path, node in _iter_nodes(exports):
+                    string_tag = _string_gameplay_tag(property_path, node)
+                    if string_tag is not None:
+                        tag_rows.append((asset_path, property_path, 0, string_tag))
                     if not isinstance(node, dict):
                         continue
                     object_paths = _object_paths(node)

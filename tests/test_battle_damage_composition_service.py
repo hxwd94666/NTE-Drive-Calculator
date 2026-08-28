@@ -151,6 +151,86 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
         self.assertEqual(100.0, entries["direct"])
         self.assertEqual(50.0, entries["reaction_scorch"])
 
+    def test_formal_direct_source_wins_polluted_scorch_display_labels(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="87:primary",
+            sequence=87,
+            relative_time_us=29_886_698,
+            character_id=1036,
+            character_name="残虹",
+            skill_name="变轨技能：绯影闪",
+            damage_name="浊燃",
+            damage_component="绯影闪",
+            attack_type="浊燃",
+            damage_attribute="incantation",
+            target_id="target",
+            target_name="目标",
+            damage=32_718.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="reaction",
+            ability_id="GA_Zankou_Skill",
+            gameplay_effect_id="GE_Player_Zankou_Skill1_Damage",
+        )
+
+        self.assertEqual(
+            ("direct", "直伤"),
+            classify_battle_hit_channel(hit),
+        )
+
+    def test_topple_classification_wins_polluted_scorch_display_labels(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="197:primary",
+            sequence=197,
+            relative_time_us=55_118_246,
+            character_id=1036,
+            character_name="残虹",
+            skill_name="浊燃",
+            damage_name="浊燃",
+            damage_component="unknown",
+            attack_type="浊燃",
+            damage_attribute="true",
+            target_id="target",
+            target_name="目标",
+            damage=38_171.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="topple",
+            gameplay_effect_id="Buff_Tenacity_damage",
+        )
+
+        self.assertEqual(
+            ("other_topple", "倾陷伤害"),
+            classify_battle_hit_channel(hit),
+        )
+
+    def test_typed_reaction_follow_up_wins_inherited_qte_source_identity(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="75:follow_up",
+            sequence=75,
+            relative_time_us=28_164_539,
+            character_id=1039,
+            character_name="法帝娅",
+            skill_name="援护技",
+            damage_name="黯星",
+            damage_component="follow_up",
+            attack_type="黯星",
+            damage_attribute="psychically",
+            target_id="target",
+            target_name="目标",
+            damage=57_600.0,
+            direction="outgoing",
+            is_follow_up=True,
+            classification="reaction",
+            ability_id="GA_Fadia_QTE",
+            gameplay_effect_id="GE_Player_Fadia_QTE1_Damage",
+        )
+
+        self.assertEqual(
+            ("reaction_nova", "黯星"),
+            classify_battle_hit_channel(hit),
+        )
+
     def test_attributed_reflection_stays_with_its_packet_character(self) -> None:
         def hit(
             event_id: str,
@@ -392,6 +472,47 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
         self.assertEqual(30.0, entries["attachment"])
         self.assertEqual(50.0, entries["reaction_scorch"])
         self.assertEqual(0.0, composition.other_total_damage)
+
+    def test_explicit_reaction_identity_precedes_reused_dot_effect(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="1:primary",
+            sequence=1,
+            relative_time_us=1,
+            character_id=1036,
+            character_name="残虹",
+            skill_name="蚀心",
+            damage_name="浊燃",
+            damage_component="skill",
+            attack_type="Special Damage",
+            damage_attribute="LAKSHANA",
+            target_id="target",
+            target_name="目标",
+            damage=100.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="reaction",
+            gameplay_effect_id="GE_Player_Zankou_DotDamage",
+        )
+
+        composition = BattleDamageCompositionService.calculate_from_hits(
+            roles=(BattleRangeRoleSummary(
+                character_id=1036,
+                character_name="残虹",
+                hits=1,
+                damage=100.0,
+                dps=100.0,
+                share_percent=100.0,
+            ),),
+            hits=(hit,),
+            segment_total_damage=100.0,
+            grouping="coarse",
+        )
+
+        entries = {
+            entry.key: entry.damage
+            for entry in composition.roles[0].entries
+        }
+        self.assertEqual({"reaction_scorch": 100.0}, entries)
 
     def test_fine_channels_keep_distinct_damage_identities(self) -> None:
         hits = tuple(

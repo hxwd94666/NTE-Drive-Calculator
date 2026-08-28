@@ -9,6 +9,7 @@ from math import ceil
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
+    BattleAnalysisSnapshot,
     BattleCharacterBaseline,
     BattleHitBuffProjection,
     BattleHitReplayFactor,
@@ -149,8 +150,47 @@ def apply_observed_damage_correction(
 ) -> BattleHitReplayResult:
     if hit.raw_damage is None or not hit.damage_correction_kind:
         return result
+    formula_observed = float(result.observed_damage)
+    source = result.observed_damage_source
+    basis = result.observed_damage_basis
+    reported_damage = result.reported_damage
+    if (
+        hit.damage_correction_kind == "nte_core_overkill_v3"
+        and hit.raw_damage > hit.damage
+    ):
+        formula_observed = float(hit.raw_damage)
+        source = "reported_hit_before_overkill"
+        basis = (
+            "nte-core 原始上报伤害；overkill 只从战报有效总伤害扣除，"
+            "不改变本击公式结算值"
+        )
+        reported_damage = float(hit.damage)
+    selected_error = (
+        None
+        if result.selected_damage is None
+        else replay_error_percent(formula_observed, result.selected_damage)
+    )
+    signed_error = (
+        None
+        if result.selected_damage is None
+        else replay_signed_error_percent(formula_observed, result.selected_damage)
+    )
+    corrected_expected = (
+        result.expected_damage * formula_observed / result.selected_damage
+        if result.expected_damage is not None
+        and result.selected_damage is not None
+        and result.selected_damage > 0.0
+        else result.corrected_expected_damage
+    )
     return replace(
         result,
+        observed_damage=formula_observed,
+        selected_error_percent=selected_error,
+        signed_error_percent=signed_error,
+        corrected_expected_damage=corrected_expected,
+        reported_damage=reported_damage,
+        observed_damage_source=source,
+        observed_damage_basis=basis,
         missing_evidence=tuple(dict.fromkeys((
             *result.missing_evidence,
             (
@@ -172,6 +212,23 @@ def replay_signed_error_percent(observed: float, predicted: float) -> float | No
     if observed <= 0:
         return None
     return (predicted - observed) / observed * 100.0
+
+
+def replay_target_profile_basis(
+    analysis: BattleAnalysisSnapshot,
+    inferred_target: bool,
+) -> tuple[bool, str]:
+    """Describe whether an inferred formula profile also has formal identity."""
+
+    resolved_target = any(
+        str(row.resolved_monster_id or "").strip()
+        for row in getattr(analysis, "target_instance_resolutions", ())
+    )
+    if not inferred_target:
+        return resolved_target, "用户确认的目标属性包"
+    if resolved_target:
+        return resolved_target, "完整目标数量、初始最大生命与正式身份唯一命中的静态环境目标参数"
+    return resolved_target, "完整目标数量与初始最大生命多重集唯一命中的静态环境目标参数"
 
 
 def literal_replay_term(

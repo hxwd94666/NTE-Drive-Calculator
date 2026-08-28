@@ -22,6 +22,9 @@ from src.domain.battle_report import (
 from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
+from src.services.battle_damage_composition_service import (
+    classify_battle_hit_channel,
+)
 from src.services.battle_replay_formula_ratio_service import paired_replay_formula
 from src.services.damage_calculation_service import (
     DamageScene,
@@ -67,7 +70,7 @@ _ALL_SCALING_PROPERTIES = frozenset(
     for property_id in group
 )
 _CRITICAL_PROPERTIES = frozenset({"CritBase", "CritDamageBase"})
-_SUPPORTED_CLASSIFICATIONS = frozenset({"direct", "direct_follow_up", "weave"})
+_SUPPORTED_CHANNELS = frozenset({"direct", "direct_follow_up", "reaction_hexed"})
 
 
 def _stats(baseline: BattleCharacterBaseline | None) -> dict[str, float]:
@@ -151,7 +154,8 @@ class BattleHitCounterfactualRatioService:
                     explanation=pair.explanation,
                 )
 
-        if hit.classification not in _SUPPORTED_CLASSIFICATIONS:
+        channel_id, _channel_label = classify_battle_hit_channel(hit)
+        if channel_id not in _SUPPORTED_CHANNELS:
             gap = _gap(
                 "formula_family_unsupported",
                 "formula_family",

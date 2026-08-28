@@ -35,6 +35,7 @@ from src.services.battle_hit_replay_support import (
     replay_error_percent,
     replay_signed_error_percent,
     replay_source_terms as _source_terms,
+    replay_target_profile_basis,
 )
 from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditService
 from src.services.battle_inferred_target_condition_service import (
@@ -43,7 +44,7 @@ from src.services.battle_inferred_target_condition_service import (
 from src.services.battle_target_instance_mapping_service import (
     BattleTargetInstanceMappingService,
 )
-HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v28"
+HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v29"
 _DIRECT_FORMULA_CHANNELS = frozenset({
     "direct", "direct_follow_up", "attachment", "special_lacrimosa_dissonance",
     "special_nightmare", "special_zankou_erosion", "special_zankou_venom",
@@ -373,10 +374,8 @@ class BattleHitReplayService:
         inferred_target = (
             condition.source_kind == INFERRED_ENCOUNTER_SOURCE_KIND
         )
-        target_profile_basis = (
-            "完整目标数量与初始最大生命多重集唯一命中的静态环境目标参数"
-            if inferred_target
-            else "用户确认的目标属性包"
+        resolved_target, target_profile_basis = replay_target_profile_basis(
+            analysis, inferred_target
         )
         if evidence.state_multiplier_label and evidence.state_multiplier <= 0.0:
             return cls._unreplayable(
@@ -742,7 +741,7 @@ class BattleHitReplayService:
             missing.append(f"{len(excluded_intervals)} 个 Buff 区间未进入数值")
         if not applied_intervals:
             missing.append("当前击未匹配到动态 Buff 区间")
-        if inferred_target:
+        if inferred_target and not resolved_target:
             missing.append(
                 "目标实例仍未识别；防御与抗性来自本场最大生命指纹唯一命中、"
                 "且候选敌人共享同一乘区的静态配置"

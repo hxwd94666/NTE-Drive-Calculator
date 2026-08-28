@@ -49,7 +49,7 @@ from src.services.battle_target_instance_mapping_service import (
 )
 
 
-BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v4"
+BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v5"
 
 _STRUCTURED_METHODS = {
     "structured_expected",
@@ -58,7 +58,7 @@ _STRUCTURED_METHODS = {
 }
 _STRUCTURED_VITAL_METHODS = {
     "linked_source_hit_ratio",
-    "fadia_inherent_hp_ratio",
+    "fadia_source_max_hp_ratio",
     "mechanic_disabled",
 }
 
@@ -453,17 +453,20 @@ class BattleBuildCounterfactualService:
                 original_hp = original_baselines.get(event.source_character_id)
                 candidate_hp = candidate_baselines.get(event.source_character_id)
                 hp_ratio = _safe_ratio(
-                    float(candidate_hp.inherent_hp or 0.0) if candidate_hp else 0.0,
-                    float(original_hp.inherent_hp or 0.0) if original_hp else 0.0,
+                    float(candidate_hp.source_max_hp or 0.0) if candidate_hp else 0.0,
+                    float(original_hp.source_max_hp or 0.0) if original_hp else 0.0,
                 )
                 if hp_ratio is not None:
                     quantification = BattleCounterfactualRatio.complete(
                         hp_ratio,
-                        method="fadia_inherent_hp_ratio",
+                        method="fadia_source_max_hp_ratio",
                         confidence="中",
                         dependency_scope="mechanic_specific",
-                        included_dimension_ids=("inherent_hp",),
-                        explanation="按候选/原始法帝娅固有生命上限比联动被动结算。",
+                        included_dimension_ids=("source_max_hp",),
+                        explanation=(
+                            "按候选/原始法帝娅冻结来源当前 MAXHP 比"
+                            "联动本次被动结算。"
+                        ),
                     )
             ratio = quantification.quantified_ratio
             known_projection = (

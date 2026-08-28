@@ -5,7 +5,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from src.domain.battle_counterfactual_quantification import (
     BattleDamageQuantification,
@@ -24,11 +25,13 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_role_switch_replays_selected_half_with_all_candidate_profiles(self) -> None:
+    def test_role_switch_does_not_replay_until_explicit_recalculate(self) -> None:
         created_options: list[dict] = []
-        analysis_requests: list[tuple[int, object, object]] = []
+        recalculation_requests: list[list[dict]] = []
 
         class FakeEditor(QWidget):
+            changed = Signal()
+
             def __init__(self, detail, *_args, **kwargs) -> None:
                 super().__init__()
                 self.detail = detail
@@ -67,11 +70,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             FakeEditor,
         ):
             page = BattleMarginalPage()
-            page.analysis_requested.connect(
-                lambda character_id, scope, profiles: analysis_requests.append(
-                    (character_id, scope, profiles)
-                )
-            )
+            page.recalculate_requested.connect(recalculation_requests.append)
             page.set_editor_data({
                 "details": [detail(1001), detail(1002)],
                 "marginal_equipment_editable": True,
@@ -80,16 +79,14 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
                 ],
             })
             page.character_combo.setCurrentIndex(1)
+            self.assertEqual([], recalculation_requests)
+            page.recalculate_button.click()
 
-        self.assertEqual(
-            [(1001, "first"), (1002, "second")],
-            [(character_id, scope) for character_id, scope, _ in analysis_requests],
-        )
-        self.assertEqual(2, len(analysis_requests[-1][2]))
+        self.assertEqual(2, len(recalculation_requests[-1]))
         self.assertTrue(
             all(
                 "battle_stat_overrides" not in profile
-                for profile in analysis_requests[-1][2]
+                for profile in recalculation_requests[-1]
             )
         )
         self.assertTrue(created_options[0]["allow_equipment_replacement"])
@@ -102,15 +99,57 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             page.disabled_inferred_fact_ids(),
         )
 
-    def test_page_has_restore_but_no_persistence_or_role_sync_actions(self) -> None:
+    def test_page_has_local_reset_but_no_persistence_or_role_sync_actions(self) -> None:
         page = BattleMarginalPage()
         button_texts = {button.text() for button in page.findChildren(QPushButton)}
 
-        self.assertIn("恢复已保存状态", button_texts)
+        self.assertIn("重置", button_texts)
+        self.assertNotIn("恢复已保存状态", button_texts)
         self.assertNotIn("从角色页同步", button_texts)
         self.assertNotIn("同步养成到角色页", button_texts)
         self.assertNotIn("保存修改副本", button_texts)
         self.assertNotIn("清除手工属性", button_texts)
+
+    def test_metric_cards_keep_original_fixed_axis_presentation(self) -> None:
+        page = BattleMarginalPage()
+        label_texts = {label.text() for label in page.findChildren(QLabel)}
+
+        self.assertIn("新 DPS", label_texts)
+        self.assertIn("新总伤害", label_texts)
+        self.assertIn("角色伤害", label_texts)
+        self.assertIn("其余为分级估计", label_texts)
+        self.assertNotIn("投影 DPS", label_texts)
+        self.assertNotIn("投影总伤害", label_texts)
+
+    def test_partial_role_card_uses_full_axis_estimate_without_long_prefix(self) -> None:
+        page = BattleMarginalPage()
+        page.character_combo.addItem("测试角色", 1001)
+        role = SimpleNamespace(
+            character_id=1001,
+            baseline_damage=1_000.0,
+            known_projection_damage=1_050.0,
+            candidate_damage=None,
+            heuristic_projection_damage=1_100.0,
+            quantification=SimpleNamespace(status="partial"),
+        )
+        page._analysis = SimpleNamespace(
+            baselines=(),
+            roles=(),
+            build_counterfactual=SimpleNamespace(roles=(role,)),
+            buff_counterfactuals=(),
+        )
+
+        with patch.object(page, "_render_attributes"), patch.object(
+            page, "_render_buff_benefits"
+        ):
+            page._render_selected_role()
+
+        self.assertEqual("1,100", page.metric_labels["role"].text())
+        self.assertEqual(
+            "+10.00% · 原始 1,000",
+            page.metric_subtitles["role"].text(),
+        )
+        self.assertNotIn("已量化变化下", page.metric_labels["role"].text())
 
     def test_page_renders_read_only_unit_benefits(self) -> None:
         page = BattleMarginalPage()

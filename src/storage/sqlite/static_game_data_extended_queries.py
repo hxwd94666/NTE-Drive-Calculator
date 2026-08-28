@@ -344,6 +344,27 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
         )
         return [str(row["ability_id"]) for row in rows]
 
+    def list_skill_damage_owner_character_ids(self, damage_id: str) -> list[int]:
+        """Return formal character owners of one imported skill-damage row."""
+
+        rows = self._rows(
+            """
+            SELECT DISTINCT owner.character_id
+            FROM skill_damage AS damage
+            JOIN (
+                SELECT character_id, skill_id AS ability_id
+                FROM character_skill
+                UNION
+                SELECT character_id, ability_id
+                FROM character_combat_ability_binding
+            ) AS owner ON owner.ability_id = damage.ability_id
+            WHERE damage.damage_id = ?
+            ORDER BY owner.character_id
+            """,
+            (str(damage_id),),
+        )
+        return [int(row["character_id"]) for row in rows]
+
     def list_gameplay_effects(self) -> list[dict[str, Any]]:
         """Return the stable GE index-to-ID catalog for evidence fallback."""
 

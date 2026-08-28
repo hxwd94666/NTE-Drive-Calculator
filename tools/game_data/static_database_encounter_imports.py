@@ -111,6 +111,8 @@ class EncounterImportMixin:
     def _import_encounter_catalogs(self) -> None:
         self._import_outer_realm_rotations()
         self._import_outer_realm_buffs()
+        self._import_monster_boss_support()
+        self._import_high_risk_commissions()
         options = self.rows["feast_options"]
         for option_id, row in sorted(options.items()):
             node = row.get("OptionNode") or {}
@@ -242,6 +244,103 @@ class EncounterImportMixin:
                 ),
             )
         self._import_official_activity_catalog()
+
+    def _import_monster_boss_support(self) -> None:
+        """Import formal Boss membership without deriving it from an ID or name."""
+
+        for template_name, row in sorted(self.rows["monster_boss_support"].items()):
+            self.connection.execute(
+                "INSERT INTO monster_boss_support VALUES (?,?,?)",
+                (
+                    template_name,
+                    optional_text(row.get("Desc")),
+                    self.source_row_id("monster_boss_support", template_name),
+                ),
+            )
+
+    def _import_high_risk_commissions(self) -> None:
+        pools = self.rows["high_risk_monster_pools"]
+        for pool_id, row in sorted(pools.items()):
+            source_row_id = self.source_row_id("high_risk_monster_pools", pool_id)
+            for ordinal, member in enumerate(row.get("MonsterPoolArray") or ()):
+                class_path = asset_path(member.get("MonsterClass")) or ""
+                if not class_path:
+                    raise StaticDatabaseError(
+                        f"高危委托怪物池缺少正式怪物类：{pool_id}/{ordinal}"
+                    )
+                leaf = class_path.rsplit("/", 1)[-1].split(".", 1)[0]
+                template_name = leaf.removesuffix("_C")
+                self.connection.execute(
+                    "INSERT INTO high_risk_monster_pool_member "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        pool_id,
+                        ordinal,
+                        class_path,
+                        template_name,
+                        max(1, int(member.get("MonsterCount") or 1)),
+                        max(0, int(member.get("MonsterLevel") or 0)),
+                        optional_text(member.get("AttributeID")),
+                        source_row_id,
+                    ),
+                )
+
+        def keyed(values: object) -> dict[int, object]:
+            result: dict[int, object] = {}
+            for item in values if isinstance(values, list) else ():
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    key = int(item.get("Key"))
+                except (TypeError, ValueError):
+                    continue
+                result[key] = item.get("Value")
+            return result
+
+        for commission_id, row in sorted(self.rows["high_risk_commissions"].items()):
+            name, _, _ = text_parts(row.get("VisionName"))
+            difficulty_count = int(row.get("DiffLvlNums") or 0)
+            if not name or difficulty_count < 1:
+                raise StaticDatabaseError(
+                    f"高危委托名称或难度数量无效：{commission_id}"
+                )
+            pool_by_difficulty = keyed(row.get("SpawnMonsterPoolIds"))
+            fallback_pool_id = optional_text(pool_by_difficulty.get(0))
+            referenced_pool_ids = {
+                str(value)
+                for value in pool_by_difficulty.values()
+                if optional_text(value)
+            }
+            missing_pool_ids = sorted(referenced_pool_ids - set(pools))
+            if missing_pool_ids:
+                raise StaticDatabaseError(
+                    f"高危委托引用不存在的怪物池：{commission_id}/{missing_pool_ids}"
+                )
+            self.connection.execute(
+                "INSERT INTO high_risk_commission VALUES (?,?,?,?,?)",
+                (
+                    commission_id,
+                    name,
+                    difficulty_count,
+                    fallback_pool_id,
+                    self.source_row_id("high_risk_commissions", commission_id),
+                ),
+            )
+            levels = keyed(row.get("CharacterMinLvls"))
+            scenes = keyed(row.get("SceneDataIds"))
+            for difficulty_id in range(1, difficulty_count + 1):
+                pool_id = optional_text(pool_by_difficulty.get(difficulty_id))
+                self.connection.execute(
+                    "INSERT INTO high_risk_commission_difficulty "
+                    "VALUES (?,?,?,?,?)",
+                    (
+                        commission_id,
+                        difficulty_id,
+                        max(0, int(levels.get(difficulty_id) or 0)),
+                        optional_text(scenes.get(difficulty_id)),
+                        pool_id,
+                    ),
+                )
 
     def _import_outer_realm_buffs(self) -> None:
         curves = self.rows["abyss_buff_curves"]

@@ -39,7 +39,7 @@ from src.services.battle_target_instance_mapping_service import (
 from src.services.battle_topple_hit_replay_service import BattleToppleCharacterConfig
 
 
-BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v4"
+BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v5"
 _CONFIDENCE_ORDER = {"未解析": 0, "低": 1, "中": 2, "高": 3}
 
 
@@ -706,11 +706,13 @@ class BattleBuffCounterfactualService:
             *(
                 gap
                 for row in hit_projections
+                if float(row.hit.damage) > 0.0
                 for gap in row.quantification.gaps
             ),
             *(
                 gap
                 for row in vital_projections
+                if row.baseline_damage > 0.0
                 for gap in row.gaps
             ),
         )))

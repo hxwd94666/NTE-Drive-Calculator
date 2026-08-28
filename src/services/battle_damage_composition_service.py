@@ -72,13 +72,9 @@ _SPECIAL_EFFECT_LABELS = {
     "ge_player_zankou_dotultradamage": ("special_zankou_venom", "鸩火"),
 }
 
-_DOT_EFFECTS = frozenset({
-    "ge_player_lacrimosa_blood_damage",
-    "ge_player_lacrimosa_blood_damage_lv6",
+_REACTION_IDENTITY_OVERRIDE_EFFECTS = frozenset({
     "ge_player_zankou_dotdamage",
     "ge_player_zankou_dotultradamage",
-    "ge_player_cang_ultraskill_damage",
-    "ge_player_adler_skill_damage",
 })
 
 _ATTACHMENT_EFFECTS = frozenset({
@@ -186,6 +182,25 @@ def _is_explicit_reaction_effect(gameplay_effect_name: str | None) -> bool:
     return "reaction" in effect and "qte" not in effect
 
 
+def explicit_reaction_channel_for_hit(
+    hit: BattleAnalysisHit,
+) -> tuple[str, str] | None:
+    """Resolve a formal reaction identity that overrides a reused source GE."""
+
+    typed_follow_up = hit.is_follow_up and hit.classification == "reaction"
+    if (
+        not typed_follow_up
+        and hit.gameplay_effect_id.casefold()
+        not in _REACTION_IDENTITY_OVERRIDE_EFFECTS
+    ):
+        return None
+    for value in (hit.damage_name, hit.damage_component, hit.attack_type):
+        channel = _REACTION_LABELS.get(_normalized_label(value))
+        if channel is not None:
+            return channel
+    return None
+
+
 def _is_qte_direct_damage(
     ability_name: str | None,
     gameplay_effect_name: str | None,
@@ -249,19 +264,42 @@ def classify_battle_hit_channel(hit: BattleAnalysisHit) -> tuple[str, str]:
 
     if hit.direction != "outgoing":
         return "incoming", "承伤"
+    # Core may reuse one character DOT GE while the formal damage identity says
+    # that this event is the reaction settlement itself.  The explicit identity
+    # owns the damage lane; the GE remains trigger/source evidence only.
     effect = hit.gameplay_effect_id.casefold()
+    explicit_reaction = explicit_reaction_channel_for_hit(hit)
+    if explicit_reaction is not None:
+        return explicit_reaction
     if effect in _ATTACHMENT_EFFECTS:
         return "attachment", "附着物"
     effect_channel = _SPECIAL_EFFECT_LABELS.get(effect)
     if effect_channel is not None:
         return effect_channel
-    if effect in _DOT_EFFECTS:
+    if hit.classification == "dot":
         return "dot", "持续伤害"
+    if hit.classification == "attachment":
+        return "attachment", "附着物"
+    if hit.classification == "special":
+        return "special", "特殊伤害"
+    if hit.classification == "weave":
+        return "reaction_hexed", "覆纹"
+    if hit.classification == "topple":
+        return "other_topple", "倾陷伤害"
+    if hit.classification == "direct_follow_up":
+        return "direct_follow_up", "追加攻击"
+    if hit.classification == "direct":
+        return "direct", "直伤"
     if _is_qte_direct_damage(
         hit.ability_id,
         hit.gameplay_effect_id,
         hit.attack_type,
     ):
+        return "direct", "直伤"
+    # Core may copy a nearby reaction's public labels onto the source hit.  A
+    # formal player ability + player damage GE is stronger source identity than
+    # those display labels, so keep the hit on its own direct formula lane.
+    if str(hit.ability_id or "").strip() and effect.startswith("ge_player_"):
         return "direct", "直伤"
     values = tuple(
         _normalized_label(value)
@@ -277,16 +315,8 @@ def classify_battle_hit_channel(hit: BattleAnalysisHit) -> tuple[str, str]:
         reaction = _REACTION_LABELS.get(value)
         if reaction is not None:
             return reaction
-    if hit.classification == "weave":
-        return "reaction_hexed", "覆纹"
-    if hit.classification == "topple":
-        return "other_topple", "倾陷伤害"
     if hit.classification == "reaction":
         return "reaction_unknown", "环合 / 特殊伤害"
-    if hit.classification == "direct_follow_up":
-        return "direct_follow_up", "追加攻击"
-    if hit.classification == "direct":
-        return "direct", "直伤"
     return "other", "其他"
 
 

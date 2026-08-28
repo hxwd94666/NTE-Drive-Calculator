@@ -24,6 +24,21 @@ def _amount(value: float) -> str:
     return f"{value:+,.0f}"
 
 
+def display_projection(
+    *,
+    candidate: float | None,
+    heuristic: float | None,
+    known: float | None,
+) -> float | None:
+    """Prefer the full candidate while retaining conservative fallbacks."""
+
+    if candidate is not None:
+        return candidate
+    if heuristic is not None:
+        return heuristic
+    return known
+
+
 def _quantification_tooltip(quantification) -> str:
     gaps = "\n".join(f"- {gap.explanation}" for gap in quantification.gaps)
     coverage = quantified_coverage_text(quantification)

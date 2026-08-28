@@ -12,6 +12,7 @@
     "1023": "characters/player_028_256.png",
     "1025": "characters/player_012_256.png",
     "1033": "characters/player_015_256.png",
+    "1036": "characters/player_canhong_256.png",
     "1039": "characters/player_027_256.png",
     "1046": "characters/player_046_256.png",
     "1051": "characters/player_009_256.png",
@@ -21,11 +22,10 @@
     "1056": "characters/player_004_256.png",
     "1070": "characters/player_haiyue_256.png",
     "1071": "characters/player_kaesi1_256.png",
+    "1072": "characters/player_lingke_256.png",
     "1073": "characters/player_073_256.png",
     "1075": "characters/player_yiluoyi_256.png",
     "1076": "characters/player_zhenhong_256.png",
-    "1036": "characters/player_canhong_256.png",
-    "1072": "characters/player_lingke_256.png",
     "1091": "characters/player_004_256.png"
   },
   "attributes": {
@@ -124,7 +124,9 @@
     "fork_Butterfly": "forks/fork_Butterfly.png",
     "fork_Castle": "forks/fork_Castle.png",
     "fork_Crowbar": "forks/fork_Crowbar.png",
+    "fork_DemonBlade": "forks/fork_DemonBlade.png",
     "fork_Door": "forks/fork_Door.png",
+    "fork_GoldRecord": "forks/fork_GoldRecord.png",
     "fork_GoldWool": "forks/fork_GoldWool.png",
     "fork_Kite": "forks/fork_Kite.png",
     "fork_KnightCandy": "forks/fork_KnightCandy.png",
@@ -161,9 +163,7 @@
     "fork_wuhuakuang": "forks/fork_wuhuakuang.png",
     "fork_wushoutieyu": "forks/fork_wushoutieyu.png",
     "fork_yaodao": "forks/fork_yaodao.png",
-    "fork_yuren": "forks/fork_yuren.png",
-    "fork_DemonBlade": "forks/fork_DemonBlade.png",
-    "fork_GoldRecord": "forks/fork_GoldRecord.png"
+    "fork_yuren": "forks/fork_yuren.png"
   },
   "monster_icons": {
     "monster_static_big_world:mon_016_BP_Clone": "monsters/monster_static_big_world/mon_16.png",
@@ -286,6 +286,13 @@
       "bytes": 88207,
       "sha256": "7037C462E630D4F9ACD57830A1AA778DCE1B7C592BFC8D92AD4624A26F38B0E2"
     },
+    "characters/player_canhong_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_canhong_256.player_canhong_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 120827,
+      "sha256": "C59CD79DAE0D37A5A5DBFCAC23A44B0775FCC5724B227225AC07B378DE5EF4E0"
+    },
     "characters/player_027_256.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_027_256.player_027_256",
       "width": 256,
@@ -318,8 +325,8 @@
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_005_256.player_005_256",
       "width": 256,
       "height": 256,
-      "bytes": 116976,
-      "sha256": "50106CD83E31CA9E8AFF8F2AF0944033CBC9407338159598E481457EB8FDD068"
+      "bytes": 118807,
+      "sha256": "E9B5A5560D55331B0634B62BFD321666AC0666A49136D3739A77FBAE4F749ABC"
     },
     "characters/player_104_256.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_104_256.player_104_256",
@@ -341,6 +348,13 @@
       "height": 256,
       "bytes": 129446,
       "sha256": "E43DF83046D0EDB7D1E67D1EAB15FB160E676A5CDAFA7BB02E54232CAF2CDBEF"
+    },
+    "characters/player_lingke_256.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_lingke_256.player_lingke_256",
+      "width": 256,
+      "height": 256,
+      "bytes": 120644,
+      "sha256": "315A73C2BD3412C9FBF9E540FDCD3C43672EC12C1891397C9ADD394333A7D712"
     },
     "characters/player_073_256.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_073_256.player_073_256",
@@ -972,12 +986,26 @@
       "bytes": 31831,
       "sha256": "9B2B99552D25C3647902D7715B74638CEFEA6EF04EF2F518D375948C4C518087"
     },
+    "forks/fork_DemonBlade.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Fork/fork_DemonBlade_256.fork_DemonBlade_256",
+      "width": 128,
+      "height": 128,
+      "bytes": 30144,
+      "sha256": "C6B25AB3C36FB6BA0E9C004E2048A171ECACB502C0560158934CDC31D3F5D3CD"
+    },
     "forks/fork_Door.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Fork/fork_Door_256.fork_Door_256",
       "width": 128,
       "height": 128,
       "bytes": 26470,
       "sha256": "9893D9A9CAEFF2209124A510530773017C97C6F4D28C8EE4DCF42928B62A9F37"
+    },
+    "forks/fork_GoldRecord.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Fork/fork_GoldRecord_256.fork_GoldRecord_256",
+      "width": 128,
+      "height": 128,
+      "bytes": 26198,
+      "sha256": "DC1CBF739749CD593BCA3BE7A4369F08B2BFBE361F29D8453903304AA78F02BA"
     },
     "forks/fork_GoldWool.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Fork/fork_GoldWool_256.fork_GoldWool_256",
@@ -1335,26 +1363,8 @@
       "height": 128,
       "bytes": 35797,
       "sha256": "0F0ABA97F388AE574D1B8C95FC0D7FF4AAEFE81209BEB64FFBF425233D1B368C"
-    },
-    "characters/player_canhong_256.png": {
-      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_canhong_256.player_canhong_256",
-      "width": 256,
-      "height": 256,
-      "bytes": 120827,
-      "sha256": "C59CD79DAE0D37A5A5DBFCAC23A44B0775FCC5724B227225AC07B378DE5EF4E0"
-    },
-    "characters/player_lingke_256.png": {
-      "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_lingke_256.player_lingke_256",
-      "width": 256,
-      "height": 256,
-      "bytes": 120644,
-      "sha256": "315A73C2BD3412C9FBF9E540FDCD3C43672EC12C1891397C9ADD394333A7D712"
     }
   },
-  "total_files": 162,
-  "total_bytes": 5469563,
-  "unresolved_assets": {
-    "fork_DemonBlade": "/Game/UI/UI_Icon/Fork/fork_DemonBlade_256.fork_DemonBlade_256",
-    "fork_GoldRecord": "/Game/UI/UI_Icon/Fork/fork_GoldRecord_256.fork_GoldRecord_256"
-  }
+  "total_files": 164,
+  "total_bytes": 5527736
 }

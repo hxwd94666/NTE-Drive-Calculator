@@ -71,6 +71,24 @@ def _nightmare_evade_hit(event_id: str, time_us: int) -> BattleAnalysisHit:
 
 
 class BattleDotStackStateServiceTests(unittest.TestCase):
+    def test_explicit_scorch_identity_overrides_reused_zankou_dot_ge(self) -> None:
+        hit = replace(
+            _hit(
+                "reused-ge-scorch",
+                1_000_000,
+                "GE_Player_Zankou_DotDamage",
+                1036,
+            ),
+            damage_name="浊燃",
+            classification="reaction",
+        )
+        analysis = SimpleNamespace(hits=(hit,), time_stop_intervals=())
+
+        state = reconstruct_dot_stack_states(analysis, None)[hit.event_id]
+
+        self.assertEqual("浊燃结算前层数", state.label)
+        self.assertIn("浊燃", state.evidence_basis)
+
     def test_visible_scorch_tick_without_prior_evidence_falls_back_to_one(self) -> None:
         nightmare_hit = _hit(
             "nightmare-1",
@@ -472,13 +490,19 @@ class BattleDotStackStateServiceTests(unittest.TestCase):
         self.assertEqual(1.0, states["scorch-first"].dot_final_multiplier)
         self.assertEqual(2, states["scorch-first"].active_dot_kind_count)
         self.assertEqual(1.75, states["scorch-old"].dot_final_multiplier)
-        self.assertEqual(1.75, states["scorch-new"].dot_final_multiplier)
-        self.assertEqual(1.75, states["scorch-next"].dot_final_multiplier)
+        self.assertEqual(3, states["scorch-old"].active_dot_kind_count)
+        self.assertEqual(1.50, states["scorch-new"].dot_final_multiplier)
+        self.assertEqual(2, states["scorch-new"].active_dot_kind_count)
+        self.assertEqual(1.50, states["scorch-next"].dot_final_multiplier)
+        self.assertEqual(2, states["scorch-next"].active_dot_kind_count)
         self.assertEqual(1.50, states["nightmare"].dot_final_multiplier)
         self.assertEqual(2, states["nightmare"].active_dot_kind_count)
         self.assertEqual(1.75, states["erosion"].dot_final_multiplier)
         self.assertEqual(3, states["erosion"].active_dot_kind_count)
-        self.assertIn("结算前处于浊燃", states["erosion"].dot_final_multiplier_basis)
+        self.assertIn(
+            "结算前已处于浊燃",
+            states["erosion"].dot_final_multiplier_basis,
+        )
 
     def test_sagiri_dot_final_multiplier_counts_kinds_not_layers(self) -> None:
         hits = (

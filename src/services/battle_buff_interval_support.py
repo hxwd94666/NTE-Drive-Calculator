@@ -216,6 +216,38 @@ class BattleBuffIntervalSupportMixin:
             return (BuffOccurrence(0, "低"),)
         if event == "passive_static":
             return (BuffOccurrence(0, "高"),)
+        if event == "fork_mofeikesi_controlled_hit":
+            results = []
+            q_actions = tuple(
+                row for row in role_actions if row.input_kind == "Q"
+            )
+            for action in q_actions:
+                grouped: dict[tuple[str, str], list[BattleAnalysisHit]] = {}
+                for row in role_hits:
+                    if not action.start_us <= row.relative_time_us <= action.end_us:
+                        continue
+                    grouped.setdefault(
+                        (row.scope_half.casefold(), row.target_id),
+                        [],
+                    ).append(row)
+                for target_hits in grouped.values():
+                    ordered = sorted(
+                        target_hits,
+                        key=lambda row: (
+                            row.relative_time_us,
+                            row.sequence,
+                            row.event_id,
+                        ),
+                    )
+                    for row in ordered[1:]:
+                        results.append(BuffOccurrence(
+                            row.relative_time_us,
+                            "中",
+                            action_ids=(action.action_id,),
+                            event_ids=(row.event_id,),
+                            target_id=row.target_id,
+                        ))
+            return tuple(results)
         if event.startswith("suit_team_attribute_hit|"):
             attribute = event.split("|", 1)[1]
             return tuple(

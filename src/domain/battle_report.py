@@ -518,6 +518,7 @@ class BattleCharacterBaseline:
     character_level: float = 80.0
     source_stats: tuple[BattleCharacterSourceStat, ...] = ()
     inherent_hp: float | None = None
+    source_max_hp: float | None = None
     enabled_team_passive_ids: tuple[str, ...] = ()
 
 
@@ -602,6 +603,13 @@ class BattleHitReplayResult:
     critical_policy: Literal[
         "character", "fixed", "disabled", "unknown"
     ] = "unknown"
+    reported_damage: float | None = None
+    observed_damage_source: Literal[
+        "reported_hit",
+        "reported_hit_before_overkill",
+        "target_hp_transition_remainder",
+    ] = "reported_hit"
+    observed_damage_basis: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -452,7 +452,7 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             result.vital_events[0].quantification.method,
         )
 
-    def test_fadia_max_hp_damage_follows_inherent_hp(self) -> None:
+    def test_fadia_max_hp_damage_follows_source_current_max_hp(self) -> None:
         hit = _hit(
             "hit1",
             character_id=1039,
@@ -468,6 +468,7 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
                 "original",
                 (),
                 inherent_hp=10_000,
+                source_max_hp=20_000,
             ),),
             replays=(_replay("hit1", 100),),
         )
@@ -500,7 +501,8 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
                 "法帝娅",
                 "candidate",
                 (),
-                inherent_hp=12_000,
+                inherent_hp=10_000,
+                source_max_hp=24_000,
             ),),
             replays=(_replay("hit1", 100),),
         )
@@ -514,7 +516,7 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
         self.assertEqual(340.0, result.candidate_damage)
         self.assertEqual(240.0, result.vital_events[0].candidate_damage)
         self.assertEqual(
-            "fadia_inherent_hp_ratio",
+            "fadia_source_max_hp_ratio",
             result.vital_events[0].quantification.method,
         )
 

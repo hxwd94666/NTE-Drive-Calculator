@@ -21,6 +21,9 @@ from src.services.battle_inferred_target_condition_service import (
     BattleInferredEncounter,
     BattleInferredTargetConditionService,
 )
+from src.services.battle_hit_replay_audit_service import (
+    BattleHitReplayAuditService,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,10 +79,13 @@ def _fit_candidate(
     candidate: BattleEncounterCandidate,
     analysis: BattleAnalysisSnapshot,
     group_ids: dict[str, str],
+    excluded_event_ids: frozenset[str],
 ) -> BattleEncounterFitCandidate:
     hits = {row.event_id: row for row in analysis.hits}
     predictions = []
     for replay in analysis.hit_replays:
+        if replay.event_id in excluded_event_ids:
+            continue
         hit = hits.get(replay.event_id)
         if hit is None:
             continue
@@ -142,8 +148,18 @@ class BattleEncounterFitProjectionService:
             for replay in reference_analysis.hit_replays
             if replay.event_id in stable_hits or replay.event_id in reference_hits
         }
+        excluded_event_ids = (
+            BattleHitReplayAuditService.damage_attribution_conflict_ids(
+                stable_analysis.hits
+            )
+        )
         candidates = [
-            _fit_candidate(match.candidate, analyses[match.candidate.environment_ref], group_ids)
+            _fit_candidate(
+                match.candidate,
+                analyses[match.candidate.environment_ref],
+                group_ids,
+                excluded_event_ids,
+            )
             for match in matches
         ]
         selection = BattleEncounterFitService.select(tuple(candidates))

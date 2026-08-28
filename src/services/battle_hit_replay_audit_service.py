@@ -7,7 +7,7 @@ from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import replace
-from math import log
+from math import isfinite, log
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
@@ -27,6 +27,7 @@ _EROSION_ID = "ge_player_zankou_dotdamage"
 _OBSERVED_UNIT_WINDOW_US = 10_000_000
 _RECENT_APPLICATION_WINDOW_US = 700_000
 _DUPLICATE_DAMAGE_WINDOW_US = 700_000
+_DARK_STAR_EFFECT_ID = "buff_reaction_4_new"
 
 
 def _target_key(hit: BattleAnalysisHit) -> tuple[str, str]:
@@ -69,9 +70,103 @@ class BattleHitReplayAuditService:
         analysis: BattleAnalysisSnapshot,
         results: tuple[BattleHitReplayResult, ...],
     ) -> tuple[BattleHitReplayResult, ...]:
-        adjusted = cls.apply_nightmare_observed_layer_adjustment(analysis, results)
+        adjusted = cls.apply_dark_star_hp_remainder_observation(analysis, results)
+        adjusted = cls.apply_nightmare_observed_layer_adjustment(analysis, adjusted)
         adjusted = cls.apply_erosion_settlement_adjustment(analysis, adjusted)
         return cls.apply_damage_attribution_conflicts(analysis, adjusted)
+
+    @classmethod
+    def apply_dark_star_hp_remainder_observation(
+        cls,
+        analysis: BattleAnalysisSnapshot,
+        results: tuple[BattleHitReplayResult, ...],
+    ) -> tuple[BattleHitReplayResult, ...]:
+        """Recover one missing structured Dark Star additional settlement.
+
+        nte-core models a four-wrapper server settlement as primary damage plus
+        a separately typed follow-up. Older saved axes may contain only the
+        primary value while their target HP transition still covers both. This
+        refinement exposes an exact formula-comparable observation without
+        mutating the raw hit, totals, attribution, or persisted battle axis.
+        """
+
+        hits_by_event = {hit.event_id: hit for hit in analysis.hits}
+        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
+        replacements: dict[str, BattleHitReplayResult] = {}
+        for result in results:
+            hit = hits_by_event.get(result.event_id)
+            selected = result.selected_damage
+            if (
+                hit is None
+                or result.event_id in conflicts
+                or hit.direction != "outgoing"
+                or hit.is_follow_up
+                or hit.gameplay_effect_id.casefold() != _DARK_STAR_EFFECT_ID
+                or "黯星" not in result.formula_type
+                or selected is None
+                or selected <= 0.0
+                or result.observed_damage <= 0.0
+                or hit.target_hp_before is None
+                or hit.target_hp_after is None
+                or not hit.target_id
+                or hit.target_id.casefold() in {"unknown", "unknown-target"}
+                or (hit.overkill_damage or 0.0) > 0.0
+                or hit.damage_overlap_correction > 0.0
+            ):
+                continue
+            before = float(hit.target_hp_before)
+            after = float(hit.target_hp_after)
+            if (
+                not isfinite(before)
+                or not isfinite(after)
+                or before <= after
+                or after <= 0.0
+            ):
+                continue
+            hp_delta = before - after
+            remainder = hp_delta - hit.damage
+            tolerance = max(1.0, abs(selected) * 0.000_001)
+            reported_matches = abs(hit.damage - selected) <= tolerance
+            if (
+                remainder <= 0.0
+                or reported_matches
+                or abs(remainder - selected) > tolerance
+            ):
+                continue
+            observed = float(remainder)
+            signed_error = replay_signed_error_percent(observed, selected)
+            absolute_error = replay_error_percent(observed, selected)
+            expected = result.expected_damage
+            corrected_expected = (
+                expected * observed / selected
+                if expected is not None and selected > 0.0
+                else None
+            )
+            basis = (
+                f"同目标生命差 {hp_delta:g} 减同批主伤害 {hit.damage:g} "
+                f"得到 {observed:g}；与 toolkit 四段服务端结算中的"
+                "黯星追加伤害模型及本击公式候选严格一致"
+            )
+            replacements[result.event_id] = replace(
+                result,
+                observed_damage=observed,
+                selected_error_percent=absolute_error,
+                signed_error_percent=signed_error,
+                confidence="高",
+                corrected_expected_damage=corrected_expected,
+                reported_damage=hit.damage,
+                observed_damage_source="target_hp_transition_remainder",
+                observed_damage_basis=basis,
+                missing_evidence=tuple(dict.fromkeys((
+                    *result.missing_evidence,
+                    (
+                        f"原始逐击仍上报主伤害 {hit.damage:g}；公式比较只采用"
+                        f"目标生命变化中严格分离的黯星追加伤害 {observed:g}，"
+                        "不改写原轴、伤害合计或生命上限下降"
+                    ),
+                ))),
+            )
+        return tuple(replacements.get(row.event_id, row) for row in results)
 
     @classmethod
     def apply_erosion_settlement_adjustment(
@@ -87,7 +182,7 @@ class BattleHitReplayAuditService:
         """
 
         hits_by_event = {hit.event_id: hit for hit in analysis.hits}
-        conflicts = cls._damage_attribution_conflict_ids(analysis.hits)
+        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
         replacements: dict[str, BattleHitReplayResult] = {}
         for result in results:
             hit = hits_by_event.get(result.event_id)
@@ -96,6 +191,7 @@ class BattleHitReplayAuditService:
                 hit is None
                 or result.event_id in conflicts
                 or hit.gameplay_effect_id.casefold() != _EROSION_ID
+                or "蚀心" not in result.formula_type
                 or stack_factor is None
                 or stack_factor.value <= 1.0
                 or result.non_critical_damage is None
@@ -231,7 +327,7 @@ class BattleHitReplayAuditService:
         results: tuple[BattleHitReplayResult, ...],
     ) -> tuple[BattleHitReplayResult, ...]:
         hits_by_event = {hit.event_id: hit for hit in analysis.hits}
-        conflicts = cls._damage_attribution_conflict_ids(analysis.hits)
+        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
         applications: dict[tuple[str, str], list[int]] = defaultdict(list)
         for hit in analysis.hits:
             if _is_nightmare_application(hit):
@@ -431,10 +527,11 @@ class BattleHitReplayAuditService:
         analysis: BattleAnalysisSnapshot,
         results: tuple[BattleHitReplayResult, ...],
     ) -> tuple[BattleHitReplayResult, ...]:
-        conflicts = cls._damage_attribution_conflict_ids(analysis.hits)
+        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
         reason = (
-            "伤害归属污染：同一目标 700ms 内另一伤害项上报相同伤害，且 HP 区间"
-            "重叠或结算端点一致；保留原始逐击与公式候选，但本击不参与暴击或层数校准"
+            "同一服务端 HP 结算的重复归属候选：同一目标 700ms 内另一伤害项"
+            "上报相同伤害，且 HP 区间重叠或结算端点一致；这不表示伤害实际发生两次。"
+            "保留原始逐击与公式候选，但本击不参与暴击或层数校准"
         )
         return tuple(
             replace(
@@ -449,11 +546,16 @@ class BattleHitReplayAuditService:
         )
 
     @staticmethod
-    def _damage_attribution_conflict_ids(
+    def damage_attribution_conflict_ids(
         hits: Sequence[BattleAnalysisHit],
     ) -> frozenset[str]:
+        """Return raw event IDs whose damage ownership is formally conflicted."""
+
         ordered = sorted(
-            (hit for hit in hits if hit.direction == "outgoing"),
+            (
+                hit for hit in hits
+                if getattr(hit, "direction", "") == "outgoing"
+            ),
             key=lambda row: (row.relative_time_us, row.sequence, row.event_id),
         )
         conflicts: set[str] = set()

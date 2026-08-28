@@ -7,6 +7,37 @@ from typing import Any
 
 
 class StaticGameDataEncounterQueriesMixin:
+    def get_monster_enemy_type_by_formal_id(
+        self,
+        formal_id: str,
+    ) -> str | None:
+        """Resolve a captured formal monster/template ID to official enemy type."""
+
+        row = self._one(
+            """
+            SELECT m.enemy_type
+            FROM monster_catalog AS m
+            WHERE m.monster_manual_id = ? COLLATE NOCASE
+            UNION ALL
+            SELECT m.enemy_type
+            FROM monster_template_binding AS b
+            JOIN monster_catalog AS m USING (monster_manual_id)
+            WHERE b.monster_template_name = ? COLLATE NOCASE
+            UNION ALL
+            SELECT 'Boss'
+            FROM monster_boss_support AS s
+            WHERE s.monster_template_name = ? COLLATE NOCASE
+            ORDER BY enemy_type
+            LIMIT 1
+            """,
+            (
+                str(formal_id).strip(),
+                str(formal_id).strip(),
+                str(formal_id).strip(),
+            ),
+        )
+        return None if row is None else str(row.get("enemy_type") or "") or None
+
     def list_open_world_target_catalog(self) -> list[dict[str, Any]]:
         targets = self._rows(
             """
@@ -322,6 +353,56 @@ class StaticGameDataEncounterQueriesMixin:
                 },
             })
         return results
+
+    def list_high_risk_commission_fingerprint_rows(self) -> list[dict[str, Any]]:
+        """Return exact-difficulty 高危委托 members with frozen combat profiles."""
+
+        rows = self._rows(
+            """
+            SELECT c.commission_id, c.name_zh,
+                   d.difficulty_id, d.recommended_character_level,
+                   d.scene_data_id, d.monster_pool_id,
+                   m.member_ordinal, m.monster_class_path,
+                   m.monster_template_name, m.monster_count,
+                   m.configured_monster_level,
+                   p.monster_level, p.default_profile_set AS profile_set,
+                   p.default_pack_id AS pack_id,
+                   e.health_base, e.health_up, e.health_add,
+                   e.defense_base, e.defense_up, e.defense_add,
+                   e.topple_limit
+            FROM high_risk_commission AS c
+            JOIN high_risk_commission_difficulty AS d USING (commission_id)
+            JOIN high_risk_monster_pool_member AS m USING (monster_pool_id)
+            JOIN monster_instance_profile AS p
+              ON lower(p.monster_id) = lower(m.monster_template_name)
+             AND p.default_profile_set IS NOT NULL
+             AND p.default_pack_id IS NOT NULL
+            JOIN enemy_combat_profile AS e
+              ON e.profile_set = p.default_profile_set
+             AND e.pack_id = p.default_pack_id
+            WHERE d.monster_pool_id IS NOT NULL
+            ORDER BY c.commission_id, d.difficulty_id, m.member_ordinal,
+                     CASE p.static_table
+                         WHEN 'monster_static_big_world_gameplay' THEN 0
+                         WHEN 'monster_static_big_world' THEN 1
+                         ELSE 2 END,
+                     p.static_table
+            """
+        )
+        unique: dict[tuple[str, int, int], dict[str, Any]] = {}
+        for row in rows:
+            key = (
+                str(row["commission_id"]),
+                int(row["difficulty_id"]),
+                int(row["member_ordinal"]),
+            )
+            if key in unique:
+                continue
+            row["profile"] = self.get_enemy_combat_profile(
+                row["profile_set"], row["pack_id"]
+            )
+            unique[key] = row
+        return list(unique.values())
 
     def list_outer_realm_configs(self) -> list[dict[str, Any]]:
         configs = self._rows(

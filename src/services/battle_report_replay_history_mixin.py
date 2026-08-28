@@ -34,6 +34,10 @@ from src.services.battle_topple_hit_replay_service import (
 from src.services.battle_target_instance_mapping_service import (
     BattleTargetInstanceMappingService,
 )
+from src.services.battle_target_control_policy_service import (
+    BattleTargetControlPolicyService,
+    CONTROL_ELIGIBLE_DEFAULT,
+)
 from src.services.battle_zankou_form_buff_service import (
     BattleZankouFormBuffService,
     BattleZankouFormConfig,
@@ -43,6 +47,24 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 class BattleReportReplayHistoryMixin:
     _dependencies: Any
+
+    def _load_target_control_policy(self, resolutions: tuple[Any, ...]) -> str:
+        static_path = self._dependencies.static_database_path
+        resolved_ids = tuple(
+            str(row.resolved_monster_id or "")
+            for row in resolutions
+            if str(row.resolved_monster_id or "")
+        )
+        if static_path is None or not resolved_ids:
+            return CONTROL_ELIGIBLE_DEFAULT
+        try:
+            with StaticGameDataDao(static_path) as static_dao:
+                return BattleTargetControlPolicyService.resolve_formal_policy(
+                    static_dao,
+                    resolved_ids,
+                )
+        except (OSError, RuntimeError, ValueError):
+            return CONTROL_ELIGIBLE_DEFAULT
 
     def _load_skill_damage_evidence(
         self,

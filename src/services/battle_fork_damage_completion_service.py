@@ -14,7 +14,7 @@ from src.services.battle_fork_residual_completion_service import (
 )
 
 
-FORK_DAMAGE_COMPLETION_MODEL_VERSION = "battle-fork-damage-completion-v2"
+FORK_DAMAGE_COMPLETION_MODEL_VERSION = "battle-fork-damage-completion-v3"
 ROSE_STACK_EVENT = "FORK_ROSE_DAMAGE_STACK"
 TIGER_NORMAL_STACK_EVENT = "FORK_TIGER_NORMAL_STACK"
 TIGER_COMMANDER_EVENT = "FORK_TIGER_COMMANDER_INFERRED"
@@ -104,6 +104,7 @@ def _rule(
     stack_limit: int = 1,
     cooldown: float | None = None,
     stacking: str = "AggregateBySource",
+    application_requirement: str = "",
 ) -> Any:
     effect_id = str(selected.effect_definition_id)
     return factory(
@@ -125,6 +126,7 @@ def _rule(
         stacking_type=stacking,
         stack_limit_count=stack_limit,
         cooldown_seconds=cooldown,
+        application_requirement_asset_path=application_requirement,
     )
 
 
@@ -499,12 +501,16 @@ def _rules_mofeikesi(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
             selected,
             factory,
             suffix="mofeikesi-controlled-extra",
-            name="好狗狗走四方：Q 控制命中后的额外攻击（缺少控制命中事实）",
-            event_type="EBuffEventType::BUFF_EVENT_Q_SKILL_BEGIN",
+            name="好狗狗走四方：Q 控制触发后额外攻击",
+            event_type="FORK_MOFEIKESI_CONTROLLED_HIT",
             modifiers=(_modifier("AtkUp", controlled),),
-            scope="unknown",
+            scope="team",
             duration=duration,
             stacking="AggregateBySource|RefreshWholeStack",
+            application_requirement=(
+                "/Game/Blueprints/Abilities/Condition/Fork/"
+                "Con_Fork_mofeikesi/Con_Fork_mofeikesi_1"
+            ),
         ),
     )
 

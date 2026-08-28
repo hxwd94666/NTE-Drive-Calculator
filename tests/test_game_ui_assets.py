@@ -47,15 +47,12 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertEqual(fork_ids, set(manifest["fork_items"]))
         self.assertGreater(len(manifest["monster_icons"]), 0)
 
-    def test_test_server_missing_fork_exports_remain_explicit(self) -> None:
+    def test_new_fork_exports_resolve_to_official_icons(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(
-            {"fork_DemonBlade", "fork_GoldRecord"},
-            set(manifest["unresolved_assets"]),
-        )
+        self.assertNotIn("unresolved_assets", manifest)
         catalog = GameUiAssetCatalog(ASSET_ROOT)
-        self.assertIsNone(catalog.fork_icon("fork_DemonBlade"))
-        self.assertIsNone(catalog.fork_icon("fork_GoldRecord"))
+        self.assertTrue(catalog.fork_icon("fork_DemonBlade").is_file())
+        self.assertTrue(catalog.fork_icon("fork_GoldRecord").is_file())
 
     def test_catalog_resolves_ids_and_rejects_missing_keys(self) -> None:
         catalog = GameUiAssetCatalog(ASSET_ROOT)

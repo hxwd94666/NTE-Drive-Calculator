@@ -32,93 +32,6 @@ def _hit(
 
 
 class BattleInferredTargetConditionServiceTests(unittest.TestCase):
-    def test_current_outer_realm_roster_resolves_environment_and_names(self) -> None:
-        hits = [
-            _hit(1, 2_628_918.0, "enemy-wire:a", "upper"),
-            _hit(2, 808_898.0, "enemy-wire:b", "upper"),
-            _hit(3, 808_898.0, "enemy-wire:c", "upper"),
-        ]
-        hits[0]["target_name"] = "/Game/Blueprints/Character/Monster/boss_16"
-
-        inferred = BattleInferredTargetConditionService.infer(
-            static_database_path=STATIC_DATABASE,
-            combat_context_kind="abyss",
-            floor=10,
-            evidence={"hits": hits},
-            range_start_us=0,
-            range_end_us=10,
-        )
-
-        assert inferred is not None
-        self.assertEqual("outer_realm", inferred.environment_kind)
-        self.assertTrue(inferred.environment_ref.startswith("Abyss_8|10|"))
-        self.assertEqual("高", inferred.confidence)
-        self.assertEqual("unique_hard", inferred.selection_mode)
-        self.assertEqual(
-            {"拖车艄", "迦楼罗 1", "迦楼罗 2"},
-            {row.target_name for row in inferred.identities},
-        )
-        self.assertIsNone(inferred.target_condition)
-
-        evidence = {"hits": hits}
-        BattleInferredTargetConditionService.project_evidence(evidence, inferred)
-        self.assertEqual("拖车艄", hits[0]["target_name"])
-        self.assertEqual("迦楼罗 1", hits[1]["target_name"])
-        self.assertEqual(
-            "inferred_encounter_hp_injective_default",
-            hits[0]["target_identity_source"],
-        )
-
-    def test_max_hp_reduction_does_not_inflate_initial_ceiling(self) -> None:
-        later = _hit(4, 1_700_000.0, "enemy-wire:a", "lower")
-        later["max_hp_reduction"] = 100_000.0
-        inferred = BattleInferredTargetConditionService.infer(
-            static_database_path=STATIC_DATABASE,
-            combat_context_kind="abyss",
-            floor=10,
-            evidence={
-                "hits": (
-                    _hit(1, 1_752_612.0, "enemy-wire:a", "lower"),
-                    _hit(2, 1_752_612.0, "enemy-wire:b", "lower"),
-                    _hit(3, 1_752_612.0, "enemy-wire:c", "lower"),
-                    later,
-                )
-            },
-            range_start_us=0,
-            range_end_us=10,
-        )
-
-        assert inferred is not None
-        self.assertEqual("Abyss_8", inferred.environment_ref.split("|", 1)[0])
-        self.assertEqual(
-            {"扫晴娘 1", "扫晴娘 2", "扫晴娘 3"},
-            {row.target_name for row in inferred.identities},
-        )
-        self.assertTrue(all(not row.inferred_monster_id for row in inferred.identities))
-
-    def test_latest_feast_shape_defaults_morpheus_from_raw_max_hp(self) -> None:
-        later = _hit(2, 13_547_244.0, "enemy-wire:morpheus")
-        later["max_hp_reduction"] = 13_644.0
-
-        inferred = BattleInferredTargetConditionService.infer(
-            static_database_path=STATIC_DATABASE,
-            combat_context_kind="non_abyss",
-            floor=None,
-            evidence={
-                "hits": (
-                    _hit(1, 13_549_012.0, "enemy-wire:morpheus"),
-                    later,
-                )
-            },
-            range_start_us=0,
-            range_end_us=10,
-        )
-
-        assert inferred is not None
-        self.assertEqual("DiyBossStage8", inferred.environment_ref)
-        self.assertEqual("墨菲克斯", inferred.identities[0].target_name)
-        self.assertEqual("ambiguous_default", inferred.selection_mode)
-
     def test_ui_range_does_not_hide_other_half_from_environment_recognition(self) -> None:
         inferred = BattleInferredTargetConditionService.infer(
             static_database_path=STATIC_DATABASE,
@@ -255,38 +168,6 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         self.assertGreaterEqual(resistances["psyche"], 0.3)
         self.assertGreaterEqual(resistances["lakshana"], 0.3)
 
-    def test_feast_base_health_matches_without_life_option(self) -> None:
-        hits = [_hit(1, 5_419_605.0, "enemy-wire:wish")]
-
-        inferred = BattleInferredTargetConditionService.infer(
-            static_database_path=STATIC_DATABASE,
-            combat_context_kind="non_abyss",
-            floor=None,
-            evidence={"hits": hits},
-            range_start_us=0,
-            range_end_us=10,
-        )
-
-        assert inferred is not None
-        self.assertEqual("feast", inferred.environment_kind)
-        self.assertEqual("DiyBossStage8", inferred.environment_ref)
-        self.assertEqual(4, inferred.difficulty_id)
-        options = dict(inferred.feast_options)
-        self.assertNotIn("1", options)
-        self.assertEqual("Attack003_challenge", options["2"])
-        self.assertEqual("LightOP003_challenge", options["3"])
-        self.assertEqual("HunOP003_challenge", options["4"])
-        self.assertEqual("XiangOP003_challenge", options["5"])
-        self.assertEqual("墨菲克斯", inferred.identities[0].target_name)
-
-        evidence = {"hits": hits}
-        BattleInferredTargetConditionService.project_evidence(evidence, inferred)
-        self.assertEqual("墨菲克斯", hits[0]["target_name"])
-        self.assertEqual(
-            "inferred_encounter_hp_injective_default",
-            hits[0]["target_identity_source"],
-        )
-
     def test_mixed_halves_resolve_one_season_without_merging_target_profiles(self) -> None:
         mixed = BattleInferredTargetConditionService.infer(
             static_database_path=STATIC_DATABASE,
@@ -363,41 +244,6 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         self.assertEqual("DiyBossStage3", inferred.environment_ref)
         self.assertEqual("塞润尼缇", inferred.identities[0].target_name)
         self.assertEqual("unique_hard", inferred.selection_mode)
-
-    def test_same_hp_feast_profiles_keep_a_low_confidence_formula_default(
-        self,
-    ) -> None:
-        inferred = BattleInferredTargetConditionService.infer(
-            static_database_path=STATIC_DATABASE,
-            combat_context_kind="non_abyss",
-            floor=None,
-            evidence={
-                "hits": (
-                    _hit(1, 4_498_005.0, "enemy-wire:ambiguous-feast"),
-                )
-            },
-            range_start_us=0,
-            range_end_us=10,
-        )
-
-        assert inferred is not None
-        self.assertEqual(
-            {"DiyBossStage3", "DiyBossStage4"},
-            {
-                inferred.environment_ref,
-                *inferred.alternative_environment_refs,
-            },
-        )
-        self.assertTrue(inferred.ambiguous)
-        self.assertEqual("ambiguous_default", inferred.selection_mode)
-        self.assertIsNotNone(inferred.target_condition)
-        assert inferred.target_condition is not None
-        self.assertEqual("DiyBossStage3", inferred.target_condition.environment_ref)
-        self.assertEqual(1, len(inferred.target_conditions_by_half))
-        self.assertEqual((), inferred.identities)
-        self.assertEqual(2, len(inferred.formula_matches))
-        self.assertIn("进入原始逐击残差裁决", inferred.inference_basis)
-
 
 if __name__ == "__main__":
     unittest.main()

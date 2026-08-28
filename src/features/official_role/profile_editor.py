@@ -5,7 +5,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .role_calculation import (
     _build_damage_formula_group,
@@ -26,6 +34,8 @@ __all__ = ["OfficialRoleProfileEditor"]
 
 class OfficialRoleProfileEditor(QWidget):
     """Edit cultivation fields while keeping persistence outside the widget."""
+
+    changed = Signal()
 
     def __init__(
         self,
@@ -93,6 +103,14 @@ class OfficialRoleProfileEditor(QWidget):
                 _build_weight_group(self, character_id, detail, self._editor)
             )
         layout.addStretch()
+        for widget in self.findChildren(QCheckBox):
+            widget.toggled.connect(self.changed)
+        for widget in self.findChildren(QComboBox):
+            widget.currentIndexChanged.connect(self.changed)
+        for widget in self.findChildren(QSpinBox):
+            widget.valueChanged.connect(self.changed)
+        for widget in self.findChildren(QDoubleSpinBox):
+            widget.valueChanged.connect(self.changed)
 
     def profile(self) -> dict:
         projected = _calculation_detail(self._detail, self._editor)

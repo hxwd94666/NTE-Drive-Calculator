@@ -34,7 +34,7 @@ def _duplicate_fingerprint(row: Mapping[str, object]) -> tuple[object, ...] | No
 def target_observation_aliases(
     rows: Sequence[Mapping[str, object]],
 ) -> dict[tuple[str, str], str]:
-    """Collapse one-off contextless copies of an identical observed HP transition."""
+    """Collapse evidence-proven duplicate or continuous wire handles."""
 
     counts = Counter(
         (
@@ -45,6 +45,38 @@ def target_observation_aliases(
         if str(row.get("target_id") or "").strip()
     )
     aliases: dict[tuple[str, str], str] = {}
+    first_by_target: dict[tuple[str, str], Mapping[str, object]] = {}
+    for row in sorted(rows, key=lambda item: int(item.get("relative_time_us") or 0)):
+        half = str(row.get("abyss_half") or "").strip().casefold()
+        target_id = str(row.get("target_id") or "").strip()
+        if target_id:
+            first_by_target.setdefault((half, target_id), row)
+
+    # Some combat effects expose a second wire handle for the same live boss.
+    # Accept the alias only when the new handle starts exactly from a prior
+    # handle's observed HP endpoint and both report the same maximum HP.
+    for (half, target_id), first in first_by_target.items():
+        first_time = int(first.get("relative_time_us") or 0)
+        first_before = _number(first.get("target_hp_before"))
+        first_max = _number(first.get("target_max_hp"))
+        if first_before is None or first_max is None or first_before >= first_max:
+            continue
+        matches = {
+            str(candidate.get("target_id") or "").strip()
+            for candidate in rows
+            if str(candidate.get("abyss_half") or "").strip().casefold() == half
+            and str(candidate.get("target_id") or "").strip()
+            and str(candidate.get("target_id") or "").strip() != target_id
+            and int(candidate.get("relative_time_us") or 0) <= first_time
+            and first_time - int(candidate.get("relative_time_us") or 0) <= 5_000_000
+            and _number(candidate.get("target_max_hp")) is not None
+            and abs(float(candidate.get("target_max_hp")) - first_max) <= 1.0
+            and _number(candidate.get("target_hp_after")) is not None
+            and abs(float(candidate.get("target_hp_after")) - first_before) <= 1.0
+        }
+        if len(matches) == 1:
+            aliases[(half, target_id)] = next(iter(matches))
+
     for row in rows:
         half = str(row.get("abyss_half") or "").strip().casefold()
         target_id = str(row.get("target_id") or "").strip()
@@ -66,5 +98,5 @@ def target_observation_aliases(
             and abs(int(candidate.get("relative_time_us") or 0) - time_us) <= 5_000
         }
         if len(matches) == 1:
-            aliases[(half, target_id)] = next(iter(matches))
+            aliases.setdefault((half, target_id), next(iter(matches)))
     return aliases

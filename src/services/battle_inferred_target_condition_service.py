@@ -22,6 +22,9 @@ from src.services.battle_encounter_candidate_selection_service import (
     BattleEncounterCandidateSelectionService,
 )
 from src.services.battle_encounter_catalog_service import BattleEncounterCatalogService
+from src.services.battle_incoming_monster_identity_service import (
+    BattleIncomingMonsterIdentityService,
+)
 from src.services.battle_inferred_target_resolution_support import (
     inferred_mapping_condition,
     project_inferred_target_evidence,
@@ -165,18 +168,23 @@ class BattleInferredTargetConditionService:
         )
         if mixed is not None:
             return mixed
-        observed = BattleEncounterCandidateSelectionService.observe(
+        raw_observed = BattleEncounterCandidateSelectionService.observe(
             evidence,
             combat_context_kind=combat_context_kind,
         )
-        if not observed:
+        if not raw_observed:
             return None
-        observed_halves = {row.scope_half for row in observed if row.scope_half}
+        observed_halves = {row.scope_half for row in raw_observed if row.scope_half}
         if len(observed_halves) > 1:
             return None
         scope_half = next(iter(observed_halves), "")
         try:
             with StaticGameDataDao(static_database_path) as static_dao:
+                observed = BattleIncomingMonsterIdentityService.supplement(
+                    raw_observed,
+                    evidence,
+                    static_dao,
+                )
                 candidates = BattleEncounterCatalogService.filter_hard_context(
                     BattleEncounterCatalogService.load(static_dao),
                     combat_context_kind=combat_context_kind,
@@ -193,6 +201,7 @@ class BattleInferredTargetConditionService:
             return None
         if selection is None:
             return None
+        incoming_identity_used = observed != raw_observed
 
         match = selection.default
         candidate = match.candidate
@@ -230,7 +239,13 @@ class BattleInferredTargetConditionService:
             inference_basis=(
                 f"完整遭遇/半场的 {len(observed)} 个目标实例及初始最大生命"
                 f" [{hp_text}] 均可一对一注入默认环境的静态槽位；"
-                f"{selection.default_reason}"
+                + (
+                    "单目标受击 GameplayEffect 的索引、ID 与正式静态类路径"
+                    "一致，补充了怪物身份；"
+                    if incoming_identity_used
+                    else ""
+                )
+                + f"{selection.default_reason}"
                 + (
                     "；严格候选的公式画像不等价，先使用稳定默认画像参与公式，"
                     "并保留全部冲突候选进入原始逐击残差裁决。"
@@ -475,7 +490,8 @@ class BattleInferredTargetConditionService:
             target.target_id for target in candidate.targets if target.target_id
         ))
         condition_kind = (
-            "open_world" if candidate.environment_kind == "clone"
+            "open_world"
+            if candidate.environment_kind in {"clone", "high_risk_commission"}
             else candidate.environment_kind
         )
         return BattleTargetCondition(
@@ -483,7 +499,8 @@ class BattleInferredTargetConditionService:
             enemy_level=float(level or 1.0),
             scene=(
                 "open_world"
-                if candidate.environment_kind in {"open_world", "clone"}
+                if candidate.environment_kind
+                in {"open_world", "clone", "high_risk_commission"}
                 else "outer_realm"
             ),
             defense_reduction=0.0,

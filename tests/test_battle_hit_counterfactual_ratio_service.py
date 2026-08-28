@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 import src.domain.battle_report as battle_report
 from src.domain.battle_counterfactual import BattleBuildCounterfactual
@@ -171,6 +172,27 @@ class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
         self.assertEqual("unavailable", result.status)
         self.assertIsNone(result.quantified_ratio)
         self.assertEqual("scaling_dependency_unresolved", result.gaps[0].code)
+
+    def test_special_shared_damage_does_not_fall_back_to_direct_components(self) -> None:
+        hit = _hit()
+        hit = replace(
+            hit,
+            character_id=1039,
+            character_name="法帝娅",
+            skill_name="变轨技能：存在证明的体验",
+            damage_name="存在证明的体验",
+            ability_id="GA_Fadia_Skill",
+            gameplay_effect_id="GE_Player_Fadia_ZhouYin_Damage",
+        )
+
+        result = self._compare(
+            _baseline(AtkUp=0.1),
+            hit=hit,
+        )
+
+        self.assertEqual("unavailable", result.status)
+        self.assertEqual("component_ratio_unavailable", result.method)
+        self.assertEqual("formula_family_unsupported", result.gaps[0].code)
 
     def test_replay_scaling_terms_identify_hp_scaling(self) -> None:
         result = self._compare(

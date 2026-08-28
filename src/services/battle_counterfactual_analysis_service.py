@@ -35,6 +35,7 @@ from src.services.battle_buff_attribute_projection_service import (
 from src.services.battle_fadia_hp_stack_service import (
     BattleFadiaHpStackService,
     resolve_fadia_inherent_hp,
+    resolve_fadia_source_max_hp,
 )
 from src.services.battle_half_buff_scope_service import BattleHalfBuffScopeService
 from src.services.battle_target_ledger_service import BattleTargetLedgerService
@@ -80,7 +81,7 @@ from src.services.battle_treatment_replay_service import (
 from src.services.battle_daffodill_awakening_service import BattleDaffodillAwakeningService
 
 
-FORMULA_MODEL_VERSION = "battle-counterfactual-v20"
+FORMULA_MODEL_VERSION = "battle-counterfactual-v21"
 
 _REACTION_MARKERS = ("创生", "黯星", "浊燃", "浸染", "盈蓄", "失谐", "延滞", "倾陷", "reaction", "topple")
 _WEAVE_MARKERS = ("覆纹", "weave")
@@ -97,6 +98,7 @@ def _classification(
     *values: Any,
     ability_name: Any = None,
     gameplay_effect_name: Any = None,
+    gameplay_tags: Sequence[str] = (),
     follow_up: bool = False,
 ) -> str:
     ability = _text(ability_name).casefold()
@@ -111,6 +113,18 @@ def _classification(
         return "topple"
     if any(marker.casefold() in joined for marker in _MECHANIC_MARKERS):
         return "mechanic"
+    if follow_up and any(
+        marker.casefold() in " ".join(value.casefold() for value in normalized_values)
+        for marker in _REACTION_MARKERS
+    ):
+        return "reaction"
+    if effect.startswith(("buff_reaction_", "ge_actorreaction_")):
+        return "reaction"
+    normalized_tags = {str(value).casefold() for value in gameplay_tags}
+    if "state.damage.dot" in normalized_tags:
+        return "dot"
+    if "state.damage.attachment" in normalized_tags:
+        return "attachment"
     qte_direct = (
         "qte" in ability
         or "qte" in effect
@@ -220,6 +234,7 @@ def _split_hits(
                         attack_type,
                         ability_name=row.get("ability_name"),
                         gameplay_effect_name=row.get("gameplay_effect_name"),
+                        gameplay_tags=tuple(row.get("formal_gameplay_tags") or ()),
                     ),
                     **common,
                 )
@@ -274,6 +289,7 @@ def _split_hits(
                         *labels,
                         ability_name=row.get("ability_name"),
                         gameplay_effect_name=row.get("gameplay_effect_name"),
+                        gameplay_tags=tuple(row.get("formal_gameplay_tags") or ()),
                         follow_up=True,
                     ),
                     **{
@@ -297,6 +313,7 @@ def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline
         return ()
     baselines = []
     fadia_inherent_hp = resolve_fadia_inherent_hp(build)
+    fadia_source_max_hp = resolve_fadia_source_max_hp(build)
     enabled_team_passive_ids = tuple(
         row.definition.passive_id
         for row in BattleCharacterPassiveService.enabled_passives(build)
@@ -358,6 +375,11 @@ def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline
                     if int(character["character_id"]) == 1039
                     else None
                 ),
+                source_max_hp=(
+                    fadia_source_max_hp
+                    if int(character["character_id"]) == 1039
+                    else None
+                ),
                 enabled_team_passive_ids=enabled_team_passive_ids,
             )
         )
@@ -383,6 +405,7 @@ class BattleCounterfactualAnalysisService:
         outer_realm_buff_config: BattleOuterRealmBuffConfig | None = None,
         infer_buffs: bool = True,
         critical_events: Sequence[ForkCriticalEvent] = (),
+        target_control_policy: str = "eligible_default",
     ) -> BattleAnalysisSnapshot:
         resolved_target_condition = resolve_battle_target_condition(target_condition)
         source_hits = (evidence or {}).get("hits") or ()
@@ -495,6 +518,7 @@ class BattleCounterfactualAnalysisService:
                 time_stop_intervals=intervals,
                 treatment_events=treatment_events,
                 critical_events=critical_events,
+                target_control_policy=target_control_policy,
             )
             buff_intervals = tuple((
                 *buff_intervals,

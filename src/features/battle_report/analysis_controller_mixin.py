@@ -19,7 +19,6 @@ from src.services.battle_report_history_service import (
 )
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidate,
-    BattleMarginalCandidateService,
 )
 
 
@@ -180,7 +179,10 @@ class BattleReportAnalysisControllerMixin:
             )
         self._page.end_analysis_details()
         if request.load.detail_level == "marginal":
-            self._page.set_marginal_analysis(analysis)
+            self._page.set_marginal_analysis(
+                analysis,
+                detail_scope=request.load.detail_scope,
+            )
         else:
             self._page.set_analysis(
                 analysis,
@@ -259,38 +261,6 @@ class BattleReportAnalysisControllerMixin:
             detail_level=detail_level,
             completion_kind=kind,
             completion_payload=payload,
-        )
-
-    def _load_marginal_analysis(
-        self,
-        character_id: int,
-        detail_scope: object = None,
-        profiles: object = None,
-    ) -> None:
-        record_id = self._latest_state.battle_record_id
-        if record_id is None or self.is_running():
-            return
-        scope = str(detail_scope) if detail_scope in {"first", "second"} else None
-        if not isinstance(profiles, list):
-            return
-        try:
-            candidate = BattleMarginalCandidateService.freeze(
-                record_id,
-                profiles,
-                equipment_editable=self._page.marginal_equipment_editable(),
-                disabled_inferred_fact_ids=(
-                    self._page.marginal_disabled_inferred_fact_ids()
-                ),
-            )
-        except (TypeError, ValueError):
-            return
-        self._load_analysis(
-            record_id,
-            selected_character_id=int(character_id),
-            detail_scope=scope,
-            detail_level="marginal",
-            marginal_candidate=candidate,
-            completion_kind="marginal",
         )
 
     def _analysis_request_is_current(

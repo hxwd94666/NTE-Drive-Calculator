@@ -11,6 +11,7 @@ from src.services.battle_buff_attribute_projection_service import (
 from src.services.battle_fadia_hp_stack_service import (
     BattleFadiaHpStackService,
     resolve_fadia_inherent_hp,
+    resolve_fadia_source_max_hp,
 )
 
 
@@ -103,14 +104,12 @@ class BattleFadiaHpStackServiceTests(unittest.TestCase):
             resolve_fadia_inherent_hp(_build(effect_three=False)),
         )
 
-    def test_observed_max_hp_transfer_overrides_stale_build_configuration(self) -> None:
+    def test_source_max_hp_uses_frozen_resolved_panel_hp(self) -> None:
         self.assertEqual(
-            52_781.25,
-            resolve_fadia_inherent_hp(
-                _build(effect_three=False),
-                observed_events=(_observed_transfer(105_562.5),),
-            ),
+            20_000.0,
+            resolve_fadia_source_max_hp(_build(effect_three=False)),
         )
+        self.assertEqual(24_500.0, resolve_fadia_source_max_hp(_build()))
 
     def test_each_dark_star_adds_one_persistent_team_hp_stack(self) -> None:
         dark_star_one = _hit(1, 1_000_000, dark_star=True)
@@ -136,8 +135,8 @@ class BattleFadiaHpStackServiceTests(unittest.TestCase):
 
         self.assertEqual((), before.modifiers)
         self.assertEqual("HPMaxAdd", after_one.modifiers[0].property_id)
-        self.assertEqual(1_950.0, after_one.modifiers[0].additive_value)
-        self.assertEqual(3_900.0, after_two.modifiers[0].additive_value)
+        self.assertEqual(2_450.0, after_one.modifiers[0].additive_value)
+        self.assertEqual(5_145.0, after_two.modifiers[0].additive_value)
 
     def test_formal_target_drop_calibrates_each_team_hp_stack(self) -> None:
         intervals = BattleFadiaHpStackService.infer(
@@ -156,7 +155,64 @@ class BattleFadiaHpStackServiceTests(unittest.TestCase):
         team_interval = next(row for row in intervals if row.target_scope == "team")
         self.assertEqual("高", team_interval.value_confidence)
 
-    def test_formal_target_drop_calibrates_stale_fadia_hp_before_first_stack(
+    def test_implausible_nearby_target_drop_does_not_calibrate_stack(self) -> None:
+        intervals = BattleFadiaHpStackService.infer(
+            build=_build(effect_three=False),
+            hits=(_hit(1, 1_000_000, dark_star=True),),
+            battle_end_us=3_000_000,
+            max_hp_events=(_observed_transfer(1_394.0),),
+        )
+
+        self.assertEqual(2_000.0, intervals[0].modifiers[0].magnitude_value)
+        self.assertEqual("中", intervals[0].value_confidence)
+
+    def test_distinct_observed_drops_calibrate_distinct_dark_star_layers(self) -> None:
+        first = _observed_transfer(105_562.5)
+        second = replace(
+            _observed_transfer(108_352.0),
+            event_id="max-hp:2",
+            observed_at_us=3_500_000,
+            evidence_event_ids=("3:primary",),
+        )
+        intervals = BattleFadiaHpStackService.infer(
+            build=_build(),
+            hits=(
+                _hit(1, 1_000_000, dark_star=True),
+                _hit(3, 3_000_000, dark_star=True),
+            ),
+            battle_end_us=5_000_000,
+            max_hp_events=(first, second),
+        )
+
+        projection = BattleBuffAttributeProjectionService.project_hit(
+            replace(_hit(4, 4_000_000, dark_star=False), character_id=1004),
+            intervals,
+        )
+
+        self.assertAlmostEqual(10_695.725, projection.modifiers[0].additive_value)
+
+    def test_delayed_observed_drop_only_calibrates_latest_dark_star(self) -> None:
+        delayed = replace(
+            _observed_transfer(105_562.5),
+            observed_at_us=3_500_000,
+            evidence_event_ids=("1:primary", "3:primary"),
+        )
+        intervals = BattleFadiaHpStackService.infer(
+            build=_build(),
+            hits=(
+                _hit(1, 1_000_000, dark_star=True),
+                _hit(3, 3_000_000, dark_star=True),
+            ),
+            battle_end_us=5_000_000,
+            max_hp_events=(delayed,),
+        )
+        layer_values = tuple(
+            row.modifiers[0].magnitude_value for row in intervals
+        )
+
+        self.assertEqual((2_450.0, 5_278.125), layer_values)
+
+    def test_formal_target_drop_does_not_backfill_hp_before_first_stack(
         self,
     ) -> None:
         intervals = BattleFadiaHpStackService.infer(
@@ -171,10 +227,7 @@ class BattleFadiaHpStackServiceTests(unittest.TestCase):
             intervals,
         )
 
-        self.assertEqual(1, len(projection.modifiers))
-        self.assertEqual("HPMaxAdd", projection.modifiers[0].property_id)
-        self.assertEqual(37_781.25, projection.modifiers[0].additive_value)
-        self.assertIn("实测补正", projection.modifiers[0].buff_names[0])
+        self.assertEqual((), projection.modifiers)
 
     def test_dark_star_hit_itself_does_not_consume_resulting_stack(self) -> None:
         dark_star = _hit(1, 1_000_000, dark_star=True)
@@ -231,7 +284,7 @@ class BattleFadiaHpStackServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(6, len(intervals))
-        self.assertEqual(1_950.0, projection.modifiers[0].additive_value)
+        self.assertEqual(2_450.0, projection.modifiers[0].additive_value)
 
     def test_locked_passive_does_not_create_team_hp_intervals(self) -> None:
         build = _build()

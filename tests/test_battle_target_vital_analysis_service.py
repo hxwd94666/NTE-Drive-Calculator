@@ -562,6 +562,45 @@ class BattleTargetVitalAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(1039, event.source_character_id)
         self.assertEqual(150.0, event.effective_hp_loss)
 
+    def test_implausible_fadia_ratio_keeps_drop_unattributed(self) -> None:
+        rows = (
+            _row(
+                1,
+                1_000_000,
+                character_id=1039,
+                character_name="法帝娅",
+                effect="Buff_Reaction_4_new",
+                max_hp=2_000,
+                hp_before=1_500,
+            ),
+            _row(
+                2,
+                1_400_000,
+                character_id=1039,
+                character_name="法帝娅",
+                effect="Buff_Reaction_4_new",
+                max_hp=1_800,
+                hp_before=1_500,
+            ),
+        )
+        build = {"characters": [{
+            "character_id": 1039,
+            "breakthrough_stage": 2,
+            "stats": [{
+                "source_group": "resolved",
+                "property_id": "PanelHP",
+                "value": 20_000.0,
+            }],
+        }]}
+
+        event = BattleTargetVitalAnalysisService.derive(
+            rows=rows,
+            build=build,
+        )[0]
+
+        self.assertEqual("unattributed_max_hp_reduction", event.mechanic_kind)
+        self.assertIn("不归给法帝娅", event.inference_basis)
+
     def test_locked_fadia_passive_does_not_claim_observed_max_hp_drop(self) -> None:
         rows = (
             _row(

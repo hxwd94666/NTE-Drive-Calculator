@@ -43,6 +43,8 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "025_game_static_encounter_lookup_indexes.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "026_game_static_outer_realm_buff.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "027_game_static_abyss_monster_name.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "028_game_static_high_risk_commission.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
 )
 PROJECT_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
 
@@ -60,6 +62,28 @@ def load_builder_module():
 
 
 class StaticGameDatabaseTests(unittest.TestCase):
+    def test_skill_damage_owner_comes_from_formal_ability_binding(self):
+        with StaticGameDataDao(PROJECT_DATABASE_PATH) as static_dao:
+            self.assertEqual(
+                [1071],
+                static_dao.list_skill_damage_owner_character_ids(
+                    "GE_Player_Chaos_Melee1_Damage"
+                ),
+            )
+
+    def test_checked_in_zankou_dot_uses_imported_gameplay_tag(self):
+        with StaticGameDataDao(PROJECT_DATABASE_PATH) as static_dao:
+            self.assertTrue(static_dao.gameplay_effect_has_tag(
+                "GE_Player_Zankou_DotDamage",
+                "State.Damage.Dot",
+            ))
+            self.assertIn(
+                "State.Damage.Dot",
+                static_dao.list_gameplay_effect_tags((
+                    "GE_Player_Mismo_UltraSkill_Damage",
+                ))["GE_Player_Mismo_UltraSkill_Damage"],
+            )
+
     def test_rebuild_backs_up_the_existing_release_database_first(self):
         module = load_builder_module()
         with tempfile.TemporaryDirectory() as directory:
@@ -514,7 +538,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(27, schema_version)
+        self.assertEqual(29, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         # The role-template DAO adds official ID 1051 as the default avatar
@@ -611,6 +635,10 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertIn("clone_spawn_member", tables)
         self.assertIn("monster_template_binding", tables)
         self.assertIn("outer_realm_rotation", tables)
+        self.assertIn("high_risk_commission", tables)
+        self.assertIn("high_risk_commission_difficulty", tables)
+        self.assertIn("high_risk_monster_pool_member", tables)
+        self.assertIn("monster_boss_support", tables)
 
     def test_checked_in_encounter_catalog_is_complete(self):
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
@@ -630,6 +658,10 @@ class StaticGameDatabaseTests(unittest.TestCase):
                     "clone_spawn_member",
                     "monster_template_binding",
                     "outer_realm_rotation",
+                    "high_risk_commission",
+                    "high_risk_commission_difficulty",
+                    "high_risk_monster_pool_member",
+                    "monster_boss_support",
                 )
             }
         finally:
@@ -645,6 +677,29 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertGreater(counts["clone_spawn_member"], 0)
         self.assertGreater(counts["monster_template_binding"], 0)
         self.assertGreater(counts["outer_realm_rotation"], 0)
+        self.assertEqual(13, counts["high_risk_commission"])
+        self.assertEqual(78, counts["high_risk_commission_difficulty"])
+        self.assertEqual(55, counts["high_risk_monster_pool_member"])
+        self.assertEqual(55, counts["monster_boss_support"])
+
+        connection = sqlite3.connect(PROJECT_DATABASE_PATH)
+        try:
+            challenge_boss_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM monster_boss_support AS b
+                JOIN source_row AS r USING (source_row_id)
+                JOIN source_file AS f USING (source_file_id)
+                WHERE b.monster_template_name =
+                      'boss_07_ChallengeLv5_BP' COLLATE NOCASE
+                  AND r.row_key = 'boss_07_ChallengeLv5_BP'
+                  AND f.relative_path =
+                      'DataTable/Monster/DT_BossSupportDataTable.json'
+                """
+            ).fetchone()[0]
+        finally:
+            connection.close()
+        self.assertEqual(1, challenge_boss_count)
 
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
         try:

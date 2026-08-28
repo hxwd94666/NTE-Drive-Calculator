@@ -134,6 +134,26 @@ def _hit_index(
     return {row.event_id: row for row in hits}
 
 
+def is_kuhara_q_settlement_hit(
+    hit: BattleAnalysisHit,
+    actions: Sequence[BattleInferredAction],
+) -> bool:
+    """Return whether a BudBoom hit is formally tied to one observed Q action."""
+
+    if (
+        hit.character_id != _KUHARA_ID
+        or "kuhara_budboom_damage" not in hit.gameplay_effect_id.casefold()
+    ):
+        return False
+    return any(
+        action.character_id == _KUHARA_ID
+        and action.input_kind == "Q"
+        and action.start_us <= hit.relative_time_us
+        <= action.end_us + _KUHARA_Q_SETTLEMENT_TOLERANCE_US
+        for action in actions
+    )
+
+
 class BattleAuditedTreatmentAdapterService:
     """Emit only treatment events supported by frozen build and axis facts."""
 
@@ -491,19 +511,9 @@ class BattleAuditedTreatmentAdapterService:
         ), None)
         if character is None or not _effect_enabled(character, "Effect2"):
             return ()
-        q_actions = tuple(
-            row for row in actions
-            if row.character_id == _KUHARA_ID and row.input_kind == "Q"
-        )
         settlements = tuple(
             row for row in hits
-            if row.character_id == _KUHARA_ID
-            and "kuhara_budboom_damage" in row.gameplay_effect_id.casefold()
-            and any(
-                action.start_us <= row.relative_time_us
-                <= action.end_us + _KUHARA_Q_SETTLEMENT_TOLERANCE_US
-                for action in q_actions
-            )
+            if is_kuhara_q_settlement_hit(row, actions)
         )
         grouped: dict[tuple[int, str], list[BattleAnalysisHit]] = {}
         for hit in settlements:

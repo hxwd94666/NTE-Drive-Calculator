@@ -91,7 +91,7 @@ class StaticGameDataDao(
     StaticGameDataCombatBlueprintQueriesMixin,
     StaticGameDataExtendedQueriesMixin,
 ):
-    """面向 schema v27 静态数据库的轻量查询边界。
+    """面向 schema v29 静态数据库的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """

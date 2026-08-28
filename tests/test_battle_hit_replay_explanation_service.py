@@ -149,6 +149,53 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
         self.assertIn("防御区 = 100 / (0 + 100) = 0.500000", text)
         self.assertIn("推断暴击：是（置信度高）", text)
 
+    def test_derived_formula_observation_keeps_reported_damage_visible(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="75:primary",
+            sequence=75,
+            relative_time_us=28_164_538,
+            character_id=1039,
+            character_name="法帝娅",
+            skill_name="黯星",
+            damage_name="黯星",
+            damage_component="黯星",
+            attack_type="黯星",
+            damage_attribute="psychically",
+            target_id="enemy-wire:test",
+            target_name="静默庭园",
+            damage=1_249.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="reaction",
+            gameplay_effect_id="Buff_Reaction_4_new",
+        )
+        replay = BattleHitReplayResult(
+            event_id=hit.event_id,
+            observed_damage=57_600.0,
+            non_critical_damage=57_600.0,
+            critical_damage=None,
+            selected_damage=57_600.0,
+            selected_error_percent=0.0,
+            critical_state="not_applicable",
+            confidence="高",
+            factors=(),
+            formula_type="黯星",
+            expected_damage=57_600.0,
+            corrected_expected_damage=57_600.0,
+            signed_error_percent=0.0,
+            critical_policy="disabled",
+            reported_damage=1_249.0,
+            observed_damage_source="target_hp_transition_remainder",
+            observed_damage_basis="目标生命差 58849 减同批主伤害 1249 得到 57600",
+        )
+
+        text = BattleHitReplayExplanationService.build(hit, replay)
+
+        self.assertIn("实际伤害：57,600.00", text)
+        self.assertIn("公式比较观测来源：目标生命差 58849", text)
+        self.assertIn("原始逐击上报：1,249.00", text)
+        self.assertIn("公式可比观测：57,600.00", text)
+
     def test_resistance_formula_shows_subtraction_and_negative_branch(self) -> None:
         factor = BattleHitReplayFactor(
             "resistance",
@@ -466,6 +513,77 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
         self.assertIn("合并 3 条同类区间", text)
         self.assertIn("CritDamageBase=0.08×3=0.24", text)
         self.assertEqual(1, text.count("测试 Buff stack"))
+
+    def test_variable_fadia_hp_layers_show_actual_sum_and_each_source(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="129:primary",
+            sequence=129,
+            relative_time_us=38_734_670,
+            character_id=1036,
+            character_name="残虹",
+            skill_name="浊燃",
+            damage_name="浊燃",
+            damage_component="reaction",
+            attack_type="Special Damage",
+            damage_attribute="chaos",
+            target_id="enemy",
+            target_name="静默庭园",
+            damage=8_771.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="reaction",
+        )
+        replay = BattleHitReplayResult(
+            event_id=hit.event_id,
+            observed_damage=hit.damage,
+            non_critical_damage=None,
+            critical_damage=None,
+            selected_damage=None,
+            selected_error_percent=None,
+            critical_state="unreplayable",
+            confidence="低",
+            factors=(),
+        )
+        base = replace(
+            self._buff("fadia", property_id="HPMaxAdd", value=5_278.113756),
+            buff_name="法帝娅被动：生命上限汲取",
+            source_effect_definition_id="character_passive:1039:GA_Fadia_Passive_1",
+            buff_asset_path="confirmed:character_passive:1039:dark-star-hp",
+            target_scope="team",
+            end_us=100_000_000,
+            state_confidence="高",
+            value_confidence="中",
+            evidence_event_ids=("32:primary",),
+            stacking_type="AggregateBySource",
+            stack_limit_count=5,
+        )
+        first = replace(
+            base,
+            modifiers=(replace(base.modifiers[0], value_confidence="中"),),
+        )
+        second = replace(
+            base,
+            interval_id="fadia:2",
+            value_confidence="高",
+            evidence_event_ids=("75:primary",),
+            modifiers=(replace(
+                base.modifiers[0],
+                magnitude_value=5_278.125,
+                value_confidence="高",
+            ),),
+        )
+
+        text = BattleHitReplayExplanationService.build(
+            hit,
+            replay,
+            active_buffs=(first, second),
+        )
+
+        self.assertIn("法帝娅被动：生命上限汲取 ×2层", text)
+        self.assertIn("状态高，数值中/高，合并 2 条同类区间", text)
+        self.assertIn("HPMaxAdd合计=10,556.24", text)
+        self.assertIn("5,278.113756[中，32:primary]", text)
+        self.assertIn("5,278.125[高，75:primary]", text)
 
     def test_counterfactual_detail_shows_expected_gain_without_calling_it_error(self) -> None:
         hit = BattleAnalysisHit(

@@ -66,13 +66,16 @@ class BattleReportPage(QWidget):
     build_edit_activation_requested = Signal(bool)
     marginal_requested = Signal()
     marginal_recalculate_requested = Signal(object)
-    marginal_restore_requested = Signal()
-    marginal_analysis_requested = Signal(int, object, object)
+    marginal_reset_requested = Signal()
+    marginal_draft_changed = Signal()
+    marginal_closed = Signal()
     analysis_details_requested = Signal(str, object)
 
     def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._latest_summary: BattleSummary | None = None
+        self._source_analysis = None
+        self._marginal_result_scope: str | None = None
         self._detail_scope = "current"
         self._stack = QStackedWidget(self)
         layout = QVBoxLayout(self)
@@ -207,12 +210,9 @@ class BattleReportPage(QWidget):
         self.marginal_page.recalculate_requested.connect(
             self.marginal_recalculate_requested
         )
-        self.marginal_page.restore_saved_requested.connect(
-            self.marginal_restore_requested
-        )
-        self.marginal_page.analysis_requested.connect(
-            self.marginal_analysis_requested
-        )
+        self.marginal_page.reset_requested.connect(self.marginal_reset_requested)
+        self.marginal_page.draft_changed.connect(self.marginal_draft_changed)
+        self.marginal_page.role_changed.connect(self._marginal_role_changed)
         self._stack.addWidget(self.marginal_page)
 
     def show_marginal(self, editor_data: dict) -> None:
@@ -222,6 +222,25 @@ class BattleReportPage(QWidget):
     def show_report(self) -> None:
         self.marginal_page.clear_candidate()
         self._stack.setCurrentIndex(0)
+        self.marginal_closed.emit()
+
+    def reset_marginal_draft(self, editor_data: dict) -> None:
+        selected_character_id = self.marginal_page.selected_character_id()
+        self.marginal_page.set_editor_data(
+            editor_data,
+            selected_character_id=selected_character_id,
+        )
+        self.invalidate_marginal_result()
+
+    def invalidate_marginal_result(self) -> None:
+        self._marginal_result_scope = None
+        if self._source_analysis is not None:
+            self.marginal_page.set_source_analysis(self._source_analysis)
+
+    def _marginal_role_changed(self, detail_scope: object) -> None:
+        scope = str(detail_scope) if detail_scope in {"first", "second"} else None
+        if self._marginal_result_scope is not None and scope != self._marginal_result_scope:
+            self.invalidate_marginal_result()
 
     def update_state(self, state: BattleCaptureState) -> None:
         tones = {
@@ -269,6 +288,8 @@ class BattleReportPage(QWidget):
 
     def clear_summary(self) -> None:
         self.marginal_page.clear_candidate()
+        self._source_analysis = None
+        self._marginal_result_scope = None
         self._latest_summary = None
         self._detail_scope = "current"
         for label in self.metric_labels.values():
@@ -276,6 +297,7 @@ class BattleReportPage(QWidget):
         self.long_analysis_view.clear()
 
     def set_analysis(self, analysis, *, selected_character_id=None) -> None:
+        self._source_analysis = analysis
         if self._latest_summary is not None:
             raw_damage = max(0.0, float(self._latest_summary.total_damage))
             overkill_correction = (
@@ -331,12 +353,15 @@ class BattleReportPage(QWidget):
             analysis,
             selected_character_id=selected_character_id,
         )
-        self.marginal_page.set_analysis(analysis)
+        self.marginal_page.set_source_analysis(analysis)
 
-    def set_marginal_analysis(self, analysis) -> None:
+    def set_marginal_analysis(self, analysis, *, detail_scope=None) -> None:
         """Update the selected-role half without replacing report scope."""
 
-        self.marginal_page.set_analysis(analysis)
+        self._marginal_result_scope = (
+            str(detail_scope) if detail_scope in {"first", "second"} else None
+        )
+        self.marginal_page.set_marginal_result(analysis)
 
     def complete_analysis_details(self, kind: str, payload: object) -> None:
         self.long_analysis_view.complete_analysis_details(kind, payload)

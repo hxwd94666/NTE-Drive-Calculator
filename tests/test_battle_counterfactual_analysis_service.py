@@ -13,6 +13,7 @@ from src.services.battle_buff_attribute_projection_service import (
 )
 from src.services.battle_counterfactual_analysis_service import (
     BattleCounterfactualAnalysisService,
+    _classification,
 )
 from src.services.battle_marginal_calculation_service import (
     BattleMarginalCalculationService,
@@ -122,6 +123,42 @@ def _attack_buff_rule(event_type: str) -> BattleStaticBuffRule:
 
 
 class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
+    def test_formal_damage_tags_own_dot_and_attachment_classification(self) -> None:
+        self.assertEqual(
+            "dot",
+            _classification(
+                ability_name="GA_Mismo_UltraSkill",
+                gameplay_effect_name="GE_Player_Mismo_UltraSkill_Damage",
+                gameplay_tags=("State.Damage.Dot",),
+            ),
+        )
+        self.assertEqual(
+            "attachment",
+            _classification(
+                ability_name="GA_Kuhara_Melee",
+                gameplay_effect_name="GE_Player_Kuhara_Seed_Damage",
+                gameplay_tags=("State.Damage.Attachment",),
+            ),
+        )
+        self.assertEqual(
+            "reaction",
+            _classification(
+                "浊燃",
+                ability_name="GA_Source_QTE",
+                gameplay_effect_name="GE_Player_Mismo_UltraSkill_Damage",
+                gameplay_tags=("State.Damage.Dot",),
+                follow_up=True,
+            ),
+        )
+        self.assertEqual(
+            "reaction",
+            _classification(
+                "浊燃",
+                gameplay_effect_name="Buff_Reaction_5_new_1036",
+                gameplay_tags=("State.Damage.Dot",),
+            ),
+        )
+
     def test_range_uses_half_open_boundary_and_keeps_full_timeline(self) -> None:
         result = BattleCounterfactualAnalysisService.analyze(
             battle_record_id=7,
@@ -140,7 +177,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(1, len(result.inferred_actions))
         self.assertEqual("battle-action-window-v12", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
-        self.assertEqual("battle-counterfactual-v20", result.formula_model_version)
+        self.assertEqual("battle-counterfactual-v21", result.formula_model_version)
 
     def test_follow_up_uses_its_own_formal_timestamp(self) -> None:
         evidence = _evidence()
@@ -160,6 +197,35 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(2_500_000, follow_up.relative_time_us)
         self.assertEqual(1, len(result.inferred_inputs))
         self.assertEqual(3, len(result.timeline_damage_groups))
+
+    def test_typed_reaction_follow_up_is_not_overridden_by_source_qte(self) -> None:
+        evidence = _evidence()
+        source = evidence["hits"][0]
+        source.update({
+            "ability_name": "GA_Lingke_QTE",
+            "gameplay_effect_name": "GE_Player_Lingke_QTE1_Damage",
+            "follow_up_damage_name": "黯星",
+            "follow_up_damage_component": "follow_up",
+            "follow_up_attack_type": "黯星",
+            "follow_up_damage_attribute": "psychically",
+            "follow_up_labels": ["黯星"],
+        })
+
+        result = BattleCounterfactualAnalysisService.analyze(
+            battle_record_id=7,
+            evidence=evidence,
+            build=_build(),
+            capability_level="hit_axis",
+        )
+
+        follow_up = next(
+            row for row in result.timeline_hits if row.event_id == "1:follow_up"
+        )
+        self.assertEqual("reaction", follow_up.classification)
+        self.assertTrue(any(
+            group.channel_key == "reaction_nova"
+            for group in result.timeline_damage_groups
+        ))
 
     def test_dynamic_attack_buff_is_retained_when_scaling_is_unknown(self) -> None:
         plain = BattleCounterfactualAnalysisService.analyze(

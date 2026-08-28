@@ -536,7 +536,11 @@ class BattleBuffAttributeProjectionServiceTests(unittest.TestCase):
         )
 
         dot = BattleBuffAttributeProjectionService.project_hit(
-            replace(_hit(), gameplay_effect_id="GE_Player_Cang_UltraSkill_Damage"),
+            replace(
+                _hit(),
+                gameplay_effect_id="GE_Player_Cang_UltraSkill_Damage",
+                classification="dot",
+            ),
             (interval,),
         )
         direct = BattleBuffAttributeProjectionService.project_hit(

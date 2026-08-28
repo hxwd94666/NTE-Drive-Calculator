@@ -149,8 +149,10 @@ def _signed_percent_expression(initial: float, changes: Sequence[float]) -> str:
 def _group_buff_intervals(
     intervals: Sequence[BattleInferredBuffInterval],
     decision_by_id: dict,
-) -> tuple[tuple[BattleInferredBuffInterval, object, int, int], ...]:
-    """Collapse display-identical interval evidence without changing projection."""
+) -> tuple[
+    tuple[tuple[BattleInferredBuffInterval, ...], object, int, int], ...
+]:
+    """Collapse semantically identical interval evidence without changing projection."""
 
     grouped: dict[tuple, list[BattleInferredBuffInterval]] = {}
     for interval in intervals:
@@ -160,9 +162,7 @@ def _group_buff_intervals(
                 row.property_id,
                 row.modifier_operation,
                 row.magnitude_kind,
-                row.magnitude_value,
                 row.calculation_asset_path,
-                row.value_confidence,
                 row.modifier_group_ordinal,
                 row.application_requirement_asset_path,
                 row.source_require_tags,
@@ -177,8 +177,6 @@ def _group_buff_intervals(
             interval.source_effect_definition_id,
             interval.buff_asset_path,
             interval.target_scope,
-            interval.state_confidence,
-            interval.value_confidence,
             modifier_key,
             tuple(decision.applied_property_ids),
             tuple(decision.reasons),
@@ -186,13 +184,74 @@ def _group_buff_intervals(
         grouped.setdefault(key, []).append(interval)
     return tuple(
         (
-            rows[0],
+            tuple(rows),
             decision_by_id[rows[0].interval_id],
             len(rows),
             sum(max(1, row.stacks) for row in rows),
         )
         for rows in grouped.values()
     )
+
+
+def _confidence_summary(values: Sequence[str]) -> str:
+    return "/".join(dict.fromkeys(value for value in values if value)) or "未知"
+
+
+def _buff_modifier_text(
+    intervals: Sequence[BattleInferredBuffInterval],
+    decision: object,
+    total_stacks: int,
+) -> str:
+    applied_property_ids = tuple(getattr(decision, "applied_property_ids", ()))
+    property_ids = tuple(dict.fromkeys(
+        row.property_id
+        for interval in intervals
+        for row in interval.modifiers
+        if row.magnitude_value is not None
+        and (
+            not applied_property_ids
+            or row.property_id in applied_property_ids
+        )
+    ))
+    rendered: list[str] = []
+    for property_id in property_ids:
+        contributions: list[tuple[float, str, tuple[str, ...]]] = []
+        for interval in intervals:
+            for modifier in interval.modifiers:
+                if (
+                    modifier.property_id != property_id
+                    or modifier.magnitude_value is None
+                ):
+                    continue
+                for _ in range(max(1, interval.stacks)):
+                    contributions.append((
+                        modifier.magnitude_value,
+                        modifier.value_confidence or interval.value_confidence,
+                        interval.evidence_event_ids,
+                    ))
+        if not contributions:
+            continue
+        values = tuple(row[0] for row in contributions)
+        if len(values) == 1:
+            rendered.append(f"{property_id}={values[0]:g}")
+            continue
+        if all(value == values[0] for value in values[1:]):
+            rendered.append(
+                f"{property_id}={values[0]:g}×{total_stacks}="
+                f"{values[0] * total_stacks:g}"
+            )
+            continue
+        total = sum(values)
+        layer_text = "；".join(
+            f"{value:,.6f}".rstrip("0").rstrip(".")
+            + f"[{confidence}"
+            + (f"，{','.join(event_ids)}]" if event_ids else "]")
+            for value, confidence, event_ids in contributions
+        )
+        rendered.append(
+            f"{property_id}合计={total:,.2f}（逐层：{layer_text}）"
+        )
+    return "、".join(rendered) or "已采用结构化规则"
 
 
 def _scaling_formula_lines(factor: BattleHitReplayFactor) -> list[str]:
@@ -493,6 +552,26 @@ class BattleHitReplayExplanationService:
                 ),
                 "",
             ))
+            if replay.observed_damage_source != "reported_hit":
+                reported = (
+                    hit.damage
+                    if replay.reported_damage is None
+                    else replay.reported_damage
+                )
+                lines.extend((
+                    f"公式比较观测来源：{replay.observed_damage_basis}",
+                    (
+                        (
+                            f"计入战报有效伤害：{_damage(reported)}；"
+                            if replay.observed_damage_source
+                            == "reported_hit_before_overkill"
+                            else f"原始逐击上报：{_damage(reported)}；"
+                        )
+                        + f"公式可比观测：{_damage(replay.observed_damage)}。"
+                        "两者保持独立。"
+                    ),
+                    "",
+                ))
         else:
             lines.extend((
                 (
@@ -620,22 +699,15 @@ class BattleHitReplayExplanationService:
                 if decision_by_id.get(interval.interval_id) is not None
                 and decision_by_id[interval.interval_id].status == "applied"
             )
-            for interval, decision, interval_count, total_stacks in (
+            for intervals, decision, interval_count, total_stacks in (
                 _group_buff_intervals(applied, decision_by_id)
             ):
-                modifier_text = "、".join(
-                    (
-                        f"{row.property_id}={row.magnitude_value:g}"
-                        if total_stacks <= 1
-                        else (
-                            f"{row.property_id}={row.magnitude_value:g}"
-                            f"×{total_stacks}={row.magnitude_value * total_stacks:g}"
-                        )
-                    )
-                    for row in interval.modifiers
-                    if row.magnitude_value is not None
-                    and row.property_id in decision.applied_property_ids
-                ) or "已采用结构化规则"
+                interval = intervals[0]
+                modifier_text = _buff_modifier_text(
+                    intervals,
+                    decision,
+                    total_stacks,
+                )
                 merge_text = (
                     f"，合并 {interval_count} 条同类区间"
                     if interval_count > 1
@@ -643,7 +715,9 @@ class BattleHitReplayExplanationService:
                 )
                 lines.append(
                     f"- {interval.buff_name} ×{total_stacks}层"
-                    f"（{interval.target_scope}，状态{interval.state_confidence}"
+                    f"（{interval.target_scope}，状态"
+                    f"{_confidence_summary(tuple(row.state_confidence for row in intervals))}，"
+                    f"数值{_confidence_summary(tuple(row.value_confidence for row in intervals))}"
                     f"{merge_text}）："
                     f"{modifier_text}\n"
                     f"  ID：{interval.source_effect_definition_id}\n"
@@ -667,10 +741,18 @@ class BattleHitReplayExplanationService:
             if not matching:
                 continue
             lines.extend(("", title))
-            for interval, decision, interval_count, total_stacks in (
+            for intervals, decision, interval_count, total_stacks in (
                 _group_buff_intervals(matching, decision_by_id)
             ):
+                interval = intervals[0]
                 reason = "；".join(decision.reasons) or "未记录排除原因"
+                modifier_text = _buff_modifier_text(
+                    intervals,
+                    decision,
+                    total_stacks,
+                )
+                if modifier_text != "已采用结构化规则":
+                    reason += f"；结构化值：{modifier_text}"
                 count_text = (
                     f" ×{interval_count} 条同类区间"
                     if interval_count > 1

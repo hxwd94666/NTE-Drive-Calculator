@@ -201,9 +201,11 @@ class BattleReportLongPageIntegrationTests(unittest.TestCase):
                 "user_confirmed",
                 analysis.target_condition.source_kind,
             )
-            self.assertEqual("墨菲克斯", analysis.hits[0].target_name)
-            self.assertEqual("feast", analysis.detected_environment_kind)
-            self.assertEqual("DiyBossStage8", analysis.detected_environment_ref)
+            # User-confirmed conditions affect derived formulas but never
+            # rewrite the captured hit's missing target identity.
+            self.assertEqual("未知目标", analysis.hits[0].target_name)
+            self.assertEqual("", analysis.detected_environment_kind)
+            self.assertEqual("", analysis.detected_environment_ref)
             self.assertEqual(1, len(analysis.hits))
             self.assertEqual("GA_Test", analysis.hits[0].ability_id)
             self.assertEqual(1, len(analysis.inferred_actions))

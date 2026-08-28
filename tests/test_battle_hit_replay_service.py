@@ -22,6 +22,7 @@ from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
 from src.services.battle_hit_replay_service import BattleHitReplayService
+from src.services.battle_hit_replay_support import apply_observed_damage_correction
 from src.services.battle_special_hit_replay_service import (
     BattleSpecialHitReplayService,
 )
@@ -32,6 +33,53 @@ from src.services.damage_calculation_service import calculate_resistance_multipl
 
 
 class BattleHitReplayServiceTests(unittest.TestCase):
+    def test_overkill_uses_raw_report_for_formula_but_effective_damage_for_total(self) -> None:
+        hit = BattleAnalysisHit(
+            event_id="1049:primary",
+            sequence=1049,
+            relative_time_us=93_785_923,
+            character_id=1075,
+            character_name="伊洛伊",
+            skill_name="普通攻击",
+            damage_name="普通攻击",
+            damage_component="skill",
+            attack_type="普攻",
+            damage_attribute="chaos",
+            target_id="target",
+            target_name="目标",
+            damage=1.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="direct",
+            raw_damage=1_896.0,
+            overkill_damage=1_895.0,
+            damage_correction_kind="nte_core_overkill_v3",
+            damage_correction_basis="fixture",
+        )
+        replay = BattleHitReplayResult(
+            event_id=hit.event_id,
+            observed_damage=1.0,
+            non_critical_damage=1_010.0,
+            critical_damage=1_600.0,
+            selected_damage=1_010.0,
+            selected_error_percent=100_900.0,
+            critical_state="non_critical",
+            confidence="中",
+            factors=(),
+            expected_damage=1_200.0,
+        )
+
+        corrected = apply_observed_damage_correction(replay, hit)
+
+        self.assertEqual(1.0, hit.damage)
+        self.assertEqual(1_896.0, corrected.observed_damage)
+        self.assertEqual(1.0, corrected.reported_damage)
+        self.assertEqual(
+            "reported_hit_before_overkill",
+            corrected.observed_damage_source,
+        )
+        self.assertAlmostEqual(-46.7299578, corrected.signed_error_percent)
+
     def test_layered_damage_is_not_used_for_local_crit_pairing(self) -> None:
         baseline = BattleCharacterBaseline(
             character_id=1004,

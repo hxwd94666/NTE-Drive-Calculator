@@ -71,9 +71,11 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "025_game_static_encounter_lookup_indexes.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "026_game_static_outer_realm_buff.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "027_game_static_abyss_monster_name.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "028_game_static_high_risk_commission.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
 )
-SCHEMA_VERSION = 27
-IMPORTER_VERSION = 31
+SCHEMA_VERSION = 29
+IMPORTER_VERSION = 34
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -136,6 +138,9 @@ TABLE_PATHS = {
     "clone_monster_config": "DataTable/CloneSystem/DT_CloneMonsterConfig.json",
     "combat_award_quests": "DataTable/SimpleQuest/DT_CombatAwardQuest.json",
     "monster_tags": "DataTable/Monster/DT_MonsterTags.json",
+    "high_risk_commissions": "DataTable/Vision/DT_AdvVision.json",
+    "high_risk_monster_pools": "DataTable/Vision/DT_AdvVisionMonsterPool.json",
+    "monster_boss_support": "DataTable/Monster/DT_BossSupportDataTable.json",
     "string_actor_name": "text/ST_ActorName.json",
     "string_clone": "text/ST_Clone.json",
     "string_map_area": "text/MiniMap/ST_MapAreaDetails.json",

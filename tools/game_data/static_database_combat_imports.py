@@ -540,6 +540,10 @@ class CombatImportMixin:
             "clone_spawn_member",
             "monster_template_binding",
             "outer_realm_rotation",
+            "high_risk_commission",
+            "high_risk_commission_difficulty",
+            "high_risk_monster_pool_member",
+            "monster_boss_support",
         )
         return {
             table: int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

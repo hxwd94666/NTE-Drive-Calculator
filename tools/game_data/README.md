@@ -29,7 +29,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v27
+## 构建静态 SQLite v29
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -55,6 +55,11 @@ python tools/game_data/build_static_database.py `
 
 发行数据库仍保留来源文件相对路径、文件哈希、来源行键和内容哈希，但
 `source_row.payload_json` 为 `NULL`。完整来源内容只保留在开发者工作区。
+
+战斗 Blueprint 导入同时规范化 `{TagName: ...}` 与 UE5
+`InheritableAssetTags`/`InheritableGameplayEffectTags` 中的字符串 GameplayTag；DOT 等正式身份通过
+`combat_blueprint_tag` 查询。`HTExtractAttributeGEComp` 的属性抽取类型及比例曲线引用作为语义字段保留，
+供生命转移机制审计；`UseSourceObject` 同样作为通用施加者语义保留，不从说明文本猜测。
 
 完整审计数据库放在项目外；省略来源行原文的发行数据库放在
 `data/game_static.sqlite3`。每次游戏版本更新时，开发者从本机游戏官方数据文件重新整理数据库，检查来源哈希、数量和外键后再更新发行数据库。游戏官方文件和中间数据不进入开源仓库。
@@ -157,7 +162,10 @@ schema v21 为规范化 Buff 增加修正作用域与标签要求；schema v22 �
 schema v24 从 `DT_CombatAwardQuest` 中带有效大陆服开始/结束时间的轨外完成任务导入
 `outer_realm_rotation`；schema v25 为怪物模板与等级变体的大小写无关连接补充表达式联合索引；schema v26
 从轨外赛季、Buff 配置与曲线表导入当前/下一期 Buff，并只把已审计触发组成写入计算表；schema v27 另保存
-轨外怪物池条目的官方本地化名称。构建日视为大陆服日切后的有效日期：结束日期等于构建日的旧配置不再进入推断，
+轨外怪物池条目的官方本地化名称；schema v28 从 `DT_AdvVision` 与 `DT_AdvVisionMonsterPool` 导入高危委托、
+逐难度场景/怪物池与怪物模板；schema v29 从 `DT_BossSupportDataTable` 导入正式 Boss 模板成员，供控制类
+条件只按官方成员关系阻断默认成功，不从模板名、中文名或生命值猜 Boss。只有带 1–6 难度显式池映射且模板闭合到属性包的条目进入自动候选，Key=0
+通用池只保留为静态来源，不猜测逐难度画像。构建日视为大陆服日切后的有效日期：结束日期等于构建日的旧配置不再进入推断，
 按开始时间选出的当前与下一配置分别标记为 `inference_ordinal=0/1`。任务中的 `AbyssID` 关联整套
 `AbyssCloneLevelDataTable` 配置，`AbyssLevel` 才是该奖励任务要求完成的层数；不得按配置 ID 数字倒序
 代替正式时间区间。

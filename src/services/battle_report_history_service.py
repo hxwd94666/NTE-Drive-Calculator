@@ -77,6 +77,9 @@ from src.services.battle_hit_replay_service import (
 from src.services.battle_fork_critical_inference_service import (
     BattleForkCriticalInferenceService,
 )
+from src.services.battle_formal_damage_tag_service import (
+    BattleFormalDamageTagService,
+)
 from src.services.battle_buff_counterfactual_service import (
     BUFF_COUNTERFACTUAL_MODEL_VERSION,
     BattleBuffCounterfactualService,
@@ -184,6 +187,10 @@ class BattleReportHistoryService(
         apply_import_equipment_locks(build, import_equipment_locks)
         recognition_build = deepcopy(build)
         self._localize_axis_evidence(evidence)
+        BattleFormalDamageTagService.project(
+            evidence,
+            self._dependencies.static_database_path,
+        )
         if start_us is None and end_us is None:
             scoped_range = analysis_scope_range(
                 evidence, record["raw_summary_payload"], detail_scope
@@ -218,6 +225,9 @@ class BattleReportHistoryService(
             )
         )
         project_resolved_target_evidence(evidence, target_instance_resolutions)
+        target_control_policy = self._load_target_control_policy(
+            target_instance_resolutions
+        )
         inferred_character_facts = BattleInferredCharacterFactService.infer(evidence)
         if recognition_build is not None:
             BattleInferredCharacterFactService.apply_to_build(
@@ -292,6 +302,7 @@ class BattleReportHistoryService(
             zankou_form_config=zankou_form_config,
             outer_realm_buff_config=outer_realm_buff_config,
             infer_buffs=include_buff_inference,
+            target_control_policy=target_control_policy,
         )
         if needs_encounter_fit and inferred_encounter is not None:
             fit_analyze = partial(
@@ -351,6 +362,13 @@ class BattleReportHistoryService(
                 )
             )
             project_resolved_target_evidence(evidence, target_instance_resolutions)
+            target_control_policy = self._load_target_control_policy(
+                target_instance_resolutions
+            )
+            _analyze = partial(
+                _analyze,
+                target_control_policy=target_control_policy,
+            )
         analysis = replace(
             _analyze(),
             inferred_character_facts=inferred_character_facts,

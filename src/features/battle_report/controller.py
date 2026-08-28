@@ -25,6 +25,9 @@ from src.features.battle_report.analysis_controller_mixin import (
 from src.features.battle_report.build_snapshot_controller import (
     BattleBuildSnapshotController,
 )
+from src.features.battle_report.marginal_session_controller import (
+    BattleMarginalSessionController,
+)
 from src.features.battle_report.overlay import BattleReportOverlay
 from src.features.battle_report.page import BattleReportPage
 from src.observability import OperationContext
@@ -129,11 +132,17 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
             reload_analysis=self._load_analysis,
             show_error=self._show_history_error,
         )
+        self._marginal_session_controller = BattleMarginalSessionController(
+            page=self._page,
+            service_provider=self._current_history_service,
+            record_id_provider=lambda: self._latest_state.battle_record_id,
+            is_running=self.is_running,
+            reload_analysis=self._load_analysis,
+            invalidate_analysis=self._invalidate_analysis_loading,
+            show_error=self._show_history_error,
+        )
         self._page.analysis_details_requested.connect(
             self._load_analysis_details
-        )
-        self._page.marginal_analysis_requested.connect(
-            self._load_marginal_analysis
         )
         self._state_received.connect(self._apply_state)
         self._restore_last_history()

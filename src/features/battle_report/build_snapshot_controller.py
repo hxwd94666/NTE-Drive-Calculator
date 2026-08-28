@@ -12,10 +12,6 @@ from src.features.battle_report.build_snapshot_editor import (
 )
 from src.features.battle_report.page import BattleReportPage
 from src.services.battle_report_history_service import BattleReportHistoryService
-from src.services.battle_marginal_candidate_service import (
-    BattleMarginalCandidate,
-    BattleMarginalCandidateService,
-)
 
 
 class BattleBuildSnapshotController:
@@ -38,10 +34,7 @@ class BattleBuildSnapshotController:
         self._reload_analysis = reload_analysis
         self._show_error = show_error
         page.build_edit_requested.connect(self.edit)
-        page.marginal_requested.connect(self.open_marginal)
         page.build_edit_activation_requested.connect(self.set_active)
-        page.marginal_recalculate_requested.connect(self.recalculate)
-        page.marginal_restore_requested.connect(self.open_marginal)
 
     def refresh(self, battle_record_id: int) -> None:
         try:
@@ -110,48 +103,6 @@ class BattleBuildSnapshotController:
             return
         self._reload_report(record_id)
 
-    def open_marginal(self) -> None:
-        record_id = self._editable_record_id()
-        if record_id is None:
-            return
-        try:
-            editor_data = self._service_provider().load_build_editor_data(record_id)
-        except Exception as error:
-            self._show_error("无法打开固定轴边际计算", error)
-            return
-        equipment_editable = bool(
-            editor_data.get(
-                "equipment_editable",
-                editor_data.get("marginal_equipment_editable", True),
-            )
-        )
-        candidate_data = BattleMarginalCandidateService.prepare_editor_data(
-            editor_data,
-            equipment_editable=equipment_editable,
-        )
-        self._page.show_marginal(candidate_data)
-
-    def recalculate(self, profiles: object) -> None:
-        record_id = self._editable_record_id()
-        if record_id is None:
-            return
-        if not isinstance(profiles, list):
-            self._show_error("无法重算边际", ValueError("角色候选配置格式无效"))
-            return
-        try:
-            candidate = BattleMarginalCandidateService.freeze(
-                record_id,
-                profiles,
-                equipment_editable=self._page.marginal_equipment_editable(),
-                disabled_inferred_fact_ids=(
-                    self._page.marginal_disabled_inferred_fact_ids()
-                ),
-            )
-        except (TypeError, ValueError) as error:
-            self._show_error("无法重算边际", error)
-            return
-        self._reload_marginal(record_id, candidate)
-
     def set_active(self, active: bool) -> None:
         record_id = self._editable_record_id()
         if record_id is None:
@@ -179,18 +130,4 @@ class BattleBuildSnapshotController:
             end_us=(selected_range or (None, None))[1],
             selected_character_id=self._page.analysis_character_id(),
             detail_level="hit",
-        )
-
-    def _reload_marginal(
-        self,
-        record_id: int,
-        candidate: BattleMarginalCandidate,
-    ) -> None:
-        self._reload_analysis(
-            record_id,
-            selected_character_id=self._page.analysis_character_id(),
-            detail_scope=self._page.marginal_detail_scope(),
-            detail_level="marginal",
-            marginal_candidate=candidate,
-            completion_kind="marginal",
         )

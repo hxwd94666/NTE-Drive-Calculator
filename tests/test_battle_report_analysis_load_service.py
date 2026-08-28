@@ -146,7 +146,8 @@ class _AsyncPage:
         self.loaded_ranges.append(analysis.range_start_us)
         self.loop.quit()
 
-    def set_marginal_analysis(self, analysis) -> None:
+    def set_marginal_analysis(self, analysis, *, detail_scope=None) -> None:
+        del detail_scope
         self.loaded_ranges.append(analysis.range_start_us)
         self.loop.quit()
 
@@ -210,34 +211,6 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
             detail_level="hit",
             completion_kind="composition",
             completion_payload=None,
-        )
-
-    def test_marginal_detail_uses_selected_role_half(self) -> None:
-        loop = QEventLoop()
-        page = _AsyncPage(loop)
-        host = _AsyncHost(page)
-        host._latest_state = SimpleNamespace(battle_record_id=12)
-
-        with patch.object(host, "_load_analysis") as load:
-            host._load_marginal_analysis(
-                1004,
-                "first",
-                [{"character_id": 1004}],
-            )
-
-        candidate = BattleMarginalCandidateService.freeze(
-            12,
-            [{"character_id": 1004}],
-            equipment_editable=True,
-        )
-
-        load.assert_called_once_with(
-            12,
-            selected_character_id=1004,
-            detail_scope="first",
-            detail_level="marginal",
-            marginal_candidate=candidate,
-            completion_kind="marginal",
         )
 
     def test_latest_scope_replaces_a_running_stale_request(self) -> None:

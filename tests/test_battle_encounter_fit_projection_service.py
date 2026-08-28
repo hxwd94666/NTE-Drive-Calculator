@@ -97,6 +97,58 @@ def _analysis(predicted: float, *, target_id: str = "enemy-wire:test"):
     return SimpleNamespace(hits=(hit,), hit_replays=(replay,))
 
 
+def _analysis_with_conflicted_pair(good_prediction: float, bad_prediction: float):
+    def hit(
+        event_id: str,
+        sequence: int,
+        at_us: int,
+        effect_id: str,
+        damage: float,
+        hp_before: float,
+        hp_after: float,
+    ):
+        return SimpleNamespace(
+            event_id=event_id,
+            sequence=sequence,
+            relative_time_us=at_us,
+            raw_damage=damage,
+            damage=damage,
+            direction="outgoing",
+            character_id=1036,
+            gameplay_effect_id=effect_id,
+            damage_name="测试伤害",
+            ability_id="GA_test",
+            skill_name="测试技能",
+            damage_attribute="incantation",
+            scope_half="",
+            target_id="enemy-wire:test",
+            target_hp_before=hp_before,
+            target_hp_after=hp_after,
+        )
+
+    hits = (
+        hit("conflict-a", 1, 100_000, "GE_A", 500.0, 2_000.0, 1_500.0),
+        hit("conflict-b", 2, 200_000, "GE_B", 500.0, 2_000.0, 1_500.0),
+        hit("good", 3, 1_000_000, "GE_Good", 100.0, 1_500.0, 1_400.0),
+    )
+    replays = tuple(
+        SimpleNamespace(
+            event_id=row.event_id,
+            observed_damage=row.damage,
+            non_critical_damage=(
+                good_prediction if row.event_id == "good" else bad_prediction
+            ),
+            critical_damage=None,
+            expected_damage=(
+                good_prediction if row.event_id == "good" else bad_prediction
+            ),
+            factors=(),
+        )
+        for row in hits
+    )
+    return SimpleNamespace(hits=hits, hit_replays=replays, buff_intervals=())
+
+
 class BattleEncounterFitProjectionServiceTests(unittest.TestCase):
     def test_raw_residual_winner_becomes_formula_condition(self) -> None:
         stage3 = _candidate("DiyBossStage3", 0.16)
@@ -180,6 +232,26 @@ class BattleEncounterFitProjectionServiceTests(unittest.TestCase):
             _inferred(stage3, stage4),
             project_candidate=lambda row: analyses[row.environment_ref],
             group_analysis=_analysis(1.0, target_id="unknown"),
+        )
+
+        assert outcome is not None
+        self.assertEqual("DiyBossStage3", outcome.selection.winner_ref)
+        self.assertEqual(
+            {1},
+            {row.used_hit_count for row in outcome.selection.scores},
+        )
+
+    def test_damage_attribution_conflicts_are_excluded_from_every_candidate(self) -> None:
+        stage3 = _candidate("DiyBossStage3", 0.16)
+        stage4 = _candidate("DiyBossStage4", 0.50)
+        analyses = {
+            stage3.environment_ref: _analysis_with_conflicted_pair(98.0, 20.0),
+            stage4.environment_ref: _analysis_with_conflicted_pair(60.0, 500.0),
+        }
+
+        outcome = BattleEncounterFitProjectionService.select(
+            _inferred(stage3, stage4),
+            project_candidate=lambda row: analyses[row.environment_ref],
         )
 
         assert outcome is not None

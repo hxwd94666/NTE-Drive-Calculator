@@ -39,6 +39,8 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "025_game_static_encounter_lookup_indexes.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "026_game_static_outer_realm_buff.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "027_game_static_abyss_monster_name.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "028_game_static_high_risk_commission.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
 )
 
 
@@ -75,6 +77,8 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (25, '2026-08-23')")
         connection.execute("INSERT INTO schema_migration VALUES (26, '2026-08-23')")
         connection.execute("INSERT INTO schema_migration VALUES (27, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (28, '2026-08-28')")
+        connection.execute("INSERT INTO schema_migration VALUES (29, '2026-08-28')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 19, '2026-08-20')"
         )
@@ -401,7 +405,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 27)
+            self.assertEqual(summary["schema_version"], 29)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")
@@ -550,6 +554,28 @@ class StaticGameDataDaoTest(unittest.TestCase):
             preset = dao.list_outer_realm_target_presets()[0]
 
         self.assertEqual("测试首领", preset["monster_name_zh"])
+
+    def test_formal_boss_support_template_is_case_insensitive(self):
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "INSERT INTO monster_boss_support VALUES (?,?,?)",
+            ("boss_07_ChallengeLv5_BP", "审计展示说明", 1),
+        )
+        connection.commit()
+        connection.close()
+
+        with StaticGameDataDao(self.database_path) as dao:
+            self.assertEqual(
+                "Boss",
+                dao.get_monster_enemy_type_by_formal_id(
+                    "BOSS_07_CHALLENGELV5_BP"
+                ),
+            )
+            self.assertIsNone(
+                dao.get_monster_enemy_type_by_formal_id(
+                    "mon_012_2_ChallengeLv1_BP"
+                )
+            )
 
     def test_combat_blueprint_action_graph_is_queryable(self):
         with StaticGameDataDao(self.database_path) as dao:

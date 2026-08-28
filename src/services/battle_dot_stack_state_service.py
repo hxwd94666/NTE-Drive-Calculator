@@ -10,6 +10,9 @@ from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot
 from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService,
 )
+from src.services.battle_damage_composition_service import (
+    explicit_reaction_channel_for_hit,
+)
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
     project_timeline_time_us,
@@ -270,7 +273,13 @@ def _is_nightmare_application(
 
 
 def _is_scorch_application_trigger(hit: BattleAnalysisHit) -> bool:
-    if hit.gameplay_effect_id.casefold() == _SCORCH_ID:
+    if (
+        hit.gameplay_effect_id.casefold() == _SCORCH_ID
+        or explicit_reaction_channel_for_hit(hit) == (
+            "reaction_scorch",
+            "浊燃",
+        )
+    ):
         return False
     return "浊燃" in " ".join((hit.attack_type, hit.skill_name, hit.damage_name))
 
@@ -497,6 +506,11 @@ def reconstruct_dot_stack_states(
         adler_skill.advance(now)
         scorch.advance(now)
         effect = hit.gameplay_effect_id.casefold()
+        if explicit_reaction_channel_for_hit(hit) == (
+            "reaction_scorch",
+            "浊燃",
+        ):
+            effect = _SCORCH_ID
         if _is_scorch_application_trigger(hit):
             scorch.prepare_application(now)
         scorch_was_active = scorch.present

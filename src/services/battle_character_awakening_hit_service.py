@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 from src.domain.battle_report import BattleAnalysisHit
 
 
@@ -17,6 +19,42 @@ _ZERO_FIRST_GAZE_DAMAGE_IDS = frozenset({
     "ge_player_female051_skill_kill_damage_lv2",
 })
 _ZERO_CHARACTER_IDS = frozenset({1046, 1051})
+_KUHARA_ATTACHMENT_DAMAGE_ID = "ge_player_kuhara_seed_damage"
+
+
+def _awakening_enabled(character: Mapping[str, Any], effect_id: str) -> bool:
+    profile = character.get("profile")
+    profile = profile if isinstance(profile, Mapping) else {}
+    if bool(profile.get("awakening_selection_initialized")):
+        return effect_id in {
+            str(value) for value in profile.get("selected_awaken_effect_ids") or ()
+        }
+    try:
+        required = int(effect_id.removeprefix("Effect"))
+        current = int(
+            profile.get("awakening_level")
+            or character.get("awakening_level")
+            or 0
+        )
+    except (TypeError, ValueError):
+        return False
+    return current >= required
+
+
+def character_awakening_damage_multiplier(
+    character: Mapping[str, Any],
+    *,
+    damage_id: str,
+) -> tuple[float, str]:
+    """Return explicit per-hit awakening multipliers backed by formal effects."""
+
+    if (
+        int(character.get("character_id") or 0) == 1055
+        and damage_id.casefold() == _KUHARA_ATTACHMENT_DAMAGE_ID
+        and _awakening_enabled(character, "Effect2")
+    ):
+        return 2.0, "觉醒二「过往消息皆为利刃」：致命玫约伤害额外提升 100%"
+    return 1.0, ""
 
 
 def character_awakening_requirement_applies(

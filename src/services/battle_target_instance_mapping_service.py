@@ -181,14 +181,16 @@ class BattleTargetInstanceMappingService:
         analysis: BattleAnalysisSnapshot,
         hit,
     ) -> BattleAnalysisSnapshot:
-        if analysis.target_instance_mapping_required:
+        if getattr(analysis, "target_instance_mapping_required", False):
             return replace(
                 analysis,
                 target_condition=cls.condition_for_hit(analysis, hit),
             )
-        if analysis.target_condition is not None:
+        if getattr(analysis, "target_condition", None) is not None:
             return analysis
-        condition = dict(analysis.target_conditions_by_half).get(
+        condition = dict(
+            getattr(analysis, "target_conditions_by_half", ())
+        ).get(
             getattr(hit, "scope_half", "")
         )
         return analysis if condition is None else replace(

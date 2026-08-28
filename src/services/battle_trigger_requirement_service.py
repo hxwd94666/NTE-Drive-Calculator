@@ -8,6 +8,7 @@ from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
 
 _MITSUKI_LEVEL6 = "con_mitsuki_lv6"
 _SHINKU_ULTRA_DAMAGE = "con_shinku_curisultradamage"
+_MOFEIKESI_CONTROL = "con_fork_mofeikesi_1"
 _SERVER_ONLY = (
     "con_isserverorstandalone",
     "con_selfisserverorstandalone",
@@ -30,6 +31,11 @@ def trigger_requirement_applies_to_action(
         return action.input_kind == "E"
     if _SHINKU_ULTRA_DAMAGE in normalized:
         return action.input_kind == "Q"
+    if _MOFEIKESI_CONTROL in normalized:
+        return action.character_id == 1003 and action.input_kind == "Q" and any(
+            "sagiri_ultraskill" in effect.casefold()
+            for effect in action.gameplay_effect_ids
+        )
     if "con_perfectevadedamage" in normalized:
         return action.input_kind == "PERFECT_EVADE" or "闪避" in action.action_name
     if "con_selfisnotusemelee" in normalized:
@@ -63,6 +69,12 @@ def trigger_requirement_applies_to_hit(
     if _SHINKU_ULTRA_DAMAGE in normalized:
         return hit.attack_type.casefold() in {"ultra", "q技能"} or (
             "ultraskill" in identity
+        )
+    if _MOFEIKESI_CONTROL in normalized:
+        return hit.character_id == 1003 and (
+            "ga_sagiri_ultraskill" in hit.ability_id.casefold()
+            or "ge_player_sagiri_ultraskill1_damage" in identity
+            or "ge_player_sagiri_ultraskill2_damage" in identity
         )
     if "con_perfectevadedamage" in normalized:
         return "perfectevade" in identity or "闪避反击" in hit.attack_type

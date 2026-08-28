@@ -13,13 +13,16 @@ from src.domain.battle_report import (
     BattleTargetCondition,
     BattleTimelineDamageGroup,
 )
-from src.services.battle_fadia_hp_stack_service import resolve_fadia_inherent_hp
+from src.services.battle_fadia_hp_stack_service import (
+    is_plausible_fadia_observed_source_hp,
+    resolve_fadia_source_max_hp,
+)
 from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService,
 )
 
 
-TARGET_VITAL_MODEL_VERSION = "battle-target-vital-v5"
+TARGET_VITAL_MODEL_VERSION = "battle-target-vital-v6"
 
 _LACRIMOSA_ID = 1004
 _FADIA_ID = 1039
@@ -220,6 +223,9 @@ class BattleTargetVitalAnalysisService:
             _FADIA_ID,
             2,
         )
+        fadia_reference_hp = (
+            resolve_fadia_source_max_hp(build) if fadia_enabled else None
+        )
         identity_mode = battle_target_identity_mode(rows)
         states: dict[tuple[str, str], _TargetState] = defaultdict(_TargetState)
         pending_lacrimosa: dict[
@@ -284,6 +290,10 @@ class BattleTargetVitalAnalysisService:
                 and state.confirmed_max_hp is not None
                 and observed_max is not None
                 and 0.0 < observed_max < state.confirmed_max_hp
+                and is_plausible_fadia_observed_source_hp(
+                    (state.confirmed_max_hp - observed_max) / 2.0,
+                    fadia_reference_hp,
+                )
             )
             if (
                 observed_max is None or observed_max <= 0
@@ -348,13 +358,17 @@ class BattleTargetVitalAnalysisService:
 
             old_max_hp = state.confirmed_max_hp
             max_hp_reduction = old_max_hp - observed_max
+            fadia_ratio_plausible = is_plausible_fadia_observed_source_hp(
+                max_hp_reduction / 2.0,
+                fadia_reference_hp,
+            )
             lacrimosa_candidates = tuple(
                 candidate
                 for candidate in pending_lacrimosa[target_scope]
                 if 0 <= time_us - int(candidate.get("relative_time_us") or 0)
                 <= _LACRIMOSA_MATCH_WINDOW_US
             )
-            if fadia_candidates:
+            if fadia_candidates and fadia_ratio_plausible:
                 source_rows = fadia_candidates
                 source_character_id = _FADIA_ID
                 source_character_name = _text(
@@ -393,6 +407,11 @@ class BattleTargetVitalAnalysisService:
                 source_skill_name = ""
                 attribution_confidence = "低"
                 basis = "确认最大生命样本下降，但冻结配装与附近事件不足以归属于已建模机制。"
+                if fadia_candidates and not fadia_ratio_plausible:
+                    basis += (
+                        " 附近虽有法帝娅黯星，但按正式 200% 比例反推的来源"
+                        " MAXHP 与冻结面板不在宽松一致区间，因此不归给法帝娅。"
+                    )
 
             if fadia_sample_fallback:
                 basis = (
@@ -492,12 +511,46 @@ class BattleTargetVitalAnalysisService:
             _FADIA_ID,
             2,
         )
-        fadia_hp = resolve_fadia_inherent_hp(build) if fadia_enabled else None
+        fadia_hp = resolve_fadia_source_max_hp(build) if fadia_enabled else None
+        raw_fadia_rows = {
+            _event_id(row): row
+            for row in rows
+            if _text(row.get("direction"), "unknown") == "outgoing"
+            and _character_id(row) == _FADIA_ID
+            and _text(row.get("gameplay_effect_name")).casefold()
+            == _FADIA_DARK_STAR_EFFECT
+        }
+        observed_fadia_source_hp: dict[str, float] = {}
+        for event in observed_events:
+            if (
+                event.mechanic_kind != "fadia_dark_star_max_hp_transfer"
+                or event.evidence_kind != "observed"
+                or event.max_hp_reduction <= 0.0
+            ):
+                continue
+            matched_ids = tuple(sorted(
+                (
+                    event_id
+                    for event_id in event.evidence_event_ids
+                    if event_id in raw_fadia_rows
+                ),
+                key=lambda event_id: (
+                    int(raw_fadia_rows[event_id].get("relative_time_us") or 0),
+                    _sequence(raw_fadia_rows[event_id]),
+                    event_id,
+                ),
+            ))
+            if not matched_ids:
+                continue
+            observed_fadia_source_hp[matched_ids[-1]] = (
+                event.max_hp_reduction / 2.0
+            )
         observed_evidence_ids = {
             event_id
             for event in observed_events
             for event_id in event.evidence_event_ids
         }
+        fadia_current_hp_by_half: dict[str, float] = {}
         estimates: list[BattleMaxHpReductionEvent] = []
         for row in sorted(
             rows,
@@ -522,6 +575,10 @@ class BattleTargetVitalAnalysisService:
                 and bool(_text(row.get("target_id")))
             )
             if event_id in observed_evidence_ids:
+                observed_source_hp = observed_fadia_source_hp.get(event_id)
+                if observed_source_hp is not None:
+                    half = _text(row.get("abyss_half")).casefold()
+                    fadia_current_hp_by_half[half] = observed_source_hp * 1.1
                 continue
             hp_before = _number(row.get("target_hp_before"))
             max_hp = _number(row.get("target_max_hp"))
@@ -551,7 +608,15 @@ class BattleTargetVitalAnalysisService:
                 is_fadia
                 and fadia_hp is not None
             ):
-                estimated_reduction = fadia_hp * _FADIA_REDUCTION_HP_RATIO
+                half = _text(row.get("abyss_half")).casefold()
+                source_current_hp = fadia_current_hp_by_half.setdefault(
+                    half,
+                    fadia_hp,
+                )
+                estimated_reduction = (
+                    source_current_hp * _FADIA_REDUCTION_HP_RATIO
+                )
+                fadia_current_hp_by_half[half] = source_current_hp * 1.1
                 source_character_name = _text(
                     row.get("character_name"),
                     "法帝娅",
@@ -560,9 +625,10 @@ class BattleTargetVitalAnalysisService:
                 mechanic_name = "法帝娅被动·黯星生命上限汲取（描述预计）"
                 source_skill_name = "罪感熔炉"
                 basis = (
-                    "按技能描述以冻结法帝娅固有生命上限的 200% 预计目标最大生命损失；"
+                    "按正式属性抽取语义以法帝娅本次来源当前 MAXHP 的 200%"
+                    "预计目标最大生命损失；"
                     "敌方损失不受我方 5 次生命获取上限限制。"
-                    "固有生命只采用人物与弧盘基础生命，并在已选择三觉时整体乘 1.30。"
+                    "来源当前 MAXHP 由冻结 PanelHP、三觉与前序本机制层数递推。"
                 )
             else:
                 continue

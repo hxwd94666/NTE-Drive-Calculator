@@ -105,6 +105,7 @@ class BattleEncounterCatalogService:
         }
         raw = (
             *cls._outer_candidates(static_dao, names),
+            *cls._high_risk_candidates(static_dao),
             *cls._clone_candidates(static_dao),
             *cls._feast_candidates(static_dao),
             *cls._world_boss_candidates(static_dao),
@@ -143,6 +144,49 @@ class BattleEncounterCatalogService:
             ):
                 continue
             result.append(candidate)
+        return tuple(result)
+
+    @staticmethod
+    def _high_risk_candidates(static_dao: Any) -> tuple[BattleEncounterCandidate, ...]:
+        groups: dict[tuple[str, int], list[Mapping[str, Any]]] = defaultdict(list)
+        for row in static_dao.list_high_risk_commission_fingerprint_rows():
+            groups[(
+                str(row.get("commission_id") or ""),
+                int(row.get("difficulty_id") or 0),
+            )].append(row)
+        result = []
+        for commission_id, difficulty_id in sorted(groups):
+            rows = sorted(
+                groups[(commission_id, difficulty_id)],
+                key=lambda row: int(row.get("member_ordinal") or 0),
+            )
+            targets = tuple(
+                target
+                for row in rows
+                if (target := _target_preset(
+                    row,
+                    target_id=row.get("monster_template_name"),
+                    target_name=row.get("name_zh"),
+                    monster_class_path=row.get("monster_class_path"),
+                    monster_count=row.get("monster_count"),
+                )) is not None
+            )
+            if targets:
+                result.append(BattleEncounterCandidate(
+                    environment_kind="high_risk_commission",
+                    environment_ref=(
+                        f"adv_vision|{commission_id}|{difficulty_id}"
+                    ),
+                    environment_name=(
+                        f"高危委托 · {rows[0].get('name_zh') or commission_id}"
+                        f" · 难度 {difficulty_id}"
+                    ),
+                    scope_half="",
+                    outer_realm_floor=None,
+                    difficulty_id=difficulty_id,
+                    feast_options=(),
+                    targets=targets,
+                ))
         return tuple(result)
 
     @staticmethod

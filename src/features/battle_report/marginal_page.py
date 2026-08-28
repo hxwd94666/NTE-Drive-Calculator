@@ -5,10 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractButton,
     QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -16,7 +13,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QStackedWidget,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -35,11 +31,9 @@ from src.features.battle_report.composition_view import BattleDamageCompositionP
 from src.features.battle_report.hit_formula_dialog import BattleHitFormulaDialog
 from src.features.battle_report.marginal_derived_settlement_view import BattleMarginalDerivedSettlementView
 from src.features.battle_report.marginal_result_table_view import (
+    display_projection,
     render_attribute_results,
     render_buff_benefit_results,
-)
-from src.features.battle_report.marginal_quantification_view import (
-    quantification_status_text,
 )
 from src.features.battle_report.marginal_replacement_controller import (
     show_marginal_equipment_replacement,
@@ -78,8 +72,9 @@ class BattleMarginalPage(QWidget):
 
     back_requested = Signal()
     recalculate_requested = Signal(object)
-    restore_saved_requested = Signal()
-    analysis_requested = Signal(int, object, object)
+    reset_requested = Signal()
+    draft_changed = Signal()
+    role_changed = Signal(object)
 
     def __init__(self, *, game_ui_asset_root=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -91,6 +86,7 @@ class BattleMarginalPage(QWidget):
         self._editor_character_ids: list[int] = []
         self._equipment_editable = True
         self._inferred_fact_ids: tuple[str, ...] = ()
+        self._draft_dirty = False
         self._build()
 
     def _build(self) -> None:
@@ -149,19 +145,24 @@ class BattleMarginalPage(QWidget):
             "取消后只影响本页候选，不会改写战报快照、修改副本或角色页。"
         )
         self.use_inferred_facts.hide()
+        self.use_inferred_facts.toggled.connect(self._mark_draft_changed)
         selector.addWidget(self.use_inferred_facts)
-        recalculate = QPushButton("重算")
-        recalculate.setObjectName("btnPrimary")
-        recalculate.clicked.connect(self._request_recalculate)
-        selector.addWidget(recalculate)
+        self.reset_button = QPushButton("重置")
+        self.reset_button.setToolTip("恢复进入本页时的内存基线，不读库、不保存。")
+        self.reset_button.clicked.connect(self._reset_draft)
+        selector.addWidget(self.reset_button)
+        self.recalculate_button = QPushButton("重算")
+        self.recalculate_button.setObjectName("btnPrimary")
+        self.recalculate_button.clicked.connect(self._request_recalculate)
+        selector.addWidget(self.recalculate_button)
         root.addLayout(selector)
 
         metrics = QGridLayout()
         definitions = (
-            ("dps", "投影 DPS", "等待候选重算"),
-            ("damage", "投影总伤害", "相对当前生效基线"),
-            ("role", "角色投影", "当前分析角色"),
-            ("structured", "结构化重放", "与变化完整性分开统计"),
+            ("dps", "新 DPS", "固定轴估计"),
+            ("damage", "新总伤害", "相对当前生效基线"),
+            ("role", "角色伤害", "当前分析角色"),
+            ("structured", "结构化重放", "其余为分级估计"),
         )
         self.metric_labels: dict[str, QLabel] = {}
         self.metric_subtitles: dict[str, QLabel] = {}
@@ -310,13 +311,6 @@ class BattleMarginalPage(QWidget):
         editor_card, editor_layout = analysis_section("角色配置")
         self.editor_stack = QStackedWidget()
         editor_layout.addWidget(self.editor_stack)
-        actions = QHBoxLayout()
-        restore = QPushButton("恢复已保存状态")
-        restore.setToolTip("丢弃本页临时调整，重新读取当前持久化基线。")
-        restore.clicked.connect(self.restore_saved_requested)
-        actions.addWidget(restore)
-        actions.addStretch()
-        editor_layout.addLayout(actions)
         root.addWidget(editor_card)
 
         roles_card, roles_layout = analysis_section("重算后角色贡献")
@@ -340,10 +334,24 @@ class BattleMarginalPage(QWidget):
         root.addWidget(composition_card)
         root.addStretch()
 
-    def set_editor_data(self, editor_data: dict) -> None:
-        self._load_editor_data(editor_data)
+    def set_editor_data(
+        self,
+        editor_data: dict,
+        *,
+        selected_character_id: int | None = None,
+    ) -> None:
+        self._draft_dirty = False
+        self._load_editor_data(
+            editor_data,
+            selected_character_id=selected_character_id,
+        )
 
-    def _load_editor_data(self, editor_data: dict) -> None:
+    def _load_editor_data(
+        self,
+        editor_data: dict,
+        *,
+        selected_character_id: int | None = None,
+    ) -> None:
         while self.editor_stack.count():
             widget = self.editor_stack.widget(0)
             self.editor_stack.removeWidget(widget)
@@ -359,7 +367,9 @@ class BattleMarginalPage(QWidget):
             for fact in editor_data.get("inferred_character_facts") or ()
             if str(getattr(fact, "fact_id", ""))
         )
+        self.use_inferred_facts.blockSignals(True)
         self.use_inferred_facts.setChecked(True)
+        self.use_inferred_facts.blockSignals(False)
         self.use_inferred_facts.setVisible(bool(self._inferred_fact_ids))
         self.character_combo.blockSignals(True)
         self.character_combo.clear()
@@ -371,19 +381,43 @@ class BattleMarginalPage(QWidget):
             self._editor_character_ids.append(character_id)
             self.editor_stack.addWidget(QWidget())
             self.character_combo.addItem(name, character_id)
+        if selected_character_id is not None:
+            selected_index = self.character_combo.findData(selected_character_id)
+            if selected_index >= 0:
+                self.character_combo.setCurrentIndex(selected_index)
         self.character_combo.blockSignals(False)
         self._character_changed()
 
     def clear_candidate(self) -> None:
         self._load_editor_data({"details": [], "marginal_equipment_editable": True})
+        self._draft_dirty = False
         self._analysis = None
         self._candidate_analysis = None
+        for label in self.metric_labels.values():
+            label.setText("—")
+        for key, text in {
+            "dps": "固定轴估计",
+            "damage": "相对当前生效基线",
+            "role": "当前分析角色",
+            "structured": "其余为分级估计",
+        }.items():
+            self.metric_subtitles[key].setText(text)
         self.counterfactual_timeline.set_analysis(None)
         self.composition_panel.clear()
+        self.attribute_table.setRowCount(0)
         self.buff_benefit_table.setRowCount(0)
+        self.roles_table.setRowCount(0)
+        self.roles_pie.set_roles(())
         self.derived_settlements.render(None)
 
-    def set_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
+    def set_source_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
+        self._render_analysis(analysis)
+
+    def set_marginal_result(self, analysis: BattleAnalysisSnapshot) -> None:
+        self._draft_dirty = False
+        self._render_analysis(analysis)
+
+    def _render_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
         self._analysis = analysis
         comparison = analysis.build_counterfactual
         self.derived_settlements.render(comparison)
@@ -403,42 +437,39 @@ class BattleMarginalPage(QWidget):
                 comparison,
             )
             self.counterfactual_timeline.set_analysis(self._candidate_analysis)
-            is_complete = comparison.quantification.status in {
-                "complete", "not_applicable",
-            }
-            projected_damage = (
-                comparison.candidate_damage
-                if is_complete
-                else comparison.known_projection_damage
+            projected_damage = display_projection(
+                candidate=comparison.candidate_damage,
+                heuristic=comparison.heuristic_projection_damage,
+                known=comparison.known_projection_damage,
             )
-            projected_dps = (
-                comparison.candidate_dps
-                if is_complete
-                else comparison.known_projection_dps
+            projected_dps = display_projection(
+                candidate=comparison.candidate_dps,
+                heuristic=comparison.heuristic_projection_dps,
+                known=comparison.known_projection_dps,
             )
             gain = (
-                comparison.gain_percent
-                if is_complete
-                else comparison.known_gain_percent
+                None
+                if projected_damage is None or not comparison.baseline_damage
+                else (
+                    projected_damage / comparison.baseline_damage - 1.0
+                ) * 100.0
             )
-            prefix = "" if is_complete else "已量化变化下 "
             self.metric_labels["dps"].setText(
-                "—" if projected_dps is None else f"{prefix}{_number(projected_dps)}"
+                "—" if projected_dps is None else _number(projected_dps)
             )
             self.metric_labels["damage"].setText(
-                "—" if projected_damage is None else f"{prefix}{_number(projected_damage)}"
+                "—" if projected_damage is None else _number(projected_damage)
             )
             self.metric_subtitles["damage"].setText(
-                "未量化 · 不把未知记为 0"
+                "等待候选重算"
                 if gain is None
-                else f"{prefix}{gain:+.2f}% · 原始 {_number(comparison.baseline_damage)}"
+                else f"{gain:+.2f}% · 原始 {_number(comparison.baseline_damage)}"
             )
             self.metric_labels["structured"].setText(
                 f"{comparison.structured_percent:.1f}%"
             )
             self.metric_subtitles["structured"].setText(
-                "变化状态："
-                f"{quantification_status_text(comparison.quantification.status)}"
+                f"估计 {max(0.0, 100.0 - comparison.structured_percent):.1f}%"
             )
             render_counterfactual_roles(
                 self.roles_table, self.roles_pie,
@@ -579,13 +610,7 @@ class BattleMarginalPage(QWidget):
             self.editor_stack.setCurrentIndex(index)
         self._render_selected_role()
         self._refresh_change_summary()
-        character_id = self.selected_character_id()
-        if character_id is not None:
-            self.analysis_requested.emit(
-                character_id,
-                self.selected_detail_scope(),
-                self.profiles(),
-            )
+        self.role_changed.emit(self.selected_detail_scope())
 
     def _refresh_change_summary(self, *_args) -> None:
         index = self.character_combo.currentIndex()
@@ -618,6 +643,8 @@ class BattleMarginalPage(QWidget):
             f"空幕{core_count}/驱动{drive_count}",
         ]
         summary = " · ".join(parts)
+        if self._draft_dirty:
+            summary += " · 配置已变化，待重算"
         self.change_summary.setText(summary)
         self.change_summary.setToolTip("当前候选：" + summary)
 
@@ -646,14 +673,7 @@ class BattleMarginalPage(QWidget):
         placeholder.deleteLater()
         self.editor_stack.insertWidget(index, editor)
         self._editors[index] = editor
-        for widget in editor.findChildren(QAbstractButton):
-            widget.clicked.connect(self._refresh_change_summary)
-        for widget in editor.findChildren(QComboBox):
-            widget.currentIndexChanged.connect(self._refresh_change_summary)
-        for widget in editor.findChildren(QSpinBox):
-            widget.valueChanged.connect(self._refresh_change_summary)
-        for widget in editor.findChildren(QDoubleSpinBox):
-            widget.valueChanged.connect(self._refresh_change_summary)
+        editor.changed.connect(self._mark_draft_changed)
         return editor
 
     def _replace_equipment(
@@ -684,8 +704,18 @@ class BattleMarginalPage(QWidget):
             on_replaced=apply_replacement,
         )
         if accepted:
-            self._refresh_change_summary()
+            self._mark_draft_changed()
         return accepted
+
+    def _mark_draft_changed(self, *_args) -> None:
+        if not self._details:
+            return
+        self._draft_dirty = True
+        self._refresh_change_summary()
+        self.draft_changed.emit()
+
+    def _reset_draft(self) -> None:
+        self.reset_requested.emit()
 
     def _render_selected_role(self) -> None:
         analysis = self._analysis
@@ -716,21 +746,23 @@ class BattleMarginalPage(QWidget):
             )
             self.metric_subtitles["role"].setText("等待候选重算")
         else:
-            is_complete = role.quantification.status in {
-                "complete", "not_applicable",
-            }
-            projected_damage = (
-                role.candidate_damage if is_complete else role.known_projection_damage
+            projected_damage = display_projection(
+                candidate=role.candidate_damage,
+                heuristic=role.heuristic_projection_damage,
+                known=role.known_projection_damage,
             )
-            gain = role.gain_percent if is_complete else role.known_gain_percent
-            prefix = "" if is_complete else "已量化变化下 "
+            gain = (
+                None
+                if projected_damage is None or not role.baseline_damage
+                else (projected_damage / role.baseline_damage - 1.0) * 100.0
+            )
             self.metric_labels["role"].setText(
-                "—" if projected_damage is None else f"{prefix}{_number(projected_damage)}"
+                "—" if projected_damage is None else _number(projected_damage)
             )
             self.metric_subtitles["role"].setText(
-                "未量化 · 不把未知记为 0"
+                "等待候选重算"
                 if gain is None
-                else f"{prefix}{gain:+.2f}% · 原始 {_number(role.baseline_damage)}"
+                else f"{gain:+.2f}% · 原始 {_number(role.baseline_damage)}"
             )
 
     def _render_attributes(self, baseline: BattleCharacterBaseline | None) -> None:

@@ -20,6 +20,15 @@ from src.services.battle_dot_stack_state_service import (
 from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService,
 )
+from src.services.battle_character_awakening_hit_service import (
+    character_awakening_damage_multiplier,
+)
+from src.services.battle_damage_composition_service import (
+    explicit_reaction_channel_for_hit,
+)
+from src.services.battle_audited_treatment_adapter_service import (
+    is_kuhara_q_settlement_hit,
+)
 from src.services.official_role_awakening_service import awaken_skill_level_delta
 
 
@@ -29,6 +38,28 @@ _NON_CRITICAL_DAMAGE_IDS = frozenset({
     "ge_reaction_3_new_1071_damage",
 })
 _NO_SKILL_LEVEL_DAMAGE_IDS = frozenset({"ge_reaction_3_new_1071_damage"})
+_KUHARA_EFFECT_CURVE_TABLE = (
+    "/Game/DataTable/Skill/GlobalCharacterData/DT_KuharaEffectFigure"
+)
+_KUHARA_Q_SETTLEMENT_CURVE_ID = "Kuhara_BudBoom_CoefAddUltraSkill"
+
+
+def _single_point_curve_value(
+    static_dao: Any,
+    table_path: str,
+    curve_id: str,
+) -> float | None:
+    if not hasattr(static_dao, "get_combat_curve"):
+        return None
+    points = (static_dao.get_combat_curve(table_path, curve_id) or {}).get(
+        "points"
+    ) or ()
+    values = tuple(
+        float(row["value"])
+        for row in points
+        if isinstance(row.get("value"), (int, float))
+    )
+    return values[0] if len(values) == 1 else None
 
 
 def _reaction_level_multiplier(
@@ -190,20 +221,51 @@ class BattleSkillDamageEvidenceService:
         for hit in analysis.hits:
             damage_id = hit.gameplay_effect_id.strip()
             inferred_basis = ""
+            explicit_reaction = explicit_reaction_channel_for_hit(hit)
+            canonical_reaction_damage_id = {
+                "reaction_nova": "Buff_Reaction_4_new",
+                "reaction_scorch": "Buff_Reaction_5_new_1036",
+            }.get(explicit_reaction[0] if explicit_reaction else "")
+            if canonical_reaction_damage_id is not None:
+                original_damage_id = damage_id
+                damage_id = canonical_reaction_damage_id
+                inferred_basis = (
+                    f"显式{explicit_reaction[1]}结算身份优先于 Core 复用的来源 GE "
+                    f"{original_damage_id}"
+                )
             if not damage_id and hit.event_id in co_timed_damage_ids:
                 damage_id, inferred_basis = co_timed_damage_ids[hit.event_id]
-            source_character_id = (
-                1036
-                if damage_id.casefold() == "buff_reaction_5_new_1036"
-                else hit.character_id
-            )
-            character = builds.get(source_character_id or -1)
-            if not damage_id or character is None:
+            if not damage_id:
                 continue
             if damage_id not in cache:
                 cache[damage_id] = static_dao.get_skill_damage(damage_id)
             row = cache[damage_id]
             if row is None:
+                continue
+            source_character_id = (
+                1036
+                if damage_id.casefold() == "buff_reaction_5_new_1036"
+                else hit.character_id
+            )
+            if hasattr(static_dao, "list_skill_damage_owner_character_ids"):
+                formal_owner_ids = tuple(
+                    int(value)
+                    for value in static_dao.list_skill_damage_owner_character_ids(
+                        damage_id
+                    )
+                )
+                if len(formal_owner_ids) == 1:
+                    formal_owner_id = formal_owner_ids[0]
+                    if formal_owner_id != source_character_id:
+                        inferred_basis = (
+                            f"{inferred_basis}；" if inferred_basis else ""
+                        ) + (
+                            f"正式伤害技能属于角色 {formal_owner_id}，"
+                            f"不采用 Core 会话归属角色 {source_character_id} 的面板"
+                        )
+                    source_character_id = formal_owner_id
+            character = builds.get(source_character_id or -1)
+            if character is None:
                 continue
             imported_ability_id = str(row.get("ability_id") or "")
             ability_id, level_owner_basis = _skill_level_ability_id(
@@ -283,6 +345,15 @@ class BattleSkillDamageEvidenceService:
             ):
                 coefficient *= 1.20
                 basis += "；三觉极轨终结倍率整体 ×1.20"
+            awakening_coefficient, awakening_basis = (
+                character_awakening_damage_multiplier(
+                    character,
+                    damage_id=damage_id,
+                )
+            )
+            coefficient *= awakening_coefficient
+            if awakening_basis:
+                basis += f"；{awakening_basis}"
             passive_coefficient, passive_basis = (
                 BattleCharacterPassiveService.skill_multiplier_adjustment(
                     character,
@@ -293,6 +364,22 @@ class BattleSkillDamageEvidenceService:
             coefficient *= passive_coefficient
             if passive_basis:
                 basis += f"；{passive_basis}"
+            if is_kuhara_q_settlement_hit(
+                hit,
+                getattr(analysis, "inferred_actions", ()),
+            ):
+                q_settlement_coefficient = _single_point_curve_value(
+                    static_dao,
+                    _KUHARA_EFFECT_CURVE_TABLE,
+                    _KUHARA_Q_SETTLEMENT_CURVE_ID,
+                )
+                if q_settlement_coefficient is not None:
+                    coefficient *= q_settlement_coefficient
+                    basis += (
+                        "；正式九原 Q 主动玫约清算状态系数 "
+                        f"{_KUHARA_Q_SETTLEMENT_CURVE_ID}="
+                        f"{q_settlement_coefficient:g}"
+                    )
             evidence.append(BattleSkillDamageEvidence(
                 event_id=hit.event_id,
                 damage_id=damage_id,

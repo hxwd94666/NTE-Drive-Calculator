@@ -84,6 +84,122 @@ def _replay(event_id: str, damage: float, stack: float, noncrit: float) -> Battl
 
 
 class BattleReplayAuditRepairTests(unittest.TestCase):
+    def test_dark_star_formula_uses_exact_hp_remainder_without_rewriting_hit(self) -> None:
+        hit = replace(
+            _hit(
+                "75:primary",
+                28_164_538,
+                "Buff_Reaction_4_new",
+                character_id=1039,
+                damage=1_249.0,
+                classification="reaction",
+            ),
+            character_name="法帝娅",
+            damage_name="黯星",
+            damage_component="黯星",
+            target_hp_before=3_871_103.75,
+            target_hp_after=3_812_254.75,
+            target_max_hp=4_428_034.0,
+            overkill_damage=0.0,
+        )
+        replay = replace(
+            _replay(hit.event_id, hit.damage, 1.0, 57_600.0),
+            critical_damage=None,
+            selected_damage=57_600.0,
+            selected_error_percent=4_511.69,
+            critical_state="not_applicable",
+            formula_type="黯星",
+            critical_rate=0.0,
+            expected_damage=57_600.0,
+            corrected_expected_damage=1_249.0,
+            signed_error_percent=4_511.69,
+            critical_policy="disabled",
+        )
+
+        adjusted = BattleHitReplayAuditService.apply_dark_star_hp_remainder_observation(
+            SimpleNamespace(hits=(hit,)),
+            (replay,),
+        )[0]
+
+        self.assertEqual(1_249.0, hit.damage)
+        self.assertEqual(57_600.0, adjusted.observed_damage)
+        self.assertEqual(1_249.0, adjusted.reported_damage)
+        self.assertEqual("target_hp_transition_remainder", adjusted.observed_damage_source)
+        self.assertEqual(0.0, adjusted.signed_error_percent)
+        self.assertEqual(0.0, adjusted.selected_error_percent)
+        self.assertEqual(57_600.0, adjusted.corrected_expected_damage)
+        self.assertEqual("高", adjusted.confidence)
+
+    def test_dark_star_hp_remainder_fails_closed_when_formula_does_not_match(self) -> None:
+        hit = replace(
+            _hit(
+                "31:primary",
+                1_000_000,
+                "Buff_Reaction_4_new",
+                character_id=1039,
+                damage=2_243.0,
+                classification="reaction",
+            ),
+            damage_name="黯星",
+            target_hp_before=500_000.0,
+            target_hp_after=430_369.828125,
+            overkill_damage=0.0,
+        )
+        replay = replace(
+            _replay(hit.event_id, hit.damage, 1.0, 57_600.0),
+            critical_damage=None,
+            selected_damage=57_600.0,
+            formula_type="黯星",
+        )
+
+        adjusted = BattleHitReplayAuditService.apply_dark_star_hp_remainder_observation(
+            SimpleNamespace(hits=(hit,)),
+            (replay,),
+        )[0]
+
+        self.assertIs(adjusted, replay)
+        self.assertEqual(2_243.0, adjusted.observed_damage)
+
+    def test_normal_dark_star_and_positive_overkill_are_not_reinterpreted(self) -> None:
+        normal = replace(
+            _hit(
+                "normal",
+                1_000_000,
+                "Buff_Reaction_4_new",
+                character_id=1039,
+                damage=57_600.0,
+                classification="reaction",
+            ),
+            damage_name="黯星",
+            target_hp_before=500_000.0,
+            target_hp_after=442_400.0,
+            overkill_damage=0.0,
+        )
+        overkill = replace(
+            normal,
+            event_id="overkill",
+            damage=1_249.0,
+            target_hp_after=0.0,
+            overkill_damage=10.0,
+        )
+        results = tuple(
+            replace(
+                _replay(hit.event_id, hit.damage, 1.0, 57_600.0),
+                critical_damage=None,
+                selected_damage=57_600.0,
+                formula_type="黯星",
+            )
+            for hit in (normal, overkill)
+        )
+
+        adjusted = BattleHitReplayAuditService.apply_dark_star_hp_remainder_observation(
+            SimpleNamespace(hits=(normal, overkill)),
+            results,
+        )
+
+        self.assertEqual((57_600.0, 1_249.0), tuple(
+            row.observed_damage for row in adjusted
+        ))
     def test_equal_damage_overlapping_hp_intervals_mark_both_replays(self) -> None:
         first = replace(
             _hit("89:primary", 46_086_321, "GE_Player_Lacrimosa_Blood_Damage", damage=34_653.0),
@@ -116,7 +232,11 @@ class BattleReplayAuditRepairTests(unittest.TestCase):
         self.assertTrue(all(row.critical_state == "ambiguous" for row in marked))
         self.assertTrue(all(row.confidence == "低" for row in marked))
         self.assertTrue(all(
-            any("伤害归属污染" in reason for reason in row.missing_evidence)
+            any(
+                "同一服务端 HP 结算的重复归属候选" in reason
+                and "不表示伤害实际发生两次" in reason
+                for reason in row.missing_evidence
+            )
             for row in marked
         ))
 
@@ -144,7 +264,7 @@ class BattleReplayAuditRepairTests(unittest.TestCase):
             target_hp_after=488_098.0,
         )
 
-        conflicts = BattleHitReplayAuditService._damage_attribution_conflict_ids(
+        conflicts = BattleHitReplayAuditService.damage_attribution_conflict_ids(
             (first, second)
         )
 
@@ -213,6 +333,38 @@ class BattleReplayAuditRepairTests(unittest.TestCase):
         self.assertEqual("critical", adjusted.critical_state)
         self.assertEqual(250.0, adjusted.selected_damage)
         self.assertIn("单份", stack.evidence_basis)
+
+    def test_reused_erosion_ge_scorch_skips_erosion_adjustment(self) -> None:
+        hit = replace(
+            _hit(
+                "scorch:1",
+                1_000_000,
+                "GE_Player_Zankou_DotDamage",
+                character_id=1036,
+                damage=250.0,
+                classification="reaction",
+            ),
+            damage_name="浊燃",
+        )
+        replay = replace(
+            _replay(hit.event_id, 250.0, 3.0, 300.0),
+            formula_type="浊燃",
+        )
+
+        adjusted = BattleHitReplayAuditService.apply_erosion_settlement_adjustment(
+            SimpleNamespace(hits=(hit,)),
+            (replay,),
+        )[0]
+
+        stack = next(
+            row for row in adjusted.factors
+            if row.factor_id == "state_coefficient"
+        )
+        self.assertEqual(3.0, stack.value)
+        self.assertFalse(any(
+            "蚀心结算模式" in reason
+            for reason in adjusted.missing_evidence
+        ))
 
     def test_erosion_and_nightmare_both_pause_during_time_stop(self) -> None:
         hits = (
