@@ -16,7 +16,9 @@ from src.services.battle_buff_inference_service import (
 from src.services.battle_fork_refinement_service import (
     BattleForkRefinementService,
 )
-from src.services.battle_target_control_policy_service import CONTROL_BLOCKED_BOSS
+from src.services.battle_target_control_policy_service import (
+    CONTROL_BLOCKED_BOSS, CONTROL_CONFIRMED_ALL_BOSS,
+)
 
 
 def _selected(
@@ -160,7 +162,7 @@ def _project(
 
 
 class BattleForkDamageCompletionServiceTests(unittest.TestCase):
-    def test_time_q_window_starts_at_q_begin_and_pauses_during_time_stop(self) -> None:
+    def test_time_q_crit_window_only_covers_the_consuming_q(self) -> None:
         rules = _rules(
             "upgradestar_pack_fork_Time",
             {
@@ -189,7 +191,8 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
             row for row in intervals if "消耗荒时强化 Q" in row.buff_name
         )
         self.assertEqual(8_000_000, time_interval.start_us)
-        self.assertEqual(88_000_000, time_interval.end_us)
+        self.assertEqual(9_000_000, time_interval.end_us)
+        self.assertFalse(any("无视防御" in row.buff_name for row in intervals))
 
     def test_confirmed_default_stacks_apply_to_mamen_and_jingmo(self) -> None:
         mamen = _rules(
@@ -360,9 +363,10 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
                 and row.start_us <= 6_000_000 < row.end_us
             ),
         )
-        self.assertFalse(any("司令虎符" in row.buff_name for row in intervals))
+        commander = next(row for row in intervals if "司令虎符" in row.buff_name)
+        self.assertEqual(4_000_000, commander.start_us)
 
-    def test_tiger_commander_starts_at_first_consistent_damage_step(self) -> None:
+    def test_tiger_commander_starts_when_second_formal_token_arrives(self) -> None:
         rules = _rules(
             "upgradestar_pack_fork_TigerTally",
             {
@@ -378,41 +382,28 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
             _action(1, 1001, "E", 1_000_000, 1_500_000),
             _action(2, 1001, "Q", 2_000_000, 2_500_000),
         )
-        hits = (
-            _hit(1, 100_000, input_kind="E", damage=100.0, gameplay_effect_id="GE_A"),
-            _hit(2, 200_000, input_kind="E", damage=200.0, gameplay_effect_id="GE_B"),
-            _hit(3, 3_000_000, input_kind="E", damage=105.0, gameplay_effect_id="GE_A"),
-            _hit(4, 3_100_000, input_kind="E", damage=210.0, gameplay_effect_id="GE_B"),
-        )
-        intervals, same_target = _project(
+        intervals, unresolved_target = _project(
             rules,
             actions,
-            hits,
-            _hit(5, 3_200_000, input_kind="E"),
-        )
-        _, other_target = _project(
-            rules,
-            actions,
-            hits,
-            _hit(6, 3_200_000, input_kind="E", target_id="other"),
+            (),
+            _hit(5, 2_200_000, input_kind="E"),
         )
         commander = tuple(
             row for row in intervals if "司令虎符" in row.buff_name
         )
 
         self.assertEqual(1, len(commander))
-        self.assertEqual(3_000_000, commander[0].start_us)
-        self.assertEqual("低", commander[0].state_confidence)
-        self.assertIn("中位比值 1.050", commander[0].inference_basis)
-        self.assertIsNone(_property(same_target, "DamageUpGeneralBase"))
-        self.assertIsNone(_property(other_target, "DamageUpGeneralBase"))
+        self.assertEqual(2_000_000, commander[0].start_us)
+        self.assertEqual("中", commander[0].state_confidence)
+        self.assertIn("第二枚正式虎符", commander[0].inference_basis)
+        self.assertIsNone(_property(unresolved_target, "DamageUpGeneralBase"))
         self.assertEqual(("Con_IsBoss",), commander[0].modifiers[0].target_require_tags)
         self.assertTrue(any(
             "缺少正式目标标签状态" in reason
-            for reason in same_target.exclusion_reasons
+            for reason in unresolved_target.exclusion_reasons
         ))
 
-    def test_tiger_normal_stack_rise_is_not_commander_evidence(self) -> None:
+    def test_tiger_commander_consumes_formally_resolved_boss_requirement(self) -> None:
         rules = _rules(
             "upgradestar_pack_fork_TigerTally",
             {
@@ -428,20 +419,47 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
             _action(1, 1001, "E", 1_000_000, 1_500_000),
             _action(2, 1001, "Q", 2_000_000, 2_500_000),
         )
-        hits = (
-            _hit(1, 100_000, damage=100.0, gameplay_effect_id="GE_A"),
-            _hit(2, 200_000, damage=200.0, gameplay_effect_id="GE_B"),
-            _hit(3, 3_000_000, damage=115.0, gameplay_effect_id="GE_A"),
-            _hit(4, 3_100_000, damage=230.0, gameplay_effect_id="GE_B"),
-        )
-        intervals, _projection = _project(
+        intervals, projection = _project(
             rules,
             actions,
-            hits,
-            _hit(5, 3_200_000),
+            (),
+            _hit(3, 2_200_000, input_kind="E"),
+            target_control_policy=CONTROL_CONFIRMED_ALL_BOSS,
+        )
+        commander = next(row for row in intervals if "司令虎符" in row.buff_name)
+        self.assertEqual((), commander.modifiers[0].target_require_tags)
+        self.assertIn("正式怪物目录", commander.inference_basis)
+        self.assertAlmostEqual(0.10, _property(projection, "DamageUpGeneralBase"))
+
+    def test_tiger_cat_damage_fragment_is_not_a_formal_q_token(self) -> None:
+        rules = _rules(
+            "upgradestar_pack_fork_TigerTally",
+            {
+                "buff_TigerTally_AtkUp": 0.15,
+                "buff_TigerTally_NormalUp": 0.15,
+                "buff_TigerTally_CD": 15.0,
+                "buff_TigerTally_CD4": 15.0,
+                "buff_TigerTally_Qup": 0.10,
+                "buff_TigerTally_CD3": 10.0,
+            },
+        )
+        actions = (
+            _action(1, 1001, "E", 1_000_000, 1_500_000),
+            _action(
+                2,
+                1001,
+                "Q",
+                2_000_000,
+                2_500_000,
+                gameplay_effect_ids=("GE_Player_Nanally_Cat_Skill_Damage",),
+            ),
+        )
+        intervals, projection = _project(
+            rules, actions, (), _hit(3, 3_000_000),
         )
 
         self.assertFalse(any("司令虎符" in row.buff_name for row in intervals))
+        self.assertAlmostEqual(0.15, _property(projection, "DamageUpGeneralBase"))
 
     def test_tiger_left_token_is_not_available_until_e_action_finishes(self) -> None:
         rules = _rules(
@@ -459,21 +477,15 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
             _action(1, 1001, "E", 1_000_000, 4_000_000),
             _action(2, 1001, "Q", 2_000_000, 2_500_000),
         )
-        hits = (
-            _hit(1, 100_000, damage=100.0, gameplay_effect_id="GE_A"),
-            _hit(2, 200_000, damage=200.0, gameplay_effect_id="GE_B"),
-            _hit(3, 3_000_000, damage=105.0, gameplay_effect_id="GE_A"),
-            _hit(4, 3_100_000, damage=210.0, gameplay_effect_id="GE_B"),
-        )
-
         intervals, _projection = _project(
             rules,
             actions,
-            hits,
+            (),
             _hit(5, 3_200_000),
         )
 
-        self.assertFalse(any("司令虎符" in row.buff_name for row in intervals))
+        commander = next(row for row in intervals if "司令虎符" in row.buff_name)
+        self.assertEqual(4_000_000, commander.start_us)
 
     def test_rose_e_immediately_grants_full_crit_damage_stack(self) -> None:
         rules = _rules(
@@ -518,6 +530,50 @@ class BattleForkDamageCompletionServiceTests(unittest.TestCase):
         self.assertAlmostEqual(0.40, _property(projection, "CritDamageBase"))
         self.assertIsNone(_property(projection, "DefIgnore"))
         self.assertTrue(any("消耗 2 层荒时" in row.inference_basis for row in intervals))
+
+    def test_time_three_stacks_splits_q_crit_from_all_damage_def_ignore(self) -> None:
+        rules = _rules(
+            "upgradestar_pack_fork_Time",
+            {
+                "buff_Time_AtkUp": 0.16,
+                "buff_Time_stateCritDamageUp": 0.24,
+                "buff_Time_CritDamageUp": 0.08,
+                "buff_Time_DefIgnore": 0.12,
+                "buff_Time_DefIgnore_Dur": 70.0,
+            },
+        )
+        actions = (
+            _action(1, 1001, "E", 1_000_000, 2_000_000),
+            _action(2, 2002, "E", 3_000_000, 4_000_000),
+            _action(3, 2003, "QTE", 5_000_000, 6_000_000),
+            _action(4, 2004, "E", 6_500_000, 7_000_000),
+            _action(5, 1001, "Q", 8_000_000, 9_000_000),
+        )
+        intervals, q_projection = _project(
+            rules,
+            actions,
+            (),
+            _hit(1, 8_500_000, input_kind="Q"),
+            battle_end_us=100_000_000,
+            time_stop_intervals=((20_000_000, 30_000_000),),
+        )
+        _, later_projection = _project(
+            rules,
+            actions,
+            (),
+            _hit(2, 50_000_000, input_kind="E"),
+            battle_end_us=100_000_000,
+            time_stop_intervals=((20_000_000, 30_000_000),),
+        )
+        crit = next(row for row in intervals if "强化 Q" in row.buff_name)
+        defence = next(row for row in intervals if "无视防御" in row.buff_name)
+        self.assertEqual((8_000_000, 9_000_000), (crit.start_us, crit.end_us))
+        defence_window = (defence.start_us, defence.end_us)
+        self.assertEqual((8_000_000, 88_000_000), defence_window)
+        self.assertAlmostEqual(0.48, _property(q_projection, "CritDamageBase"))
+        self.assertAlmostEqual(0.12, _property(q_projection, "DefIgnore"))
+        self.assertIsNone(_property(later_projection, "CritDamageBase"))
+        self.assertAlmostEqual(0.12, _property(later_projection, "DefIgnore"))
 
     def test_time_counts_overlapping_fragments_of_one_teammate_e_once(self) -> None:
         rules = _rules(

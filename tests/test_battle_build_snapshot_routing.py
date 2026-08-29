@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from PySide6.QtWidgets import QApplication, QDialog
@@ -13,8 +14,14 @@ from src.features.battle_report.marginal_session_controller import (
     BattleMarginalSessionController,
 )
 from src.features.battle_report.page import BattleReportPage
+from src.services.battle_buff_counterfactual_service import (
+    BUFF_COUNTERFACTUAL_MODEL_VERSION,
+)
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidateService,
+)
+from src.services.battle_passive_counterfactual_service import (
+    PASSIVE_COUNTERFACTUAL_MODEL_VERSION,
 )
 
 
@@ -118,6 +125,112 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
 
     def test_marginal_recalculation_uses_selected_role_half(self) -> None:
         page = BattleReportPage(game_ui_asset_root="data/game_ui")
+        page._source_analysis = SimpleNamespace(
+            buff_counterfactual_model_version=BUFF_COUNTERFACTUAL_MODEL_VERSION,
+            passive_counterfactual_model_version=(
+                PASSIVE_COUNTERFACTUAL_MODEL_VERSION
+            ),
+        )
+        reload_analysis = Mock()
+        service = Mock()
+        service.load_build_editor_data.return_value = {
+            "equipment_editable": True,
+            "details": [],
+        }
+        controller = BattleMarginalSessionController(
+            page=page,
+            service_provider=lambda: service,
+            record_id_provider=lambda: 7,
+            is_running=lambda: False,
+            reload_analysis=reload_analysis,
+            invalidate_analysis=Mock(),
+            show_error=lambda _title, error: self.fail(str(error)),
+        )
+        with patch.object(page.marginal_page, "set_source_analysis"):
+            controller.open()
+        page.marginal_page._details = [{"analysis_detail_scope": "first"}]
+        page.marginal_page.character_combo.addItem("上半场角色", 1001)
+        service.load_build_editor_data.reset_mock()
+
+        profiles = [{"character_id": 1001}]
+        page._source_analysis = None
+        controller.draft_changed()
+        controller.recalculate(profiles)
+
+        candidate = BattleMarginalCandidateService.freeze(
+            7,
+            profiles,
+            equipment_editable=True,
+        )
+
+        reload_analysis.assert_called_once_with(
+            7,
+            selected_character_id=1001,
+            detail_scope="first",
+            detail_level="marginal",
+            marginal_candidate=candidate,
+            comparison_baseline=None,
+            completion_kind="marginal",
+        )
+        service.load_build_editor_data.assert_not_called()
+
+    def test_open_marginal_lazily_recalculates_missing_buff_counterfactuals(
+        self,
+    ) -> None:
+        page = BattleReportPage(game_ui_asset_root="data/game_ui")
+        page._source_analysis = SimpleNamespace(
+            buff_counterfactual_model_version="",
+        )
+        requests = []
+        page.marginal_baseline_requested.connect(lambda: requests.append("baseline"))
+
+        with patch.object(
+            page.long_analysis_view,
+            "selected_character_id",
+            return_value=1001,
+        ), patch.object(
+            page.marginal_page,
+            "set_editor_data",
+        ), patch.object(
+            page.marginal_page,
+            "set_source_analysis",
+        ):
+            page.show_marginal({"details": []})
+
+        self.assertEqual(["baseline"], requests)
+
+    def test_open_marginal_reuses_completed_buff_counterfactuals(self) -> None:
+        page = BattleReportPage(game_ui_asset_root="data/game_ui")
+        page._source_analysis = SimpleNamespace(
+            buff_counterfactual_model_version=BUFF_COUNTERFACTUAL_MODEL_VERSION,
+            passive_counterfactual_model_version=(
+                PASSIVE_COUNTERFACTUAL_MODEL_VERSION
+            ),
+        )
+        requests = []
+        page.marginal_baseline_requested.connect(lambda: requests.append("baseline"))
+
+        with patch.object(
+            page.long_analysis_view,
+            "selected_character_id",
+            return_value=1001,
+        ), patch.object(
+            page.marginal_page,
+            "set_editor_data",
+        ), patch.object(
+            page.marginal_page,
+            "set_source_analysis",
+        ), patch.object(
+            page.marginal_page,
+            "profiles",
+        ) as profiles:
+            page.show_marginal({"details": []})
+
+        self.assertEqual([], requests)
+        profiles.assert_not_called()
+
+    def test_unchanged_marginal_recalculate_uses_baseline_request(self) -> None:
+        page = BattleReportPage(game_ui_asset_root="data/game_ui")
         reload_analysis = Mock()
         service = Mock()
         service.load_build_editor_data.return_value = {
@@ -134,28 +247,18 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
             show_error=lambda _title, error: self.fail(str(error)),
         )
         controller.open()
-        page.marginal_page._details = [{"analysis_detail_scope": "first"}]
-        page.marginal_page.character_combo.addItem("上半场角色", 1001)
-        service.load_build_editor_data.reset_mock()
+        reload_analysis.reset_mock()
 
-        profiles = [{"character_id": 1001}]
-        controller.recalculate(profiles)
-
-        candidate = BattleMarginalCandidateService.freeze(
-            7,
-            profiles,
-            equipment_editable=True,
-        )
+        controller.recalculate([{"character_id": 1001}])
 
         reload_analysis.assert_called_once_with(
             7,
-            selected_character_id=1001,
-            detail_scope="first",
+            selected_character_id=page.analysis_character_id(),
+            detail_scope=page.marginal_detail_scope(),
             detail_level="marginal",
-            marginal_candidate=candidate,
+            marginal_candidate=None,
             completion_kind="marginal",
         )
-        service.load_build_editor_data.assert_not_called()
 
     def test_role_page_import_with_equipment_never_writes_back_to_role_page(self) -> None:
         page = BattleReportPage(game_ui_asset_root="data/game_ui")
@@ -239,6 +342,52 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
 
         self.assertEqual([], page.marginal_page._details)
         self.assertEqual([], page.marginal_page.profiles())
+
+    def test_open_marginal_reuses_source_analysis_and_selected_role(self) -> None:
+        page = BattleReportPage(game_ui_asset_root="data/game_ui")
+        source = object()
+        page._source_analysis = source
+        editor_data = {"details": []}
+
+        with patch.object(
+            page.long_analysis_view,
+            "selected_character_id",
+            return_value=1002,
+        ), patch.object(
+            page.marginal_page,
+            "set_editor_data",
+        ) as set_editor_data, patch.object(
+            page.marginal_page,
+            "set_source_analysis",
+        ) as set_source_analysis:
+            page.show_marginal(editor_data)
+
+        set_editor_data.assert_called_once_with(
+            editor_data,
+            selected_character_id=1002,
+        )
+        set_source_analysis.assert_called_once_with(source)
+
+    def test_source_analysis_keeps_baseline_timeline_visible(self) -> None:
+        page = BattleReportPage(game_ui_asset_root="data/game_ui")
+        source = SimpleNamespace(
+            build_counterfactual=None,
+            effective_dps=100.0,
+            effective_damage=1_000.0,
+        )
+
+        with patch.object(
+            page.marginal_page.counterfactual_timeline,
+            "set_analysis",
+        ) as set_timeline, patch.object(
+            page.marginal_page,
+            "_render_selected_role",
+        ):
+            page.marginal_page.set_source_analysis(source)
+
+        set_timeline.assert_called_once_with(source)
+        self.assertEqual("100", page.marginal_page.metric_labels["dps"].text())
+        self.assertEqual("1,000", page.marginal_page.metric_labels["damage"].text())
 
     def test_marginal_reset_uses_entry_snapshot_without_reloading_service(self) -> None:
         page = BattleReportPage(game_ui_asset_root="data/game_ui")

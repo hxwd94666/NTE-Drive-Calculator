@@ -10,9 +10,36 @@ from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from src.domain.battle_buff_counterfactual import BattleBuffCounterfactualResult
 from src.domain.battle_counterfactual import BattleMarginalResult
 from src.features.battle_report.marginal_quantification_view import (
+    damage_coverage_text,
     format_quantified_value,
     quantification_status_text,
     quantified_coverage_text,
+)
+
+
+BUFF_BENEFIT_HEADERS = (
+    "来源角色",
+    "Buff / 被动",
+    "受益角色",
+    "获得伤害",
+    "受益角色提升",
+    "折合全队贡献",
+    "Buff 全队增伤",
+    "角色伤害覆盖",
+    "团队伤害覆盖",
+    "量化覆盖",
+)
+BUFF_BENEFIT_WIDTHS = (
+    150,
+    220,
+    150,
+    130,
+    150,
+    150,
+    190,
+    150,
+    150,
+    130,
 )
 
 
@@ -22,6 +49,12 @@ def _percent(value: float) -> str:
 
 def _amount(value: float) -> str:
     return f"{value:+,.0f}"
+
+
+def _buff_name(result: BattleBuffCounterfactualResult) -> str:
+    if str(getattr(result, "method", "")).startswith("approximate_"):
+        return f"{result.buff_name}（估算）"
+    return result.buff_name
 
 
 def display_projection(
@@ -130,10 +163,11 @@ def render_buff_benefit_results(
     results: Sequence[BattleBuffCounterfactualResult],
     *,
     source_character_id: int | None,
+    passive_results: Sequence[BattleBuffCounterfactualResult] = (),
 ) -> None:
     filtered = tuple(
         result
-        for result in results
+        for result in (*results, *passive_results)
         if source_character_id is not None
         and result.source_character_id == source_character_id
     )
@@ -146,12 +180,18 @@ def render_buff_benefit_results(
         result
         for result in filtered
         if (
-            (_unattributed_gain(result) is not None
+            (bool(result.beneficiaries)
+             and _unattributed_gain(result) is not None
              and abs(_unattributed_gain(result) or 0.0) >= 0.5)
             or (not result.beneficiaries and result.affected_hits > 0)
         )
     )
-    table.setRowCount(len(rows) + len(unattributed))
+    uncovered = tuple(
+        result
+        for result in filtered
+        if not result.beneficiaries and result.affected_hits <= 0
+    )
+    table.setRowCount(len(rows) + len(unattributed) + len(uncovered))
     row_index = 0
     for result, beneficiary in rows:
         status = beneficiary.quantification.status
@@ -162,7 +202,7 @@ def render_buff_benefit_results(
         )
         values = (
             result.source_character_name,
-            result.buff_name,
+            _buff_name(result),
             beneficiary.character_name,
             format_quantified_value(
                 status=status,
@@ -183,6 +223,10 @@ def render_buff_benefit_results(
                 formatter=_percent,
             ),
             _team_gain_text(result),
+            damage_coverage_text(
+                getattr(beneficiary, "damage_coverage", None)
+            ),
+            damage_coverage_text(getattr(result, "damage_coverage", None)),
             quantified_coverage_text(beneficiary.quantification),
         )
         tooltip = (
@@ -204,14 +248,23 @@ def render_buff_benefit_results(
         )
         team_gain = gain / denominator * 100.0 if gain is not None and denominator else None
         prefix = "已量化 " if result.quantification.status == "partial" else ""
+        beneficiary_label = (
+            "不适用"
+            if result.quantification.status == "not_applicable"
+            else "未量化"
+            if not result.beneficiaries and gain is None
+            else "无法归因"
+        )
         values = (
             result.source_character_name,
-            result.buff_name,
-            "无法归因",
+            _buff_name(result),
+            beneficiary_label,
             "—" if gain is None else f"{prefix}{gain:+,.0f}",
             "—",
             "—" if team_gain is None else f"{prefix}{team_gain:+.2f}%",
             _team_gain_text(result),
+            "—",
+            damage_coverage_text(getattr(result, "damage_coverage", None)),
             quantified_coverage_text(result.quantification),
         )
         tooltip = f"{result.explanation}\n{_quantification_tooltip(result.quantification)}"
@@ -220,6 +273,40 @@ def render_buff_benefit_results(
             item.setToolTip(tooltip)
             table.setItem(row_index, column, item)
         row_index += 1
+    for result in uncovered:
+        scope_label = (
+            "当前范围未覆盖"
+            if result.method == "not_covered"
+            else "不适用"
+            if result.quantification.status == "not_applicable"
+            else "未量化"
+        )
+        values = (
+            result.source_character_name,
+            _buff_name(result),
+            scope_label,
+            "—",
+            "—",
+            "—",
+            _team_gain_text(result),
+            "—",
+            damage_coverage_text(getattr(result, "damage_coverage", None)),
+            quantified_coverage_text(result.quantification),
+        )
+        tooltip = (
+            f"{result.explanation}\n"
+            f"{_quantification_tooltip(result.quantification)}"
+        )
+        for column, value in enumerate(values):
+            item = QTableWidgetItem(value)
+            item.setToolTip(tooltip)
+            table.setItem(row_index, column, item)
+        row_index += 1
 
 
-__all__ = ["render_attribute_results", "render_buff_benefit_results"]
+__all__ = [
+    "BUFF_BENEFIT_HEADERS",
+    "BUFF_BENEFIT_WIDTHS",
+    "render_attribute_results",
+    "render_buff_benefit_results",
+]

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -19,6 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools import build_cli
+from tools.game_data.promote_static_release import load_local_config
 from src.app.version import __version__
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -29,6 +31,7 @@ INSTALLER_NAME = f"NTE_Drive_Calc_Setup_{__version__}.exe"
 INSTALLER_PATH = ROOT / "installer" / "output" / INSTALLER_NAME
 STATIC_DATABASE = ROOT / "data" / "game_static.sqlite3"
 STATIC_MANIFEST = ROOT / "data" / "manifest.json"
+LOCAL_CONFIG_ENV = "NTE_LOCAL_CONFIG"
 COMPONENTS = (
     (
         ROOT / "third_party" / "nte-core" / "bin" / "nte-core.exe",
@@ -145,6 +148,26 @@ def validate_static_manifest(
     return manifest
 
 
+def validate_static_dataset_against_local_config(
+    summary: dict[str, object],
+    local_config_path: Path,
+) -> None:
+    """阻止本机已切换新数据集后继续发布旧的正式静态库。"""
+
+    config = load_local_config(local_config_path)
+    dataset = summary.get("dataset")
+    if not isinstance(dataset, dict):
+        raise RuntimeError("静态数据库摘要缺少 dataset")
+    actual = str(dataset.get("dataset_id") or "")
+    expected = str(config["dataset_id"])
+    if actual != expected:
+        raise RuntimeError(
+            f"本机配置 dataset={expected}，正式静态库 dataset={actual}；"
+            "请先完成候选晋升"
+        )
+    print(f"[通过] 本机静态数据配置：dataset={expected}")
+
+
 def _recorded_hash(record: Path, label: str) -> str:
     text = record.read_text(encoding="utf-8")
     match = re.search(
@@ -219,6 +242,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="构建时跳过工坊权重同步；正式发布应确保静态库已同步。",
     )
+    parser.add_argument(
+        "--local-config",
+        type=Path,
+        default=Path(os.environ[LOCAL_CONFIG_ENV])
+        if os.environ.get(LOCAL_CONFIG_ENV)
+        else None,
+        help=(
+            f"仓库外 local.paths.json；默认读取 {LOCAL_CONFIG_ENV}，"
+            "正式发布必须提供"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -227,6 +261,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         ensure_clean_worktree(allow_dirty=args.allow_dirty)
         ensure_tag_matches_version(args.tag)
+        if args.local_config is None:
+            raise RuntimeError(
+                f"正式发布必须通过 --local-config 或 {LOCAL_CONFIG_ENV} "
+                "提供本机静态数据配置"
+            )
+        static_summary = validate_static_database()
+        validate_static_manifest()
+        validate_static_dataset_against_local_config(
+            static_summary,
+            args.local_config,
+        )
         if not args.skip_tests:
             run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"])
         run(
@@ -242,8 +287,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "tools",
             ]
         )
-        validate_static_database()
-        validate_static_manifest()
         validate_components()
         if not args.skip_build:
             build_command = [

@@ -15,31 +15,24 @@
 来源行内容哈希。`source_row.payload_json` 必须全部为 `NULL`，完整来源原文和
 构建报告只保存在开发者工作区，不进入项目仓库。
 
-重新生成时使用：
+正式库不再作为直接构建输出。重新生成时先读取仓库外本机配置，并按
+[`tools/game_data/README.md`](../tools/game_data/README.md) 在 `build/` 完成候选构建、工坊权重同步和毕业模板
+重算；最后执行：
 
 ```powershell
-$localConfig = if ($env:NTE_LOCAL_CONFIG) { Get-Content -Raw -LiteralPath $env:NTE_LOCAL_CONFIG | ConvertFrom-Json } else { $null }
-$gameDataSource = if ($localConfig) { $localConfig.official_content_root } else { "../Content" }
-$gameDataWorkspace = if ($localConfig) { $localConfig.game_data_workspace } else { "build" }
-$gameDataSetId = if ($localConfig) { $localConfig.dataset_id } else { "game-version_and_date" }
-$gameDataAsOf = if ($localConfig) { $localConfig.as_of } else { "YYYY-MM-DD" }
-
-python tools/game_data/build_static_database.py `
-  --source $gameDataSource `
-  --output "data\game_static.sqlite3" `
-  --report-dir "$gameDataWorkspace\reports\distribution_database" `
-  --dataset-id $gameDataSetId `
-  --as-of $gameDataAsOf `
-  --manifest "data\manifest.json" `
-  --omit-source-payloads
+python tools/game_data/promote_static_release.py `
+  --candidate-dir $releaseCandidate `
+  --local-config $env:NTE_LOCAL_CONFIG
 ```
 
-构建器会自动导入 `DataTable/Character/Awaken/*AwakenEffect*.json` 中的
-角色六觉、三/六觉共鸣和其中明确给出的技能等级加成。生成后必须运行静态数据库测试，
-并重新生成 `manifest.json`。发布前检查会核对清单与实际数据库，不一致时拒绝继续。
-覆盖正式输出前，构建器自动将旧库原子备份到 `build/previous/data/game_static.sqlite3`。打包时有工坊 API
-Key 就同步 API；没有 Key 就从该备份继承带来源的旧权重。没有 Key 和备份时发布失败，不允许把整库
-`default` 权重直接打入正式包；全 `default` 新库也不能覆盖已有的有效发行备份。
+晋升工具会从本机配置读取预期 dataset 和 Content 根目录，核对数据库、manifest、当前代码
+schema/importer、全部来源哈希、payload 省略、外键和 SQLite 完整性，并在所有后处理完成后重写最终报告和
+manifest。只有全部通过才成对替换本目录的数据库与 manifest；失败会回滚，旧正式库保持不动。禁止手工复制
+候选或只修改 manifest。改变规范化输出的 importer 代码必须先递增 importer 版本。
+
+构建器会自动导入 `DataTable/Character/Awaken/*AwakenEffect*.json` 中的角色六觉、三/六觉共鸣和其中明确给出
+的技能等级加成。晋升后仍须按项目门禁验证静态数据库；没有 API Key 和可继承的有效正式库时发布失败，不得
+把全 `default` 候选晋升为正式产物。
 
 schema v18 还按 `SoftActorClass` 的玩家资产编号关联正式角色，再把
 `DT_LikeabilityRoleData.json` 的 10 级映射与 `DT_LikeabilityModifyData.json` 的正式属性修改标准化为角色

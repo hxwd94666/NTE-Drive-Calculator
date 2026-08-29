@@ -70,7 +70,10 @@
 - 官方说明：「创生」强化：「创生株」发射的「创生花」数量提升至10朵，每次发射的时间间隔缩短至1秒。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_010_Nanally/PassiveEffect/Buff_Nanally010_Passive1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`creation-volley`。按用户确认的有界估算，被动已解锁时，将正式 `GE_ActorReaction_1_Damage` 与
+  `GE_ActorReaction_1_1019_Damage` 逐击的花伤直接减半，只模拟“每次发射 5 朵提升至 10 朵”的花数差异。只有创生中文标签而缺少正式 GE 的逐击不参与减半，
+  保留为 `unavailable`。该估算忽略发射间隔从 2 秒缩短至 1 秒，也不重建生成、到期、覆盖顺序和后续联动；
+  因此结果固定为低置信 `partial`，不得标为 `complete`。专用株/齐射状态模型未来给出正式事件归属时，再按事件集替代该估算。
 
 ### PASSIVE-1010-GA_Nanally_Passive_2：绝对「公正」的决斗
 
@@ -78,7 +81,9 @@
 - 官方说明：在「一代目的权柄」状态下，队伍中任意角色每对敌人造成1次异能环合伤害，娜娜莉将额外对单体敌人施加1次追加攻击，造成60%*攻击力的灵属性异能伤害，倍率跟随普通攻击技能等级成长，11级成长至129.5%。<br>该效果每2秒触发1次。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_010_Nanally/Upgrade/Level1/Buff_Nanally010_Level1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`nanally-reaction-follow-up`。真实轴中由 `GA_Nanally_Passive_2` 或
+  `GE_Nanally010_Lv1_Damage` 明确标记的追加攻击可以直接移除，证据 event ID 随结果保留。该部分以娜娜莉为来源、
+  以真实逐击的角色为伤害提供者；回能、后续动作可用性和命中联动保持未量化，因此总结果为 `partial`。
 
 ## 薄荷（1019；character:1019）
 
@@ -88,7 +93,8 @@
 - 官方说明：「创生」强化：「创生花」命中时伤害范围扩大。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_019_Mint/PassiveEffect/Buff_Mint019_Passive1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`creation-radius`。范围扩大不改变单朵倍率；已确认单目标时对固定轴伤害为 `not_applicable`，
+  显示 0 但不删除逐击。多目标缺少花命中点、基础范围和目标位置时显示 `unavailable`，不根据已命中目标数猜额外收益。
 
 ### PASSIVE-1019-GA_Mint_Passive_2：收工！宾果时间！
 
@@ -124,7 +130,9 @@
 - 官方说明：「盈蓄」强化：使用援护技触发「盈蓄」的角色在触发瞬间获得120点终结能量，后续创生花命中迟缓中目标时不再提供终结能量，此效果冷却时间30秒。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_021_Edgar/PassiveEffect/Buff_Edgar021_Passive1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`edgar-charge-reaction`。该被动先改变援护技触发的盈蓄能量与 30 秒抑制窗，再可能改变未来 Q/动作。
+  完整资源事件轴证明本段没有触发时为 `not_applicable`；否则缺少触发、充能效率、被抑制回能或未来动作消费任一证据时
+  均显示资源类 `unavailable`，不把 120 能量直接换算为伤害。
 
 ### PASSIVE-1021-GA_Edgar_Passive_2：不变的暖意
 
@@ -252,7 +260,8 @@
 - 官方说明：「创生」强化：时停期间，「创生株」攻击不暂停。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_052_Jin/PassiveEffect/Buff_Jin052_Passive1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`creation-time-stop`。只有时停轴完整且当前范围没有时停区间时才为 `not_applicable`。存在时停或时停轴不完整时，
+  缺少株身份、剩余生命、发射日程、覆盖顺序或未来动作轴均为 `unavailable`；已观测的时停内花击不等于移除被动后必然消失的总伤害。
 
 ### PASSIVE-1052-GA_Jin_Passive_2：天下万宝
 
@@ -288,7 +297,8 @@
 - 官方说明：「创生」强化：额外生成1株创生株，场上创生株的存在上限提升至6株。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_055_Kuhara/PassiveEffect/Buff_Kuhara055_Passive1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`creation-cap`。缺少原株/额外株身份、三株与六株上限下的生成覆盖顺序、剩余生命和发射次数时，
+  显示 `unavailable`。专用状态模型可提供移除该被动后消失的正式 event 集；不允许把全部创生伤害乘二或除二。
 
 ### PASSIVE-1055-GA_Kuhara_Passive_2：风声为我所用
 
@@ -296,7 +306,9 @@
 - 官方说明：创生花命中未缔结「致命玫约」的目标时，将强制缔结玫约。若命中的是已缔结目标，则会触发追加清算，使其承受额外 15%倍率的灵属性异能伤害。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_055_Kuhara/PassiveEffect/Buff_Kuhara055_Passive2`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`kuhara-rose-settlement`。由 `GA_Kuhara_Passive_2` 或
+  `GE_Player_Kuhara_SeedReaction_Damage` 明确标记的追加清算可以从真实轴直接移除，以九原为来源并保留证据 event ID。
+  首次缔约、逐目标玫约状态、目标生命进程及后续联动尚未整体重放，因此直接伤害以 `partial` 展示，不冒充完整被动收益。
 
 ## 海月（1070；character:1070）
 
@@ -378,7 +390,9 @@
 - 官方说明：「创生」强化：当前创生株生成3秒后，将额外生成1株「创生株复制体」。复制体消失后不会再次生成复制体，且不计入创生株数量上限。复制体共绽放20朵「复制创生花」；每隔0.5秒，「复制创生花」会飞向射程内的目标并爆炸，每朵造成原「创生花」37.5%的伤害。
 - 运行时根 Buff：`/Game/Blueprints/Abilities/Player/Ability_075_Oneiroi/PassiveEffect/Buff_Oneiroi075_Passive1`。
 - 直接属性语义：无；属于触发/反应/专用逻辑。
-- 人工审计：待确认触发、对象、持续时间、乘区和伤害消费者。
+- 反事实策略：`creation-copy`。由 `GA_Oneiroi_Passive_1` 或
+  `GE_ActorReaction_1_1019_Damage` 明确标记的复制花可以从真实轴直接移除；结果来源始终是伊洛伊，伤害提供者则沿用
+  实际逐击的原创生提供者，两者不得合并。复制株生命周期、时停推进、目标选择以及复制花触发的九原清算保持未量化，所以显示 `partial`。
 
 ### PASSIVE-1075-GA_Oneiroi_Passive_2：交感性神经系统
 

@@ -36,6 +36,7 @@ from src.storage.sqlite.user_data_dao import (
 
 BATTLE_REPORT_TRANSFER_FORMAT = "nte-drive-calculator.battle-report-package"
 BATTLE_REPORT_TRANSFER_VERSION = 2
+SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS = frozenset({36, 37})
 
 
 @dataclass(frozen=True, slots=True)
@@ -584,8 +585,19 @@ class BattleReportTransferService:
             or not isinstance(bundle.get("static_data"), Mapping)
         ):
             raise UserDataValidationError("战报包 bundle 元数据不完整")
-        if bundle.get("user_database_schema_version") != SCHEMA_VERSION:
-            raise UserDataValidationError("战报包用户数据库结构版本不兼容")
+        source_schema = bundle.get("user_database_schema_version")
+        if (
+            isinstance(source_schema, bool)
+            or not isinstance(source_schema, int)
+            or source_schema not in SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS
+        ):
+            supported = "、".join(
+                str(value)
+                for value in sorted(SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS)
+            )
+            raise UserDataValidationError(
+                f"战报包用户数据库结构版本不兼容（当前支持 {supported}）"
+            )
         if isinstance(reports, (str, bytes)) or not isinstance(reports, list) or not reports:
             raise UserDataValidationError("战报包中没有可导入记录")
         if not isinstance(manifest, Mapping) or manifest.get("report_count") != len(reports):

@@ -7,6 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from src.storage.sqlite.battle_build_stage_support import (
+    normalize_frozen_advancement,
+)
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -75,6 +78,7 @@ def _profile(character_id: int, fork_id: str) -> dict:
         "awakening_level": 6,
         "fork_id": fork_id,
         "fork_level": 80,
+        "fork_breakthrough_stage": 6,
         "fork_refinement_level": 1,
         "selected_skill_id": "GA_Test",
         "skill_levels": {"GA_Test": 9},
@@ -92,6 +96,22 @@ class BattleAxisDaoTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.dao.close()
         self.temporary.cleanup()
+
+    def test_freeze_keeps_zero_stage_at_first_cap(self) -> None:
+        normalized = normalize_frozen_advancement(
+            {
+                "character_level": 20,
+                "breakthrough_stage": 0,
+                "fork_id": "fork_Test",
+                "fork_level": 20,
+                "fork_breakthrough_stage": 0,
+            },
+            1072,
+        )
+
+        self.assertEqual((20, 0), normalized[:2])
+        self.assertEqual(("fork_Test", 20, 0), normalized[2:5])
+        self.assertEqual(0, normalized[5]["fork_breakthrough_stage"])
 
     def _insert_summary(self, operation_id: str) -> int:
         payload = {"total_damage": 100.0, "total_hits": 1}
@@ -488,6 +508,14 @@ class BattleAxisDaoTests(unittest.TestCase):
         self.assertEqual(
             "fork_GoldRecord",
             build["characters"][0]["profile"]["fork_id"],
+        )
+        self.assertEqual(
+            6,
+            build["characters"][0]["fork_breakthrough_stage"],
+        )
+        self.assertEqual(
+            6,
+            build["characters"][0]["profile"]["fork_breakthrough_stage"],
         )
         self.assertEqual(2, len(build["characters"][0]["equipment"]))
         stat_keys = {

@@ -6,6 +6,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.services.advancement_stage_service import legacy_fork_breakthrough_stage
+
 
 _GRADUATION_SOURCE = "official_graduation"
 
@@ -23,6 +25,14 @@ def normalize_inferred_battle_profile(
         "selected_awaken_effect_ids": [],
         "awakening_selection_initialized": True,
     })
+    if (
+        normalized.get("fork_id")
+        and normalized.get("fork_level") is not None
+        and normalized.get("fork_breakthrough_stage") is None
+    ):
+        normalized["fork_breakthrough_stage"] = legacy_fork_breakthrough_stage(
+            int(normalized["fork_level"])
+        )
     return normalized
 
 

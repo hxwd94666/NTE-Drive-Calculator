@@ -13,6 +13,10 @@ from src.domain.official_role import (
     OfficialAttributeSummaryValue,
 )
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
+from src.services.advancement_stage_service import (
+    fork_panel_stats,
+    select_fork_breakthrough,
+)
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.virtual_equipment_service import (
     is_virtual_equipment_assignment,
@@ -89,6 +93,11 @@ def _default_profile(
         for row in (selected_fork or {}).get("upgrade_levels", [])
         if row.get("level") is not None
     ]
+    maximum_fork_level = max(fork_levels) if fork_levels else None
+    default_fork_breakthrough = select_fork_breakthrough(
+        (selected_fork or {}).get("breakthroughs") or (),
+        maximum_fork_level or 0,
+    )
     selected_skill = next((skill for skill in skills if skill.get("damage_entries")), None)
     skill_levels = {}
     for skill in skills:
@@ -112,7 +121,12 @@ def _default_profile(
         "awakening_selection_initialized": True,
         "likeability_level_10_enabled": True,
         "fork_id": selected_fork.get("fork_id") if selected_fork else None,
-        "fork_level": max(fork_levels) if fork_levels else None,
+        "fork_level": maximum_fork_level,
+        "fork_breakthrough_stage": (
+            int(default_fork_breakthrough["stage"])
+            if default_fork_breakthrough is not None
+            else None
+        ),
         "fork_refinement_level": (
             1 if str(character["character_id"]) in exclusive_ids else 5
         ) if selected_fork else None,
@@ -197,28 +211,11 @@ def _fork_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
         (fork for fork in detail.get("forks") or [] if fork.get("fork_id") == fork_id),
         None,
     )
-    if template is None or level <= 0:
-        return {}
-    upgrade_rows = list(template.get("upgrade_levels") or ())
-    selected_upgrade = min(
-        upgrade_rows,
-        key=lambda row: abs(int(row.get("level") or 0) - level),
-    ) if upgrade_rows else None
-    breakthrough_rows = [
-        row for row in template.get("breakthroughs") or ()
-        if int(row.get("max_fork_level") or 0) <= level
-    ]
-    selected_breakthrough = max(
-        breakthrough_rows,
-        key=lambda row: int(row.get("stage") or 0),
-    ) if breakthrough_rows else None
-    totals: dict[str, float] = {}
-    for row in (selected_upgrade, selected_breakthrough):
-        for modifier in (row or {}).get("modifiers") or ():
-            property_id = str(modifier.get("property_id") or "")
-            if property_id:
-                totals[property_id] = totals.get(property_id, 0.0) + float(modifier.get("value") or 0.0)
-    return totals
+    return fork_panel_stats(
+        template,
+        level,
+        breakthrough_stage=profile.get("fork_breakthrough_stage"),
+    )
 
 
 def _likeability_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:

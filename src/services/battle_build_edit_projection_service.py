@@ -38,6 +38,9 @@ def apply_battle_build_edit(
             "awakening_level": int(edited["awakening_level"]),
             "fork_id": edited.get("fork_id"),
             "fork_level": edited.get("fork_level"),
+            "fork_breakthrough_stage": edited.get(
+                "fork_breakthrough_stage"
+            ),
             "fork_refinement_level": edited.get("fork_refinement_level"),
             "selected_skill_id": edited.get("selected_skill_id"),
             "profile": profile,

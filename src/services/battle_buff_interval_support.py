@@ -25,6 +25,12 @@ from src.services.battle_trigger_requirement_service import (
     trigger_requirement_applies_to_action,
     trigger_requirement_applies_to_hit,
 )
+from src.services.battle_buff_interval_index import (
+    BattleBuffIntervalIndex,
+    BattleBuffIntervalIndexView,
+    BattleBuffIntervalQuery,
+    buff_interval_applies_to_hit,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +157,28 @@ class BattleBuffIntervalSupportMixin:
             else:
                 chains.append([occurrence])
                 chain_ends.append(end_us)
+        if getattr(rule, "stack_limit_count", 1) <= 1:
+            return tuple(
+                (
+                    BuffOccurrence(
+                        time_us=chain[0].time_us,
+                        state_confidence=chain[0].state_confidence,
+                        action_ids=tuple(dict.fromkeys(
+                            action_id
+                            for occurrence in chain
+                            for action_id in occurrence.action_ids
+                        )),
+                        event_ids=tuple(dict.fromkeys(
+                            event_id
+                            for occurrence in chain
+                            for event_id in occurrence.event_ids
+                        )),
+                        target_id=chain[0].target_id,
+                    ),
+                    chain_end,
+                )
+                for chain, chain_end in zip(chains, chain_ends, strict=True)
+            )
         return tuple(
             (occurrence, chain_end)
             for chain, chain_end in zip(chains, chain_ends, strict=True)
@@ -477,24 +505,19 @@ class BattleBuffIntervalSupportMixin:
 
     @staticmethod
     def active_for_hit(
-        intervals: Sequence[BattleInferredBuffInterval],
+        intervals: (
+            Sequence[BattleInferredBuffInterval]
+            | BattleBuffIntervalQuery
+        ),
         hit: BattleAnalysisHit,
     ) -> tuple[BattleInferredBuffInterval, ...]:
+        if isinstance(
+            intervals,
+            (BattleBuffIntervalIndex, BattleBuffIntervalIndexView),
+        ):
+            return intervals.active_for_hit(hit)
         return tuple(
             row
             for row in intervals
-            if row.start_us <= hit.relative_time_us < row.end_us
-            and (
-                row.target_scope == "team"
-                or (
-                    row.target_scope == "team_others"
-                    and row.source_character_id != hit.character_id
-                )
-                or (
-                    row.target_scope == "self"
-                    and row.source_character_id == hit.character_id
-                )
-                or row.target_scope == f"character:{hit.character_id}"
-                or row.target_scope in {"target", "unknown"}
-            )
+            if buff_interval_applies_to_hit(row, hit)
         )

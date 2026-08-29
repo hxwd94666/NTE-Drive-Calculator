@@ -26,6 +26,13 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.window_geometry import fit_dialog_to_available_screen
+from src.services.advancement_stage_service import (
+    character_growth_choices,
+    fork_breakthrough_choices,
+    fork_panel_stats,
+    select_character_growth,
+    select_fork_breakthrough,
+)
 from src.services.damage_calculation_service import skill_tier_for_effective_level
 from src.services.official_role_awakening_service import (
     awaken_skill_level_delta,
@@ -46,6 +53,8 @@ from .role_calculation import (
     _clear_layout,
     _mark_dirty,
     _refresh_role_calculations,
+    _selected_fork_stage,
+    _selected_growth,
 )
 
 __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
@@ -66,6 +75,28 @@ _WEIGHT_PROPERTY_CHOICES = (
 _WEIGHT_LABEL_BY_PROPERTY = {
     property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
 }
+
+def _replace_breakthrough_choices(
+    combo: NoWheelComboBox,
+    label_widget: QLabel,
+    choices,
+    selected,
+    *, stage_key: str,
+) -> None:
+    combo.blockSignals(True)
+    combo.clear()
+    for index, row in enumerate(choices):
+        combo.addItem(
+            "突破前" if index == 0 else "突破后",
+            int(row.get(stage_key) or 0),
+        )
+    if selected is not None:
+        selected_index = combo.findData(int(selected.get(stage_key) or 0))
+        combo.setCurrentIndex(max(0, selected_index))
+    combo.blockSignals(False)
+    ambiguous = len(choices) > 1
+    label_widget.setVisible(ambiguous)
+    combo.setVisible(ambiguous)
 
 
 def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> QGroupBox:
@@ -115,6 +146,15 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     growth_combo.setFixedWidth(72)
     level_row.addWidget(growth_combo)
     left_layout.addLayout(level_row)
+    breakthrough_row = QHBoxLayout()
+    breakthrough_row.setSpacing(6)
+    breakthrough_label = QLabel("突破:")
+    breakthrough_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
+    breakthrough_combo = NoWheelComboBox()
+    breakthrough_combo.setFixedWidth(96)
+    breakthrough_row.addWidget(breakthrough_label)
+    breakthrough_row.addWidget(breakthrough_combo)
+    left_layout.addLayout(breakthrough_row)
     left_layout.addStretch()
     content.addWidget(left)
 
@@ -179,15 +219,48 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     content.addWidget(right, 1)
     layout.addLayout(content)
 
-    def update_stats() -> None:
+    def sync_breakthrough_choices(preferred_stage: int | None = None) -> None:
         level = int(growth_combo.value())
-        rows_for_level = [
-            row for row in growth_rows if int(row["level"]) == level
-        ]
-        selected = max(
-            rows_for_level,
-            key=lambda row: int(row.get("breakthrough_stage") or 0),
-            default={},
+        if preferred_stage is None and breakthrough_combo.count():
+            current_stage = breakthrough_combo.currentData()
+            preferred_stage = (
+                int(current_stage) if current_stage is not None else None
+            )
+        choices = character_growth_choices(growth_rows, level)
+        selected = select_character_growth(
+            growth_rows,
+            level,
+            preferred_stage=preferred_stage,
+        )
+        _replace_breakthrough_choices(
+            breakthrough_combo,
+            breakthrough_label,
+            choices,
+            selected,
+            stage_key="breakthrough_stage",
+        )
+
+    editor.update(
+        growth=growth_combo, growth_rows=growth_rows,
+        growth_breakthrough=breakthrough_combo,
+        likeability_level_10=likeability,
+    )
+    sync_breakthrough_choices(int(profile["breakthrough_stage"]))
+
+    def update_stats() -> None:
+        growth = _selected_growth(editor)
+        selected = next(
+            (
+                row
+                for row in growth_rows
+                if growth is not None
+                and (
+                    int(row.get("level") or 0),
+                    int(row.get("breakthrough_stage") or 0),
+                )
+                == growth
+            ),
+            {},
         )
         bonus = world_bonus_property_stats(detail.get("world_bonus"))
         if likeability.isChecked():
@@ -211,19 +284,16 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
         )
 
     update_stats()
+    growth_combo.valueChanged.connect(lambda _value: sync_breakthrough_choices())
     growth_combo.valueChanged.connect(update_stats)
-
-    editor.update({
-        "growth": growth_combo,
-        "growth_rows": growth_rows,
-        "likeability_level_10": likeability,
-    })
+    breakthrough_combo.currentIndexChanged.connect(update_stats)
 
     def mark_and_refresh(*_args) -> None:
         _mark_dirty(window, character_id)
         _refresh_role_calculations(editor)
 
     growth_combo.valueChanged.connect(mark_and_refresh)
+    breakthrough_combo.currentIndexChanged.connect(mark_and_refresh)
     likeability.toggled.connect(update_stats)
     likeability.toggled.connect(mark_and_refresh)
     return group
@@ -540,25 +610,6 @@ def _build_skill_group(
     return group
 
 
-def _fork_stats(detail: dict, fork_id, level: int) -> dict[str, float]:
-    fork = next((item for item in detail["forks"] if item.get("fork_id") == fork_id), None)
-    if not fork:
-        return {}
-    upgrades = list(fork.get("upgrade_levels") or ())
-    upgrade = min(upgrades, key=lambda row: abs(int(row.get("level") or 0) - level)) if upgrades else None
-    breakthroughs = [
-        row for row in fork.get("breakthroughs") or ()
-        if int(row.get("max_fork_level") or 0) <= level
-    ]
-    breakthrough = max(breakthroughs, key=lambda row: int(row.get("stage") or 0)) if breakthroughs else None
-    totals = {}
-    for row in (upgrade, breakthrough):
-        for modifier in (row or {}).get("modifiers") or ():
-            property_id = str(modifier.get("property_id") or "")
-            totals[property_id] = totals.get(property_id, 0.0) + float(modifier.get("value") or 0.0)
-    return totals
-
-
 def _display_property_value(detail: dict, property_id: str, value: float) -> str:
     attribute = detail.get("attributes", {}).get(property_id, {})
     if attribute.get("show_percent"):
@@ -607,6 +658,11 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     fork_level.setValue(int(profile.get("fork_level") or 80))
     identity.addWidget(QLabel("等级:"))
     identity.addWidget(fork_level)
+    fork_breakthrough_label = QLabel("突破:")
+    fork_breakthrough = NoWheelComboBox()
+    fork_breakthrough.setFixedWidth(96)
+    identity.addWidget(fork_breakthrough_label)
+    identity.addWidget(fork_breakthrough)
     refinement = NoWheelComboBox()
     refinement.setMaxVisibleItems(5)
     for level in range(1, 6):
@@ -634,11 +690,55 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     effect_text.setMinimumHeight(72)
     layout.addWidget(effect_text)
 
+    def selected_fork_template():
+        fork_id = fork_combo.currentData()
+        return next(
+            (item for item in detail["forks"] if item.get("fork_id") == fork_id),
+            None,
+        )
+
+    def sync_fork_breakthrough_choices(preferred_stage: int | None = None) -> None:
+        template = selected_fork_template()
+        level = int(fork_level.value())
+        if preferred_stage is None and fork_breakthrough.count():
+            current_stage = fork_breakthrough.currentData()
+            preferred_stage = (
+                int(current_stage) if current_stage is not None else None
+            )
+        choices = fork_breakthrough_choices(
+            (template or {}).get("breakthroughs") or (),
+            level,
+        )
+        selected = select_fork_breakthrough(
+            (template or {}).get("breakthroughs") or (),
+            level,
+            preferred_stage=preferred_stage,
+        )
+        _replace_breakthrough_choices(
+            fork_breakthrough,
+            fork_breakthrough_label,
+            choices,
+            selected,
+            stage_key="stage",
+        )
+
+    editor.update(
+        fork=fork_combo, fork_level=fork_level,
+        fork_breakthrough=fork_breakthrough, refinement=refinement,
+    )
+    sync_fork_breakthrough_choices(profile.get("fork_breakthrough_stage"))
+
     def refresh_fork_summary() -> None:
         _clear_layout(stats_layout)
         fork_id = fork_combo.currentData()
         level = fork_level.value()
-        stats = _fork_stats(detail, fork_id, level)
+        breakthrough_stage = _selected_fork_stage(editor)
+        fork = selected_fork_template()
+        stats = fork_panel_stats(
+            fork,
+            level,
+            breakthrough_stage=breakthrough_stage,
+        )
         if not stats:
             stats_layout.addWidget(QLabel("未装备弧盘"))
         for property_id, value in stats.items():
@@ -654,7 +754,10 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         with_fork = {
             **calculation_detail,
             "profile": {
-                **calculation_detail["profile"], "fork_id": fork_id, "fork_level": level,
+                **calculation_detail["profile"],
+                "fork_id": fork_id,
+                "fork_level": level,
+                "fork_breakthrough_stage": breakthrough_stage,
             },
         }
         without_fork = {
@@ -668,7 +771,6 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
             margin_label.setText(f"直伤收益: {gain:+.2f}%")
         else:
             margin_label.setText("直伤收益: --")
-        fork = next((item for item in detail["forks"] if item.get("fork_id") == fork_id), None)
         star_rows = list((fork or {}).get("star_levels") or ())
         star = next(
             (row for row in star_rows if int(row.get("star_level") or 0) == refinement.currentData()),
@@ -680,17 +782,19 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         else:
             effect_text.setText("暂无官方精炼说明。")
 
+    fork_combo.currentIndexChanged.connect(lambda _index: sync_fork_breakthrough_choices())
+    fork_level.valueChanged.connect(lambda _value: sync_fork_breakthrough_choices())
     fork_combo.currentIndexChanged.connect(refresh_fork_summary)
     fork_level.valueChanged.connect(refresh_fork_summary)
+    fork_breakthrough.currentIndexChanged.connect(refresh_fork_summary)
     refinement.currentIndexChanged.connect(refresh_fork_summary)
     refresh_fork_summary()
-    editor.update({"fork": fork_combo, "fork_level": fork_level, "refinement": refinement})
 
     def mark_and_refresh(*_args) -> None:
         _mark_dirty(window, character_id)
         _refresh_role_calculations(editor)
 
-    for widget in (fork_combo, fork_level, refinement):
+    for widget in (fork_combo, fork_level, fork_breakthrough, refinement):
         signal = getattr(widget, "currentIndexChanged", None) or widget.valueChanged
         signal.connect(mark_and_refresh)
     return group

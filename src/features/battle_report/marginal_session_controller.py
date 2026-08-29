@@ -1,5 +1,5 @@
 # 编排一次可丢弃的战报边际草稿，并隔离持久化角色副本控制器。
-"""Session coordinator for explicit fixed-axis marginal recalculation."""
+"""Session coordinator for cache-first fixed-axis marginal recalculation."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from src.features.battle_report.page import BattleReportPage
 from src.services.battle_marginal_candidate_service import (
+    BattleMarginalCandidate,
     BattleMarginalCandidateService,
 )
 from src.services.battle_report_history_service import BattleReportHistoryService
@@ -19,6 +20,8 @@ class _MarginalSession:
     record_id: int
     entry_editor_data: dict
     revision: int = 0
+    draft_changed: bool = False
+    entry_candidate: BattleMarginalCandidate | None = None
 
 
 class BattleMarginalSessionController:
@@ -44,6 +47,7 @@ class BattleMarginalSessionController:
         self._show_error = show_error
         self._session: _MarginalSession | None = None
         page.marginal_requested.connect(self.open)
+        page.marginal_baseline_requested.connect(self.load_baseline)
         page.marginal_recalculate_requested.connect(self.recalculate)
         page.marginal_reset_requested.connect(self.reset)
         page.marginal_draft_changed.connect(self.draft_changed)
@@ -73,12 +77,24 @@ class BattleMarginalSessionController:
             entry_editor_data=deepcopy(candidate_data),
         )
         self._page.show_marginal(candidate_data)
+        try:
+            self._session.entry_candidate = BattleMarginalCandidateService.freeze(
+                record_id,
+                self._page.marginal_profiles(),
+                equipment_editable=self._page.marginal_equipment_editable(),
+                disabled_inferred_fact_ids=(
+                    self._page.marginal_disabled_inferred_fact_ids()
+                ),
+            )
+        except (KeyError, TypeError, ValueError):
+            self._session.entry_candidate = None
 
     def reset(self) -> None:
         session = self._current_session()
         if session is None:
             return
         session.revision += 1
+        session.draft_changed = False
         self._invalidate_analysis()
         self._page.reset_marginal_draft(deepcopy(session.entry_editor_data))
 
@@ -87,8 +103,24 @@ class BattleMarginalSessionController:
         if session is None:
             return
         session.revision += 1
+        session.draft_changed = True
         self._invalidate_analysis()
         self._page.invalidate_marginal_result()
+
+    def load_baseline(self) -> None:
+        """Lazily fill source counterfactuals without fabricating a candidate."""
+
+        session = self._current_session()
+        if session is None:
+            return
+        self._reload_analysis(
+            session.record_id,
+            selected_character_id=self._page.analysis_character_id(),
+            detail_scope=self._page.marginal_detail_scope(),
+            detail_level="marginal",
+            marginal_candidate=None,
+            completion_kind="marginal",
+        )
 
     def recalculate(self, profiles: object) -> None:
         session = self._current_session()
@@ -109,12 +141,16 @@ class BattleMarginalSessionController:
         except (TypeError, ValueError) as error:
             self._show_error("无法重算边际", error)
             return
+        if not session.draft_changed or candidate == session.entry_candidate:
+            self.load_baseline()
+            return
         self._reload_analysis(
             session.record_id,
             selected_character_id=self._page.analysis_character_id(),
             detail_scope=self._page.marginal_detail_scope(),
             detail_level="marginal",
             marginal_candidate=candidate,
+            comparison_baseline=self._page.marginal_comparison_baseline(),
             completion_kind="marginal",
         )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.services.advancement_stage_service import select_fork_breakthrough
 from src.services.battle_role_page_import_service import (
     BattleRolePageImportService,
 )
@@ -111,6 +112,27 @@ class BattleBuildEditHistoryMixin:
                 if role_page_ordinal is None
                 else role_page_ordinal
             )
+            fork_id = character.get("fork_id")
+            fork_breakthrough_stage = character.get("fork_breakthrough_stage")
+            if fork_id and fork_breakthrough_stage is None:
+                fork_template = next(
+                    (
+                        row
+                        for row in current_detail.get("forks") or ()
+                        if str(row.get("fork_id") or "") == str(fork_id)
+                    ),
+                    None,
+                )
+                resolved = select_fork_breakthrough(
+                    (fork_template or {}).get("breakthroughs") or (),
+                    int(character.get("fork_level") or 1),
+                )
+                if resolved is None:
+                    raise UserDataError(
+                        f"角色 {character['character_id']} 的旧战报弧盘突破阶段无法解析"
+                    )
+                # 旧副本的 NULL 只在同步边界解析；不回写战报原始或修改副本。
+                fork_breakthrough_stage = int(resolved["stage"])
             updates.append(OfficialRoleProfileUpdate(
                 character_id=int(character["character_id"]),
                 character_level=int(character["character_level"]),
@@ -123,8 +145,9 @@ class BattleBuildEditHistoryMixin:
                 likeability_level_10_enabled=bool(
                     character["likeability_level_10_enabled"]
                 ),
-                fork_id=character.get("fork_id"),
+                fork_id=fork_id,
                 fork_level=character.get("fork_level"),
+                fork_breakthrough_stage=fork_breakthrough_stage,
                 fork_refinement_level=character.get("fork_refinement_level"),
                 selected_skill_id=character.get("selected_skill_id"),
                 skill_levels={

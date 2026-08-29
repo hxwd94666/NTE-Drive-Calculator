@@ -676,6 +676,7 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         self._refresh_history_dialog()
 
     def _reload_after_history_removal(self) -> None:
+        self._invalidate_analysis_loading()
         self._history_restored_generation = None
         self._latest_state = EMPTY_BATTLE_CAPTURE_STATE
         self._page.clear_summary()

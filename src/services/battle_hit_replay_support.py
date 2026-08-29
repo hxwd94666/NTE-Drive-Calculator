@@ -208,6 +208,62 @@ def apply_observed_damage_correction(
     )
 
 
+def reanchor_direct_replay_result(
+    template: BattleHitReplayResult,
+    hit: BattleAnalysisHit,
+) -> BattleHitReplayResult:
+    """Reuse identical formula values while recomputing observed-hit branches."""
+
+    non_critical = template.non_critical_damage
+    if non_critical is None:
+        return replace(
+            template,
+            event_id=hit.event_id,
+            observed_damage=float(hit.damage),
+        )
+    critical = template.critical_damage
+    noncrit_error = replay_error_percent(hit.damage, non_critical)
+    crit_error = (
+        None if critical is None else replay_error_percent(hit.damage, critical)
+    )
+    best_is_crit = bool(crit_error is not None and crit_error < noncrit_error)
+    selected = critical if best_is_crit and critical is not None else non_critical
+    error = noncrit_error if crit_error is None else min(noncrit_error, crit_error)
+    signed_error = replay_signed_error_percent(hit.damage, selected)
+    separation = 0.0 if crit_error is None else abs(noncrit_error - crit_error)
+    if template.critical_policy == "disabled":
+        state = "not_applicable"
+        confidence = "高" if error <= 2.0 else "中" if error <= 5.0 else "低"
+    elif error <= 2.0 and separation >= 2.0:
+        state = "critical" if best_is_crit else "non_critical"
+        confidence = "高"
+    elif error <= 5.0 and separation >= 1.0:
+        state = "critical" if best_is_crit else "non_critical"
+        confidence = "中"
+    else:
+        state = "ambiguous"
+        confidence = "低"
+    corrected_expected = (
+        template.expected_damage * hit.damage / selected
+        if template.expected_damage is not None and selected > 0.0
+        else None
+    )
+    return replace(
+        template,
+        event_id=hit.event_id,
+        observed_damage=float(hit.damage),
+        selected_damage=selected,
+        selected_error_percent=error,
+        critical_state=state,
+        confidence=confidence,
+        corrected_expected_damage=corrected_expected,
+        signed_error_percent=signed_error,
+        reported_damage=None,
+        observed_damage_source="reported_hit",
+        observed_damage_basis="",
+    )
+
+
 def replay_error_percent(observed: float, predicted: float) -> float:
     if observed <= 0:
         return 0.0 if predicted == 0 else 100.0

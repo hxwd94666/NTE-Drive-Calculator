@@ -7,6 +7,7 @@ from src.services.battle_target_control_policy_service import (
     BattleTargetControlPolicyService,
     CONTROL_BLOCKED_BOSS,
     CONTROL_BLOCKED_FORMAL_IMMUNITY,
+    CONTROL_CONFIRMED_ALL_BOSS,
     CONTROL_ELIGIBLE_DEFAULT,
 )
 
@@ -37,10 +38,18 @@ class BattleTargetControlPolicyServiceTests(unittest.TestCase):
     def test_only_formally_resolved_boss_or_immunity_blocks_default(self) -> None:
         dao = _StaticMonsterTypes({"boss-template": "WeeklyBoss"})
         self.assertEqual(
+            CONTROL_CONFIRMED_ALL_BOSS,
+            BattleTargetControlPolicyService.resolve_formal_policy(
+                dao,
+                ("boss-template",),
+            ),
+        )
+        self.assertEqual(
             CONTROL_BLOCKED_BOSS,
             BattleTargetControlPolicyService.resolve_formal_policy(
                 dao,
                 ("boss-template",),
+                all_targets_resolved=False,
             ),
         )
         self.assertEqual(

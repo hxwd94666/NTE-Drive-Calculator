@@ -6,6 +6,7 @@ from __future__ import annotations
 MOFEIKESI_CONTROL_REQUIREMENT = "con_fork_mofeikesi_1"
 CONTROL_ELIGIBLE_DEFAULT = "eligible_default"
 CONTROL_BLOCKED_BOSS = "blocked_boss"
+CONTROL_CONFIRMED_ALL_BOSS = "confirmed_all_boss"
 CONTROL_BLOCKED_FORMAL_IMMUNITY = "blocked_formal_immunity"
 
 _BOSS_ENEMY_TYPES = frozenset({"boss", "weeklyboss"})
@@ -22,7 +23,7 @@ class BattleTargetControlPolicyService:
     def default_control_succeeds(
         policy: str,
     ) -> tuple[bool, str]:
-        if policy == CONTROL_BLOCKED_BOSS:
+        if policy in {CONTROL_BLOCKED_BOSS, CONTROL_CONFIRMED_ALL_BOSS}:
             return False, "正式怪物目录将已解析目标分类为 Boss，不默认控制成功。"
         if policy == CONTROL_BLOCKED_FORMAL_IMMUNITY:
             return False, "正式目标标签表明控制免疫，不默认控制成功。"
@@ -34,6 +35,7 @@ class BattleTargetControlPolicyService:
         resolved_monster_ids: tuple[str, ...],
         *,
         formal_control_immunity: bool = False,
+        all_targets_resolved: bool = True,
     ) -> str:
         """Classify only resolved identities through the formal static catalog."""
 
@@ -52,5 +54,9 @@ class BattleTargetControlPolicyService:
             str(value or "").casefold() in _BOSS_ENEMY_TYPES
             for value in enemy_types
         ):
-            return CONTROL_BLOCKED_BOSS
+            return (
+                CONTROL_CONFIRMED_ALL_BOSS
+                if all_targets_resolved
+                else CONTROL_BLOCKED_BOSS
+            )
         return CONTROL_ELIGIBLE_DEFAULT

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -50,6 +50,7 @@ USER_MIGRATIONS = {
     34: Path(__file__).with_name("schema") / "035_user_data_v34.sql",
     35: Path(__file__).with_name("schema") / "036_user_data_v35.sql",
     36: Path(__file__).with_name("schema") / "037_user_data_v36.sql",
+    37: Path(__file__).with_name("schema") / "038_user_data_v37.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "vision", "gamepad", "import"})
@@ -70,6 +71,14 @@ class UserDataValidationError(UserDataError, ValueError):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _valid_breakthrough_stage_for_level(level: int, stage: int) -> bool:
+    """Validate the shared 1-80 level / 0-6 breakthrough boundary."""
+
+    minimum_level = 1 if stage == 0 else (stage + 1) * 10
+    maximum_level = (stage + 2) * 10
+    return 0 <= stage <= 6 and minimum_level <= level <= maximum_level
 
 
 def _json(value: Any) -> str:

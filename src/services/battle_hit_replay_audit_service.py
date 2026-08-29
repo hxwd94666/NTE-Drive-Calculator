@@ -20,6 +20,13 @@ from src.services.battle_hit_replay_support import (
     replay_error_percent,
     replay_signed_error_percent,
 )
+from src.services.battle_analysis_progress import (
+    BattleAnalysisProgressCallback,
+    report_battle_analysis_progress,
+)
+from src.services.battle_hit_local_crit_inference_service import (
+    BattleHitLocalCritInferenceService,
+)
 
 
 _NIGHTMARE_MARKER = "lacrimosa_blood_damage"
@@ -69,17 +76,51 @@ class BattleHitReplayAuditService:
         cls,
         analysis: BattleAnalysisSnapshot,
         results: tuple[BattleHitReplayResult, ...],
+        *,
+        progress_callback: BattleAnalysisProgressCallback | None = None,
     ) -> tuple[BattleHitReplayResult, ...]:
-        adjusted = cls.apply_dark_star_hp_remainder_observation(analysis, results)
-        adjusted = cls.apply_nightmare_observed_layer_adjustment(analysis, adjusted)
-        adjusted = cls.apply_erosion_settlement_adjustment(analysis, adjusted)
-        return cls.apply_damage_attribution_conflicts(analysis, adjusted)
+        def report(completed: int, message: str) -> None:
+            report_battle_analysis_progress(
+                progress_callback,
+                phase="replay_audit",
+                message=message,
+                completed=completed,
+                total=6,
+            )
+
+        report(0, "正在审计逐击暴击与归属证据…")
+        adjusted = BattleHitLocalCritInferenceService.apply(analysis, results)
+        report(1, "正在检查重复伤害归属…")
+        conflicts = cls.damage_attribution_conflict_ids(
+            analysis.hits,
+            progress_callback=progress_callback,
+        )
+        report(2, "正在核对黯星生命差结算…")
+        adjusted = cls.apply_dark_star_hp_remainder_observation(
+            analysis, adjusted, conflict_ids=conflicts,
+        )
+        report(3, "正在核对噩梦层数证据…")
+        adjusted = cls.apply_nightmare_observed_layer_adjustment(
+            analysis, adjusted, conflict_ids=conflicts,
+        )
+        report(4, "正在核对蚀心结算证据…")
+        adjusted = cls.apply_erosion_settlement_adjustment(
+            analysis, adjusted, conflict_ids=conflicts,
+        )
+        report(5, "正在标记逐击归属冲突…")
+        adjusted = cls.apply_damage_attribution_conflicts(
+            analysis, adjusted, conflict_ids=conflicts,
+        )
+        report(6, "逐击公式重放审计完成")
+        return adjusted
 
     @classmethod
     def apply_dark_star_hp_remainder_observation(
         cls,
         analysis: BattleAnalysisSnapshot,
         results: tuple[BattleHitReplayResult, ...],
+        *,
+        conflict_ids: frozenset[str] | None = None,
     ) -> tuple[BattleHitReplayResult, ...]:
         """Recover one missing structured Dark Star additional settlement.
 
@@ -91,7 +132,11 @@ class BattleHitReplayAuditService:
         """
 
         hits_by_event = {hit.event_id: hit for hit in analysis.hits}
-        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
+        conflicts = (
+            conflict_ids
+            if conflict_ids is not None
+            else cls.damage_attribution_conflict_ids(analysis.hits)
+        )
         replacements: dict[str, BattleHitReplayResult] = {}
         for result in results:
             hit = hits_by_event.get(result.event_id)
@@ -173,6 +218,8 @@ class BattleHitReplayAuditService:
         cls,
         analysis: BattleAnalysisSnapshot,
         results: tuple[BattleHitReplayResult, ...],
+        *,
+        conflict_ids: frozenset[str] | None = None,
     ) -> tuple[BattleHitReplayResult, ...]:
         """Choose only single-share or formal-full erosion settlement modes.
 
@@ -182,7 +229,11 @@ class BattleHitReplayAuditService:
         """
 
         hits_by_event = {hit.event_id: hit for hit in analysis.hits}
-        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
+        conflicts = (
+            conflict_ids
+            if conflict_ids is not None
+            else cls.damage_attribution_conflict_ids(analysis.hits)
+        )
         replacements: dict[str, BattleHitReplayResult] = {}
         for result in results:
             hit = hits_by_event.get(result.event_id)
@@ -325,9 +376,15 @@ class BattleHitReplayAuditService:
         cls,
         analysis: BattleAnalysisSnapshot,
         results: tuple[BattleHitReplayResult, ...],
+        *,
+        conflict_ids: frozenset[str] | None = None,
     ) -> tuple[BattleHitReplayResult, ...]:
         hits_by_event = {hit.event_id: hit for hit in analysis.hits}
-        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
+        conflicts = (
+            conflict_ids
+            if conflict_ids is not None
+            else cls.damage_attribution_conflict_ids(analysis.hits)
+        )
         applications: dict[tuple[str, str], list[int]] = defaultdict(list)
         for hit in analysis.hits:
             if _is_nightmare_application(hit):
@@ -526,8 +583,14 @@ class BattleHitReplayAuditService:
         cls,
         analysis: BattleAnalysisSnapshot,
         results: tuple[BattleHitReplayResult, ...],
+        *,
+        conflict_ids: frozenset[str] | None = None,
     ) -> tuple[BattleHitReplayResult, ...]:
-        conflicts = cls.damage_attribution_conflict_ids(analysis.hits)
+        conflicts = (
+            conflict_ids
+            if conflict_ids is not None
+            else cls.damage_attribution_conflict_ids(analysis.hits)
+        )
         reason = (
             "同一服务端 HP 结算的重复归属候选：同一目标 700ms 内另一伤害项"
             "上报相同伤害，且 HP 区间重叠或结算端点一致；这不表示伤害实际发生两次。"
@@ -548,6 +611,8 @@ class BattleHitReplayAuditService:
     @staticmethod
     def damage_attribution_conflict_ids(
         hits: Sequence[BattleAnalysisHit],
+        *,
+        progress_callback: BattleAnalysisProgressCallback | None = None,
     ) -> frozenset[str]:
         """Return raw event IDs whose damage ownership is formally conflicted."""
 
@@ -560,6 +625,14 @@ class BattleHitReplayAuditService:
         )
         conflicts: set[str] = set()
         for index, first in enumerate(ordered):
+            if index % 64 == 0:
+                report_battle_analysis_progress(
+                    progress_callback,
+                    phase="replay_audit_conflicts",
+                    message="正在扫描重复伤害归属窗口…",
+                    completed=index,
+                    total=len(ordered),
+                )
             if first.target_hp_before is None or first.target_hp_after is None:
                 continue
             for second in ordered[index + 1:]:
@@ -592,4 +665,11 @@ class BattleHitReplayAuditService:
                 ) <= hp_tolerance
                 if overlaps or same_endpoint:
                     conflicts.update((first.event_id, second.event_id))
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="replay_audit_conflicts",
+            message="重复伤害归属扫描完成",
+            completed=len(ordered),
+            total=len(ordered),
+        )
         return frozenset(conflicts)

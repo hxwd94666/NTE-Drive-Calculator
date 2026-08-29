@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-from bisect import bisect_left
 from collections.abc import Sequence
 from dataclasses import dataclass
-from statistics import median
 from typing import Any
 
 from src.domain.battle_report import (
@@ -28,7 +26,8 @@ from src.services.battle_timeline_time_service import (
 ROSE_STACK_EVENT = "FORK_ROSE_DAMAGE_STACK"
 TIGER_NORMAL_STACK_EVENT = "FORK_TIGER_NORMAL_STACK"
 TIGER_COMMANDER_EVENT = "FORK_TIGER_COMMANDER_INFERRED"
-TIME_Q_CONSUME_EVENT = "FORK_TIME_Q_CONSUME"
+TIME_Q_CRIT_EVENT = "FORK_TIME_Q_CRIT_CONSUME"
+TIME_DEF_IGNORE_EVENT = "FORK_TIME_DEF_IGNORE_CONSUME"
 MOON_PSYCHIC_STACK_EVENT = "FORK_MOON_PSYCHIC_STACK"
 SPIDER_Q_CONSUME_EVENT = "FORK_SPIDER_Q_CONSUME"
 
@@ -39,6 +38,16 @@ _CONTINUOUS_CHANNELS = frozenset({
     "special_zankou_venom",
     "reaction_scorch",
 })
+_TIGER_CAT_DAMAGE_MARKER = "nanally_cat_skill_damage"
+
+
+def _is_formal_tiger_action(action: BattleInferredAction) -> bool:
+    if action.input_kind == "E":
+        return True
+    return action.input_kind == "Q" and not any(
+        _TIGER_CAT_DAMAGE_MARKER in value.casefold()
+        for value in action.gameplay_effect_ids
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,7 +280,7 @@ class BattleForkDamageStateService:
                 _TimedOccurrence(row.start_us, (row.action_id,), row.evidence_event_ids)
                 for row in actions
                 if row.character_id == rule.source_character_id
-                and row.input_kind in {"E", "Q"}
+                and _is_formal_tiger_action(row)
             )
             results.extend(_independent_occurrence_intervals(
                 rule,
@@ -287,7 +296,6 @@ class BattleForkDamageStateService:
             results.extend(BattleForkDamageStateService._infer_tiger_commander(
                 rule,
                 actions,
-                hits=hits,
                 battle_end_us=battle_end_us,
                 time_stops=time_stops,
             ))
@@ -298,11 +306,10 @@ class BattleForkDamageStateService:
         rule: Any,
         actions: Sequence[BattleInferredAction],
         *,
-        hits: Sequence[BattleAnalysisHit],
         battle_end_us: int,
         time_stops: Sequence[tuple[int | None, int | None]],
     ) -> tuple[BattleInferredBuffInterval, ...]:
-        """Infer an unobservable R only after dual tokens and a damage step."""
+        """Start the confirmed R effect when the second formal token arrives."""
 
         if rule.duration_seconds is None or not rule.modifiers:
             return ()
@@ -310,7 +317,7 @@ class BattleForkDamageStateService:
             (
                 action for action in actions
                 if action.character_id == rule.source_character_id
-                and action.input_kind in {"E", "Q"}
+                and _is_formal_tiger_action(action)
             ),
             key=lambda row: (
                 row.end_us if row.input_kind == "E" else row.start_us,
@@ -338,199 +345,42 @@ class BattleForkDamageStateService:
                 if now_active - row[0] <= token_window_us
             }
 
-        owner_hits = tuple(sorted(
-            (
-                hit for hit in hits
-                if hit.character_id == rule.source_character_id
-                and hit.direction == "outgoing"
-                and hit.damage > 0
-            ),
-            key=lambda row: (row.relative_time_us, row.sequence, row.event_id),
-        ))
         results = []
         accepted_until_active = -1
         for unlock_us, evidence_actions in unlocks:
             unlock_active = _active_time(unlock_us, time_stops)
             if unlock_active < accepted_until_active:
                 continue
-            step = BattleForkDamageStateService._find_tiger_damage_step(
-                owner_hits,
-                unlock_us=unlock_us,
-                unlock_active=unlock_active,
-                token_window_us=token_window_us,
-                time_stops=time_stops,
-            )
-            if step is None:
-                continue
-            start_hit, ratio, event_ids = step
-            start_active = _active_time(start_hit.relative_time_us, time_stops)
-            expiry_active = start_active + round(rule.duration_seconds * 1_000_000)
+            expiry_active = unlock_active + round(rule.duration_seconds * 1_000_000)
             expiry_us = _raw_time(
                 expiry_active,
                 battle_end_us=battle_end_us,
                 intervals=time_stops,
             )
-            base = rule.modifiers[0]
-            modifier = BattleBuffModifierEvidence(
-                property_id=base.property_id,
-                modifier_operation=base.modifier_operation,
-                magnitude_kind=base.magnitude_kind,
-                magnitude_value=base.magnitude_value,
-                calculation_asset_path=base.calculation_asset_path,
-                value_confidence=base.value_confidence,
-                modifier_group_ordinal=base.modifier_group_ordinal,
-                application_requirement_asset_path=(
-                    f"battle-hit-target|id={start_hit.target_id}"
-                ),
-                source_require_tags=base.source_require_tags,
-                source_ignore_tags=base.source_ignore_tags,
-                target_require_tags=base.target_require_tags,
-                target_ignore_tags=base.target_ignore_tags,
-            )
+            evidence_ids = tuple(dict.fromkeys(
+                event_id
+                for action in evidence_actions
+                for event_id in action.evidence_event_ids
+            ))
             interval = _interval(
                 rule,
-                suffix=f"commander:{start_hit.event_id}",
-                start_us=start_hit.relative_time_us,
+                suffix="commander:" + ":".join(
+                    action.action_id for action in evidence_actions
+                ),
+                start_us=unlock_us,
                 end_us=min(battle_end_us, expiry_us),
                 stacks=1,
                 basis=(
                     "E 实际结束取得左虎符、Q begin 取得右虎符，并在十五个有效战斗秒内凑齐；"
-                    "未取得主动 R "
-                    f"事件，因此只在同一目标的可比伤害项从本击开始出现一致倍率阶跃"
-                    f"（中位比值 {ratio:.3f}）时，低置信推断司令虎符起点。"
+                    "第二枚正式虎符到达时立即建立十个有效战斗秒的司令虎符区间。"
                 ),
                 action_ids=tuple(action.action_id for action in evidence_actions),
-                event_ids=event_ids,
-                modifiers=(modifier,),
-                state_confidence="低",
+                event_ids=evidence_ids,
             )
             if interval is not None:
                 results.append(interval)
                 accepted_until_active = expiry_active
         return tuple(results)
-
-    @staticmethod
-    def _find_tiger_damage_step(
-        hits: Sequence[BattleAnalysisHit],
-        *,
-        unlock_us: int,
-        unlock_active: int,
-        token_window_us: int,
-        time_stops: Sequence[tuple[int | None, int | None]],
-    ) -> tuple[BattleAnalysisHit, float, tuple[str, ...]] | None:
-        def is_normal_or_counter(hit: BattleAnalysisHit) -> bool:
-            identity = "|".join((
-                hit.attack_type,
-                hit.gameplay_effect_id,
-                hit.ability_id,
-                hit.skill_name,
-                hit.damage_name,
-            )).casefold()
-            return (
-                (
-                    "_melee" in hit.ability_id.casefold()
-                    and "ultraskill" not in hit.ability_id.casefold()
-                )
-                or "extrem" in identity
-                or "极限反击" in hit.attack_type
-                or "闪避反击" in hit.attack_type
-            )
-
-        def signature(hit: BattleAnalysisHit) -> tuple[str, ...]:
-            damage_identity = (
-                hit.gameplay_effect_id
-                or f"{hit.ability_id}|{hit.damage_name}|{hit.attack_type}"
-            )
-            return (
-                hit.target_id,
-                damage_identity.casefold(),
-                hit.damage_attribute.casefold(),
-                hit.classification.casefold(),
-            )
-
-        active_times = {
-            hit.event_id: _active_time(hit.relative_time_us, time_stops)
-            for hit in hits
-        }
-        by_target: dict[str, list[BattleAnalysisHit]] = {}
-        by_signature: dict[tuple[str, ...], list[BattleAnalysisHit]] = {}
-        for hit in hits:
-            by_target.setdefault(hit.target_id, []).append(hit)
-            by_signature.setdefault(signature(hit), []).append(hit)
-        signature_times = {
-            key: [row.relative_time_us for row in rows]
-            for key, rows in by_signature.items()
-        }
-        target_times = {
-            key: [row.relative_time_us for row in rows]
-            for key, rows in by_target.items()
-        }
-        candidates = tuple(
-            hit for hit in hits
-            if hit.relative_time_us >= unlock_us
-            and not is_normal_or_counter(hit)
-            and active_times[hit.event_id] - unlock_active <= token_window_us
-        )
-        for candidate in candidates:
-            candidate_active = active_times[candidate.event_id]
-            post_end_active = candidate_active + 2_000_000
-            comparable = []
-            target_rows = by_target.get(candidate.target_id, ())
-            post_start = bisect_left(
-                target_times.get(candidate.target_id, ()),
-                candidate.relative_time_us,
-            )
-            for post in target_rows[post_start:post_start + 24]:
-                post_active = active_times[post.event_id]
-                if post_active > post_end_active:
-                    break
-                if not (
-                    candidate_active <= post_active <= post_end_active
-                ):
-                    continue
-                if is_normal_or_counter(post):
-                    continue
-                key = signature(post)
-                history = by_signature[key]
-                history_end = bisect_left(
-                    signature_times[key],
-                    candidate.relative_time_us,
-                )
-                prior = [
-                    row.damage
-                    for row in history[max(0, history_end - 5):history_end]
-                    if candidate_active - active_times[row.event_id] <= 10_000_000
-                    and not is_normal_or_counter(row)
-                ]
-                if not prior:
-                    continue
-                baseline = float(median(prior))
-                if baseline <= 0:
-                    continue
-                comparable.append((post, post.damage / baseline))
-            candidate_ratio = next(
-                (ratio for hit, ratio in comparable if hit.event_id == candidate.event_id),
-                None,
-            )
-            rising = tuple(
-                (hit, ratio) for hit, ratio in comparable
-                if 1.025 <= ratio <= 1.35
-            )
-            if candidate_ratio is None or not (1.025 <= candidate_ratio <= 1.35):
-                continue
-            if len(rising) < 2 or len(rising) * 2 < len(comparable):
-                continue
-            signatures = {signature(hit) for hit, _ratio in rising}
-            if len(signatures) < 2 and len(rising) < 3:
-                continue
-            ratios = tuple(ratio for _hit, ratio in rising)
-            if max(ratios) - min(ratios) > 0.04:
-                continue
-            evidence = tuple(dict.fromkeys(
-                hit.event_id for hit, _ratio in rising
-            ))
-            return candidate, float(median(ratios)), evidence
-        return None
 
     @staticmethod
     def _infer_rose(rules, actions, hits, battle_end_us, time_stops):
@@ -637,7 +487,12 @@ class BattleForkDamageStateService:
         distinct_casts = _deduplicate_overlapping_casts(tuple(
             row for row in actions if row.input_kind in {"E", "Q", "QTE"}
         ))
-        for rule in (row for row in rules if row.event_type == TIME_Q_CONSUME_EVENT):
+        defence_by_owner = {
+            row.source_character_id: row
+            for row in rules
+            if row.event_type == TIME_DEF_IGNORE_EVENT
+        }
+        for rule in (row for row in rules if row.event_type == TIME_Q_CRIT_EVENT):
             role_id = rule.source_character_id
             in_maze = False
             stacks = 0
@@ -666,34 +521,51 @@ class BattleForkDamageStateService:
                         value_confidence=crit[1].value_confidence,
                         source_require_tags=crit[1].source_require_tags,
                     )
-                    defence = tuple(
-                        row for row in rule.modifiers
-                        if row.property_id == "DefIgnore" and stacks == 3
-                    )
-                    start_active = _active_time(action.start_us, time_stops)
-                    expiry = _raw_time(
-                        start_active
-                        + round(float(rule.duration_seconds or 0) * 1_000_000),
-                        battle_end_us=battle_end_us,
-                        intervals=time_stops,
-                    )
                     interval = _interval(
                         rule,
-                        suffix=f"time:{action.action_ids[0]}",
+                        suffix=f"time-crit:{action.action_ids[0]}",
                         start_us=action.start_us,
-                        end_us=min(battle_end_us, expiry),
+                        end_us=min(
+                            battle_end_us,
+                            max(action.start_us + 1, action.end_us),
+                        ),
                         stacks=1,
                         basis=(
                             f"E 建立荒时迷宫并清零；队友 E/QTE 累积荒时；"
-                            f"本次 Q 消耗 {stacks} 层荒时，三层时才附加无视防御；"
-                            "强化从 Q 起点开始并按有效战斗时钟持续。"
+                            f"本次 Q 消耗 {stacks} 层荒时，暴击伤害强化只覆盖该次 Q。"
                         ),
                         action_ids=(*evidence_actions, *action.action_ids),
                         event_ids=(*evidence_events, *action.event_ids),
-                        modifiers=(crit[0], scaled, *defence),
+                        modifiers=(crit[0], scaled),
                     )
                     if interval is not None:
                         results.append(interval)
+                    defence_rule = defence_by_owner.get(role_id)
+                    if stacks == 3 and defence_rule is not None:
+                        start_active = _active_time(action.start_us, time_stops)
+                        expiry = _raw_time(
+                            start_active + round(
+                                float(defence_rule.duration_seconds or 0)
+                                * 1_000_000
+                            ),
+                            battle_end_us=battle_end_us,
+                            intervals=time_stops,
+                        )
+                        defence_interval = _interval(
+                            defence_rule,
+                            suffix=f"time-defence:{action.action_ids[0]}",
+                            start_us=action.start_us,
+                            end_us=min(battle_end_us, expiry),
+                            stacks=1,
+                            basis=(
+                                "本次 Q 一次性消耗三层荒时，从 Q 起点获得"
+                                "作用于装备者全部伤害的无视防御，持续七十个有效战斗秒。"
+                            ),
+                            action_ids=(*evidence_actions, *action.action_ids),
+                            event_ids=(*evidence_events, *action.event_ids),
+                        )
+                        if defence_interval is not None:
+                            results.append(defence_interval)
                     in_maze = False
                     stacks = 0
         return tuple(results)

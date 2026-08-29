@@ -11,7 +11,6 @@ from statistics import median
 from src.domain.battle_counterfactual import (
     BattleBuildCounterfactual,
     BattleBuildHitCounterfactual,
-    BattleBuildRoleCounterfactual,
     BattleBuildVitalCounterfactual,
 )
 from src.domain.battle_counterfactual_quantification import (
@@ -33,6 +32,7 @@ from src.services.battle_build_quantification_service import (
 from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
+from src.services.battle_buff_interval_index import BattleBuffIntervalIndex
 from src.services.battle_daffodill_marginal_service import (
     DAFFODILL_EFFECT_FIVE_METHOD,
     BattleDaffodillMarginalService,
@@ -46,6 +46,13 @@ from src.services.battle_replay_formula_ratio_service import (
 )
 from src.services.battle_target_instance_mapping_service import (
     BattleTargetInstanceMappingService,
+)
+from src.services.battle_analysis_progress import (
+    BattleAnalysisProgressCallback,
+    report_battle_analysis_progress,
+)
+from src.services.battle_build_role_counterfactual_support import (
+    build_role_counterfactuals,
 )
 
 
@@ -81,6 +88,7 @@ class BattleBuildCounterfactualService:
         *,
         original: BattleAnalysisSnapshot,
         candidate: BattleAnalysisSnapshot,
+        progress_callback: BattleAnalysisProgressCallback | None = None,
     ) -> BattleBuildCounterfactual:
         if original.battle_record_id != candidate.battle_record_id:
             raise ValueError("原始配置与修改配置不属于同一战报")
@@ -113,27 +121,50 @@ class BattleBuildCounterfactualService:
                 original, candidate,
             )
         )
+        original_interval_index = BattleBuffIntervalIndex(
+            BattleDaffodillMarginalService.direct_formula_intervals(original)
+        )
+        candidate_interval_index = BattleBuffIntervalIndex(
+            BattleDaffodillMarginalService.direct_formula_intervals(candidate)
+        )
+        routed_by_target: dict[tuple[str, str], BattleAnalysisSnapshot] = {}
+        total_hits = len(original_hits)
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="build_compare",
+            message="正在逐击汇总修改副本与原始配置差异…",
+            completed=0,
+            total=total_hits,
+        )
 
         projected_hits: list[BattleBuildHitCounterfactual] = []
-        for event_id, hit in original_hits.items():
+        for ordinal, (event_id, hit) in enumerate(
+            original_hits.items(),
+            start=1,
+        ):
             formula_pair = paired_replay_formula(
                 original_replays.get(event_id),
                 candidate_replays.get(event_id),
             )
-            routed = BattleTargetInstanceMappingService.analysis_for_hit(
-                original,
-                hit,
-            )
+            target_key = (hit.scope_half.casefold(), hit.target_id)
+            routed = routed_by_target.get(target_key)
+            if routed is None:
+                routed = BattleTargetInstanceMappingService.analysis_for_hit(
+                    original,
+                    hit,
+                )
+                routed_by_target[target_key] = routed
             quantification = BattleHitCounterfactualRatioService.compare(
                 hit=hit,
                 original_baseline=original_baselines.get(hit.character_id),
                 candidate_baseline=candidate_baselines.get(hit.character_id),
                 original_projection=BattleBuffAttributeProjectionService.project_hit(
-                    hit, BattleDaffodillMarginalService.direct_formula_intervals(original),
+                    hit,
+                    original_interval_index,
                 ),
                 candidate_projection=BattleBuffAttributeProjectionService.project_hit(
                     candidate_hits.get(event_id, hit),
-                    BattleDaffodillMarginalService.direct_formula_intervals(candidate),
+                    candidate_interval_index,
                 ),
                 original_replay=original_replays.get(event_id),
                 candidate_replay=candidate_replays.get(event_id),
@@ -197,6 +228,14 @@ class BattleBuildCounterfactualService:
                     else replay_formula_value(candidate_replays.get(event_id))[0]
                 ),
             ))
+            if ordinal == total_hits or ordinal % 64 == 0:
+                report_battle_analysis_progress(
+                    progress_callback,
+                    phase="build_compare",
+                    message="正在逐击汇总修改副本与原始配置差异…",
+                    completed=ordinal,
+                    total=total_hits,
+                )
         skill_ratios, type_ratios, role_ratios = cls._ratio_catalogs(
             original_hits,
             projected_hits,
@@ -276,11 +315,13 @@ class BattleBuildCounterfactualService:
         gain = (
             known_gain if candidate_damage is not None else None
         )
-        role_rows = cls._roles(
+        role_rows = build_role_counterfactuals(
             original,
             projected_hits,
             projected_vital_events,
             fixed_derived_unchanged=fixed_derived_unchanged,
+            structured_methods=_STRUCTURED_METHODS,
+            structured_vital_methods=_STRUCTURED_VITAL_METHODS,
         )
         assumptions = (
             "固定原战报动作、逐击、目标与时段，只替换角色配置后重放。",
@@ -694,102 +735,3 @@ class BattleBuildCounterfactualService:
     @staticmethod
     def _role_key(hit: BattleAnalysisHit) -> tuple[object, ...]:
         return hit.character_id, hit.scope_half, hit.target_id
-
-    @classmethod
-    def _roles(
-        cls,
-        original: BattleAnalysisSnapshot,
-        projected_hits: Sequence[BattleBuildHitCounterfactual],
-        projected_vital_events: Sequence[BattleBuildVitalCounterfactual],
-        *,
-        fixed_derived_unchanged: bool,
-    ) -> tuple[BattleBuildRoleCounterfactual, ...]:
-        projected_by_role: dict[int, list[BattleBuildHitCounterfactual]] = defaultdict(list)
-        for hit in projected_hits:
-            if hit.character_id is not None:
-                projected_by_role[hit.character_id].append(hit)
-        vital_by_role: dict[int, list[BattleBuildVitalCounterfactual]] = defaultdict(list)
-        for event in projected_vital_events:
-            if event.character_id is not None:
-                vital_by_role[event.character_id].append(event)
-        result = []
-        for role in original.roles:
-            hits = projected_by_role.get(role.character_id, [])
-            vital_events = vital_by_role.get(role.character_id, [])
-            derived = max(
-                0.0,
-                role.damage
-                - sum(row.baseline_damage for row in hits)
-                - sum(row.baseline_damage for row in vital_events),
-            )
-            baseline = (
-                sum(row.baseline_damage for row in hits)
-                + sum(row.baseline_damage for row in vital_events)
-                + derived
-            )
-            rows = (*hits, *vital_events)
-            quantification = BattleBuildQuantificationService.aggregate(
-                rows=rows,
-                fixed_damage=derived,
-                fixed_unchanged=fixed_derived_unchanged,
-            )
-            known_projection = (
-                None
-                if quantification.quantified_increment is None
-                else baseline + quantification.quantified_increment
-            )
-            candidate_damage = (
-                known_projection
-                if quantification.status in {"complete", "not_applicable"}
-                else None
-            )
-            heuristic_projection = (
-                sum(
-                    BattleBuildQuantificationService.display_projection(row)
-                    for row in rows
-                ) + derived
-                if any(row.heuristic_projection_damage is not None for row in rows)
-                else None
-            )
-            structured = sum(
-                row.baseline_damage
-                for row in hits
-                if row.quantification.method in _STRUCTURED_METHODS
-            )
-            structured += sum(
-                row.baseline_damage
-                for row in vital_events
-                if row.quantification.method in _STRUCTURED_VITAL_METHODS
-            )
-            known_gain = (
-                None
-                if known_projection is None or not baseline
-                else (known_projection / baseline - 1.0) * 100.0
-            )
-            known_team_gain = (
-                None
-                if known_projection is None or not original.effective_damage
-                else (known_projection - baseline)
-                / original.effective_damage
-                * 100.0
-            )
-            result.append(BattleBuildRoleCounterfactual(
-                character_id=role.character_id,
-                character_name=role.character_name,
-                baseline_damage=baseline,
-                known_projection_damage=known_projection,
-                candidate_damage=candidate_damage,
-                heuristic_projection_damage=heuristic_projection,
-                known_gain_percent=known_gain,
-                gain_percent=(known_gain if candidate_damage is not None else None),
-                known_team_gain_percent=known_team_gain,
-                team_gain_percent=(
-                    known_team_gain if candidate_damage is not None else None
-                ),
-                quantification=quantification,
-                structured_damage=structured,
-                structured_percent=(
-                    structured / baseline * 100.0 if baseline else 0.0
-                ),
-            ))
-        return tuple(sorted(result, key=lambda row: row.baseline_damage, reverse=True))

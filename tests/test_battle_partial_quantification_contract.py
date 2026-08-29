@@ -15,6 +15,7 @@ from src.domain.battle_counterfactual_quantification import (
     BattleDamageQuantification,
     BattleQuantificationGap,
 )
+from src.domain.battle_buff_counterfactual import BattleDamageCoverage
 
 
 def _field_names(value_type) -> set[str]:
@@ -92,6 +93,22 @@ class BattlePartialQuantificationContractTests(unittest.TestCase):
         self.assertEqual(20.0, summary.partially_quantified_damage)
         self.assertEqual(30.0, summary.unavailable_damage)
         self.assertEqual(10.0, summary.proven_unchanged_damage)
+
+    def test_damage_coverage_separates_confirmed_and_unresolved_damage(self) -> None:
+        coverage = BattleDamageCoverage(
+            basis_damage=1_000.0,
+            covered_damage=600.0,
+            unresolved_damage=250.0,
+        )
+
+        self.assertEqual(60.0, coverage.covered_percent)
+        self.assertEqual(25.0, coverage.unresolved_percent)
+        with self.assertRaises(ValueError):
+            BattleDamageCoverage(
+                basis_damage=1_000.0,
+                covered_damage=800.0,
+                unresolved_damage=300.0,
+            )
 
 
 if __name__ == "__main__":

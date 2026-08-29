@@ -16,6 +16,9 @@ class BattleRolePageImportServiceTests(unittest.TestCase):
                 "details": [{
                     "profile": {
                         "character_id": 1004,
+                        "fork_id": "fork_Rose",
+                        "fork_level": 70,
+                        "fork_breakthrough_stage": 5,
                         "equipment_override": existing,
                     },
                     "character": {"character_id": 1004},
@@ -26,6 +29,7 @@ class BattleRolePageImportServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(existing, profiles[0]["equipment_override"])
+        self.assertEqual(5, profiles[0]["fork_breakthrough_stage"])
 
     def test_equipment_import_freezes_current_role_page_context(self) -> None:
         profiles = BattleRolePageImportService.profiles(

@@ -4,11 +4,40 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isclose
+from math import isclose, isfinite
 
 from src.domain.battle_counterfactual_quantification import (
     BattleDamageQuantification,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BattleDamageCoverage:
+    """Original fixed-axis damage confirmed or unresolved under one effect."""
+
+    basis_damage: float = 0.0
+    covered_damage: float = 0.0
+    unresolved_damage: float = 0.0
+
+    def __post_init__(self) -> None:
+        values = (self.basis_damage, self.covered_damage, self.unresolved_damage)
+        if any(not isfinite(value) or value < 0.0 for value in values):
+            raise ValueError("damage coverage values must be finite and non-negative")
+        tolerance = max(1e-9, self.basis_damage * 1e-9)
+        if self.covered_damage + self.unresolved_damage > self.basis_damage + tolerance:
+            raise ValueError("covered and unresolved damage exceed coverage basis")
+
+    @property
+    def covered_percent(self) -> float | None:
+        if self.basis_damage <= 0.0:
+            return None
+        return self.covered_damage / self.basis_damage * 100.0
+
+    @property
+    def unresolved_percent(self) -> float | None:
+        if self.basis_damage <= 0.0:
+            return None
+        return self.unresolved_damage / self.basis_damage * 100.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +58,7 @@ class BattleBuffBeneficiaryResult:
     recipient_gain_percent: float | None
     team_contribution_percent: float | None
     quantification: BattleDamageQuantification
+    damage_coverage: BattleDamageCoverage = BattleDamageCoverage()
 
     def __post_init__(self) -> None:
         status = self.quantification.status
@@ -108,8 +138,12 @@ class BattleBuffCounterfactualResult:
     beneficiaries: tuple[BattleBuffBeneficiaryResult, ...] = ()
     quantified_unattributed_damage_gain: float | None = None
     unattributed_damage_gain: float | None = None
+    evidence_event_ids: tuple[str, ...] = ()
+    damage_coverage: BattleDamageCoverage = BattleDamageCoverage()
 
     def __post_init__(self) -> None:
+        if len(set(self.evidence_event_ids)) != len(self.evidence_event_ids):
+            raise ValueError("Buff counterfactual evidence event ids must be unique")
         status = self.quantification.status
         quantified = (
             self.without_quantified_effect_damage,
@@ -153,6 +187,7 @@ class BattleBuffCounterfactualResult:
 
 
 __all__ = [
+    "BattleDamageCoverage",
     "BattleBuffBeneficiaryResult",
     "BattleBuffCounterfactualResult",
 ]

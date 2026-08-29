@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.services.battle_analysis_progress import BattleAnalysisProgress
 
 
 _DETAIL_COPY = {
@@ -47,9 +48,28 @@ class BattleAnalysisProgressBar(QFrame):
         self.hide()
 
     def show_for(self, kind: str) -> None:
+        self.progress.setRange(0, 0)
+        self.progress.setTextVisible(False)
         self.message_label.setText(
             _DETAIL_COPY.get(kind, "正在重建当前范围的战报分析…")
         )
+        self.show()
+
+    def update_progress(self, progress: BattleAnalysisProgress) -> None:
+        message = progress.message
+        if progress.determinate:
+            assert progress.completed is not None
+            assert progress.total is not None
+            completed = max(0, min(progress.completed, progress.total))
+            self.progress.setRange(0, progress.total)
+            self.progress.setValue(completed)
+            self.progress.setFormat("%v / %m")
+            self.progress.setTextVisible(True)
+            message = f"{message}（{completed}/{progress.total}）"
+        else:
+            self.progress.setRange(0, 0)
+            self.progress.setTextVisible(False)
+        self.message_label.setText(message)
         self.show()
 
     def finish(self) -> None:

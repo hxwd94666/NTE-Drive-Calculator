@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .battle_build_stage_support import normalize_frozen_advancement
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
     UserDataError,
@@ -549,34 +550,44 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             skills = profile.get("skill_levels") or {}
             if not isinstance(skills, Mapping):
                 raise UserDataError(f"角色 {character_id} 的冻结技能配置损坏")
+            (
+                character_level,
+                breakthrough_stage,
+                fork_id,
+                fork_level,
+                fork_breakthrough_stage,
+                frozen_profile,
+            ) = normalize_frozen_advancement(profile, character_id)
             connection.execute(
                 """
                 INSERT INTO battle_character_build_snapshot(
                     battle_record_id, character_id, observed_name,
                     profile_source, character_level, breakthrough_stage,
                     awakening_level, fork_id, fork_level,
+                    fork_breakthrough_stage,
                     fork_refinement_level, selected_skill_id, ordinal,
                     raw_profile_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     record_id,
                     character_id,
                     observed_name or None,
                     str(profile.get("profile_source") or "unknown"),
-                    int(profile.get("character_level") or 80),
-                    int(profile.get("breakthrough_stage") or 6),
+                    character_level,
+                    breakthrough_stage,
                     int(
                         6
                         if profile.get("awakening_level") is None
                         else profile["awakening_level"]
                     ),
-                    _optional_text(profile.get("fork_id")),
-                    profile.get("fork_level"),
+                    fork_id,
+                    fork_level,
+                    fork_breakthrough_stage,
                     profile.get("fork_refinement_level"),
                     _optional_text(profile.get("selected_skill_id")),
                     int(profile.get("ordinal") or 0),
-                    _json(profile),
+                    _json(frozen_profile),
                 ),
             )
             connection.executemany(

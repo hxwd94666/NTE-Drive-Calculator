@@ -20,6 +20,7 @@ class OfficialRoleProfileUpdate:
     likeability_level_10_enabled: bool
     fork_id: str | None
     fork_level: int | None
+    fork_breakthrough_stage: int | None
     fork_refinement_level: int | None
     selected_skill_id: str | None
     skill_levels: dict[str, int]
@@ -55,6 +56,7 @@ class OfficialRoleProfileService:
                     ),
                     fork_id=update.fork_id,
                     fork_level=update.fork_level,
+                    fork_breakthrough_stage=update.fork_breakthrough_stage,
                     fork_refinement_level=update.fork_refinement_level,
                     selected_skill_id=update.selected_skill_id,
                     skill_levels=dict(update.skill_levels),

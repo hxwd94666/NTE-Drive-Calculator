@@ -17,6 +17,17 @@ class CombatImportMixin:
                 raise StaticDatabaseError(
                     f"弧盘精炼包仅大小写不同且无法唯一解析：{previous}/{pack_id}"
                 )
+        canonical_breakthrough_packs: dict[str, str] = {}
+        breakthrough_stages: dict[str, set[int]] = {}
+        for row_key in self.rows["fork_breakthroughs"]:
+            pack_id, stage = split_numbered_row(row_key)
+            normalized = pack_id.casefold()
+            previous = canonical_breakthrough_packs.setdefault(normalized, pack_id)
+            if previous != pack_id:
+                raise StaticDatabaseError(
+                    f"弧盘突破包仅大小写不同且无法唯一解析：{previous}/{pack_id}"
+                )
+            breakthrough_stages.setdefault(normalized, set()).add(int(stage))
         for type_id in sorted(self.rows["fork_types"], key=int):
             row = self.rows["fork_types"][type_id]
             name, _, _ = text_parts(row.get("TypeName"))
@@ -54,6 +65,30 @@ class CombatImportMixin:
                 raise StaticDatabaseError(
                     f"弧盘精炼包无法解析：{fork_id}/{raw_star_pack_id}"
                 )
+            raw_breakthrough_pack_id = optional_text(
+                element.get("BreakthroughPackId")
+            )
+            breakthrough_pack_id = (
+                canonical_breakthrough_packs.get(
+                    raw_breakthrough_pack_id.casefold()
+                )
+                if raw_breakthrough_pack_id is not None
+                else None
+            )
+            maximum_breakthrough = int(element.get("MaxBreakthrough") or 0)
+            if maximum_breakthrough > 0 and breakthrough_pack_id is None:
+                raise StaticDatabaseError(
+                    f"弧盘突破包无法解析：{fork_id}/{raw_breakthrough_pack_id}"
+                )
+            actual_stages = breakthrough_stages.get(
+                (raw_breakthrough_pack_id or "").casefold(), set()
+            )
+            expected_stages = set(range(maximum_breakthrough + 1))
+            if maximum_breakthrough > 0 and actual_stages != expected_stages:
+                raise StaticDatabaseError(
+                    f"弧盘突破档不完整：{fork_id}/"
+                    f"{sorted(actual_stages)} != {sorted(expected_stages)}"
+                )
             self.connection.execute(
                 "INSERT INTO fork_item VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -66,9 +101,9 @@ class CombatImportMixin:
                     FORK_TYPE_ID_BY_CHARACTER_GROUP.get(group_type),
                     group_type,
                     element.get("UpgradePackId"),
-                    element.get("BreakthroughPackId"),
+                    breakthrough_pack_id,
                     star_pack_id,
-                    element.get("MaxBreakthrough"),
+                    maximum_breakthrough,
                     element.get("MaxUpgradeStar"),
                     asset_path(row.get("ItemIcon")),
                     asset_path(element.get("ForkCard")),

@@ -12,7 +12,12 @@ from src.domain.battle_counterfactual_quantification import (
     BattleDamageQuantification,
     BattleQuantificationGap,
 )
+from src.domain.battle_buff_counterfactual import BattleDamageCoverage
 from src.domain.battle_report import BattleCharacterBaseline, BattleCharacterStat
+from src.features.battle_report.build_change_summary import (
+    character_level_summary,
+    fork_level_summary,
+)
 from src.features.battle_report.marginal_page import BattleMarginalPage
 from src.features.battle_report.marginal_result_table_view import (
     render_attribute_results,
@@ -24,6 +29,62 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_change_summary_distinguishes_cap_breakthrough_states(self) -> None:
+        detail = {
+            "growth_rows": [
+                {
+                    "level": 70,
+                    "breakthrough_stage": 5,
+                    "state": "breakthrough_before",
+                },
+                {
+                    "level": 70,
+                    "breakthrough_stage": 6,
+                    "state": "breakthrough_after",
+                },
+            ],
+            "forks": [{
+                "fork_id": "fork_Rose",
+                "breakthroughs": [
+                    {"stage": 5, "max_fork_level": 70},
+                    {"stage": 6, "max_fork_level": 80},
+                ],
+            }],
+        }
+        base = {
+            "character_level": 70,
+            "fork_id": "fork_Rose",
+            "fork_level": 70,
+            "fork_refinement_level": 2,
+        }
+
+        self.assertEqual(
+            "Lv.70（突破前）",
+            character_level_summary(detail, {**base, "breakthrough_stage": 5}),
+        )
+        self.assertEqual(
+            "Lv.70（突破后）",
+            character_level_summary(detail, {**base, "breakthrough_stage": 6}),
+        )
+        self.assertEqual(
+            "弧盘 Lv.70（突破前）/精2",
+            fork_level_summary(
+                detail,
+                {**base, "fork_breakthrough_stage": 5},
+            ),
+        )
+        self.assertEqual(
+            "弧盘 Lv.70（突破后）/精2",
+            fork_level_summary(
+                detail,
+                {**base, "fork_breakthrough_stage": 6},
+            ),
+        )
+        self.assertEqual(
+            "弧盘 Lv.70（突破未知）/精2",
+            fork_level_summary(detail, base),
+        )
 
     def test_role_switch_does_not_replay_until_explicit_recalculate(self) -> None:
         created_options: list[dict] = []
@@ -228,7 +289,9 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             without_buff_damage=3000.0,
             quantification=quantification,
             confidence="高",
+            method="approximate_fixture",
             explanation="完整移除反事实。",
+            damage_coverage=BattleDamageCoverage(3_550.0, 3_550.0),
             beneficiaries=(
                 SimpleNamespace(
                     character_id=1,
@@ -240,6 +303,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
                     quantified_recipient_gain_percent=15.0,
                     quantified_team_contribution_percent=5.0,
                     quantification=quantification,
+                    damage_coverage=BattleDamageCoverage(1_150.0, 1_150.0),
                 ),
                 SimpleNamespace(
                     character_id=2,
@@ -251,6 +315,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
                     quantified_recipient_gain_percent=20.0,
                     quantified_team_contribution_percent=13.333,
                     quantification=quantification,
+                    damage_coverage=BattleDamageCoverage(2_400.0, 2_400.0),
                 ),
             ),
             quantified_unattributed_damage_gain=0.0,
@@ -280,7 +345,10 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
 
         self.assertEqual(2, page.buff_benefit_table.rowCount())
         self.assertEqual("角色1", page.buff_benefit_table.item(0, 0).text())
-        self.assertEqual("团队增伤", page.buff_benefit_table.item(0, 1).text())
+        self.assertEqual(
+            "团队增伤（估算）",
+            page.buff_benefit_table.item(0, 1).text(),
+        )
         self.assertEqual("角色2", page.buff_benefit_table.item(1, 2).text())
         self.assertEqual("+400", page.buff_benefit_table.item(1, 3).text())
         self.assertEqual("+20.00%", page.buff_benefit_table.item(1, 4).text())
@@ -290,6 +358,8 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             page.buff_benefit_table.item(1, 6).text(),
         )
         self.assertEqual("100.0%", page.buff_benefit_table.item(1, 7).text())
+        self.assertEqual("100.0%", page.buff_benefit_table.item(1, 8).text())
+        self.assertEqual("100.0%", page.buff_benefit_table.item(1, 9).text())
 
     def test_partial_team_uses_quantified_contribution_for_complete_beneficiary(
         self,

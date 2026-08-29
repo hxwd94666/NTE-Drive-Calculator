@@ -469,10 +469,17 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
                 if {"character", "fork", "equipment"}.issubset(source_groups)
                 else ("frozen_v25" if character["stats"] else "missing")
             )
-            character["profile"] = _decoded(
+            profile = _decoded(
                 character.pop("raw_profile_json"),
                 {},
             )
+            # The nullable column is authoritative for new captures.  Historical
+            # rows retain ``None`` so replay can apply the documented legacy
+            # fallback without rewriting the immutable original snapshot.
+            profile["fork_breakthrough_stage"] = character.get(
+                "fork_breakthrough_stage"
+            )
+            character["profile"] = profile
             character["skills"] = self._rows(
                 """
                 SELECT skill_id, skill_level

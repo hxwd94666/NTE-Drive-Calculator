@@ -4,13 +4,20 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTableWidget
 
 from src.domain.battle_counterfactual_quantification import (
     BattleDamageQuantification,
     BattleQuantificationGap,
 )
+from src.domain.battle_buff_counterfactual import BattleDamageCoverage
 from src.features.battle_report.buff_evidence_view import BattleBuffEvidencePanel
+from src.features.battle_report.marginal_result_table_view import (
+    render_buff_benefit_results,
+)
+from src.features.battle_report.marginal_quantification_view import (
+    damage_coverage_text,
+)
 from src.services.battle_buff_counterfactual_service import (
     battle_buff_counterfactual_key,
 )
@@ -79,6 +86,10 @@ def _result(*, status: str):
         )
     return SimpleNamespace(
         buff_key=battle_buff_counterfactual_key(interval),
+        source_character_id=1001,
+        source_character_name="测试角色",
+        buff_name="测试 Buff",
+        target_scope="team",
         coverage_seconds=10.0,
         affected_hits=1 if status != "not_applicable" else 0,
         quantified_hits=1 if status == "partial" else 0,
@@ -93,6 +104,13 @@ def _result(*, status: str):
         method=status,
         explanation="fixture",
         quantification=quantification,
+        beneficiaries=(),
+        quantified_unattributed_damage_gain=None,
+        unattributed_damage_gain=None,
+        damage_coverage=BattleDamageCoverage(
+            basis_damage=1_000.0,
+            covered_damage=(0.0 if status == "not_applicable" else 1_000.0),
+        ),
     )
 
 
@@ -101,26 +119,34 @@ class BattlePartialQuantificationBuffUiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_damage_coverage_labels_unresolved_share_separately(self) -> None:
+        self.assertEqual(
+            "至少 60.0%（另 25.0% 未判定）",
+            damage_coverage_text(BattleDamageCoverage(1_000.0, 600.0, 250.0)),
+        )
+
     def test_unavailable_does_not_render_zero_gain(self) -> None:
         panel = BattleBuffEvidencePanel()
 
         panel.render(_analysis(_result(status="unavailable")))
 
-        self.assertEqual("—", panel.table.item(0, 7).text())
-        self.assertEqual("未量化", panel.table.item(0, 8).text())
-        self.assertEqual("—", panel.table.item(0, 9).text())
-        self.assertNotIn("+0.00%", panel.table.item(0, 9).text())
-        self.assertIn("未知不记为 0", panel.table.item(0, 9).toolTip())
+        self.assertEqual("100.0%", panel.table.item(0, 7).text())
+        self.assertEqual("—", panel.table.item(0, 8).text())
+        self.assertEqual("未量化", panel.table.item(0, 9).text())
+        self.assertEqual("—", panel.table.item(0, 10).text())
+        self.assertNotIn("+0.00%", panel.table.item(0, 10).text())
+        self.assertIn("未知不记为 0", panel.table.item(0, 10).toolTip())
 
     def test_partial_is_labeled_as_quantified_component(self) -> None:
         panel = BattleBuffEvidencePanel()
 
         panel.render(_analysis(_result(status="partial")))
 
-        self.assertEqual("已量化 900.00", panel.table.item(0, 7).text())
-        self.assertEqual("已量化 +100.00", panel.table.item(0, 8).text())
-        self.assertTrue(panel.table.item(0, 9).text().startswith("已量化 +"))
-        self.assertIn("不代表完整 Buff 收益", panel.table.item(0, 9).toolTip())
+        self.assertEqual("100.0%", panel.table.item(0, 7).text())
+        self.assertEqual("已量化 900.00", panel.table.item(0, 8).text())
+        self.assertEqual("已量化 +100.00", panel.table.item(0, 9).text())
+        self.assertTrue(panel.table.item(0, 10).text().startswith("已量化 +"))
+        self.assertIn("不代表完整 Buff 收益", panel.table.item(0, 10).toolTip())
 
     def test_partial_nullable_fields_do_not_break_tooltip(self) -> None:
         panel = BattleBuffEvidencePanel()
@@ -134,19 +160,45 @@ class BattlePartialQuantificationBuffUiTests(unittest.TestCase):
 
         panel.render(_analysis(SimpleNamespace(**values)))
 
-        self.assertEqual("—", panel.table.item(0, 7).text())
         self.assertEqual("—", panel.table.item(0, 8).text())
         self.assertEqual("—", panel.table.item(0, 9).text())
-        self.assertIn("已量化改动下伤害：—", panel.table.item(0, 9).toolTip())
+        self.assertEqual("—", panel.table.item(0, 10).text())
+        self.assertIn("已量化改动下伤害：—", panel.table.item(0, 10).toolTip())
 
     def test_not_applicable_hides_numeric_zero_gain(self) -> None:
         panel = BattleBuffEvidencePanel()
 
         panel.render(_analysis(_result(status="not_applicable")))
 
-        self.assertEqual("不适用", panel.table.item(0, 7).text())
         self.assertEqual("不适用", panel.table.item(0, 8).text())
         self.assertEqual("不适用", panel.table.item(0, 9).text())
+        self.assertEqual("不适用", panel.table.item(0, 10).text())
+
+    def test_source_without_covered_hits_keeps_an_explicit_empty_row(self) -> None:
+        table = QTableWidget(0, 10)
+        unavailable = _result(status="unavailable")
+        values = vars(unavailable).copy()
+        values.update({
+            "affected_hits": 0,
+            "quantified_hits": 0,
+            "method": "not_covered",
+            "damage_coverage": BattleDamageCoverage(basis_damage=1_000.0),
+        })
+
+        render_buff_benefit_results(
+            table,
+            (),
+            source_character_id=1001,
+            passive_results=(SimpleNamespace(**values),),
+        )
+
+        self.assertEqual(1, table.rowCount())
+        self.assertEqual("测试角色", table.item(0, 0).text())
+        self.assertEqual("测试 Buff", table.item(0, 1).text())
+        self.assertEqual("当前范围未覆盖", table.item(0, 2).text())
+        self.assertEqual("—", table.item(0, 3).text())
+        self.assertNotIn("+0", table.item(0, 6).text())
+        self.assertEqual("0.0%", table.item(0, 8).text())
 
 
 if __name__ == "__main__":

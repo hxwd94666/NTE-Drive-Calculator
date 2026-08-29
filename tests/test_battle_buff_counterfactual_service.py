@@ -1,8 +1,9 @@
 # 验证选定时段逐 Buff 移除反事实与生命上限结算联动。
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 import unittest
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from src.domain.battle_counterfactual_quantification import (
     BattleCounterfactualRatio,
@@ -25,6 +26,7 @@ from src.services.battle_hit_counterfactual_ratio_service import (
     BattleHitCounterfactualRatioService,
 )
 from src.services.battle_hit_replay_service import BattleHitReplayService
+from src.services.battle_buff_interval_index import BattleBuffIntervalIndexView
 
 
 def _hit(
@@ -32,16 +34,18 @@ def _hit(
     damage: float,
     *,
     character_id: int | None = 1,
+    classification: str = "direct",
+    relative_time_us: int = 1_000_000,
 ) -> BattleAnalysisHit:
     return BattleAnalysisHit(
         event_id=event_id,
         sequence=1,
-        relative_time_us=1_000_000,
+        relative_time_us=relative_time_us,
         character_id=character_id,
         character_name=(f"角色{character_id}" if character_id is not None else ""),
         skill_name="测试技能",
         damage_name="测试伤害",
-        damage_component="direct",
+        damage_component=classification,
         attack_type="skill",
         damage_attribute="chaos",
         target_id="target",
@@ -49,7 +53,7 @@ def _hit(
         damage=damage,
         direction="outgoing",
         is_follow_up=False,
-        classification="direct",
+        classification=classification,
     )
 
 
@@ -72,6 +76,7 @@ def _modifier(
     value: float | None,
     *,
     property_id: str = "DamageUpGeneralBase",
+    target_tags: tuple[str, ...] = (),
 ) -> BattleBuffModifierEvidence:
     return BattleBuffModifierEvidence(
         property_id=property_id,
@@ -80,6 +85,7 @@ def _modifier(
         magnitude_value=value,
         calculation_asset_path="",
         value_confidence="中" if value is not None else "低",
+        target_require_tags=target_tags,
     )
 
 
@@ -161,6 +167,121 @@ def _snapshot(
 
 
 class BattleBuffCounterfactualServiceTests(unittest.TestCase):
+    def test_stateless_group_does_not_materialize_excluded_interval_view(self) -> None:
+        analysis = _snapshot(
+            hits=(_hit("active", 115.0),),
+            intervals=(_interval("buff-1", modifiers=(_modifier(0.15),)),),
+            replays=(_replay("active", 115.0),),
+        )
+
+        with (
+            patch.object(
+                BattleBuffIntervalIndexView,
+                "intervals",
+                new_callable=PropertyMock,
+                side_effect=AssertionError("stateless replay materialized interval view"),
+            ),
+            patch.object(
+                BattleHitReplayService,
+                "replay",
+                return_value=(_replay("active", 100.0),),
+            ),
+        ):
+            BattleBuffCounterfactualService.calculate(analysis, ())
+
+    def test_large_modifierless_group_can_cancel_during_projection(self) -> None:
+        hits = tuple(
+            _hit(str(index), 100.0, relative_time_us=index * 1_000)
+            for index in range(1, 66)
+        )
+        analysis = _snapshot(
+            hits=hits,
+            intervals=(_interval("buff-1"),),
+            replays=tuple(_replay(hit.event_id, 100.0) for hit in hits),
+        )
+        checkpoints = 0
+
+        def cancel(progress) -> None:
+            nonlocal checkpoints
+            if progress.phase != "buff_counterfactual_prepare":
+                return
+            checkpoints += 1
+            if checkpoints == 2:
+                raise CancelledError
+
+        with self.assertRaises(CancelledError):
+            BattleBuffCounterfactualService.calculate(
+                analysis,
+                (),
+                progress_callback=cancel,
+            )
+
+        self.assertEqual(2, checkpoints)
+
+    def test_stateless_group_uses_selected_hit_replay_context(self) -> None:
+        analysis = _snapshot(
+            hits=(_hit("active", 115.0),),
+            intervals=(_interval("buff-1", modifiers=(_modifier(0.15),)),),
+            replays=(_replay("active", 115.0),),
+        )
+
+        with patch.object(
+            BattleHitReplayService,
+            "replay",
+            return_value=(_replay("active", 100.0),),
+        ) as replay:
+            (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
+
+        context = replay.call_args.kwargs["prepared_audit_context"]
+        self.assertIsNotNone(context)
+        self.assertEqual(frozenset({"active"}), context.selected_event_ids)
+        self.assertAlmostEqual(15.0, result.damage_gain)
+
+    def test_stateful_dot_group_falls_back_to_full_axis_replay(self) -> None:
+        analysis = _snapshot(
+            hits=(_hit("dot", 115.0, classification="dot"),),
+            intervals=(_interval("buff-1", modifiers=(_modifier(0.15),)),),
+            replays=(_replay("dot", 115.0),),
+        )
+
+        with patch.object(
+            BattleHitReplayService,
+            "replay",
+            return_value=(_replay("dot", 100.0),),
+        ) as replay:
+            BattleBuffCounterfactualService.calculate(analysis, ())
+
+        self.assertIsNone(replay.call_args.kwargs["prepared_audit_context"])
+
+    def test_inactive_hit_stays_unchanged_without_candidate_replay(self) -> None:
+        analysis = _snapshot(
+            hits=(
+                _hit("active", 115.0),
+                _hit("inactive", 50.0, relative_time_us=5_000_000),
+            ),
+            intervals=(
+                _interval(
+                    "buff-1",
+                    end_us=2_000_000,
+                    modifiers=(_modifier(0.15),),
+                ),
+            ),
+            replays=(_replay("active", 115.0), _replay("inactive", 50.0)),
+        )
+
+        with patch.object(
+            BattleHitReplayService,
+            "replay",
+            return_value=(_replay("active", 100.0),),
+        ) as replay:
+            (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
+
+        context = replay.call_args.kwargs["prepared_audit_context"]
+        self.assertEqual(frozenset({"active"}), context.selected_event_ids)
+        self.assertEqual(1, result.affected_hits)
+        self.assertAlmostEqual(150.0, result.without_buff_damage)
+        self.assertAlmostEqual(15.0, result.damage_gain)
+
     def test_team_buff_breaks_gain_down_by_actual_damage_recipient(self) -> None:
         hits = (_hit("hit1", 115.0), _hit("hit2", 240.0, character_id=2))
         analysis = _snapshot(
@@ -183,6 +304,12 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
             (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
 
         self.assertAlmostEqual(55.0, result.damage_gain)
+        self.assertAlmostEqual(355.0, result.damage_coverage.covered_damage)
+        self.assertAlmostEqual(100.0, result.damage_coverage.covered_percent)
+        self.assertTrue(all(
+            row.damage_coverage.covered_percent == 100.0
+            for row in result.beneficiaries
+        ))
         self.assertEqual("complete", result.quantification.status)
         self.assertAlmostEqual(
             result.damage_gain,
@@ -198,6 +325,107 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
         self.assertAlmostEqual(40.0, teammate.damage_gain)
         self.assertAlmostEqual(20.0, teammate.recipient_gain_percent)
         self.assertAlmostEqual(40.0 / 300.0 * 100.0, teammate.team_contribution_percent)
+
+    def test_team_others_keeps_unknown_character_hit_unavailable(self) -> None:
+        known_teammate = _hit("known", 115.0, character_id=2)
+        unknown_character = _hit("unknown", 900.0, character_id=None)
+        analysis = _snapshot(
+            hits=(known_teammate, unknown_character),
+            intervals=(
+                _interval(
+                    "buff-1",
+                    target_scope="team_others",
+                    modifiers=(_modifier(0.15),),
+                ),
+            ),
+            replays=(_replay("known", 115.0), _replay("unknown", 900.0)),
+        )
+
+        def compare(*, hit, **_kwargs):
+            if hit.character_id is None:
+                return BattleCounterfactualRatio.not_applicable(
+                    method="fixture_unresolved_scope",
+                    explanation="fixture",
+                )
+            return BattleCounterfactualRatio.complete(
+                100.0 / 115.0,
+                method="fixture",
+                confidence="高",
+                dependency_scope="character_only",
+                included_dimension_ids=("attack",),
+                explanation="fixture",
+            )
+
+        with (
+            patch.object(
+                BattleHitCounterfactualRatioService,
+                "compare",
+                side_effect=compare,
+            ),
+            patch.object(BattleHitReplayService, "replay", return_value=()),
+        ):
+            (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
+
+        self.assertEqual("partial", result.quantification.status)
+        self.assertEqual(2, result.affected_hits)
+        self.assertEqual(1, result.quantified_hits)
+        self.assertAlmostEqual(115.0, result.damage_coverage.covered_damage)
+        self.assertAlmostEqual(900.0, result.damage_coverage.unresolved_damage)
+        self.assertAlmostEqual(
+            115.0 / 1_015.0 * 100.0,
+            result.damage_coverage.covered_percent,
+        )
+        self.assertAlmostEqual(900.0, result.quantification.unavailable_damage)
+        self.assertAlmostEqual(15.0, result.quantification.quantified_increment)
+        self.assertAlmostEqual(15.0, result.quantified_damage_gain)
+        self.assertIsNone(result.damage_gain)
+        self.assertEqual([2], [row.character_id for row in result.beneficiaries])
+        self.assertAlmostEqual(
+            15.0,
+            result.beneficiaries[0].quantified_damage_gain,
+        )
+        self.assertEqual(0.0, result.quantified_unattributed_damage_gain)
+        self.assertTrue(any(
+            gap.code == "team_others_beneficiary_unknown"
+            for gap in result.quantification.gaps
+        ))
+
+    def test_unresolved_target_condition_cannot_be_reported_as_complete_zero(
+        self,
+    ) -> None:
+        analysis = _snapshot(
+            hits=(_hit("boss", 100.0),),
+            intervals=(_interval(
+                "buff-1",
+                modifiers=(_modifier(0.10, target_tags=("Con_IsBoss",)),),
+            ),),
+            replays=(_replay("boss", 100.0),),
+        )
+
+        with (
+            patch.object(
+                BattleHitCounterfactualRatioService,
+                "compare",
+                return_value=BattleCounterfactualRatio.complete(
+                    1.0,
+                    method="fixture_equal_replay",
+                    confidence="高",
+                    dependency_scope="target_only",
+                    included_dimension_ids=("defense",),
+                    explanation="fixture",
+                ),
+            ),
+            patch.object(
+                BattleHitReplayService,
+                "replay",
+                return_value=(_replay("boss", 100.0),),
+            ),
+        ):
+            (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
+
+        self.assertEqual("unavailable", result.quantification.status)
+        self.assertIsNone(result.damage_gain)
+        self.assertIsNone(result.gain_percent)
 
     def test_removal_rate_uses_full_selected_period_without_buff_as_denominator(
         self,
@@ -239,7 +467,7 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
             / result.quantification.basis_damage
             * 100.0,
         )
-        self.assertEqual([("hit1", "hit2")], replayed_event_ids)
+        self.assertEqual([("hit1",)], replayed_event_ids)
 
     def test_linked_nightmare_max_hp_settlement_follows_removed_buff_ratio(
         self,

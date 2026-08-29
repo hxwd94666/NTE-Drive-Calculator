@@ -4,6 +4,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.domain.battle_report import (
     BattleAbyssSummary,
@@ -82,6 +83,50 @@ class BattleReportPersistenceServiceTests(unittest.TestCase):
             context_is_current=lambda _dependencies: current,
             operation_context=self.operation,
         )
+
+    def test_freeze_resolves_legacy_graduation_fork_stage_explicitly(self) -> None:
+        class FakeStaticDao:
+            @staticmethod
+            def list_fork_templates():
+                return [{
+                    "fork_id": "fork_Rose",
+                    "breakthroughs": [
+                        {"stage": 5, "max_fork_level": 70},
+                        {"stage": 6, "max_fork_level": 80},
+                    ],
+                }]
+
+            @staticmethod
+            def list_character_graduation_templates():
+                return [{
+                    "character_id": 1004,
+                    "profile": {
+                        "fork_id": "fork_Rose",
+                        "fork_level": 70,
+                    },
+                }]
+
+            @staticmethod
+            def list_character_awaken_effects(_character_id):
+                return []
+
+        class FakeUserDao:
+            @staticmethod
+            def list_character_profiles(*, include_inactive):
+                self.assertTrue(include_inactive)
+                return []
+
+        with patch(
+            "src.services.battle_report_persistence_service."
+            "static_character_shape_profile_fields",
+            return_value={},
+        ):
+            profiles = BattleReportPersistenceService._load_effective_profiles(
+                static_dao=FakeStaticDao(),
+                user_dao=FakeUserDao(),
+            )
+
+        self.assertEqual(5, profiles[1004]["fork_breakthrough_stage"])
 
     def test_final_summary_is_saved_with_complete_raw_payload(self) -> None:
         payload = {

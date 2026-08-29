@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from PySide6.QtWidgets import QApplication
 
 from src.domain.battle_counterfactual_quantification import BattleDamageQuantification
+from src.domain.battle_buff_counterfactual import BattleDamageCoverage
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
@@ -230,6 +231,7 @@ class BattleReportScopeUiTests(unittest.TestCase):
             confidence="中",
             method="observed_axis_remove_replay",
             explanation="按逐击移除重放。",
+            damage_coverage=BattleDamageCoverage(1_150.0, 1_150.0),
         )
 
         panel.render(SimpleNamespace(
@@ -241,11 +243,12 @@ class BattleReportScopeUiTests(unittest.TestCase):
             buff_inference_version="buff-test",
         ))
 
-        self.assertEqual("1,000.00", panel.table.item(0, 7).text())
-        self.assertEqual("+150.00", panel.table.item(0, 8).text())
-        self.assertEqual("+15.00%", panel.table.item(0, 9).text())
-        self.assertEqual("完整 100.0%", panel.table.item(0, 10).text())
-        self.assertIn("完整收益率", panel.table.item(0, 9).toolTip())
+        self.assertEqual("100.0%", panel.table.item(0, 7).text())
+        self.assertEqual("1,000.00", panel.table.item(0, 8).text())
+        self.assertEqual("+150.00", panel.table.item(0, 9).text())
+        self.assertEqual("+15.00%", panel.table.item(0, 10).text())
+        self.assertEqual("完整 100.0%", panel.table.item(0, 11).text())
+        self.assertIn("完整收益率", panel.table.item(0, 10).toolTip())
 
     def test_selected_half_focuses_the_full_timeline_viewport(self) -> None:
         scrollbar = SimpleNamespace(value=None)

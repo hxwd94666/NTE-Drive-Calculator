@@ -43,6 +43,10 @@ schema、当前静态 dataset/schema/hash 和本次导出账号昵称。`manifes
 - 当前战报存在时保存详情范围、时间范围和角色筛选页面状态；
 - `database_rows` 保存白名单战报表的精确可移植行图，作为读取功能的唯一数据库导入输入。
 
+当前 v2 读取器明确接受账号库 schema 36 和 37，不按当前账号库版本做机械的严格相等判断。schema 36
+战报缺少 `fork_breakthrough_stage` 时，导入到 schema 37 的 nullable 列保持 `NULL`，继续使用旧战报的
+等级派生语义且不改写原始快照；低于 36 或高于 37 的包必须拒绝，新增 schema 兼容性需逐版审计后显式加入。
+
 ## 写出和导入
 
 写出先在用户选择目录创建临时文件，刷新并同步后再次校验账号 ID、generation、用户库路径和静态 dataset，

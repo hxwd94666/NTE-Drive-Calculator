@@ -372,12 +372,18 @@ class StaticGameDataDaoTest(unittest.TestCase):
             """
             INSERT INTO fork_item(
                 fork_id, name_zh, quality, fork_type_id, raw_group_type,
+                breakthrough_pack_id, max_breakthrough,
                 exclusive_character_ids_json, source_row_id
             ) VALUES (
                 'fork_Test', '测试弧盘', 'Gold', 1,
-                'ECharacterGroupType::CHARACTER_GROUP_TYPE_ONE', '[1001]', 1
+                'ECharacterGroupType::CHARACTER_GROUP_TYPE_ONE',
+                'Breakthrough_pack_Fork_Test', 6, '[1001]', 1
             )
             """
+        )
+        connection.execute(
+            "INSERT INTO fork_breakthrough VALUES "
+            "('Breakthrough_pack_fork_Test', 0, 20, NULL, NULL, NULL, 1)"
         )
         connection.execute(
             """
@@ -470,6 +476,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.assertEqual(role_templates[0]["character_id"], 1001)
         self.assertEqual(fork_templates[0]["fork_id"], "fork_Test")
         self.assertEqual(fork_templates[0]["upgrade_levels"], [])
+        self.assertEqual(0, fork_templates[0]["breakthroughs"][0]["stage"])
 
     def test_character_awaken_effects_include_skill_level_bonuses(self):
         with StaticGameDataDao(self.database_path) as dao:

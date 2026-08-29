@@ -9,6 +9,7 @@ from src.domain.battle_counterfactual_quantification import (
     BattleDamageQuantification,
     QuantificationStatus,
 )
+from src.domain.battle_buff_counterfactual import BattleDamageCoverage
 
 
 _STATUS_TEXT: dict[QuantificationStatus, str] = {
@@ -42,6 +43,20 @@ def quantified_coverage_text(
     return f"{quantified_coverage_percent(quantification):.1f}%"
 
 
+def damage_coverage_text(
+    coverage: BattleDamageCoverage | None,
+) -> str:
+    if coverage is None or coverage.basis_damage <= 0.0:
+        return "—"
+    covered = coverage.covered_percent or 0.0
+    unresolved = coverage.unresolved_percent or 0.0
+    if unresolved > 0.0:
+        if covered > 0.0:
+            return f"至少 {covered:.1f}%（另 {unresolved:.1f}% 未判定）"
+        return f"未判定 {unresolved:.1f}%"
+    return f"{covered:.1f}%"
+
+
 def format_quantified_value(
     *,
     status: QuantificationStatus,
@@ -63,6 +78,7 @@ def format_quantified_value(
 
 
 __all__ = [
+    "damage_coverage_text",
     "format_quantified_value",
     "quantification_status_text",
     "quantified_coverage_percent",

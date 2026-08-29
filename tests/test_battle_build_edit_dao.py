@@ -121,6 +121,7 @@ class BattleBuildEditDaoTest(unittest.TestCase):
             "likeability_level_10_enabled": True,
             "fork_id": "fork_Rose",
             "fork_level": 80,
+            "fork_breakthrough_stage": 6,
             "fork_refinement_level": 1,
             "selected_skill_id": None,
             "skill_levels": {"melee": 10},
@@ -157,6 +158,14 @@ class BattleBuildEditDaoTest(unittest.TestCase):
         self.assertEqual(
             "游戏当前",
             loaded["characters"][0]["profile"]["equipment_context_title"],
+        )
+        self.assertEqual(
+            6,
+            loaded["characters"][0]["fork_breakthrough_stage"],
+        )
+        self.assertEqual(
+            6,
+            loaded["characters"][0]["profile"]["fork_breakthrough_stage"],
         )
         self.assertEqual(
             777.0,
@@ -210,6 +219,23 @@ class BattleBuildEditDaoTest(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "虚拟补位"):
             self.dao._normalize_battle_build_edit_profile(virtual)
+
+    def test_fork_requires_an_explicit_breakthrough_stage_for_new_edit(self) -> None:
+        profile = {
+            "character_id": 1004,
+            "character_level": 70,
+            "breakthrough_stage": 5,
+            "selected_awaken_effect_ids": [],
+            "likeability_level_10_enabled": False,
+            "fork_id": "fork_Rose",
+            "fork_level": 70,
+            "fork_refinement_level": 1,
+            "skill_levels": {"melee": 10},
+            "ordinal": 0,
+        }
+
+        with self.assertRaisesRegex(ValueError, "fork_breakthrough_stage"):
+            self.dao._normalize_battle_build_edit_profile(profile)
 
     def test_manual_battle_stat_overrides_are_normalized_and_must_be_finite(self) -> None:
         profile = {

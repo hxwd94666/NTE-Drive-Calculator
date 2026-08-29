@@ -18,6 +18,7 @@ from .user_data_support import (
     _integer,
     _json_object,
     _utc_now,
+    _valid_breakthrough_stage_for_level,
 )
 
 
@@ -46,6 +47,9 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
         for character in characters:
             character_id = int(character["character_id"])
             profile = _decoded(character.pop("raw_profile_json"), {})
+            profile["fork_breakthrough_stage"] = character.get(
+                "fork_breakthrough_stage"
+            )
             skills = self._rows(
                 """
                 SELECT skill_id, skill_level FROM battle_character_skill_edit
@@ -349,19 +353,37 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
         )
         if character_level > 80 or breakthrough_stage > 6:
             raise UserDataValidationError("角色等级或突破阶段超出范围")
+        if not _valid_breakthrough_stage_for_level(
+            character_level, breakthrough_stage
+        ):
+            raise UserDataValidationError("角色等级与突破阶段不匹配")
         fork_id = str(profile.get("fork_id") or "").strip() or None
         if fork_id is None:
             fork_level = None
+            fork_breakthrough_stage = None
             fork_refinement_level = None
         else:
             fork_level = _integer(profile.get("fork_level"), "fork_level", minimum=1)
+            fork_breakthrough_stage = _integer(
+                profile.get("fork_breakthrough_stage"),
+                "fork_breakthrough_stage",
+                minimum=0,
+            )
             fork_refinement_level = _integer(
                 profile.get("fork_refinement_level"),
                 "fork_refinement_level",
                 minimum=1,
             )
-            if fork_level > 80 or fork_refinement_level > 5:
-                raise UserDataValidationError("弧盘等级或精炼等级超出范围")
+            if (
+                fork_level > 80
+                or fork_breakthrough_stage > 6
+                or fork_refinement_level > 5
+            ):
+                raise UserDataValidationError("弧盘等级、突破阶段或精炼等级超出范围")
+            if not _valid_breakthrough_stage_for_level(
+                fork_level, fork_breakthrough_stage
+            ):
+                raise UserDataValidationError("弧盘等级与突破阶段不匹配")
         profile.update({
             "character_id": character_id,
             "profile_source": "user_edited_snapshot",
@@ -375,6 +397,7 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
             ),
             "fork_id": fork_id,
             "fork_level": fork_level,
+            "fork_breakthrough_stage": fork_breakthrough_stage,
             "fork_refinement_level": fork_refinement_level,
             "selected_skill_id": selected_skill_id,
             "skill_levels": normalized_skills,
@@ -495,9 +518,10 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
                 battle_record_id, character_id, observed_name, profile_source,
                 character_level, breakthrough_stage, awakening_level,
                 likeability_level_10_enabled, fork_id, fork_level,
-                fork_refinement_level, selected_skill_id, ordinal,
+                fork_breakthrough_stage, fork_refinement_level,
+                selected_skill_id, ordinal,
                 raw_profile_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
@@ -510,6 +534,7 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
                 int(bool(profile["likeability_level_10_enabled"])),
                 str(profile.get("fork_id") or "") or None,
                 profile.get("fork_level"),
+                profile.get("fork_breakthrough_stage"),
                 profile.get("fork_refinement_level"),
                 str(profile.get("selected_skill_id") or "") or None,
                 int(profile["ordinal"]),

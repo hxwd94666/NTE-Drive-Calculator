@@ -74,6 +74,85 @@ def _target_condition() -> dict:
 
 
 class BattleReportTransferDaoTests(unittest.TestCase):
+    def test_import_preserves_frozen_fork_breakthrough_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with UserDataDao(root / "source.sqlite3", account_id="source") as source:
+                source_id = _insert_summary(source, "stage-transfer", 10.0)
+                connection = source._db()
+                connection.execute(
+                    """
+                    INSERT INTO battle_build_snapshot(
+                        battle_record_id, account_generation,
+                        profile_schema_version, observed_character_count,
+                        materialized_at_utc
+                    ) VALUES (?, 1, 1, 1, 'now')
+                    """,
+                    (source_id,),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO battle_character_build_snapshot(
+                        battle_record_id, character_id, profile_source,
+                        character_level, breakthrough_stage, awakening_level,
+                        fork_id, fork_level, fork_breakthrough_stage,
+                        fork_refinement_level, ordinal, raw_profile_json
+                    ) VALUES (?, 1072, 'account_role_page', 70, 5, 0,
+                              'fork_Rose', 70, 6, 1, 0, ?)
+                    """,
+                    (
+                        source_id,
+                        json.dumps({
+                            "character_id": 1072,
+                            "fork_id": "fork_Rose",
+                            "fork_level": 70,
+                            "fork_breakthrough_stage": 6,
+                        }),
+                    ),
+                )
+                connection.commit()
+                graph = source.load_battle_report_transfer_rows(source_id)
+            assert graph is not None
+
+            with UserDataDao(root / "target.sqlite3", account_id="target") as target:
+                outcome = target.import_battle_report_transfer_rows([graph])
+                imported_id = int(outcome["imported_battle_record_ids"][0])
+                build = target.load_battle_build_snapshot(imported_id)
+
+            assert build is not None
+            self.assertEqual(
+                6,
+                build["characters"][0]["fork_breakthrough_stage"],
+            )
+            self.assertEqual(
+                6,
+                build["characters"][0]["profile"]["fork_breakthrough_stage"],
+            )
+
+            legacy_row = graph["tables"]["battle_character_build_snapshot"][0]
+            legacy_row.pop("fork_breakthrough_stage")
+            legacy_profile = json.loads(legacy_row["raw_profile_json"])
+            legacy_profile.pop("fork_breakthrough_stage")
+            legacy_row["raw_profile_json"] = json.dumps(legacy_profile)
+            with UserDataDao(
+                root / "legacy-target.sqlite3",
+                account_id="legacy-target",
+            ) as legacy_target:
+                legacy_outcome = legacy_target.import_battle_report_transfer_rows(
+                    [graph]
+                )
+                legacy_id = int(
+                    legacy_outcome["imported_battle_record_ids"][0]
+                )
+                legacy_build = legacy_target.load_battle_build_snapshot(legacy_id)
+
+            assert legacy_build is not None
+            legacy_character = legacy_build["characters"][0]
+            self.assertIsNone(legacy_character["fork_breakthrough_stage"])
+            self.assertIsNone(
+                legacy_character["profile"]["fork_breakthrough_stage"]
+            )
+
     def test_import_remaps_axis_and_preserves_raw_hit_order_and_time_stop(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

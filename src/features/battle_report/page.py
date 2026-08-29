@@ -19,12 +19,23 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.app.dialogs import show_help
-from src.domain.battle_report import BattleCaptureState, BattleSummary
+from src.domain.battle_report import (
+    BattleAnalysisSnapshot,
+    BattleCaptureState,
+    BattleSummary,
+)
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
 from src.features.battle_report.analysis_progress_bar import (
     BattleAnalysisProgressBar,
 )
+from src.services.battle_analysis_progress import BattleAnalysisProgress
 from src.features.battle_report.marginal_page import BattleMarginalPage
+from src.services.battle_buff_counterfactual_service import (
+    BUFF_COUNTERFACTUAL_MODEL_VERSION,
+)
+from src.services.battle_passive_counterfactual_service import (
+    PASSIVE_COUNTERFACTUAL_MODEL_VERSION,
+)
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
     projected_range_duration_us,
@@ -65,6 +76,7 @@ class BattleReportPage(QWidget):
     build_edit_requested = Signal()
     build_edit_activation_requested = Signal(bool)
     marginal_requested = Signal()
+    marginal_baseline_requested = Signal()
     marginal_recalculate_requested = Signal(object)
     marginal_reset_requested = Signal()
     marginal_draft_changed = Signal()
@@ -76,6 +88,11 @@ class BattleReportPage(QWidget):
         self._latest_summary: BattleSummary | None = None
         self._source_analysis = None
         self._marginal_result_scope: str | None = None
+        self._marginal_result_is_candidate = False
+        self._marginal_baseline_by_scope: dict[
+            str | None,
+            BattleAnalysisSnapshot,
+        ] = {}
         self._detail_scope = "current"
         self._stack = QStackedWidget(self)
         layout = QVBoxLayout(self)
@@ -86,6 +103,13 @@ class BattleReportPage(QWidget):
         layout.addWidget(self.analysis_progress)
         self._build_report(game_ui_asset_root)
         self._build_marginal(game_ui_asset_root)
+        self.target_condition_save_requested.connect(
+            self._invalidate_marginal_baselines
+        )
+        self.build_edit_requested.connect(self._invalidate_marginal_baselines)
+        self.build_edit_activation_requested.connect(
+            self._invalidate_marginal_baselines
+        )
 
     def _build_report(self, game_ui_asset_root) -> None:
         content = QWidget()
@@ -216,8 +240,17 @@ class BattleReportPage(QWidget):
         self._stack.addWidget(self.marginal_page)
 
     def show_marginal(self, editor_data: dict) -> None:
-        self.marginal_page.set_editor_data(editor_data)
+        self.marginal_page.set_editor_data(
+            editor_data,
+            selected_character_id=self.long_analysis_view.selected_character_id(),
+        )
+        source_analysis = self._marginal_baseline_by_scope.get(
+            self.marginal_detail_scope()
+        ) or self._source_analysis
+        if source_analysis is not None:
+            self.marginal_page.set_source_analysis(source_analysis)
         self._stack.setCurrentWidget(self.marginal_page)
+        self._request_marginal_lazy_recalculation()
 
     def show_report(self) -> None:
         self.marginal_page.clear_candidate()
@@ -231,16 +264,73 @@ class BattleReportPage(QWidget):
             selected_character_id=selected_character_id,
         )
         self.invalidate_marginal_result()
+        self._request_marginal_lazy_recalculation()
 
     def invalidate_marginal_result(self) -> None:
         self._marginal_result_scope = None
-        if self._source_analysis is not None:
-            self.marginal_page.set_source_analysis(self._source_analysis)
+        self._marginal_result_is_candidate = False
+        baseline = self._marginal_baseline_by_scope.get(
+            self.marginal_detail_scope()
+        )
+        source = baseline or self._source_analysis
+        if source is not None:
+            self.marginal_page.set_source_analysis(source)
+
+    def _invalidate_marginal_baselines(self, *_args) -> None:
+        self._marginal_baseline_by_scope.clear()
 
     def _marginal_role_changed(self, detail_scope: object) -> None:
         scope = str(detail_scope) if detail_scope in {"first", "second"} else None
         if self._marginal_result_scope is not None and scope != self._marginal_result_scope:
+            use_candidate = self._marginal_result_is_candidate
             self.invalidate_marginal_result()
+            self._request_marginal_lazy_recalculation(
+                force=use_candidate,
+                use_candidate=use_candidate,
+            )
+        elif self._marginal_result_scope is None:
+            self._request_marginal_lazy_recalculation()
+
+    def _request_marginal_lazy_recalculation(
+        self,
+        *,
+        force: bool = False,
+        use_candidate: bool = False,
+    ) -> None:
+        if (
+            self._stack.currentWidget() is not self.marginal_page
+            or not self.marginal_page.allows_automatic_recalculation()
+        ):
+            return
+        source_analysis = self._marginal_baseline_by_scope.get(
+            self.marginal_detail_scope()
+        ) or self._source_analysis
+        passive_model_current = (
+            not hasattr(source_analysis, "passive_counterfactual_model_version")
+            or getattr(
+                source_analysis,
+                "passive_counterfactual_model_version",
+                "",
+            )
+            == PASSIVE_COUNTERFACTUAL_MODEL_VERSION
+        )
+        if (
+            not force
+            and getattr(
+                source_analysis,
+                "buff_counterfactual_model_version",
+                "",
+            )
+            == BUFF_COUNTERFACTUAL_MODEL_VERSION
+            and passive_model_current
+        ):
+            return
+        if use_candidate:
+            profiles = self.marginal_page.profiles()
+            if profiles:
+                self.marginal_recalculate_requested.emit(profiles)
+            return
+        self.marginal_baseline_requested.emit()
 
     def update_state(self, state: BattleCaptureState) -> None:
         tones = {
@@ -290,6 +380,8 @@ class BattleReportPage(QWidget):
         self.marginal_page.clear_candidate()
         self._source_analysis = None
         self._marginal_result_scope = None
+        self._marginal_result_is_candidate = False
+        self._marginal_baseline_by_scope.clear()
         self._latest_summary = None
         self._detail_scope = "current"
         for label in self.metric_labels.values():
@@ -298,6 +390,7 @@ class BattleReportPage(QWidget):
 
     def set_analysis(self, analysis, *, selected_character_id=None) -> None:
         self._source_analysis = analysis
+        self._marginal_baseline_by_scope.clear()
         if self._latest_summary is not None:
             raw_damage = max(0.0, float(self._latest_summary.total_damage))
             overkill_correction = (
@@ -355,12 +448,22 @@ class BattleReportPage(QWidget):
         )
         self.marginal_page.set_source_analysis(analysis)
 
-    def set_marginal_analysis(self, analysis, *, detail_scope=None) -> None:
+    def set_marginal_analysis(
+        self,
+        analysis,
+        *,
+        detail_scope=None,
+        is_candidate: bool = False,
+    ) -> None:
         """Update the selected-role half without replacing report scope."""
 
-        self._marginal_result_scope = (
+        scope = (
             str(detail_scope) if detail_scope in {"first", "second"} else None
         )
+        self._marginal_result_scope = scope
+        self._marginal_result_is_candidate = bool(is_candidate)
+        if not self._marginal_result_is_candidate:
+            self._marginal_baseline_by_scope[scope] = analysis
         self.marginal_page.set_marginal_result(analysis)
 
     def complete_analysis_details(self, kind: str, payload: object) -> None:
@@ -368,6 +471,12 @@ class BattleReportPage(QWidget):
 
     def begin_analysis_details(self, kind: str) -> None:
         self.analysis_progress.show_for(kind)
+
+    def update_analysis_progress(
+        self,
+        progress: BattleAnalysisProgress,
+    ) -> None:
+        self.analysis_progress.update_progress(progress)
 
     def end_analysis_details(self) -> None:
         self.analysis_progress.finish()
@@ -386,6 +495,14 @@ class BattleReportPage(QWidget):
 
     def marginal_equipment_editable(self) -> bool:
         return self.marginal_page.equipment_editable()
+
+    def marginal_profiles(self) -> list[dict]:
+        return self.marginal_page.profiles()
+
+    def marginal_comparison_baseline(self) -> BattleAnalysisSnapshot | None:
+        return self._marginal_baseline_by_scope.get(
+            self.marginal_detail_scope()
+        )
 
     def marginal_disabled_inferred_fact_ids(self) -> tuple[str, ...]:
         return self.marginal_page.disabled_inferred_fact_ids()

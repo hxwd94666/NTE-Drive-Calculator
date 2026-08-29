@@ -1,5 +1,5 @@
 # 轨外之境换半会更换队伍；推算 Buff 不能跨半场继承。
-"""Scope inferred character Buff intervals to their observed abyss half."""
+"""Scope inferred character Buff intervals to their evidenced abyss half."""
 
 from __future__ import annotations
 
@@ -32,10 +32,11 @@ class BattleHalfBuffScopeService:
                 continue
             time_us = int(hit.get("relative_time_us") or 0)
             half_starts[half] = min(half_starts.get(half, time_us), time_us)
-            if str(hit.get("direction") or "").strip().casefold() != "outgoing":
-                continue
             character_id = int(hit.get("character_id") or 0)
-            if character_id > 0:
+            character_known = bool(
+                hit.get("character_known", character_id > 0)
+            )
+            if character_known and character_id > 0:
                 rosters[half].add(character_id)
 
         ordered_halves = sorted(half_starts, key=half_starts.__getitem__)
@@ -63,6 +64,16 @@ class BattleHalfBuffScopeService:
                 for half in ordered_halves
                 if interval.source_character_id in rosters[half]
             ]
+            if not matches:
+                scoped.append(replace(
+                    interval,
+                    target_scope="unknown",
+                    inference_basis=(
+                        f"{interval.inference_basis}；冻结角色存在，但战报没有该角色的"
+                        "正式上下半场归属证据，保留区间且不跨半场投影收益。"
+                    ),
+                ))
+                continue
             intersections = [
                 (half, max(interval.start_us, start_us), min(interval.end_us, end_us))
                 for half, start_us, end_us in matches

@@ -8,6 +8,13 @@ from typing import Any
 
 from .protocols import StaticDataDaoMixinHost
 
+
+def _official_pack_key(value: object) -> str:
+    """Normalize official pack identifiers without changing stored source facts."""
+
+    return str(value or "").casefold()
+
+
 class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
     def list_forks(self) -> list[dict[str, Any]]:
         rows = self._rows(
@@ -49,10 +56,14 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             ORDER BY modify_pack_id, ordinal
             """
         ):
-            modifiers_by_pack.setdefault(row.pop("modify_pack_id"), []).append(row)
+            modifiers_by_pack.setdefault(
+                _official_pack_key(row.pop("modify_pack_id")), []
+            ).append(row)
 
         conditions_by_pack = {
-            row["modify_pack_id"]: json.loads(row["conditions_json"] or "[]")
+            _official_pack_key(row["modify_pack_id"]): json.loads(
+                row["conditions_json"] or "[]"
+            )
             for row in self._rows(
                 "SELECT modify_pack_id, conditions_json FROM fork_modify_pack"
             )
@@ -61,7 +72,10 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
         def modifiers(pack_id: str | None) -> list[dict[str, Any]]:
             if not pack_id:
                 return []
-            return [dict(row) for row in modifiers_by_pack.get(pack_id, [])]
+            return [
+                dict(row)
+                for row in modifiers_by_pack.get(_official_pack_key(pack_id), [])
+            ]
 
         upgrades_by_pack: dict[str, list[dict[str, Any]]] = {}
         for row in self._rows(
@@ -74,8 +88,10 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             pack_id = row.pop("upgrade_pack_id")
             modify_pack_id = row.pop("modify_pack_id")
             row["modifiers"] = modifiers(modify_pack_id)
-            row["conditions"] = conditions_by_pack.get(modify_pack_id, [])
-            upgrades_by_pack.setdefault(pack_id, []).append(row)
+            row["conditions"] = conditions_by_pack.get(
+                _official_pack_key(modify_pack_id), []
+            )
+            upgrades_by_pack.setdefault(_official_pack_key(pack_id), []).append(row)
 
         breakthroughs_by_pack: dict[str, list[dict[str, Any]]] = {}
         for row in self._rows(
@@ -89,8 +105,12 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             pack_id = row.pop("breakthrough_pack_id")
             modify_pack_id = row.pop("modify_pack_id")
             row["modifiers"] = modifiers(modify_pack_id)
-            row["conditions"] = conditions_by_pack.get(modify_pack_id, [])
-            breakthroughs_by_pack.setdefault(pack_id, []).append(row)
+            row["conditions"] = conditions_by_pack.get(
+                _official_pack_key(modify_pack_id), []
+            )
+            breakthroughs_by_pack.setdefault(
+                _official_pack_key(pack_id), []
+            ).append(row)
 
         parameters_by_star: dict[tuple[str, int], list[dict[str, Any]]] = {}
         for row in self._rows(
@@ -106,7 +126,9 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
         ):
             key = (row.pop("star_pack_id"), int(row.pop("star_level")))
             row["is_percent"] = bool(row["is_percent"])
-            parameters_by_star.setdefault(key, []).append(row)
+            parameters_by_star.setdefault(
+                (_official_pack_key(key[0]), key[1]), []
+            ).append(row)
 
         stars_by_pack: dict[str, list[dict[str, Any]]] = {}
         for row in self._rows(
@@ -120,20 +142,22 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             pack_id = row.pop("star_pack_id")
             star_level = int(row["star_level"])
             row["buffs"] = json.loads(row.pop("buffs_json") or "[]")
-            row["parameters"] = parameters_by_star.get((pack_id, star_level), [])
-            stars_by_pack.setdefault(pack_id, []).append(row)
+            row["parameters"] = parameters_by_star.get(
+                (_official_pack_key(pack_id), star_level), []
+            )
+            stars_by_pack.setdefault(_official_pack_key(pack_id), []).append(row)
 
         templates: list[dict[str, Any]] = []
         for fork in self.list_forks():
             template = dict(fork)
             template["upgrade_levels"] = upgrades_by_pack.get(
-                str(template.get("upgrade_pack_id") or ""), []
+                _official_pack_key(template.get("upgrade_pack_id")), []
             )
             template["breakthroughs"] = breakthroughs_by_pack.get(
-                str(template.get("breakthrough_pack_id") or ""), []
+                _official_pack_key(template.get("breakthrough_pack_id")), []
             )
             template["star_levels"] = stars_by_pack.get(
-                str(template.get("star_pack_id") or ""), []
+                _official_pack_key(template.get("star_pack_id")), []
             )
             template["cultivation_recommendations"] = recommendations_by_fork.get(
                 str(template.get("fork_id") or ""), []

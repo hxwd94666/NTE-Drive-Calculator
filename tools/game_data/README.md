@@ -40,16 +40,20 @@ python tools/game_data/build_static_database.py `
   --as-of $gameDataAsOf
 ```
 
-提交到项目并随安装包分发的数据库必须省略来源行原文：
+提交到项目并随安装包分发的数据库必须先在 `build/` 生成候选，且省略来源行原文。正式刷新必须显式设置
+`NTE_LOCAL_CONFIG`；禁止把构建输出直接写入 `data/`：
 
 ```powershell
+$releaseCandidate = Join-Path $gameDataWorkspace "build\$gameDataSetId\distribution"
+New-Item -ItemType Directory -Path $releaseCandidate -Force | Out-Null
+
 python tools/game_data/build_static_database.py `
   --source $gameDataSource `
-  --output "data\game_static.sqlite3" `
-  --report-dir "$gameDataWorkspace\reports\distribution_database" `
+  --output "$releaseCandidate\game_static.sqlite3" `
+  --report-dir "$releaseCandidate\report" `
   --dataset-id $gameDataSetId `
   --as-of $gameDataAsOf `
-  --manifest "data\manifest.json" `
+  --manifest "$releaseCandidate\manifest.json" `
   --omit-source-payloads
 ```
 
@@ -61,14 +65,10 @@ python tools/game_data/build_static_database.py `
 `combat_blueprint_tag` 查询。`HTExtractAttributeGEComp` 的属性抽取类型及比例曲线引用作为语义字段保留，
 供生命转移机制审计；`UseSourceObject` 同样作为通用施加者语义保留，不从说明文本猜测。
 
-完整审计数据库放在项目外；省略来源行原文的发行数据库放在
-`data/game_static.sqlite3`。每次游戏版本更新时，开发者从本机游戏官方数据文件重新整理数据库，检查来源哈希、数量和外键后再更新发行数据库。游戏官方文件和中间数据不进入开源仓库。
-
-更新正式的 `data/game_static.sqlite3` 时，构建器会先把旧发行库原子备份到
-`build/previous/data/game_static.sqlite3`，再生成并替换新库。该备份是无 Key 时继承既有工坊默认权重的唯一
-输入，不得在新库覆盖旧库后再从账号库、共享库或旧 `roles.json` 补值。自定义输出路径必须显式传入
-`--backup-existing-to`；正式发行路径不需要手工复制。只有含 `workshop_api`/`workshop_cache` 权重的有效
-发行库可以刷新备份；尚未同步的全 `default` 新库不得覆盖已有备份。
+完整审计数据库放在项目外；发行候选完成最终晋升后才进入 `data/game_static.sqlite3`。游戏版本更新时，开发者
+从本机官方文件重新整理候选，检查来源哈希、数量和外键后再晋升；官方文件和中间数据不进入开源仓库。
+旧正式库在晋升成功前保持不动，也是无 Key 时继承工坊权重的唯一输入。不得先覆盖正式库，再从账号库、
+共享库或旧 `roles.json` 补值；全 `default` 候选也不得覆盖有效正式库。
 
 新库生成后，打包入口按以下二选一门禁更新角色推荐权重：
 
@@ -76,7 +76,8 @@ python tools/game_data/build_static_database.py `
 
 ```powershell
 python tools/game_data/sync_recommended_weights.py `
-  --database data/game_static.sqlite3 `
+  --database "$releaseCandidate\game_static.sqlite3" `
+  --manifest "$releaseCandidate\manifest.json" `
   --config-dir config
 ```
 
@@ -90,16 +91,28 @@ API 没有返回的角色保留本次构建产生的角色级发行回退；`cha
 
 ```powershell
 python tools/game_data/sync_recommended_weights.py `
-  --database data/game_static.sqlite3 `
-  --reuse-database build/previous/data/game_static.sqlite3 `
-  --manifest data/manifest.json
+  --database "$releaseCandidate\game_static.sqlite3" `
+  --reuse-database data/game_static.sqlite3 `
+  --manifest "$releaseCandidate\manifest.json"
 ```
 
 继承时，旧库已有角色继续使用旧工坊权重，只有旧库不存在的新角色保留新库的角色级发行回退。API 同步和
 旧库继承都会按最终权重重新生成全部角色毕业模板，保证推荐词条与毕业基准来自同一版静态快照。如果既没有
 可用 Key，也没有构建前备份，发布必须失败；不得跳过同步并把整库 `default` 权重作为正式发行产物。
-正式发布入口必须自动执行同一套“备份 → 新建 → API 同步或旧库继承”流程；`--skip-workshop-sync` 只允许
-开发期诊断，不得用于生成正式发行包。
+正式发布入口必须自动执行同一套“保留旧正式库 → 新建候选 → API 同步或旧库继承 → 最终晋升”流程；
+`--skip-workshop-sync` 只允许开发期诊断，不得用于生成正式发行包。所有后处理完成后只运行以下晋升命令：
+
+```powershell
+python tools/game_data/promote_static_release.py `
+  --candidate-dir $releaseCandidate `
+  --local-config $env:NTE_LOCAL_CONFIG
+```
+
+晋升工具不用 PowerShell `Get-FileHash`，会以 Python 流式 SHA-256 复核候选和复制结果，并强制检查：本机配置、
+数据库内部与 manifest 的 dataset 相同；schema/importer 与当前代码相同；全部 `source_file` 与配置指向的
+Content 逐文件一致；发行 payload 已省略；SQLite 和外键正常。它会在权重同步和毕业模板重算之后重写最终
+JSON/Markdown 报告与 manifest，再带回滚地成对替换 `data/game_static.sqlite3` 和 `data/manifest.json`。
+晋升失败、正式库仍被占用或最终报告与实际 SHA 不一致时，本次刷新未完成，不得提交旧 `data` 文件。
 
 角色额外形状不从上一发行库继承。构建器直接关联官方
 `DT_Character.ElementData.EquipmentSlotID`、`DT_CharacterEquipmentSlotsData.ModifyPropID` 与

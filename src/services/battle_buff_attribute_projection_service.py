@@ -13,6 +13,11 @@ from src.domain.battle_report import (
     BattleProjectedBuffModifier,
 )
 from src.services.battle_buff_inference_service import BattleBuffInferenceService
+from src.services.battle_buff_interval_index import (
+    BattleBuffIntervalIndex,
+    BattleBuffIntervalQuery,
+    BattleBuffIntervalIndexView,
+)
 from src.services.battle_buff_semantic_service import (
     calculation_applies_to_damage,
     specialized_calculation_reason,
@@ -32,7 +37,7 @@ from src.services.battle_outer_realm_buff_service import (
 )
 
 
-BUFF_ATTRIBUTE_PROJECTION_VERSION = "battle-buff-attribute-v20"
+BUFF_ATTRIBUTE_PROJECTION_VERSION = "battle-buff-attribute-v21"
 _INFERRED_HIT_TARGET_PREFIX = "battle-hit-target|id="
 
 _CONTINUOUS_DAMAGE_CHANNELS = frozenset({
@@ -162,6 +167,7 @@ _NON_DAMAGE_PROPERTIES = frozenset({
 })
 _UNRESOLVED_REASON_MARKERS = (
     "作用对象尚未确定",
+    "逐击角色未知",
     "缺少目标实例",
     "缺少正式 Boss 分类",
     "缺少牙齿状态",
@@ -294,9 +300,32 @@ class BattleBuffAttributeProjectionService:
     def project_hit(
         cls,
         hit: BattleAnalysisHit,
-        intervals: Sequence[BattleInferredBuffInterval],
+        intervals: (
+            Sequence[BattleInferredBuffInterval]
+            | BattleBuffIntervalQuery
+        ),
+        *,
+        active_intervals: Sequence[BattleInferredBuffInterval] | None = None,
+        temporal_intervals: Sequence[BattleInferredBuffInterval] | None = None,
     ) -> BattleHitBuffProjection:
-        active = BattleBuffInferenceService.active_for_hit(intervals, hit)
+        indexed_intervals = isinstance(
+            intervals,
+            (BattleBuffIntervalIndex, BattleBuffIntervalIndexView),
+        )
+        temporal = (
+            tuple(temporal_intervals)
+            if temporal_intervals is not None
+            else (
+                intervals.temporal_for_hit(hit)
+                if indexed_intervals
+                else intervals
+            )
+        )
+        active = (
+            tuple(active_intervals)
+            if active_intervals is not None
+            else BattleBuffInferenceService.active_for_hit(intervals, hit)
+        )
         channel_id = classify_battle_hit_channel(hit)[0]
         selected: dict[
             tuple[int, str, str],
@@ -315,6 +344,16 @@ class BattleBuffAttributeProjectionService:
                 and not source_character_scope
             ):
                 interval_reasons.append("作用对象尚未确定")
+            elif (
+                interval.target_scope == "team_others"
+                and (
+                    hit.character_id is None
+                    or int(hit.character_id) <= 0
+                )
+            ):
+                interval_reasons.append(
+                    "逐击角色未知，无法确认该击是否属于来源角色之外的队友"
+                )
             elif interval.target_scope == "target" and not interval.target_id:
                 interval_reasons.append(
                     "缺少目标实例，敌方 Buff/Debuff 不跨目标推算"
@@ -585,7 +624,7 @@ class BattleBuffAttributeProjectionService:
         )
         return BattleForkHitAdjustmentService.adjust_projection(
             hit,
-            intervals,
+            temporal,
             projection,
         )
 

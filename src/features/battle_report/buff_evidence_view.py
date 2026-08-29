@@ -10,6 +10,9 @@ from PySide6.QtWidgets import QLabel, QTableWidgetItem, QVBoxLayout, QWidget
 from src.app.theme import themed_style
 from src.domain.battle_report import BattleAnalysisSnapshot
 from src.features.battle_report.analysis_components import analysis_table
+from src.features.battle_report.marginal_quantification_view import (
+    damage_coverage_text,
+)
 from src.services.battle_buff_inference_service import BattleBuffInferenceService
 from src.services.battle_buff_counterfactual_service import (
     battle_buff_counterfactual_key,
@@ -118,6 +121,8 @@ def _counterfactual_tooltip(counterfactual) -> str:
         )
     return (
         f"当前时段伤害：{counterfactual.baseline_damage:,.2f}\n"
+        "原始伤害覆盖率："
+        f"{damage_coverage_text(getattr(counterfactual, 'damage_coverage', None))}\n"
         f"量化状态：{status}\n{detail}\n"
         f"量化逐击：{counterfactual.quantified_hits:,} / "
         f"覆盖逐击：{counterfactual.affected_hits:,}\n"
@@ -149,6 +154,7 @@ class BattleBuffEvidencePanel(QWidget):
                 "区间数",
                 "覆盖时长",
                 "覆盖逐击",
+                "伤害覆盖率",
                 "移除后 / 已量化伤害",
                 "Buff 收益",
                 "收益率",
@@ -158,7 +164,8 @@ class BattleBuffEvidencePanel(QWidget):
             ),
             260,
             default_widths=(
-                125, 250, 110, 220, 76, 95, 90, 145, 120, 120, 115, 300, 145,
+                125, 250, 110, 220, 76, 95, 90, 150, 145, 120, 120, 115, 300,
+                145,
             ),
         )
         layout.addWidget(self.table)
@@ -214,6 +221,7 @@ class BattleBuffEvidencePanel(QWidget):
             ))
             if counterfactual is None:
                 affected_hits = "—"
+                damage_coverage = "—"
                 without_damage = "—"
                 damage_gain = "—"
                 gain_percent = "—"
@@ -221,6 +229,9 @@ class BattleBuffEvidencePanel(QWidget):
                 result_tooltip = "当前分析结果尚未生成逐 Buff 移除反事实。"
             else:
                 affected_hits = f"{counterfactual.affected_hits:,}"
+                damage_coverage = damage_coverage_text(
+                    getattr(counterfactual, "damage_coverage", None)
+                )
                 without_damage, damage_gain, gain_percent, quantified = (
                     _counterfactual_cells(counterfactual)
                 )
@@ -233,6 +244,7 @@ class BattleBuffEvidencePanel(QWidget):
                 f"{len(rows):,}",
                 f"{duration:.3f}s",
                 affected_hits,
+                damage_coverage,
                 without_damage,
                 damage_gain,
                 gain_percent,
@@ -248,7 +260,7 @@ class BattleBuffEvidencePanel(QWidget):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(
-                    result_tooltip if 6 <= column <= 10 else first.inference_basis
+                    result_tooltip if 6 <= column <= 11 else first.inference_basis
                 )
                 self.table.setItem(row_index, column, item)
         affected_hits = sum(

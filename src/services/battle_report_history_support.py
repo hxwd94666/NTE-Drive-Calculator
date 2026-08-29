@@ -3,6 +3,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from src.domain.battle_report import (
+    BattleReportHistoryEntry,
+    StoredBattleSummary,
+)
+from src.services.battle_report_history_projection import (
+    history_entry,
+    stored_summary,
+)
+
 from src.services.battle_report_persistence_service import (
     BattleReportContextGuard,
     BattleReportPersistenceDependencies,
@@ -41,3 +52,26 @@ class BattleReportHistoryDaoMixin:
             user_dao.close()
             raise StaleBattleReportContextError("战报账号上下文已经变化")
         return user_dao
+
+    def list_records(self) -> list[dict[str, Any]]:
+        with self._open_current_dao() as user_dao:
+            return user_dao.list_battle_records()
+
+    def list_entries(self) -> tuple[BattleReportHistoryEntry, ...]:
+        return tuple(history_entry(record) for record in self.list_records())
+
+    def load_record(self, battle_record_id: int) -> dict[str, Any] | None:
+        with self._open_current_dao() as user_dao:
+            return user_dao.load_battle_record(battle_record_id)
+
+    def restore_last_record(self) -> dict[str, Any] | None:
+        with self._open_current_dao() as user_dao:
+            return user_dao.restore_battle_report_record()
+
+    def restore_last_summary(self) -> StoredBattleSummary | None:
+        record = self.restore_last_record()
+        return None if record is None else stored_summary(record)
+
+    def load_summary(self, battle_record_id: int) -> StoredBattleSummary | None:
+        record = self.load_record(battle_record_id)
+        return None if record is None else stored_summary(record)

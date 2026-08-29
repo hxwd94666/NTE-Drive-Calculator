@@ -21,6 +21,7 @@ from src.observability.operation import log_event
 from src.services.battle_counterfactual_analysis_service import (
     FORMULA_MODEL_VERSION,
 )
+from src.services.advancement_stage_service import select_fork_breakthrough
 from src.services.battle_build_profile_normalization_service import (
     normalize_inferred_battle_profile,
 )
@@ -116,10 +117,34 @@ class BattleReportPersistenceService:
         user_dao: UserDataDao,
     ) -> dict[int, dict[str, Any]]:
         profiles: dict[int, dict[str, Any]] = {}
+        fork_templates = {
+            str(row.get("fork_id") or ""): row
+            for row in static_dao.list_fork_templates()
+        }
+
+        def with_explicit_fork_stage(source: Mapping[str, Any]) -> dict[str, Any]:
+            profile = dict(source)
+            fork_id = str(profile.get("fork_id") or "")
+            if not fork_id:
+                profile["fork_breakthrough_stage"] = None
+                return profile
+            if profile.get("fork_breakthrough_stage") is not None:
+                profile["fork_breakthrough_stage"] = int(
+                    profile["fork_breakthrough_stage"]
+                )
+                return profile
+            selected = select_fork_breakthrough(
+                (fork_templates.get(fork_id) or {}).get("breakthroughs") or (),
+                int(profile.get("fork_level") or 1),
+            )
+            if selected is not None:
+                profile["fork_breakthrough_stage"] = int(selected["stage"])
+            return profile
+
         for template in static_dao.list_character_graduation_templates():
             character_id = int(template["character_id"])
             profile = resolve_awakening_profile(
-                dict(template.get("profile") or {}),
+                with_explicit_fork_stage(template.get("profile") or {}),
                 static_dao.list_character_awaken_effects(character_id),
             )
             profile["character_id"] = character_id
@@ -134,7 +159,7 @@ class BattleReportPersistenceService:
             if character_id not in profiles:
                 continue
             profile = resolve_awakening_profile(
-                dict(saved),
+                with_explicit_fork_stage(saved),
                 static_dao.list_character_awaken_effects(character_id),
             )
             profile["profile_source"] = "account_role_page"

@@ -290,12 +290,12 @@ class UserDataDaoSettingsTests(unittest.TestCase):
             awakening_level=3,
             fork_id="fork_example",
             fork_level=80,
+            fork_breakthrough_stage=6,
             fork_refinement_level=1,
             selected_skill_id="Skill1",
             skill_levels={"Skill1": 10, "UltraSkill": 8},
             ordinal=0,
         )
-
         self.assertEqual(1051, saved["character_id"])
         self.assertEqual("fork_example", saved["fork_id"])
         self.assertEqual({"Skill1": 10, "UltraSkill": 8}, saved["skill_levels"])
@@ -315,6 +315,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 awakening_level=3,
                 fork_id="fork_example",
                 fork_level=80,
+                fork_breakthrough_stage=6,
                 fork_refinement_level=1,
                 selected_skill_id="Skill1",
                 skill_levels={"Skill1": 10},
@@ -615,6 +616,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 awakening_level=6,
                 fork_id=None,
                 fork_level=None,
+                fork_breakthrough_stage=None,
                 fork_refinement_level=None,
                 selected_skill_id="Skill1",
                 skill_levels={},
@@ -794,6 +796,3 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         self.assertEqual(
             "global_optimal", profile["version"]["allocation_strategy"],
         )
-
-if __name__ == "__main__":
-    unittest.main()

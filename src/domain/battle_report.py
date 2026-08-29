@@ -682,6 +682,8 @@ class BattleAnalysisSnapshot:
     hit_replay_model_version: str = ""
     buff_counterfactuals: tuple[BattleBuffCounterfactualResult, ...] = ()
     buff_counterfactual_model_version: str = ""
+    passive_counterfactuals: tuple[BattleBuffCounterfactualResult, ...] = ()
+    passive_counterfactual_model_version: str = ""
     detected_environment_kind: str = ""
     detected_environment_ref: str = ""
     detected_environment_name: str = ""

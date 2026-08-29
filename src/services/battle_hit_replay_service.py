@@ -1,6 +1,5 @@
 # 按明确暴击候选与证据缺口确定性重放每一击。
 from __future__ import annotations
-from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from src.domain.battle_report import (
@@ -12,6 +11,10 @@ from src.domain.battle_report import (
 )
 from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
+)
+from src.services.battle_buff_interval_index import (
+    BattleBuffIntervalIndex,
+    BattleBuffIntervalQuery,
 )
 from src.services.damage_calculation_service import (
     DamageScene,
@@ -36,38 +39,36 @@ from src.services.battle_hit_replay_support import (
     replay_signed_error_percent,
     replay_source_terms as _source_terms,
     replay_target_profile_basis,
+    reanchor_direct_replay_result,
 )
 from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditService
+from src.services.battle_hit_replay_formula_catalog import (
+    DIRECT_FORMULA_CHANNELS as _DIRECT_FORMULA_CHANNELS,
+    ELEMENT_DAMAGE_PROPERTIES as _ELEMENT_DAMAGE_PROPERTIES,
+    ELEMENT_PENETRATION_PROPERTIES as _ELEMENT_PENETRATION_PROPERTIES,
+    ELEMENT_RESISTANCE_PROPERTIES as _ELEMENT_RESISTANCE_PROPERTIES,
+)
 from src.services.battle_inferred_target_condition_service import (
     INFERRED_ENCOUNTER_SOURCE_KIND,
+)
+from src.services.battle_selected_hit_replay_context import (
+    PreparedReplayAuditContext,
+    PreparedReplayAuditInputs,
 )
 from src.services.battle_target_instance_mapping_service import (
     BattleTargetInstanceMappingService,
 )
+from src.services.battle_analysis_progress import (
+    BattleAnalysisProgressCallback,
+    report_battle_analysis_progress,
+)
+from src.services.battle_full_replay_formula_cache import (
+    full_replay_formula_cache_key,
+)
+from src.services.battle_hit_buff_projection_cache import (
+    BattleHitBuffProjectionCache,
+)
 HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v29"
-_DIRECT_FORMULA_CHANNELS = frozenset({
-    "direct", "direct_follow_up", "attachment", "special_lacrimosa_dissonance",
-    "special_nightmare", "special_zankou_erosion", "special_zankou_venom",
-})
-_ELEMENT_DAMAGE_PROPERTIES = {
-    "chaos": "DamageUpChaosBase", "cosmos": "DamageUpCosmosBase",
-    "incantation": "DamageUpIncantationBase", "lakshana": "DamageUpLakshanaBase",
-    "nature": "DamageUpNatureBase",
-    "psyche": "DamageUpPsycheBase", "psychically": "DamageUpPsychicallyBase",
-}
-_ELEMENT_PENETRATION_PROPERTIES = {
-    "chaos": "DamagePenetrateChaos", "cosmos": "DamagePenetrateCosmos",
-    "incantation": "DamagePenetrateIncantation",
-    "lakshana": "DamagePenetrateLakshana", "nature": "DamagePenetrateNature",
-    "psyche": "DamagePenetratePsyche", "psychically": "DamagePenetratePsychically",
-}
-_ELEMENT_RESISTANCE_PROPERTIES = {
-    element: (
-        f"DamageResist{element.title()}Base",
-        f"DamageResist{element.title()}Add",
-    )
-    for element in _ELEMENT_DAMAGE_PROPERTIES
-}
 class BattleHitReplayService:
     @classmethod
     def replay(
@@ -79,21 +80,98 @@ class BattleHitReplayService:
             Mapping[int, BattleToppleCharacterConfig] | None
         ) = None,
         apply_observed_refinements: bool = True,
+        prepared_audit_context: PreparedReplayAuditContext | None = None,
+        prepared_audit_inputs: PreparedReplayAuditInputs | None = None,
+        buff_interval_index: BattleBuffIntervalQuery | None = None,
+        projection_by_event: Mapping[str, BattleHitBuffProjection] | None = None,
+        progress_callback: BattleAnalysisProgressCallback | None = None,
+        progress_phase: str = "hit_replay",
+        progress_message: str = "正在执行固定轴逐击公式重放…",
     ) -> tuple[BattleHitReplayResult, ...]:
-        evidence_by_event = {row.event_id: row for row in skill_evidence}
-        baselines = {row.character_id: row for row in analysis.baselines}
+        if prepared_audit_context is not None:
+            prepared_audit_context.require_selected_replay()
+        evidence_by_event = (
+            prepared_audit_inputs.evidence_by_event
+            if prepared_audit_inputs is not None
+            else {row.event_id: row for row in skill_evidence}
+        )
+        baselines = (
+            prepared_audit_inputs.baselines_by_character
+            if prepared_audit_inputs is not None
+            else {row.character_id: row for row in analysis.baselines}
+        )
+        baseline_values = (
+            prepared_audit_inputs.baseline_values_by_character
+            if prepared_audit_inputs is not None
+            else {}
+        )
+        buff_intervals = (
+            buff_interval_index
+            if buff_interval_index is not None
+            else BattleBuffIntervalIndex(
+                getattr(analysis, "buff_intervals", ())
+            )
+        )
+        projection_cache = BattleHitBuffProjectionCache(buff_intervals)
+        replay_hits = tuple(
+            hit
+            for hit in analysis.hits
+            if hit.direction == "outgoing"
+            and (
+                prepared_audit_context is None
+                or hit.event_id in prepared_audit_context.selected_event_ids
+            )
+        )
+        total_hits = len(replay_hits)
+        report_battle_analysis_progress(
+            progress_callback,
+            phase=progress_phase,
+            message=progress_message,
+            completed=0,
+            total=total_hits,
+        )
+        target_analysis_by_key: dict[tuple[str, str], BattleAnalysisSnapshot] = {}
+        direct_formula_cache: dict[object, BattleHitReplayResult] = {}
         results = []
-        for hit in analysis.hits:
+        for ordinal, hit in enumerate(replay_hits, start=1):
+            if ordinal > 1 and (ordinal - 1) % 64 == 0:
+                report_battle_analysis_progress(
+                    progress_callback,
+                    phase=progress_phase,
+                    message=progress_message,
+                    completed=ordinal - 1,
+                    total=total_hits,
+                )
             channel_id, formula_label = classify_battle_hit_channel(hit)
             evidence = evidence_by_event.get(hit.event_id)
             formula_hit = replace(hit, character_id=evidence.source_character_id) \
                 if evidence and evidence.source_character_id is not None else hit
             baseline = baselines.get(formula_hit.character_id)
-            if hit.direction != "outgoing":
-                continue
-            hit_analysis = BattleTargetInstanceMappingService.analysis_for_hit(
-                analysis, hit
-            )
+            if (
+                prepared_audit_inputs is not None
+                and hit.event_id
+                in prepared_audit_inputs.target_condition_by_event
+            ):
+                hit_analysis = replace(
+                    analysis,
+                    target_condition=(
+                        prepared_audit_inputs.target_condition_by_event[
+                            hit.event_id
+                        ]
+                    ),
+                )
+            else:
+                target_key = (
+                    str(getattr(hit, "scope_half", "") or "").casefold(),
+                    str(getattr(hit, "target_id", "") or ""),
+                )
+                hit_analysis = target_analysis_by_key.get(target_key)
+                if hit_analysis is None:
+                    hit_analysis = BattleTargetInstanceMappingService.analysis_for_hit(
+                        analysis,
+                        hit,
+                    )
+                    target_analysis_by_key[target_key] = hit_analysis
             if channel_id == "special_daffodill_extra_topple":
                 result = BattleToppleHitReplayService.replay(
                     hit=hit, analysis=hit_analysis,
@@ -132,11 +210,16 @@ class BattleHitReplayService:
                 results.append(apply_observed_damage_correction(result, hit))
                 continue
             if channel_id == "reaction_hexed":
-                projection = BattleBuffAttributeProjectionService.project_hit(
-                    formula_hit,
-                    analysis.buff_intervals,
+                projection = (
+                    None
+                    if projection_by_event is None
+                    else projection_by_event.get(hit.event_id)
                 )
-                frozen = {row.property_id: row.value for row in baseline.stats}
+                if projection is None:
+                    projection = projection_cache.project(formula_hit)
+                frozen = baseline_values.get(formula_hit.character_id) or {
+                    row.property_id: row.value for row in baseline.stats
+                }
                 values = BattleBuffAttributeProjectionService.apply_additive(
                     frozen,
                     projection,
@@ -171,11 +254,16 @@ class BattleHitReplayService:
                 )
                 results.append(apply_observed_damage_correction(result, hit))
                 continue
-            projection = BattleBuffAttributeProjectionService.project_hit(
-                formula_hit,
-                analysis.buff_intervals,
+            projection = (
+                None
+                if projection_by_event is None
+                else projection_by_event.get(hit.event_id)
             )
-            frozen = {row.property_id: row.value for row in baseline.stats}
+            if projection is None:
+                projection = projection_cache.project(formula_hit)
+            frozen = baseline_values.get(formula_hit.character_id) or {
+                row.property_id: row.value for row in baseline.stats
+            }
             values = BattleBuffAttributeProjectionService.apply_additive(
                 frozen,
                 projection,
@@ -202,158 +290,65 @@ class BattleHitReplayService:
                 )
                 results.append(apply_observed_damage_correction(result, hit))
                 continue
-            result = cls._replay_direct(
+            rendered_formula_label = (
+                formula_label
+                if channel_id in {
+                    "direct",
+                    "direct_follow_up",
+                    "special_lacrimosa_dissonance",
+                }
+                else f"直伤（{formula_label}）"
+            )
+            cache_key = full_replay_formula_cache_key(
+                channel_id=channel_id,
+                formula_label=rendered_formula_label,
                 hit=formula_hit,
                 evidence=evidence,
                 baseline=baseline,
                 projection=projection,
                 values=values,
-                character_level=baseline.character_level,
                 analysis=hit_analysis,
-                applied_intervals=projection.applied_interval_ids,
-                excluded_intervals=projection.excluded_interval_ids,
-                formula_label=(
-                    formula_label
-                    if channel_id in {
-                        "direct",
-                        "direct_follow_up",
-                        "special_lacrimosa_dissonance",
-                    }
-                    else f"直伤（{formula_label}）"
-                ),
             )
+            template = (
+                None if cache_key is None else direct_formula_cache.get(cache_key)
+            )
+            if template is None:
+                result = cls._replay_direct(
+                    hit=formula_hit,
+                    evidence=evidence,
+                    baseline=baseline,
+                    projection=projection,
+                    values=values,
+                    character_level=baseline.character_level,
+                    analysis=hit_analysis,
+                    applied_intervals=projection.applied_interval_ids,
+                    excluded_intervals=projection.excluded_interval_ids,
+                    formula_label=rendered_formula_label,
+                )
+                if cache_key is not None:
+                    direct_formula_cache[cache_key] = result
+            else:
+                result = reanchor_direct_replay_result(template, formula_hit)
             results.append(apply_observed_damage_correction(
                 result,
                 hit,
             ))
         raw_results = tuple(results)
-        if not apply_observed_refinements:
-            return raw_results
-        replayed = cls._apply_local_crit_evidence(analysis, raw_results)
-        return BattleHitReplayAuditService.postprocess(analysis, replayed)
-    @classmethod
-    def _apply_local_crit_evidence(
-        cls,
-        analysis: BattleAnalysisSnapshot,
-        results: tuple[BattleHitReplayResult, ...],
-    ) -> tuple[BattleHitReplayResult, ...]:
-        hits = {row.event_id: row for row in analysis.hits}
-        baselines = {
-            row.character_id: {stat.property_id: stat.value for stat in row.stats}
-            for row in analysis.baselines
-        }
-        grouped: dict[tuple[int | None, str], list[BattleHitReplayResult]] = (
-            defaultdict(list)
-        )
-        for result in results:
-            hit = hits[result.event_id]
-            if (
-                hit.gameplay_effect_id
-                and result.non_critical_damage is not None
-                and result.critical_damage is not None
-                and all(row.factor_id != "state_coefficient" for row in result.factors)
-            ):
-                grouped[(hit.character_id, hit.gameplay_effect_id)].append(result)
-        replacements: dict[str, BattleHitReplayResult] = {}
-        for (character_id, _damage_id), rows in grouped.items():
-            if len(rows) < 4:
-                continue
-            counts = Counter(round(row.observed_damage, 3) for row in rows)
-            values = sorted(counts)
-            if len(values) < 2:
-                continue
-            baseline = baselines.get(character_id, {})
-            expected = 1.0 + max(0.0, baseline.get("CritDamageBase", 0.50))
-            formula_ratios = [
-                row.critical_damage / row.non_critical_damage
-                for row in rows
-                if row.critical_damage is not None
-                and row.non_critical_damage is not None
-                and row.non_critical_damage > 0
-            ]
-            if formula_ratios:
-                expected = sorted(formula_ratios)[len(formula_ratios) // 2]
-            pairs = []
-            for low_index, low in enumerate(values):
-                if low <= 0:
-                    continue
-                for high in values[low_index + 1:]:
-                    ratio = high / low
-                    if not 1.20 <= ratio <= 4.50:
-                        continue
-                    if abs(ratio - expected) / expected > 0.25:
-                        continue
-                    pairs.append((low, high, ratio, min(counts[low], counts[high])))
-            if not pairs:
-                continue
-            candidates = []
-            for candidate in pairs:
-                matching = [
-                    pair for pair in pairs
-                    if abs(pair[2] - candidate[2]) / candidate[2] <= 0.02
-                ]
-                support = sum(pair[3] for pair in matching)
-                candidates.append((support, len(matching), candidate[2], matching))
-            support, pair_count, crit_ratio, matching = max(
-                candidates,
-                key=lambda row: (row[0], row[1], -abs(row[2] - expected)),
+        if prepared_audit_context is not None:
+            report_battle_analysis_progress(
+                progress_callback, phase=progress_phase,
+                message=progress_message, completed=total_hits, total=total_hits,
             )
-            if support < 2 or (
-                pair_count < 2
-                and not any(counts[low] >= 2 and counts[high] >= 2 for low, high, *_ in matching)
-            ):
-                continue
-            low_values = {pair[0] for pair in matching}
-            high_values = {pair[1] for pair in matching}
-            for result in rows:
-                observed = round(result.observed_damage, 3)
-                is_low = observed in low_values
-                is_high = observed in high_values
-                if is_low == is_high:
-                    continue
-                state = "non_critical" if is_low else "critical"
-                selected = (
-                    result.non_critical_damage
-                    if is_low
-                    else result.critical_damage
-                )
-                assert selected is not None
-                selected_error = replay_error_percent(result.observed_damage, selected)
-                signed_error = replay_signed_error_percent(
-                    result.observed_damage,
-                    selected,
-                )
-                corrected_expected = (
-                    result.expected_damage * result.observed_damage / selected
-                    if result.expected_damage is not None and selected > 0.0
-                    else None
-                )
-                replacements[result.event_id] = replace(
-                    result,
-                    selected_damage=selected,
-                    selected_error_percent=selected_error,
-                    signed_error_percent=signed_error,
-                    critical_state=state,
-                    confidence="中",
-                    corrected_expected_damage=corrected_expected,
-                    factors=(
-                        *result.factors,
-                        _factor(
-                            "local_crit_pair",
-                            "同伤害项暴击倍率",
-                            crit_ratio,
-                            (
-                                f"本战报 {pair_count} 组重复数值对，"
-                                f"共同倍率约 {crit_ratio:.3f}（弱证据）"
-                            ),
-                        ),
-                    ),
-                    missing_evidence=tuple(dict.fromkeys((
-                        *result.missing_evidence,
-                        "暴击由本战报同 GE 数值对补充，不冒充 nte-core 暴击标记",
-                    ))),
-                )
-        return tuple(replacements.get(row.event_id, row) for row in results)
+            return prepared_audit_context.freeze_candidate_branches(raw_results)
+        if not apply_observed_refinements:
+            report_battle_analysis_progress(
+                progress_callback, phase=progress_phase,
+                message=progress_message, completed=total_hits, total=total_hits,
+            )
+            return raw_results
+        return BattleHitReplayAuditService.postprocess(
+            analysis, raw_results, progress_callback=progress_callback,
+        )
     @classmethod
     def _replay_direct(
         cls,

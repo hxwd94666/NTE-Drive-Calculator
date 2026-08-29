@@ -12,6 +12,7 @@ from .user_data_support import (
     _integer,
     _plain_object,
     _utc_now,
+    _valid_breakthrough_stage_for_level,
 )
 from .protocols import UserDataDaoMixinHost
 
@@ -449,6 +450,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
             """
             SELECT character_id, character_level, breakthrough_stage,
                    awakening_level, fork_id, fork_level,
+                   fork_breakthrough_stage,
                    fork_refinement_level, selected_skill_id, ordinal,
                    is_active, likeability_level_10_enabled,
                    awakening_selection_initialized,
@@ -541,6 +543,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         awakening_level: int,
         fork_id: str | None,
         fork_level: int | None,
+        fork_breakthrough_stage: int | None,
         fork_refinement_level: int | None,
         selected_skill_id: str | None = None,
         skill_levels: Mapping[str, int] | None = None,
@@ -559,6 +562,8 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         raw_breakthrough = _integer(breakthrough_stage, "breakthrough_stage", minimum=0)
         if raw_breakthrough > 6:
             raise UserDataValidationError("breakthrough_stage 不能大于 6")
+        if not _valid_breakthrough_stage_for_level(raw_level, raw_breakthrough):
+            raise UserDataValidationError("角色等级与突破阶段不匹配")
         raw_awakening = _integer(awakening_level, "awakening_level", minimum=0)
         if raw_awakening > 6:
             raise UserDataValidationError("awakening_level 不能大于 6")
@@ -566,11 +571,23 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         raw_fork_id = self._preference_text(fork_id, "fork_id")
         if raw_fork_id is None:
             raw_fork_level = None
+            raw_fork_breakthrough = None
             raw_refinement = None
         else:
             raw_fork_level = _integer(fork_level, "fork_level", minimum=1)
             if raw_fork_level > 80:
                 raise UserDataValidationError("fork_level 不能大于 80")
+            raw_fork_breakthrough = _integer(
+                fork_breakthrough_stage,
+                "fork_breakthrough_stage",
+                minimum=0,
+            )
+            if raw_fork_breakthrough > 6:
+                raise UserDataValidationError("fork_breakthrough_stage 不能大于 6")
+            if not _valid_breakthrough_stage_for_level(
+                raw_fork_level, raw_fork_breakthrough
+            ):
+                raise UserDataValidationError("弧盘等级与突破阶段不匹配")
             raw_refinement = _integer(
                 fork_refinement_level, "fork_refinement_level", minimum=1
             )
@@ -607,18 +624,19 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 """
                 INSERT INTO character_profile(
                     character_id, character_level, breakthrough_stage,
-                    awakening_level, fork_id, fork_level,
+                    awakening_level, fork_id, fork_level, fork_breakthrough_stage,
                     fork_refinement_level, selected_skill_id, ordinal,
                     is_active, likeability_level_10_enabled,
                     awakening_selection_initialized,
                     created_at_utc, updated_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(character_id) DO UPDATE SET
                     character_level = excluded.character_level,
                     breakthrough_stage = excluded.breakthrough_stage,
                     awakening_level = excluded.awakening_level,
                     fork_id = excluded.fork_id,
                     fork_level = excluded.fork_level,
+                    fork_breakthrough_stage = excluded.fork_breakthrough_stage,
                     fork_refinement_level = excluded.fork_refinement_level,
                     selected_skill_id = excluded.selected_skill_id,
                     ordinal = excluded.ordinal,
@@ -631,7 +649,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 """,
                 (
                     raw_character_id, raw_level, raw_breakthrough, raw_awakening,
-                    raw_fork_id, raw_fork_level, raw_refinement,
+                    raw_fork_id, raw_fork_level, raw_fork_breakthrough, raw_refinement,
                     raw_selected_skill, raw_ordinal, int(bool(is_active)),
                     int(bool(likeability_level_10_enabled)),
                     int(selection_initialized), now, now,

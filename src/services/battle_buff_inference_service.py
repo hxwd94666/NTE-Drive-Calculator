@@ -18,35 +18,58 @@ from src.services.battle_buff_semantic_service import (
     resolve_buff_calculation,
     source_effect_parameter,
 )
+from src.services.battle_buff_target_scope_service import (
+    BattleBuffTargetScopeService,
+)
 from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService, MITSUKI_GRADUAL_BUFF_IDENTITY,
 )
 from src.services.battle_character_skill_buff_service import BattleCharacterSkillBuffService
-from src.services.battle_character_awakening_hit_service import (
-    FADIA_GODSLAYER_REQUIREMENT,
-    MITSUKI_ULTRA_REQUIREMENT,
-    ZERO_FIRST_GAZE_REQUIREMENT,
+from src.services.battle_confirmed_awakening_buff_service import (
+    BattleConfirmedAwakeningBuffService,
 )
 from src.services.battle_equipment_suit_service import BattleEquipmentSuitService
 from src.services.battle_fork_refinement_service import BattleForkRefinementService
 from src.services.battle_target_control_policy_service import (
-    BattleTargetControlPolicyService,
+    BattleTargetControlPolicyService, CONTROL_CONFIRMED_ALL_BOSS,
 )
 
-BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v26"
-_CONFIRMED_REPLACES_GENERIC = frozenset({
-    "character_awaken:1036:Effect1", "character_awaken:1036:Effect5",
-    "character_awaken:1039:resonance_6",
-    "character_awaken:1070:Effect5", "character_awaken:1003:Effect4",
-    "character_awaken:1075:Effect5",
-})
-
+BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v29"
 @dataclass(frozen=True, slots=True)
 class _SelectedEffect:
     character_id: int
     character_name: str
     effect_definition_id: str
     definition: Mapping[str, Any] | None = None
+
+
+def _consume_formal_boss_requirement(
+    intervals: Sequence[BattleInferredBuffInterval],
+    target_control_policy: str,
+) -> list[BattleInferredBuffInterval]:
+    if target_control_policy != CONTROL_CONFIRMED_ALL_BOSS:
+        return list(intervals)
+    results = []
+    for interval in intervals:
+        changed = False
+        modifiers = []
+        for modifier in interval.modifiers:
+            remaining = tuple(
+                tag for tag in modifier.target_require_tags
+                if tag.casefold() != "con_isboss"
+            )
+            changed |= remaining != modifier.target_require_tags
+            modifiers.append(replace(modifier, target_require_tags=remaining))
+        results.append(replace(
+            interval,
+            modifiers=tuple(modifiers),
+            inference_basis=(
+                interval.inference_basis
+                + " 正式怪物目录已确认当前解析目标均为 Boss。"
+                if changed else interval.inference_basis
+            ),
+        ))
+    return results
 
 
 def _canonicalize_shared_buff_rule(rule: BattleStaticBuffRule) -> BattleStaticBuffRule:
@@ -165,25 +188,6 @@ def _modifier_rows(
             target_ignore_tags=tuple(row.get("target_ignore_tags") or ()),
         ))
     return tuple(result)
-
-
-def _target_scope(
-    trigger: Mapping[str, Any],
-    source_definition: Mapping[str, Any] | None,
-) -> str:
-    event_type = str(trigger.get("event_type") or "").casefold()
-    if "all_player" in event_type:
-        return "team"
-    description = str(
-        (source_definition or {}).get("description_zh") or ""
-    )
-    if "全队角色获得" in description or "全队角色提升" in description:
-        return "team"
-    if bool(trigger.get("target_trigger")):
-        return "target"
-    if bool(trigger.get("by_self")):
-        return "self"
-    return "unknown"
 
 
 def _definition_value_confidence(rule: BattleStaticBuffRule) -> str:
@@ -326,23 +330,6 @@ def _selected_effects(
     return tuple(deduplicated.values())
 
 
-def _ability_input_kind(input_id: Any, ability_id: str) -> str:
-    value = str(input_id or "")
-    if "UltraSkill" in value:
-        return "Q"
-    if "GSkill" in value:
-        return "G"
-    if value.endswith("_Skill"):
-        return "E"
-    if "Melee" in value:
-        return "A"
-    if "QTE" in ability_id:
-        return "QTE"
-    if "PerfectEvade" in ability_id:
-        return "PERFECT_EVADE"
-    return "UNKNOWN"
-
-
 def _skill_rules(static_dao: Any, build: Mapping[str, Any] | None) -> list[BattleStaticBuffRule]:
     rules: list[BattleStaticBuffRule] = []
     specialized_targets = frozenset({
@@ -369,11 +356,12 @@ def _skill_rules(static_dao: Any, build: Mapping[str, Any] | None) -> list[Battl
             if not modifiers:
                 continue
             passive = binding.get("binding_kind") == "passive_buff"
-            input_kind = _ability_input_kind(binding.get("input_id"), ability_id)
+            input_kind = BattleBuffTargetScopeService.ability_input_kind(
+                binding.get("input_id"), ability_id,
+            )
             event_type = "STATIC_EQUIPPED_SOURCE" if passive else (
                 f"ABILITY_EVENT|{input_kind}|{ability_id}|{binding.get('event_tag') or ''}"
             )
-            target_type = str(binding.get("target_type_asset_path") or "")
             rules.append(BattleStaticBuffRule(
                 rule_id=f"character-skill:{character_id}:{ability_id}:{effect_id}",
                 source_effect_definition_id=f"character_skill:{character_id}:{ability_id}",
@@ -386,7 +374,7 @@ def _skill_rules(static_dao: Any, build: Mapping[str, Any] | None) -> list[Battl
                     str(target.get("definition_id") or effect_id or target_path),
                     str(target.get("definition_id") or effect_id or target_path),
                 ),
-                target_scope="target" if "enemy" in target_type.casefold() else "self",
+                target_scope=BattleBuffTargetScopeService.for_skill_binding(binding),
                 event_type=event_type,
                 effect_type="ADD",
                 duration_policy=str(target.get("duration_policy") or ""),
@@ -437,60 +425,10 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
                 continue
             raw_parameters = (selected.definition or {}).get("parameters") or {}
             parameters = raw_parameters if isinstance(raw_parameters, Mapping) else {}
-            confirmed = {
-                "character_awaken:1046:Effect1": (
-                    "初明凝视：铭隙鉴刻额外伤害（觉醒一）",
-                    "self", "STATIC_EQUIPPED_SOURCE", None,
-                    (("DefIgnore", 0.75, ZERO_FIRST_GAZE_REQUIREMENT),),
-                ),
-                "character_awaken:1051:Effect1": (
-                    "初明凝视：铭隙鉴刻额外伤害（觉醒一）",
-                    "self", "STATIC_EQUIPPED_SOURCE", None,
-                    (("DefIgnore", 0.75, ZERO_FIRST_GAZE_REQUIREMENT),),
-                ),
-                "character_awaken:1036:Effect5": (
-                    "花开见血（觉醒五）", "team", "STATIC_EQUIPPED_SOURCE", None,
-                    (("ToppleDamageUp", 3.00),),
-                ),
-                "character_awaken:1036:resonance_6": (
-                    "鸩火灼心（六觉共鸣）", "self",
-                    "EBuffEventType::BUFF_EVENT_SKILL_AFTER_DAMAGE", 20.0,
-                    (("AtkUp", 0.40),),
-                ),
-                "character_awaken:1004:Effect2": (
-                    "闹钟响彻四方（觉醒二）", "self",
-                    "EBuffEventType::BUFF_EVENT_QTE_BEGIN", 15.0,
-                    (("DamageUpGeneralBase", 0.15),),
-                ),
-                "character_awaken:1019:Effect5": (
-                    "第一直觉（觉醒五）", "self",
-                    (
-                        "PASSIVE_HIT|GE_Player_Mint_Skill1_Damage_New,"
-                        "GE_Player_Mint_Skill1_Damage_Test1"
-                    ),
-                    6.0,
-                    (("CritDamageBase", 0.25),),
-                ),
-                "character_awaken:1039:Effect3": (
-                    "诅咒祝福之人（觉醒三）", "self",
-                    "STATIC_EQUIPPED_SOURCE", None, (("HPMaxUp", 0.30),),
-                ),
-                "character_awaken:1039:Effect5": (
-                    "敌神者暴击提升（觉醒五）", "self",
-                    "EBuffEventType::BUFF_EVENT_Q_SKILL_BEGIN", 5.0,
-                    (("CritBase", 0.50, FADIA_GODSLAYER_REQUIREMENT),),
-                ),
-                "character_awaken:1039:resonance_6": (
-                    "归一的圣洁之人（六觉共鸣）", "team",
-                    "STATIC_EQUIPPED_SOURCE", None, (("HPMaxUp", 0.10),),
-                ),
-                "character_awaken:1070:Effect5": (
-                    "华彩乐章（觉醒五）", "self", "STATIC_EQUIPPED_SOURCE", None,
-                    (("CritBase", 0.15, MITSUKI_ULTRA_REQUIREMENT),),
-                ),
-            }.get(effect_definition_id)
+            confirmed = BattleConfirmedAwakeningBuffService.get(
+                effect_definition_id
+            )
             if confirmed is not None:
-                name, scope, event_type, duration, modifier_values = confirmed
                 rules.append(BattleStaticBuffRule(
                     rule_id=f"{effect_definition_id}:confirmed-adapter",
                     source_effect_definition_id=effect_definition_id,
@@ -499,12 +437,16 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
                     source_character_name=character_name,
                     source_asset_path=f"combat-effect:{effect_definition_id}",
                     target_asset_path=f"confirmed:{effect_definition_id}",
-                    target_name=name,
-                    target_scope=scope,
-                    event_type=event_type,
+                    target_name=confirmed.name,
+                    target_scope=confirmed.scope,
+                    event_type=confirmed.event_type,
                     effect_type="ADD",
-                    duration_policy=("HasDuration" if duration else "Equipped"),
-                    duration_seconds=duration,
+                    duration_policy=(
+                        "HasDuration"
+                        if confirmed.duration_seconds
+                        else "Equipped"
+                    ),
+                    duration_seconds=confirmed.duration_seconds,
                     stack_count=1,
                     modifiers=tuple(
                         BattleBuffModifierEvidence(
@@ -520,12 +462,14 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
                                 else ""
                             ),
                         )
-                        for modifier_value in modifier_values
+                        for modifier_value in confirmed.modifier_values
                     ),
-                    stacking_type="AggregateByTarget",
+                    stacking_type=confirmed.stacking_type,
                     stack_limit_count=1,
                 ))
-            if effect_definition_id in _CONFIRMED_REPLACES_GENERIC:
+            if BattleConfirmedAwakeningBuffService.replaces_generic(
+                effect_definition_id
+            ):
                 continue
             modify_pack_id = str(parameters.get("modify_pack_id") or "").strip()
             if modify_pack_id and modify_pack_id.casefold() != "none":
@@ -617,7 +561,7 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
                     target_definition_id = str(
                         target.get("definition_id") or target_path
                     )
-                    inferred_scope = _target_scope(
+                    inferred_scope = BattleBuffTargetScopeService.for_trigger(
                         trigger,
                         selected.definition,
                     )
@@ -788,6 +732,10 @@ class BattleBuffInferenceService(BattleBuffIntervalSupportMixin):
             treatment_events=treatment_events,
             critical_events=critical_events,
         ))
+        intervals = _consume_formal_boss_requirement(
+            intervals,
+            target_control_policy,
+        )
         base_mofeikesi = tuple(
             row
             for row in intervals

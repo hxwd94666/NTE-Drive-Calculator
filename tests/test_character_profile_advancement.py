@@ -21,6 +21,7 @@ class CharacterProfileAdvancementTests(unittest.TestCase):
                     likeability_level_10_enabled=True,
                     fork_id=None,
                     fork_level=None,
+                    fork_breakthrough_stage=None,
                     fork_refinement_level=None,
                     selected_skill_id="Skill",
                     skill_levels={"Skill": 10},

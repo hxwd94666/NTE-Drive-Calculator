@@ -11,9 +11,7 @@ from typing import Any
 
 from src.domain.battle_report import (
     BattleAnalysisSnapshot,
-    BattleReportHistoryEntry,
     BattleRetentionMutation,
-    StoredBattleSummary,
 )
 from src.services.battle_counterfactual_analysis_service import (
     BattleCounterfactualAnalysisService,
@@ -24,9 +22,7 @@ from src.services.battle_build_profile_normalization_service import (
 from src.services.battle_report_history_projection import (
     analysis_scope_range,
     character_analysis_scopes,
-    history_entry,
     retention_mutation,
-    stored_summary,
 )
 from src.services.battle_report_history_support import (
     BattleReportHistoryDaoMixin,
@@ -64,7 +60,9 @@ from src.services.battle_action_inference_service import (
 from src.services.official_role_page_service import load_official_role_detail
 from src.services.skill_name_rendering_service import (
     SkillNameRenderingService,
-    project_immediate_nightmare_source_names,
+)
+from src.services.battle_report_history_evidence_projection import (
+    BattleReportHistoryEvidenceProjectionMixin,
 )
 from src.services.battle_report_persistence_service import (
     BattleReportContextGuard,
@@ -80,9 +78,8 @@ from src.services.battle_fork_critical_inference_service import (
 from src.services.battle_formal_damage_tag_service import (
     BattleFormalDamageTagService,
 )
-from src.services.battle_buff_counterfactual_service import (
-    BUFF_COUNTERFACTUAL_MODEL_VERSION,
-    BattleBuffCounterfactualService,
+from src.services.battle_marginal_counterfactual_projection_service import (
+    BattleMarginalCounterfactualProjectionService,
 )
 from src.services.battle_inferred_target_condition_service import BattleInferredTargetConditionService
 from src.services.battle_inferred_target_resolution_support import (
@@ -97,6 +94,13 @@ from src.services.battle_environment_condition_service import (
 from src.services.battle_build_stat_reconstruction_service import (
     BattleBuildStatReconstructionService,
 )
+from src.services.battle_analysis_progress import (
+    BattleAnalysisProgressCallback,
+    report_battle_analysis_progress,
+)
+from src.services.battle_hit_projection_preparation_service import (
+    BattleHitProjectionPreparationService,
+)
 from src.storage.sqlite.user_data_dao import UserDataError
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -104,6 +108,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 __all__ = ["BattleReportHistoryService", "StaleBattleReportContextError"]
 
 class BattleReportHistoryService(
+    BattleReportHistoryEvidenceProjectionMixin,
     BattleBuildEditHistoryMixin,
     BattleReportReplayHistoryMixin,
     BattleReportHistoryDaoMixin,
@@ -131,29 +136,7 @@ class BattleReportHistoryService(
             tuple[BattleActionAnimationCandidate, ...],
         ] = {}
         self._target_catalog_cache: dict[str, Any] | None = None
-    def list_records(self) -> list[dict[str, Any]]:
-        with self._open_current_dao() as user_dao:
-            return user_dao.list_battle_records()
-
-    def list_entries(self) -> tuple[BattleReportHistoryEntry, ...]:
-        return tuple(history_entry(record) for record in self.list_records())
-
-    def load_record(self, battle_record_id: int) -> dict[str, Any] | None:
-        with self._open_current_dao() as user_dao:
-            return user_dao.load_battle_record(battle_record_id)
-
-    def restore_last_record(self) -> dict[str, Any] | None:
-        with self._open_current_dao() as user_dao:
-            return user_dao.restore_battle_report_record()
-
-    def restore_last_summary(self) -> StoredBattleSummary | None:
-        record = self.restore_last_record()
-        return None if record is None else stored_summary(record)
-
-    def load_summary(self, battle_record_id: int) -> StoredBattleSummary | None:
-        record = self.load_record(battle_record_id)
-        return None if record is None else stored_summary(record)
-
+        self._inferred_encounter_fit_cache: dict[int, Any] = {}
     def load_analysis(
         self,
         battle_record_id: int,
@@ -167,9 +150,15 @@ class BattleReportHistoryService(
         include_buff_inference: bool = True,
         include_hit_replays: bool = True,
         include_buff_counterfactuals: bool = True,
+        progress_callback: BattleAnalysisProgressCallback | None = None,
     ) -> BattleAnalysisSnapshot | None:
         """Load and project all long-page sections from one evidence snapshot."""
 
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="load",
+            message="正在读取冻结战报、逐击轴和角色配置…",
+        )
         with self._open_current_dao() as user_dao:
             record = user_dao.load_battle_record(battle_record_id)
             if record is None:
@@ -185,8 +174,13 @@ class BattleReportHistoryService(
             )
         build = normalize_inferred_battle_build(build)
         apply_import_equipment_locks(build, import_equipment_locks)
-        recognition_build = deepcopy(build)
+        recognition_build = None
         self._localize_axis_evidence(evidence)
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="prepare",
+            message="正在整理逐击身份、目标实例和冻结角色输入…",
+        )
         BattleFormalDamageTagService.project(
             evidence,
             self._dependencies.static_database_path,
@@ -199,15 +193,27 @@ class BattleReportHistoryService(
                 start_us, end_us = scoped_range
         record_floor = record.get("abyss_floor")
         inferred_encounter = None
+        encounter_fit_cached = False
         if target_condition is None:
-            inferred_encounter = BattleInferredTargetConditionService.infer(
-                static_database_path=self._dependencies.static_database_path,
-                combat_context_kind=str(record.get("combat_context_kind") or ""),
-                floor=None if record_floor is None else int(record_floor),
-                evidence=evidence,
-                range_start_us=None,
-                range_end_us=None,
+            inferred_encounter = self._inferred_encounter_fit_cache.get(
+                battle_record_id
             )
+            encounter_fit_cached = inferred_encounter is not None
+            if inferred_encounter is None:
+                inferred_encounter = BattleInferredTargetConditionService.infer(
+                    static_database_path=self._dependencies.static_database_path,
+                    combat_context_kind=str(record.get("combat_context_kind") or ""),
+                    floor=None if record_floor is None else int(record_floor),
+                    evidence=evidence,
+                    range_start_us=None,
+                    range_end_us=None,
+                )
+        needs_encounter_fit = bool(
+            target_condition is None
+            and inferred_encounter is not None
+            and inferred_encounter.formula_profile_conflict
+            and not encounter_fit_cached
+        )
         BattleInferredTargetConditionService.project_evidence(
             evidence,
             inferred_encounter,
@@ -229,7 +235,8 @@ class BattleReportHistoryService(
             target_instance_resolutions
         )
         inferred_character_facts = BattleInferredCharacterFactService.infer(evidence)
-        if recognition_build is not None:
+        if needs_encounter_fit and build is not None:
+            recognition_build = deepcopy(build)
             BattleInferredCharacterFactService.apply_to_build(
                 recognition_build,
                 inferred_character_facts,
@@ -262,11 +269,6 @@ class BattleReportHistoryService(
             include_hit_replays = True
         if include_hit_replays:
             include_buff_inference = True
-        needs_encounter_fit = bool(
-            target_condition is None
-            and inferred_encounter is not None
-            and inferred_encounter.formula_profile_conflict
-        )
         if needs_encounter_fit:
             include_buff_inference = True
         animation_candidates = self._load_animation_candidates(evidence, build)
@@ -337,6 +339,7 @@ class BattleReportHistoryService(
                 evidence=evidence,
                 inferred_character_facts=inferred_character_facts,
             )
+            self._inferred_encounter_fit_cache[battle_record_id] = inferred_encounter
             analysis_target_condition = inferred_encounter.target_condition
             outer_realm_buff_config = BattleOuterRealmBuffService.load(
                 self._dependencies.static_database_path,
@@ -369,6 +372,11 @@ class BattleReportHistoryService(
                 _analyze,
                 target_control_policy=target_control_policy,
             )
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="analyze",
+            message="正在推断动作、治疗、Buff 区间和伤害构成…",
+        )
         analysis = replace(
             _analyze(),
             inferred_character_facts=inferred_character_facts,
@@ -384,14 +392,28 @@ class BattleReportHistoryService(
         )
         if not include_hit_replays:
             return analysis
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="replay",
+            message="正在执行原始固定轴逐击公式重放…",
+        )
         skill_evidence = self._load_skill_damage_evidence(analysis, build)
         topple_character_configs = self._load_topple_character_configs(analysis)
+        prepared_projections = BattleHitProjectionPreparationService.prepare(
+            analysis,
+            skill_evidence,
+        )
         analysis = replace(
             analysis,
             hit_replays=BattleHitReplayService.replay(
                 analysis,
                 skill_evidence,
                 topple_character_configs=topple_character_configs,
+                buff_interval_index=prepared_projections.interval_index,
+                projection_by_event=prepared_projections.formula_by_event,
+                progress_callback=progress_callback,
+                progress_phase="replay",
+                progress_message="正在执行原始固定轴逐击公式重放…",
             ),
             hit_replay_model_version=HIT_REPLAY_MODEL_VERSION,
             detected_environment_kind=(
@@ -418,6 +440,11 @@ class BattleReportHistoryService(
             buff_rules,
         )
         if critical_events:
+            report_battle_analysis_progress(
+                progress_callback,
+                phase="critical_replay",
+                message="检测到弧盘暴击触发，正在重建冻结分支…",
+            )
             replayed = analysis
             analysis = BattleInferredTargetConditionService.apply(
                 replace(
@@ -431,14 +458,21 @@ class BattleReportHistoryService(
                 target_instance_resolutions=target_instance_resolutions,
                 target_instance_mapping_required=target_instance_mapping_required,
             )
-            skill_evidence = self._load_skill_damage_evidence(analysis, build)
-            topple_character_configs = self._load_topple_character_configs(analysis)
+            prepared_projections = BattleHitProjectionPreparationService.prepare(
+                analysis,
+                skill_evidence,
+            )
             analysis = replace(
                 analysis,
                 hit_replays=BattleHitReplayService.replay(
                     analysis,
                     skill_evidence,
                     topple_character_configs=topple_character_configs,
+                    buff_interval_index=prepared_projections.interval_index,
+                    projection_by_event=prepared_projections.formula_by_event,
+                    progress_callback=progress_callback,
+                    progress_phase="critical_replay",
+                    progress_message="正在重放弧盘暴击触发后的固定轴…",
                 ),
                 hit_replay_model_version=HIT_REPLAY_MODEL_VERSION,
                 detected_environment_kind=replayed.detected_environment_kind,
@@ -446,14 +480,21 @@ class BattleReportHistoryService(
             )
         if not include_buff_counterfactuals:
             return analysis
-        return replace(
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="counterfactual",
+            message="正在规划 Buff 与被动反事实工作量…",
+        )
+        return BattleMarginalCounterfactualProjectionService.apply(
             analysis,
-            buff_counterfactuals=BattleBuffCounterfactualService.calculate(
-                analysis,
-                skill_evidence,
-                topple_character_configs=topple_character_configs,
+            build,
+            skill_evidence,
+            topple_character_configs=topple_character_configs,
+            progress_callback=progress_callback,
+            interval_index=prepared_projections.interval_index,
+            original_projection_by_event=(
+                prepared_projections.beneficiary_by_event
             ),
-            buff_counterfactual_model_version=BUFF_COUNTERFACTUAL_MODEL_VERSION,
         )
 
     def load_target_catalog(self) -> dict[str, Any]:
@@ -533,92 +574,6 @@ class BattleReportHistoryService(
         self._animation_candidate_cache[cache_key] = candidates
         return candidates
 
-    def _localize_axis_evidence(
-        self,
-        evidence: dict[str, Any] | None,
-    ) -> None:
-        static_path = self._dependencies.static_database_path
-        if evidence is None or static_path is None:
-            return
-        renderer = self._skill_name_renderer
-        if renderer is None:
-            renderer = SkillNameRenderingService.from_static_database(static_path)
-            self._skill_name_renderer = renderer
-
-        for hit in evidence.get("hits") or ():
-            ability_id = str(hit.get("ability_name") or "")
-            damage_id = str(hit.get("damage_name") or "")
-            follow_up_damage_id = str(hit.get("follow_up_damage_name") or "")
-            identity = renderer.render_axis_identity(
-                ability_id=ability_id,
-                damage_id=damage_id,
-                gameplay_effect_index=hit.get("gameplay_effect_index"),
-                gameplay_effect_name=hit.get("gameplay_effect_name"),
-                damage_component=hit.get("damage_component"),
-                attack_type=hit.get("attack_type"),
-            )
-            incoming = (
-                str(hit.get("direction") or "").strip().casefold() == "incoming"
-            )
-            hit["ability_display_name"] = (
-                "敌方攻击"
-                if incoming
-                and identity.skill_name in {"未识别技能", "未归因伤害"}
-                else identity.skill_name
-            )
-            hit["damage_display_name"] = (
-                "受击"
-                if incoming
-                and identity.damage_name in {"未识别伤害", "来源字段缺失"}
-                else identity.damage_name
-            )
-            if identity.gameplay_effect_id:
-                hit["gameplay_effect_name"] = identity.gameplay_effect_id
-            resolved_damage_id = identity.gameplay_effect_id or damage_id
-            resolved_ability_id = renderer.resolve_ability_id(
-                ability_id,
-                resolved_damage_id,
-                fallback_damage_id=damage_id,
-            )
-            if resolved_ability_id:
-                hit["ability_name"] = resolved_ability_id
-                ability_id = resolved_ability_id
-            hit["attack_type"] = renderer.resolve_attack_type(
-                resolved_damage_id,
-                captured=hit.get("attack_type"),
-            )
-            damage_attribute = renderer.resolve_damage_attribute(
-                resolved_damage_id,
-                captured=hit.get("damage_attribute"),
-            )
-            if (
-                damage_attribute in {"", "unknown", "none"}
-                and damage_id
-                and damage_id.casefold() != resolved_damage_id.casefold()
-            ):
-                damage_attribute = renderer.resolve_damage_attribute(
-                    damage_id,
-                    captured=damage_attribute,
-                )
-            hit["damage_attribute"] = damage_attribute
-            if follow_up_damage_id:
-                follow_up = renderer.render_axis_identity(
-                    ability_id=ability_id,
-                    damage_id=follow_up_damage_id,
-                    gameplay_effect_index=hit.get("gameplay_effect_index"),
-                    gameplay_effect_name=hit.get("gameplay_effect_name"),
-                    damage_component=hit.get("follow_up_damage_component"),
-                    attack_type=hit.get("follow_up_attack_type"),
-                )
-                hit["follow_up_damage_display_name"] = follow_up.damage_name
-                hit["follow_up_damage_attribute"] = (
-                    renderer.resolve_damage_attribute(
-                        follow_up.gameplay_effect_id or follow_up_damage_id,
-                        captured=hit.get("follow_up_damage_attribute"),
-                    )
-                )
-        project_immediate_nightmare_source_names(evidence.get("hits") or ())
-
     def save_record(self, battle_record_id: int) -> BattleRetentionMutation:
         with self._open_current_dao() as user_dao:
             result = user_dao.promote_battle_record_to_manual(battle_record_id)
@@ -630,6 +585,7 @@ class BattleReportHistoryService(
         return retention_mutation(result)
 
     def delete_record(self, battle_record_id: int) -> bool:
+        self._inferred_encounter_fit_cache.pop(battle_record_id, None)
         with self._open_current_dao() as user_dao:
             return user_dao.delete_battle_record(battle_record_id)
 

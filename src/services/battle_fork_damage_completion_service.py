@@ -14,11 +14,12 @@ from src.services.battle_fork_residual_completion_service import (
 )
 
 
-FORK_DAMAGE_COMPLETION_MODEL_VERSION = "battle-fork-damage-completion-v3"
+FORK_DAMAGE_COMPLETION_MODEL_VERSION = "battle-fork-damage-completion-v4"
 ROSE_STACK_EVENT = "FORK_ROSE_DAMAGE_STACK"
 TIGER_NORMAL_STACK_EVENT = "FORK_TIGER_NORMAL_STACK"
 TIGER_COMMANDER_EVENT = "FORK_TIGER_COMMANDER_INFERRED"
-TIME_Q_CONSUME_EVENT = "FORK_TIME_Q_CONSUME"
+TIME_Q_CRIT_EVENT = "FORK_TIME_Q_CRIT_CONSUME"
+TIME_DEF_IGNORE_EVENT = "FORK_TIME_DEF_IGNORE_CONSUME"
 MOON_PSYCHIC_STACK_EVENT = "FORK_MOON_PSYCHIC_STACK"
 SPIDER_Q_CONSUME_EVENT = "FORK_SPIDER_Q_CONSUME"
 
@@ -105,6 +106,7 @@ def _rule(
     cooldown: float | None = None,
     stacking: str = "AggregateBySource",
     application_requirement: str = "",
+    duration_policy: str | None = None,
 ) -> Any:
     effect_id = str(selected.effect_definition_id)
     return factory(
@@ -119,7 +121,10 @@ def _rule(
         target_scope=scope,
         event_type=event_type,
         effect_type="ADD",
-        duration_policy=("HasDuration" if duration is not None else "Equipped"),
+        duration_policy=(
+            duration_policy
+            or ("HasDuration" if duration is not None else "Equipped")
+        ),
         duration_seconds=duration,
         stack_count=1,
         modifiers=modifiers,
@@ -301,9 +306,9 @@ def _rules_time(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
         _rule(
             selected,
             factory,
-            suffix="time-q-consume",
+            suffix="time-q-crit",
             name="行进于时间之外：消耗荒时强化 Q",
-            event_type=TIME_Q_CONSUME_EVENT,
+            event_type=TIME_Q_CRIT_EVENT,
             modifiers=(
                 _modifier(
                     "CritDamageBase",
@@ -315,14 +320,18 @@ def _rules_time(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
                     per_stack,
                     source_tags=("State.Damage.UltraSkill",),
                 ),
-                _modifier(
-                    "DefIgnore",
-                    defence,
-                    source_tags=("State.Damage.UltraSkill",),
-                ),
             ),
-            duration=duration,
             stack_limit=3,
+            duration_policy="ActionWindow",
+        ),
+        _rule(
+            selected,
+            factory,
+            suffix="time-def-ignore",
+            name="行进于时间之外：三层荒时无视防御",
+            event_type=TIME_DEF_IGNORE_EVENT,
+            modifiers=(_modifier("DefIgnore", defence),),
+            duration=duration,
         ),
     )
 

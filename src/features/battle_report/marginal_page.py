@@ -27,13 +27,21 @@ from src.features.battle_report.analysis_components import (
     analysis_section,
     analysis_table,
 )
+from src.features.battle_report.build_change_summary import (
+    character_level_summary,
+    fork_level_summary,
+)
 from src.features.battle_report.composition_view import BattleDamageCompositionPanel
 from src.features.battle_report.hit_formula_dialog import BattleHitFormulaDialog
 from src.features.battle_report.marginal_derived_settlement_view import BattleMarginalDerivedSettlementView
+from src.features.battle_report.marginal_buff_render_mixin import (
+    BattleMarginalBuffRenderMixin,
+)
 from src.features.battle_report.marginal_result_table_view import (
+    BUFF_BENEFIT_HEADERS,
+    BUFF_BENEFIT_WIDTHS,
     display_projection,
     render_attribute_results,
-    render_buff_benefit_results,
 )
 from src.features.battle_report.marginal_replacement_controller import (
     show_marginal_equipment_replacement,
@@ -67,7 +75,7 @@ def _number(value: float) -> str:
     return f"{value:,.0f}"
 
 
-class BattleMarginalPage(QWidget):
+class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
     """Edit one memory-only candidate and replay the selected role's battle half."""
 
     back_requested = Signal()
@@ -287,23 +295,16 @@ class BattleMarginalPage(QWidget):
         buff_note = QLabel(
             "逐个独立移除 Buff，并按实际造成伤害的角色拆分收益；"
             "角色收益之间可加总为该 Buff 的全队收益，不同 Buff 之间不可直接相加。"
+            "具有正式逐击因果证据的机制被动也在此按来源角色合并展示。"
+            "伤害覆盖率统计原始固定轴伤害，量化覆盖统计可安全计算收益的伤害。"
         )
         buff_note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         buff_note.setWordWrap(True)
         buff_layout.addWidget(buff_note)
         self.buff_benefit_table = analysis_table(
-            (
-                "来源角色",
-                "Buff",
-                "受益角色",
-                "获得伤害",
-                "受益角色提升",
-                "折合全队贡献",
-                "Buff 全队增伤",
-                "量化覆盖",
-            ),
+            BUFF_BENEFIT_HEADERS,
             240,
-            default_widths=(150, 220, 150, 130, 150, 150, 190, 130),
+            default_widths=BUFF_BENEFIT_WIDTHS,
         )
         buff_layout.addWidget(self.buff_benefit_table)
         root.addWidget(buff_card)
@@ -422,8 +423,8 @@ class BattleMarginalPage(QWidget):
         comparison = analysis.build_counterfactual
         self.derived_settlements.render(comparison)
         if comparison is None:
-            self._candidate_analysis = None
-            self.counterfactual_timeline.set_analysis(None)
+            self._candidate_analysis = analysis
+            self.counterfactual_timeline.set_analysis(analysis)
             self.metric_labels["dps"].setText(_number(analysis.effective_dps))
             self.metric_labels["damage"].setText(_number(analysis.effective_damage))
             self.metric_subtitles["damage"].setText("当前候选尚未重算")
@@ -600,6 +601,9 @@ class BattleMarginalPage(QWidget):
     def equipment_editable(self) -> bool:
         return self._equipment_editable
 
+    def allows_automatic_recalculation(self) -> bool:
+        return not self._draft_dirty
+
     def disabled_inferred_fact_ids(self) -> tuple[str, ...]:
         return () if self.use_inferred_facts.isChecked() else self._inferred_fact_ids
 
@@ -630,15 +634,14 @@ class BattleMarginalPage(QWidget):
         skill_levels = tuple(
             int(value) for value in (profile.get("skill_levels") or {}).values()
         )
-        fork_refinement = profile.get("fork_refinement_level")
         items = tuple((equipment or ("", {}))[1].get("items") or ())
         core_count = sum(str(item.get("kind") or "") == "core" for item in items)
         drive_count = sum(str(item.get("kind") or "") != "core" for item in items)
         parts = [
-            f"Lv.{int(profile.get('character_level') or 1)}",
+            character_level_summary(self._details[index], profile),
             f"{awakening_count}觉",
             "好感10" if profile.get("likeability_level_10_enabled") else "未启用好感10",
-            "未装备弧盘" if not profile.get("fork_id") else f"弧盘精{int(fork_refinement or 1)}",
+            fork_level_summary(self._details[index], profile),
             "技能 " + ("/".join(str(value) for value in skill_levels) or "未配置"),
             f"空幕{core_count}/驱动{drive_count}",
         ]
@@ -730,7 +733,10 @@ class BattleMarginalPage(QWidget):
             None,
         )
         self._render_attributes(baseline)
-        self._render_buff_benefits(analysis.buff_counterfactuals)
+        self._render_buff_benefits(
+            analysis.buff_counterfactuals,
+            passive_results=getattr(analysis, "passive_counterfactuals", ()),
+        )
         comparison = analysis.build_counterfactual
         role = next(
             (row for row in (comparison.roles if comparison else ()) if row.character_id == character_id),
@@ -778,13 +784,6 @@ class BattleMarginalPage(QWidget):
             units=units,
         )
         render_attribute_results(self.attribute_table, results)
-
-    def _render_buff_benefits(self, results) -> None:
-        render_buff_benefit_results(
-            self.buff_benefit_table,
-            results,
-            source_character_id=self.selected_character_id(),
-        )
 
     def _request_recalculate(self) -> None:
         self._refresh_change_summary()

@@ -35,6 +35,7 @@ from .role_calculation import (
     _build_margin_group,
     _clear_layout,
     _selected_combo_data,
+    _selected_fork_stage,
     _selected_growth,
 )
 from .role_equipment import _build_drive_summary_group
@@ -202,6 +203,9 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
                     ].isChecked(),
                     fork_id=fork_id,
                     fork_level=editor["fork_level"].value() if fork_id else None,
+                    fork_breakthrough_stage=(
+                        _selected_fork_stage(editor) if fork_id else None
+                    ),
                     fork_refinement_level=(int(editor["refinement"].currentData() or 1) if fork_id else None),
                     # 兼容账号 schema；角色页计算不再读取这个历史指针。
                     selected_skill_id=detail["profile"].get("selected_skill_id"),

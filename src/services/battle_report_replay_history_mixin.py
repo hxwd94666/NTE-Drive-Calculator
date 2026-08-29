@@ -62,6 +62,13 @@ class BattleReportReplayHistoryMixin:
                 return BattleTargetControlPolicyService.resolve_formal_policy(
                     static_dao,
                     resolved_ids,
+                    all_targets_resolved=(
+                        bool(resolutions)
+                        and all(
+                            str(row.resolved_monster_id or "")
+                            for row in resolutions
+                        )
+                    ),
                 )
         except (OSError, RuntimeError, ValueError):
             return CONTROL_ELIGIBLE_DEFAULT

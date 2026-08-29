@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 from dataclasses import dataclass
+from threading import Event
 
 from src.app.workers import WorkerThread
+from src.domain.battle_report import BattleAnalysisSnapshot
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
 from src.services.battle_report_analysis_load_service import (
@@ -17,6 +20,7 @@ from src.services.battle_report_history_service import (
     BattleReportHistoryService,
     StaleBattleReportContextError,
 )
+from src.services.battle_analysis_progress import BattleAnalysisProgress
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidate,
 )
@@ -33,12 +37,76 @@ class _AnalysisPresentationRequest:
     completion_payload: object | None = None
 
 
+class _BattleAnalysisLoadWorker(WorkerThread):
+    """Own the progress bridge for one frozen analysis request."""
+
+    def __init__(
+        self,
+        history: BattleReportHistoryService,
+        request: BattleReportAnalysisLoadRequest,
+        *,
+        parent,
+    ) -> None:
+        self._history = history
+        self._request = request
+        self._cancelled = Event()
+        super().__init__(target=self._load, parent=parent)
+
+    def _load(self) -> BattleReportAnalysisLoadResult:
+        if self._cancelled.is_set():
+            raise CancelledError
+        return BattleReportAnalysisLoadService.load(
+            self._history,
+            self._request,
+            progress_callback=self._report_progress,
+        )
+
+    def cancel_analysis(self) -> None:
+        self._cancelled.set()
+
+    def _report_progress(self, progress: BattleAnalysisProgress) -> None:
+        if self._cancelled.is_set():
+            raise CancelledError
+        self.progress.emit(progress)
+
+
+def _same_analysis_request(
+    left: _AnalysisPresentationRequest,
+    right: _AnalysisPresentationRequest,
+) -> bool:
+    """Compare frozen work plus the presentation state that consumes it."""
+
+    if (
+        left.load != right.load
+        or (
+            left.load.comparison_baseline
+            is not right.load.comparison_baseline
+        )
+        or left.account_id != right.account_id
+        or left.generation != right.generation
+        or left.persist_full_range != right.persist_full_range
+        or left.completion_kind != right.completion_kind
+        or left.completion_payload != right.completion_payload
+    ):
+        return False
+    if left.load.detail_level == "marginal":
+        return True
+    return left.selected_character_id == right.selected_character_id
+
+
 class BattleReportAnalysisControllerMixin:
     """Coalesce long-page requests and discard results from stale contexts."""
 
     def _initialize_analysis_loading(self) -> None:
         self._analysis_load_token = 0
         self._analysis_load_worker: WorkerThread | None = None
+        self._active_analysis_load: tuple[
+            int,
+            _AnalysisPresentationRequest,
+            BattleReportHistoryService,
+        ] | None = None
+        self._active_analysis_load_invalidated = False
+        self._desired_analysis_load_token: int | None = None
         self._latest_analysis_load_request: BattleReportAnalysisLoadRequest | None = None
         self._pending_analysis_load: tuple[
             int,
@@ -48,7 +116,13 @@ class BattleReportAnalysisControllerMixin:
 
     def _invalidate_analysis_loading(self) -> None:
         self._analysis_load_token += 1
+        self._desired_analysis_load_token = None
         self._pending_analysis_load = None
+        if self._active_analysis_load is not None:
+            self._active_analysis_load_invalidated = True
+            worker = self._analysis_load_worker
+            if isinstance(worker, _BattleAnalysisLoadWorker):
+                worker.cancel_analysis()
         end_details = getattr(self._page, "end_analysis_details", None)
         if callable(end_details):
             end_details()
@@ -76,6 +150,7 @@ class BattleReportAnalysisControllerMixin:
         detail_scope: str | None = None,
         detail_level: str = "overview",
         marginal_candidate: BattleMarginalCandidate | None = None,
+        comparison_baseline: BattleAnalysisSnapshot | None = None,
         completion_kind: str = "",
         completion_payload: object | None = None,
     ) -> None:
@@ -97,6 +172,7 @@ class BattleReportAnalysisControllerMixin:
                 detail_scope=detail_scope,
                 detail_level=detail_level,
                 marginal_candidate=marginal_candidate,
+                comparison_baseline=comparison_baseline,
             ),
             account_id=account.active_account_id,
             generation=self._app_context.generation,
@@ -107,8 +183,27 @@ class BattleReportAnalysisControllerMixin:
         )
         if detail_level != "marginal":
             self._latest_analysis_load_request = presentation.load
+        active = self._active_analysis_load
+        if (
+            active is not None
+            and not self._active_analysis_load_invalidated
+            and _same_analysis_request(active[1], presentation)
+        ):
+            self._pending_analysis_load = None
+            self._desired_analysis_load_token = active[0]
+            return
+        if active is not None:
+            self._active_analysis_load_invalidated = True
+            worker = self._analysis_load_worker
+            if isinstance(worker, _BattleAnalysisLoadWorker):
+                worker.cancel_analysis()
+        pending = self._pending_analysis_load
+        if pending is not None and _same_analysis_request(pending[1], presentation):
+            self._desired_analysis_load_token = pending[0]
+            return
         self._analysis_load_token += 1
         token = self._analysis_load_token
+        self._desired_analysis_load_token = token
         self._pending_analysis_load = (token, presentation, history)
         if self._analysis_load_worker is None:
             self._start_pending_analysis_load()
@@ -119,11 +214,11 @@ class BattleReportAnalysisControllerMixin:
             return
         self._pending_analysis_load = None
         token, presentation, history = pending
-        worker = WorkerThread(
-            target=lambda: BattleReportAnalysisLoadService.load(
-                history,
-                presentation.load,
-            ),
+        self._active_analysis_load = pending
+        self._active_analysis_load_invalidated = False
+        worker = _BattleAnalysisLoadWorker(
+            history,
+            presentation.load,
             parent=self,
         )
         self._analysis_load_worker = worker
@@ -137,10 +232,31 @@ class BattleReportAnalysisControllerMixin:
                 self._analysis_load_failed(current, request, message)
             )
         )
+        worker.progress.connect(
+            lambda progress, current=token, request=presentation: (
+                self._analysis_load_progress(current, request, progress)
+            )
+        )
         worker.finished.connect(
             lambda current=worker: self._analysis_load_finished(current)
         )
         worker.start()
+
+    def _analysis_load_progress(
+        self,
+        token: int,
+        request: _AnalysisPresentationRequest,
+        progress: object,
+    ) -> None:
+        if (
+            token != self._desired_analysis_load_token
+            or not self._analysis_request_is_current(request)
+            or not isinstance(progress, BattleAnalysisProgress)
+        ):
+            return
+        update = getattr(self._page, "update_analysis_progress", None)
+        if callable(update):
+            update(progress)
 
     def _analysis_load_ready(
         self,
@@ -149,7 +265,7 @@ class BattleReportAnalysisControllerMixin:
         result: object,
     ) -> None:
         if (
-            token != self._analysis_load_token
+            token != self._desired_analysis_load_token
             or not self._analysis_request_is_current(request)
         ):
             return
@@ -160,9 +276,10 @@ class BattleReportAnalysisControllerMixin:
         record_id = request.load.battle_record_id
         if analysis is None or not analysis.timeline_hits:
             self._page.end_analysis_details()
-            self._page.clear_analysis(
-                "当前记录只有聚合摘要，或所选时段没有正式逐击证据。"
-            )
+            if request.load.detail_level != "marginal":
+                self._page.clear_analysis(
+                    "当前记录只有聚合摘要，或所选时段没有正式逐击证据。"
+                )
             self._build_snapshot_controller.refresh(record_id)
             return
         if result.target_catalog is not None:
@@ -182,6 +299,7 @@ class BattleReportAnalysisControllerMixin:
             self._page.set_marginal_analysis(
                 analysis,
                 detail_scope=request.load.detail_scope,
+                is_candidate=request.load.marginal_candidate is not None,
             )
         else:
             self._page.set_analysis(
@@ -216,12 +334,13 @@ class BattleReportAnalysisControllerMixin:
         message: str,
     ) -> None:
         if (
-            token != self._analysis_load_token
+            token != self._desired_analysis_load_token
             or not self._analysis_request_is_current(request)
         ):
             return
         self._page.end_analysis_details()
-        self._page.clear_analysis(f"读取战报逐击分析失败：{message}")
+        if request.load.detail_level != "marginal":
+            self._page.clear_analysis(f"读取战报逐击分析失败：{message}")
         log_event(
             "WARNING",
             "battle_report.analysis_load_failed",
@@ -236,6 +355,8 @@ class BattleReportAnalysisControllerMixin:
         if worker is not self._analysis_load_worker:
             return
         self._analysis_load_worker = None
+        self._active_analysis_load = None
+        self._active_analysis_load_invalidated = False
         worker.deleteLater()
         self._start_pending_analysis_load()
 
@@ -268,10 +389,17 @@ class BattleReportAnalysisControllerMixin:
         request: _AnalysisPresentationRequest,
     ) -> bool:
         account = self._app_context.account
+        has_latest_state = hasattr(self, "_latest_state")
+        latest_state = getattr(self, "_latest_state", None)
+        latest_record_id = getattr(latest_state, "battle_record_id", None)
         return (
             request.account_id == account.active_account_id
             and request.generation == self._app_context.generation
             and not self._closing
+            and (
+                not has_latest_state
+                or request.load.battle_record_id == latest_record_id
+            )
         )
 
     def _save_analysis_range(

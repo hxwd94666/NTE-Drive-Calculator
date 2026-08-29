@@ -1,6 +1,7 @@
 # 验证逐击审计中伤害归属、噩梦层数和残虹形态的窄修复边界。
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 import unittest
 from dataclasses import replace
 from types import SimpleNamespace
@@ -17,6 +18,22 @@ from src.services.battle_zankou_form_buff_service import (
     BattleZankouFormBuffService,
     BattleZankouFormConfig,
 )
+
+
+class BattleReplayAuditProgressTests(unittest.TestCase):
+    def test_postprocess_can_cancel_between_audit_stages(self) -> None:
+        analysis = SimpleNamespace(hits=(), baselines=())
+
+        def cancel(progress) -> None:
+            if progress.phase == "replay_audit" and progress.completed == 1:
+                raise CancelledError
+
+        with self.assertRaises(CancelledError):
+            BattleHitReplayAuditService.postprocess(
+                analysis,
+                (),
+                progress_callback=cancel,
+            )
 
 
 def _hit(
