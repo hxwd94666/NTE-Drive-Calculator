@@ -14,7 +14,7 @@ from typing import Literal
 from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
 
 
-ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v13"
+ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v14"
 
 _Q_TIME_STOP_FOLLOW_TOLERANCE_US = 350_000
 
@@ -116,9 +116,22 @@ def _has_formal_direct_hit_evidence(
     return hit.gameplay_effect_id.casefold() in formal_effects
 
 
+def _is_inside_formal_time_stop(
+    hit: BattleAnalysisHit,
+    intervals: Sequence[tuple[int | None, int | None]],
+) -> bool:
+    return any(
+        start_us is not None
+        and end_us is not None
+        and int(start_us) <= hit.relative_time_us <= int(end_us)
+        for start_us, end_us in intervals
+    )
+
+
 def _is_action_evidence(
     hit: BattleAnalysisHit,
     candidates: Sequence[BattleActionAnimationCandidate],
+    time_stop_intervals: Sequence[tuple[int | None, int | None]],
 ) -> bool:
     if (
         hit.direction != "outgoing"
@@ -134,7 +147,11 @@ def _is_action_evidence(
     if hit.classification == "reaction" and _action_kind(hit) != "QTE":
         return False
     kind = _action_kind(hit)
-    if kind == "Q" and _has_formal_direct_hit_evidence(hit, candidates) is False:
+    if (
+        kind == "Q"
+        and not _is_inside_formal_time_stop(hit, time_stop_intervals)
+        and _has_formal_direct_hit_evidence(hit, candidates) is False
+    ):
         return False
     return bool(kind)
 
@@ -465,6 +482,8 @@ def _expand_action_from_animation(
     hits: Sequence[BattleAnalysisHit],
     candidates: Sequence[BattleActionAnimationCandidate],
 ) -> BattleInferredAction:
+    if action.input_kind == "Q" and "关联正式时停区间" in action.inference_basis:
+        return action
     resolved = tuple(
         result
         for candidate in candidates
@@ -569,6 +588,12 @@ def _truncate_interrupted_actions(
                 result.append(action)
                 continue
             next_action = ordered[index + 1]
+            if (
+                action.input_kind == "Q"
+                and "关联正式时停区间" in action.inference_basis
+            ):
+                result.append(action)
+                continue
             if action.start_us < next_action.start_us < action.end_us:
                 input_end_us = action.input_end_us
                 if input_end_us is not None:
@@ -666,6 +691,7 @@ class BattleActionInferenceService:
             if hit.character_id is not None and _is_action_evidence(
                 hit,
                 animation_candidates,
+                time_stop_intervals,
             ):
                 by_character[hit.character_id].append(hit)
 

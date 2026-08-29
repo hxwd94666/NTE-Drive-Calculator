@@ -37,7 +37,7 @@ from src.services.battle_outer_realm_buff_service import (
 )
 
 
-BUFF_ATTRIBUTE_PROJECTION_VERSION = "battle-buff-attribute-v21"
+BUFF_ATTRIBUTE_PROJECTION_VERSION = "battle-buff-attribute-v22"
 _INFERRED_HIT_TARGET_PREFIX = "battle-hit-target|id="
 
 _CONTINUOUS_DAMAGE_CHANNELS = frozenset({
@@ -432,6 +432,26 @@ class BattleBuffAttributeProjectionService:
                     property_id = normalize_battle_buff_property_id(
                         modifier.property_id
                     )
+                    if (
+                        property_id == "CoefModify"
+                        and interval.source_effect_definition_id
+                        == "character_awaken:1036:resonance_3"
+                        and hit.character_id == 1036
+                        and hit.classification == "direct"
+                        and "zankou" in "|".join((
+                            hit.ability_id,
+                            hit.gameplay_effect_id,
+                        )).casefold()
+                        and "ultraskill" in "|".join((
+                            hit.ability_id,
+                            hit.gameplay_effect_id,
+                        )).casefold()
+                    ):
+                        interval_reasons.append(
+                            "三觉 Q 的 CoefModify 已由正式技能倍率证据消费，"
+                            "不再作为待确认属性重复投影"
+                        )
+                        continue
                     if (
                         property_id in _TOPPLE_ONLY_PROPERTIES
                         and channel_id not in _TOPPLE_CHANNELS

@@ -89,6 +89,25 @@ def dot_final_replay_factors(
     ),)
 
 
+def skill_final_replay_terms(
+    evidence: BattleSkillDamageEvidence,
+) -> tuple[BattleHitReplayTerm, ...]:
+    """Explain a per-hit final multiplier resolved by a skill-state adapter."""
+
+    if not evidence.skill_final_multiplier_basis:
+        return ()
+    return (literal_replay_term(
+        f"skill:{evidence.damage_id}:final-multiplier",
+        "SkillFinalMultiplier",
+        "技能限定最终倍率",
+        max(1.0, evidence.skill_final_multiplier),
+        "awakening",
+        "觉醒",
+        is_percent=False,
+        basis=evidence.skill_final_multiplier_basis,
+    ),)
+
+
 def replay_source_terms(
     baseline: BattleCharacterBaseline,
     projection: BattleHitBuffProjection,

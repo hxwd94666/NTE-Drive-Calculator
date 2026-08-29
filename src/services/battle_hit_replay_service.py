@@ -40,6 +40,7 @@ from src.services.battle_hit_replay_support import (
     replay_source_terms as _source_terms,
     replay_target_profile_basis,
     reanchor_direct_replay_result,
+    skill_final_replay_terms,
 )
 from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditService
 from src.services.battle_hit_replay_formula_catalog import (
@@ -68,7 +69,7 @@ from src.services.battle_full_replay_formula_cache import (
 from src.services.battle_hit_buff_projection_cache import (
     BattleHitBuffProjectionCache,
 )
-HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v29"
+HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v30"
 class BattleHitReplayService:
     @classmethod
     def replay(
@@ -449,6 +450,8 @@ class BattleHitReplayService:
             normalized = property_id.casefold()
             if "finaldamage" in normalized or "damageupfinal" in normalized:
                 independent *= 1.0 + value
+        skill_final_multiplier = max(1.0, evidence.skill_final_multiplier)
+        independent *= skill_final_multiplier
         one_stack_non_critical = (
             multiplier
             * scaling_value
@@ -609,10 +612,9 @@ class BattleHitReplayService:
             if "finaldamage" in property_id.casefold()
             or "damageupfinal" in property_id.casefold()
         )
-        independent_terms = _source_terms(
-            baseline,
-            projection,
-            independent_ids,
+        independent_terms = (
+            *_source_terms(baseline, projection, independent_ids),
+            *skill_final_replay_terms(evidence),
         )
         stack_factors = (() if not evidence.state_multiplier_label else (_factor(
             "state_coefficient",
@@ -677,8 +679,12 @@ class BattleHitReplayService:
                 "independent",
                 "独立最终乘区",
                 independent,
-                "命中时结构化最终伤害 Buff",
-                formula="各最终伤害提升独立相乘",
+                (
+                    "命中时结构化最终伤害 Buff 与逐击限定觉醒"
+                    if evidence.skill_final_multiplier_basis
+                    else "命中时结构化最终伤害 Buff"
+                ),
+                formula="各最终伤害提升与技能限定最终倍率独立相乘",
                 terms=independent_terms,
             ),
             *dot_final_replay_factors(evidence),

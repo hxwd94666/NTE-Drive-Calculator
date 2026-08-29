@@ -550,6 +550,8 @@ class BattleSkillDamageEvidence:
     dot_final_multiplier: float = 1.0
     dot_final_multiplier_basis: str = ""
     critical_policy: Literal["character", "fixed", "disabled", "unknown"] = "character"
+    skill_final_multiplier: float = 1.0
+    skill_final_multiplier_basis: str = ""
 
 
 @dataclass(frozen=True, slots=True)

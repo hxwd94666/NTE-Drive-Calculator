@@ -17,6 +17,9 @@ from src.services.damage_calculation_service import (
 from src.services.battle_dot_stack_state_service import (
     reconstruct_dot_stack_states,
 )
+from src.services.battle_zankou_awakening_state_service import (
+    reconstruct_zankou_q_final_damage,
+)
 from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService,
 )
@@ -29,7 +32,10 @@ from src.services.battle_damage_composition_service import (
 from src.services.battle_audited_treatment_adapter_service import (
     is_kuhara_q_settlement_hit,
 )
-from src.services.official_role_awakening_service import awaken_skill_level_delta
+from src.services.official_role_awakening_service import (
+    active_awaken_effects,
+    awaken_skill_level_delta,
+)
 
 
 _NON_CRITICAL_DAMAGE_IDS = frozenset({
@@ -215,6 +221,10 @@ class BattleSkillDamageEvidenceService:
             analysis,
             build,
         )
+        zankou_q_final_damage = reconstruct_zankou_q_final_damage(
+            analysis,
+            builds.get(1036),
+        )
         co_timed_damage_ids = _co_timed_damage_ids(analysis)
         cache: dict[str, dict[str, Any] | None] = {}
         evidence = []
@@ -315,11 +325,18 @@ class BattleSkillDamageEvidenceService:
                 else "fixed" if fixed_crit_rate > 0.0
                 else "character"
             )
-            awakening = int(
-                character.get("awakening_level")
-                or (character.get("profile") or {}).get("awakening_level")
-                or 0
+            profile = dict(character.get("profile") or {})
+            profile.setdefault(
+                "awakening_level",
+                int(character.get("awakening_level") or 0),
             )
+            active_awakening_ids = {
+                str(row.get("effect_id") or "")
+                for row in active_awaken_effects(
+                    profile,
+                    awakenings_by_character.get(int(character["character_id"]), ()),
+                )
+            }
             basis = (
                 f"skill_damage[{tier}] 原始倍率数组，"
                 f"有效等级 {effective_level}"
@@ -340,7 +357,7 @@ class BattleSkillDamageEvidenceService:
                 basis += f"；{reaction_basis}"
             if (
                 int(character["character_id"]) == 1036
-                and awakening >= 3
+                and "resonance_3" in active_awakening_ids
                 and ability_id == "GA_Zankou_UltraSkill"
             ):
                 coefficient *= 1.20
@@ -364,6 +381,7 @@ class BattleSkillDamageEvidenceService:
             coefficient *= passive_coefficient
             if passive_basis:
                 basis += f"；{passive_basis}"
+            zankou_q_final = zankou_q_final_damage.get(hit.event_id)
             if is_kuhara_q_settlement_hit(
                 hit,
                 getattr(analysis, "inferred_actions", ()),
@@ -424,5 +442,13 @@ class BattleSkillDamageEvidenceService:
                     if hit.event_id in dot_states else ""
                 ),
                 critical_policy=critical_policy,
+                skill_final_multiplier=(
+                    zankou_q_final.multiplier
+                    if zankou_q_final is not None else 1.0
+                ),
+                skill_final_multiplier_basis=(
+                    zankou_q_final.evidence_basis
+                    if zankou_q_final is not None else ""
+                ),
             ))
         return tuple(evidence)

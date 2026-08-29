@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 
 from src.domain.battle_report import (
@@ -156,6 +157,29 @@ class BattleHitReplayFormulaDetailsTests(unittest.TestCase):
         )
         self.assertEqual("直伤", result.formula_type)
         self.assertNotIn("dot_final", {row.factor_id for row in result.factors})
+
+        boosted = BattleHitReplayService._replay_direct(
+            hit=hit,
+            evidence=replace(
+                evidence,
+                skill_final_multiplier=2.5,
+                skill_final_multiplier_basis="觉醒二蓄焰 +150% 最终伤害",
+            ),
+            baseline=baseline,
+            projection=projection,
+            values=values,
+            character_level=80.0,
+            analysis=SimpleNamespace(target_condition=condition),
+            applied_intervals=projection.applied_interval_ids,
+            excluded_intervals=(),
+        )
+        independent = next(
+            row for row in boosted.factors if row.factor_id == "independent"
+        )
+        self.assertEqual(2.5, independent.value)
+        self.assertIn("技能限定最终倍率", tuple(row.label for row in independent.terms))
+        assert boosted.non_critical_damage is not None
+        self.assertGreater(boosted.non_critical_damage, result.non_critical_damage * 2.49)
 
 
 if __name__ == "__main__":

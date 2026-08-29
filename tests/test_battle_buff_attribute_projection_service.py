@@ -87,6 +87,36 @@ def _interval(
 
 
 class BattleBuffAttributeProjectionServiceTests(unittest.TestCase):
+    def test_zankou_resonance_q_coefficient_is_consumed_by_skill_evidence(self) -> None:
+        interval = replace(
+            _interval(
+                "zankou-resonance-3",
+                start_us=0,
+                property_id="CoefModify",
+                value=0.2,
+                source_require_tags=("Ability.Player.Zankou.UltraSkill",),
+            ),
+            source_effect_definition_id="character_awaken:1036:resonance_3",
+            source_character_id=1036,
+            source_character_name="残虹",
+        )
+        hit = replace(
+            _hit(),
+            character_id=1036,
+            character_name="残虹",
+            attack_type="Q技能",
+            ability_id="GA_Zankou_UltraSkill",
+            gameplay_effect_id="GE_Player_Zankou_MagicUltraSkill2_Damage",
+        )
+
+        projection = BattleBuffAttributeProjectionService.project_hit(
+            hit,
+            (interval,),
+        )
+
+        self.assertEqual("not_applied", projection.decisions[0].status)
+        self.assertIn("正式技能倍率证据消费", projection.decisions[0].reasons[0])
+
     def test_stack_limit_caps_total_stacks_not_interval_count(self) -> None:
         older = _interval(
             "older-ten",

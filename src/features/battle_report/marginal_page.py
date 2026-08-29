@@ -266,8 +266,8 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
 
         attribute_card, attribute_layout = analysis_section("属性单位边际")
         attribute_note = QLabel(
-            "默认单位为一格金色驱动词条；量化率按当前角色计算，"
-            "伤害占比按当前角色伤害占全队伤害计算。"
+            "默认单位为一格金色驱动词条；收益是固定轴上的期望边际。量化率仅统计应用变化比值的角色伤害，不含已证明不受影响的渠道，"
+            "也不是抓包完整率；伤害占比按角色伤害占全队伤害计算。"
         )
         attribute_note.setStyleSheet(
             themed_style("color:#8b949e;font-size:12px")
@@ -278,8 +278,8 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             (
                 "属性单位",
                 "变化状态",
-                "本角色收益",
-                "全队收益",
+                "本角色期望收益",
+                "全队期望收益",
                 "量化率",
                 "伤害占比",
                 "伤害变化",

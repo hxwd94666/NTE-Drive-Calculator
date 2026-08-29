@@ -18,6 +18,9 @@ def _hit(
     damage_id: str,
     character_id: int = 1003,
     relative_time_us: int = 1_000_000,
+    ability_id: str = "",
+    attack_type: str = "E技能",
+    classification: str = "direct",
 ) -> BattleAnalysisHit:
     return BattleAnalysisHit(
         event_id=event_id,
@@ -28,19 +31,154 @@ def _hit(
         skill_name="技能" if damage_id else "未识别技能",
         damage_name="伤害" if damage_id else "未识别伤害",
         damage_component="skill",
-        attack_type="E技能",
+        attack_type=attack_type,
         damage_attribute="incantation",
         target_id="target",
         target_name="目标",
         damage=100.0,
         direction="outgoing",
-        is_follow_up=False,
-        classification="direct",
+        is_follow_up=classification == "weave",
+        classification=classification,
+        ability_id=ability_id,
         gameplay_effect_id=damage_id,
     )
 
 
 class BattleSkillDamageEvidenceServiceTests(unittest.TestCase):
+    def test_zankou_charge_applies_independent_final_multiplier_to_both_q_branches(
+        self,
+    ) -> None:
+        class Dao:
+            @staticmethod
+            def get_combat_curve(_table_path: str, _curve_id: str):
+                return None
+
+            @staticmethod
+            def get_skill_damage(damage_id: str):
+                if "UltraSkill" not in damage_id:
+                    return None
+                return {
+                    "ability_id": "GA_Zankou_UltraSkill",
+                    "damage_type": "incantation",
+                    "damage_source_category": "NORMAL",
+                    "fixed_crit_rate": 0.0,
+                    "atk_rate_base": (1.0, 1.1),
+                    "def_rate_base": (),
+                    "hp_rate_base": (),
+                }
+
+            @staticmethod
+            def get_reaction_damage_curve(_damage_id: str):
+                return None
+
+            @staticmethod
+            def list_character_awaken_effects(_character_id: int):
+                return [
+                    *(
+                        {
+                            "effect_id": f"Effect{ordinal}",
+                            "awaken_type": "Awaken_Effect",
+                            "skill_level_bonuses": [],
+                        }
+                        for ordinal in range(1, 5)
+                    ),
+                    {
+                        "effect_id": "resonance_3",
+                        "awaken_type": "Awaken_Resonance",
+                        "skill_level_bonuses": [{
+                            "skill_id": "GA_Zankou_UltraSkill",
+                            "level_delta": 1,
+                        }],
+                    },
+                ]
+
+        trigger = _hit(
+            "1:follow_up",
+            damage_id="GE_Player_Zankou_Melee1_Damage",
+            character_id=1036,
+            relative_time_us=1_000_000,
+            classification="weave",
+        )
+        q_hits = (
+            _hit(
+                "2:primary",
+                damage_id="GE_Player_Zankou_MagicUltraSkill1_Damage",
+                character_id=1036,
+                relative_time_us=10_000_000,
+                ability_id="GA_Zankou_UltraSkill",
+                attack_type="Q技能",
+            ),
+            _hit(
+                "3:primary",
+                damage_id="GE_Player_Zankou_MagicUltraSkill2_Damage",
+                character_id=1036,
+                relative_time_us=11_000_000,
+                ability_id="GA_Zankou_UltraSkill",
+                attack_type="Q技能",
+            ),
+            _hit(
+                "4:primary",
+                damage_id="GE_Player_Zankou_ForceUltraSkill1_Damage",
+                character_id=1036,
+                relative_time_us=15_000_000,
+                ability_id="GA_Zankou_UltraSkill",
+                attack_type="Q技能",
+            ),
+            _hit(
+                "5:primary",
+                damage_id="GE_Player_Zankou_ForceUltraSkill2_Damage",
+                character_id=1036,
+                relative_time_us=16_000_000,
+                ability_id="GA_Zankou_UltraSkill",
+                attack_type="Q技能",
+            ),
+        )
+        action = BattleInferredAction(
+            action_id="action:zankou:q:1",
+            character_id=1036,
+            character_name="残虹",
+            action_name="极轨终结",
+            input_kind="Q",
+            input_sequence="Q1 Q2 Q1 Q2",
+            start_us=7_000_000,
+            end_us=17_000_000,
+            hits=4,
+            damage=400.0,
+            identity_confidence="中",
+            timing_confidence="中",
+            inference_basis="正式时停",
+            evidence_event_ids=tuple(hit.event_id for hit in q_hits),
+            gameplay_effect_ids=tuple(hit.gameplay_effect_id for hit in q_hits),
+        )
+        analysis = SimpleNamespace(
+            hits=(trigger, *q_hits),
+            inferred_actions=(action,),
+            time_stop_intervals=((7_000_000, 17_000_000),),
+        )
+        character = {
+            "character_id": 1036,
+            "character_level": 80,
+            "skills": [{
+                "skill_id": "GA_Zankou_UltraSkill",
+                "skill_level": 1,
+            }],
+            "profile": {
+                "awakening_selection_initialized": True,
+                "selected_awaken_effect_ids": [
+                    "Effect1", "Effect2", "Effect3", "Effect4",
+                ],
+            },
+        }
+
+        evidence = BattleSkillDamageEvidenceService.load(
+            Dao(), analysis, {"characters": [character]}
+        )
+
+        self.assertEqual(4, len(evidence))
+        self.assertEqual({2.5}, {row.skill_final_multiplier for row in evidence})
+        self.assertEqual({1.2}, {row.multiplier_coefficient for row in evidence})
+        self.assertTrue(all("蓄焰" in row.skill_final_multiplier_basis for row in evidence))
+
     def test_kuhara_effect_two_doubles_only_attachment_damage(self) -> None:
         class Dao:
             @staticmethod

@@ -111,7 +111,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual("weave", result.hits[1].classification)
         self.assertEqual(1, len(result.targets))
         self.assertEqual(1, len(result.inferred_actions))
-        self.assertEqual("battle-action-window-v13", result.action_inference_version)
+        self.assertEqual("battle-action-window-v14", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
         self.assertEqual("battle-counterfactual-v22", result.formula_model_version)
 
@@ -196,7 +196,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertIsNone(buffed_margin.full_role_gain_percent)
         self.assertIn("已将 1 个动态 Buff 区间", buffed_margin.assumption)
         self.assertEqual(
-            "battle-buff-attribute-v21",
+            "battle-buff-attribute-v22",
             buffed.buff_attribute_projection_version,
         )
 
