@@ -504,31 +504,37 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
     def _open_counterfactual_hit(self, selection: TimelineSelection) -> None:
         analysis = self._analysis
         candidate = self._candidate_analysis
-        comparison = analysis.build_counterfactual if analysis is not None else None
-        if (
-            analysis is None
-            or candidate is None
-            or comparison is None
-            or selection.kind != "hit"
-        ):
+        if analysis is None or candidate is None or selection.kind != "hit":
             return
+        comparison = analysis.build_counterfactual
+        comparison_hits = comparison.hits if comparison is not None else ()
         related_counterfactuals = tuple(
             row
-            for row in comparison.hits
+            for row in comparison_hits
             if row.source_event_id == selection.item_id
         )
         projection = next(
-            (row for row in comparison.hits if row.event_id == selection.item_id),
+            (row for row in comparison_hits if row.event_id == selection.item_id),
             None,
         )
         original_hit = next(
-            (row for row in candidate.hits if row.event_id == selection.item_id),
-            None,
+            (
+                row
+                for snapshot in (analysis, candidate)
+                for row in (*snapshot.hits, *snapshot.timeline_hits)
+                if row.event_id == selection.item_id
+            ),
+            selection.payload,
         )
-        if projection is None or original_hit is None:
+        if getattr(original_hit, "event_id", None) != selection.item_id:
             return
         replay = next(
-            (row for row in candidate.hit_replays if row.event_id == selection.item_id),
+            (
+                row
+                for snapshot in (analysis, candidate)
+                for row in snapshot.hit_replays
+                if row.event_id == selection.item_id
+            ),
             None,
         )
         active_buffs = tuple(
@@ -546,7 +552,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         dialog = getattr(self, "_counterfactual_hit_dialog", None)
         if dialog is None:
             dialog = BattleHitFormulaDialog(self)
-            dialog.setWindowTitle("调整后逐击详情")
+            dialog.setWindowTitle("边际逐击详情")
             self._counterfactual_hit_dialog = dialog
         dialog.show_for_hit(
             original_hit,
@@ -776,7 +782,11 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         if baseline is None or analysis is None:
             self.attribute_table.setRowCount(0)
             return
-        units = BattleMarginalCalculationService.default_units(baseline)
+        units = BattleMarginalCalculationService.default_units(
+            baseline,
+            hits=analysis.hits,
+            replays={row.event_id: row for row in analysis.hit_replays},
+        )
         results = BattleMarginalCalculationService.calculate(
             analysis=analysis,
             character_id=baseline.character_id,

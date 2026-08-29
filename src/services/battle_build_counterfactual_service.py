@@ -54,31 +54,21 @@ from src.services.battle_analysis_progress import (
 from src.services.battle_build_role_counterfactual_support import (
     build_role_counterfactuals,
 )
-
-
+from src.services.battle_build_vital_support import (
+    linked_lacrimosa_vital_hits,
+    projected_hit_damage,
+    safe_ratio,
+)
 BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v5"
-
 _STRUCTURED_METHODS = {
     "structured_expected",
     "structured_selected",
     DAFFODILL_EFFECT_FIVE_METHOD,
 }
 _STRUCTURED_VITAL_METHODS = {
-    "linked_source_hit_ratio",
-    "fadia_source_max_hp_ratio",
-    "mechanic_disabled",
+    "linked_source_hit_ratio", "linked_source_hit_ratio_sequential_hp",
+    "fadia_source_max_hp_ratio", "mechanic_disabled",
 }
-
-
-def _safe_ratio(candidate: float, baseline: float) -> float | None:
-    if baseline <= 0 or candidate < 0:
-        return None
-    value = candidate / baseline
-    if value != value or value == float("inf"):
-        return None
-    return max(0.0, min(100.0, value))
-
-
 class BattleBuildCounterfactualService:
     """Compare two independently replayed builds while preserving the real axis."""
 
@@ -453,14 +443,21 @@ class BattleBuildCounterfactualService:
     ) -> tuple[BattleBuildVitalCounterfactual, ...]:
         projected_by_event = {row.event_id: row for row in projected_hits}
         candidate_vital = {row.event_id: row for row in candidate.max_hp_events}
+        reduction_delta_by_target: dict[tuple[str, str], float] = {}
+        effective_delta_by_target: dict[tuple[str, str], float] = {}
         result = []
-        for event in original.max_hp_events:
+        for event in sorted(
+            original.max_hp_events,
+            key=lambda row: (row.observed_at_us, row.event_id),
+        ):
             baseline_damage = max(0.0, float(event.effective_hp_loss))
             quantification = cls._unavailable_ratio(
                 code="mechanic_dependency_unresolved",
                 explanation="缺少可安全联动的来源公式，原值只保留为轴上事实。",
             )
             heuristic_projection = None
+            sequential_projection: float | None = None
+            candidate_state: tuple[float, float, float] | None = None
             candidate_event = candidate_vital.get(event.event_id)
             if event.mechanic_kind == "lacrimosa_nightmare_awaken_5":
                 if (
@@ -476,10 +473,11 @@ class BattleBuildCounterfactualService:
                         explanation="候选配置未激活安魂曲五觉，本次生命上限结算归零。",
                     )
                 else:
-                    linked = cls._linked_vital_hits(
+                    linked = linked_lacrimosa_vital_hits(
                         event.evidence_event_ids,
                         event.source_character_id,
-                        event.source_skill_name,
+                        event.target_id,
+                        event.scope_half,
                         projected_by_event,
                         original_hits,
                     )
@@ -487,13 +485,110 @@ class BattleBuildCounterfactualService:
                         linked,
                         baseline_damage,
                     )
+                source_ratio = quantification.quantified_ratio
+                if source_ratio is not None:
+                    prior_rows = tuple(
+                        row
+                        for row in projected_hits
+                        if row.event_id in original_hits
+                        and original_hits[row.event_id].target_id == event.target_id
+                        and original_hits[row.event_id].scope_half == event.scope_half
+                        and (
+                            original_hits[row.event_id].relative_time_us
+                            < event.observed_at_us
+                            or row.event_id in event.evidence_event_ids
+                        )
+                    )
+                    unresolved = tuple(
+                        row
+                        for row in prior_rows
+                        if row.quantification.status == "unavailable"
+                    )
+                    if unresolved:
+                        continuity_gap = BattleQuantificationGap(
+                            code="max_hp_axis_continuity_unavailable",
+                            dimension_id="target_current_hp",
+                            dependency_scope="mechanic_specific",
+                            property_ids=(),
+                            explanation=(
+                                "安魂曲五觉前存在无法投影的同目标逐击，"
+                                "无法完整顺推候选当前生命。"
+                            ),
+                        )
+                        if quantification.status in {"complete", "partial"}:
+                            quantification = BattleCounterfactualRatio.partial(
+                                source_ratio,
+                                method="linked_source_hit_ratio_sequential_hp",
+                                confidence="中",
+                                dependency_scope="mechanic_specific",
+                                included_dimension_ids=("nightmare_source",),
+                                cancelled_dimension_ids=(),
+                                gaps=tuple(dict.fromkeys((
+                                    *quantification.gaps,
+                                    continuity_gap,
+                                ))),
+                                explanation=(
+                                    "噩梦来源倍率可量化，但固定轴当前生命连续性不完整。"
+                                ),
+                            )
+                    if not unresolved:
+                        target_key = (event.scope_half, event.target_id)
+                        hit_delta = sum(
+                            projected_hit_damage(row)
+                            - float(original_hits[row.event_id].damage)
+                            for row in prior_rows
+                        )
+                        current_max = max(
+                            0.0,
+                            float(event.old_max_hp)
+                            - reduction_delta_by_target.get(target_key, 0.0),
+                        )
+                        current_hp = max(
+                            0.0,
+                            min(
+                                current_max,
+                                float(event.hp_before_settlement)
+                                - hit_delta
+                                - effective_delta_by_target.get(target_key, 0.0),
+                            ),
+                        )
+                        changed_reduction = max(
+                            0.0,
+                            float(event.max_hp_reduction) * source_ratio,
+                        )
+                        sequential_projection = (
+                            current_hp
+                            * min(1.0, changed_reduction / current_max)
+                            if current_max > 0.0
+                            else 0.0
+                        )
+                        candidate_state = (current_max, current_hp, changed_reduction)
+                        if quantification.method != "mechanic_disabled":
+                            quantification = replace(
+                                quantification,
+                                method="linked_source_hit_ratio_sequential_hp",
+                                explanation=(
+                                    "按正式噩梦来源倍率改变生命上限削减，"
+                                    "并沿固定逐击轴顺推候选当前生命与当前上限。"
+                                ),
+                            )
+                        reduction_delta_by_target[target_key] = (
+                            reduction_delta_by_target.get(target_key, 0.0)
+                            + changed_reduction
+                            - float(event.max_hp_reduction)
+                        )
+                        effective_delta_by_target[target_key] = (
+                            effective_delta_by_target.get(target_key, 0.0)
+                            + sequential_projection
+                            - baseline_damage
+                        )
             elif (
                 event.mechanic_kind == "fadia_dark_star_max_hp_transfer"
                 and event.source_character_id is not None
             ):
                 original_hp = original_baselines.get(event.source_character_id)
                 candidate_hp = candidate_baselines.get(event.source_character_id)
-                hp_ratio = _safe_ratio(
+                hp_ratio = safe_ratio(
                     float(candidate_hp.source_max_hp or 0.0) if candidate_hp else 0.0,
                     float(original_hp.source_max_hp or 0.0) if original_hp else 0.0,
                 )
@@ -511,7 +606,9 @@ class BattleBuildCounterfactualService:
                     )
             ratio = quantification.quantified_ratio
             known_projection = (
-                None if ratio is None else baseline_damage * ratio
+                sequential_projection
+                if sequential_projection is not None
+                else (None if ratio is None else baseline_damage * ratio)
             )
             result.append(BattleBuildVitalCounterfactual(
                 event_id=event.event_id,
@@ -528,43 +625,9 @@ class BattleBuildCounterfactualService:
                 ),
                 heuristic_projection_damage=heuristic_projection,
                 quantification=quantification,
+                candidate_state=candidate_state,
             ))
         return tuple(result)
-
-    @staticmethod
-    def _linked_vital_hits(
-        evidence_event_ids: Sequence[str],
-        character_id: int | None,
-        source_skill_name: str,
-        projected_by_event: Mapping[str, BattleBuildHitCounterfactual],
-        original_hits: Mapping[str, BattleAnalysisHit],
-    ) -> tuple[BattleBuildHitCounterfactual, ...]:
-        rows = tuple(
-            projected_by_event[event_id]
-            for event_id in evidence_event_ids
-            if event_id in projected_by_event
-            and projected_by_event[event_id].character_id == character_id
-        )
-        if not rows:
-            return ()
-        source_name = source_skill_name.casefold()
-        named = tuple(
-            row
-            for row in rows
-            if source_name
-            and (
-                source_name in row.skill_name.casefold()
-                or source_name in row.damage_name.casefold()
-            )
-        )
-        if named:
-            return named
-        effect_matched = tuple(
-            row
-            for row in rows
-            if "lacrimosa_blood_damage" in original_hits[row.event_id].gameplay_effect_id.casefold()
-        )
-        return effect_matched or rows
 
     @classmethod
     def _ratio_catalogs(
@@ -658,7 +721,7 @@ class BattleBuildCounterfactualService:
             BattleBuildQuantificationService.known_or_source(row)
             for row in rows
         )
-        linked_ratio = _safe_ratio(known_total, linked_baseline)
+        linked_ratio = safe_ratio(known_total, linked_baseline)
         gaps = tuple(dict.fromkeys(
             gap
             for row in rows

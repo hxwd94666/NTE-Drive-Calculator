@@ -380,7 +380,16 @@ class BattleHitReplayService:
                 formula_label,
             )
         attribute = evidence.damage_attribute.casefold()
-        true_damage = attribute == "true"
+        if attribute == "true":
+            return cls._unreplayable(
+                hit.event_id,
+                hit.damage,
+                (
+                    "静态 TRUE 没有独立属性抗性；该伤害必须由专用 channel "
+                    "适配器还原为角色固有属性后再计算防御与对应抗性。"
+                ),
+                formula_label,
+            )
         scaling_value = _first_value(values, evidence.scaling_property_id)
         multiplier = (
             evidence.scaling_multiplier * evidence.multiplier_coefficient
@@ -419,7 +428,7 @@ class BattleHitReplayService:
             defense_basis = f"{target_profile_basis} DefBase/6"
         defense = (
             1.0
-            if attribute in {"psychically", "true"}
+            if attribute == "psychically"
             else calculate_defense_multiplier(character_level, enemy_defense)
         )
         base_resistance = dict(condition.resistances).get(attribute, 0.20)
@@ -434,9 +443,7 @@ class BattleHitReplayService:
         penetration_property = _ELEMENT_PENETRATION_PROPERTIES.get(attribute)
         if penetration_property:
             resistance -= values.get(penetration_property, 0.0)
-        resistance_factor = (
-            1.0 if true_damage else calculate_resistance_multiplier(resistance)
-        )
+        resistance_factor = calculate_resistance_multiplier(resistance)
         independent = 1.0
         for property_id, value in values.items():
             normalized = property_id.casefold()
@@ -500,7 +507,7 @@ class BattleHitReplayService:
             projection,
             ("CritDamageBase",),
         )
-        defense_terms = () if true_damage else (
+        defense_terms = (
             literal_replay_term(
                 "character:level",
                 "CharacterLevel",
@@ -562,7 +569,7 @@ class BattleHitReplayService:
                 basis=target_profile_basis,
             ),
         )
-        resistance_terms = () if true_damage else (
+        resistance_terms = (
             literal_replay_term(
                 "target:resistance",
                 f"Resistance:{attribute}",
@@ -643,11 +650,9 @@ class BattleHitReplayService:
                 "defense",
                 "防御区",
                 defense,
-                "TRUE 伤害不计算防御" if true_damage else defense_basis,
+                defense_basis,
                 formula=(
-                    "固定为 1"
-                    if true_damage
-                    else "L / ([DefBase × (1 + DefUp) + DefAdd] / 6 × "
+                    "L / ([DefBase × (1 + DefUp) + DefAdd] / 6 × "
                     "(1 - 防御穿透) × (1 - 防御降低) + L)，L=角色等级+100"
                 ),
                 terms=defense_terms,
@@ -656,12 +661,8 @@ class BattleHitReplayService:
                 "resistance",
                 "抗性区",
                 resistance_factor,
-                "TRUE 伤害不计算属性抗性" if true_damage else target_profile_basis,
-                formula=(
-                    "固定为 1"
-                    if true_damage
-                    else "抗性分段函数(目标抗性 - 属性穿透)"
-                ),
+                target_profile_basis,
+                formula="抗性分段函数(目标抗性 - 属性穿透)",
                 terms=resistance_terms,
             ),
             _factor(

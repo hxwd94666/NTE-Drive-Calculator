@@ -597,6 +597,7 @@ class BattleSpecialHitReplayService:
             critical_policy=(
                 "fixed" if channel_id == "reaction_scorch" else "disabled"
             ),
+            formula_damage_attribute=attribute,
         )
 
     @staticmethod

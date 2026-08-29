@@ -31,6 +31,7 @@ class BattleBuildEditDaoTest(unittest.TestCase):
             """
             INSERT INTO battle_record(
                 capture_operation_id, source_kind, capability_level,
+                evidence_source_kind, evidence_capability_level,
                 combat_context_kind, has_first_half, has_second_half,
                 captured_at_utc, finalized_at_utc, dps_time_mode,
                 duration_seconds, total_damage, total_dps,
@@ -39,7 +40,8 @@ class BattleBuildEditDaoTest(unittest.TestCase):
                 payload_schema_version, raw_summary_json,
                 raw_summary_sha256, created_at_utc
             ) VALUES (
-                'imported-operation', 'nte_core_summary', 'hit_axis',
+                'imported-operation', 'nte_core_summary', 'summary_only',
+                'nte_core_combat', 'hit_axis',
                 'non_abyss', 0, 0, 'now', 'now', 'active', 1, 1, 1,
                 0, 1, 1, 0, '[1004]', 0, 0, 1, '{}',
                 '0000000000000000000000000000000000000000000000000000000000000000',

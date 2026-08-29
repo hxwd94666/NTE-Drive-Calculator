@@ -20,7 +20,7 @@ from src.features.battle_report.analysis_scope_mixin import (
 )
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
 from src.features.battle_report.buff_evidence_view import BattleBuffEvidencePanel
-from src.services.battle_buff_counterfactual_service import (
+from src.services.battle_buff_counterfactual_plan_service import (
     battle_buff_counterfactual_key,
 )
 

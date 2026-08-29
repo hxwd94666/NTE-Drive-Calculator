@@ -45,6 +45,10 @@ _UPDATE_RUNTIME_DEFAULTS = {
     # default during the transition.
     "mirror_cdk": "",
 }
+_HOTKEY_RUNTIME_DEFAULTS = {
+    # Older released static datasets only contain the three scan hotkeys.
+    "battle_rerecord": "F11",
+}
 
 
 class AccountSettingsService:
@@ -199,6 +203,8 @@ class AccountSettingsService:
             effective_defaults.update(_UI_RUNTIME_DEFAULTS)
         elif key == "update":
             effective_defaults.update(_UPDATE_RUNTIME_DEFAULTS)
+        elif key == "hotkeys":
+            effective_defaults.update(_HOTKEY_RUNTIME_DEFAULTS)
         normalized = {
             name: value.get(name, default)
             for name, default in effective_defaults.items()
@@ -247,7 +253,7 @@ class AccountSettingsService:
                 )
             normalized["inventory_snapshot_retention_count"] = retention
         elif key == "hotkeys":
-            for name in ("capture", "finish", "stop"):
+            for name in ("capture", "finish", "stop", "battle_rerecord"):
                 hotkey = str(normalized[name]).strip()
                 if not hotkey:
                     raise UserDataValidationError(f"{name} 快捷键不能为空")

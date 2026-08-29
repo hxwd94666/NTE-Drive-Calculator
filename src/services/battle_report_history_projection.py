@@ -130,7 +130,13 @@ def stored_summary(record: dict) -> StoredBattleSummary:
     )
 
 
-def history_entry(record: dict) -> BattleReportHistoryEntry:
+def history_entry(
+    record: dict,
+    *,
+    environment_name: str = "",
+    environment_source: str = "",
+    environment_confidence: str = "",
+) -> BattleReportHistoryEntry:
     retention_kind = str(record["retention_kind"])
     if retention_kind not in {"auto", "manual"}:
         raise RuntimeError("战报保留状态无效")
@@ -138,6 +144,8 @@ def history_entry(record: dict) -> BattleReportHistoryEntry:
     if context_kind not in {"abyss", "non_abyss"}:
         raise RuntimeError("战报上下文状态无效")
     floor = record["abyss_floor"]
+    if environment_source not in {"", "user_confirmed", "inferred"}:
+        raise RuntimeError("战报历史环境来源无效")
     return BattleReportHistoryEntry(
         battle_record_id=int(record["battle_record_id"]),
         retention_kind=cast(Literal["auto", "manual"], retention_kind),
@@ -153,6 +161,12 @@ def history_entry(record: dict) -> BattleReportHistoryEntry:
         total_hits=int(record["total_hits"]),
         capability_level=str(record["capability_level"]),
         source_kind=str(record["source_kind"]),
+        environment_name=str(environment_name or "").strip(),
+        environment_source=cast(
+            Literal["", "user_confirmed", "inferred"],
+            environment_source,
+        ),
+        environment_confidence=str(environment_confidence or "").strip(),
     )
 
 

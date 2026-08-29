@@ -782,6 +782,16 @@ class NteCoreClient(NteCoreBattleQueryMixin):
             self._process.terminate()
         self._finish_process()
 
+    def abort(self) -> None:
+        """Abort the owned process and release blocked requests."""
+
+        if self._process is None or self._closed.is_set():
+            return
+        self._expected_exit.set()
+        if self.is_running:
+            self._process.terminate()
+        self._finish_process()
+
     def __enter__(self) -> NteCoreClient:
         return self.start()
 

@@ -1,3 +1,4 @@
+# 提供边界明确且已审计的觉醒 Buff 适配器。
 """Expose bounded, manually audited awakening Buff adapters."""
 
 from __future__ import annotations

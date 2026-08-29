@@ -407,6 +407,10 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             skill_name="噩梦",
             damage=100,
         )
+        hit = replace(
+            hit,
+            gameplay_effect_id="GE_Player_Lacrimosa_Blood_Damage",
+        )
         original = _snapshot(
             hits=(hit,),
             baselines=(),
@@ -444,13 +448,17 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             candidate=candidate,
         )
 
-        self.assertEqual(156.0, result.candidate_damage)
-        self.assertEqual(156.0, result.roles[0].candidate_damage)
-        self.assertEqual(36.0, result.roles[0].candidate_damage - 120.0)
+        self.assertAlmostEqual(155.28, result.candidate_damage)
+        self.assertAlmostEqual(155.28, result.roles[0].candidate_damage)
+        self.assertAlmostEqual(
+            35.28,
+            result.roles[0].candidate_damage - 120.0,
+        )
         self.assertEqual(
-            "linked_source_hit_ratio",
+            "linked_source_hit_ratio_sequential_hp",
             result.vital_events[0].quantification.method,
         )
+        self.assertEqual((1000.0, 980.0, 36.0), result.vital_events[0].candidate_state)
 
     def test_fadia_max_hp_damage_follows_source_current_max_hp(self) -> None:
         hit = _hit(
@@ -620,9 +628,9 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
         self.assertEqual((120.0, 50.0), tuple(hit.damage for hit in projected.hits))
         self.assertEqual(170.0, projected.inferred_actions[0].damage)
         self.assertEqual(170.0, projected.timeline_damage_groups[0].damage)
-        self.assertEqual(36.0, projected.timeline_damage_groups[1].damage)
-        self.assertIn("候选/原始伤害比", projected.timeline_damage_groups[1].detail_lines[-1])
-        self.assertEqual(36.0, projected.roles[0].max_hp_reduction_damage)
+        self.assertEqual(30.0, projected.timeline_damage_groups[1].damage)
+        self.assertIn("候选未量化", projected.timeline_damage_groups[1].detail_lines[-2])
+        self.assertEqual(30.0, projected.roles[0].max_hp_reduction_damage)
         self.assertEqual((100.0, 50.0), tuple(hit.damage for hit in original.hits))
 
     def test_target_sensitive_peer_does_not_cross_target(self) -> None:

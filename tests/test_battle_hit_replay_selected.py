@@ -13,6 +13,9 @@ from src.domain.battle_report import (
     BattleTargetCondition,
 )
 from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditService
+from src.services.battle_hit_local_crit_inference_service import (
+    BattleHitLocalCritInferenceService,
+)
 from src.services.battle_hit_replay_service import BattleHitReplayService
 from src.services.battle_selected_hit_replay_context import (
     PreparedReplayAuditContext,
@@ -163,8 +166,8 @@ class BattleSelectedHitReplayTests(unittest.TestCase):
 
         with (
             patch.object(
-                BattleHitReplayService,
-                "_apply_local_crit_evidence",
+                BattleHitLocalCritInferenceService,
+                "apply",
                 side_effect=AssertionError("selected replay must keep frozen branch"),
             ),
             patch.object(
@@ -198,7 +201,7 @@ class BattleSelectedHitReplayTests(unittest.TestCase):
 
         self.assertEqual("critical", frozen.critical_state)
         self.assertEqual(150.0, frozen.selected_damage)
-        self.assertAlmostEqual(100.0 / 3.0, frozen.selected_error_percent)
+        self.assertAlmostEqual(50.0, frozen.selected_error_percent)
 
     def test_stateful_evidence_requires_full_axis(self) -> None:
         analysis = SimpleNamespace(hits=(_hit("a"),), baselines=())

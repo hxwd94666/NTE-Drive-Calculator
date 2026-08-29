@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPaintEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +29,8 @@ _CARD_HEIGHT = 244
 _VISIBLE_DAMAGE_ROWS = 5
 _DAMAGE_ROW_HEIGHT = 25
 _DAMAGE_ROW_SPACING = 2
+_DAMAGE_VALUE_WIDTH = 92
+_DAMAGE_SHARE_WIDTH = 52
 _CHANNEL_COLORS = {
     "direct": "#58a6ff",
     "direct_follow_up": "#a371f7",
@@ -61,6 +64,33 @@ _CHANNEL_COLORS = {
 
 def _format_damage(value: float) -> str:
     return f"{value:,.0f}"
+
+
+class _ElidedLabel(QLabel):
+    """Keep a row label inside its available column without hiding the full text."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.setToolTip(text)
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt override
+        del event
+        painter = QPainter(self)
+        text_rect = self.contentsRect()
+        elided_text = painter.fontMetrics().elidedText(
+            self.text(),
+            Qt.ElideRight,
+            max(0, text_rect.width()),
+        )
+        self.style().drawItemText(
+            painter,
+            text_rect,
+            self.alignment(),
+            self.palette(),
+            self.isEnabled(),
+            elided_text,
+            self.foregroundRole(),
+        )
 
 
 class BattleDamageCompositionPanel(QWidget):
@@ -324,18 +354,18 @@ class BattleDamageCompositionPanel(QWidget):
             "border:none;border-radius:4px"
         )
         layout.addWidget(marker)
-        label = QLabel(entry.label)
+        label = _ElidedLabel(entry.label)
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         label.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
-        layout.addWidget(label)
-        layout.addStretch()
+        layout.addWidget(label, 1)
         damage = QLabel(_format_damage(entry.damage))
         damage.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        damage.setMinimumWidth(92)
+        damage.setFixedWidth(_DAMAGE_VALUE_WIDTH)
         damage.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
         layout.addWidget(damage)
         share = QLabel(f"{entry.share_percent:.1f}%")
         share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        share.setFixedWidth(52)
+        share.setFixedWidth(_DAMAGE_SHARE_WIDTH)
         share.setStyleSheet(themed_style("font-size:11px;color:#8b949e"))
         layout.addWidget(share)
         return row

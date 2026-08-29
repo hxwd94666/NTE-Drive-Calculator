@@ -232,6 +232,8 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             full_role_gain_percent=1.0,
             full_team_gain_percent=0.4,
             damage_share_percent=40.0,
+            role_denominator_status="complete",
+            team_denominator_status="complete",
             quantification=BattleDamageQuantification.from_buckets(
                 status="complete",
                 fully_quantified_damage=800.0,
@@ -243,6 +245,8 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         page._analysis = SimpleNamespace(
             baselines=(baseline,), roles=(), build_counterfactual=None,
             buff_counterfactuals=(),
+            hits=(),
+            hit_replays=(),
         )
         page.character_combo.blockSignals(True)
         page.character_combo.addItem("测试角色", 1001)
@@ -504,6 +508,8 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             full_role_gain_percent=None,
             full_team_gain_percent=None,
             damage_share_percent=40.0,
+            role_denominator_status="complete",
+            team_denominator_status="complete",
             quantification=BattleDamageQuantification.from_buckets(
                 status="unavailable",
                 unavailable_damage=1000.0,

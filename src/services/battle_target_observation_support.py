@@ -1,3 +1,4 @@
+# 规范化目标观测且不修改持久化逐击证据。
 """Target-observation normalization that never mutates persisted hit evidence."""
 
 from __future__ import annotations

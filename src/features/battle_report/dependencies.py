@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QWidget
 from src.app.context import AppContext
 from src.app.constants import APP_VERSION
 from src.features.battle_report.controller import BattleReportController
+from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.integrations.nte_core import NteCoreClient
 from src.observability import OperationContext
 from src.services.battle_report_history_service import BattleReportHistoryService
@@ -106,6 +107,7 @@ def build_battle_report_controller(
     inventory_sync_is_running: Callable[[], bool],
     stop_inventory_sync: Callable[[], None],
     start_inventory_sync: Callable[[], None],
+    hotkey_manager: GlobalHotkeyManager,
 ) -> BattleReportController:
     service_factory = BattleReportServiceFactory(app_context)
     return BattleReportController(
@@ -114,6 +116,7 @@ def build_battle_report_controller(
         inventory_sync_is_running=inventory_sync_is_running,
         stop_inventory_sync=stop_inventory_sync,
         start_inventory_sync=start_inventory_sync,
+        hotkey_manager=hotkey_manager,
         client_factory=lambda data_dir: NteCoreClient(
             data_dir=data_dir,
             cwd=app_context.paths.app_dir,

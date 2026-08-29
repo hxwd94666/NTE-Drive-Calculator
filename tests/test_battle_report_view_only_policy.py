@@ -1,3 +1,4 @@
+# 验证旧战报契约可查看但拒绝反事实写入。
 """Verify old battle contracts remain viewable but reject counterfactual writes."""
 
 from __future__ import annotations

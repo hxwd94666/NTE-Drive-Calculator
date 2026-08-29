@@ -4,10 +4,15 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
-from src.domain.battle_report import BattleAnalysisHit, BattleRangeRoleSummary
+from src.domain.battle_report import (
+    BattleAnalysisHit,
+    BattleRangeRoleSummary,
+    DamageCompositionEntry,
+)
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
+from src.features.battle_report.composition_view import BattleDamageCompositionPanel
 
 
 class BattleReportCompositionUiTests(unittest.TestCase):
@@ -55,7 +60,7 @@ class BattleReportCompositionUiTests(unittest.TestCase):
         self.assertEqual(1, view.damage_composition_panel._grid.count())
         labels = self._composition_labels(view)
         self.assertIn("残虹", labels)
-        self.assertIn("持续伤害", labels)
+        self.assertIn("蚀心", labels)
         self.assertNotIn("未知角色", labels)
         self.assertNotIn("未归因", labels)
 
@@ -113,6 +118,32 @@ class BattleReportCompositionUiTests(unittest.TestCase):
         self.assertEqual(["composition"], requests)
         view.composition_topple_button.click()
         self.assertEqual(["composition"], requests)
+
+    def test_long_row_label_keeps_numeric_columns_inside_card(self) -> None:
+        entry = DamageCompositionEntry(
+            key="direct",
+            label="普通攻击：未来自我连续性假设 · 未来自我连续性假设",
+            damage=123_456.0,
+            share_percent=12.3,
+        )
+        row = BattleDamageCompositionPanel._damage_row(entry)
+        row.resize(420, 25)
+        row.show()
+        self.app.processEvents()
+
+        labels = row.findChildren(QLabel)
+        name = next(label for label in labels if label.toolTip() == entry.label)
+        damage = next(label for label in labels if label.text() == "123,456")
+        share = next(label for label in labels if label.text() == "12.3%")
+
+        self.assertEqual(entry.label, name.text())
+        self.assertGreater(
+            name.fontMetrics().horizontalAdvance(name.text()),
+            name.width(),
+        )
+        self.assertEqual(92, damage.width())
+        self.assertEqual(52, share.width())
+        self.assertLessEqual(share.geometry().right(), row.rect().right())
 
     @staticmethod
     def _composition_labels(view: BattleLongAnalysisView) -> tuple[str, ...]:

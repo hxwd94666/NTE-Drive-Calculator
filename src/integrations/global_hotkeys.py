@@ -1,4 +1,4 @@
-# 独占扫描与鉴定共用的 Windows 全局热键会话和监听线程。
+# 独占扫描、鉴定与战报共用的 Windows 全局热键会话和监听线程。
 """Application-wide global hotkey manager with a keyboard-package fallback."""
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Literal
 from src.utils.logger import logger
 
 
-HotkeyAction = Literal["stop", "capture", "finish"]
+HotkeyAction = Literal["stop", "capture", "finish", "battle_rerecord"]
 HotkeyCallback = Callable[[], None]
 ThreadFactory = Callable[..., threading.Thread]
 
@@ -25,6 +25,7 @@ class HotkeyConfiguration:
     capture: str
     finish: str
     stop: str
+    battle_rerecord: str
 
 
 class GlobalHotkeyManager:
@@ -36,12 +37,14 @@ class GlobalHotkeyManager:
         capture_hotkey: str,
         finish_hotkey: str,
         stop_hotkey: str,
+        battle_rerecord_hotkey: str,
         thread_factory: ThreadFactory = threading.Thread,
     ) -> None:
         self._configuration = HotkeyConfiguration(
             capture=str(capture_hotkey),
             finish=str(finish_hotkey),
             stop=str(stop_hotkey),
+            battle_rerecord=str(battle_rerecord_hotkey),
         )
         self._thread_factory = thread_factory
         self._lock = threading.RLock()
@@ -68,6 +71,7 @@ class GlobalHotkeyManager:
         capture_hotkey: str,
         finish_hotkey: str,
         stop_hotkey: str,
+        battle_rerecord_hotkey: str,
     ) -> None:
         """Update bindings for the next session without mutating a live listener."""
 
@@ -75,8 +79,14 @@ class GlobalHotkeyManager:
             capture=str(capture_hotkey).strip(),
             finish=str(finish_hotkey).strip(),
             stop=str(stop_hotkey).strip(),
+            battle_rerecord=str(battle_rerecord_hotkey).strip(),
         )
-        if not all((configuration.capture, configuration.finish, configuration.stop)):
+        if not all((
+            configuration.capture,
+            configuration.finish,
+            configuration.stop,
+            configuration.battle_rerecord,
+        )):
             raise ValueError("全局热键不能为空")
         with self._lock:
             self._configuration = configuration
@@ -85,9 +95,10 @@ class GlobalHotkeyManager:
         self,
         *,
         owner: str,
-        on_stop: HotkeyCallback,
+        on_stop: HotkeyCallback | None = None,
         on_capture: HotkeyCallback | None = None,
         on_finish: HotkeyCallback | None = None,
+        on_battle_rerecord: HotkeyCallback | None = None,
     ) -> None:
         """Replace any previous session and bind callbacks owned by one feature."""
 
@@ -95,11 +106,15 @@ class GlobalHotkeyManager:
         if not owner_name:
             raise ValueError("热键会话 owner 不能为空")
         self.stop()
-        callbacks: dict[HotkeyAction, HotkeyCallback] = {"stop": on_stop}
+        callbacks: dict[HotkeyAction, HotkeyCallback] = {}
+        if on_stop is not None:
+            callbacks["stop"] = on_stop
         if on_capture is not None:
             callbacks["capture"] = on_capture
         if on_finish is not None:
             callbacks["finish"] = on_finish
+        if on_battle_rerecord is not None:
+            callbacks["battle_rerecord"] = on_battle_rerecord
         with self._lock:
             self._generation += 1
             generation = self._generation
@@ -215,6 +230,7 @@ class GlobalHotkeyManager:
             (1, configuration.stop, "stop"),
             (2, configuration.capture, "capture"),
             (3, configuration.finish, "finish"),
+            (4, configuration.battle_rerecord, "battle_rerecord"),
         )
         actions: dict[int, HotkeyAction] = {}
         registrations: list[int] = []
@@ -262,11 +278,7 @@ class GlobalHotkeyManager:
     def _keyboard_poll_loop(self, generation: int) -> None:
         import keyboard as keyboard_module
 
-        cooldowns: dict[HotkeyAction, float] = {
-            "stop": 0.5,
-            "capture": 0.3,
-            "finish": 0.5,
-        }
+        pressed_actions: set[HotkeyAction] = set()
         while True:
             snapshot = self._session_snapshot(generation)
             if snapshot is None:
@@ -276,12 +288,16 @@ class GlobalHotkeyManager:
                 "stop": configuration.stop,
                 "capture": configuration.capture,
                 "finish": configuration.finish,
+                "battle_rerecord": configuration.battle_rerecord,
             }
             try:
                 for action in callbacks:
-                    if keyboard_module.is_pressed(keys[action].lower()):
+                    pressed = keyboard_module.is_pressed(keys[action].lower())
+                    if pressed and action not in pressed_actions:
+                        pressed_actions.add(action)
                         self._dispatch(generation, action)
-                        time.sleep(cooldowns[action])
+                    elif not pressed:
+                        pressed_actions.discard(action)
             except Exception as exc:
                 logger.debug("全局热键轮询异常，继续监听: {}", exc)
             time.sleep(0.05)

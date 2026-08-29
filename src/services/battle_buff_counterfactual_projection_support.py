@@ -18,6 +18,11 @@ from src.domain.battle_counterfactual_quantification import (
 )
 from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot
 
+_LACRIMOSA_NIGHTMARE_EFFECTS = frozenset({
+    "ge_player_lacrimosa_blood_damage",
+    "ge_player_lacrimosa_blood_damage_lv6",
+})
+
 
 @dataclass(frozen=True, slots=True)
 class HitProjection:
@@ -49,10 +54,26 @@ def vital_projections(
     analysis: BattleAnalysisSnapshot,
     hit_projections: Mapping[str, HitProjection],
     baseline_hit_damage_by_event: Mapping[str, float],
+    baseline_vital_states: Mapping[
+        str, tuple[float, float, float, float]
+    ] | None = None,
 ) -> tuple[VitalProjection, ...]:
+    hits_by_event = {hit.event_id: hit for hit in analysis.hits}
+    cumulative_reduction_delta: dict[tuple[str, str], float] = {}
+    cumulative_effective_delta: dict[tuple[str, str], float] = {}
     result = []
-    for event in analysis.max_hp_events:
-        baseline = max(0.0, float(event.effective_hp_loss))
+    for event in sorted(
+        getattr(analysis, "max_hp_events", ()),
+        key=lambda row: (row.observed_at_us, row.event_id),
+    ):
+        state = (baseline_vital_states or {}).get(event.event_id)
+        base_max, base_hp, base_reduction, base_damage = state or (
+            float(event.old_max_hp),
+            float(event.hp_before_settlement),
+            float(event.max_hp_reduction),
+            float(event.effective_hp_loss),
+        )
+        baseline = max(0.0, base_damage)
         predicted = baseline
         character_id = (
             int(event.source_character_id)
@@ -67,6 +88,13 @@ def vital_projections(
                 event_id
                 for event_id in event.evidence_event_ids
                 if event_id in baseline_hit_damage_by_event
+                and event_id in hits_by_event
+                and _is_lacrimosa_nightmare_source(
+                    hits_by_event[event_id],
+                    character_id=character_id,
+                    target_id=event.target_id,
+                    scope_half=event.scope_half,
+                )
             )
             linked_baseline = sum(
                 baseline_hit_damage_by_event[event_id]
@@ -86,11 +114,21 @@ def vital_projections(
                 for event_id in linked_ids
                 if event_id in hit_projections
             )
-            gaps = tuple(dict.fromkeys(
-                gap
-                for row in linked_rows
-                for gap in row.quantification.gaps
-            ))
+            if not linked_ids or linked_baseline <= 0.0:
+                status = "unavailable"
+                gaps = (BattleQuantificationGap(
+                    code="linked_source_hit_missing",
+                    dimension_id="max_hp_reduction_source",
+                    dependency_scope="mechanic_specific",
+                    property_ids=(),
+                    explanation="安魂曲五觉结算缺少可联动的噩梦来源逐击。",
+                ),)
+            else:
+                gaps = tuple(dict.fromkeys(
+                    gap
+                    for row in linked_rows
+                    for gap in row.quantification.gaps
+                ))
             quantified = any(
                 row.quantification.status in {"complete", "partial"}
                 for row in linked_rows
@@ -99,14 +137,98 @@ def vital_projections(
                 row.quantification.status in {"partial", "unavailable"}
                 for row in linked_rows
             )
-            if quantified and unresolved:
+            if status == "unavailable":
+                pass
+            elif quantified and unresolved:
                 status = "partial"
             elif quantified:
                 status = "complete"
             elif unresolved:
                 status = "unavailable"
+            continuity_rows = tuple(
+                row
+                for event_id, row in hit_projections.items()
+                if event_id in hits_by_event
+                and hits_by_event[event_id].target_id == event.target_id
+                and hits_by_event[event_id].scope_half == event.scope_half
+                and (
+                    hits_by_event[event_id].relative_time_us < event.observed_at_us
+                    or event_id in event.evidence_event_ids
+                )
+            )
+            continuity_gaps = tuple(dict.fromkeys(
+                gap
+                for row in continuity_rows
+                for gap in row.quantification.gaps
+            ))
+            gaps = tuple(dict.fromkeys((*gaps, *continuity_gaps)))
+            continuity_unavailable = any(
+                row.quantification.status == "unavailable"
+                for row in continuity_rows
+            )
+            continuity_partial = any(
+                row.quantification.status == "partial"
+                for row in continuity_rows
+            )
+            continuity_quantified = any(
+                row.quantification.status in {"complete", "partial"}
+                for row in continuity_rows
+            )
+            if status == "not_applicable" and continuity_quantified:
+                status = "partial" if continuity_partial else "complete"
+            if status != "unavailable" and continuity_unavailable:
+                status = (
+                    "partial"
+                    if quantified or continuity_quantified
+                    else "unavailable"
+                )
+            elif status == "complete" and continuity_partial:
+                status = "partial"
             if ratio is not None and status in {"complete", "partial"}:
-                predicted *= ratio
+                target_key = (event.scope_half, event.target_id)
+                hit_delta = sum(
+                    row.predicted_damage
+                    - baseline_hit_damage_by_event.get(event_id, row.hit.damage)
+                    for event_id, row in hit_projections.items()
+                    if event_id in hits_by_event
+                    and hits_by_event[event_id].target_id == event.target_id
+                    and hits_by_event[event_id].scope_half == event.scope_half
+                    and (
+                        hits_by_event[event_id].relative_time_us < event.observed_at_us
+                        or event_id in event.evidence_event_ids
+                    )
+                    and row.quantification.status in {"complete", "partial"}
+                )
+                current_max = max(
+                    0.0,
+                    base_max
+                    - cumulative_reduction_delta.get(target_key, 0.0),
+                )
+                current_hp = max(
+                    0.0,
+                    min(
+                        current_max,
+                        base_hp
+                        - hit_delta
+                        - cumulative_effective_delta.get(target_key, 0.0),
+                    ),
+                )
+                changed_reduction = max(0.0, base_reduction * ratio)
+                predicted = (
+                    current_hp * min(1.0, changed_reduction / current_max)
+                    if current_max > 0.0
+                    else 0.0
+                )
+                cumulative_reduction_delta[target_key] = (
+                    cumulative_reduction_delta.get(target_key, 0.0)
+                    + changed_reduction
+                    - base_reduction
+                )
+                cumulative_effective_delta[target_key] = (
+                    cumulative_effective_delta.get(target_key, 0.0)
+                    + predicted
+                    - baseline
+                )
         result.append(VitalProjection(
             event_id=event.event_id,
             character_id=character_id,
@@ -116,6 +238,24 @@ def vital_projections(
             gaps=gaps,
         ))
     return tuple(result)
+
+
+def _is_lacrimosa_nightmare_source(
+    hit: BattleAnalysisHit,
+    *,
+    character_id: int | None,
+    target_id: str,
+    scope_half: str,
+) -> bool:
+    """Accept only the formal Nightmare damage row as awaken-5 source."""
+
+    return (
+        hit.direction == "outgoing"
+        and hit.character_id == character_id
+        and hit.target_id == target_id
+        and hit.scope_half == scope_half
+        and hit.gameplay_effect_id.casefold() in _LACRIMOSA_NIGHTMARE_EFFECTS
+    )
 
 
 def aggregate_quantification(

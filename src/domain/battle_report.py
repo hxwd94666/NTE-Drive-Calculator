@@ -145,6 +145,9 @@ class BattleReportHistoryEntry:
     total_hits: int
     capability_level: str
     source_kind: str
+    environment_name: str = ""
+    environment_source: Literal["", "user_confirmed", "inferred"] = ""
+    environment_confidence: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -610,6 +613,8 @@ class BattleHitReplayResult:
         "target_hp_transition_remainder",
     ] = "reported_hit"
     observed_damage_basis: str = ""
+    # 正式重放解析出的公式属性；用于原始逐击属性缺失或被通用标签污染时。
+    formula_damage_attribute: str = ""
 
 
 @dataclass(frozen=True, slots=True)

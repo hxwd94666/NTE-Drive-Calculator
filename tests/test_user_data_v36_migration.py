@@ -1,3 +1,4 @@
+# 验证用户数据库 v36 nte-core 战报来源迁移。
 """用户数据库 v36 nte-core 战报来源迁移的公共行为测试。"""
 
 from __future__ import annotations
@@ -13,7 +14,11 @@ class UserDataV36MigrationTests(unittest.TestCase):
     def test_new_database_has_battle_core_provenance_columns(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "user_data.sqlite3"
-            with UserDataDao(database) as user_dao:
+            with UserDataDao(
+                database,
+                account_id="test-account",
+                account_name="test-account",
+            ) as user_dao:
                 columns = {
                     str(row[1])
                     for row in user_dao._db().execute(

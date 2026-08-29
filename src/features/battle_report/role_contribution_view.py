@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QWidget
 
 from src.app.theme import theme_color
@@ -31,6 +31,48 @@ def role_contribution_color(index: int) -> QColor:
 
 def _number(value: float) -> str:
     return f"{value:,.0f}"
+
+
+def _donut_center_text_rects(hole_rect: QRectF) -> tuple[QRectF, QRectF]:
+    """Split the donut hole into non-overlapping title and value bands."""
+
+    inner = hole_rect.adjusted(5.0, 4.0, -5.0, -4.0)
+    title_height = max(13.0, inner.height() * 0.27)
+    value_height = max(16.0, inner.height() * 0.32)
+    gap = max(2.0, inner.height() * 0.04)
+    content_height = title_height + gap + value_height
+    top = inner.center().y() - content_height / 2.0
+    title_rect = QRectF(inner.left(), top, inner.width(), title_height)
+    value_rect = QRectF(
+        inner.left(),
+        title_rect.bottom() + gap,
+        inner.width(),
+        value_height,
+    )
+    return title_rect, value_rect
+
+
+def _fitted_font(
+    base_font: QFont,
+    text: str,
+    maximum_width: float,
+    *,
+    preferred_size: float,
+    minimum_size: float,
+    bold: bool = False,
+) -> QFont:
+    """Fit one unwrapped center label without leaking into the donut ring."""
+
+    font = QFont(base_font)
+    font.setBold(bold)
+    point_size = max(minimum_size, preferred_size)
+    while point_size > minimum_size:
+        font.setPointSizeF(point_size)
+        if QFontMetricsF(font).horizontalAdvance(text) <= maximum_width:
+            return font
+        point_size = max(minimum_size, point_size - 0.5)
+    font.setPointSizeF(minimum_size)
+    return font
 
 
 class BattleRoleShareBar(QWidget):
@@ -143,21 +185,38 @@ class BattleRoleDamagePieWidget(QWidget):
         painter.setPen(Qt.NoPen)
         painter.setBrush(card_background)
         painter.drawEllipse(hole_rect)
+        title_text = "角色有效伤害"
+        value_text = _number(total_damage)
+        title_rect, value_rect = _donut_center_text_rects(hole_rect)
+        base_font = painter.font()
+        title_font = _fitted_font(
+            base_font,
+            title_text,
+            title_rect.width(),
+            preferred_size=8.0,
+            minimum_size=7.0,
+        )
+        value_font = _fitted_font(
+            base_font,
+            value_text,
+            value_rect.width(),
+            preferred_size=10.0,
+            minimum_size=7.5,
+            bold=True,
+        )
+        painter.setFont(title_font)
         painter.setPen(QColor(theme_color("#8b949e")))
         painter.drawText(
-            hole_rect.adjusted(0, 12, 0, -hole_size * 0.43),
-            Qt.AlignHCenter | Qt.AlignVCenter,
-            "角色有效伤害",
+            title_rect,
+            Qt.AlignCenter,
+            title_text,
         )
-        value_font = painter.font()
-        value_font.setBold(True)
-        value_font.setPointSizeF(max(10.0, value_font.pointSizeF() + 2.0))
         painter.setFont(value_font)
         painter.setPen(QColor(theme_color("#c9d1d9")))
         painter.drawText(
-            hole_rect.adjusted(0, hole_size * 0.34, 0, -8),
-            Qt.AlignHCenter | Qt.AlignTop,
-            _number(total_damage),
+            value_rect,
+            Qt.AlignCenter,
+            value_text,
         )
 
         legend_left = pie_rect.right() + 22.0

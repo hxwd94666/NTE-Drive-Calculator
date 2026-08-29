@@ -59,7 +59,7 @@ class BattleBuildSnapshotControl(QWidget):
         if not available:
             text = "当前记录没有可编辑的角色配置快照。"
         elif not has_edit:
-            text = "当前使用原始快照；首次编辑会以当前角色页配置生成草稿。"
+            text = "当前使用原始快照；首次编辑会复制本场原始冻结配置。"
         elif active:
             text = "当前使用修改副本；养成与已保存的边际空幕/驱动按副本重放。"
         else:

@@ -18,6 +18,7 @@ import re
 import sqlite3
 import sys
 import tempfile
+from contextlib import closing
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -237,7 +238,7 @@ def write_static_manifest(
 
     database = Path(database_path).expanduser().resolve()
     uri = f"{database.as_uri()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with closing(sqlite3.connect(uri, uri=True)) as connection:
         dataset = connection.execute(
             """SELECT dataset_id, importer_version, built_at_utc
                FROM dataset"""

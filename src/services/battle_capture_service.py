@@ -159,9 +159,12 @@ class BattleCaptureService:
         summary_writer: BattleSummaryWriter | None = None,
         raw_capture_enabled: bool = False,
         raw_capture_directory: str | Path | None = None,
+        stop_timeout_seconds: float = 12.0,
     ) -> None:
         if raw_capture_enabled and raw_capture_directory is None:
             raise ValueError("启用战报原始抓包时必须提供账号抓包目录")
+        if stop_timeout_seconds <= 0:
+            raise ValueError("战报停止超时必须大于 0")
         self._client_factory = client_factory
         self._operation_context = operation_context
         self._device_name = device_name
@@ -172,7 +175,9 @@ class BattleCaptureService:
             if raw_capture_directory is not None
             else None
         )
+        self._stop_timeout_seconds = float(stop_timeout_seconds)
         self._stop_event = threading.Event()
+        self._summary_event = threading.Event()
         self._lock = threading.RLock()
         self._handlers: list[BattleStateHandler] = []
         self._thread: threading.Thread | None = None
@@ -183,6 +188,7 @@ class BattleCaptureService:
         self._event_error: Exception | None = None
         self._source_battle_record_id: str | None = None
         self._axis_cursor: str | None = None
+        self._discard_requested = False
 
     @property
     def is_running(self) -> bool:
@@ -208,6 +214,9 @@ class BattleCaptureService:
         if self.is_running:
             return
         self._stop_event.clear()
+        self._summary_event.clear()
+        with self._lock:
+            self._discard_requested = False
         self._publish("starting", "正在启动 nte-core 战斗采集……", running=True)
         self._thread = threading.Thread(
             target=self._run,
@@ -219,9 +228,27 @@ class BattleCaptureService:
     def request_stop(self) -> None:
         if not self.is_running:
             return
+        with self._lock:
+            if self._discard_requested:
+                return
         self._publish(
             "stopping",
             "正在停止采集并读取最终战报……",
+            running=True,
+            summary=self._latest_summary,
+        )
+        self._stop_event.set()
+
+    def request_discard(self) -> None:
+        """Stop this capture and delete its staged rows without finalizing it."""
+
+        if not self.is_running:
+            return
+        with self._lock:
+            self._discard_requested = True
+        self._publish(
+            "stopping",
+            "正在放弃当前战报并准备重新采集……",
             running=True,
             summary=self._latest_summary,
         )
@@ -249,6 +276,8 @@ class BattleCaptureService:
         final_payload_received = False
         capture_staged = False
         capture_finalized = False
+        empty_capture_discarded = False
+        final_payload: Mapping[str, Any] | None = None
         final_record: dict[str, Any] | None = None
         nte_core_provenance: dict[str, Any] | None = None
         try:
@@ -277,23 +306,35 @@ class BattleCaptureService:
                 ),
             )
             capture_started = True
-            self._publish(
-                "running",
-                "采集中：进入战斗后将实时显示队伍伤害。",
-                running=True,
-            )
+            if not self._stop_event.is_set():
+                self._publish(
+                    "running",
+                    "采集中：进入战斗后将实时显示队伍伤害。",
+                    running=True,
+                )
             while not self._stop_event.wait(0.5):
                 self._poll_axis(client, maximum_pages=8)
-            client.stop_capture()
+            self._stop_client_capture(client)
             capture_started = False
-            if self._event_error is not None:
+            if (
+                not self._discard_was_requested()
+                and self._event_error is None
+                and not self._has_observed_battle_evidence()
+            ):
+                self._summary_event.wait(0.25)
+            if self._discard_was_requested():
+                pass
+            elif self._event_error is not None:
                 raise self._event_error
-            final_record = self._read_final_axis(client)
-            final_payload = (
-                final_record.get("summary")
-                if final_record is not None
-                else client.get_battle_summary(subtract_time_stop=True)
-            )
+            elif not self._has_observed_battle_evidence():
+                empty_capture_discarded = True
+            else:
+                final_record = self._read_final_axis(client)
+                final_payload = (
+                    final_record.get("summary")
+                    if final_record is not None
+                    else client.get_battle_summary(subtract_time_stop=True)
+                )
             if final_payload is not None:
                 final_payload_received = True
                 self._latest_summary = parse_battle_summary(
@@ -320,7 +361,7 @@ class BattleCaptureService:
                         "event.battle.summary", self._on_summary_event
                     )
                     if capture_started:
-                        client.stop_capture()
+                        self._stop_client_capture(client)
                 except Exception:
                     pass
                 try:
@@ -344,14 +385,35 @@ class BattleCaptureService:
                     if terminal_error is None:
                         terminal_error = discard_error
         summary = self._latest_summary
-        if terminal_error is None:
+        discarded = self._discard_was_requested()
+        if terminal_error is None and discarded:
+            self._publish(
+                "stopped",
+                "当前战报已放弃，正在重新开始采集。",
+                running=False,
+                persistence_status="discarded_restart",
+            )
+            log_event(
+                "INFO",
+                "battle_report.capture_discarded",
+                "当前战报已放弃",
+                self._operation_context,
+                phase="discarded",
+                result="discarded",
+            )
+        elif terminal_error is None:
             persistence_status = (
                 persistence_outcome.status
                 if persistence_outcome is not None
                 else (
-                    "final_summary_unavailable"
-                    if self._summary_writer is not None and not final_payload_received
-                    else "not_requested"
+                    "skipped_empty"
+                    if empty_capture_discarded
+                    else (
+                        "final_summary_unavailable"
+                        if self._summary_writer is not None
+                        and not final_payload_received
+                        else "not_requested"
+                    )
                 )
             )
             record_id = (
@@ -412,6 +474,48 @@ class BattleCaptureService:
                 result="failed",
                 error=safe_exception(terminal_error),
             )
+
+    def _discard_was_requested(self) -> bool:
+        with self._lock:
+            return self._discard_requested
+
+    def _has_observed_battle_evidence(self) -> bool:
+        with self._lock:
+            summary = self._latest_summary
+            return self._source_battle_record_id is not None or bool(
+                summary is not None
+                and (summary.total_damage > 0 or summary.total_hits > 0)
+            )
+
+    def _stop_client_capture(self, client: BattleCoreClient) -> None:
+        completed = threading.Event()
+        outcome: list[Mapping[str, Any] | Exception] = []
+
+        def stop_capture() -> None:
+            try:
+                outcome.append(client.stop_capture())
+            except Exception as error:
+                outcome.append(error)
+            finally:
+                completed.set()
+
+        threading.Thread(
+            target=stop_capture,
+            name="battle-capture-stop",
+            daemon=True,
+        ).start()
+        if not completed.wait(self._stop_timeout_seconds):
+            abort = getattr(client, "abort", None)
+            if callable(abort):
+                abort()
+            raise RuntimeError(
+                f"nte-core 停止超时（{self._stop_timeout_seconds:g} 秒）"
+            )
+        if not outcome:
+            raise RuntimeError("nte-core 停止线程未返回结果")
+        result = outcome[0]
+        if isinstance(result, Exception):
+            raise result
 
     def _prune_raw_captures(self) -> None:
         """Best-effort cleanup without exposing the account log path."""
@@ -605,10 +709,13 @@ class BattleCaptureService:
             )
 
     def _on_summary_event(self, event: dict[str, object]) -> None:
+        if self._discard_was_requested():
+            return
         try:
             summary = parse_battle_summary_event(event)
         except Exception as error:
             self._event_error = error
+            self._summary_event.set()
             self._stop_event.set()
             return
         with self._lock:
@@ -616,6 +723,7 @@ class BattleCaptureService:
                 return
             self._last_sequence = max(self._last_sequence, summary.sequence)
             self._latest_summary = summary
+        self._summary_event.set()
         current_phase = self.state.phase
         self._publish(
             "stopping" if current_phase == "stopping" else "running",

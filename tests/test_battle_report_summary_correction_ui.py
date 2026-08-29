@@ -13,6 +13,7 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
                 total_damage=1_000.0,
                 duration_seconds=10.0,
             ),
+            _marginal_baseline_by_scope={},
             metric_labels={
                 key: SimpleNamespace(
                     setText=lambda value, name=key: rendered.__setitem__(name, value)
@@ -22,7 +23,9 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
             long_analysis_view=SimpleNamespace(
                 set_analysis=lambda *_args, **_kwargs: None
             ),
-            marginal_page=SimpleNamespace(set_analysis=lambda _analysis: None),
+            marginal_page=SimpleNamespace(
+                set_source_analysis=lambda _analysis: None
+            ),
         )
         analysis = SimpleNamespace(
             axis_complete=True,
@@ -47,6 +50,7 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
                 duration_seconds=8.0,
                 dps_time_mode="subtract_time_stop",
             ),
+            _marginal_baseline_by_scope={},
             metric_labels={
                 key: SimpleNamespace(
                     setText=lambda value, name=key: rendered.__setitem__(name, value)
@@ -56,7 +60,9 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
             long_analysis_view=SimpleNamespace(
                 set_analysis=lambda *_args, **_kwargs: None
             ),
-            marginal_page=SimpleNamespace(set_analysis=lambda _analysis: None),
+            marginal_page=SimpleNamespace(
+                set_source_analysis=lambda _analysis: None
+            ),
         )
         analysis = SimpleNamespace(
             axis_complete=True,
@@ -85,11 +91,14 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
                 total_damage=1_000.0,
                 duration_seconds=10.0,
             ),
+            _marginal_baseline_by_scope={},
             metric_labels=labels,
             long_analysis_view=SimpleNamespace(
                 set_analysis=lambda _analysis, selected_character_id=None: None
             ),
-            marginal_page=SimpleNamespace(set_analysis=lambda _analysis: None),
+            marginal_page=SimpleNamespace(
+                set_source_analysis=lambda _analysis: None
+            ),
         )
         analysis = SimpleNamespace(
             axis_complete=True,
@@ -107,6 +116,7 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
         rendered: dict[str, str] = {}
         page = SimpleNamespace(
             _latest_summary=SimpleNamespace(total_damage=1_000.0, duration_seconds=10.0),
+            _marginal_baseline_by_scope={},
             metric_labels={
                 key: SimpleNamespace(
                     setText=lambda value, name=key: rendered.__setitem__(name, value)
@@ -114,7 +124,9 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
                 for key in ("damage", "dps", "duration")
             },
             long_analysis_view=SimpleNamespace(set_analysis=lambda *_args, **_kwargs: None),
-            marginal_page=SimpleNamespace(set_analysis=lambda _analysis: None),
+            marginal_page=SimpleNamespace(
+                set_source_analysis=lambda _analysis: None
+            ),
         )
         analysis = SimpleNamespace(
             axis_complete=False,

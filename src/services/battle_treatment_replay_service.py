@@ -1,3 +1,4 @@
+# 编排来源侧治疗事件及其 Buff 消费者。
 """Orchestrate source-side treatment events and their Buff consumers."""
 
 from __future__ import annotations

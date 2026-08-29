@@ -60,7 +60,7 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         layout.addWidget(note)
         if not editor_data.get("has_edit"):
             seed = QLabel(
-                "首次修改已按当前角色页配置生成草稿；保存前不会改变战报或角色页。"
+                "首次修改已复制本场原始冻结配置；保存前不会改变战报或角色页。"
             )
             seed.setWordWrap(True)
             seed.setStyleSheet(themed_style("color:#d29922;font-size:12px"))

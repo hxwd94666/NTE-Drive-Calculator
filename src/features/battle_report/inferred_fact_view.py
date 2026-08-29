@@ -1,3 +1,4 @@
+# 展示战报派生角色事实的只读视图。
 """Read-only presentation for battle-derived character facts."""
 
 from __future__ import annotations

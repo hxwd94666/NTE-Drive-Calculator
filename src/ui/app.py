@@ -238,6 +238,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._hk_capture = "F9"
         self._hk_finish = "F10"
         self._hk_stop = "F12"
+        self._hk_battle_rerecord = "F11"
         self._account_settings = self.app_context.account_settings
         legacy_theme = self._account_settings.legacy_theme_preference()
         self._account_settings.migrate_legacy_settings()
@@ -252,6 +253,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             capture_hotkey=self._hk_capture,
             finish_hotkey=self._hk_finish,
             stop_hotkey=self._hk_stop,
+            battle_rerecord_hotkey=self._hk_battle_rerecord,
         )
         self.equipment_presentation = EquipmentPresentation(
             app_context=self.app_context,
@@ -292,6 +294,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             ),
             stop_inventory_sync=self._stop_inventory_sync,
             start_inventory_sync=self._start_inventory_sync,
+            hotkey_manager=self.global_hotkey_manager,
         )
         self.blueprint_page = BlueprintPage(
             app_context=self.app_context,
@@ -617,6 +620,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             capture_hotkey=self._hk_capture,
             finish_hotkey=self._hk_finish,
             stop_hotkey=self._hk_stop,
+            battle_rerecord_hotkey=self._hk_battle_rerecord,
         )
         self._update_config = self._load_update_config()
         self._ui_preferences = self._load_ui_preferences()

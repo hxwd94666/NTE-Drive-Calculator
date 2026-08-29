@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import CancelledError
+from dataclasses import replace
 import unittest
 from unittest.mock import PropertyMock, patch
 
@@ -472,7 +473,10 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
     def test_linked_nightmare_max_hp_settlement_follows_removed_buff_ratio(
         self,
     ) -> None:
-        hit = _hit("hit1", 1_150.0)
+        hit = replace(
+            _hit("hit1", 1_150.0),
+            gameplay_effect_id="GE_Player_Lacrimosa_Blood_Damage",
+        )
         vital = BattleMaxHpReductionEvent(
             event_id="vital1",
             target_id="target",

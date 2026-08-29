@@ -1,3 +1,4 @@
+# 将推断遭遇桥接到逐实例目标公共契约。
 """Bridge inferred encounters into the shared per-instance target contract."""
 
 from __future__ import annotations

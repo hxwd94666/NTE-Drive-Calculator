@@ -16,6 +16,7 @@ from src.services.character_shape_bonus_service import (
 from src.services.shared_data_migration_service import (
     MIGRATION_KEY,
     migrate_legacy_static_shape_bonuses,
+    write_shape_bonus_baseline,
 )
 from src.storage.sqlite.shared_data_dao import SharedDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -23,9 +24,6 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_DATABASE = ROOT / "data" / "game_static.sqlite3"
-BASELINE = ROOT / "data" / "migrations" / "shape_bonus_defaults_2.0.2.json"
-
-
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -37,10 +35,16 @@ class SharedDataMigrationServiceTests(unittest.TestCase):
         self.legacy = root / "migration" / "game_static.previous.sqlite3"
         self.current = root / "current" / "game_static.sqlite3"
         self.shared = root / "app_shared.sqlite3"
+        self.baseline = root / "shape_bonus_defaults_fixture.json"
         self.legacy.parent.mkdir(parents=True)
         self.current.parent.mkdir(parents=True)
         shutil.copy2(PROJECT_DATABASE, self.legacy)
         shutil.copy2(PROJECT_DATABASE, self.current)
+        write_shape_bonus_baseline(
+            self.legacy,
+            self.baseline,
+            release_version="test-fixture",
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -50,7 +54,7 @@ class SharedDataMigrationServiceTests(unittest.TestCase):
             legacy_database_path=self.legacy,
             current_static_database_path=self.current,
             shared_database_path=self.shared,
-            baseline_path=BASELINE,
+            baseline_path=self.baseline,
         )
 
     def test_pristine_old_default_does_not_become_permanent_override(self) -> None:

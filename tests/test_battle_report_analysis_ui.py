@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QScrollArea,
@@ -146,11 +146,14 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
         )
         page = SimpleNamespace(
             _latest_summary=raw_summary,
+            _marginal_baseline_by_scope={},
             metric_labels=labels,
             long_analysis_view=SimpleNamespace(
                 set_analysis=lambda _analysis, selected_character_id=None: None
             ),
-            marginal_page=SimpleNamespace(set_analysis=lambda _analysis: None),
+            marginal_page=SimpleNamespace(
+                set_source_analysis=lambda _analysis: None
+            ),
         )
         analysis = SimpleNamespace(
             axis_complete=True,
@@ -539,6 +542,8 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
         created: list[int] = []
 
         class FakeEditor(QWidget):
+            changed = Signal()
+
             def __init__(self, detail, *_args, **_kwargs) -> None:
                 super().__init__()
                 self.detail = detail

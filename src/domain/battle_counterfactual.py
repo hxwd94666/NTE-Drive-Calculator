@@ -9,6 +9,7 @@ from typing import Any
 from src.domain.battle_counterfactual_quantification import (
     BattleCounterfactualRatio,
     BattleDamageQuantification,
+    QuantificationStatus,
 )
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,8 @@ class BattleMarginalResult:
     damage_share_percent: float
     quantification: BattleDamageQuantification
     assumption: str
+    role_denominator_status: QuantificationStatus = "complete"
+    team_denominator_status: QuantificationStatus = "complete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +52,7 @@ class BattleBuildHitCounterfactual:
 
 @dataclass(frozen=True, slots=True)
 class BattleBuildVitalCounterfactual:
-    """One attributed max-HP settlement projected under the edited build."""
+    """One max-HP settlement; state is (max HP, current HP, reduction)."""
 
     event_id: str
     character_id: int | None
@@ -61,6 +64,7 @@ class BattleBuildVitalCounterfactual:
     candidate_damage: float | None
     heuristic_projection_damage: float | None
     quantification: BattleCounterfactualRatio
+    candidate_state: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)

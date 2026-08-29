@@ -18,7 +18,7 @@ from src.features.battle_report.marginal_result_table_view import (
 from src.features.battle_report.marginal_quantification_view import (
     damage_coverage_text,
 )
-from src.services.battle_buff_counterfactual_service import (
+from src.services.battle_buff_counterfactual_plan_service import (
     battle_buff_counterfactual_key,
 )
 

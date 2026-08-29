@@ -16,7 +16,6 @@ from src.services.damage_calculation_service import (
     ToppleDamageInput,
     RingCharacter,
     WeaveFollowupDamageInput,
-    calculate_ring_amplification,
     calculate_weave_strength_multiplier,
     calculate_ring_strength_multiplier,
     calculate_weave_followup_damage,
@@ -121,10 +120,6 @@ class DamageCalculationServiceTests(unittest.TestCase):
 
         self.assertEqual("high", owner.character_id)
         self.assertAlmostEqual(1.20, calculate_ring_strength_multiplier(120))
-        self.assertAlmostEqual(
-            1.20 * (1 + 0.20 * 120 / 300),
-            calculate_ring_amplification(120),
-        )
 
     def test_topple_damage_uses_only_its_five_confirmed_multipliers(self):
         result = DamageCalculationService.calculate_topple(

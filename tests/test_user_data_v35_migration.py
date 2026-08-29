@@ -1,3 +1,4 @@
+# 验证用户数据库 v35 历史默认值兼容迁移。
 """用户数据库 v35 历史默认值兼容迁移的公共行为测试。"""
 
 from __future__ import annotations
@@ -31,6 +32,20 @@ class UserDataV35MigrationTests(unittest.TestCase):
                 version INTEGER PRIMARY KEY,
                 applied_at_utc TEXT NOT NULL
             );
+            CREATE TABLE battle_record (
+                battle_record_id INTEGER PRIMARY KEY
+            );
+            CREATE TABLE character_profile (
+                character_id INTEGER PRIMARY KEY,
+                fork_id TEXT,
+                fork_level INTEGER
+            );
+            CREATE TABLE battle_character_build_snapshot (
+                battle_record_id INTEGER PRIMARY KEY
+            );
+            CREATE TABLE battle_character_build_edit (
+                battle_record_id INTEGER PRIMARY KEY
+            );
             CREATE TABLE battle_target_condition (
                 battle_record_id INTEGER PRIMARY KEY,
                 resistance_chaos REAL NOT NULL
@@ -60,7 +75,12 @@ class UserDataV35MigrationTests(unittest.TestCase):
         self._create_v34_with_virtual_normal_resistance()
 
         with UserDataDao(self.database) as migrated:
-            self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
+            self.assertEqual(
+                SCHEMA_VERSION,
+                migrated._db().execute(
+                    "SELECT MAX(version) FROM schema_migration"
+                ).fetchone()[0],
+            )
             row = migrated._db().execute(
                 """
                 SELECT resistance_normal, selected_target_profiles_json
@@ -106,7 +126,12 @@ class UserDataV35MigrationTests(unittest.TestCase):
         connection.close()
 
         with UserDataDao(self.database) as retried:
-            self.assertEqual(SCHEMA_VERSION, retried.summary()["schema_version"])
+            self.assertEqual(
+                SCHEMA_VERSION,
+                retried._db().execute(
+                    "SELECT MAX(version) FROM schema_migration"
+                ).fetchone()[0],
+            )
             self.assertEqual(
                 ["ok"],
                 [item[0] for item in retried._db().execute("PRAGMA quick_check")],

@@ -21,6 +21,9 @@ from src.services.battle_report_history_service import (
     BattleReportHistoryService,
     StaleBattleReportContextError,
 )
+from src.services.battle_inferred_target_condition_service import (
+    INFERRED_ENCOUNTER_ALGORITHM_VERSION,
+)
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -230,6 +233,57 @@ class BattleReportPersistenceServiceTests(unittest.TestCase):
         self.assertIsNotNone(stored)
         assert stored is not None
         self.assertEqual(120.0, stored.summary.total_damage)
+
+    def test_history_list_reads_persisted_inference_without_recomputing(self) -> None:
+        outcome = self._service().finalize_summary(
+            raw_summary_payload={
+                "total_damage": 120.0,
+                "total_hits": 12,
+                "abyss": {"detected": False},
+            },
+            summary=_summary(),
+            capture_operation_id=self.operation.operation_id,
+            captured_at_utc="2026-08-07T00:00:00+00:00",
+            finalized_at_utc="2026-08-07T00:00:01+00:00",
+        )
+        dependencies = BattleReportPersistenceDependencies(
+            account_id="account-a",
+            user_database_path=self.database_path,
+            generation=3,
+            static_database_path=Path(self.temporary.name) / "game_static.sqlite3",
+        )
+        history = BattleReportHistoryService(
+            dependencies=dependencies,
+            context_is_current=lambda _dependencies: True,
+        )
+        record_id = int(outcome.battle_record_id or 0)
+        with UserDataDao(self.database_path) as user_dao:
+            user_dao.save_battle_inferred_target_snapshot(
+                battle_record_id=record_id,
+                payload_schema_version=1,
+                algorithm_version=INFERRED_ENCOUNTER_ALGORITHM_VERSION,
+                static_dataset_id="dataset-a",
+                static_schema_version=29,
+                inference_status="resolved",
+                environment_kind="open_world",
+                environment_ref="anomaly:black-book:80",
+                environment_name="异象追猎 · 黑之书 · Lv.80",
+                source_kind="inferred_encounter_hp_injective_default",
+                confidence="高",
+                inferred_payload={"environment_name": "异象追猎 · 黑之书 · Lv.80"},
+            )
+
+        with patch(
+            "src.services.battle_inferred_target_condition_service."
+            "BattleInferredTargetConditionService.infer",
+        ) as infer:
+            first = history.list_entries()
+
+        self.assertEqual(record_id, first[0].battle_record_id)
+        self.assertEqual("异象追猎 · 黑之书 · Lv.80", first[0].environment_name)
+        self.assertEqual("inferred", first[0].environment_source)
+        self.assertEqual("高", first[0].environment_confidence)
+        infer.assert_not_called()
 
     def test_history_service_rejects_stale_context(self) -> None:
         history = BattleReportHistoryService(

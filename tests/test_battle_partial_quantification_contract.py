@@ -33,6 +33,8 @@ class BattlePartialQuantificationContractTests(unittest.TestCase):
             "full_role_gain_percent",
             "full_team_gain_percent",
             "quantification",
+            "role_denominator_status",
+            "team_denominator_status",
         }.issubset(names))
         self.assertTrue({
             "predicted_damage",
@@ -57,6 +59,7 @@ class BattlePartialQuantificationContractTests(unittest.TestCase):
         }
         self.assertTrue(projections.issubset(hit_names))
         self.assertTrue(projections.issubset(vital_names))
+        self.assertIn("candidate_state", vital_names)
         self.assertTrue(projections.issubset(role_names))
         self.assertTrue(projections.issubset(build_names))
         self.assertTrue({

@@ -2,131 +2,67 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
-from src.domain.battle_report import BattleBuffModifierEvidence
+from src.domain.battle_report import (
+    BattleHitReplayFactor,
+    BattleHitReplayResult,
+)
 from src.services.battle_action_inference_service import (
     BattleActionAnimationCandidate,
 )
-from src.services.battle_buff_inference_service import BattleStaticBuffRule
 from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
 from src.services.battle_counterfactual_analysis_service import (
     BattleCounterfactualAnalysisService,
-    _classification,
+)
+from src.services.battle_axis_hit_projection_service import (
+    project_battle_axis_hits,
 )
 from src.services.battle_marginal_calculation_service import (
     BattleMarginalCalculationService,
 )
-
-
-def _build() -> dict:
-    return {
-        "characters": [
-            {
-                "character_id": 1072,
-                "observed_name": "灵可",
-                "stat_snapshot_source": "frozen_v25",
-                "stats": [
-                    {"source_group": "resolved", "property_id": "AtkBase", "display_name": "基础攻击力", "value": 1000, "is_percent": False},
-                    {"source_group": "resolved", "property_id": "AtkUp", "display_name": "攻击力提升", "value": 0.5, "is_percent": True},
-                    {"source_group": "resolved", "property_id": "AtkAdd", "display_name": "固定攻击力", "value": 100, "is_percent": False},
-                    {"source_group": "resolved", "property_id": "CritBase", "display_name": "暴击率", "value": 0.5, "is_percent": True},
-                    {"source_group": "resolved", "property_id": "CritDamageBase", "display_name": "暴击伤害", "value": 1.0, "is_percent": True},
-                    {"source_group": "resolved", "property_id": "DamageUpGeneralBase", "display_name": "通用伤害增强", "value": 0.2, "is_percent": True},
-                    {"source_group": "resolved", "property_id": "DamageUpNatureBase", "display_name": "自然属性伤害增强", "value": 0.25, "is_percent": True},
-                    {"source_group": "resolved", "property_id": "DefIgnore", "display_name": "防御忽略", "value": 0.10, "is_percent": True},
-                    {"source_group": "resolved", "property_id": "MagBase", "display_name": "环合强度", "value": 100, "is_percent": False},
-                ],
-            }
-        ]
-    }
-
-
-def _evidence() -> dict:
-    return {
-        "axis_complete": True,
-        "hits": [
-            {
-                "sequence_text": "1",
-                "sequence_order": 1,
-                "relative_time_us": 1_000_000,
-                "character_id": 1072,
-                "character_name": "灵可",
-                "direction": "outgoing",
-                "damage": 1000,
-                "follow_up_damage": 200,
-                "ability_name": "普通攻击",
-                "damage_name": "第一段",
-                "damage_component": "skill",
-                "attack_type": "normal",
-                "damage_attribute": "nature",
-                "follow_up_damage_name": "覆纹追加攻击",
-                "follow_up_damage_component": "reaction",
-                "follow_up_attack_type": "follow_up",
-                "follow_up_damage_attribute": "nature",
-                "follow_up_labels": ["覆纹"],
-                "target_id": "monster-1",
-                "target_name": "训练目标",
-                "target_hp_before": 5000,
-                "target_hp_after": 3800,
-                "target_max_hp": 5000,
-            },
-            {
-                "sequence_text": "2",
-                "sequence_order": 2,
-                "relative_time_us": 3_000_000,
-                "character_id": 1072,
-                "character_name": "灵可",
-                "direction": "outgoing",
-                "damage": 300,
-                "follow_up_damage": 0,
-                "ability_name": "环合",
-                "damage_name": "黯星",
-                "damage_component": "reaction",
-                "attack_type": "reaction",
-                "damage_attribute": "psychically",
-                "follow_up_labels": [],
-                "target_id": "monster-1",
-                "target_name": "训练目标",
-            },
-        ],
-        "time_stop_intervals": [],
-    }
-
-
-def _attack_buff_rule(event_type: str) -> BattleStaticBuffRule:
-    return BattleStaticBuffRule(
-        rule_id=f"test:{event_type}",
-        source_effect_definition_id="test:attack-buff",
-        source_kind="test",
-        source_character_id=1072,
-        source_character_name="灵可",
-        source_asset_path="/Game/Test/BuffSource",
-        target_asset_path="/Game/Test/AttackBuff",
-        target_name="测试攻击 Buff",
-        target_scope="self",
-        event_type=event_type,
-        effect_type="ADD",
-        duration_policy="HasDuration",
-        duration_seconds=10.0,
-        stack_count=1,
-        modifiers=(BattleBuffModifierEvidence(
-            property_id="AtkUp",
-            modifier_operation="EGameplayModOp::Additive",
-            magnitude_kind="ScalableFloat",
-            magnitude_value=0.5,
-            calculation_asset_path="",
-            value_confidence="高",
-        ),),
-    )
+from tests.battle_counterfactual_fixtures import (
+    attack_buff_rule as _attack_buff_rule,
+    build_fixture as _build,
+    evidence_fixture as _evidence,
+)
 
 
 class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
     def test_formal_damage_tags_own_dot_and_attachment_classification(self) -> None:
+        def classification(
+            damage_name: str = "伤害",
+            *,
+            ability_name: str = "",
+            gameplay_effect_name: str = "",
+            gameplay_tags: tuple[str, ...] = (),
+            follow_up: bool = False,
+        ) -> str:
+            row = {
+                "sequence_text": "1",
+                "sequence_order": 1,
+                "relative_time_us": 1,
+                "character_id": 1072,
+                "character_name": "灵可",
+                "direction": "outgoing",
+                "damage": 0.0 if follow_up else 1.0,
+                "follow_up_damage": 1.0 if follow_up else 0.0,
+                "ability_name": ability_name,
+                "gameplay_effect_name": gameplay_effect_name,
+                "damage_name": damage_name,
+                "follow_up_damage_name": damage_name,
+                "follow_up_labels": (damage_name,),
+                "formal_gameplay_tags": gameplay_tags,
+                "target_id": "target",
+                "target_name": "目标",
+            }
+            return project_battle_axis_hits((row,))[0].classification
+
         self.assertEqual(
             "dot",
-            _classification(
+            classification(
                 ability_name="GA_Mismo_UltraSkill",
                 gameplay_effect_name="GE_Player_Mismo_UltraSkill_Damage",
                 gameplay_tags=("State.Damage.Dot",),
@@ -134,7 +70,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             "attachment",
-            _classification(
+            classification(
                 ability_name="GA_Kuhara_Melee",
                 gameplay_effect_name="GE_Player_Kuhara_Seed_Damage",
                 gameplay_tags=("State.Damage.Attachment",),
@@ -142,7 +78,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             "reaction",
-            _classification(
+            classification(
                 "浊燃",
                 ability_name="GA_Source_QTE",
                 gameplay_effect_name="GE_Player_Mismo_UltraSkill_Damage",
@@ -152,7 +88,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             "reaction",
-            _classification(
+            classification(
                 "浊燃",
                 gameplay_effect_name="Buff_Reaction_5_new_1036",
                 gameplay_tags=("State.Damage.Dot",),
@@ -175,9 +111,9 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual("weave", result.hits[1].classification)
         self.assertEqual(1, len(result.targets))
         self.assertEqual(1, len(result.inferred_actions))
-        self.assertEqual("battle-action-window-v12", result.action_inference_version)
+        self.assertEqual("battle-action-window-v13", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
-        self.assertEqual("battle-counterfactual-v21", result.formula_model_version)
+        self.assertEqual("battle-counterfactual-v22", result.formula_model_version)
 
     def test_follow_up_uses_its_own_formal_timestamp(self) -> None:
         evidence = _evidence()
@@ -260,7 +196,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertIsNone(buffed_margin.full_role_gain_percent)
         self.assertIn("已将 1 个动态 Buff 区间", buffed_margin.assumption)
         self.assertEqual(
-            "battle-buff-attribute-v20",
+            "battle-buff-attribute-v21",
             buffed.buff_attribute_projection_version,
         )
 
@@ -421,6 +357,38 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
             evidence=_evidence(),
             build=_build(),
             capability_level="hit_axis",
+        )
+        weave = next(hit for hit in analysis.hits if hit.classification == "weave")
+        strength = 1.0 + 0.20 * 100.0 / (100.0 + 180.0)
+        followup = 1.30 * strength - 1.0
+        analysis = replace(
+            analysis,
+            hit_replays=(BattleHitReplayResult(
+                event_id=weave.event_id,
+                observed_damage=weave.damage,
+                non_critical_damage=weave.damage,
+                critical_damage=None,
+                selected_damage=weave.damage,
+                selected_error_percent=0.0,
+                critical_state="not_applicable",
+                confidence="高",
+                critical_policy="disabled",
+                factors=(
+                    BattleHitReplayFactor(
+                        factor_id="weave_strength",
+                        label="覆纹环合强度区",
+                        value=strength,
+                        evidence_basis="正式覆纹公式",
+                    ),
+                    BattleHitReplayFactor(
+                        factor_id="weave_followup",
+                        label="覆纹追加倍率",
+                        value=followup,
+                        evidence_basis="灵可弱点感应 30% 分支",
+                    ),
+                ),
+                formula_type="覆纹",
+            ),),
         )
         result = BattleMarginalCalculationService.calculate(
             analysis=analysis,

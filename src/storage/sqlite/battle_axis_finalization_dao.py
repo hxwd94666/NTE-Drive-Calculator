@@ -1,3 +1,4 @@
+# 原子替换战报采集暂存的最终逐击轴。
 """Atomic finalized-axis replacement for battle capture staging."""
 
 from __future__ import annotations

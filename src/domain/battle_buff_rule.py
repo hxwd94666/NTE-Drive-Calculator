@@ -1,3 +1,4 @@
+# 定义战斗轴推断消费的不可变静态 Buff 规则。
 """Immutable static Buff rule consumed by battle-axis inference."""
 
 from __future__ import annotations

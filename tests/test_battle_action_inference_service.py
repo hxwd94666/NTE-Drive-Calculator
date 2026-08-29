@@ -64,7 +64,7 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual("battle-action-window-v12", ACTION_INFERENCE_MODEL_VERSION)
+        self.assertEqual("battle-action-window-v13", ACTION_INFERENCE_MODEL_VERSION)
         self.assertEqual(1, len(actions))
         self.assertEqual("E", actions[0].input_kind)
         self.assertEqual("E1 E2", actions[0].input_sequence)
@@ -134,7 +134,7 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual("battle-action-window-v12", ACTION_INFERENCE_MODEL_VERSION)
+        self.assertEqual("battle-action-window-v13", ACTION_INFERENCE_MODEL_VERSION)
         self.assertEqual(("A", "A"), tuple(action.input_kind for action in actions))
 
     def test_simultaneous_melee_and_parry_damage_are_one_a_operation(self) -> None:
@@ -255,6 +255,127 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
         self.assertEqual(11_405_000, actions[0].start_us)
         self.assertEqual(15_818_000, actions[0].end_us)
         self.assertIn("开始锚定到时停头", actions[0].inference_basis)
+
+    def test_q_periodic_damage_with_formal_direct_hit_does_not_start_more_q_actions(
+        self,
+    ) -> None:
+        actions = BattleActionInferenceService.infer(
+            (
+                _hit(
+                    1,
+                    1_000_000,
+                    ability_id="GA_Oneiroi_UltraSkill",
+                    effect_id="GE_Player_Oneiroi_UltraSkill_Damage",
+                    attack_type="Q技能",
+                ),
+                _hit(2, 1_500_000),
+                _hit(
+                    3,
+                    2_000_000,
+                    ability_id="GA_Oneiroi_UltraSkill",
+                    effect_id="GE_Player_Oneiroi_UltraSkill1_Damage",
+                    attack_type="Q技能",
+                ),
+                _hit(4, 2_200_000),
+            ),
+            time_stop_intervals=((500_000, 1_200_000),),
+            animation_candidates=(
+                BattleActionAnimationCandidate(
+                    ability_id="GA_Oneiroi_UltraSkill",
+                    selector_key="UltraSkill",
+                    montage_asset_path="/Game/Animation/Oneiroi_UltraSkill",
+                    effect_hit_offsets_us=(
+                        ("GE_Player_Oneiroi_UltraSkill_Damage", (500_000,)),
+                    ),
+                    trigger_end_offsets_us=(1_000_000,),
+                    end_event_offsets_us=(),
+                    section_end_offsets_us=(1_200_000,),
+                    duration_us=1_200_000,
+                ),
+            ),
+        )
+
+        q_actions = tuple(action for action in actions if action.input_kind == "Q")
+        self.assertEqual(1, len(q_actions))
+        self.assertEqual(("1:primary",), q_actions[0].evidence_event_ids)
+        self.assertNotIn(
+            "GE_Player_Oneiroi_UltraSkill1_Damage",
+            q_actions[0].gameplay_effect_ids,
+        )
+
+    def test_q_phases_with_ordinal_reset_share_one_formal_time_stop_action(
+        self,
+    ) -> None:
+        hits = (
+            _hit(
+                1,
+                1_000_000,
+                ability_id="GA_Canhong_UltraSkill",
+                effect_id="GE_Player_Canhong_MagicUltraSkill1_Damage",
+                attack_type="Q技能",
+            ),
+            _hit(
+                2,
+                1_200_000,
+                ability_id="GA_Canhong_UltraSkill",
+                effect_id="GE_Player_Canhong_MagicUltraSkill2_Damage",
+                attack_type="Q技能",
+            ),
+            _hit(
+                3,
+                1_400_000,
+                ability_id="GA_Canhong_UltraSkill",
+                effect_id="GE_Player_Canhong_ForceUltraSkill1_Damage",
+                attack_type="Q技能",
+            ),
+            _hit(
+                4,
+                1_600_000,
+                ability_id="GA_Canhong_UltraSkill",
+                effect_id="GE_Player_Canhong_ForceUltraSkill2_Damage",
+                attack_type="Q技能",
+            ),
+        )
+        shared = {
+            "ability_id": "GA_Canhong_UltraSkill",
+            "trigger_end_offsets_us": (1_500_000,),
+            "end_event_offsets_us": (),
+            "section_end_offsets_us": (1_800_000,),
+            "duration_us": 1_800_000,
+        }
+
+        actions = BattleActionInferenceService.infer(
+            hits,
+            time_stop_intervals=((500_000, 2_000_000),),
+            animation_candidates=(
+                BattleActionAnimationCandidate(
+                    selector_key="MagicUltraSkill",
+                    montage_asset_path="/Game/Animation/Canhong_MagicUltraSkill",
+                    effect_hit_offsets_us=(
+                        ("GE_Player_Canhong_MagicUltraSkill1_Damage", (500_000,)),
+                        ("GE_Player_Canhong_MagicUltraSkill2_Damage", (700_000,)),
+                    ),
+                    **shared,
+                ),
+                BattleActionAnimationCandidate(
+                    selector_key="ForceUltraSkill",
+                    montage_asset_path="/Game/Animation/Canhong_ForceUltraSkill",
+                    effect_hit_offsets_us=(
+                        ("GE_Player_Canhong_ForceUltraSkill1_Damage", (900_000,)),
+                        ("GE_Player_Canhong_ForceUltraSkill2_Damage", (1_100_000,)),
+                    ),
+                    **shared,
+                ),
+            ),
+        )
+
+        self.assertEqual(1, len(actions))
+        self.assertEqual("Q", actions[0].input_kind)
+        self.assertEqual("Q1 Q2 Q1 Q2", actions[0].input_sequence)
+        self.assertEqual(
+            ("1:primary", "2:primary", "3:primary", "4:primary"),
+            actions[0].evidence_event_ids,
+        )
 
     def test_fadia_godslayer_followup_is_mouse_a_not_another_q(self) -> None:
         actions = BattleActionInferenceService.infer((

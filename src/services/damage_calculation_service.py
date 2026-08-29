@@ -494,11 +494,6 @@ def calculate_ring_strength_multiplier(ring_strength: float) -> float:
     return 1 + ring_strength / 600
 
 
-def calculate_ring_amplification(ring_strength: float) -> float:
-    """Calculate 浸染's total multiplier, shared with 覆纹 before form splitting."""
-    return 1.20 * calculate_weave_strength_multiplier(ring_strength)
-
-
 def calculate_weave_strength_multiplier(ring_strength: float) -> float:
     """Calculate 覆纹's 1 + 20% × strength / (strength + 180) zone."""
     if ring_strength < 0:

@@ -1,3 +1,4 @@
+# 渲染按来源筛选的 Buff 与被动边际结果。
 """Small UI mixin for source-filtered Buff and passive marginal rows."""
 
 from __future__ import annotations

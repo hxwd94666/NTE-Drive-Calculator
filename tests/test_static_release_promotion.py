@@ -7,6 +7,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from tools.game_data.promote_static_release import (
@@ -31,7 +32,7 @@ class StaticReleasePromotionTests(unittest.TestCase):
         candidate_dir = root / "candidate"
         candidate_dir.mkdir()
         database_path = candidate_dir / DATABASE_FILENAME
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection:
             connection.executescript(
                 """
                 CREATE TABLE dataset (
@@ -74,6 +75,7 @@ class StaticReleasePromotionTests(unittest.TestCase):
                 "INSERT INTO source_row VALUES (1, 1, 'fixture', NULL, ?)",
                 (source_hash,),
             )
+            connection.commit()
 
         config_path = root / "local.paths.json"
         config_path.write_text(

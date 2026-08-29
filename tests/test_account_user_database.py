@@ -165,7 +165,12 @@ class AccountUserDatabaseTests(unittest.TestCase):
 
             self.assertEqual(
                 settings.load("hotkeys"),
-                {"capture": "F6", "finish": "F7", "stop": "F8"},
+                {
+                    "capture": "F6",
+                    "finish": "F7",
+                    "stop": "F8",
+                    "battle_rerecord": "F11",
+                },
             )
             self.assertEqual(settings.load("update")["ignored_version"], "1.2.3")
             self.assertEqual(settings.load("update")["mirror_cdk"], "legacy-cdk")

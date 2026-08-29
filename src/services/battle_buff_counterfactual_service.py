@@ -21,7 +21,6 @@ from src.services.battle_buff_counterfactual_batch_executor import (
 )
 from src.services.battle_buff_counterfactual_plan_service import (
     BattleBuffCounterfactualPlanService,
-    battle_buff_counterfactual_key,
 )
 from src.services.battle_buff_interval_index import BattleBuffIntervalIndex
 from src.services.battle_buff_counterfactual_projection_support import (

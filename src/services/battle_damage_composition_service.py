@@ -53,6 +53,7 @@ _NAMED_SPECIAL_LABELS = {
 }
 
 _SPECIAL_EFFECT_LABELS = {
+    "buff_tenacity_damage": ("other_topple", "倾陷伤害"),
     "ge_player_kuhara_seedreaction_damage": ("direct_follow_up", "追加攻击"),
     "ge_player_daffodill_extraunbalance_damage": (
         "special_daffodill_extra_topple",
@@ -107,6 +108,11 @@ _DOT_CHANNELS = {
     "special_zankou_erosion",
     "special_zankou_venom",
 }
+_NAMED_CONTINUOUS_DIRECT_CHANNELS = {
+    "special_nightmare",
+    "special_zankou_erosion",
+    "special_zankou_venom",
+}
 
 _REACTION_CHANNELS = {
     key for key, _label in _REACTION_LABELS.values()
@@ -121,26 +127,29 @@ _CHANNEL_ORDER = {
     "direct": 0,
     "direct_follow_up": 1,
     "dot": 2,
-    "attachment": 3,
-    "topple": 4,
-    "max_hp_reduction": 5,
-    "shared_damage": 6,
-    "reaction_creation": 7,
-    "reaction_hexed": 8,
-    "reaction_remora": 9,
-    "reaction_nova": 10,
-    "reaction_scorch": 11,
-    "reaction_stain": 12,
-    "reaction_charge": 13,
-    "reaction_discord": 14,
-    "reaction_unknown": 15,
-    "special": 16,
-    "other_reflected_projectile": 17,
-    "other_environment": 18,
-    "other_shared": 19,
-    "unattributed_topple": 20,
-    "unattributed_missing_source": 21,
-    "other_unattributed": 22,
+    "special_nightmare": 3,
+    "special_zankou_erosion": 4,
+    "special_zankou_venom": 5,
+    "attachment": 6,
+    "topple": 7,
+    "max_hp_reduction": 8,
+    "shared_damage": 9,
+    "reaction_creation": 10,
+    "reaction_hexed": 11,
+    "reaction_remora": 12,
+    "reaction_nova": 13,
+    "reaction_scorch": 14,
+    "reaction_stain": 15,
+    "reaction_charge": 16,
+    "reaction_discord": 17,
+    "reaction_unknown": 18,
+    "special": 19,
+    "other_reflected_projectile": 20,
+    "other_environment": 21,
+    "other_shared": 22,
+    "unattributed_topple": 23,
+    "unattributed_missing_source": 24,
+    "other_unattributed": 25,
 }
 
 _MISSING_SOURCE_LABELS = {
@@ -276,6 +285,18 @@ def classify_battle_hit_channel(hit: BattleAnalysisHit) -> tuple[str, str]:
     effect_channel = _SPECIAL_EFFECT_LABELS.get(effect)
     if effect_channel is not None:
         return effect_channel
+    # Old axes and synthetic/imported evidence may retain the public damage
+    # identity without the canonical player GE.  Exact named continuous-direct
+    # labels still own a stable lane unless a formal player ability + player GE
+    # proves that the row is the source skill's own direct damage.
+    formal_player_damage = bool(str(hit.ability_id or "").strip()) and (
+        effect.startswith("ge_player_")
+    )
+    if not formal_player_damage:
+        for value in (hit.damage_name, hit.skill_name, hit.attack_type):
+            named_special = _NAMED_SPECIAL_LABELS.get(_normalized_label(value))
+            if named_special is not None:
+                return named_special
     if hit.classification == "dot":
         return "dot", "持续伤害"
     if hit.classification == "attachment":
@@ -343,6 +364,8 @@ def _coarse_role_channel(key: str, label: str) -> tuple[str, str]:
         return key, label
     if key in _REACTION_CHANNELS:
         return key, _COARSE_REACTION_LABELS.get(key, label)
+    if key in _NAMED_CONTINUOUS_DIRECT_CHANNELS:
+        return key, label
     if key in _DOT_CHANNELS:
         return "dot", "持续伤害"
     if key == "attachment":

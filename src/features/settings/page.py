@@ -44,6 +44,19 @@ def refresh_account_scoped_settings(window) -> None:
     """Refresh already-built settings controls after an account switch."""
 
     preferences = getattr(window, "_ui_preferences", {}) or {}
+    for editor_name, value_name in (
+        ("_hk_capture_edit", "_hk_capture"),
+        ("_hk_finish_edit", "_hk_finish"),
+        ("_hk_stop_edit", "_hk_stop"),
+        ("_hk_battle_rerecord_edit", "_hk_battle_rerecord"),
+    ):
+        hotkey_editor = getattr(window, editor_name, None)
+        if hotkey_editor is not None:
+            hotkey_editor.blockSignals(True)
+            hotkey_editor.setKeySequence(
+                QKeySequence(str(getattr(window, value_name, "")))
+            )
+            hotkey_editor.blockSignals(False)
     edit = getattr(window, "_protagonist_game_name_edit", None)
     if edit is not None:
         edit.blockSignals(True)
@@ -482,6 +495,20 @@ def build_settings_page(
     stop_row.addStretch()
     form.addRow(stop_row)
 
+    rerecord_row = QHBoxLayout()
+    rerecord_row.setSpacing(8)
+    window._hk_battle_rerecord_edit = QKeySequenceEdit(
+        QKeySequence(window._hk_battle_rerecord)
+    )
+    window._hk_battle_rerecord_edit.setMaximumWidth(160)
+    window._hk_battle_rerecord_edit.setToolTip(
+        "战报采集中需在 1.5 秒内连续按两次才会放弃当前战报并重录。"
+    )
+    rerecord_row.addWidget(QLabel("战报重录按键:"))
+    rerecord_row.addWidget(window._hk_battle_rerecord_edit)
+    rerecord_row.addStretch()
+    form.addRow(rerecord_row)
+
     def save_hotkeys_when_complete(_sequence) -> None:
         # QKeySequenceEdit temporarily clears its value before it accepts a
         # replacement shortcut.  Do not persist that transient blank state.
@@ -489,6 +516,7 @@ def build_settings_page(
             window._hk_capture_edit,
             window._hk_finish_edit,
             window._hk_stop_edit,
+            window._hk_battle_rerecord_edit,
         )
         if all(editor.keySequence().toString().strip() for editor in editors):
             window._save_hotkeys()
@@ -499,6 +527,7 @@ def build_settings_page(
         window._hk_capture_edit,
         window._hk_finish_edit,
         window._hk_stop_edit,
+        window._hk_battle_rerecord_edit,
     ):
         editor.keySequenceChanged.connect(save_hotkeys_when_complete)
 

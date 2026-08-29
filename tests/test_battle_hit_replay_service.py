@@ -17,6 +17,9 @@ from src.domain.battle_report import (
     BattleTargetCondition,
 )
 from src.services.battle_hit_replay_service import BattleHitReplayService
+from src.services.battle_hit_local_crit_inference_service import (
+    BattleHitLocalCritInferenceService,
+)
 from src.services.battle_hit_replay_support import apply_observed_damage_correction
 from src.services.battle_special_hit_replay_service import (
     BattleSpecialHitReplayService,
@@ -111,7 +114,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         )
         analysis = SimpleNamespace(hits=hits, baselines=(baseline,))
 
-        projected = BattleHitReplayService._apply_local_crit_evidence(
+        projected = BattleHitLocalCritInferenceService.apply(
             analysis,
             results,
         )

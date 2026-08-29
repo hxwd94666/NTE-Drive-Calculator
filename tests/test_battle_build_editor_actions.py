@@ -7,6 +7,7 @@ from unittest.mock import patch
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
+from src.features.battle_report.build_snapshot_control import BattleBuildSnapshotControl
 from src.features.battle_report.build_snapshot_editor import (
     BattleBuildSnapshotEditorDialog,
 )
@@ -54,6 +55,12 @@ class BattleBuildEditorActionTests(unittest.TestCase):
         current_label_index = view.context_row.indexOf(view.current_scope_title)
 
         self.assertEqual(current_label_index - 1, edit_index)
+
+    def test_first_edit_explains_that_the_battle_frozen_copy_is_used(self) -> None:
+        control = BattleBuildSnapshotControl()
+        control.set_state(has_edit=False, active=False)
+
+        self.assertIn("本场原始冻结配置", control.status.text())
 
     def test_imported_editor_hides_equipment_sync_and_submits_only_cultivation(self) -> None:
         created_options = []

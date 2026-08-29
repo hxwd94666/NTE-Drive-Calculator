@@ -41,4 +41,4 @@ class BattleTargetInstanceResolution:
     possible_monster_ids: tuple[str, ...]
     resolution_mode: str
     initial_max_hp: float
-    target_condition: BattleTargetCondition | None
+    target_condition: "BattleTargetCondition | None"

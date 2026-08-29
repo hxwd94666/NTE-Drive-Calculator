@@ -14,7 +14,7 @@ from typing import Literal
 from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
 
 
-ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v12"
+ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v13"
 
 _Q_TIME_STOP_FOLLOW_TOLERANCE_US = 350_000
 
@@ -97,7 +97,29 @@ def _action_kind(hit: BattleAnalysisHit) -> str:
     return ""
 
 
-def _is_action_evidence(hit: BattleAnalysisHit) -> bool:
+def _has_formal_direct_hit_evidence(
+    hit: BattleAnalysisHit,
+    candidates: Sequence[BattleActionAnimationCandidate],
+) -> bool | None:
+    """Return whether a formal candidate binds this GE as a direct animation hit."""
+
+    ability_id = hit.ability_id.casefold()
+    formal_effects = {
+        effect_id.casefold()
+        for candidate in candidates
+        if candidate.ability_id.casefold() == ability_id
+        for effect_id, offsets in candidate.effect_hit_offsets_us
+        if effect_id and offsets
+    }
+    if not formal_effects:
+        return None
+    return hit.gameplay_effect_id.casefold() in formal_effects
+
+
+def _is_action_evidence(
+    hit: BattleAnalysisHit,
+    candidates: Sequence[BattleActionAnimationCandidate],
+) -> bool:
     if (
         hit.direction != "outgoing"
         or hit.is_follow_up
@@ -111,7 +133,10 @@ def _is_action_evidence(hit: BattleAnalysisHit) -> bool:
         return False
     if hit.classification == "reaction" and _action_kind(hit) != "QTE":
         return False
-    return bool(_action_kind(hit))
+    kind = _action_kind(hit)
+    if kind == "Q" and _has_formal_direct_hit_evidence(hit, candidates) is False:
+        return False
+    return bool(kind)
 
 
 def _phase_token(hit: BattleAnalysisHit, kind: str) -> str:
@@ -294,17 +319,26 @@ def _continues_action(
     hit: BattleAnalysisHit,
     key: tuple[int, str, str],
     candidates: Sequence[BattleActionAnimationCandidate],
+    time_stop_intervals: Sequence[tuple[int | None, int | None]],
 ) -> bool:
     if current_key != key or not current:
         return False
     previous = current[-1]
+    kind = key[2]
+    if kind == "Q" and any(
+        start_us is not None
+        and end_us is not None
+        and int(start_us) <= previous.relative_time_us <= int(end_us)
+        and int(start_us) <= hit.relative_time_us <= int(end_us)
+        for start_us, end_us in time_stop_intervals
+    ):
+        return True
     gap_limit = _GAP_LIMITS_US.get(key[2], 900_000)
     if hit.relative_time_us - previous.relative_time_us > gap_limit:
         return False
     if hit.relative_time_us == previous.relative_time_us:
         return True
 
-    kind = key[2]
     if kind == "QTE":
         return True
     static_decision = _static_sequence_decision((*current, hit), candidates)
@@ -629,7 +663,10 @@ class BattleActionInferenceService:
     ) -> tuple[BattleInferredAction, ...]:
         by_character: dict[int, list[BattleAnalysisHit]] = defaultdict(list)
         for hit in hits:
-            if hit.character_id is not None and _is_action_evidence(hit):
+            if hit.character_id is not None and _is_action_evidence(
+                hit,
+                animation_candidates,
+            ):
                 by_character[hit.character_id].append(hit)
 
         actions: list[BattleInferredAction] = []
@@ -649,6 +686,7 @@ class BattleActionInferenceService:
                     hit,
                     key,
                     animation_candidates,
+                    time_stop_intervals,
                 )
                 if not continues and current_key is not None:
                     action = _build_action(ordinal, current_key, current)

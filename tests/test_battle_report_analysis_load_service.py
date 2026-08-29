@@ -3,6 +3,7 @@
 
 from types import SimpleNamespace
 from concurrent.futures import CancelledError
+from threading import Event
 import time
 import unittest
 from unittest.mock import Mock, call, patch
@@ -102,7 +103,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                     start_us=10,
                     end_us=20,
                     detail_scope=None,
-                    use_build_edit=True,
+                    use_build_edit=False,
                     include_buff_inference=True,
                     include_hit_replays=True,
                     include_buff_counterfactuals=False,
@@ -110,6 +111,37 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             ],
             history.load_analysis.call_args_list,
         )
+
+    def test_saved_edit_is_compared_from_immutable_original_without_draft(self) -> None:
+        effective = SimpleNamespace(timeline_hits=(object(),))
+        original = SimpleNamespace(timeline_hits=(object(),))
+        combined = SimpleNamespace(timeline_hits=(object(),))
+        history = Mock()
+        history.load_analysis.side_effect = (effective, original)
+        history.load_target_catalog.return_value = {"kinds": ()}
+
+        with (
+            patch(
+                "src.services.battle_report_analysis_load_service."
+                "BattleBuildCounterfactualService.compare",
+                return_value=object(),
+            ) as compare,
+            patch(
+                "src.services.battle_report_analysis_load_service.replace",
+                return_value=combined,
+            ),
+        ):
+            result = BattleReportAnalysisLoadService.load(
+                history,
+                BattleReportAnalysisLoadRequest(
+                    battle_record_id=12,
+                    detail_level="marginal",
+                ),
+            )
+
+        self.assertIs(combined, result.analysis)
+        self.assertEqual(False, history.load_analysis.call_args_list[1].kwargs["use_build_edit"])
+        compare.assert_called_once_with(original=original, candidate=effective)
 
     def test_memory_candidate_reuses_matching_comparison_baseline(self) -> None:
         candidate = SimpleNamespace(
@@ -388,9 +420,14 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         page = _AsyncPage(loop)
         host = _AsyncHost(page)
         loaded_scopes: list[str | None] = []
+        first_started = Event()
+        release_first = Event()
 
         def load(_history, request, *, progress_callback=None):
             loaded_scopes.append(request.detail_scope)
+            if len(loaded_scopes) == 1:
+                first_started.set()
+                release_first.wait(2.0)
             time.sleep(0.03)
             return BattleReportAnalysisLoadResult(
                 SimpleNamespace(
@@ -403,8 +440,10 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
 
         with patch.object(BattleReportAnalysisLoadService, "load", side_effect=load):
             host._load_analysis(12, detail_scope="first")
+            self.assertTrue(first_started.wait(2.0))
             host._invalidate_analysis_loading()
             host._load_analysis(12, detail_scope="first")
+            release_first.set()
             QTimer.singleShot(2_000, loop.quit)
             loop.exec()
             worker = host._analysis_load_worker

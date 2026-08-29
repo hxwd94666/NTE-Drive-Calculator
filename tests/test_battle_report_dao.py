@@ -262,6 +262,7 @@ class BattleReportDaoTests(unittest.TestCase):
                 "battle_equipment_snapshot",
                 "battle_equipment_stat_snapshot",
                 "battle_hit_evidence",
+                "battle_inferred_target_snapshot",
                 "battle_record",
                 "battle_record_retention",
                 "battle_report_import_origin",

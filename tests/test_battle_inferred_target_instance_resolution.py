@@ -1,3 +1,4 @@
+# 验证已知轨外环境从旧战报派生逐目标公式画像。
 """已知轨外环境从旧战报派生逐目标公式画像的公共行为测试。"""
 
 from __future__ import annotations
@@ -93,7 +94,7 @@ class BattleInferredTargetInstanceResolutionTests(unittest.TestCase):
         self.assertEqual(1050.0, resolutions[0].target_condition.enemy_defense_base)
 
         project_resolved_target_evidence({"hits": hits}, resolutions)
-        self.assertEqual("墨菲克斯", hits[0]["target_name"])
+        self.assertEqual("争锋赏宴·愿望成真", hits[0]["target_name"])
         self.assertEqual("", hits[0]["target_monster_id"])
 
     def test_known_outer_half_builds_per_instance_replay_profiles(self) -> None:

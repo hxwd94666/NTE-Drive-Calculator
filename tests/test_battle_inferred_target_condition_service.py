@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 
 from src.services.battle_inferred_target_condition_service import (
+    INFERRED_ENCOUNTER_ALGORITHM_VERSION,
     BattleInferredTargetConditionService,
+)
+from src.services.battle_inferred_target_snapshot_service import (
+    INFERRED_TARGET_SNAPSHOT_SCHEMA_VERSION,
+    BattleInferredTargetSnapshotService,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -32,6 +37,56 @@ def _hit(
 
 
 class BattleInferredTargetConditionServiceTests(unittest.TestCase):
+    def test_versioned_snapshot_round_trips_complete_inference(self) -> None:
+        inferred = BattleInferredTargetConditionService.infer(
+            static_database_path=STATIC_DATABASE,
+            combat_context_kind="non_abyss",
+            floor=None,
+            evidence={
+                "hits": (
+                    _hit(
+                        1,
+                        1_450_710.0,
+                        "enemy-wire:black-book",
+                        monster_id="boss_09_BP_WorldBoss",
+                    ),
+                )
+            },
+            range_start_us=None,
+            range_end_us=None,
+        )
+
+        assert inferred is not None
+        row = {
+            "inference_status": "resolved",
+            "payload_schema_version": INFERRED_TARGET_SNAPSHOT_SCHEMA_VERSION,
+            "algorithm_version": INFERRED_ENCOUNTER_ALGORITHM_VERSION,
+            "static_dataset_id": "dataset-a",
+            "static_schema_version": 29,
+            "environment_kind": inferred.environment_kind,
+            "environment_ref": inferred.environment_ref,
+            "environment_name": inferred.environment_name,
+            "source_kind": inferred.source_kind,
+            "confidence": inferred.confidence,
+            "inferred_payload": BattleInferredTargetSnapshotService.payload(
+                inferred
+            ),
+        }
+        restored = BattleInferredTargetSnapshotService.restore(
+            row,
+            static_dataset_id="dataset-a",
+            static_schema_version=29,
+        )
+
+        self.assertEqual(inferred, restored)
+        self.assertIsNone(
+            BattleInferredTargetSnapshotService.restore(
+                row,
+                static_dataset_id="dataset-b",
+                static_schema_version=29,
+            )
+        )
+
     def test_ui_range_does_not_hide_other_half_from_environment_recognition(self) -> None:
         inferred = BattleInferredTargetConditionService.infer(
             static_database_path=STATIC_DATABASE,
@@ -155,6 +210,7 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         assert inferred is not None
         self.assertEqual("feast", inferred.environment_kind)
         self.assertEqual("DiyBossStage8", inferred.environment_ref)
+        self.assertEqual("墨菲克斯", inferred.identities[0].target_name)
         self.assertEqual(1, inferred.difficulty_id)
         options = dict(inferred.feast_options)
         self.assertEqual("LifeOP001_challenge", options["1"])

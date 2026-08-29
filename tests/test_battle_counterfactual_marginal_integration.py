@@ -9,7 +9,10 @@ from src.services.battle_counterfactual_analysis_service import (
 from src.services.battle_marginal_calculation_service import (
     BattleMarginalCalculationService,
 )
-from tests.test_battle_counterfactual_analysis_service import _build, _evidence
+from tests.battle_counterfactual_fixtures import (
+    build_fixture as _build,
+    evidence_fixture as _evidence,
+)
 
 
 class BattleCounterfactualMarginalIntegrationTests(unittest.TestCase):

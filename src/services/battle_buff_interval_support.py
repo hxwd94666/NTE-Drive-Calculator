@@ -18,7 +18,6 @@ from src.services.battle_timeline_time_service import (
     unproject_timeline_time_us,
 )
 from src.services.battle_damage_composition_service import (
-    classify_battle_hit_channel,
     classify_battle_hit_reaction_trigger,
 )
 from src.services.battle_trigger_requirement_service import (

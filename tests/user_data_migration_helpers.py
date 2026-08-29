@@ -5,6 +5,15 @@ import sqlite3
 
 
 def drop_battle_axis_v23(connection: sqlite3.Connection) -> None:
+    # Remove every table added after v23 before dropping its referenced axis
+    # parents.  These fixtures start from the current schema and then replay
+    # the append-only migration chain from an older version.
+    for table in (
+        "battle_inferred_target_snapshot",
+        "battle_character_import_equipment_lock",
+        "battle_report_import_origin",
+    ):
+        connection.execute(f"DROP TABLE IF EXISTS {table}")
     connection.execute("DROP TABLE IF EXISTS battle_target_condition")
     for table in (
         "battle_character_awaken_edit",
@@ -36,6 +45,9 @@ def drop_battle_axis_v23(connection: sqlite3.Connection) -> None:
     ):
         connection.execute(f"ALTER TABLE battle_hit_evidence DROP COLUMN {column}")
     connection.execute("DROP TABLE character_profile_awaken_effect")
+    connection.execute(
+        "ALTER TABLE character_profile DROP COLUMN fork_breakthrough_stage"
+    )
     for column in (
         "awakening_selection_initialized",
         "likeability_level_10_enabled",
@@ -53,6 +65,10 @@ def drop_battle_axis_v23(connection: sqlite3.Connection) -> None:
     ):
         connection.execute(f"DROP TABLE {table}")
     for column in (
+        "nte_core_executable_sha256",
+        "nte_core_data_version",
+        "nte_core_protocol_version",
+        "nte_core_version",
         "axis_stored_hits",
         "axis_total_hits",
         "axis_first_sequence",

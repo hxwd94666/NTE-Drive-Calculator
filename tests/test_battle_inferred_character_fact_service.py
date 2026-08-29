@@ -1,3 +1,4 @@
+# 验证精确运行时证据只生成非持久化养成事实。
 """Verify exact runtime evidence creates non-persisted cultivation facts."""
 
 from __future__ import annotations

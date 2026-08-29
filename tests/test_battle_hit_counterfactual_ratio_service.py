@@ -39,6 +39,8 @@ def _baseline(**changes: float) -> BattleCharacterBaseline:
         "CritDamageBase": 1.0,
         "DamageUpGeneralBase": 0.0,
         "DamageUpNatureBase": 0.0,
+        "DamageUpChaosBase": 0.0,
+        "MagBase": 100.0,
         "DefIgnore": 0.0,
         "DamagePenetrateNature": 0.0,
     }
@@ -129,6 +131,24 @@ def _selected_replay(non_critical_damage: float) -> BattleHitReplayResult:
     )
 
 
+def _ring_replay(
+    hit: BattleAnalysisHit,
+    *factors: BattleHitReplayFactor,
+) -> BattleHitReplayResult:
+    return BattleHitReplayResult(
+        event_id=hit.event_id,
+        observed_damage=hit.damage,
+        non_critical_damage=hit.damage,
+        critical_damage=None,
+        selected_damage=hit.damage,
+        selected_error_percent=0.0,
+        critical_state="not_applicable",
+        confidence="高",
+        factors=factors,
+        critical_policy="disabled",
+    )
+
+
 def _condition() -> BattleTargetCondition:
     return BattleTargetCondition(
         target_name="测试目标",
@@ -191,8 +211,8 @@ class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
         )
 
         self.assertEqual("unavailable", result.status)
-        self.assertEqual("component_ratio_unavailable", result.method)
-        self.assertEqual("formula_family_unsupported", result.gaps[0].code)
+        self.assertEqual("unsupported_source_linkage", result.method)
+        self.assertEqual("fadia_shared_source_unresolved", result.gaps[0].code)
 
     def test_replay_scaling_terms_identify_hp_scaling(self) -> None:
         result = self._compare(
@@ -297,6 +317,223 @@ class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
         self.assertEqual("complete", result.status)
         self.assertAlmostEqual(1.2, result.quantified_ratio)
         self.assertEqual("structured_selected", result.method)
+
+    def test_standard_reaction_ring_strength_uses_shared_scaling_zone(self) -> None:
+        hit = replace(
+            _hit(),
+            classification="reaction",
+            damage_name="浊燃",
+            gameplay_effect_id="Buff_Reaction_5_new_1036",
+        )
+        replay = _ring_replay(
+            hit,
+            BattleHitReplayFactor(
+                factor_id="scaling",
+                label="环合强度区",
+                value=1.0 + 100.0 / 600.0,
+                evidence_basis="正式浊燃公式",
+            ),
+        )
+
+        result = self._compare(
+            _baseline(MagBase=106.0),
+            hit=hit,
+            original_replay=replay,
+        )
+
+        self.assertEqual("complete", result.status)
+        self.assertAlmostEqual(
+            (1.0 + 106.0 / 600.0) / (1.0 + 100.0 / 600.0),
+            result.quantified_ratio,
+        )
+
+    def test_scorch_uses_fixed_half_crit_damage_but_not_panel_crit_rate(self) -> None:
+        hit = replace(
+            _hit(damage_attribute="incantation"),
+            classification="reaction",
+            damage_name="浊燃",
+            gameplay_effect_id="Buff_Reaction_5_new_1036",
+        )
+        replay = replace(
+            _unknown_replay(),
+            critical_rate=0.5,
+            critical_policy="fixed",
+        )
+
+        crit_damage = self._compare(
+            _baseline(CritDamageBase=1.02),
+            hit=hit,
+            original_replay=replay,
+        )
+        crit_rate = self._compare(
+            _baseline(CritBase=0.6),
+            hit=hit,
+            original_replay=replay,
+        )
+
+        self.assertEqual("complete", crit_damage.status)
+        self.assertAlmostEqual(1.51 / 1.50, crit_damage.quantified_ratio)
+        self.assertEqual("not_applicable", crit_rate.status)
+        self.assertEqual(1.0, crit_rate.quantified_ratio)
+
+    def test_creation_consumes_defense_and_formal_element_resistance(self) -> None:
+        hit = replace(
+            _hit(damage_attribute="nature"),
+            classification="reaction",
+            damage_name="创生花",
+            gameplay_effect_id="GE_ActorReaction_1_Damage",
+        )
+        replay = _ring_replay(hit, BattleHitReplayFactor(
+            factor_id="scaling",
+            label="环合强度区",
+            value=1.0 + 100.0 / 600.0,
+            evidence_basis="正式创生公式",
+        ))
+
+        result = self._compare(
+            _baseline(DefIgnore=0.01, DamagePenetrateNature=0.01),
+            hit=hit,
+            original_replay=replay,
+            target_condition=_condition(),
+        )
+
+        self.assertEqual("complete", result.status)
+        self.assertIn("target_defense", result.included_dimension_ids)
+        self.assertIn("target_resistance", result.included_dimension_ids)
+
+    def test_scorch_ignores_attack_and_damage_increase_but_uses_target_formula(self) -> None:
+        hit = replace(
+            _hit(damage_attribute=""),
+            classification="reaction",
+            damage_name="浊燃",
+            gameplay_effect_id="Buff_Reaction_5_new_1036",
+        )
+        replay = _ring_replay(hit, BattleHitReplayFactor(
+            factor_id="scaling",
+            label="环合强度区",
+            value=1.0 + 100.0 / 600.0,
+            evidence_basis="正式浊燃公式",
+        ))
+        ignored = self._compare(
+            _baseline(
+                AtkUp=0.1,
+                DamageUpGeneralBase=0.1,
+                DamageUpIncantationBase=0.1,
+                CritBase=0.9,
+            ),
+            hit=hit,
+            original_replay=replay,
+            target_condition=_condition(),
+        )
+        target = self._compare(
+            _baseline(DefIgnore=0.01, DamagePenetrateIncantation=0.01),
+            hit=hit,
+            original_replay=replay,
+            target_condition=_condition(),
+        )
+
+        self.assertEqual("not_applicable", ignored.status)
+        self.assertEqual("complete", target.status)
+        self.assertIn("target_defense", target.included_dimension_ids)
+        self.assertIn("target_resistance", target.included_dimension_ids)
+
+    def test_nova_keeps_psyche_resistance_but_cancels_defense(self) -> None:
+        hit = replace(
+            _hit(damage_attribute=""),
+            classification="reaction",
+            damage_name="黯星",
+            gameplay_effect_id="Buff_Reaction_4_new",
+        )
+        replay = _ring_replay(hit, BattleHitReplayFactor(
+            factor_id="scaling",
+            label="环合强度区",
+            value=1.0 + 100.0 / 600.0,
+            evidence_basis="正式黯星公式",
+        ))
+        defense = self._compare(
+            _baseline(DefIgnore=0.01),
+            hit=hit,
+            original_replay=replay,
+            target_condition=_condition(),
+        )
+        resistance = self._compare(
+            _baseline(DamagePenetratePsyche=0.01),
+            hit=hit,
+            original_replay=replay,
+            target_condition=_condition(),
+        )
+
+        self.assertEqual("not_applicable", defense.status)
+        self.assertEqual("complete", resistance.status)
+        self.assertEqual(("target_resistance",), resistance.included_dimension_ids)
+
+    def test_true_direct_requires_special_attribute_override(self) -> None:
+        result = self._compare(
+            _baseline(DefIgnore=0.01),
+            hit=_hit(damage_attribute="true"),
+            target_condition=_condition(),
+        )
+
+        self.assertEqual("unavailable", result.status)
+        self.assertEqual("true_attribute_override_missing", result.gaps[0].code)
+
+    def test_nightmare_continuous_direct_uses_chaos_and_fixed_half_crit(self) -> None:
+        hit = replace(
+            _hit(damage_attribute="chaos"),
+            classification="dot",
+            damage_name="噩梦",
+            gameplay_effect_id="GE_Player_Lacrimosa_Blood_Damage_LV6",
+        )
+        replay = _unknown_replay()
+
+        chaos = self._compare(
+            _baseline(DamageUpChaosBase=0.1),
+            hit=hit,
+            original_replay=replay,
+        )
+        crit_damage = self._compare(
+            _baseline(CritDamageBase=1.02),
+            hit=hit,
+            original_replay=replay,
+        )
+
+        self.assertEqual("complete", chaos.status)
+        self.assertAlmostEqual(1.1, chaos.quantified_ratio)
+        self.assertEqual("complete", crit_damage.status)
+        self.assertAlmostEqual(1.51 / 1.50, crit_damage.quantified_ratio)
+
+    def test_weave_ring_strength_preserves_lingke_thirty_percent_branch(self) -> None:
+        hit = replace(_hit(), classification="weave", damage_name="覆纹")
+        strength = 1.0 + 0.20 * 100.0 / (100.0 + 180.0)
+        followup = 1.30 * strength - 1.0
+        replay = _ring_replay(
+            hit,
+            BattleHitReplayFactor(
+                factor_id="weave_strength",
+                label="覆纹环合强度区",
+                value=strength,
+                evidence_basis="正式覆纹公式",
+            ),
+            BattleHitReplayFactor(
+                factor_id="weave_followup",
+                label="覆纹追加倍率",
+                value=followup,
+                evidence_basis="灵可弱点感应 30% 分支",
+            ),
+        )
+
+        result = self._compare(
+            _baseline(MagBase=106.0),
+            hit=hit,
+            original_replay=replay,
+        )
+        candidate_strength = 1.0 + 0.20 * 106.0 / (106.0 + 180.0)
+
+        self.assertEqual("complete", result.status)
+        self.assertAlmostEqual(
+            (1.30 * candidate_strength - 1.0) / followup,
+            result.quantified_ratio,
+        )
 
     def test_damage_summary_rejects_broken_bucket_invariant(self) -> None:
         with self.assertRaises(ValueError):

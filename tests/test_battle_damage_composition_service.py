@@ -450,9 +450,9 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
             roles=(BattleRangeRoleSummary(
                 character_id=1055,
                 character_name="九原",
-                hits=5,
-                damage=150.0,
-                dps=150.0,
+                hits=7,
+                damage=280.0,
+                dps=280.0,
                 share_percent=100.0,
             ),),
             hits=(
@@ -461,14 +461,18 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
                 hit(3, 30.0, damage_name="致命玫约持续伤害", gameplay_effect_id="GE_Player_Kuhara_Seed_Damage"),
                 hit(4, 40.0, damage_name="追加清算", gameplay_effect_id="GE_Player_Kuhara_SeedReaction_Damage", classification="reaction"),
                 hit(5, 50.0, damage_name="浊燃", gameplay_effect_id="Buff_Reaction_5_new", classification="reaction"),
+                hit(6, 60.0, damage_name="蚀心", gameplay_effect_id="GE_Player_Zankou_DotDamage"),
+                hit(7, 70.0, damage_name="鸩火", gameplay_effect_id="GE_Player_Zankou_DotUltraDamage"),
             ),
-            segment_total_damage=150.0,
+            segment_total_damage=280.0,
             grouping="coarse",
         )
 
         entries = {entry.key: entry.damage for entry in composition.roles[0].entries}
         self.assertEqual(50.0, entries["direct"])
-        self.assertEqual(20.0, entries["dot"])
+        self.assertEqual(20.0, entries["special_nightmare"])
+        self.assertEqual(60.0, entries["special_zankou_erosion"])
+        self.assertEqual(70.0, entries["special_zankou_venom"])
         self.assertEqual(30.0, entries["attachment"])
         self.assertEqual(50.0, entries["reaction_scorch"])
         self.assertEqual(0.0, composition.other_total_damage)

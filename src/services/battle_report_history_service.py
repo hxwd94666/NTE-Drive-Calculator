@@ -81,7 +81,12 @@ from src.services.battle_formal_damage_tag_service import (
 from src.services.battle_marginal_counterfactual_projection_service import (
     BattleMarginalCounterfactualProjectionService,
 )
-from src.services.battle_inferred_target_condition_service import BattleInferredTargetConditionService
+from src.services.battle_inferred_target_condition_service import (
+    BattleInferredTargetConditionService,
+)
+from src.services.battle_inferred_target_snapshot_service import (
+    BattleInferredTargetSnapshotService,
+)
 from src.services.battle_inferred_target_resolution_support import (
     project_resolved_target_evidence,
     resolve_available_target_instances,
@@ -106,6 +111,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 __all__ = ["BattleReportHistoryService", "StaleBattleReportContextError"]
+
 
 class BattleReportHistoryService(
     BattleReportHistoryEvidenceProjectionMixin,
@@ -136,7 +142,9 @@ class BattleReportHistoryService(
             tuple[BattleActionAnimationCandidate, ...],
         ] = {}
         self._target_catalog_cache: dict[str, Any] | None = None
+        self._inferred_encounter_cache: dict[int, Any] = {}
         self._inferred_encounter_fit_cache: dict[int, Any] = {}
+
     def load_analysis(
         self,
         battle_record_id: int,
@@ -172,6 +180,9 @@ class BattleReportHistoryService(
             target_condition = resolve_battle_target_condition(
                 user_dao.load_battle_target_condition(battle_record_id)
             )
+            inferred_snapshot = user_dao.load_battle_inferred_target_snapshot(
+                battle_record_id
+            )
         build = normalize_inferred_battle_build(build)
         apply_import_equipment_locks(build, import_equipment_locks)
         recognition_build = None
@@ -194,20 +205,24 @@ class BattleReportHistoryService(
         record_floor = record.get("abyss_floor")
         inferred_encounter = None
         encounter_fit_cached = False
+        persisted_inferred_encounter = None
         if target_condition is None:
-            inferred_encounter = self._inferred_encounter_fit_cache.get(
-                battle_record_id
+            (
+                inferred_encounter,
+                encounter_fit_cached,
+                persisted_inferred_encounter,
+            ) = BattleInferredTargetSnapshotService.resolve(
+                persisted_row=inferred_snapshot,
+                battle_record_id=battle_record_id,
+                fitted_cache=self._inferred_encounter_fit_cache,
+                inferred_cache=self._inferred_encounter_cache,
+                static_database_path=self._dependencies.static_database_path,
+                combat_context_kind=str(record.get("combat_context_kind") or ""),
+                floor=None if record_floor is None else int(record_floor),
+                evidence=evidence,
+                dependencies=self._dependencies,
+                context_is_current=self._context_is_current,
             )
-            encounter_fit_cached = inferred_encounter is not None
-            if inferred_encounter is None:
-                inferred_encounter = BattleInferredTargetConditionService.infer(
-                    static_database_path=self._dependencies.static_database_path,
-                    combat_context_kind=str(record.get("combat_context_kind") or ""),
-                    floor=None if record_floor is None else int(record_floor),
-                    evidence=evidence,
-                    range_start_us=None,
-                    range_end_us=None,
-                )
         needs_encounter_fit = bool(
             target_condition is None
             and inferred_encounter is not None
@@ -339,6 +354,7 @@ class BattleReportHistoryService(
                 evidence=evidence,
                 inferred_character_facts=inferred_character_facts,
             )
+            self._inferred_encounter_cache[battle_record_id] = inferred_encounter
             self._inferred_encounter_fit_cache[battle_record_id] = inferred_encounter
             analysis_target_condition = inferred_encounter.target_condition
             outer_realm_buff_config = BattleOuterRealmBuffService.load(
@@ -371,6 +387,20 @@ class BattleReportHistoryService(
             _analyze = partial(
                 _analyze,
                 target_control_policy=target_control_policy,
+            )
+        if (
+            target_condition is None
+            and inferred_encounter is not None
+            and (
+                persisted_inferred_encounter is None
+                or inferred_encounter != persisted_inferred_encounter
+            )
+        ):
+            BattleInferredTargetSnapshotService.persist(
+                dependencies=self._dependencies,
+                context_is_current=self._context_is_current,
+                battle_record_id=battle_record_id,
+                inferred=inferred_encounter,
             )
         report_battle_analysis_progress(
             progress_callback,
@@ -585,6 +615,7 @@ class BattleReportHistoryService(
         return retention_mutation(result)
 
     def delete_record(self, battle_record_id: int) -> bool:
+        self._inferred_encounter_cache.pop(battle_record_id, None)
         self._inferred_encounter_fit_cache.pop(battle_record_id, None)
         with self._open_current_dao() as user_dao:
             return user_dao.delete_battle_record(battle_record_id)
@@ -668,10 +699,7 @@ class BattleReportHistoryService(
             )
             edited = edited_by_character.get(character_id)
             edited_profile = dict((edited or {}).get("profile") or {})
-            if edited is not None and not seed_from_role_page:
-                profile = dict(edited_profile)
-                seed_source = "edited_copy"
-            else:
+            if seed_from_role_page:
                 profile = dict(detail.get("profile") or {})
                 seed_source = "current_role_page"
                 if edited_profile:
@@ -683,6 +711,12 @@ class BattleReportHistoryService(
                     ):
                         if key in edited_profile:
                             profile[key] = edited_profile[key]
+            elif edited is not None:
+                profile = dict(edited_profile)
+                seed_source = "edited_copy"
+            else:
+                profile = dict(original.get("profile") or {})
+                seed_source = "battle_frozen"
             profile.update({
                 "character_id": character_id,
                 "observed_name": original.get("observed_name"),

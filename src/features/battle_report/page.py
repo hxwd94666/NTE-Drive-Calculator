@@ -63,6 +63,7 @@ def _format_number(value: float) -> str:
 class BattleReportPage(QWidget):
     start_requested = Signal()
     stop_requested = Signal()
+    rerecord_requested = Signal()
     overlay_visibility_changed = Signal(bool)
     overlay_passthrough_changed = Signal(bool)
     detail_scope_changed = Signal(str)
@@ -94,6 +95,7 @@ class BattleReportPage(QWidget):
             BattleAnalysisSnapshot,
         ] = {}
         self._detail_scope = "current"
+        self._capture_running = False
         self._stack = QStackedWidget(self)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -151,15 +153,17 @@ class BattleReportPage(QWidget):
         status_row.addWidget(help_button)
         control_layout.addLayout(status_row)
         actions = QHBoxLayout()
-        self.start_button = QPushButton("开始采集")
-        self.start_button.setObjectName("btnPrimary")
-        self.start_button.clicked.connect(self.start_requested)
-        actions.addWidget(self.start_button)
-        self.stop_button = QPushButton("结束并生成战报")
-        self.stop_button.setObjectName("btnDanger")
-        self.stop_button.setEnabled(False)
-        self.stop_button.clicked.connect(self.stop_requested)
-        actions.addWidget(self.stop_button)
+        self.capture_button = QPushButton("开始采集")
+        self.capture_button.setObjectName("btnPrimary")
+        self.capture_button.clicked.connect(self._request_capture_action)
+        actions.addWidget(self.capture_button)
+        self.rerecord_button = QPushButton("放弃重录")
+        self.rerecord_button.setObjectName("btnDanger")
+        self.rerecord_button.setToolTip(
+            "丢弃本次尚未保存的战报，并立即重新开始采集。"
+        )
+        self.rerecord_button.hide()
+        self.rerecord_button.clicked.connect(self.rerecord_requested)
         self.save_result_button = QPushButton("保存伤害结果")
         self.save_result_button.setEnabled(False)
         self.save_result_button.clicked.connect(self.save_result_requested)
@@ -177,6 +181,8 @@ class BattleReportPage(QWidget):
         self.passthrough_toggle.setToolTip("关闭后可拖动悬浮窗；开启后鼠标操作落到游戏。")
         self.passthrough_toggle.toggled.connect(self.overlay_passthrough_changed)
         actions.addWidget(self.passthrough_toggle)
+        actions.addSpacing(12)
+        actions.addWidget(self.rerecord_button)
         actions.addStretch()
         control_layout.addLayout(actions)
         root.addWidget(control_card)
@@ -346,8 +352,17 @@ class BattleReportPage(QWidget):
         self.status_detail.setText(
             state.message if not state.error else f"{state.message}：{state.error}"
         )
-        self.start_button.setEnabled(not state.running)
-        self.stop_button.setEnabled(state.running and state.phase != "stopping")
+        self._capture_running = state.running
+        stopping = state.phase == "stopping"
+        self.capture_button.setText("结束保存" if state.running else "开始采集")
+        object_name = "btnDanger" if state.running else "btnPrimary"
+        if self.capture_button.objectName() != object_name:
+            self.capture_button.setObjectName(object_name)
+            self.capture_button.style().unpolish(self.capture_button)
+            self.capture_button.style().polish(self.capture_button)
+        self.capture_button.setEnabled(not stopping)
+        self.rerecord_button.setVisible(state.phase == "running")
+        self.rerecord_button.setEnabled(state.phase == "running")
         self.history_button.setEnabled(not state.running)
         is_manual = state.retention_kind == "manual"
         self.save_result_button.setText("已手动保存" if is_manual else "保存伤害结果")
@@ -358,6 +373,27 @@ class BattleReportPage(QWidget):
         )
         if state.summary is not None:
             self._render_summary(state.summary)
+
+    def _request_capture_action(self) -> None:
+        if self._capture_running:
+            self.stop_requested.emit()
+        else:
+            self.start_requested.emit()
+
+    def set_rerecord_hotkey_label(self, hotkey: str) -> None:
+        self.rerecord_button.setToolTip(
+            "丢弃本次尚未保存的战报，并立即重新开始采集。"
+            f"全局快捷键：连续按两次 {hotkey}。"
+        )
+
+    def show_rerecord_hotkey_confirmation(
+        self,
+        hotkey: str,
+        seconds: float,
+    ) -> None:
+        self.status_detail.setText(
+            f"请在 {seconds:g} 秒内再次按 {hotkey}，确认放弃当前战报并重录。"
+        )
 
     def set_overlay_checked(self, visible: bool) -> None:
         self.overlay_toggle.blockSignals(True)

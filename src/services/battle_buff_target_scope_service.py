@@ -1,3 +1,4 @@
+# 仅依据显式静态语义解析 Buff 目标范围。
 """Resolve Buff target scopes only from explicit static semantics."""
 
 from __future__ import annotations

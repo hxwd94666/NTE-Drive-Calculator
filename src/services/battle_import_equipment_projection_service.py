@@ -1,3 +1,4 @@
+# 将不可变导入装备证据投影到战报配置副本。
 """Project immutable imported equipment evidence onto a battle build copy."""
 
 from __future__ import annotations

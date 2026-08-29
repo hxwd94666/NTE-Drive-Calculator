@@ -25,11 +25,15 @@ from src.features.battle_report.analysis_controller_mixin import (
 from src.features.battle_report.build_snapshot_controller import (
     BattleBuildSnapshotController,
 )
+from src.features.battle_report.capture_controls import (
+    BattleCaptureControlsMixin,
+)
 from src.features.battle_report.marginal_session_controller import (
     BattleMarginalSessionController,
 )
 from src.features.battle_report.overlay import BattleReportOverlay
 from src.features.battle_report.page import BattleReportPage
+from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
@@ -59,10 +63,15 @@ BattleHistoryFactory = Callable[
 BattleTransferFactory = Callable[[], BattleReportTransferService]
 
 
-class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
+class BattleReportController(
+    BattleCaptureControlsMixin,
+    BattleReportAnalysisControllerMixin,
+    QObject,
+):
     """Own the feature worker and bridge its callbacks onto the Qt thread."""
 
     _state_received = Signal(int, object)
+    _capture_hotkey_received = Signal(str)
 
     def __init__(
         self,
@@ -76,6 +85,7 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         persistence_factory: BattlePersistenceFactory,
         history_factory: BattleHistoryFactory,
         transfer_factory: BattleTransferFactory,
+        hotkey_manager: GlobalHotkeyManager,
     ) -> None:
         super().__init__(dialog_parent)
         self._app_context = app_context
@@ -104,9 +114,11 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         self._closing = False
         self._overlay_capture_active = False
         self._latest_state = EMPTY_BATTLE_CAPTURE_STATE
+        self._initialize_capture_controls(hotkey_manager)
         self._initialize_analysis_loading()
         self._page.start_requested.connect(self.start)
         self._page.stop_requested.connect(self.stop)
+        self._page.rerecord_requested.connect(self.rerecord)
         self._page.overlay_visibility_changed.connect(self._set_overlay_visible)
         self._page.overlay_passthrough_changed.connect(self._overlay.set_passthrough)
         self._page.detail_scope_changed.connect(self._change_detail_scope)
@@ -145,6 +157,7 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
             self._load_analysis_details
         )
         self._state_received.connect(self._apply_state)
+        self._capture_hotkey_received.connect(self._handle_capture_hotkey)
         self._restore_last_history()
 
     def build_page(self) -> QWidget:
@@ -155,7 +168,7 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         service = self._service
         return bool(service is not None and service.is_running)
 
-    def start(self) -> None:
+    def start(self, *, preserve_inventory_pause: bool = False) -> None:
         if self.is_running():
             return
         self._invalidate_analysis_loading()
@@ -172,10 +185,18 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
                 "无法开始战报",
                 f"读取抓包设置失败，未启动战报采集：{error}",
             )
+            if preserve_inventory_pause:
+                self._restore_inventory_sync()
             return
         configured_device = str(sync_settings.get("capture_device_id") or "").strip()
-        self._resume_inventory = self._inventory_sync_is_running()
-        if self._resume_inventory:
+        if preserve_inventory_pause:
+            self._resume_inventory = self._restart_resume_inventory
+            self._restart_resume_inventory = False
+        else:
+            self._restart_pending = False
+            self._restart_resume_inventory = False
+            self._resume_inventory = self._inventory_sync_is_running()
+        if self._resume_inventory and not preserve_inventory_pause:
             try:
                 self._stop_inventory_sync()
             except Exception as error:
@@ -191,6 +212,7 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         show_report = getattr(self._page, "show_report", None)
         if callable(show_report):
             show_report()
+        self._page.clear_summary()
         self._page.clear_analysis("采集中；结束并保存正式逐击后生成长页分析。")
         if self._page.overlay_toggle.isChecked():
             self._overlay.show_overlay()
@@ -227,8 +249,10 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         )
         self._service = service
         service.start()
+        self._start_battle_hotkeys()
 
     def stop(self) -> None:
+        self._stop_battle_hotkeys()
         self._overlay_capture_active = False
         self._overlay.hide()
         service = self._service
@@ -237,6 +261,7 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
 
     def close(self) -> None:
         self._closing = True
+        self._reset_capture_controls()
         self._invalidate_analysis_loading()
         self._operation_token += 1
         service = self._service
@@ -260,6 +285,7 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         if self.is_running():
             raise RuntimeError("战报采集期间不能切换账号")
         self._operation_token += 1
+        self._reset_capture_controls()
         self._invalidate_analysis_loading()
         self._service = None
         history_dialog = self._history_dialog
@@ -303,9 +329,13 @@ class BattleReportController(BattleReportAnalysisControllerMixin, QObject):
         ):
             self._overlay.show_overlay()
         if state.phase in {"stopped", "error"}:
+            self._stop_battle_hotkeys()
             self._overlay_capture_active = False
             self._overlay.hide()
             self._service = None
+            if self._consume_rerecord_terminal(state):
+                self.start(preserve_inventory_pause=True)
+                return
             if state.battle_record_id is not None:
                 self._save_detail_scope(self._page.detail_scope())
                 self._load_analysis(

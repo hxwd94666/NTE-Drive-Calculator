@@ -1,3 +1,4 @@
+# 将属性 Buff 与机制被动边际结果挂载到同一分析。
 """Attach attribute-Buff and mechanism-passive results to one analysis."""
 
 from __future__ import annotations

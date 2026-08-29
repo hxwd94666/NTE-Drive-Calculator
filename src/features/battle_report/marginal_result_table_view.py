@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
 from src.domain.battle_buff_counterfactual import BattleBuffCounterfactualResult
 from src.domain.battle_counterfactual import BattleMarginalResult
+from src.domain.battle_counterfactual_quantification import QuantificationStatus
 from src.features.battle_report.marginal_quantification_view import (
     damage_coverage_text,
     format_quantified_value,
@@ -88,7 +89,15 @@ def render_attribute_results(
 ) -> None:
     table.setRowCount(len(results))
     for row_index, result in enumerate(results):
-        status = result.quantification.status
+        role_status = _gain_status(
+            result.quantification.status,
+            result.role_denominator_status,
+        )
+        team_status = _gain_status(
+            result.quantification.status,
+            result.team_denominator_status,
+        )
+        status = _combined_status(role_status, team_status)
         unit = (
             f"+{result.unit * 100:.2f}%"
             if result.is_percent
@@ -98,13 +107,13 @@ def render_attribute_results(
             f"{result.label} {unit}",
             quantification_status_text(status),
             format_quantified_value(
-                status=status,
+                status=role_status,
                 complete_value=result.full_role_gain_percent,
                 quantified_value=result.quantified_role_gain_percent,
                 formatter=_percent,
             ),
             format_quantified_value(
-                status=status,
+                status=team_status,
                 complete_value=result.full_team_gain_percent,
                 quantified_value=result.quantified_team_gain_percent,
                 formatter=_percent,
@@ -121,12 +130,40 @@ def render_attribute_results(
         )
         tooltip = (
             f"{result.assumption}\n"
+            f"角色分母：{quantification_status_text(result.role_denominator_status)}；"
+            f"团队分母：{quantification_status_text(result.team_denominator_status)}。\n"
             f"{_quantification_tooltip(result.quantification)}"
         )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
             item.setToolTip(tooltip)
             table.setItem(row_index, column, item)
+
+
+def _gain_status(
+    numerator_status: QuantificationStatus,
+    denominator_status: QuantificationStatus,
+) -> QuantificationStatus:
+    if numerator_status == "not_applicable":
+        return "not_applicable"
+    if numerator_status == "unavailable" or denominator_status == "unavailable":
+        return "unavailable"
+    if numerator_status == "partial" or denominator_status == "partial":
+        return "partial"
+    return numerator_status
+
+
+def _combined_status(
+    role_status: QuantificationStatus,
+    team_status: QuantificationStatus,
+) -> QuantificationStatus:
+    if "unavailable" in {role_status, team_status}:
+        return "unavailable"
+    if "partial" in {role_status, team_status}:
+        return "partial"
+    if "complete" in {role_status, team_status}:
+        return "complete"
+    return "not_applicable"
 
 
 def _team_gain_text(result: BattleBuffCounterfactualResult) -> str:

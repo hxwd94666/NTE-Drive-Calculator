@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import tempfile
+import time
 import unittest
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -46,6 +47,7 @@ class _Core:
         self.capture_params: dict[str, Any] = {}
         self.contract_version = contract_version
         self.axis_requests: list[dict[str, Any]] = []
+        self.record_requests = 0
         self.hello_result = {
             "core_version": "0.4.3",
             "protocol_version": 1,
@@ -75,6 +77,7 @@ class _Core:
         return _summary_payload()
 
     def get_battle_record(self, **_kwargs: Any) -> Mapping[str, Any] | None:
+        self.record_requests += 1
         return {
             "contract_version": self.contract_version,
             "battle_record_id": "battle-1",
@@ -192,6 +195,58 @@ class _Writer:
         )
 
 
+class _EmptyCore(_Core):
+    def __init__(self) -> None:
+        super().__init__()
+        self.final_record_requests = 0
+        self.summary_requests = 0
+
+    def get_battle_record(self, **_kwargs: Any) -> Mapping[str, Any] | None:
+        if self.finalized:
+            self.final_record_requests += 1
+        return None
+
+    def get_battle_summary(self, **_kwargs: Any) -> Mapping[str, Any] | None:
+        self.summary_requests += 1
+        return None
+
+
+class _ImmediateStopCore(_EmptyCore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.allow_start_return = threading.Event()
+
+    def start_capture(self, **kwargs: Any) -> Mapping[str, Any]:
+        self.capture_params = dict(kwargs)
+        self.capture_started.set()
+        self.allow_start_return.wait(1.0)
+        return {"started": True}
+
+
+class _HungStopCore(_EmptyCore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release_stop = threading.Event()
+        self.abort_called = False
+
+    def stop_capture(self) -> Mapping[str, Any]:
+        self.release_stop.wait(1.0)
+        return {"stopped": True}
+
+    def abort(self) -> None:
+        self.abort_called = True
+        self.release_stop.set()
+
+
+def _wait_until(predicate, *, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return bool(predicate())
+
+
 class BattleCaptureAxisServiceTests(unittest.TestCase):
     def test_capture_polls_axis_and_finalizes_with_record(self) -> None:
         core = _Core()
@@ -206,6 +261,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
 
         service.start()
         self.assertTrue(core.capture_started.wait(1.0))
+        self.assertTrue(_wait_until(lambda: bool(core.axis_requests)))
         service.request_stop()
         service.close(timeout=2.0)
 
@@ -249,6 +305,77 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
             self.assertTrue(capture_directory.is_dir())
             self.assertEqual("enabled", core.capture_params["raw_capture"])
 
+    def test_immediate_stop_without_observed_battle_skips_final_record_wait(self) -> None:
+        core = _ImmediateStopCore()
+        writer = _Writer()
+        states = []
+        service = BattleCaptureService(
+            client_factory=lambda: core,
+            operation_context=OperationContext.create("battle_report"),
+            summary_writer=writer,
+        )
+        service.add_state_handler(states.append)
+
+        service.start()
+        self.assertTrue(core.capture_started.wait(1.0))
+        service.request_stop()
+        core.allow_start_return.set()
+        service.close(timeout=2.0)
+
+        self.assertTrue(writer.discarded)
+        self.assertEqual(0, core.final_record_requests)
+        self.assertEqual(0, core.summary_requests)
+        self.assertEqual("skipped_empty", states[-1].persistence_status)
+        self.assertEqual("stopped", states[-1].phase)
+
+    def test_discard_stops_capture_without_final_axis_or_history_record(self) -> None:
+        core = _Core()
+        writer = _Writer()
+        states = []
+        service = BattleCaptureService(
+            client_factory=lambda: core,
+            operation_context=OperationContext.create("battle_report"),
+            summary_writer=writer,
+        )
+        service.add_state_handler(states.append)
+
+        service.start()
+        self.assertTrue(core.capture_started.wait(1.0))
+        service.request_discard()
+        service.close(timeout=2.0)
+
+        self.assertTrue(writer.discarded)
+        self.assertIsNone(writer.record)
+        self.assertEqual([], writer.final_pages)
+        self.assertFalse(any(
+            request["finalized"]
+            for request in core.axis_requests
+        ))
+        self.assertEqual("discarded_restart", states[-1].persistence_status)
+        self.assertIsNone(states[-1].battle_record_id)
+
+    def test_hung_core_stop_is_aborted_and_does_not_leave_service_running(self) -> None:
+        core = _HungStopCore()
+        writer = _Writer()
+        states = []
+        service = BattleCaptureService(
+            client_factory=lambda: core,
+            operation_context=OperationContext.create("battle_report"),
+            summary_writer=writer,
+            stop_timeout_seconds=0.05,
+        )
+        service.add_state_handler(states.append)
+
+        service.start()
+        self.assertTrue(core.capture_started.wait(1.0))
+        service.request_stop()
+        service.close(timeout=1.0)
+
+        self.assertTrue(core.abort_called)
+        self.assertTrue(writer.discarded)
+        self.assertEqual("error", states[-1].phase)
+        self.assertIn("停止超时", states[-1].error)
+
     def test_new_capture_rejects_v3_core_contract(self) -> None:
         core = _Core(contract_version=3)
         writer = _Writer()
@@ -262,7 +389,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
 
         service.start()
         self.assertTrue(core.capture_started.wait(1.0))
-        service.request_stop()
+        self.assertTrue(_wait_until(lambda: core.record_requests > 0))
         service.close(timeout=2.0)
 
         self.assertEqual("error", states[-1].phase)

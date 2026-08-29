@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 from src.domain.battle_report import (
@@ -36,6 +36,7 @@ class _AnalysisFixture:
     target_conditions_by_half: tuple
     target_instance_resolutions: tuple
     target_instance_mapping_required: bool
+    max_hp_events: tuple = ()
 
 
 def _baseline() -> BattleCharacterBaseline:
@@ -242,6 +243,157 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         self.assertIsNone(result.known_projection_damage)
         self.assertIsNone(result.quantified_role_gain_percent)
         self.assertIsNone(result.full_role_gain_percent)
+
+    def test_attack_margin_follows_formally_linked_weave_source_hit(self) -> None:
+        primary = replace(_hit(event_id="7:primary", damage=1000.0), sequence=7)
+        weave = replace(
+            _hit(
+                event_id="7:follow_up",
+                classification="weave",
+                damage=300.0,
+            ),
+            sequence=7,
+            is_follow_up=True,
+        )
+        primary_replay = _critical_replay(primary, "character", 0.5)
+        weave_replay = _critical_replay(
+            weave,
+            "disabled",
+            0.0,
+            scaling_id=None,
+        )
+        analysis = _analysis(primary, primary_replay)
+        analysis.hits = (primary, weave)
+        analysis.hit_replays = (primary_replay, weave_replay)
+        analysis.effective_damage = 1300.0
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"AtkUp": 0.1},
+        )[0]
+
+        self.assertEqual("complete", result.quantification.status)
+        self.assertEqual(1300.0, result.quantification.fully_quantified_damage)
+        self.assertAlmostEqual(1430.0, result.known_projection_damage)
+        self.assertAlmostEqual(10.0, result.full_role_gain_percent)
+
+    def test_attack_margin_does_not_guess_an_unlinked_weave_source(self) -> None:
+        weave = replace(
+            _hit(classification="weave", damage=300.0),
+            is_follow_up=True,
+        )
+        analysis = _analysis(
+            weave,
+            _critical_replay(weave, "disabled", 0.0, scaling_id=None),
+        )
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"AtkUp": 0.1},
+        )[0]
+
+        self.assertEqual("unavailable", result.quantification.status)
+        self.assertIsNone(result.full_role_gain_percent)
+
+    def test_ring_strength_includes_structured_reaction_consumers(self) -> None:
+        for name, effect_id in (
+            ("创生花", "GE_ActorReaction_1_Damage"),
+            ("浊燃", "Buff_Reaction_5_new_1036"),
+            ("黯星", "Buff_Reaction_4_new"),
+        ):
+            with self.subTest(name=name):
+                hit = replace(
+                    _hit(classification="reaction", damage=600.0),
+                    damage_name=name,
+                    gameplay_effect_id=effect_id,
+                )
+                replay = BattleHitReplayResult(
+                    event_id=hit.event_id,
+                    observed_damage=hit.damage,
+                    non_critical_damage=hit.damage,
+                    critical_damage=None,
+                    selected_damage=hit.damage,
+                    selected_error_percent=0.0,
+                    critical_state="not_applicable",
+                    confidence="高",
+                    factors=(BattleHitReplayFactor(
+                        factor_id="scaling",
+                        label="环合强度区",
+                        value=1.0,
+                        evidence_basis=f"正式{name}公式",
+                    ),),
+                    critical_policy="disabled",
+                )
+                analysis = _analysis(hit, replay)
+
+                result = BattleMarginalCalculationService.calculate(
+                    analysis=analysis,
+                    character_id=CHARACTER_ID,
+                    edited_values={},
+                    units={"MagBase": 6.0},
+                )[0]
+
+                self.assertEqual("complete", result.quantification.status)
+                self.assertEqual(
+                    600.0,
+                    result.quantification.fully_quantified_damage,
+                )
+
+    def test_ring_strength_does_not_guess_unstructured_reaction_damage(self) -> None:
+        hit = replace(
+            _hit(classification="reaction", damage=600.0),
+            damage_name="环合伤害",
+        )
+        analysis = _analysis(
+            hit,
+            _critical_replay(hit, "disabled", 0.0, scaling_id=None),
+        )
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"MagBase": 6.0},
+        )[0]
+
+        self.assertEqual("not_applicable", result.quantification.status)
+
+    def test_ring_strength_excludes_stain_until_a_formal_settlement_exists(self) -> None:
+        hit = replace(
+            _hit(classification="reaction", damage=600.0),
+            damage_name="浸染",
+        )
+        replay = BattleHitReplayResult(
+            event_id=hit.event_id,
+            observed_damage=hit.damage,
+            non_critical_damage=hit.damage,
+            critical_damage=None,
+            selected_damage=hit.damage,
+            selected_error_percent=0.0,
+            critical_state="not_applicable",
+            confidence="低",
+            factors=(BattleHitReplayFactor(
+                factor_id="scaling",
+                label="环合强度区",
+                value=1.0,
+                evidence_basis="仅有通用静态公式，缺少正式浸染结算战报",
+            ),),
+            critical_policy="disabled",
+        )
+        analysis = _analysis(hit, replay)
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"MagBase": 6.0},
+        )[0]
+
+        self.assertEqual("not_applicable", result.quantification.status)
 
     def test_unknown_target_attack_margin_anchors_on_candidate_projection(self) -> None:
         hit = _hit()
@@ -551,10 +703,73 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         )[0]
 
         self.assertEqual("complete", result.quantification.status)
-        self.assertEqual(1000.0, result.quantification.fully_quantified_damage)
-        self.assertAlmostEqual(1010.0, result.known_projection_damage)
-        self.assertAlmostEqual(1.0, result.full_role_gain_percent)
+        self.assertAlmostEqual(
+            2000.0 / 3.0,
+            result.quantification.fully_quantified_damage,
+        )
+        self.assertAlmostEqual(2000.0 / 3.0, result.baseline_damage)
+        self.assertAlmostEqual(2000.0 / 3.0 + 10.0, result.known_projection_damage)
+        self.assertAlmostEqual(1.5, result.full_role_gain_percent)
         self.assertAlmostEqual(1.0, result.full_team_gain_percent)
+        self.assertAlmostEqual(
+            result.quantification.basis_damage,
+            result.quantification.fully_quantified_damage
+            + result.quantification.partially_quantified_damage
+            + result.quantification.unavailable_damage
+            + result.quantification.proven_unchanged_damage,
+        )
+
+    def test_topple_unit_accepts_omitted_zero_strength_term(self) -> None:
+        hit = _hit(classification="topple")
+        replay = BattleHitReplayResult(
+            event_id=hit.event_id,
+            observed_damage=1000.0,
+            non_critical_damage=2000.0,
+            critical_damage=None,
+            selected_damage=2000.0,
+            selected_error_percent=100.0,
+            critical_state="not_applicable",
+            confidence="低",
+            factors=(
+                BattleHitReplayFactor(
+                    factor_id=f"topple_character:{CHARACTER_ID}",
+                    label="灵可倾陷贡献",
+                    value=1000.0,
+                    evidence_basis="零倾陷强度的逐角色公式",
+                ),
+                BattleHitReplayFactor(
+                    factor_id="topple_character:1001",
+                    label="队友倾陷贡献",
+                    value=1000.0,
+                    evidence_basis="逐角色倾陷公式",
+                ),
+            ),
+            critical_rate=0.0,
+            expected_damage=2000.0,
+            critical_policy="disabled",
+        )
+        analysis = _analysis(hit, replay)
+        analysis.baselines = (replace(
+            analysis.baselines[0],
+            stats=tuple(
+                replace(row, value=0.0)
+                if row.property_id == "UnbalIntensityBase"
+                else row
+                for row in analysis.baselines[0].stats
+            ),
+        ),)
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"UnbalIntensityBase": 6.0},
+        )[0]
+
+        self.assertEqual("complete", result.quantification.status)
+        self.assertEqual(500.0, result.quantification.fully_quantified_damage)
+        self.assertAlmostEqual(510.0, result.known_projection_damage)
+        self.assertAlmostEqual(2.0, result.full_role_gain_percent)
 
 
 if __name__ == "__main__":

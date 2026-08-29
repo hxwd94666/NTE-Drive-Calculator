@@ -70,6 +70,8 @@ def _controller_state(*, overlay: _Overlay, page: _Page, service: _Service | Non
         _latest_state=EMPTY_BATTLE_CAPTURE_STATE,
         _save_detail_scope=lambda _scope: None,
         _restore_inventory_sync=lambda: None,
+        _stop_battle_hotkeys=lambda: None,
+        _consume_rerecord_terminal=lambda _state: False,
         is_running=lambda: bool(service is not None),
     )
 
@@ -110,6 +112,31 @@ def test_stopped_capture_hides_overlay_until_the_next_capture_session() -> None:
     assert overlay.show_count == 0
 
 
+def test_discarded_capture_restarts_before_inventory_sync_is_restored() -> None:
+    overlay = _Overlay()
+    page = _Page()
+    starts = []
+    restores = []
+    controller = _controller_state(overlay=overlay, page=page, service=_Service())
+    controller._consume_rerecord_terminal = lambda _state: True
+    controller.start = lambda **kwargs: starts.append(kwargs)
+    controller._restore_inventory_sync = lambda: restores.append(True)
+
+    BattleReportController._apply_state(
+        controller,
+        7,
+        BattleCaptureState(
+            phase="stopped",
+            message="当前战报已放弃",
+            running=False,
+            persistence_status="discarded_restart",
+        ),
+    )
+
+    assert starts == [{"preserve_inventory_pause": True}]
+    assert restores == []
+
+
 def test_start_freezes_raw_capture_setting_and_account_directory() -> None:
     account = SimpleNamespace(
         active_account_id="test-account",
@@ -130,6 +157,7 @@ def test_start_freezes_raw_capture_setting_and_account_directory() -> None:
     )
     page = SimpleNamespace(
         overlay_toggle=SimpleNamespace(isChecked=lambda: False),
+        clear_summary=lambda: None,
         clear_analysis=lambda _message: None,
     )
     overlay = SimpleNamespace(clear_summary=lambda: None, show_overlay=lambda: None)
@@ -153,6 +181,10 @@ def test_start_freezes_raw_capture_setting_and_account_directory() -> None:
         _state_received=SimpleNamespace(emit=lambda *_args: None),
         _service=None,
         _dialog_parent=None,
+        _invalidate_analysis_loading=lambda: None,
+        _restart_pending=False,
+        _restart_resume_inventory=False,
+        _start_battle_hotkeys=lambda: None,
     )
 
     with patch(

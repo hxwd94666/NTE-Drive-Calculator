@@ -6,6 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditService
+from src.services.battle_hit_local_crit_inference_service import (
+    BattleHitLocalCritInferenceService,
+)
 from src.services.battle_hit_replay_service import BattleHitReplayService
 
 
@@ -15,8 +18,8 @@ class BattleHitReplayRawModeTests(unittest.TestCase):
 
         with (
             patch.object(
-                BattleHitReplayService,
-                "_apply_local_crit_evidence",
+                BattleHitLocalCritInferenceService,
+                "apply",
                 side_effect=AssertionError("local crit must not run"),
             ),
             patch.object(

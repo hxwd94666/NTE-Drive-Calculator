@@ -10,8 +10,11 @@ from src.domain.battle_report import (
     StoredBattleSummary,
 )
 from src.services.battle_report_history_projection import (
-    history_entry,
     stored_summary,
+)
+from src.services.battle_report_history_entry_service import list_history_entries
+from src.services.battle_inferred_target_snapshot_service import (
+    BattleInferredTargetSnapshotService,
 )
 
 from src.services.battle_report_persistence_service import (
@@ -58,7 +61,17 @@ class BattleReportHistoryDaoMixin:
             return user_dao.list_battle_records()
 
     def list_entries(self) -> tuple[BattleReportHistoryEntry, ...]:
-        return tuple(history_entry(record) for record in self.list_records())
+        static_dataset_id, static_schema_version = (
+            BattleInferredTargetSnapshotService.static_identity(
+                self._dependencies.static_database_path
+            )
+        )
+        with self._open_current_dao() as user_dao:
+            return list_history_entries(
+                user_dao=user_dao,
+                static_dataset_id=static_dataset_id,
+                static_schema_version=static_schema_version,
+            )
 
     def load_record(self, battle_record_id: int) -> dict[str, Any] | None:
         with self._open_current_dao() as user_dao:

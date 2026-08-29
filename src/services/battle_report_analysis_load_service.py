@@ -83,11 +83,7 @@ class BattleReportAnalysisLoadService:
             **progress_options,
             **candidate_options,
         )
-        if (
-            detail_level == "marginal"
-            and analysis is not None
-            and candidate is not None
-        ):
+        if detail_level == "marginal" and analysis is not None:
             baseline = request.comparison_baseline
             if (
                 baseline is None
@@ -124,7 +120,7 @@ class BattleReportAnalysisLoadService:
                     start_us=request.start_us,
                     end_us=request.end_us,
                     detail_scope=request.detail_scope,
-                    use_build_edit=True,
+                    use_build_edit=False,
                     include_buff_inference=True,
                     include_hit_replays=True,
                     include_buff_counterfactuals=False,
@@ -134,7 +130,7 @@ class BattleReportAnalysisLoadService:
                 report_battle_analysis_progress(
                     progress_callback,
                     phase="compare",
-                    message="正在汇总修改副本与原始配置差异…",
+                    message="正在汇总当前有效配置与原始配置差异…",
                 )
                 analysis = replace(
                     analysis,
