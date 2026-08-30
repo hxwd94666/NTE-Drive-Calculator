@@ -114,6 +114,42 @@ class BattleCounterfactualSettlementAnalysisTests(unittest.TestCase):
             analysis.targets[0].estimated_max_hp_reduction_damage,
         )
 
+    def test_description_estimate_uses_half_hp_expectation_without_hp_sample(self) -> None:
+        evidence = _evidence()
+        hit = dict(evidence["hits"][0])
+        hit.update({
+            "character_id": 1004,
+            "character_name": "安魂曲",
+            "gameplay_effect_name": "GE_Player_Lacrimosa_Blood_Damage",
+            "damage": 100,
+            "follow_up_damage": 0,
+        })
+        hit.pop("target_hp_before", None)
+        hit.pop("target_hp_after", None)
+        hit.pop("target_max_hp", None)
+        evidence["hits"] = [hit]
+        build = {"characters": [{
+            "character_id": 1004,
+            "observed_name": "安魂曲",
+            "profile": {
+                "awakening_selection_initialized": True,
+                "selected_awaken_effect_ids": ["Effect5"],
+            },
+            "stats": [],
+        }]}
+
+        analysis = BattleCounterfactualAnalysisService.analyze(
+            battle_record_id=7,
+            evidence=evidence,
+            build=build,
+            capability_level="hit_axis",
+        )
+
+        (event,) = analysis.estimated_max_hp_events
+        self.assertEqual(100.0, event.effective_hp_loss)
+        self.assertEqual(0.5, event.hp_ratio_before)
+        self.assertIn("50% 生命比例期望", event.inference_basis)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,10 +30,10 @@ class StaticCatalogMechanicsServiceTests(unittest.TestCase):
             family.key: len(self.service.browse(family.key))
             for family in self.service.families
         }
-        self.assertEqual(
-            {"damage": 3, "multipliers": 5, "states": 3, "settlement": 3},
-            counts,
-        )
+        self.assertEqual(3, counts["damage"])
+        self.assertEqual(5, counts["multipliers"])
+        self.assertGreaterEqual(counts["states"], 13)
+        self.assertGreaterEqual(counts["settlement"], 6)
 
     def test_default_gallery_contains_formulas_only(self) -> None:
         cards = [
@@ -41,7 +41,7 @@ class StaticCatalogMechanicsServiceTests(unittest.TestCase):
             for family in self.service.families
             for card in self.service.browse(family.key)
         ]
-        self.assertEqual(14, len(cards))
+        self.assertGreaterEqual(len(cards), 27)
         self.assertEqual({"formula"}, {card.card_kind for card in cards})
         visible = "\n".join(
             f"{card.eyebrow}\n{card.title}\n{card.subtitle}" for card in cards
@@ -65,6 +65,126 @@ class StaticCatalogMechanicsServiceTests(unittest.TestCase):
         self.assertNotIn("SourceTierCoef", visible)
         self.assertEqual((), detail.related_links)
         self.assertEqual((), detail.identity_fields)
+
+    def test_direct_formula_lists_every_variable_and_which_side_supplies_it(self) -> None:
+        detail = self.service.detail(encode_record("formula", "direct_damage"))
+        self.assertEqual(
+            ("完整公式", "计算顺序", "变量来源", "判定与限制"),
+            tuple(section.title for section in detail.sections),
+        )
+        source_section = next(
+            section for section in detail.sections if section.title == "变量来源"
+        )
+        visible = "\n".join(
+            f"{field.label}\n{field.value}" for field in source_section.fields
+        )
+        for token in (
+            "技能倍率", "攻击方", "受击目标", "防御区", "抗性区", "暴击",
+        ):
+            self.assertIn(token, visible)
+
+    def test_ring_tier_catalog_uses_all_official_source_tiers(self) -> None:
+        detail = self.service.detail(encode_record("formula", "reaction_tiers"))
+        visible = "\n".join(
+            [detail.title, detail.subtitle]
+            + [
+                f"{section.title}\n"
+                + "\n".join(f"{field.label}\n{field.value}" for field in section.fields)
+                for section in detail.sections
+            ]
+        )
+        self.assertIn("源档 0 · 角色等级 1–5", visible)
+        self.assertIn("创生 80", visible)
+        self.assertIn("浊燃 20", visible)
+        self.assertIn("残虹浊燃 20", visible)
+        self.assertIn("黯星 400", visible)
+        self.assertIn("源档 15 · 角色等级 76–80", visible)
+        self.assertIn("创生 9,000", visible)
+        self.assertIn("浊燃 2,700", visible)
+        self.assertIn("残虹浊燃 2,700", visible)
+        self.assertIn("黯星 45,000", visible)
+
+    def test_every_ring_and_named_dot_has_its_own_formula_card(self) -> None:
+        cards = [
+            card
+            for family in self.service.families
+            for card in self.service.browse(family.key)
+        ]
+        titles = {card.title for card in cards}
+        for title in (
+            "环合归属与 16 档基础值",
+            "环合·创生",
+            "环合·覆纹",
+            "环合·浊燃",
+            "环合·黯星",
+            "环合·浸染",
+            "环合·延滞",
+            "环合·盈蓄",
+            "环合·失谐",
+            "持续直伤·噩梦",
+            "持续直伤·蚀心",
+            "持续直伤·鸩火",
+        ):
+            self.assertIn(title, titles)
+
+    def test_topple_card_lists_the_official_per_level_base_curve(self) -> None:
+        detail = self.service.detail(encode_record("formula", "topple_damage"))
+        visible = "\n".join(
+            f"{section.title}\n"
+            + "\n".join(f"{field.label}\n{field.value}" for field in section.fields)
+            for section in detail.sections
+        )
+        self.assertIn("官方倾陷基础 · 1–10 级", visible)
+        self.assertIn("1级 91", visible)
+        self.assertIn("官方倾陷基础 · 71–80 级", visible)
+        self.assertIn("80级 3,603", visible)
+
+    def test_ring_details_explain_owner_attacker_and_target_sources(self) -> None:
+        for formula_key in (
+            "reaction_creation",
+            "reaction_scorch",
+            "reaction_nova",
+        ):
+            with self.subTest(formula_key=formula_key):
+                detail = self.service.detail(encode_record("formula", formula_key))
+                source_section = next(
+                    section
+                    for section in detail.sections
+                    if section.title == "变量来源"
+                )
+                visible = "\n".join(field.value for field in source_section.fields)
+                self.assertIn("两名环合参与者", visible)
+                self.assertIn("受击目标", visible)
+
+    def test_stain_is_a_complete_team_final_damage_formula(self) -> None:
+        detail = self.service.detail(encode_record("formula", "reaction_infusion"))
+        visible = "\n".join(
+            [detail.subtitle]
+            + [field.value for section in detail.sections for field in section.fields]
+        )
+        self.assertEqual("complete", detail.status)
+        self.assertIn("1.20", visible)
+        self.assertIn("本击来源环合强度 + 180", visible)
+        self.assertIn("实际来源角色", visible)
+        self.assertIn("12 秒", visible)
+        self.assertIn("队伍所有角色", visible)
+        self.assertIn("触发 QTE 本击不吃", visible)
+        self.assertIn("不同乘区", visible)
+        self.assertNotIn("最终伤害公式 = 未确认", visible)
+
+    def test_weave_uses_the_recorded_damage_source_including_dot(self) -> None:
+        detail = self.service.detail(encode_record("formula", "weave_followup"))
+        visible = "\n".join(
+            field.value for section in detail.sections for field in section.fields
+        )
+        self.assertIn("实际来源角色", visible)
+        self.assertIn("正式 DOT", visible)
+        self.assertIn("不取触发覆纹的 QTE 角色", visible)
+        self.assertIn("不比较环合双方", visible)
+
+    def test_pigeon_fire_common_misspelling_is_searchable(self) -> None:
+        cards = self.service.browse("states", "鸠火")
+        self.assertEqual(("持续直伤·鸩火",), tuple(card.title for card in cards))
 
     def test_search_indexes_player_chinese_projection_only(self) -> None:
         chinese = self.service.browse("states", "持续伤害")

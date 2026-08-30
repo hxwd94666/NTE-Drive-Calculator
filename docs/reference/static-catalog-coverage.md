@@ -1,6 +1,6 @@
 # 游戏资料库全库覆盖清单
 
-本清单按产品领域审计发行静态库 schema v30 的全部 124 张业务表。“覆盖总览”固定登记并显示这些表的
+本清单按产品领域审计发行静态库 schema v31 的全部 130 张业务表。“覆盖总览”固定登记并显示这些表的
 名称、行数、领域和 A–E 状态，其他产品目录仍使用角色、弧盘、装备、技能、效果、怪物、资源和来源等领域
 名。页面不提供任意 SQL、字段输入或原始表浏览器。
 
@@ -20,9 +20,9 @@
 | 表 | 行数 | 是否展示 | 展示入口 / 理由 |
 | --- | ---: | --- | --- |
 | `dataset` | 1 | 摘要 | 顶部发行信息展示 dataset、schema、importer 和构建时间。 |
-| `schema_migration` | 29 | 摘要 | 只展示当前 schema 版本；迁移历史是维护事实。 |
-| `source_file` | 8,147 | 展示 | “来源追溯”统一搜索；复制相对路径和 SHA-256。 |
-| `source_row` | 47,750 | 展示 | 按 row key、内容哈希或来源路径搜索，并在来源文件内分页。 |
+| `schema_migration` | 30 | 摘要 | 只展示当前 schema 版本；迁移历史是维护事实。 |
+| `source_file` | 8,148 | 展示 | “来源追溯”统一搜索；复制相对路径和 SHA-256。 |
+| `source_row` | 47,830 | 展示 | 按 row key、内容哈希或来源路径搜索，并在来源文件内分页。 |
 
 发行 manifest 的 `source_payloads_omitted=true` 时，只展示上述保留元数据；不显示或承诺完整原始 payload。
 
@@ -62,6 +62,12 @@
 | `character_likeability_bonus` | 21 | 并行域 | 角色 → 好感度加成。 |
 | `character_likeability_bonus_property` | 21 | 合并详情 | 好感度属性明细。 |
 | `character_panel_growth` | 1,978 | 并行域 | 角色 → 等级/突破成长，懒加载。 |
+| `character_progression_profile` | 23 | 合并详情 | 角色 → 正式人物升级包与突破包。 |
+| `character_upgrade_level` | 80 | 合并详情 | 共享的 1–80 逐级人物经验。 |
+| `character_breakthrough_stage` | 168 | 合并详情 | 24 套人物突破包的 0–6 阶与等级上限。 |
+| `character_breakthrough_cost` | 408 | 合并详情 | 每阶正式突破材料与方斯数量。 |
+| `character_exp_material` | 3 | 合并详情 | 三种正式角色经验书及经验值。 |
+| `character_exp_material_cost` | 3 | 合并详情 | 每次使用经验书的正式方斯成本。 |
 | `character_skill` | 92 | 并行域 | 角色 → 技能，并可跳 GA。 |
 | `character_skill_level` | 828 | 合并详情 | 技能等级与材料明细。 |
 | `character_weight_recommendation` | 23 | 并行域 | 角色 → 推荐权重，并标记项目/外部来源。 |
@@ -168,7 +174,7 @@
 | `outer_realm_rotation` | 6 | 并行域 | 当前/下一轨外轮换。 |
 | `outer_realm_season_buff` | 2 | 合并详情 | 赛季 Buff。 |
 | `outer_realm_season_buff_component` | 4 | 合并详情 | 赛季 Buff 结构化分量。 |
-| `feast_stage` | 8 | 并行域 | 争锋赏宴期数对象。 |
+| `feast_stage` | 8 | 并行域 | 当前争锋赏宴挑战对象；活动期由资料库公开排期注解分层。 |
 | `feast_stage_difficulty` | 32 | 合并详情 | 争锋难度画像。 |
 | `feast_option` | 54 | 并行域 | 争锋加成选项目录。 |
 | `feast_stage_option` | 144 | 合并详情 | 对象可选加成关系。 |
@@ -189,7 +195,7 @@
 - 52,977 条 Blueprint 引用、14,190 条 Tag、9,730 条语义属性和 23,819 条 Notify 只按单个资源 key
   分页，不随搜索结果或基本详情全量加载。
 - 关系跳转只使用正式 ID、GA/GE/Buff key、Gameplay Tag 或资源路径；不存在的目标保持未解析，不按中文名猜。
-- DAO 复用 `StaticGameDataDao` 的 SQLite `mode=ro` 与 schema v30 校验；没有写入方法，也不接受任意 SQL。
+- DAO 复用 `StaticGameDataDao` 的 SQLite `mode=ro` 与 schema v31 校验；没有写入方法，也不接受任意 SQL。
 
 ## 集成接线
 

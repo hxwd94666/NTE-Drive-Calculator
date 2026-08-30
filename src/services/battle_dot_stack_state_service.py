@@ -25,7 +25,9 @@ _NIGHTMARE_IDS = frozenset({
 })
 _EROSION_ID = "ge_player_zankou_dotdamage"
 _VENOM_ID = "ge_player_zankou_dotultradamage"
-_SCORCH_ID = "buff_reaction_5_new_1036"
+_ORDINARY_SCORCH_ID = "buff_reaction_5_new"
+_ZANKOU_SCORCH_ID = "buff_reaction_5_new_1036"
+_SCORCH_IDS = frozenset({_ORDINARY_SCORCH_ID, _ZANKOU_SCORCH_ID})
 _CANG_FIELD_DOT_ID = "ge_player_cang_ultraskill_damage"
 _ADLER_SKILL_DOT_ID = "ge_player_adler_skill_damage"
 _RECENT_DOT_OBSERVATION_US = 1_500_000
@@ -38,7 +40,8 @@ _DOT_KIND_BY_EFFECT = {
     **{effect_id: "nightmare" for effect_id in _NIGHTMARE_IDS},
     _EROSION_ID: "erosion",
     _VENOM_ID: "venom",
-    _SCORCH_ID: "scorch",
+    _ORDINARY_SCORCH_ID: "scorch",
+    _ZANKOU_SCORCH_ID: "scorch",
     _CANG_FIELD_DOT_ID: "cang_field",
     _ADLER_SKILL_DOT_ID: "adler_skill",
 }
@@ -144,7 +147,7 @@ class _VisibleDotBatch:
 
 @dataclass(slots=True)
 class _ScorchState:
-    """One target's scorch layers plus Zankou's DOT activation gate."""
+    """One target's scorch layers plus Zankou's observed DOT activation gate."""
 
     stack_limit: int
     dot_activation_required: bool
@@ -163,7 +166,7 @@ class _ScorchState:
             self.expires_at_active_us = None
 
     def prepare_application(self, active_us: int) -> None:
-        """Each scorch reaction stores one layer; Zankou keeps it dormant."""
+        """Store one layer; Zankou keeps it dormant until an observed DOT hit."""
 
         self.advance(active_us)
         self.count = min(self.stack_limit, self.count + 1)
@@ -234,15 +237,26 @@ def _cang_field_duration_seconds(build: Mapping[str, object] | None) -> float:
     return 16.0 if "Effect5" in awakenings else 12.0
 
 
-def _zankou_scorch_stack_enabled(build: Mapping[str, object] | None) -> bool:
+def zankou_scorch_variant_for_build(
+    build: Mapping[str, object] | None,
+) -> str | None:
+    """Resolve the replacement only from an explicitly frozen Zankou stage."""
+
     character = _builds(build).get(1036, {})
+    if not character:
+        return None
     profile = character.get("profile") if isinstance(character, Mapping) else {}
+    has_explicit_stage = "breakthrough_stage" in character or (
+        isinstance(profile, Mapping) and "breakthrough_stage" in profile
+    )
+    if not has_explicit_stage:
+        return None
     stage = max(
         int(character.get("breakthrough_stage") or 0),
         int(profile.get("breakthrough_stage") or 0)
         if isinstance(profile, Mapping) else 0,
     )
-    return stage >= 2
+    return "zankou" if stage >= 2 else "ordinary"
 
 
 def _active_us(analysis: BattleAnalysisSnapshot, raw_us: int) -> int:
@@ -272,9 +286,9 @@ def _is_nightmare_application(
     return 1
 
 
-def _is_scorch_application_trigger(hit: BattleAnalysisHit) -> bool:
+def _is_zankou_scorch_application_trigger(hit: BattleAnalysisHit) -> bool:
     if (
-        hit.gameplay_effect_id.casefold() == _SCORCH_ID
+        hit.gameplay_effect_id.casefold() in _SCORCH_IDS
         or explicit_reaction_channel_for_hit(hit) == (
             "reaction_scorch",
             "浊燃",
@@ -416,7 +430,8 @@ def reconstruct_dot_stack_states(
     adler_skill_by_target: dict[tuple[str, str], _Stack] = {}
     cang_batch_by_target: dict[tuple[str, str], _VisibleDotBatch] = {}
     adler_batch_by_target: dict[tuple[str, str], _VisibleDotBatch] = {}
-    scorch_stack_enabled = _zankou_scorch_stack_enabled(build)
+    scorch_variant = zankou_scorch_variant_for_build(build)
+    scorch_stack_enabled = scorch_variant == "zankou"
     sagiri_dot_final_enabled = BattleCharacterPassiveService.is_unlocked(
         build,
         1003,
@@ -505,13 +520,32 @@ def reconstruct_dot_stack_states(
         cang_field.advance(now)
         adler_skill.advance(now)
         scorch.advance(now)
-        effect = hit.gameplay_effect_id.casefold()
-        if explicit_reaction_channel_for_hit(hit) == (
+        observed_effect = hit.gameplay_effect_id.casefold()
+        effect = observed_effect
+        explicit_scorch = explicit_reaction_channel_for_hit(hit) == (
             "reaction_scorch",
             "浊燃",
-        ):
-            effect = _SCORCH_ID
-        if _is_scorch_application_trigger(hit):
+        )
+        ordinary_scorch_application = (
+            not scorch_stack_enabled
+            and (
+                observed_effect == _ORDINARY_SCORCH_ID
+                or explicit_scorch
+            )
+        )
+        if scorch_stack_enabled and _is_zankou_scorch_application_trigger(hit):
+            scorch.prepare_application(now)
+        if effect in _SCORCH_IDS and scorch_variant is not None:
+            effect = (
+                _ZANKOU_SCORCH_ID
+                if scorch_stack_enabled else _ORDINARY_SCORCH_ID
+            )
+        elif explicit_scorch and effect not in _SCORCH_IDS:
+            effect = (
+                _ZANKOU_SCORCH_ID
+                if scorch_stack_enabled else _ORDINARY_SCORCH_ID
+            )
+        if ordinary_scorch_application:
             scorch.prepare_application(now)
         scorch_was_active = scorch.present
         is_early_settlement = False
@@ -527,7 +561,7 @@ def reconstruct_dot_stack_states(
         elif effect == _VENOM_ID:
             state = venom
             label = "鸩火当前层数"
-        elif effect == _SCORCH_ID:
+        elif effect in _SCORCH_IDS:
             state = scorch
             label = "浊燃结算前层数"
         elif effect == _CANG_FIELD_DOT_ID:
@@ -540,7 +574,7 @@ def reconstruct_dot_stack_states(
             state = None
             label = ""
         if state is not None:
-            is_scorch = effect == _SCORCH_ID
+            is_scorch = effect in _SCORCH_IDS
             current_kind = _DOT_KIND_BY_EFFECT[effect]
             coefficient_is_lower_bound = bool(
                 not is_early_settlement
@@ -555,7 +589,10 @@ def reconstruct_dot_stack_states(
                     ("nightmare", nightmare.count),
                     ("erosion", erosion.count),
                     ("venom", venom.count),
-                    ("scorch", scorch.count),
+                    (
+                        "scorch",
+                        scorch.count,
+                    ),
                     ("cang_field", cang_field.count),
                     ("adler_skill", adler_skill.count),
                 )
@@ -572,7 +609,9 @@ def reconstruct_dot_stack_states(
             active_kinds = modeled_kinds | recent_kinds
             active_kinds.add(current_kind)
             scorch_confirmed_for_hit = scorch_was_active
-            scorch_started_for_hit = scorch.count > 0 or is_scorch
+            scorch_started_for_hit = (
+                scorch.count > 0 or is_scorch
+            )
             if scorch_started_for_hit:
                 active_kinds.add("scorch")
             dot_kind_count = min(4, len(active_kinds))
@@ -684,14 +723,18 @@ def reconstruct_dot_stack_states(
                     )
                     if is_early_settlement
                     else (
-                        "按半场与目标隔离重放浊燃共享状态；本跳先读取结算前层数；"
+                        "按半场与目标隔离重放残虹浊燃共享状态；本跳先读取结算前层数；"
                         "残虹突破被动把上限改为 3；每次浊燃反应先存入 1 层未激活"
-                        "浊燃，此时不造成周期伤害；随后战报每实际出现 1 个非浊燃"
-                        "DOT 跳伤 hit，浊燃同步增加 1 层并激活整组伤害；直伤施加"
-                        "DOT 的时点不提前补层，也不读取目标当前已有 DOT 总层数；"
-                        "新增或满层触发不移动原轴下一跳，浊燃自身跳伤不递归加层"
-                        if is_scorch and scorch_stack_enabled
-                        else "逐击仅证明本目标当前至少存在 1 层浊燃"
+                        "浊燃；随后战报每实际出现 1 个非浊燃 DOT 跳伤 hit，浊燃同步"
+                        "增加 1 层并激活整组伤害；中间漏跳不反推，浊燃自身跳伤不递归"
+                        "加层。该投影由本机历史战报残差回归约束"
+                        if is_scorch and effect == _ZANKOU_SCORCH_ID
+                        else (
+                            "普通浊燃最多 1 层；正式触发只刷新整组 15 秒持续时间，"
+                            "实际周期跳伤不重置下一跳，也不把层数提升为残虹三层"
+                            if is_scorch and effect == _ORDINARY_SCORCH_ID
+                            else "逐击仅证明本目标当前至少存在 1 层浊燃"
+                        )
                     )
                     if is_scorch
                     else state_basis
@@ -705,7 +748,7 @@ def reconstruct_dot_stack_states(
                 settlement_pending_by_target.pop(target_key, None)
             if is_scorch:
                 scorch.observe_settlement(now)
-            if effect != _SCORCH_ID:
+            if effect not in _SCORCH_IDS:
                 recent_dot_observations.setdefault(target_key, {})[
                     current_kind
                 ] = state_wall_now
@@ -738,7 +781,7 @@ def reconstruct_dot_stack_states(
         if (
             scorch_stack_enabled
             and effect in _DOT_KIND_BY_EFFECT
-            and effect != _SCORCH_ID
+            and effect not in _SCORCH_IDS
         ):
             scorch.apply_dot_hit(now)
     return results

@@ -100,6 +100,23 @@ class BattleReportPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        model_notice = QLabel(
+            "重要提示：战报反事实计算模型尚未完整覆盖全部游戏机制，"
+            "当前展示的各项收益结果仅供参考。若发现计算结果与实际机制明显不符，"
+            "请将相关战报及问题说明发送至 1412582379@qq.com，"
+            "我们将据此核查并持续完善模型。",
+            self,
+        )
+        model_notice.setObjectName("battleCounterfactualNotice")
+        model_notice.setWordWrap(True)
+        model_notice.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        model_notice.setStyleSheet(themed_style(
+            "QLabel#battleCounterfactualNotice{"
+            "color:#f85149;background:#f8514922;"
+            "border-bottom:1px solid #f85149;"
+            "padding:8px 18px;font-size:12px;font-weight:600;}"
+        ))
+        layout.addWidget(model_notice)
         layout.addWidget(self._stack, 1)
         self.analysis_progress = BattleAnalysisProgressBar(self)
         layout.addWidget(self.analysis_progress)
@@ -440,7 +457,6 @@ class BattleReportPage(QWidget):
                     for event in getattr(analysis, "timeline_max_hp_events", ())
                     if getattr(event, "included_in_effective_damage", True)
                 )
-                if analysis.axis_complete else 0.0
             )
             corrected_damage = max(
                 0.0,

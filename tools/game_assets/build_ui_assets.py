@@ -277,6 +277,10 @@ def build_assets(
         }
         for entry in monster_entries
     ]
+    family_icons.extend(
+        {**entry, "priority": "-1"}
+        for entry in manifest.get("monster_family_icons", [])
+    )
     if manifest.get("encounter_icons_from_database"):
         encounter_icons, database_family_icons = _encounter_database_asset_entries(
             static_database_path

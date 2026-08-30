@@ -56,17 +56,17 @@ from src.services.battle_build_role_counterfactual_support import (
 )
 from src.services.battle_build_vital_support import (
     linked_lacrimosa_vital_hits,
-    projected_hit_damage,
     safe_ratio,
 )
-BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v5"
+BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v6"
 _STRUCTURED_METHODS = {
     "structured_expected",
     "structured_selected",
     DAFFODILL_EFFECT_FIVE_METHOD,
 }
 _STRUCTURED_VITAL_METHODS = {
-    "linked_source_hit_ratio", "linked_source_hit_ratio_sequential_hp",
+    "linked_source_hit_ratio", "linked_source_hit_ratio_observed_anchor",
+    "mechanic_enabled_expected_hp_ratio",
     "fadia_source_max_hp_ratio", "mechanic_disabled",
 }
 class BattleBuildCounterfactualService:
@@ -375,6 +375,27 @@ class BattleBuildCounterfactualService:
             else event
             for event in original.max_hp_events
         )
+        candidate_vital_sources = {
+            row.event_id: row
+            for row in (
+                *candidate.max_hp_events,
+                *candidate.estimated_max_hp_events,
+            )
+        }
+        composition_vital_events = tuple((
+            *composition_vital_events,
+            *(
+                replace(
+                    candidate_vital_sources[row.event_id],
+                    effective_hp_loss=float(row.known_projection_damage),
+                    included_in_effective_damage=True,
+                )
+                for row in projected_vital_events
+                if row.event_id not in {event.event_id for event in original.max_hp_events}
+                and row.event_id in candidate_vital_sources
+                and row.known_projection_damage is not None
+            ),
+        ))
         composition = BattleDamageCompositionService.calculate_from_hits(
             roles=composition_roles,
             hits=composition_hits,
@@ -443,8 +464,6 @@ class BattleBuildCounterfactualService:
     ) -> tuple[BattleBuildVitalCounterfactual, ...]:
         projected_by_event = {row.event_id: row for row in projected_hits}
         candidate_vital = {row.event_id: row for row in candidate.max_hp_events}
-        reduction_delta_by_target: dict[tuple[str, str], float] = {}
-        effective_delta_by_target: dict[tuple[str, str], float] = {}
         result = []
         for event in sorted(
             original.max_hp_events,
@@ -456,7 +475,7 @@ class BattleBuildCounterfactualService:
                 explanation="缺少可安全联动的来源公式，原值只保留为轴上事实。",
             )
             heuristic_projection = None
-            sequential_projection: float | None = None
+            anchored_projection: float | None = None
             candidate_state: tuple[float, float, float] | None = None
             candidate_event = candidate_vital.get(event.event_id)
             if event.mechanic_kind == "lacrimosa_nightmare_awaken_5":
@@ -487,100 +506,24 @@ class BattleBuildCounterfactualService:
                     )
                 source_ratio = quantification.quantified_ratio
                 if source_ratio is not None:
-                    prior_rows = tuple(
-                        row
-                        for row in projected_hits
-                        if row.event_id in original_hits
-                        and original_hits[row.event_id].target_id == event.target_id
-                        and original_hits[row.event_id].scope_half == event.scope_half
-                        and (
-                            original_hits[row.event_id].relative_time_us
-                            < event.observed_at_us
-                            or row.event_id in event.evidence_event_ids
-                        )
+                    changed_reduction = max(
+                        0.0,
+                        float(event.max_hp_reduction) * source_ratio,
                     )
-                    unresolved = tuple(
-                        row
-                        for row in prior_rows
-                        if row.quantification.status == "unavailable"
+                    anchored_projection = baseline_damage * source_ratio
+                    candidate_state = (
+                        float(event.old_max_hp),
+                        float(event.hp_before_settlement),
+                        changed_reduction,
                     )
-                    if unresolved:
-                        continuity_gap = BattleQuantificationGap(
-                            code="max_hp_axis_continuity_unavailable",
-                            dimension_id="target_current_hp",
-                            dependency_scope="mechanic_specific",
-                            property_ids=(),
+                    if quantification.method != "mechanic_disabled":
+                        quantification = replace(
+                            quantification,
+                            method="linked_source_hit_ratio_observed_anchor",
                             explanation=(
-                                "安魂曲五觉前存在无法投影的同目标逐击，"
-                                "无法完整顺推候选当前生命。"
+                                "以实测生命上限有效伤害为固定轴锚点，"
+                                "按正式噩梦来源候选/原始伤害比联动。"
                             ),
-                        )
-                        if quantification.status in {"complete", "partial"}:
-                            quantification = BattleCounterfactualRatio.partial(
-                                source_ratio,
-                                method="linked_source_hit_ratio_sequential_hp",
-                                confidence="中",
-                                dependency_scope="mechanic_specific",
-                                included_dimension_ids=("nightmare_source",),
-                                cancelled_dimension_ids=(),
-                                gaps=tuple(dict.fromkeys((
-                                    *quantification.gaps,
-                                    continuity_gap,
-                                ))),
-                                explanation=(
-                                    "噩梦来源倍率可量化，但固定轴当前生命连续性不完整。"
-                                ),
-                            )
-                    if not unresolved:
-                        target_key = (event.scope_half, event.target_id)
-                        hit_delta = sum(
-                            projected_hit_damage(row)
-                            - float(original_hits[row.event_id].damage)
-                            for row in prior_rows
-                        )
-                        current_max = max(
-                            0.0,
-                            float(event.old_max_hp)
-                            - reduction_delta_by_target.get(target_key, 0.0),
-                        )
-                        current_hp = max(
-                            0.0,
-                            min(
-                                current_max,
-                                float(event.hp_before_settlement)
-                                - hit_delta
-                                - effective_delta_by_target.get(target_key, 0.0),
-                            ),
-                        )
-                        changed_reduction = max(
-                            0.0,
-                            float(event.max_hp_reduction) * source_ratio,
-                        )
-                        sequential_projection = (
-                            current_hp
-                            * min(1.0, changed_reduction / current_max)
-                            if current_max > 0.0
-                            else 0.0
-                        )
-                        candidate_state = (current_max, current_hp, changed_reduction)
-                        if quantification.method != "mechanic_disabled":
-                            quantification = replace(
-                                quantification,
-                                method="linked_source_hit_ratio_sequential_hp",
-                                explanation=(
-                                    "按正式噩梦来源倍率改变生命上限削减，"
-                                    "并沿固定逐击轴顺推候选当前生命与当前上限。"
-                                ),
-                            )
-                        reduction_delta_by_target[target_key] = (
-                            reduction_delta_by_target.get(target_key, 0.0)
-                            + changed_reduction
-                            - float(event.max_hp_reduction)
-                        )
-                        effective_delta_by_target[target_key] = (
-                            effective_delta_by_target.get(target_key, 0.0)
-                            + sequential_projection
-                            - baseline_damage
                         )
             elif (
                 event.mechanic_kind == "fadia_dark_star_max_hp_transfer"
@@ -606,8 +549,8 @@ class BattleBuildCounterfactualService:
                     )
             ratio = quantification.quantified_ratio
             known_projection = (
-                sequential_projection
-                if sequential_projection is not None
+                anchored_projection
+                if anchored_projection is not None
                 else (None if ratio is None else baseline_damage * ratio)
             )
             result.append(BattleBuildVitalCounterfactual(
@@ -626,6 +569,60 @@ class BattleBuildCounterfactualService:
                 heuristic_projection_damage=heuristic_projection,
                 quantification=quantification,
                 candidate_state=candidate_state,
+            ))
+        original_estimate_ids = {
+            row.event_id for row in original.estimated_max_hp_events
+        }
+        for event in candidate.estimated_max_hp_events:
+            if (
+                event.event_id in original_estimate_ids
+                or event.mechanic_kind
+                != "lacrimosa_nightmare_awaken_5_estimated"
+            ):
+                continue
+            linked = linked_lacrimosa_vital_hits(
+                event.evidence_event_ids,
+                event.source_character_id,
+                event.target_id,
+                event.scope_half,
+                projected_by_event,
+                original_hits,
+            )
+            quantification, heuristic_projection = cls._linked_ratio(
+                linked,
+                float(event.effective_hp_loss),
+            )
+            source_ratio = quantification.quantified_ratio
+            if source_ratio is not None:
+                quantification = replace(
+                    quantification,
+                    method="mechanic_enabled_expected_hp_ratio",
+                    explanation=event.inference_basis,
+                )
+            projected_damage = (
+                None if source_ratio is None
+                else float(event.effective_hp_loss) * source_ratio
+            )
+            result.append(BattleBuildVitalCounterfactual(
+                event_id=event.event_id,
+                character_id=event.source_character_id,
+                character_name=event.source_character_name,
+                mechanic_kind=event.mechanic_kind,
+                mechanic_name=event.mechanic_name,
+                baseline_damage=0.0,
+                known_projection_damage=projected_damage,
+                candidate_damage=(
+                    projected_damage
+                    if quantification.status in {"complete", "not_applicable"}
+                    else None
+                ),
+                heuristic_projection_damage=heuristic_projection,
+                quantification=quantification,
+                candidate_state=(
+                    float(event.old_max_hp),
+                    float(event.hp_before_settlement),
+                    float(event.max_hp_reduction),
+                ),
             ))
         return tuple(result)
 

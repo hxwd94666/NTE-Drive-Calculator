@@ -647,7 +647,7 @@ class BattleSkillDamageEvidenceServiceTests(unittest.TestCase):
         self.assertEqual(1.0, evidence.multiplier_coefficient)
         self.assertIn("原始倍率数组", evidence.evidence_basis)
 
-    def test_zankou_scorch_uses_zankou_as_formula_source(self) -> None:
+    def test_zankou_scorch_uses_zankou_as_formal_formula_owner(self) -> None:
         class Dao:
             @staticmethod
             def get_combat_curve(_table_path: str, _curve_id: str):
@@ -693,7 +693,8 @@ class BattleSkillDamageEvidenceServiceTests(unittest.TestCase):
 
         self.assertEqual(1036, evidence.source_character_id)
         self.assertEqual(80, evidence.effective_skill_level)
-        self.assertIn("统一使用残虹", evidence.evidence_basis)
+        self.assertEqual(1.0, evidence.state_multiplier)
+        self.assertIn("公式归属固定为残虹", evidence.evidence_basis)
 
     def test_formal_skill_owner_conflict_never_uses_core_session_owner_panel(self) -> None:
         class Dao:

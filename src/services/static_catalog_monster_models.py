@@ -108,10 +108,27 @@ class FeastOptionGroup:
 
 @dataclass(frozen=True)
 class FeastSetup:
+    period_id: str
+    period_label: str
+    period_state: str
+    schedule_label: str
     stage_id: str
     title: str
     boss_name: str
-    period_ordinal: int
+    boss_monster_id: str
+    challenge_ordinal: int
     default_difficulty_id: int
     difficulties: tuple[FeastDifficultyChoice, ...]
     option_groups: tuple[FeastOptionGroup, ...]
+    condition_note: str = ""
+
+
+@dataclass(frozen=True)
+class FeastPeriod:
+    period_id: str
+    display_label: str
+    release_state: str
+    schedule_label: str
+    challenge_ids: tuple[str, ...]
+    evidence_label: str
+    evidence_url: str

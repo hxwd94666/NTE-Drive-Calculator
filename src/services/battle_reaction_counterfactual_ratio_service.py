@@ -63,17 +63,20 @@ def compare_standard_reaction(
     replay_attribute = str(
         getattr(replay, "formula_damage_attribute", "") or ""
     ).casefold()
-    attribute = {
-        "reaction_scorch": "incantation",
-        "reaction_nova": "psyche",
-    }.get(
-        channel_id,
-        (
-            replay_attribute
-            if replay_attribute in penetration_properties
-            else hit.damage_attribute.casefold()
-        ),
-    )
+    if channel_id == "reaction_nova":
+        attribute = "psyche"
+    elif (
+        channel_id == "reaction_scorch"
+        and hit.gameplay_effect_id.casefold() == "buff_reaction_5_new_1036"
+    ):
+        attribute = "incantation"
+    elif replay_attribute in penetration_properties:
+        attribute = replay_attribute
+    else:
+        hit_attribute = hit.damage_attribute.casefold()
+        attribute = (
+            hit_attribute if hit_attribute in penetration_properties else ""
+        )
     penetration_property = penetration_properties.get(attribute, "")
     consumes_defense = channel_id in {"reaction_creation", "reaction_scorch"}
     permitted = {"MagBase"}

@@ -1,5 +1,5 @@
 {
-  "manifest_version": 3,
+  "manifest_version": 4,
   "source_data_table": "/Game/DataTable/Character/DT_Character",
   "source_appearance_table": "/Game/DataTable/Character/Appearance/DT_AppearanceData",
   "characters": {
@@ -337,6 +337,14 @@
     "boss_05": "monsters/monster_static_clone/Boss_05.png",
     "boss_10": "monsters/monster_static_clone/Boss_10.png",
     "boss_26": "monsters/monster_static_clone/Boss_26.png",
+    "boss_06": "monsters/families/Boss_06.png",
+    "boss_016": "monsters/families/Boss_16.png",
+    "boss_017": "monsters/families/Boss_17.png",
+    "boss_18": "monsters/families/Boss_18.png",
+    "mon_08": "monsters/families/mon_08.png",
+    "mon_022": "monsters/families/mon_22.png",
+    "mon_39": "monsters/families/mon_39.png",
+    "mon_051": "monsters/families/mon_51.png",
     "boss_07": "monsters/resources/Boss_07_dd45259e.png",
     "boss_08": "monsters/resources/Boss_08_acc19f46.png",
     "boss_09": "monsters/resources/Boss_09_8308c37c.png",
@@ -368,6 +376,12 @@
     "mon_2_green": "monsters/monster_static_big_world/mon_02.png",
     "mon_3": "monsters/monster_static_big_world/mon_03.png",
     "mon_4_var_green": "monsters/monster_static_big_world/mon_04.png",
+    "boss_6": "monsters/families/Boss_06.png",
+    "boss_16": "monsters/families/Boss_16.png",
+    "boss_17": "monsters/families/Boss_17.png",
+    "mon_8": "monsters/families/mon_08.png",
+    "mon_22": "monsters/families/mon_22.png",
+    "mon_51": "monsters/families/mon_51.png",
     "boss_7": "monsters/resources/Boss_07_dd45259e.png",
     "boss_8": "monsters/resources/Boss_08_acc19f46.png",
     "boss_9": "monsters/resources/Boss_09_8308c37c.png",
@@ -2253,8 +2267,64 @@
       "height": 128,
       "bytes": 28287,
       "sha256": "9E6FBF482074C42A98E7AE23E8474F19C59303BF27A41170C4E4C0BE549662B6"
+    },
+    "monsters/families/Boss_06.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_06.Boss_06",
+      "width": 160,
+      "height": 160,
+      "bytes": 55540,
+      "sha256": "E9D52B88F79BE49B4B7FC19820ABF6431CD4C65AE33719DB9290A58BD66606F6"
+    },
+    "monsters/families/Boss_16.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_16.Boss_16",
+      "width": 160,
+      "height": 160,
+      "bytes": 32964,
+      "sha256": "738412444FF6581966992374E25EA06D0DBFC7C9752E98471843D172EA08D829"
+    },
+    "monsters/families/Boss_17.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/boss_17.boss_17",
+      "width": 160,
+      "height": 160,
+      "bytes": 50091,
+      "sha256": "BFF163EEEE9E723442BFA8DBC7A1A643536B1CE4DE2CC3A13703A20B53AA44F7"
+    },
+    "monsters/families/Boss_18.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_18.Boss_18",
+      "width": 160,
+      "height": 160,
+      "bytes": 40000,
+      "sha256": "65A146E3190C14571252E038CB16C05F3CD99D895960824A6F4010F365FEEDF3"
+    },
+    "monsters/families/mon_08.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_08.mon_08",
+      "width": 160,
+      "height": 160,
+      "bytes": 20349,
+      "sha256": "7B010DA18511C534DF126F6E58E9F051C84AD4C0CC6F27D3B9677C5BCDFE697C"
+    },
+    "monsters/families/mon_22.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_22.mon_22",
+      "width": 160,
+      "height": 160,
+      "bytes": 44183,
+      "sha256": "3E8625FFB634448F263C9762316584CF49D4871E7F4521DD725B20C19EA313FC"
+    },
+    "monsters/families/mon_39.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_39.mon_39",
+      "width": 160,
+      "height": 160,
+      "bytes": 45663,
+      "sha256": "1729D50DF0F165AB75B4135C3B8F77D83164D9E365D616FCBA5BA739A2846F21"
+    },
+    "monsters/families/mon_51.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_51.mon_51",
+      "width": 160,
+      "height": 160,
+      "bytes": 38693,
+      "sha256": "59B36C36E9EDE12006AEE204F7794FF066643A9B6747AF3BF7022BDADACC6D01"
     }
   },
-  "total_files": 266,
-  "total_bytes": 15215338
+  "total_files": 274,
+  "total_bytes": 15542821
 }

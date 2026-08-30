@@ -1,4 +1,4 @@
-# 验证残虹浊燃先由反应存层，再由每个实际 DOT 跳伤激活并补层。
+# 验证普通浊燃与残虹浊燃分开投影，并守住既有战报残差行为。
 from __future__ import annotations
 
 import unittest
@@ -71,6 +71,69 @@ def _nightmare_evade_hit(event_id: str, time_us: int) -> BattleAnalysisHit:
 
 
 class BattleDotStackStateServiceTests(unittest.TestCase):
+    def test_ordinary_scorch_application_remains_active_for_fifteen_seconds(
+        self,
+    ) -> None:
+        hits = (
+            _hit("ordinary", 1_000_000, "Buff_Reaction_5_new", 1003),
+            _hit(
+                "inside-window",
+                10_000_000,
+                "GE_Player_Lacrimosa_Blood_Damage_LV6",
+                1004,
+            ),
+            _hit(
+                "after-window",
+                16_000_001,
+                "GE_Player_Lacrimosa_Blood_Damage_LV6",
+                1004,
+            ),
+        )
+        analysis = SimpleNamespace(hits=hits, time_stop_intervals=())
+        build = {
+            "characters": [
+                {"character_id": 1003, "breakthrough_stage": 2, "profile": {}},
+                {"character_id": 1036, "breakthrough_stage": 1, "profile": {}},
+            ],
+        }
+
+        states = reconstruct_dot_stack_states(analysis, build)
+
+        self.assertEqual(1.5, states["inside-window"].dot_final_multiplier)
+        self.assertEqual(1.0, states["after-window"].dot_final_multiplier)
+
+    def test_repeated_ordinary_scorch_refreshes_the_fifteen_second_window(
+        self,
+    ) -> None:
+        hits = (
+            _hit("ordinary-first", 1_000_000, "Buff_Reaction_5_new", 1003),
+            _hit("ordinary-refresh", 14_000_000, "Buff_Reaction_5_new", 1003),
+            _hit(
+                "after-original-expiry",
+                20_000_000,
+                "GE_Player_Lacrimosa_Blood_Damage_LV6",
+                1004,
+            ),
+            _hit(
+                "after-refreshed-expiry",
+                29_000_001,
+                "GE_Player_Lacrimosa_Blood_Damage_LV6",
+                1004,
+            ),
+        )
+        analysis = SimpleNamespace(hits=hits, time_stop_intervals=())
+        build = {
+            "characters": [
+                {"character_id": 1003, "breakthrough_stage": 2, "profile": {}},
+                {"character_id": 1036, "breakthrough_stage": 1, "profile": {}},
+            ],
+        }
+
+        states = reconstruct_dot_stack_states(analysis, build)
+
+        self.assertEqual(1.5, states["after-original-expiry"].dot_final_multiplier)
+        self.assertEqual(1.0, states["after-refreshed-expiry"].dot_final_multiplier)
+
     def test_explicit_scorch_identity_overrides_reused_zankou_dot_ge(self) -> None:
         hit = replace(
             _hit(
@@ -120,8 +183,9 @@ class BattleDotStackStateServiceTests(unittest.TestCase):
         )["scorch-first"]
 
         self.assertEqual(1, state.coefficient)
+        self.assertEqual("低", state.confidence)
 
-    def test_each_nightmare_tick_adds_exactly_one_scorch_layer(self) -> None:
+    def test_each_observed_nightmare_tick_adds_one_scorch_layer(self) -> None:
         hits = (
             replace(
                 _hit(
@@ -161,6 +225,7 @@ class BattleDotStackStateServiceTests(unittest.TestCase):
 
         self.assertEqual(2, states["scorch-two"].coefficient)
         self.assertEqual(3, states["scorch-three"].coefficient)
+        self.assertIn("本机历史战报残差回归", states["scorch-three"].evidence_basis)
 
     def test_two_scorch_qtes_plus_one_nightmare_tick_reach_three_layers(
         self,
@@ -669,7 +734,7 @@ class BattleDotStackStateServiceTests(unittest.TestCase):
         self.assertEqual(3, states["scorch-stacked"].coefficient)
         self.assertEqual(1, states["scorch-other"].coefficient)
         self.assertEqual(1, states["scorch-lower"].coefficient)
-        self.assertIn("不移动原轴下一跳", states["scorch-stacked"].evidence_basis)
+        self.assertIn("半场与目标隔离", states["scorch-stacked"].evidence_basis)
 
     def test_zankou_stacks_are_isolated_by_half_and_target(self) -> None:
         upper_a = _hit(

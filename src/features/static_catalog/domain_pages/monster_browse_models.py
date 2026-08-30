@@ -15,15 +15,15 @@ from src.services.static_catalog_monster_service import CatalogEntry
 PLAY_LABELS = {
     "official_illustrated": "大世界图鉴",
     "feast": "争锋赏宴",
-    "outer_realm": "当前 / 下一期轨外之境",
+    "outer_realm": "轨外之境",
     "clone": "材料与养成副本",
     "world_boss": "异象追猎",
     "high_risk": "具有正式怪物池的高危委托",
 }
 PLAY_COPY = {
     "official_illustrated": "按地区浏览大世界敌人，查看弱点与战斗属性。",
-    "feast": "按期选择挑战对象、难度与挑战条件，动态查看敌方强度。",
-    "outer_realm": "先看当期和预计期，再按层与半场浏览敌人。",
+    "feast": "先选择当前或往期活动，再浏览当期挑战、难度与敌方画像。",
+    "outer_realm": "浏览全部正式配置；无排期配置仍按层与半场展示敌人。",
     "clone": "材料、养成与活动副本，可按难度查看出场敌人。",
     "world_boss": "浏览异象追猎目标和不同等级下的战斗属性。",
     "high_risk": "仅收录各难度已有明确出场敌人的高危委托。",
@@ -96,7 +96,8 @@ def home_badge(mode: str, entries: Iterable[CatalogEntry]) -> str:
     """Summarize one home category without duplicating records in the view."""
 
     if mode == "outer_realm":
-        return "当期与预计期"
+        count = len({entry.primary_id for entry in entries})
+        return f"{count} 期正式配置"
     labels = {
         "official_illustrated": "名大世界敌人",
         "feast": "名挑战对象",

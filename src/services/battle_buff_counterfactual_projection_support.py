@@ -59,19 +59,20 @@ def vital_projections(
     ] | None = None,
 ) -> tuple[VitalProjection, ...]:
     hits_by_event = {hit.event_id: hit for hit in analysis.hits}
-    cumulative_reduction_delta: dict[tuple[str, str], float] = {}
-    cumulative_effective_delta: dict[tuple[str, str], float] = {}
     result = []
+    candidate_estimates = tuple(
+        row
+        for row in getattr(analysis, "estimated_max_hp_events", ())
+        if row.event_id in (baseline_vital_states or {})
+    )
     for event in sorted(
-        getattr(analysis, "max_hp_events", ()),
+        (*getattr(analysis, "max_hp_events", ()), *candidate_estimates),
         key=lambda row: (row.observed_at_us, row.event_id),
     ):
         state = (baseline_vital_states or {}).get(event.event_id)
-        base_max, base_hp, base_reduction, base_damage = state or (
-            float(event.old_max_hp),
-            float(event.hp_before_settlement),
-            float(event.max_hp_reduction),
-            float(event.effective_hp_loss),
+        base_damage = (
+            float(state[3]) if state is not None
+            else float(event.effective_hp_loss)
         )
         baseline = max(0.0, base_damage)
         predicted = baseline
@@ -83,7 +84,10 @@ def vital_projections(
         )
         status: QuantificationStatus = "not_applicable"
         gaps: tuple[BattleQuantificationGap, ...] = ()
-        if event.mechanic_kind == "lacrimosa_nightmare_awaken_5":
+        if event.mechanic_kind in {
+            "lacrimosa_nightmare_awaken_5",
+            "lacrimosa_nightmare_awaken_5_estimated",
+        }:
             linked_ids = tuple(
                 event_id
                 for event_id in event.evidence_event_ids
@@ -145,90 +149,13 @@ def vital_projections(
                 status = "complete"
             elif unresolved:
                 status = "unavailable"
-            continuity_rows = tuple(
-                row
-                for event_id, row in hit_projections.items()
-                if event_id in hits_by_event
-                and hits_by_event[event_id].target_id == event.target_id
-                and hits_by_event[event_id].scope_half == event.scope_half
-                and (
-                    hits_by_event[event_id].relative_time_us < event.observed_at_us
-                    or event_id in event.evidence_event_ids
-                )
-            )
-            continuity_gaps = tuple(dict.fromkeys(
-                gap
-                for row in continuity_rows
-                for gap in row.quantification.gaps
-            ))
-            gaps = tuple(dict.fromkeys((*gaps, *continuity_gaps)))
-            continuity_unavailable = any(
-                row.quantification.status == "unavailable"
-                for row in continuity_rows
-            )
-            continuity_partial = any(
-                row.quantification.status == "partial"
-                for row in continuity_rows
-            )
-            continuity_quantified = any(
-                row.quantification.status in {"complete", "partial"}
-                for row in continuity_rows
-            )
-            if status == "not_applicable" and continuity_quantified:
-                status = "partial" if continuity_partial else "complete"
-            if status != "unavailable" and continuity_unavailable:
-                status = (
-                    "partial"
-                    if quantified or continuity_quantified
-                    else "unavailable"
-                )
-            elif status == "complete" and continuity_partial:
-                status = "partial"
             if ratio is not None and status in {"complete", "partial"}:
-                target_key = (event.scope_half, event.target_id)
-                hit_delta = sum(
-                    row.predicted_damage
-                    - baseline_hit_damage_by_event.get(event_id, row.hit.damage)
-                    for event_id, row in hit_projections.items()
-                    if event_id in hits_by_event
-                    and hits_by_event[event_id].target_id == event.target_id
-                    and hits_by_event[event_id].scope_half == event.scope_half
-                    and (
-                        hits_by_event[event_id].relative_time_us < event.observed_at_us
-                        or event_id in event.evidence_event_ids
-                    )
-                    and row.quantification.status in {"complete", "partial"}
-                )
-                current_max = max(
-                    0.0,
-                    base_max
-                    - cumulative_reduction_delta.get(target_key, 0.0),
-                )
-                current_hp = max(
-                    0.0,
-                    min(
-                        current_max,
-                        base_hp
-                        - hit_delta
-                        - cumulative_effective_delta.get(target_key, 0.0),
-                    ),
-                )
-                changed_reduction = max(0.0, base_reduction * ratio)
-                predicted = (
-                    current_hp * min(1.0, changed_reduction / current_max)
-                    if current_max > 0.0
-                    else 0.0
-                )
-                cumulative_reduction_delta[target_key] = (
-                    cumulative_reduction_delta.get(target_key, 0.0)
-                    + changed_reduction
-                    - base_reduction
-                )
-                cumulative_effective_delta[target_key] = (
-                    cumulative_effective_delta.get(target_key, 0.0)
-                    + predicted
-                    - baseline
-                )
+                # The observed effective loss is the authoritative fixed-axis
+                # anchor.  Scaling that anchor by the linked Nightmare ratio is
+                # neutral at ratio=1 and remains valid when the captured HP axis
+                # is incomplete; rebuilding an absolute HP state here can turn
+                # a positive stat change into a fictitious negative settlement.
+                predicted = baseline * ratio
         result.append(VitalProjection(
             event_id=event.event_id,
             character_id=character_id,

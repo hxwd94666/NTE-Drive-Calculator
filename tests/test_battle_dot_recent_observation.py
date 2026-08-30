@@ -1,4 +1,4 @@
-# 验证正式 DOT 跳伤激活既有浊燃并补足近期目标状态证据。
+# 验证普通浊燃与残虹浊燃的可见 DOT 状态投影。
 from __future__ import annotations
 
 import unittest
@@ -39,7 +39,7 @@ def _hit(event_id: str, time_us: int, effect: str, character_id: int) -> BattleA
 
 
 class BattleDotRecentObservationTests(unittest.TestCase):
-    def test_non_scorch_dot_hit_activates_pending_scorch_for_next_hit(self) -> None:
+    def test_zankou_reaction_and_observed_dot_activate_scorch(self) -> None:
         scorch_application = replace(
             _hit(
                 "scorch-application",

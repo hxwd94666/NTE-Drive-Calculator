@@ -386,8 +386,11 @@ def _formula_entries(
             title="覆纹追加伤害",
             expression="Weave = ActualDirect × [1.20×(1+0.20×S/(S+180))-1] × Π Special",
             boundary="project_rule",
-            variables=(FormulaVariable("S", "参与角色中胜出的环合强度"),),
-            applicable_when=("正式覆纹追加伤害继承触发直伤属性",),
+            variables=(FormulaVariable(
+                "S",
+                "被覆纹记录的原伤害实际来源角色的环合强度",
+            ),),
+            applicable_when=("正式覆纹追加伤害继承被记录原伤害的属性",),
             limitations=("不从预计直伤重新生成动作轴；只消费固定轴触发击。",),
             evidence=(
                 _ref("project_contract", contract, "环合基础规则", "覆纹强度乘区"),

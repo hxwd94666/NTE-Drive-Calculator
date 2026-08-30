@@ -19,6 +19,7 @@ from src.services.battle_hit_replay_support import (
     dot_final_replay_factors,
     literal_replay_term,
 )
+from src.services.battle_weave_source_service import find_paired_weave_source_hit
 from src.services.damage_calculation_service import (
     DamageScene,
     EnemyDefenseProfileInput,
@@ -58,6 +59,8 @@ _ELEMENT_RESISTANCE_PROPERTIES = {
     )
     for element in _ELEMENT_PENETRATION_PROPERTIES
 }
+_ORDINARY_SCORCH_DAMAGE_ID = "buff_reaction_5_new"
+_ZANKOU_SCORCH_DAMAGE_ID = "buff_reaction_5_new_1036"
 
 
 def _factor(
@@ -140,17 +143,7 @@ class BattleSpecialHitReplayService:
         analysis: BattleAnalysisSnapshot,
         formula_label: str,
     ) -> BattleHitReplayResult:
-        triggering_hit = next(
-            (
-                row
-                for row in analysis.hits
-                if row.sequence == hit.sequence
-                and row.target_id == hit.target_id
-                and row.direction == "outgoing"
-                and not row.is_follow_up
-            ),
-            None,
-        )
+        triggering_hit = find_paired_weave_source_hit(hit, analysis.hits)
         if triggering_hit is None:
             return BattleHitReplayResult(
                 event_id=hit.event_id,
@@ -162,7 +155,7 @@ class BattleSpecialHitReplayService:
                 critical_state="unreplayable",
                 confidence="未解析",
                 factors=(),
-                missing_evidence=("缺少与覆纹同一正式事件的触发直伤",),
+                missing_evidence=("缺少与覆纹同一正式事件的原伤害",),
                 formula_type=formula_label,
             )
         baseline = next(
@@ -214,16 +207,16 @@ class BattleSpecialHitReplayService:
         factors = (
             _factor(
                 "recorded_direct_damage",
-                "触发直伤实际伤害",
+                "原伤害实际值",
                 triggering_hit.damage,
                 f"正式逐击 {triggering_hit.event_id}",
-                "直接使用同一事件记录的有效直伤",
+                "直接使用同一事件记录的有效原伤害",
             ),
             _factor(
                 "weave_strength",
                 "覆纹环合强度区",
                 strength_multiplier,
-                f"命中归属角色环合强度 {ring_strength:g}",
+                f"原伤害来源角色环合强度 {ring_strength:g}",
                 "1 + 20% × 环合强度 / (环合强度 + 180)",
             ),
             _factor(
@@ -430,6 +423,52 @@ class BattleSpecialHitReplayService:
         analysis: BattleAnalysisSnapshot,
         formula_label: str,
     ) -> BattleHitReplayResult:
+        ordinary_scorch = (
+            channel_id == "reaction_scorch"
+            and evidence.damage_id.casefold() == _ORDINARY_SCORCH_DAMAGE_ID
+        )
+        zankou_scorch = (
+            channel_id == "reaction_scorch"
+            and evidence.damage_id.casefold() == _ZANKOU_SCORCH_DAMAGE_ID
+        )
+        if zankou_scorch and evidence.state_multiplier <= 0.0:
+            return BattleHitReplayResult(
+                event_id=hit.event_id,
+                observed_damage=hit.damage,
+                non_critical_damage=None,
+                critical_damage=None,
+                selected_damage=None,
+                selected_error_percent=None,
+                critical_state="unreplayable",
+                confidence="未解析",
+                factors=(),
+                missing_evidence=(
+                    "缺少残虹被动逐层持续伤害施加事件及触发时点的浊燃伤害、"
+                    "元素与持续时间快照；周期结算 hit 不能替代施加事件",
+                ),
+                formula_type=formula_label,
+                formula_damage_attribute=hit.damage_attribute,
+            )
+        if ordinary_scorch and (
+            hit.damage_attribute.casefold() not in _ELEMENT_PENETRATION_PROPERTIES
+        ):
+            return BattleHitReplayResult(
+                event_id=hit.event_id,
+                observed_damage=hit.damage,
+                non_critical_damage=None,
+                critical_damage=None,
+                selected_damage=None,
+                selected_error_percent=None,
+                critical_state="unreplayable",
+                confidence="未解析",
+                factors=(),
+                missing_evidence=(
+                    "普通浊燃正式伤害项未固定元素属性，本击也未提供可确认的伤害属性；"
+                    "不能猜测目标抗性与角色穿透",
+                ),
+                formula_type=formula_label,
+                formula_damage_attribute="",
+            )
         level_multiplier = evidence.level_multiplier
         if level_multiplier is None:
             return BattleHitReplayResult(
@@ -462,7 +501,7 @@ class BattleSpecialHitReplayService:
             evidence_attribute=evidence.damage_attribute,
         )
         stack_multiplier = (
-            max(1.0, evidence.state_multiplier)
+            evidence.state_multiplier
             if channel_id == "reaction_scorch"
             else 1.0
         )
@@ -508,7 +547,7 @@ class BattleSpecialHitReplayService:
         missing = []
         if unresolved:
             missing.append(f"{unresolved} 个{formula_label}相关 Buff 仍待结构化")
-        if channel_id == "reaction_scorch" and evidence.state_multiplier_label:
+        if zankou_scorch and evidence.state_multiplier_label:
             missing.append(
                 f"浊燃层数由逐击正向重放（置信度{evidence.state_confidence}），"
                 "待运行时目标 Buff 层数覆盖"
@@ -523,7 +562,10 @@ class BattleSpecialHitReplayService:
                 evidence.state_multiplier_label,
                 stack_multiplier,
                 evidence.state_multiplier_basis,
-                "min(结算前浊燃层数, 3) × 单层伤害",
+                (
+                    "min(结算前残虹浊燃层数, 3) × 单层伤害"
+                    if zankou_scorch else "普通浊燃固定 1 层 × 单层伤害"
+                ),
             ),)
         )
         factors = (

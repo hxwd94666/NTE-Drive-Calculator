@@ -65,6 +65,7 @@ DAMAGE_PENETRATION_PROPERTY = {
 WEAVE_SOURCE_PROPERTIES = {
     "AtkUp", "AtkAdd", "HPMaxUp", "HPMaxAdd", "DefUp", "DefAdd",
     "CritBase", "CritDamageBase", "DamageUpGeneralBase", "DefIgnore",
+    "MagBase",
     *ELEMENT_PROPERTIES,
     *DAMAGE_PENETRATION_PROPERTY.values(),
 }
@@ -289,7 +290,10 @@ def marginal_assumption(
         policies = "/".join(sorted(set(critical_policies))) or "character"
         basis = f"按逐击 {policies} 暴击策略消费已知分支或正式期望，不拟合暴击结果。"
     elif property_id == "MagBase":
-        basis = "仅重放已保存结构化环合公式的覆纹、创生、浊燃与黯星逐击；浸染等待正式结算战报。"
+        basis = (
+            "仅重放已保存结构化环合公式的覆纹、创生、浊燃与黯星逐击；"
+            "浸染官方逐击公式已确认，但生产固定轴消费者尚未接入。"
+        )
     elif property_id == "UnbalIntensityBase":
         return "复用团队倾陷逐角色贡献，单位只改变当前角色倾陷强度格；命中时 Buff 保留在该角色因子中。"
     else:

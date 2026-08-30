@@ -286,6 +286,116 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         self.assertEqual("not_applicable", result.critical_state)
         self.assertIn("弱点感应", result.factors[2].evidence_basis)
 
+    def test_weave_uses_paired_damage_source_magbase_including_dot(self) -> None:
+        primary = BattleAnalysisHit(
+            event_id="8:primary",
+            sequence=8,
+            relative_time_us=3_000_000,
+            character_id=1075,
+            character_name="伊洛伊",
+            skill_name="蚀心",
+            damage_name="蚀心",
+            damage_component="dot",
+            attack_type="持续伤害",
+            damage_attribute="nature",
+            target_id="target",
+            target_name="目标",
+            damage=1000.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="dot",
+        )
+        weave = BattleAnalysisHit(
+            event_id="8:follow_up",
+            sequence=8,
+            relative_time_us=3_000_000,
+            character_id=999,
+            character_name="错误覆纹归属",
+            skill_name="清明梦",
+            damage_name="覆纹追加攻击",
+            damage_component="reaction",
+            attack_type="follow_up",
+            damage_attribute="nature",
+            target_id="target",
+            target_name="目标",
+            damage=297.0,
+            direction="outgoing",
+            is_follow_up=True,
+            classification="weave",
+        )
+        analysis = SimpleNamespace(
+            hits=(primary, weave),
+            baselines=(
+                BattleCharacterBaseline(
+                    character_id=1075,
+                    character_name="伊洛伊",
+                    source="fixture",
+                    stats=(BattleCharacterStat(
+                        "MagBase", "环合强度", 120.0, False,
+                    ),),
+                ),
+                BattleCharacterBaseline(
+                    character_id=999,
+                    character_name="错误覆纹归属",
+                    source="fixture",
+                    stats=(BattleCharacterStat(
+                        "MagBase", "环合强度", 0.0, False,
+                    ),),
+                ),
+            ),
+            buff_intervals=(),
+            target_condition=None,
+        )
+
+        results = BattleHitReplayService.replay(
+            analysis,
+            (),
+            apply_observed_refinements=False,
+        )
+        replay = next(row for row in results if row.event_id == weave.event_id)
+
+        self.assertEqual(297.0, replay.selected_damage)
+        strength = next(
+            row for row in replay.factors if row.factor_id == "weave_strength"
+        )
+        self.assertIn("原伤害来源角色环合强度 120", strength.evidence_basis)
+
+    def test_standalone_weave_reports_source_evidence_gap(self) -> None:
+        weave = BattleAnalysisHit(
+            event_id="9:primary",
+            sequence=9,
+            relative_time_us=4_000_000,
+            character_id=None,
+            character_name="未知角色",
+            skill_name="覆纹追加攻击",
+            damage_name="覆纹追加攻击",
+            damage_component="reaction",
+            attack_type="覆纹",
+            damage_attribute="nature",
+            target_id="target",
+            target_name="目标",
+            damage=1136.0,
+            direction="outgoing",
+            is_follow_up=False,
+            classification="weave",
+        )
+        analysis = SimpleNamespace(
+            hits=(weave,),
+            baselines=(),
+            buff_intervals=(),
+            target_condition=None,
+        )
+
+        replay = BattleHitReplayService.replay(
+            analysis,
+            (),
+            apply_observed_refinements=False,
+        )[0]
+
+        self.assertEqual("unreplayable", replay.critical_state)
+        self.assertIn("被记录原伤害", replay.missing_evidence[0])
+        self.assertNotIn("缺少角色面板", replay.missing_evidence)
+
     def test_creation_and_scorch_use_official_reaction_formulas(self) -> None:
         condition = BattleTargetCondition(
             target_name="轨外目标",

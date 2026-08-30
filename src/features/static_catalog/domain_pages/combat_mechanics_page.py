@@ -33,6 +33,7 @@ from src.features.static_catalog.domain_pages.mechanics_formula_panel import (
 )
 from src.features.static_catalog.domain_pages.mechanics_widgets import (
     MechanicsGalleryCard,
+    status_pill,
 )
 from src.services.static_catalog_mechanics_service import (
     FAMILY_BY_KEY,
@@ -107,24 +108,24 @@ class CombatMechanicsCatalogPage(QWidget):
 
         control = QFrame(page)
         control.setObjectName("mechanicsControlDeck")
-        control.setMaximumHeight(94)
+        control.setMaximumHeight(116)
         control.setStyleSheet(themed_style(
             "QFrame#mechanicsControlDeck{background:#161b22;"
             "border:1px solid #30363d;border-radius:14px;}"
         ))
         deck = QVBoxLayout(control)
-        deck.setContentsMargins(12, 8, 12, 8)
-        deck.setSpacing(6)
+        deck.setContentsMargins(14, 10, 14, 10)
+        deck.setSpacing(8)
         heading = QHBoxLayout()
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
         self.gallery_title = QLabel("战斗机制图鉴", control)
         self.gallery_title.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:17px;font-weight:900;"
+            "color:#f0f6fc;font-size:21px;font-weight:900;"
         ))
         self.gallery_subtitle = QLabel("用中文公式解释伤害如何计算", control)
         self.gallery_subtitle.setStyleSheet(themed_style(
-            "color:#8b949e;font-size:9px;font-weight:700;"
+            "color:#8b949e;font-size:12px;font-weight:700;"
         ))
         title_box.addWidget(self.gallery_title)
         title_box.addWidget(self.gallery_subtitle)
@@ -135,12 +136,12 @@ class CombatMechanicsCatalogPage(QWidget):
         self.search.setClearButtonEnabled(True)
         self.search.setPlaceholderText("搜索公式或中文名词")
         self.search.setMaximumWidth(360)
-        self.search.setFixedHeight(30)
+        self.search.setFixedHeight(36)
         self.search.textChanged.connect(self._schedule_refresh)
         heading.addWidget(self.search, 1)
         self.result_count = QLabel("0 项", control)
         self.result_count.setStyleSheet(themed_style(
-            "color:#8b949e;font-size:10px;font-weight:800;"
+            "color:#8b949e;font-size:12px;font-weight:800;"
         ))
         heading.addWidget(self.result_count)
         deck.addLayout(heading)
@@ -151,7 +152,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self.family_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.family_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.family_scroll.setFrameShape(QFrame.NoFrame)
-        self.family_scroll.setFixedHeight(39)
+        self.family_scroll.setFixedHeight(45)
         family_host = QWidget(self.family_scroll)
         family_layout = QHBoxLayout(family_host)
         family_layout.setContentsMargins(0, 0, 0, 0)
@@ -168,8 +169,8 @@ class CombatMechanicsCatalogPage(QWidget):
             button.setToolTip(family.subtitle)
             button.setStyleSheet(themed_style(
                 "QPushButton#mechanicsFamilyButton{color:#8b949e;background:#0d1117;"
-                "border:1px solid #30363d;border-radius:9px;padding:5px 9px;"
-                "font-size:9px;font-weight:800;}"
+                "border:1px solid #30363d;border-radius:9px;padding:7px 11px;"
+                "font-size:11px;font-weight:800;}"
                 "QPushButton#mechanicsFamilyButton:hover{color:#c9d1d9;"
                 "border-color:#58a6ff;}QPushButton#mechanicsFamilyButton:checked{"
                 "color:#f0f6fc;background:#1f6feb;border-color:#58a6ff;}"
@@ -185,7 +186,7 @@ class CombatMechanicsCatalogPage(QWidget):
         deck.addWidget(self.family_scroll)
         self.family_combo = QComboBox(control)
         self.family_combo.setObjectName("mechanicsFamilyCombo")
-        self.family_combo.setFixedHeight(32)
+        self.family_combo.setFixedHeight(38)
         for family in self._service.families:
             self.family_combo.addItem(f"{family.glyph}  {family.title}", family.key)
         self.family_combo.currentIndexChanged.connect(self._select_combo_family)
@@ -270,8 +271,8 @@ class CombatMechanicsCatalogPage(QWidget):
     def _reflow_cards(self, *, force: bool = False) -> None:
         if not self._card_widgets:
             return
-        width = max(260, self.gallery_scroll.viewport().width() - 12)
-        columns = max(1, min(4, width // 240))
+        width = max(300, self.gallery_scroll.viewport().width() - 12)
+        columns = max(1, min(3, width // 320))
         if columns == self._columns and not force:
             return
         self._columns = columns
@@ -279,7 +280,7 @@ class CombatMechanicsCatalogPage(QWidget):
             self.gallery_grid.takeAt(0)
         for index, card in enumerate(self._card_widgets):
             self.gallery_grid.addWidget(card, index // columns, index % columns)
-        for column in range(4):
+        for column in range(3):
             self.gallery_grid.setColumnStretch(column, 1 if column < columns else 0)
 
     def open_record(self, record_id: str, *, remember: bool = True) -> bool:
@@ -324,23 +325,31 @@ class CombatMechanicsCatalogPage(QWidget):
             "border:0;border-bottom:1px solid #30363d;}"
         ))
         layout = QVBoxLayout(hero)
-        layout.setContentsMargins(12, 8, 12, 9)
-        layout.setSpacing(4)
+        layout.setContentsMargins(16, 12, 16, 14)
+        layout.setSpacing(7)
         top = QHBoxLayout()
         family = FAMILY_BY_KEY[detail.family_key]
         eyebrow = QLabel(f"{family.glyph}  {family.title}", hero)
         eyebrow.setStyleSheet(themed_style(
-            f"color:{family.accent};font-size:9px;font-weight:900;letter-spacing:1px;"
+            f"color:{family.accent};font-size:11px;font-weight:900;letter-spacing:1px;"
         ))
         top.addWidget(eyebrow)
+        if detail.status:
+            top.addWidget(status_pill(detail.status, hero))
         top.addStretch(1)
         layout.addLayout(top)
         title = QLabel(detail.title, hero)
         title.setWordWrap(True)
         title.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:18px;font-weight:900;"
+            "color:#f0f6fc;font-size:23px;font-weight:900;"
         ))
         layout.addWidget(title)
+        subtitle = QLabel(detail.subtitle, hero)
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(themed_style(
+            "color:#c9d1d9;font-size:13px;font-weight:650;"
+        ))
+        layout.addWidget(subtitle)
         return hero
 
     def open_link(self, link: CatalogLink) -> None:

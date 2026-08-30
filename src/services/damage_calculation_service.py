@@ -146,7 +146,7 @@ class RingCharacter:
 
 @dataclass(frozen=True)
 class WeaveFollowupDamageInput:
-    """覆纹追加伤害输入；伤害属性继承触发它的直伤。"""
+    """覆纹追加伤害输入；伤害属性继承被记录的原伤害。"""
 
     actual_damage: float
     damage_attribute: str
@@ -362,11 +362,11 @@ class DamageCalculationService:
     def calculate_weave_followup(
         values: WeaveFollowupDamageInput,
     ) -> WeaveFollowupDamageResult:
-        """Calculate 覆纹 and retain the triggering direct hit's attribute."""
+        """Calculate 覆纹 and retain the recorded source hit's attribute."""
 
         damage_attribute = str(values.damage_attribute).strip()
         if not damage_attribute:
-            raise ValueError("覆纹必须继承触发直伤的伤害属性。")
+            raise ValueError("覆纹必须继承被记录原伤害的伤害属性。")
         strength_multiplier = calculate_weave_strength_multiplier(
             values.ring_strength
         )
@@ -561,7 +561,7 @@ def calculate_weave_followup_damage(
     ring_strength: float,
     special_multipliers: tuple[float, ...] = (),
 ) -> float:
-    """Calculate Weave from actual direct damage and any extra special zones."""
+    """Calculate Weave from actual recorded damage and extra special zones."""
     if actual_damage < 0:
         raise ValueError("覆纹记录的实际伤害不能为负数。")
     strength_multiplier = calculate_weave_strength_multiplier(ring_strength)

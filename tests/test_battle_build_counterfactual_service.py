@@ -448,17 +448,67 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             candidate=candidate,
         )
 
-        self.assertAlmostEqual(155.28, result.candidate_damage)
-        self.assertAlmostEqual(155.28, result.roles[0].candidate_damage)
+        self.assertAlmostEqual(156.0, result.candidate_damage)
+        self.assertAlmostEqual(156.0, result.roles[0].candidate_damage)
         self.assertAlmostEqual(
-            35.28,
+            36.0,
             result.roles[0].candidate_damage - 120.0,
         )
         self.assertEqual(
-            "linked_source_hit_ratio_sequential_hp",
+            "linked_source_hit_ratio_observed_anchor",
             result.vital_events[0].quantification.method,
         )
-        self.assertEqual((1000.0, 980.0, 36.0), result.vital_events[0].candidate_state)
+        self.assertEqual((1000.0, 1000.0, 36.0), result.vital_events[0].candidate_state)
+
+    def test_enabling_lacrimosa_effect_five_adds_expected_settlement(self) -> None:
+        hit = replace(
+            _hit(
+                "hit1",
+                character_id=1004,
+                character_name="安魂曲",
+                skill_name="噩梦",
+                damage=100,
+            ),
+            gameplay_effect_id="GE_Player_Lacrimosa_Blood_Damage",
+        )
+        original = _snapshot(
+            hits=(hit,), baselines=(), replays=(_replay("hit1", 100),),
+        )
+        candidate = _snapshot(
+            hits=(hit,), baselines=(), replays=(_replay("hit1", 100),),
+        )
+        estimate = replace(
+            _vital_event(
+                "max-hp-estimate:target:1",
+                character_id=1004,
+                character_name="安魂曲",
+                source_skill_name="噩梦",
+                damage=100,
+                evidence_event_ids=("hit1",),
+                mechanic_kind="lacrimosa_nightmare_awaken_5_estimated",
+            ),
+            included_in_effective_damage=False,
+            evidence_kind="description_estimated",
+            inference_basis="噩梦伤害 × 200% × 50% 生命比例期望",
+        )
+        candidate = replace(candidate, estimated_max_hp_events=(estimate,))
+
+        result = BattleBuildCounterfactualService.compare(
+            original=original,
+            candidate=candidate,
+        )
+
+        self.assertEqual(200.0, result.candidate_damage)
+        self.assertEqual(200.0, result.roles[0].candidate_damage)
+        self.assertEqual(100.0, result.vital_events[0].candidate_damage)
+        self.assertEqual(
+            "mechanic_enabled_expected_hp_ratio",
+            result.vital_events[0].quantification.method,
+        )
+        projected = BattleBuildTimelineProjectionService.project(candidate, result)
+        self.assertEqual(100.0, projected.max_hp_reduction_damage)
+        self.assertEqual(200.0, projected.effective_damage)
+        self.assertTrue(projected.max_hp_events[0].included_in_effective_damage)
 
     def test_fadia_max_hp_damage_follows_source_current_max_hp(self) -> None:
         hit = _hit(

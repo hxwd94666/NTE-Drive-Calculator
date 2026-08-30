@@ -73,10 +73,10 @@ class MechanicsDetail:
 
 
 FAMILIES = (
-    MechanicsFamily("damage", "伤害基础", "面板、技能倍率与直伤", "✦", "#58a6ff"),
-    MechanicsFamily("multipliers", "增益与减益", "增伤、易伤、暴击、防御与抗性", "◈", "#bc8cff"),
-    MechanicsFamily("states", "持续与倾陷", "持续伤害、倾陷与覆纹追加", "◌", "#ff7b72"),
-    MechanicsFamily("settlement", "特殊结算", "最终取整、生命上限与独立增伤", "◇", "#39d0d8"),
+    MechanicsFamily("damage", "直伤链", "面板、技能倍率与直伤总公式", "✦", "#58a6ff"),
+    MechanicsFamily("multipliers", "通用乘区", "增伤、易伤、暴击、防御与抗性", "◈", "#bc8cff"),
+    MechanicsFamily("states", "DOT 与环合", "噩梦、蚀心、鸩火与全部环合", "◌", "#ff7b72"),
+    MechanicsFamily("settlement", "倾陷与结算", "团队倾陷、特殊结算与生命变化", "◇", "#39d0d8"),
 )
 FAMILY_BY_KEY = {family.key: family for family in FAMILIES}
 
@@ -121,6 +121,14 @@ FORMULA_CHAPTER_ORDER = {
         "生命结算",
     ))
 }
+FORMULA_CHAPTER_ORDER.update({
+    "持续直伤": 8,
+    "环合基础": 9,
+    "环合": 10,
+    "倾陷": 11,
+    "共享伤害": 12,
+    "生命结算": 13,
+})
 # 反事实模型仍供仓库审计使用，但不属于玩家图鉴的分类或卡墙。
 STATUS_ORDER = {"complete": 0, "partial": 1, "unavailable": 2, "not_applicable": 3}
 MODEL_FAMILY_BY_KEY = {

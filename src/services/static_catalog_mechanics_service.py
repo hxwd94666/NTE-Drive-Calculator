@@ -37,6 +37,10 @@ from src.services.static_catalog_mechanics_terminology import (
 )
 from src.services.static_catalog_misc_models import CatalogDetail, CatalogSearchItem
 from src.services.static_catalog_misc_service import StaticCatalogMiscService
+from src.services.static_catalog_special_formula_service import (
+    SpecialFormulaRecord,
+    StaticCatalogSpecialFormulaService,
+)
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -101,6 +105,12 @@ class StaticCatalogMechanicsService:
             for section in build_formula_detail_sections(domain)
             for formula in section.formulas
         }
+        self._special_formulas = {
+            formula.key: formula
+            for formula in StaticCatalogSpecialFormulaService(
+                self.database_path
+            ).load()
+        }
         self.projection_version = domain.projection_version
         self.dataset_id = domain.evidence_snapshot.dataset_id
 
@@ -129,6 +139,9 @@ class StaticCatalogMechanicsService:
     def detail(self, record_id: str) -> MechanicsDetail:
         kind, key = decode_record(record_id)
         if kind == "formula":
+            special = self._special_formulas.get(key)
+            if special is not None:
+                return self._special_formula_detail(special)
             try:
                 formula = self._formulas[key]
             except KeyError as exc:
@@ -152,6 +165,8 @@ class StaticCatalogMechanicsService:
     def _formula_cards(self, family_key: str, needle: str) -> list[MechanicsCard]:
         rows = []
         for formula in self._formulas.values():
+            if formula.key in self._special_formulas:
+                continue
             if FORMULA_FAMILY_BY_KEY.get(formula.key) != family_key:
                 continue
             title, expression, variables = self._details.player_formula(formula)
@@ -170,7 +185,57 @@ class StaticCatalogMechanicsService:
                 subtitle=expression,
                 badges=(),
             ))
+        for formula in self._special_formulas.values():
+            if formula.family_key != family_key:
+                continue
+            haystack = " ".join((
+                formula.title,
+                formula.subtitle,
+                *formula.aliases,
+                *(section.title for section in formula.sections),
+                *(
+                    text
+                    for section in formula.sections
+                    for field in section.fields
+                    for text in (field.label, field.value)
+                ),
+            )).casefold()
+            if needle and needle not in haystack:
+                continue
+            rows.append(MechanicsCard(
+                record_id=encode_record("formula", formula.key),
+                family_key=family_key,
+                card_kind="formula",
+                eyebrow=formula.chapter,
+                title=formula.title,
+                subtitle=formula.subtitle,
+                badges=(formula.chapter,),
+                status=formula.status,
+            ))
         return rows
+
+    @staticmethod
+    def _special_formula_detail(
+        formula: SpecialFormulaRecord,
+    ) -> MechanicsDetail:
+        return MechanicsDetail(
+            record_id=encode_record("formula", formula.key),
+            card_kind="formula",
+            title=formula.title,
+            subtitle=formula.subtitle,
+            family_key=formula.family_key,
+            badges=(formula.chapter,),
+            status=formula.status,
+            owner_label="公共公式",
+            owner_link=None,
+            redirect_only=False,
+            sections=formula.sections,
+            identity_fields=(),
+            evidence_stages=(),
+            related_links=(),
+            audit_references=(),
+            notice=formula.notice,
+        )
 
     def _public_effect_cards(
         self,

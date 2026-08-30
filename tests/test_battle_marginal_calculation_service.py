@@ -364,39 +364,6 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
 
         self.assertEqual("not_applicable", result.quantification.status)
 
-    def test_ring_strength_excludes_stain_until_a_formal_settlement_exists(self) -> None:
-        hit = replace(
-            _hit(classification="reaction", damage=600.0),
-            damage_name="浸染",
-        )
-        replay = BattleHitReplayResult(
-            event_id=hit.event_id,
-            observed_damage=hit.damage,
-            non_critical_damage=hit.damage,
-            critical_damage=None,
-            selected_damage=hit.damage,
-            selected_error_percent=0.0,
-            critical_state="not_applicable",
-            confidence="低",
-            factors=(BattleHitReplayFactor(
-                factor_id="scaling",
-                label="环合强度区",
-                value=1.0,
-                evidence_basis="仅有通用静态公式，缺少正式浸染结算战报",
-            ),),
-            critical_policy="disabled",
-        )
-        analysis = _analysis(hit, replay)
-
-        result = BattleMarginalCalculationService.calculate(
-            analysis=analysis,
-            character_id=CHARACTER_ID,
-            edited_values={},
-            units={"MagBase": 6.0},
-        )[0]
-
-        self.assertEqual("not_applicable", result.quantification.status)
-
     def test_unknown_target_attack_margin_anchors_on_candidate_projection(self) -> None:
         hit = _hit()
         analysis = _analysis(hit, _critical_replay(hit, "character", 0.5))

@@ -38,6 +38,14 @@ class StaticFormulaEvidenceSnapshot:
     dot_scoped_final_damage_up_modifier_rows: int
 
 
+@dataclass(frozen=True, slots=True)
+class StaticReactionCurve:
+    """One official 16-tier reaction curve, kept separate from player labels."""
+
+    source_effect_id: str
+    values: tuple[float, ...]
+
+
 class StaticCatalogFormulaQueries:
     """Own the fixed SQL used by the formula catalog.
 
@@ -195,3 +203,73 @@ class StaticCatalogFormulaQueries:
             final_damage_up_modifier_rows=final_damage_rows,
             dot_scoped_final_damage_up_modifier_rows=dot_final_rows,
         )
+
+    def reaction_damage_curves(self) -> tuple[StaticReactionCurve, ...]:
+        """Return registered reaction values in source-tier order.
+
+        Player-facing names are deliberately owned by the presentation service;
+        a resource suffix must never be used to infer a character owner.
+        """
+
+        if self._connection is None:
+            raise StaticGameDataError("公式资料静态查询已关闭")
+        rows = self._connection.execute(
+            """
+            SELECT curve.source_effect_id, point.source_tier, point.value
+            FROM combat_level_curve AS curve
+            JOIN combat_level_curve_point AS point USING (curve_id)
+            WHERE curve.damage_kind = 'reaction'
+              AND curve.source_effect_id IN (?, ?, ?, ?, ?)
+            ORDER BY curve.source_effect_id, point.source_tier
+            """,
+            (
+                "GE_ActorReaction_1_Damage",
+                "GE_ActorReaction_1_1019_Damage",
+                "Buff_Reaction_5_new",
+                "Buff_Reaction_5_new_1036",
+                "Buff_Reaction_4_new",
+            ),
+        ).fetchall()
+        grouped: dict[str, list[tuple[int, float]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row["source_effect_id"]), []).append((
+                int(row["source_tier"]),
+                float(row["value"]),
+            ))
+        curves = []
+        for effect_id, points in grouped.items():
+            if tuple(tier for tier, _value in points) != tuple(range(16)):
+                raise StaticGameDataError(
+                    f"环合曲线 {effect_id!r} 缺少完整源档 0–15"
+                )
+            curves.append(StaticReactionCurve(
+                source_effect_id=effect_id,
+                values=tuple(value for _tier, value in points),
+            ))
+        return tuple(curves)
+
+    def topple_level_curve(self) -> tuple[float, ...]:
+        """Return the official per-character-level topple base values."""
+
+        if self._connection is None:
+            raise StaticGameDataError("公式资料静态查询已关闭")
+        rows = self._connection.execute(
+            """
+            SELECT character_level, value
+            FROM combat_level_curve_point
+            WHERE curve_id = ?
+            ORDER BY ordinal
+            """,
+            ("topple:character_level",),
+        ).fetchall()
+        levels = tuple(int(float(row["character_level"])) for row in rows)
+        if levels != tuple(range(1, 81)):
+            raise StaticGameDataError("倾陷等级曲线缺少完整角色等级 1–80")
+        return tuple(float(row["value"]) for row in rows)
+
+
+__all__ = [
+    "StaticCatalogFormulaQueries",
+    "StaticFormulaEvidenceSnapshot",
+    "StaticReactionCurve",
+]

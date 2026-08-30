@@ -1,5 +1,5 @@
 {
-  "manifest_version": 3,
+  "manifest_version": 4,
   "source_data_table": "/Game/DataTable/Character/DT_Character",
   "source_appearance_table": "/Game/DataTable/Character/Appearance/DT_AppearanceData",
   "database_groups": [
@@ -13,6 +13,16 @@
     {"static_table": "monster_static_big_world_quest", "source_table": "DataTable/Monster/DT_MonsterStaticData_BigWorld_Quest.json"},
     {"static_table": "monster_static_clone", "source_table": "DataTable/Monster/DT_MonsterStaticData_Clone.json"},
     {"static_table": "monster_static_abyss", "source_table": "DataTable/Monster/DT_MonsterStaticData_Abyss.json"}
+  ],
+  "monster_family_icons": [
+    {"key": "boss_06", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_06.Boss_06", "output": "monsters/families/Boss_06.png"},
+    {"key": "boss_016", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_16.Boss_16", "output": "monsters/families/Boss_16.png"},
+    {"key": "boss_017", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/boss_17.boss_17", "output": "monsters/families/Boss_17.png"},
+    {"key": "boss_18", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_18.Boss_18", "output": "monsters/families/Boss_18.png"},
+    {"key": "mon_08", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_08.mon_08", "output": "monsters/families/mon_08.png"},
+    {"key": "mon_022", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_22.mon_22", "output": "monsters/families/mon_22.png"},
+    {"key": "mon_39", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_39.mon_39", "output": "monsters/families/mon_39.png"},
+    {"key": "mon_051", "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_51.mon_51", "output": "monsters/families/mon_51.png"}
   ],
   "characters": [
     {"character_id": 1003, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_003_256.player_003_256", "output": "characters/player_003_256.png"},

@@ -7,6 +7,7 @@ from src.services.static_catalog_monster_models import (
     CatalogDetail,
     CatalogEntry,
     CatalogFilter,
+    FeastPeriod,
     FeastSetup,
 )
 from src.services.static_catalog_monster_service import StaticCatalogMonsterService
@@ -79,7 +80,11 @@ class MonsterCatalogPageController:
             key=ordinal,
             reverse=True,
         )
-        return tuple((*current, *upcoming, *history))
+        unscheduled = sorted(
+            (row for row in representative.values() if row.release_state == "unscheduled"),
+            key=ordinal,
+        )
+        return tuple((*current, *upcoming, *history, *unscheduled))
 
     def outer_buff(self, config_id: str) -> CatalogDetail | None:
         return self.detail(f"outer_buff|{config_id}")
@@ -94,16 +99,23 @@ class MonsterCatalogPageController:
             )
         return self._family_profiles[monster_id]
 
-    def feast_setup(self, stage_id: str) -> FeastSetup | None:
-        return self._service.get_feast_setup(stage_id)
+    def feast_periods(self) -> tuple[FeastPeriod, ...]:
+        return self._service.list_feast_periods()
+
+    def feast_setup(
+        self, period_id: str, stage_id: str,
+    ) -> FeastSetup | None:
+        return self._service.get_feast_setup(period_id, stage_id)
 
     def feast_detail(
         self,
+        period_id: str,
         stage_id: str,
         difficulty_id: int,
         selected_option_ids: tuple[str, ...],
     ) -> CatalogDetail | None:
         return self._service.get_feast_detail(
+            period_id,
             stage_id,
             difficulty_id,
             selected_option_ids=selected_option_ids,

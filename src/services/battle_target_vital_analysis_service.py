@@ -22,7 +22,7 @@ from src.services.battle_character_passive_service import (
 )
 
 
-TARGET_VITAL_MODEL_VERSION = "battle-target-vital-v6"
+TARGET_VITAL_MODEL_VERSION = "battle-target-vital-v7"
 
 _LACRIMOSA_ID = 1004
 _FADIA_ID = 1039
@@ -582,9 +582,6 @@ class BattleTargetVitalAnalysisService:
                 continue
             hp_before = _number(row.get("target_hp_before"))
             max_hp = _number(row.get("target_max_hp"))
-            if hp_before is None or max_hp is None or max_hp <= 0:
-                continue
-
             damage = max(0.0, float(row.get("damage") or 0.0))
             if (
                 lacrimosa_enabled
@@ -607,6 +604,9 @@ class BattleTargetVitalAnalysisService:
             elif (
                 is_fadia
                 and fadia_hp is not None
+                and hp_before is not None
+                and max_hp is not None
+                and max_hp > 0
             ):
                 half = _text(row.get("abyss_half")).casefold()
                 source_current_hp = fadia_current_hp_by_half.setdefault(
@@ -640,18 +640,30 @@ class BattleTargetVitalAnalysisService:
                 )
 
             target_id, target_name = resolve_battle_target_identity(row)
-            estimated_reduction = min(max_hp, max(0.0, estimated_reduction))
-            hp_ratio = min(1.0, max(0.0, hp_before / max_hp))
+            if hp_before is not None and max_hp is not None and max_hp > 0:
+                old_max_hp = max_hp
+                settlement_hp = max(0.0, hp_before)
+                estimated_reduction = min(
+                    max_hp,
+                    max(0.0, estimated_reduction),
+                )
+                hp_ratio = min(1.0, max(0.0, hp_before / max_hp))
+            else:
+                old_max_hp = 0.0
+                settlement_hp = 0.0
+                estimated_reduction = max(0.0, estimated_reduction)
+                hp_ratio = 0.5
+                basis += " 缺少可靠目标生命比例，按 50% 生命比例期望估算。"
             estimates.append(
                 BattleMaxHpReductionEvent(
                     event_id=f"max-hp-estimate:{target_id}:{_sequence(row)}",
                     target_id=target_id,
                     target_name=target_name,
                     observed_at_us=int(row.get("relative_time_us") or 0),
-                    old_max_hp=max_hp,
-                    new_max_hp=max(0.0, max_hp - estimated_reduction),
+                    old_max_hp=old_max_hp,
+                    new_max_hp=max(0.0, old_max_hp - estimated_reduction),
                     max_hp_reduction=estimated_reduction,
-                    hp_before_settlement=max(0.0, hp_before),
+                    hp_before_settlement=settlement_hp,
                     hp_ratio_before=hp_ratio,
                     effective_hp_loss=estimated_reduction * hp_ratio,
                     source_character_id=character_id,

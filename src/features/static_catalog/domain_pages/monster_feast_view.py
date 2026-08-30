@@ -29,7 +29,9 @@ from src.services.static_catalog_monster_models import (
 from src.ui.widgets import NoWheelComboBox
 
 
-FeastDetailLoader = Callable[[str, int, tuple[str, ...]], CatalogDetail | None]
+FeastDetailLoader = Callable[
+    [str, str, int, tuple[str, ...]], CatalogDetail | None
+]
 BlessingDetailLoader = Callable[[str], CatalogDetail | None]
 
 
@@ -158,8 +160,12 @@ class FeastEncounterView(QWidget):
         self._icon = icon
         self._loader = loader
         self._blessing_loader = blessing_loader
-        self.heading.setText(f"争锋赏宴 · 第 {setup.period_ordinal} 期")
-        self.subtitle.setText(f"{setup.title} · {setup.boss_name}")
+        self.heading.setText(
+            f"争锋赏宴 · {setup.period_label} · 挑战 {setup.challenge_ordinal}"
+        )
+        self.subtitle.setText(
+            f"{setup.title} · {setup.boss_name} · {setup.schedule_label}"
+        )
         self.difficulty_combo.clear()
         for difficulty in setup.difficulties:
             self.difficulty_combo.addItem(
@@ -184,6 +190,9 @@ class FeastEncounterView(QWidget):
                 self._selector(group.display_name, combo)
             )
         self._layout_options(force=True)
+        has_options = bool(setup.option_groups)
+        self.conditions_toggle.setVisible(has_options)
+        self.conditions_toggle.setEnabled(has_options)
         self.conditions_toggle.setChecked(False)
         self._toggle_options(False)
         self.blessing_combo.clear()
@@ -195,6 +204,8 @@ class FeastEncounterView(QWidget):
         self._toggle_blessing(False)
         self._loading = False
         self._refresh_detail()
+        if setup.condition_note:
+            self.condition_summary.setText(setup.condition_note)
         self._refresh_blessing()
 
     def _selector(self, label: str, combo: NoWheelComboBox) -> QWidget:
@@ -251,9 +262,11 @@ class FeastEncounterView(QWidget):
             if combo.currentData()
         )
         self.condition_summary.setText(
-            f"已启用 {len(selected)} 项" if selected else "未启用挑战条件"
+            f"已启用 {len(selected)} 项"
+            if selected else (self._setup.condition_note or "未启用挑战条件")
         )
         detail = self._loader(
+            self._setup.period_id,
             self._setup.stage_id,
             int(difficulty_id),
             selected,
@@ -265,7 +278,10 @@ class FeastEncounterView(QWidget):
             icon=self._icon,
             context=MonsterContext(
                 play="争锋赏宴",
-                scene=f"第 {self._setup.period_ordinal} 期 · {self._setup.title}",
+                scene=(
+                    f"{self._setup.period_label} · "
+                    f"挑战 {self._setup.challenge_ordinal} · {self._setup.title}"
+                ),
                 level=self.difficulty_combo.currentText(),
             ),
         )

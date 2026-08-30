@@ -44,6 +44,9 @@ from src.features.static_catalog.domain_pages.monster_detail_view import (
 from src.features.static_catalog.domain_pages.monster_feast_view import (
     FeastEncounterView,
 )
+from src.features.static_catalog.domain_pages.monster_feast_browser import (
+    FeastCatalogBrowserMixin,
+)
 from src.features.static_catalog.domain_pages.monster_icon_resolver import (
     MonsterIconResolver,
 )
@@ -65,7 +68,7 @@ from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
 
-class MonsterCatalogPage(QWidget):
+class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
     """Independent card archive; shared catalog composition owns final wiring."""
 
     def __init__(
@@ -239,52 +242,6 @@ class MonsterCatalogPage(QWidget):
             )
         self._show_state(state, push=True)
 
-    def _feast_state(self) -> BrowseState:
-        grouped = _group(
-            self._controller.entries_for("feast"), lambda row: row.primary_id
-        )
-        cards = []
-        for stage_id, entries in grouped.items():
-            setup = self._controller.feast_setup(stage_id)
-            if setup is None:
-                continue
-            cards.append((setup.period_ordinal, BrowseCard(
-                f"第 {setup.period_ordinal} 期 · {setup.title}",
-                f"{setup.boss_name} · 默认最高难度 · 条件默认不启用",
-                f"第 {setup.period_ordinal} 期",
-                self._first_icon(entries),
-                lambda checked=False, rows=entries: self._open_feast_stage(rows),
-                formal_id=stage_id,
-                period=f"第 {setup.period_ordinal} 期",
-            )))
-        ordered = tuple(card for _ordinal, card in sorted(cards, reverse=True))
-        return BrowseState(
-            _PLAY_LABELS["feast"],
-            "按正式关卡顺序浏览各期；进入后只显示当前难度和已选挑战条件。",
-            (BrowseSection("全部期数", f"共 {len(ordered)} 期", ordered),),
-        )
-
-    def _open_feast_stage(self, entries: tuple[CatalogEntry, ...]) -> None:
-        setup = self._controller.feast_setup(entries[0].primary_id)
-        if setup is None:
-            return
-        default_entry = next(
-            (
-                entry for entry in entries
-                if _key_parts(entry.key)[2] == str(setup.default_difficulty_id)
-            ),
-            entries[-1],
-        )
-        self.feast_view.set_stage(
-            setup,
-            icon=self._formal_icon(self._controller.detail(default_entry.key)),
-            loader=self._controller.feast_detail,
-            blessings=self._controller.witch_blessings(),
-            blessing_loader=self._controller.detail,
-        )
-        self.stack.setCurrentWidget(self.feast_view)
-        self._catalog_navigation_listener()
-
     def open_record(self, record_id: str) -> bool:
         """Open a typed relation without exposing controller internals."""
 
@@ -317,6 +274,10 @@ class MonsterCatalogPage(QWidget):
             self._rotation_card(row) for row in rotations
             if row.release_state == "historical"
         )
+        unscheduled = tuple(
+            self._rotation_card(row) for row in rotations
+            if row.release_state == "unscheduled"
+        )
         sections = []
         if active:
             sections.append(BrowseSection(
@@ -329,6 +290,12 @@ class MonsterCatalogPage(QWidget):
                 "往期", "最近结束的期数优先；可展开查看全部。", history,
                 initial_limit=3,
             ))
+        if unscheduled:
+            sections.append(BrowseSection(
+                "未提供排期",
+                "正式关卡和怪物数据可用；仅开放时间不可用，不推测当前或往期状态。",
+                unscheduled,
+            ))
         return BrowseState(_PLAY_LABELS["outer_realm"], _PLAY_COPY["outer_realm"], tuple(sections))
 
     def _rotation_card(self, representative: CatalogEntry) -> BrowseCard:
@@ -336,7 +303,10 @@ class MonsterCatalogPage(QWidget):
             row for row in self._controller.entries_for("outer_realm")
             if row.primary_id == representative.primary_id
         )
-        state_label = {"current": "当期", "next": "预计", "scheduled": "预计", "historical": "往期"}
+        state_label = {
+            "current": "当期", "next": "预计", "scheduled": "预计",
+            "historical": "往期", "unscheduled": "未排期",
+        }
         ordinal = representative.primary_id.rsplit("_", 1)[-1]
         title = f"第 {ordinal} 期" if ordinal.isdigit() else representative.primary_id
         return BrowseCard(
@@ -434,11 +404,27 @@ class MonsterCatalogPage(QWidget):
         if detail is None:
             return
         if entry.play_mode == "feast":
-            rows = tuple(
-                row for row in self._controller.entries_for("feast")
-                if row.primary_id == entry.primary_id
+            periods = self._controller.feast_periods()
+            period = next(
+                (
+                    row for row in periods
+                    if row.release_state == "current"
+                    and entry.primary_id in row.challenge_ids
+                ),
+                next(
+                    (
+                        row for row in periods
+                        if entry.primary_id in row.challenge_ids
+                    ),
+                    None,
+                ),
             )
-            self._open_feast_stage(rows)
+            setup = (
+                self._controller.feast_setup(period.period_id, entry.primary_id)
+                if period is not None else None
+            )
+            if setup is not None:
+                self._open_feast_stage(setup)
             return
         cards = self._monster_cards(detail, entry)
         if cards:
@@ -463,7 +449,9 @@ class MonsterCatalogPage(QWidget):
             fields = {value.label: value.value for value in section.values}
             path = fields.get("怪物类路径") or fields.get("类路径") or fields.get("模板路径") or ""
             formal_id = fields.get("模板 ID") or fields.get("Boss 模板 ID") or _object_name(path)
-            target = self._match_profile_relation(detail, formal_id)
+            target = self._match_member_relation(detail, section.title)
+            if not target:
+                target = self._match_profile_relation(detail, formal_id)
             target_detail = self._controller.detail(target) if target else None
             localized_name = fields.get("怪物中文名") or fields.get("Boss 中文名")
             if localized_name in {None, "", "不可用", "名称暂未提供"}:
@@ -525,6 +513,14 @@ class MonsterCatalogPage(QWidget):
         if detail is None:
             return ""
         return self._controller.value(detail, "地区 / 位置") or ""
+
+    @staticmethod
+    def _match_member_relation(detail: CatalogDetail, section_title: str) -> str:
+        label = f"{section_title} 敌方档案"
+        for relation in detail.relations:
+            if relation.label == label and relation.target_key.startswith("outer_member|"):
+                return relation.target_key
+        return ""
 
     @staticmethod
     def _match_profile_relation(detail: CatalogDetail, formal_id: str) -> str:
@@ -744,6 +740,8 @@ class MonsterCatalogPage(QWidget):
         return False
 
     def _home_badge(self, mode: str) -> str:
+        if mode == "feast":
+            return f"{len(self._controller.feast_periods())} 期活动"
         return _home_badge(mode, self._controller.entries_for(mode))
 
 def build_monster_catalog_page(

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-import re
 from typing import Any, Callable
 
 from src.services.static_catalog_monster_display import NAME_UNAVAILABLE
@@ -20,6 +19,12 @@ from src.services.static_catalog_monster_models import (
 def build_feast_setup(
     row: dict[str, Any],
     *,
+    period_id: str,
+    period_label: str,
+    period_state: str,
+    schedule_label: str,
+    challenge_ordinal: int,
+    condition_note: str = "",
     project_option: Callable[[str, dict[str, Any]], CatalogValue],
 ) -> FeastSetup:
     difficulties = tuple(
@@ -55,6 +60,10 @@ def build_feast_setup(
         key=lambda item: (item.score_rate, item.difficulty_id),
     )
     return FeastSetup(
+        period_id=period_id,
+        period_label=period_label,
+        period_state=period_state,
+        schedule_label=schedule_label,
         stage_id=str(row["stage_id"]),
         title=_name(row.get("name_zh")),
         boss_name=_name(
@@ -67,10 +76,12 @@ def build_feast_setup(
                 None,
             )
         ),
-        period_ordinal=_period_ordinal(row.get("stage_id")),
+        boss_monster_id=str(row.get("boss_monster_id") or ""),
+        challenge_ordinal=challenge_ordinal,
         default_difficulty_id=default.difficulty_id,
         difficulties=difficulties,
         option_groups=groups,
+        condition_note=condition_note,
     )
 
 
@@ -81,7 +92,7 @@ def selected_feast_options(
     by_id = {str(option["option_id"]): option for option in available}
     unknown = tuple(value for value in requested if value not in by_id)
     if unknown:
-        raise ValueError("争锋赏宴选择不属于当前期数")
+        raise ValueError("争锋赏宴选择不属于当前活动期挑战")
     selected = tuple(by_id[value] for value in requested)
     categories = [int(option["category_ordinal"]) for option in selected]
     if len(categories) != len(set(categories)):
@@ -113,11 +124,6 @@ def apply_feast_options(
                     )
                     break
     return projected
-
-
-def _period_ordinal(stage_id: object) -> int:
-    match = re.search(r"(\d+)$", str(stage_id or ""))
-    return int(match.group(1)) if match else 0
 
 
 def _name(value: object) -> str:

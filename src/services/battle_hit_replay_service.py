@@ -9,9 +9,7 @@ from src.domain.battle_report import (
     BattleHitReplayResult,
     BattleSkillDamageEvidence,
 )
-from src.services.battle_buff_attribute_projection_service import (
-    BattleBuffAttributeProjectionService,
-)
+from src.services.battle_buff_attribute_projection_service import BattleBuffAttributeProjectionService
 from src.services.battle_buff_interval_index import (
     BattleBuffIntervalIndex,
     BattleBuffIntervalQuery,
@@ -49,27 +47,22 @@ from src.services.battle_hit_replay_formula_catalog import (
     ELEMENT_PENETRATION_PROPERTIES as _ELEMENT_PENETRATION_PROPERTIES,
     ELEMENT_RESISTANCE_PROPERTIES as _ELEMENT_RESISTANCE_PROPERTIES,
 )
-from src.services.battle_inferred_target_condition_service import (
-    INFERRED_ENCOUNTER_SOURCE_KIND,
-)
+from src.services.battle_inferred_target_condition_service import INFERRED_ENCOUNTER_SOURCE_KIND
 from src.services.battle_selected_hit_replay_context import (
     PreparedReplayAuditContext,
     PreparedReplayAuditInputs,
 )
-from src.services.battle_target_instance_mapping_service import (
-    BattleTargetInstanceMappingService,
-)
+from src.services.battle_target_instance_mapping_service import BattleTargetInstanceMappingService
 from src.services.battle_analysis_progress import (
     BattleAnalysisProgressCallback,
     report_battle_analysis_progress,
 )
-from src.services.battle_full_replay_formula_cache import (
-    full_replay_formula_cache_key,
-)
+from src.services.battle_full_replay_formula_cache import full_replay_formula_cache_key
 from src.services.battle_hit_buff_projection_cache import (
     BattleHitBuffProjectionCache,
 )
-HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v30"
+from src.services.battle_weave_source_service import find_paired_weave_source_hit
+HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v32"
 class BattleHitReplayService:
     @classmethod
     def replay(
@@ -147,6 +140,16 @@ class BattleHitReplayService:
             evidence = evidence_by_event.get(hit.event_id)
             formula_hit = replace(hit, character_id=evidence.source_character_id) \
                 if evidence and evidence.source_character_id is not None else hit
+            if channel_id == "reaction_hexed":
+                source_hit = find_paired_weave_source_hit(
+                    hit,
+                    analysis.hits,
+                )
+                if source_hit is not None:
+                    formula_hit = replace(
+                        formula_hit,
+                        character_id=source_hit.character_id,
+                    )
             baseline = baselines.get(formula_hit.character_id)
             if (
                 prepared_audit_inputs is not None
@@ -201,7 +204,7 @@ class BattleHitReplayService:
                 )
                 results.append(apply_observed_damage_correction(result, hit))
                 continue
-            if baseline is None:
+            if baseline is None and (channel_id != "reaction_hexed" or source_hit is not None):
                 result = cls._unreplayable(
                     hit.event_id,
                     hit.damage,
@@ -219,7 +222,8 @@ class BattleHitReplayService:
                 if projection is None:
                     projection = projection_cache.project(formula_hit)
                 frozen = baseline_values.get(formula_hit.character_id) or {
-                    row.property_id: row.value for row in baseline.stats
+                    row.property_id: row.value
+                    for row in (() if baseline is None else baseline.stats)
                 }
                 values = BattleBuffAttributeProjectionService.apply_additive(
                     frozen,

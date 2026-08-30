@@ -53,6 +53,7 @@ from src.services.battle_marginal_calculation_support import (
     quantify_marginal,
 )
 from src.services.battle_marginal_display_metrics import marginal_display_metrics
+from src.services.battle_weave_source_service import find_paired_weave_source_hit
 
 
 class BattleMarginalCalculationService:
@@ -96,9 +97,13 @@ class BattleMarginalCalculationService:
             hit for hit in analysis.hits if hit.direction == "outgoing"
         )
         role_hits = tuple(
-            hit
-            for hit in outgoing_hits
-            if hit.character_id == character_id
+            hit for hit in outgoing_hits
+            if hit.character_id == character_id and hit.classification != "weave"
+            or hit.classification == "weave" and (
+                (source := find_paired_weave_source_hit(hit, outgoing_hits))
+                is not None and source.character_id == character_id
+                or source is None and hit.character_id == character_id
+            )
         )
         max_hp_events = tuple(getattr(analysis, "max_hp_events", ()))
         replays = {row.event_id: row for row in analysis.hit_replays}
@@ -222,7 +227,7 @@ class BattleMarginalCalculationService:
                 formula_hit = cls._attack_formula_hit(
                     property_id,
                     hit,
-                    role_hits,
+                    outgoing_hits,
                 )
                 if formula_hit is None:
                     hit_ratios[hit.event_id] = cls._missing_linked_source_ratio()
@@ -614,15 +619,17 @@ class BattleMarginalCalculationService:
                 hit,
                 replay,
             )
-        reaction_attribute = {
-            "reaction_scorch": "incantation",
-            "reaction_nova": "psyche",
-        }.get(
-            channel,
-            str(
+        if channel == "reaction_nova":
+            reaction_attribute = "psyche"
+        elif (
+            channel == "reaction_scorch"
+            and hit.gameplay_effect_id.casefold() == "buff_reaction_5_new_1036"
+        ):
+            reaction_attribute = "incantation"
+        else:
+            reaction_attribute = str(
                 getattr(replay, "formula_damage_attribute", "") or ""
-            ).casefold(),
-        )
+            ).casefold()
         if property_id == "DefIgnore":
             return (
                 channel in {"reaction_creation", "reaction_scorch"}
@@ -679,33 +686,22 @@ class BattleMarginalCalculationService:
     def _attack_formula_hit(
         property_id: str,
         hit: BattleAnalysisHit,
-        role_hits: Sequence[BattleAnalysisHit],
+        all_hits: Sequence[BattleAnalysisHit],
     ) -> BattleAnalysisHit | None:
         """Route source-consuming weave fields through the paired direct hit."""
 
         if property_id not in _WEAVE_SOURCE_PROPERTIES or hit.classification != "weave":
             return hit
-        return next(
-            (
-                row
-                for row in role_hits
-                if row.sequence == hit.sequence
-                and row.target_id == hit.target_id
-                and row.direction == hit.direction
-                and not row.is_follow_up
-                and row.classification == "direct"
-            ),
-            None,
-        )
+        return find_paired_weave_source_hit(hit, all_hits)
 
     @staticmethod
     def _missing_linked_source_ratio() -> BattleCounterfactualRatio:
         gap = BattleQuantificationGap(
             code="linked_source_hit_missing",
-            dimension_id="weave_trigger_direct_hit",
+            dimension_id="weave_recorded_source_hit",
             dependency_scope="mechanic_specific",
             property_ids=tuple(sorted(_WEAVE_SOURCE_PROPERTIES)),
-            explanation="覆纹缺少同序列、同目标、同方向的触发直伤。",
+            explanation="覆纹缺少同序列、同半场、同目标、同方向的原伤害。",
         )
         return BattleCounterfactualRatio.unavailable(
             method="weave_source_unavailable",
@@ -713,7 +709,7 @@ class BattleMarginalCalculationService:
             dependency_scope="mechanic_specific",
             cancelled_dimension_ids=(),
             gaps=(gap,),
-            explanation="无法安全联动覆纹的触发直伤来源。",
+            explanation="无法安全联动覆纹记录的原伤害来源。",
         )
 
     @staticmethod

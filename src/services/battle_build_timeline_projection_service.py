@@ -155,12 +155,21 @@ class BattleBuildTimelineProjectionService:
             groups,
             key=lambda group: (group.start_us, group.end_us, group.group_id),
         ))
+        timeline_vital_sources = tuple((
+            *analysis.timeline_max_hp_events,
+            *(
+                event
+                for event in analysis.timeline_estimated_max_hp_events
+                if event.event_id in projected_vital
+            ),
+        ))
         projected_timeline_vital_events = tuple(
             replace(
                 event,
                 effective_hp_loss=BattleBuildQuantificationService.known_or_source(
                     projected_vital[event.event_id]
                 ),
+                included_in_effective_damage=True,
                 inference_basis=(
                     f"{event.inference_basis}；边际："
                     f"{projected_vital[event.event_id].quantification.explanation}"
@@ -168,14 +177,23 @@ class BattleBuildTimelineProjectionService:
             )
             if event.event_id in projected_vital
             else event
-            for event in analysis.timeline_max_hp_events
+            for event in timeline_vital_sources
         )
+        selected_vital_sources = tuple((
+            *analysis.max_hp_events,
+            *(
+                event
+                for event in analysis.estimated_max_hp_events
+                if event.event_id in projected_vital
+            ),
+        ))
         projected_selected_vital_events = tuple(
             replace(
                 event,
                 effective_hp_loss=BattleBuildQuantificationService.known_or_source(
                     projected_vital[event.event_id]
                 ),
+                included_in_effective_damage=True,
                 inference_basis=(
                     f"{event.inference_basis}；边际："
                     f"{projected_vital[event.event_id].quantification.explanation}"
@@ -183,7 +201,7 @@ class BattleBuildTimelineProjectionService:
             )
             if event.event_id in projected_vital
             else event
-            for event in analysis.max_hp_events
+            for event in selected_vital_sources
         )
         vital_damage_by_role: dict[int, float] = {}
         vital_events_by_role: dict[int, int] = {}

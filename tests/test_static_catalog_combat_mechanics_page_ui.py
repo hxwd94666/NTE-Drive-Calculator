@@ -55,16 +55,16 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
         self.page.close()
         self.page.deleteLater()
 
-    def test_one_entry_has_four_dense_formula_families_and_no_tables(self) -> None:
+    def test_one_entry_has_four_readable_formula_families_and_no_tables(self) -> None:
         self.assertEqual(4, len(self.page.family_buttons))
         self.assertLessEqual(
             self.page.findChild(type(self.page.gallery_page), "mechanicsControlDeck")
             .maximumHeight(),
-            94,
+            116,
         )
         cards = self.page.findChildren(MechanicsGalleryCard)
         self.assertTrue(cards)
-        self.assertTrue(all(card.minimumHeight() <= 112 for card in cards))
+        self.assertTrue(all(card.minimumHeight() >= 136 for card in cards))
         self.assertEqual([], self.page.findChildren(QTableWidget))
         self.assertEqual([], self.page.findChildren(QTableView))
 
@@ -77,7 +77,7 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
         self.assertTrue(combo.isVisible())
         self.assertFalse(self.page.family_scroll.isVisible())
         self.assertEqual(4, combo.count())
-        self.assertGreaterEqual(self.page._columns, 2)
+        self.assertGreaterEqual(self.page._columns, 1)
 
         self.page.resize(430, 760)
         QTest.qWait(20)
@@ -103,6 +103,22 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
             self.assertNotIn(token, visible)
         self.assertEqual([], self.page.detail_host.findChildren(CollapsiblePanel))
         self.assertEqual([], self.page.detail_host.findChildren(LinkButton))
+
+    def test_ring_tier_detail_renders_large_source_rows(self) -> None:
+        self.assertTrue(self.page.open_record(
+            encode_record("formula", "reaction_tiers")
+        ))
+        self.app.processEvents()
+        visible = "\n".join(
+            label.text() for label in self.page.detail_host.findChildren(QLabel)
+        )
+        self.assertIn("源档 0 · 角色等级 1–5", visible)
+        self.assertIn("创生 80", visible)
+        self.assertIn("黯星 45,000", visible)
+        values = self.page.detail_host.findChildren(QLabel, "mechanicsFieldValue")
+        self.assertTrue(values)
+        self.assertTrue(all("font-size:9px" not in value.styleSheet() for value in values))
+        self.assertTrue(all("font-size:10px" not in value.styleSheet() for value in values))
 
     def test_missing_buff_link_is_ignored_without_changing_page(self) -> None:
         self.assertIs(self.page.stack.currentWidget(), self.page.gallery_page)

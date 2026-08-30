@@ -188,8 +188,10 @@ schema v20 补齐普通与 999 夜敌方属性包的生命基础值、比例和�
 `DataTable/Skill/GlobalCharacterData/*EffectFigure.json`，与空幕、弧盘曲线统一写入带曲线表资产路径的
 `combat_curve`，避免不同表同名行冲突，并让技能 Buff 不把 `ScalableFloat.Value` 系数误当最终值。
 schema v21 为规范化 Buff 增加修正作用域与标签要求；schema v22 从 `BossDIY` 和 `Divination` 官方数据导入
-争锋赏宴 8 个对象、4 档难度、54 个挑战加成，以及 7 个魔女赐福及其正式曲线值，供战报目标选择与历史
-重放使用。schema v23 从 `DT_MonsterManualConfig`、`DT_MonsterTags`、`DT_CloneOverviewRow`、
+争锋赏宴当前正式表含 8 个挑战对象、4 档难度、54 个挑战加成，以及 7 个魔女赐福及其正式曲线值，供战报
+目标选择与历史重放使用。游戏资料库另以公开排期注解分隔活动期，并可从 `clone_activity*` 与怪物等级画像
+只读恢复仍有正式资源证据的往期挑战；往期注解不进入战报当前候选。schema v23 从
+`DT_MonsterManualConfig`、`DT_MonsterTags`、`DT_CloneOverviewRow`、
 `CloneSystemDataTable` 和 `DT_CloneMonsterConfig` 导入官方大世界图鉴身份、7 个活动类目、56 个活动、218 个
 难度节点、80 个波次刷怪成员及模板绑定；中文显示优先通过 Text StringTable 的 `TableId + Key` 解析。
 正式目录隐藏 ID 明确含 `_test` 的开发活动，但 `source_row` 仍保留其来源哈希供审计。

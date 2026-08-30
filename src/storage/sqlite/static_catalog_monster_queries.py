@@ -5,6 +5,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.storage.sqlite.static_catalog_feast_queries import (
+    StaticCatalogHistoricalFeastQueriesMixin,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -82,7 +85,8 @@ catalog_entry AS (
     UNION ALL
     SELECT 'outer_realm', l.level_config_id, CAST(l.level_id AS TEXT),
            sp.fight_stage, 'encounter', 'outer_realm', '轨外之境',
-           CAST(l.level_id AS TEXT), l.level_config_id, rs.release_state,
+           CAST(l.level_id AS TEXT), l.level_config_id,
+           COALESCE(rs.release_state, 'unscheduled'),
            l.name_zh, l.level_config_id, sp.fight_stage, '', l.source_row_id,
            '30:' || printf('%02d', COALESCE(rs.inference_ordinal, 99)) || ':' ||
              l.level_config_id || ':' || printf('%04d', l.level_id) || ':' || sp.fight_stage,
@@ -98,7 +102,8 @@ catalog_entry AS (
     JOIN (SELECT DISTINCT level_config_id, level_id, fight_stage
           FROM abyss_level_monster_spawn) AS sp
       USING (level_config_id, level_id)
-    JOIN rotation_state AS rs USING (level_config_id)
+    LEFT JOIN rotation_state AS rs USING (level_config_id)
+    WHERE l.level_config_id <> 'Abyss_Common'
     UNION ALL
     SELECT 'clone', cd.clone_id, CAST(cd.difficulty_ordinal AS TEXT), '', 'encounter',
            'clone', c.name_zh, CAST(cd.difficulty_ordinal AS TEXT), d.dataset_id, '',
@@ -143,7 +148,10 @@ def _numeric_identity(value: object) -> tuple[str, int] | None:
         return None
 
 
-class StaticCatalogMonsterQueries(StaticGameDataDao):
+class StaticCatalogMonsterQueries(
+    StaticCatalogHistoricalFeastQueriesMixin,
+    StaticGameDataDao,
+):
     """Read-only catalog DAO kept separate from the shared static DAO surface."""
 
     @staticmethod
@@ -653,7 +661,7 @@ class StaticCatalogMonsterQueries(StaticGameDataDao):
                    l.source_row_id, r.starts_at_mainland, r.ends_at_mainland,
                    r.inference_ordinal
             FROM abyss_level AS l
-            JOIN outer_realm_rotation AS r USING (level_config_id)
+            LEFT JOIN outer_realm_rotation AS r USING (level_config_id)
             WHERE l.level_config_id = ? AND l.level_id = ?
             """,
             (str(level_config_id), int(level_id)),
@@ -684,6 +692,47 @@ class StaticCatalogMonsterQueries(StaticGameDataDao):
             )
         level["members"] = members
         return level
+
+    def outer_realm_member(
+        self,
+        level_config_id: str,
+        level_id: int,
+        fight_stage: str,
+        spawn_ordinal: int,
+        monster_pool_id: str,
+        monster_ordinal: int,
+    ) -> dict[str, Any] | None:
+        """Return one exact formal spawn-pool member and its encounter profile."""
+
+        row = self._one(
+            """
+            SELECT l.level_config_id, l.level_id, l.name_zh,
+                   r.starts_at_mainland, r.ends_at_mainland,
+                   s.fight_stage, s.spawn_ordinal, s.wave, s.monster_pool_id,
+                   s.next_spawn_type, s.spawn_time,
+                   p.monster_ordinal, p.monster_class_path, p.monster_name_zh,
+                   p.monster_count, p.monster_level,
+                   p.attribute_profile_set AS profile_set,
+                   p.attribute_pack_id AS pack_id, p.source_row_id
+            FROM abyss_level AS l
+            JOIN abyss_level_monster_spawn AS s
+              USING (level_config_id, level_id)
+            JOIN abyss_monster_pool_entry AS p USING (monster_pool_id)
+            LEFT JOIN outer_realm_rotation AS r USING (level_config_id)
+            WHERE l.level_config_id = ? AND l.level_id = ?
+              AND s.fight_stage = ? AND s.spawn_ordinal = ?
+              AND s.monster_pool_id = ? AND p.monster_ordinal = ?
+            """,
+            (
+                str(level_config_id), int(level_id), str(fight_stage),
+                int(spawn_ordinal), str(monster_pool_id), int(monster_ordinal),
+            ),
+        )
+        if row is None:
+            return None
+        row["source"] = self.source_trace(row.get("source_row_id"))
+        row["profile"] = self.combat_profile(row["profile_set"], row["pack_id"])
+        return row
 
     def clone_encounter(self, clone_id: str, difficulty_ordinal: int) -> dict[str, Any] | None:
         row = self._one(

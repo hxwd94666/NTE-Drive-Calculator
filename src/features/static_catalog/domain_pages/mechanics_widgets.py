@@ -25,10 +25,10 @@ from src.services.static_catalog_mechanics_service import (
 
 
 STATUS_LABELS = {
-    "complete": "完整",
-    "partial": "部分覆盖",
-    "unavailable": "不可用",
-    "not_applicable": "不适用",
+    "complete": "公式已确认",
+    "partial": "仍缺实测",
+    "unavailable": "暂不可计算",
+    "not_applicable": "非伤害机制",
 }
 STATUS_COLORS = {
     "complete": "#3fb950",
@@ -42,6 +42,7 @@ TONE_COLORS = {
     "success": "#3fb950",
     "warning": "#e3b341",
     "formula": "#d2a8ff",
+    "tier": "#79c0ff",
 }
 
 
@@ -52,7 +53,7 @@ def pill(text: str, *, color: str = "#58a6ff", parent=None) -> QLabel:
     label.setStyleSheet(themed_style(
         f"QLabel#mechanicsPill{{color:{color};background:#0d1117;"
         f"border:1px solid {color};border-radius:9px;padding:2px 7px;"
-        "font-size:9px;font-weight:800;}"
+        "font-size:11px;font-weight:800;}"
     ))
     return label
 
@@ -74,8 +75,8 @@ class MechanicsGalleryCard(QFrame):
         self.setObjectName("mechanicsGalleryCard")
         self.setProperty("recordId", model.record_id)
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumWidth(210)
-        self.setMinimumHeight(112)
+        self.setMinimumWidth(280)
+        self.setMinimumHeight(142)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(themed_style(
             "QFrame#mechanicsGalleryCard{background:#161b22;"
@@ -84,30 +85,34 @@ class MechanicsGalleryCard(QFrame):
             "border-color:#58a6ff;}"
         ))
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 9, 12, 9)
-        root.setSpacing(4)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(7)
 
         top = QHBoxLayout()
         eyebrow = QLabel(model.eyebrow, self)
         eyebrow.setStyleSheet(themed_style(
-            "color:#58a6ff;font-size:9px;font-weight:900;letter-spacing:1px;"
+            "color:#58a6ff;font-size:11px;font-weight:900;letter-spacing:1px;"
         ))
         top.addWidget(eyebrow)
         top.addStretch(1)
+        if model.status:
+            top.addWidget(status_pill(model.status, self))
         root.addLayout(top)
 
         title = QLabel(model.title, self)
         title.setObjectName("mechanicsCardTitle")
         title.setWordWrap(True)
         title.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:14px;font-weight:900;"
+            "color:#f0f6fc;font-size:17px;font-weight:900;"
         ))
         root.addWidget(title)
         subtitle = QLabel(model.subtitle, self)
         subtitle.setObjectName("mechanicsCardSubtitle")
         subtitle.setWordWrap(True)
-        subtitle.setMaximumHeight(40)
-        subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:10px;"))
+        subtitle.setMaximumHeight(54)
+        subtitle.setStyleSheet(themed_style(
+            "color:#b1bac4;font-size:12px;font-weight:600;"
+        ))
         root.addWidget(subtitle, 1)
 
 
@@ -133,27 +138,32 @@ class FieldCard(QFrame):
             f"border-left:2px solid {accent};}}"
         ))
         root = QVBoxLayout(self)
-        root.setContentsMargins(11, 6, 8, 6)
-        root.setSpacing(5)
+        root.setContentsMargins(14, 10, 12, 10)
+        root.setSpacing(9)
         heading = QLabel(title, self)
         heading.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:13px;font-weight:900;"
+            "color:#f0f6fc;font-size:16px;font-weight:900;"
         ))
         root.addWidget(heading)
         for field in fields:
             row = QWidget(self)
             row_layout = QVBoxLayout(row)
-            row_layout.setContentsMargins(0, 2, 0, 2)
-            row_layout.setSpacing(1)
+            row_layout.setContentsMargins(0, 4, 0, 5)
+            row_layout.setSpacing(3)
             label = QLabel(field.label, row)
             label.setStyleSheet(themed_style(
-                "color:#8b949e;font-size:9px;font-weight:800;"
+                "color:#8b949e;font-size:11px;font-weight:800;"
             ))
             value = QLabel(field.value, row)
             value.setObjectName("mechanicsFieldValue")
             value.setWordWrap(True)
+            value.setTextInteractionFlags(Qt.TextSelectableByMouse)
             color = TONE_COLORS.get(field.tone, TONE_COLORS["neutral"])
-            size = "13px" if field.tone == "formula" else "10px"
+            size = (
+                "16px" if field.tone == "formula"
+                else "13px" if field.tone == "tier"
+                else "12px"
+            )
             value.setStyleSheet(themed_style(
                 f"color:{color};font-size:{size};font-weight:700;"
             ))
@@ -168,7 +178,7 @@ class LinkButton(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet(themed_style(
             "QPushButton{color:#58a6ff;background:#0d1117;border:1px solid #30363d;"
-            "border-radius:9px;padding:7px 10px;text-align:left;font-size:10px;"
+            "border-radius:9px;padding:7px 10px;text-align:left;font-size:12px;"
             "font-weight:800;}QPushButton:hover{border-color:#58a6ff;"
             "background:#182434;}"
         ))

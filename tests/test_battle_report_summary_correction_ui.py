@@ -143,7 +143,9 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
         self.assertEqual("1,150", rendered["damage"])
         self.assertEqual("115", rendered["dps"])
 
-    def test_incomplete_axis_does_not_partially_correct_full_summary(self) -> None:
+    def test_incomplete_axis_keeps_observed_max_hp_settlement_without_overkill_correction(
+        self,
+    ) -> None:
         rendered: dict[str, str] = {}
         page = SimpleNamespace(
             _latest_summary=SimpleNamespace(total_damage=1_000.0, duration_seconds=10.0),
@@ -170,8 +172,8 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
 
         BattleReportPage.set_analysis(page, analysis)
 
-        self.assertEqual("1,000", rendered["damage"])
-        self.assertEqual("100", rendered["dps"])
+        self.assertEqual("1,500", rendered["damage"])
+        self.assertEqual("150", rendered["dps"])
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from src.services.damage_calculation_service import (
 )
 from src.services.battle_dot_stack_state_service import (
     reconstruct_dot_stack_states,
+    zankou_scorch_variant_for_build,
 )
 from src.services.battle_zankou_awakening_state_service import (
     reconstruct_zankou_q_final_damage,
@@ -48,6 +49,8 @@ _KUHARA_EFFECT_CURVE_TABLE = (
     "/Game/DataTable/Skill/GlobalCharacterData/DT_KuharaEffectFigure"
 )
 _KUHARA_Q_SETTLEMENT_CURVE_ID = "Kuhara_BudBoom_CoefAddUltraSkill"
+_ORDINARY_SCORCH_DAMAGE_ID = "Buff_Reaction_5_new"
+_ZANKOU_SCORCH_DAMAGE_ID = "Buff_Reaction_5_new_1036"
 
 
 def _single_point_curve_value(
@@ -118,6 +121,35 @@ def _character_builds(build: Mapping[str, Any] | None) -> dict[int, Mapping[str,
         int(row["character_id"]): row
         for row in (build or {}).get("characters") or ()
     }
+
+
+def _canonical_reaction_damage_id(
+    *,
+    channel_id: str,
+    observed_damage_id: str,
+    build: Mapping[str, Any] | None,
+) -> str | None:
+    """Choose a formal reaction row without collapsing both scorch variants."""
+
+    if channel_id == "reaction_nova":
+        return "Buff_Reaction_4_new"
+    observed = observed_damage_id.casefold()
+    is_observed_scorch = observed in {
+        _ORDINARY_SCORCH_DAMAGE_ID.casefold(),
+        _ZANKOU_SCORCH_DAMAGE_ID.casefold(),
+    }
+    if channel_id != "reaction_scorch" and not is_observed_scorch:
+        return None
+    variant = zankou_scorch_variant_for_build(build)
+    if variant == "ordinary":
+        return _ORDINARY_SCORCH_DAMAGE_ID
+    if variant == "zankou":
+        return _ZANKOU_SCORCH_DAMAGE_ID
+    if observed == _ORDINARY_SCORCH_DAMAGE_ID.casefold():
+        return _ORDINARY_SCORCH_DAMAGE_ID
+    if observed == _ZANKOU_SCORCH_DAMAGE_ID.casefold():
+        return _ZANKOU_SCORCH_DAMAGE_ID
+    return None
 
 
 def _effective_level(
@@ -232,17 +264,31 @@ class BattleSkillDamageEvidenceService:
             damage_id = hit.gameplay_effect_id.strip()
             inferred_basis = ""
             explicit_reaction = explicit_reaction_channel_for_hit(hit)
-            canonical_reaction_damage_id = {
-                "reaction_nova": "Buff_Reaction_4_new",
-                "reaction_scorch": "Buff_Reaction_5_new_1036",
-            }.get(explicit_reaction[0] if explicit_reaction else "")
+            reaction_channel = explicit_reaction[0] if explicit_reaction else ""
+            canonical_reaction_damage_id = _canonical_reaction_damage_id(
+                channel_id=reaction_channel,
+                observed_damage_id=damage_id,
+                build=build,
+            )
+            if reaction_channel == "reaction_scorch" and (
+                canonical_reaction_damage_id is None
+            ):
+                # A reused Core GE plus the word "浊燃" proves the public damage
+                # channel, but not whether the ordinary or Zankou formula applies.
+                continue
             if canonical_reaction_damage_id is not None:
                 original_damage_id = damage_id
                 damage_id = canonical_reaction_damage_id
-                inferred_basis = (
-                    f"显式{explicit_reaction[1]}结算身份优先于 Core 复用的来源 GE "
-                    f"{original_damage_id}"
-                )
+                if explicit_reaction is not None:
+                    inferred_basis = (
+                        f"显式{explicit_reaction[1]}结算身份优先于 Core 复用的来源 GE "
+                        f"{original_damage_id}"
+                    )
+                elif original_damage_id.casefold() != damage_id.casefold():
+                    inferred_basis = (
+                        f"冻结残虹突破把正式浊燃记录 {original_damage_id} "
+                        f"替换为 {damage_id}"
+                    )
             if not damage_id and hit.event_id in co_timed_damage_ids:
                 damage_id, inferred_basis = co_timed_damage_ids[hit.event_id]
             if not damage_id:
@@ -254,7 +300,7 @@ class BattleSkillDamageEvidenceService:
                 continue
             source_character_id = (
                 1036
-                if damage_id.casefold() == "buff_reaction_5_new_1036"
+                if damage_id.casefold() == _ZANKOU_SCORCH_DAMAGE_ID.casefold()
                 else hit.character_id
             )
             if hasattr(static_dao, "list_skill_damage_owner_character_ids"):
@@ -345,8 +391,10 @@ class BattleSkillDamageEvidenceService:
                 basis += f"；{inferred_basis}：{damage_id}"
             if level_owner_basis:
                 basis += f"；{level_owner_basis}"
-            if damage_id.casefold() == "buff_reaction_5_new_1036":
-                basis += "；残虹专属浊燃统一使用残虹在触发时点的公式输入"
+            if damage_id.casefold() == _ZANKOU_SCORCH_DAMAGE_ID.casefold():
+                basis += "；残虹被动生成并刷新浊燃，公式归属固定为残虹"
+            elif damage_id.casefold() == _ORDINARY_SCORCH_DAMAGE_ID.casefold():
+                basis += "；Core hit.character_id 作为本次实测环合公式归属"
             character_level = int(character.get("character_level") or 80)
             reaction_level_multiplier, reaction_basis = _reaction_level_multiplier(
                 static_dao,

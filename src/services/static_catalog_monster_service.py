@@ -14,13 +14,11 @@ from src.services.static_catalog_monster_display import (
     display_damage_type,
     display_fight_stage,
 )
+from src.services.static_catalog_feast_period_service import (
+    StaticCatalogFeastPeriodMixin,
+)
 from src.services.static_catalog_monster_gameplay import (
     StaticCatalogMonsterGameplayProjector,
-)
-from src.services.static_catalog_monster_feast import (
-    apply_feast_options,
-    build_feast_setup,
-    selected_feast_options,
 )
 from src.services.static_catalog_monster_models import (
     CatalogDataset,
@@ -31,7 +29,9 @@ from src.services.static_catalog_monster_models import (
     CatalogRelation,
     CatalogSection,
     CatalogValue,
-    FeastSetup,
+)
+from src.services.static_catalog_outer_realm_detail import (
+    StaticCatalogOuterRealmDetailMixin,
 )
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
@@ -61,6 +61,7 @@ _RELEASE_LABELS = {
     "next": "下一期",
     "historical": "已结束",
     "scheduled": "待开放",
+    "unscheduled": "未提供排期",
 }
 def _key(kind: str, *parts: object) -> str:
     encoded = [quote(str(part), safe="") for part in parts]
@@ -81,7 +82,10 @@ def _text_state(value: object, fallback: str) -> tuple[str, bool]:
     return text, True
 
 
-class StaticCatalogMonsterService:
+class StaticCatalogMonsterService(
+    StaticCatalogFeastPeriodMixin,
+    StaticCatalogOuterRealmDetailMixin,
+):
     """Builds display DTOs without changing or inferring static identity."""
 
     def __init__(
@@ -143,31 +147,6 @@ class StaticCatalogMonsterService:
             for row in self._queries.profile_family_candidates(monster_id)
         )
 
-    def get_feast_setup(self, stage_id: str) -> FeastSetup | None:
-        """Return one stage's formal difficulty and mutually exclusive choices."""
-
-        row = self._queries.feast_setup(stage_id)
-        return (
-            build_feast_setup(row, project_option=self._gameplay.feast_option)
-            if row is not None
-            else None
-        )
-
-    def get_feast_detail(
-        self,
-        stage_id: str,
-        difficulty_id: int,
-        *,
-        selected_option_ids: tuple[str, ...] = (),
-    ) -> CatalogDetail | None:
-        """Project exactly one difficulty and at most one choice per category."""
-
-        return self._feast_detail(
-            stage_id,
-            difficulty_id,
-            selected_option_ids=selected_option_ids,
-        )
-
     def clone_drop_status_counts(self) -> dict[str, int]:
         """Return gameplay-difficulty coverage for the v30 drop closure."""
 
@@ -203,8 +182,15 @@ class StaticCatalogMonsterService:
             return self._profile_detail(parts[0], parts[1])
         if kind == "feast" and len(parts) == 2:
             return self._feast_detail(parts[0], int(parts[1]))
+        if kind == "feast_period" and len(parts) == 3:
+            return self.get_feast_detail(parts[0], parts[1], int(parts[2]))
         if kind == "outer_realm" and len(parts) == 3:
             return self._outer_detail(parts[0], int(parts[1]), parts[2])
+        if kind == "outer_member" and len(parts) == 6:
+            return self._outer_member_detail(
+                parts[0], int(parts[1]), parts[2], int(parts[3]),
+                parts[4], int(parts[5]),
+            )
         if kind == "clone" and len(parts) == 2:
             return self._clone_detail(parts[0], int(parts[1]))
         if kind == "high_risk" and len(parts) == 2:
@@ -515,72 +501,9 @@ class StaticCatalogMonsterService:
         )
         return CatalogDetail(entry, tuple(sections), unique_relations(relations), (notice,))
 
-    def _feast_detail(
-        self,
-        stage_id: str,
-        difficulty_id: int,
-        *,
-        selected_option_ids: tuple[str, ...] = (),
-    ) -> CatalogDetail | None:
-        row = self._queries.feast_encounter(stage_id, difficulty_id)
-        if row is None:
-            return None
-        selected = selected_feast_options(row.get("options", []), selected_option_ids)
-        profile = apply_feast_options(row.get("profile"), selected)
-        difficulty_name, _ = _text_state(
-            row.get("difficulty_name_zh"), NAME_UNAVAILABLE
-        )
-        entry = self._entry(
-            _key("feast", stage_id, difficulty_id), domain="encounter", play_mode="feast",
-            title_value=row.get("name_zh"), fallback=NAME_UNAVAILABLE,
-            subtitle=f"争锋赏宴 · {difficulty_name}", primary_id=stage_id,
-            secondary_id=str(row.get("boss_monster_id") or ""),
-            resource_path=str(row.get("boss_icon_path") or ""),
-        )
-        sections = [CatalogSection("正式玩法配置", (
-            self._value("挑战对象 ID", stage_id, copyable=True),
-            self._localized_value("挑战名", row.get("name_zh")),
-            self._value("Boss 模板 ID", row.get("boss_monster_id"), copyable=True),
-            self._localized_value("Boss 中文名", row.get("boss_name_zh")),
-            self._localized_value("难度", row.get("difficulty_name_zh")),
-            self._value("怪物等级", row.get("monster_level")),
-            self._value("基础分", row.get("base_score")),
-            self._value("得分倍率", row.get("score_rate")),
-            self._value("特殊高难", bool(row.get("special_high_difficulty"))),
-        ))]
-        sections.append(self._combat_profile_section(
-            profile, level=row.get("monster_level"), title="当前选择画像"
-        ))
-        if selected:
-            option_values = []
-            for option in selected:
-                category, _available = _text_state(
-                    option.get("category_name_zh"), NAME_UNAVAILABLE
-                )
-                option_values.append(self._gameplay.feast_option(category, option))
-            sections.append(CatalogSection(
-                "已选挑战条件",
-                tuple(option_values),
-                (
-                    "已选攻击提升；当前正式画像没有敌方攻击数值。"
-                    if any(
-                        option.get("effect_kind") == "attack_up"
-                        for option in selected
-                    )
-                    else ""
-                ),
-            ))
-        relations = []
-        for profile in self._queries.template_profile_candidates(row["boss_monster_id"]):
-            relations.append(CatalogRelation(
-                f"查看 Boss 模板：{profile['static_table']}",
-                _key("profile_monster", profile["static_table"], profile["monster_id"]),
-                "exact_official_template_id",
-            ))
-        sections.append(self._source_section(row.get("source")))
-        return CatalogDetail(entry, tuple(sections), unique_relations(relations))
-
     def _release_state(self, starts: object, ends: object) -> str:
+        if not starts or not ends:
+            return "unscheduled"
         start = datetime.fromisoformat(str(starts))
         end = datetime.fromisoformat(str(ends))
         if start <= self._mainland_now <= end:
@@ -591,62 +514,6 @@ class StaticCatalogMonsterService:
             self._mainland_now.strftime("%Y-%m-%dT%H:%M:%S")
         )
         return "next" if future_start == str(starts) else "scheduled"
-
-    def _outer_detail(
-        self, config_id: str, level_id: int, fight_stage: str,
-    ) -> CatalogDetail | None:
-        row = self._queries.outer_realm_encounter(config_id, level_id, fight_stage)
-        if row is None:
-            return None
-        state = self._release_state(row["starts_at_mainland"], row["ends_at_mainland"])
-        title, _ = _text_state(row.get("name_zh"), NAME_UNAVAILABLE)
-        entry = self._entry(
-            _key("outer_realm", config_id, level_id, fight_stage),
-            domain="encounter", play_mode="outer_realm", title_value=title,
-            fallback=NAME_UNAVAILABLE,
-            subtitle=(
-                f"轨外之境 · {_RELEASE_LABELS[state]} · "
-                f"{display_fight_stage(self._terminology_service, fight_stage)}"
-            ),
-            primary_id=config_id, secondary_id=fight_stage, release_state=state,
-            secondary_label=display_fight_stage(
-                self._terminology_service, fight_stage,
-            ),
-        )
-        sections = [CatalogSection("正式期数与分区", (
-            self._value("配置 ID", config_id, copyable=True),
-            self._value("层", level_id),
-            self._value(
-                "上/下半场", fight_stage, copyable=True,
-                display_value=display_fight_stage(
-                    self._terminology_service, fight_stage,
-                ),
-            ),
-            self._value("大陆服开始", row.get("starts_at_mainland")),
-            self._value("大陆服结束", row.get("ends_at_mainland")),
-            self._value("当前/下一期状态", _RELEASE_LABELS[state], DERIVED),
-        ), "期数状态由大陆服开始/结束时间与查询时刻比较得出。")]
-        relations: list[CatalogRelation] = []
-        for index, member in enumerate(row.get("members", ()), 1):
-            sections.append(CatalogSection(f"刷怪槽位 {index}", (
-                self._value("刷怪池 ID", member.get("monster_pool_id"), copyable=True),
-                self._value("刷怪顺序", member.get("spawn_ordinal")),
-                self._value("波次", member.get("wave")),
-                self._value("下一刷新方式", member.get("next_spawn_type")),
-                self._value("刷新时间", member.get("spawn_time")),
-                self._value("怪物顺序", member.get("monster_ordinal")),
-                self._value("怪物类路径", member.get("monster_class_path"), copyable=True),
-                self._localized_value("怪物中文名", member.get("monster_name_zh")),
-                self._value("数量", member.get("monster_count")),
-                self._value("等级", member.get("monster_level")),
-            )))
-            sections.append(self._combat_profile_section(
-                member.get("profile"), level=member.get("monster_level"),
-                title=f"刷怪槽位 {index} 公式画像",
-            ))
-            relations.extend(self._path_relations(member.get("monster_class_path")))
-        sections.append(self._source_section(row.get("source")))
-        return CatalogDetail(entry, tuple(sections), unique_relations(relations))
 
     def _clone_detail(self, clone_id: str, ordinal: int) -> CatalogDetail | None:
         row = self._queries.clone_encounter(clone_id, ordinal)

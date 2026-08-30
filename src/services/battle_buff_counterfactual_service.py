@@ -44,7 +44,7 @@ from src.services.battle_hit_buff_projection_cache import (
 )
 
 
-BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v10"
+BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v11"
 _CONFIDENCE_ORDER = {"未解析": 0, "低": 1, "中": 2, "高": 3}
 
 
