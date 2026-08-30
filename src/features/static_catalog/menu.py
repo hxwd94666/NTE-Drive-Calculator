@@ -40,7 +40,6 @@ MENU_GROUPS = (
     ("collection", "角色与养成", "从可操作对象进入，逐层查看成长、技能与关联机制。"),
     ("combat", "装备与敌人", "按游戏图鉴组织空幕、驱动、怪物和玩法环境。"),
     ("mechanics", "战斗机制", "拆解技能、效果、公式与反事实支持状态。"),
-    ("archive", "开发资料", "保留资源链和正式来源，供深度追溯使用。"),
 )
 
 
@@ -84,15 +83,6 @@ MENU_ENTRIES = (
         "counterfactual_models", "mechanics", "反事实模型", "MODEL MATRIX",
         "角色被动、觉醒、弧盘与空幕机制的建模状态。", "#bc8cff", "Δ",
         "attribute", ("def_ignore",),
-    ),
-    CatalogMenuEntry(
-        "assets", "archive", "资源与动画", "ASSET ARCHIVE",
-        "Blueprint、Montage、Notify、Tag 与正式资源链。", "#79c0ff", "BP",
-        "fork", ("fork_Arachne",),
-    ),
-    CatalogMenuEntry(
-        "sources", "archive", "数据来源", "SOURCE TRACE",
-        "正式来源文件、来源键、内容哈希和导入边界。", "#8b949e", "SRC",
     ),
 )
 

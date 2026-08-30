@@ -76,7 +76,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         cls.asset_root = Path("assets/game_ui").resolve()
 
-    def test_menu_hides_all_and_coverage_and_exposes_ten_allocated_entries(self) -> None:
+    def test_menu_exposes_only_the_eight_player_facing_entries(self) -> None:
         menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)
         menu.set_domains(_domains())
         self.app.processEvents()
@@ -86,6 +86,8 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         self.assertEqual(len(cards), len(MENU_ENTRIES))
         self.assertNotIn("staticCatalogMenuCard_all", object_names)
         self.assertNotIn("staticCatalogMenuCard_coverage", object_names)
+        self.assertNotIn("staticCatalogMenuCard_assets", object_names)
+        self.assertNotIn("staticCatalogMenuCard_sources", object_names)
         self.assertIn("staticCatalogMenuCard_character", object_names)
         self.assertIn("staticCatalogMenuCard_counterfactual_models", object_names)
         menu.deleteLater()
