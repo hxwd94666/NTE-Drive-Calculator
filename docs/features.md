@@ -729,6 +729,11 @@ Section 及其 `NextSectionName` 链，并将 Notify 时间归一到该入口，
 关系目标缺少正式导入记录时只显示缺口，不生成可点击跳转。来源 payload 在发行时省略则固定标明省略，
 unknown/unavailable 不显示成 0 或倍率 1。详细字段和覆盖状态见[游戏资料库](reference/static-catalog.md)。
 
+角色、弧盘、技能及后续养成页面共用 Qt/SQLite 无关的 `ProgressionStaminaService`。页面把当前/目标状态
+投影成材料需求，并传入已持有数量与可用副本的确定单次产出；Service 按猎人等级 10/20/30/40/45/50/55
+投影鉴别等级 1–7，应用显式下调一级后过滤不可用档位，再用多材料掉落包求精确最低体力。缺少产出资料时
+只返回已知最低体力和未解析材料，不生成伪造总量。契约见[养成体力计算](reference/progression-stamina-calculator.md)。
+
 ## 11. 环境、更新与日志
 
 环境诊断分别检查 Npcap、nte-core、dwmapi、备用 Mod Loader、Microsoft Visual C++ 运行库、运行时 SDK

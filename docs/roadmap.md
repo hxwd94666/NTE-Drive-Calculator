@@ -467,6 +467,11 @@ Commander 时给全队对应属性伤害 15%。当前尚未找到现行轨外 UI
 因此不把它导入为当前轨外 Buff，也不与预备备弧盘的“司令虎符”混同；只有取得现行玩法引用链或实机证据后
 才建立静态目录和用户/运行时选择输入。
 
+养成体力的公共纯计算 Service 已定义猎人/鉴别等级、材料缺口、多材料掉落包、最低体力和四态缺口边界。
+发行静态库当前只保留养成副本 `drop_id` 和单次体力，尚未规范化导入正式
+`ClientDropGroupDataTable`、`DropSequenceDataTable` 的确定产出；完成 importer/schema 升级和静态发行晋升前，
+页面必须显式提供单次产出数据或显示 `material_yield_unavailable`，不能把导出目录作为运行时依赖。
+
 ## 6. 新能力验收原则
 
 新能力先确定 payload、sequence/generation、完整性、错误码、隐私字段、失败状态和回滚方式，再进入
