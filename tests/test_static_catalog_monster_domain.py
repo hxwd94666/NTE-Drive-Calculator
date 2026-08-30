@@ -15,9 +15,6 @@ from src.services.static_catalog_monster_service import (
     UNAVAILABLE,
     StaticCatalogMonsterService,
 )
-from src.services.static_catalog_mechanics_service import (
-    StaticCatalogMechanicsService,
-)
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -224,10 +221,17 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
 
     def test_player_terms_are_projected_without_overwriting_raw_facts(self):
         feast = self._page("feast").items[0]
-        detail = self.service.get_detail(feast.key)
+        setup = self.service.get_feast_setup(feast.primary_id)
+        self.assertIsNotNone(setup)
+        first_option = setup.option_groups[0].options[0]
+        detail = self.service.get_feast_detail(
+            feast.primary_id,
+            setup.default_difficulty_id,
+            selected_option_ids=(first_option.option_id,),
+        )
         options = next(
             section for section in detail.sections
-            if section.title == "官方加成选项"
+            if section.title == "已选挑战条件"
         )
         visible_options = [
             value for value in options.values if "路径" not in value.label
@@ -259,7 +263,47 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
         self.assertTrue(all(value.display_label for value in resistances))
         self.assertTrue(all("_" not in value.display_label for value in resistances))
 
-    def test_witch_blessings_are_complete_choices_with_typed_mechanism_links(self):
+    def test_feast_setup_defaults_to_x5_and_applies_only_selected_conditions(self):
+        setup = self.service.get_feast_setup("DiyBossStage8")
+        self.assertIsNotNone(setup)
+        default = next(
+            item for item in setup.difficulties
+            if item.difficulty_id == setup.default_difficulty_id
+        )
+        self.assertEqual(5.0, default.score_rate)
+        base = self.service.get_feast_detail(
+            setup.stage_id, setup.default_difficulty_id
+        )
+        self.assertFalse(any(
+            section.title == "已选挑战条件" for section in base.sections
+        ))
+        health_group = next(
+            group for group in setup.option_groups
+            if group.display_name == "敌方生命值提升"
+        )
+        selected = self.service.get_feast_detail(
+            setup.stage_id,
+            setup.default_difficulty_id,
+            selected_option_ids=(health_group.options[-1].option_id,),
+        )
+        base_health_up = next(
+            value for section in base.sections for value in section.values
+            if value.label == "生命加成"
+        )
+        selected_health_up = next(
+            value for section in selected.sections for value in section.values
+            if value.label == "生命加成"
+        )
+        self.assertGreater(float(selected_health_up.value), float(base_health_up.value))
+        self.assertEqual(
+            1,
+            len(next(
+                section for section in selected.sections
+                if section.title == "已选挑战条件"
+            ).values),
+        )
+
+    def test_witch_blessings_are_complete_choices_with_direct_descriptions(self):
         blessings = self.service.list_witch_blessings()
         self.assertEqual(7, len(blessings))
         details = tuple(self.service.get_detail(entry.key) for entry in blessings)
@@ -269,11 +313,9 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             for detail in details
             if detail is not None
         )
-        self.assertTrue(all(value.catalog_link is not None for value in values))
         self.assertTrue(all(
-            value.catalog_link.domain_key == "combat_mechanics"
+            value.display_label and value.display_value
             for value in values
-            if value.catalog_link is not None
         ))
         self.assertTrue(all("<" not in detail.sections[0].note for detail in details))
 
@@ -290,7 +332,10 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             for value in detail.sections[0].values
         )
         self.assertEqual(4, len(components))
-        self.assertTrue(all(value.catalog_link is not None for value in components))
+        self.assertTrue(all(
+            value.display_label and value.display_value
+            for value in components
+        ))
         self.assertTrue(all("trigger_" not in value.display_value for value in components))
 
     def test_every_clone_difficulty_has_an_honest_drop_projection_status(self):
@@ -321,50 +366,39 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             ))
         self.assertEqual(self.service.clone_drop_status_counts(), dict(statuses))
 
-    def test_gameplay_buffs_link_to_resolvable_public_mechanics_records(self):
+    def test_gameplay_buffs_project_complete_rules_without_navigation_contract(self):
         feast_entries = self.service.list_entries(CatalogFilter(
             play_mode="feast", page_size=200,
         )).items
         representatives = {
             entry.primary_id: entry for entry in reversed(feast_entries)
         }
-        option_values = tuple(
-            value
-            for entry in representatives.values()
-            for section in self.service.get_detail(entry.key).sections
-            if section.title == "官方加成选项"
-            for value in section.values
-        )
-        links = tuple(
-            value.catalog_link for value in option_values
-            if value.catalog_link is not None
-        )
-        unlinked = tuple(
-            value for value in option_values if value.catalog_link is None
-        )
+        option_values = []
+        for entry in representatives.values():
+            setup = self.service.get_feast_setup(entry.primary_id)
+            for group in setup.option_groups:
+                for option in group.options:
+                    detail = self.service.get_feast_detail(
+                        setup.stage_id,
+                        setup.default_difficulty_id,
+                        selected_option_ids=(option.option_id,),
+                    )
+                    option_values.extend(next(
+                        section.values for section in detail.sections
+                        if section.title == "已选挑战条件"
+                    ))
+        option_values = tuple(option_values)
         self.assertEqual(144, len(option_values))
-        self.assertEqual(120, len(links))
-        self.assertEqual(24, len(unlinked))
+        self.assertTrue(all(
+            value.display_label and value.display_value
+            for value in option_values
+        ))
+        timed = tuple(value for value in option_values if value.note)
+        self.assertEqual(24, len(timed))
         self.assertTrue(all(
             value.note == "挑战时间规则不属于 Buff 乘区。"
-            for value in unlinked
+            for value in timed
         ))
-        witch_links = tuple(
-            self.service.get_detail(entry.key).sections[0].values[0].catalog_link
-            for entry in self.service.list_witch_blessings()
-        )
-        outer_links = tuple(
-            value.catalog_link
-            for ordinal in (8, 9)
-            for value in self.service.get_detail(
-                f"outer_buff|Abyss_{ordinal}"
-            ).sections[0].values
-        )
-        mechanics = StaticCatalogMechanicsService(STATIC_DATABASE)
-        for link in dict.fromkeys((*links, *witch_links, *outer_links)):
-            self.assertIsNotNone(link)
-            resolved = mechanics.detail(link.record_id)
-            self.assertEqual(link.record_id, resolved.record_id)
 
 
 if __name__ == "__main__":

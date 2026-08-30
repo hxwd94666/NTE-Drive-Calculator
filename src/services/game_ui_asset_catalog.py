@@ -63,6 +63,37 @@ class GameUiAssetCatalog:
     def monster_icon(self, static_table: str, monster_id: str) -> Path | None:
         return self._resolve("monster_icons", f"{static_table}:{monster_id}")
 
+    def monster_variant_icon(self, formal_monster_id: str) -> Path | None:
+        """Resolve a unique packaged variant from the same formal ID family."""
+
+        wanted = _monster_identity_parts(formal_monster_id)
+        if wanted is None:
+            return None
+        matches = []
+        icon_map = self._manifest.get("monster_icons", {})
+        if not isinstance(icon_map, dict):
+            return None
+        for key, relative in icon_map.items():
+            if not isinstance(key, str) or not isinstance(relative, str):
+                continue
+            candidate_id = key.split(":", 1)[-1]
+            candidate = _monster_identity_parts(candidate_id)
+            if candidate is None or candidate[:2] != wanted[:2]:
+                continue
+            shared = 2
+            for left, right in zip(wanted[2], candidate[2]):
+                if left != right:
+                    break
+                shared += 1
+            matches.append((shared, key, relative))
+        if not matches:
+            return None
+        best_score = max(score for score, _key, _relative in matches)
+        preferred = [row for row in matches if row[0] == best_score]
+        if len({relative for _score, _key, relative in preferred}) != 1:
+            return None
+        return self._resolve("monster_icons", preferred[0][1])
+
     def encounter_icon(self, resource_path: str) -> Path | None:
         return self._resolve("encounter_icons", str(resource_path))
 
@@ -79,3 +110,19 @@ class GameUiAssetCatalog:
         if not matches:
             return None
         return self._resolve("monster_family_icons", max(matches, key=len))
+
+
+def _monster_identity_parts(
+    formal_monster_id: str,
+) -> tuple[str, int, tuple[str, ...]] | None:
+    parts = tuple(
+        part for part in str(formal_monster_id).strip().casefold().split("_")
+        if part
+    )
+    if len(parts) < 2 or parts[0] not in {"mon", "boss"}:
+        return None
+    try:
+        ordinal = int(parts[1])
+    except ValueError:
+        return None
+    return parts[0], ordinal, parts

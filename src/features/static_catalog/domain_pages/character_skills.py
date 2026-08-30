@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -266,6 +267,44 @@ def _multiplier_lines(skill: CharacterSkill, level: int) -> tuple[tuple[str, str
     return tuple(lines)
 
 
+class _SkillRowHeader(QFrame):
+    """Clickable skill-row header that leaves embedded controls interactive."""
+
+    activated = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("characterSkillHeader")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName("展开或收起技能详情")
+        self.setToolTip("点击整行展开或收起")
+        self.setStyleSheet(themed_style(
+            "QFrame#characterSkillHeader{background:transparent;border:none;"
+            "border-radius:8px;}"
+            "QFrame#characterSkillHeader:hover{background:#1f6feb22;}"
+            "QFrame#characterSkillHeader:focus{border:1px solid #58a6ff;}"
+        ))
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.activated.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        if event.key() in (
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+            Qt.Key.Key_Space,
+        ):
+            self.activated.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class SkillActionCard(QFrame):
     """One full-width official skill row with its own downward drawer."""
 
@@ -282,19 +321,24 @@ class SkillActionCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 8, 12, 8)
         root.setSpacing(7)
-        heading = QHBoxLayout()
+        self.heading = _SkillRowHeader(self)
+        self.heading.activated.connect(self._toggle_from_row)
+        heading = QHBoxLayout(self.heading)
+        heading.setContentsMargins(0, 0, 0, 0)
         heading.setSpacing(10)
         slot = QLabel(_SLOT_LABELS.get(action.slot, action.slot), self)
         slot.setObjectName("characterSkillSlot")
         slot.setMinimumWidth(78)
+        slot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         slot.setStyleSheet(themed_style(
-            "color:#58a6ff;font-size:12px;font-weight:900"
+            "color:#58a6ff;font-size:13px;font-weight:900"
         ))
         name = QLabel(action.title, self)
         name.setObjectName("characterSkillTitle")
         name.setWordWrap(True)
+        name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         name.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:13px;font-weight:900"
+            "color:#f0f6fc;font-size:15px;font-weight:900"
         ))
         heading.addWidget(slot)
         heading.addWidget(name, 1)
@@ -314,11 +358,15 @@ class SkillActionCard(QFrame):
             unavailable = QLabel(status, self)
             unavailable.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
             heading.addWidget(unavailable)
-        self.toggle = QPushButton(self._toggle_text(False), self)
+        self.toggle = QLabel(self._toggle_text(False), self)
         self.toggle.setObjectName("characterSkillToggle")
-        self.toggle.setCheckable(True)
+        self.toggle.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.toggle.setStyleSheet(themed_style(
+            "color:#8b949e;background:#21262d;border:1px solid #30363d;"
+            "border-radius:8px;padding:7px 12px;font-size:12px;font-weight:800"
+        ))
         heading.addWidget(self.toggle)
-        root.addLayout(heading)
+        root.addWidget(self.heading)
         self.drawer = QFrame(self)
         self.drawer.setObjectName("characterSkillMultiplierDrawer")
         self.drawer.setStyleSheet(themed_style(
@@ -330,21 +378,32 @@ class SkillActionCard(QFrame):
         self.drawer_layout.setSpacing(5)
         self.drawer.setVisible(False)
         root.addWidget(self.drawer)
-        self.toggle.toggled.connect(self._toggle)
+        self._expanded = False
         self.level.currentIndexChanged.connect(self._render_drawer)
 
     def selected_level(self) -> int | None:
         return int(self.level.currentData()) if self.level.count() else None
 
     def set_expanded(self, expanded: bool) -> None:
-        self.toggle.setChecked(expanded)
-
-    def _toggle(self, expanded: bool) -> None:
+        expanded = bool(expanded)
+        if expanded == self._expanded:
+            return
+        self._expanded = expanded
         if expanded:
             self.expanded.emit(self)
             self._render_drawer()
         self.drawer.setVisible(expanded)
         self.toggle.setText(self._toggle_text(expanded))
+        self.toggle.setStyleSheet(themed_style(
+            "color:#58a6ff;background:#1f6feb33;border:1px solid #58a6ff;"
+            "border-radius:8px;padding:7px 12px;font-size:12px;font-weight:800"
+            if expanded else
+            "color:#8b949e;background:#21262d;border:1px solid #30363d;"
+            "border-radius:8px;padding:7px 12px;font-size:12px;font-weight:800"
+        ))
+
+    def _toggle_from_row(self) -> None:
+        self.set_expanded(not self._expanded)
 
     def _toggle_text(self, expanded: bool) -> str:
         noun = "说明" if self.action.passive is not None else "倍率"
@@ -361,8 +420,9 @@ class SkillActionCard(QFrame):
             self.drawer_layout.addWidget(self._muted("当前正式数据未提供可分级倍率"))
             return
         title = QLabel(f"当前等级倍率 · Lv.{level}", self.drawer)
+        title.setObjectName("characterSkillMultiplierTitle")
         title.setStyleSheet(themed_style(
-            "color:#58a6ff;font-size:11px;font-weight:900"
+            "color:#58a6ff;font-size:14px;font-weight:900"
         ))
         self.drawer_layout.addWidget(title)
         lines = _multiplier_lines(skill, level)
@@ -372,14 +432,19 @@ class SkillActionCard(QFrame):
         for label_text, value_text in lines:
             row = QWidget(self.drawer)
             layout = QHBoxLayout(row)
-            layout.setContentsMargins(0, 2, 0, 2)
+            layout.setContentsMargins(0, 4, 0, 4)
+            layout.setSpacing(14)
             label = QLabel(label_text, row)
+            label.setObjectName("characterSkillMultiplierLabel")
             label.setWordWrap(True)
-            label.setStyleSheet(themed_style("color:#c9d1d9;font-size:10px"))
+            label.setStyleSheet(themed_style(
+                "color:#c9d1d9;font-size:13px;line-height:1.45"
+            ))
             value = QLabel(value_text, row)
+            value.setObjectName("characterSkillMultiplierValue")
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             value.setStyleSheet(themed_style(
-                "color:#f0f6fc;font-size:11px;font-weight:800"
+                "color:#f0f6fc;font-size:14px;font-weight:900"
             ))
             layout.addWidget(label, 1)
             layout.addWidget(value)
@@ -388,7 +453,7 @@ class SkillActionCard(QFrame):
     def _render_passive(self, passive: CharacterPassive) -> None:
         title = QLabel(f"突破 {passive.unlock_stage} 解锁", self.drawer)
         title.setStyleSheet(themed_style(
-            "color:#58a6ff;font-size:11px;font-weight:900"
+            "color:#58a6ff;font-size:14px;font-weight:900"
         ))
         self.drawer_layout.addWidget(title)
         descriptions = tuple(
@@ -401,8 +466,11 @@ class SkillActionCard(QFrame):
             if not text:
                 continue
             label = QLabel(text, self.drawer)
+            label.setObjectName("characterPassiveDescription")
             label.setWordWrap(True)
-            label.setStyleSheet(themed_style("color:#c9d1d9;font-size:11px"))
+            label.setStyleSheet(themed_style(
+                "color:#c9d1d9;font-size:13px;line-height:1.45"
+            ))
             self.drawer_layout.addWidget(label)
             rendered = True
         if not rendered:
@@ -411,7 +479,7 @@ class SkillActionCard(QFrame):
     def _muted(self, text: str) -> QLabel:
         label = QLabel(text, self.drawer)
         label.setWordWrap(True)
-        label.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
+        label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         return label
 
     @staticmethod

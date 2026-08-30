@@ -110,14 +110,18 @@ class CharacterGrowthView(QWidget):
         layout.addWidget(self.panel_preview)
 
         action_row = QHBoxLayout()
-        request = QPushButton("计算材料缺口与活力", calculator)
-        request.setObjectName("btnAction")
-        request.clicked.connect(self._request_progression)
-        action_row.addWidget(request)
+        self.progression_button = QPushButton("计算材料缺口与活力", calculator)
+        self.progression_button.setObjectName("btnAction")
+        self.progression_button.setEnabled(False)
+        self.progression_button.setToolTip(
+            "角色等级材料正式数据尚未提供，暂不能计算"
+        )
+        self.progression_button.clicked.connect(self._request_progression)
+        action_row.addWidget(self.progression_button)
         action_row.addStretch(1)
         layout.addLayout(action_row)
         self.progression_result = QLabel(
-            "当前正式数据未提供角色升级/突破消耗；材料体力计算服务尚未接入。",
+            "角色等级材料正式数据尚未提供，暂不能计算。",
             calculator,
         )
         self.progression_result.setObjectName("characterProgressionResult")
@@ -235,6 +239,11 @@ class CharacterGrowthView(QWidget):
         if detail is None:
             return
         requirement_projection = unavailable_character_level_requirements()
+        if not requirement_projection.requirements:
+            self.progression_result.setText(
+                "角色等级材料正式数据尚未提供，暂不能计算。"
+            )
+            return
         self.progression_requested.emit({
             "kind": "character_level",
             "character_id": detail.character.character_id,

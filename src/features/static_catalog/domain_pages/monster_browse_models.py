@@ -14,7 +14,7 @@ from src.services.static_catalog_monster_service import CatalogEntry
 
 PLAY_LABELS = {
     "official_illustrated": "大世界图鉴",
-    "feast": "争锋",
+    "feast": "争锋赏宴",
     "outer_realm": "当前 / 下一期轨外之境",
     "clone": "材料与养成副本",
     "world_boss": "异象追猎",
@@ -22,7 +22,7 @@ PLAY_LABELS = {
 }
 PLAY_COPY = {
     "official_illustrated": "按地区浏览大世界敌人，查看弱点与战斗属性。",
-    "feast": "选择挑战对象与难度，查看本场增益和敌方强度。",
+    "feast": "按期选择挑战对象、难度与挑战条件，动态查看敌方强度。",
     "outer_realm": "先看当期和预计期，再按层与半场浏览敌人。",
     "clone": "材料、养成与活动副本，可按难度查看出场敌人。",
     "world_boss": "浏览异象追猎目标和不同等级下的战斗属性。",
@@ -105,25 +105,3 @@ def home_badge(mode: str, entries: Iterable[CatalogEntry]) -> str:
         "high_risk": "项高危委托",
     }
     return f"{len({entry.primary_id for entry in entries})} {labels[mode]}"
-
-
-def witch_blessing_state(
-    entries: Iterable[CatalogEntry],
-    open_detail: Callable[[CatalogEntry], None],
-) -> BrowseState:
-    """Build the secondary blessing browser outside the page state owner."""
-
-    cards = tuple(BrowseCard(
-        entry.title,
-        "查看说明与生效规则",
-        "战前可选",
-        None,
-        lambda checked=False, row=entry: open_detail(row),
-        formal_id=entry.primary_id,
-        category="魔女赐福",
-    ) for entry in entries)
-    return BrowseState(
-        "魔女赐福",
-        "选择一项赐福，在当前详情中查看完整说明与生效规则。",
-        (BrowseSection("可选赐福", f"共 {len(cards)} 项", cards),),
-    )

@@ -168,7 +168,7 @@
 | `outer_realm_rotation` | 6 | 并行域 | 当前/下一轨外轮换。 |
 | `outer_realm_season_buff` | 2 | 合并详情 | 赛季 Buff。 |
 | `outer_realm_season_buff_component` | 4 | 合并详情 | 赛季 Buff 结构化分量。 |
-| `feast_stage` | 8 | 并行域 | 争锋赏宴对象。 |
+| `feast_stage` | 8 | 并行域 | 争锋赏宴期数对象。 |
 | `feast_stage_difficulty` | 32 | 合并详情 | 争锋难度画像。 |
 | `feast_option` | 54 | 并行域 | 争锋加成选项目录。 |
 | `feast_stage_option` | 144 | 合并详情 | 对象可选加成关系。 |

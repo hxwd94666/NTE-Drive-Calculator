@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QCoreApplication, QSize, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
+from src.app.workers import WorkerThread
 from src.domain.progression_stamina import ProgressionStaminaResult, StaminaPlanStatus
 from src.features.static_catalog.progression_calculator_models import (
     ProgressionCalculatorOrchestrator,
@@ -137,6 +138,8 @@ class ProgressionCalculatorDialog(QDialog):
         )
         self._session: ProgressionCalculatorSession | None = None
         self._callback: ResultCallback | None = None
+        self._calculation_token: object | None = None
+        self._calculation_worker: WorkerThread | None = None
         self._material_cards: dict[str, _MaterialCard] = {}
         self._build()
         self._apply_styles()
@@ -238,6 +241,7 @@ class ProgressionCalculatorDialog(QDialog):
     ) -> ProgressionCalculatorSession:
         """Replace the active frozen request and show the reusable dialog."""
 
+        self._calculation_token = None
         session = self._orchestrator.prepare(request)
         self._session = session
         self._callback = on_result
@@ -248,6 +252,7 @@ class ProgressionCalculatorDialog(QDialog):
             self.gaps_layout.addWidget(_Disclosure(session.more_info, parent=self))
         self._clear_result()
         self.validation.setText("")
+        self._set_calculation_busy(False)
         fit_dialog_to_available_screen(self, QSize(620, 720))
         self.show()
         self.raise_()
@@ -257,11 +262,13 @@ class ProgressionCalculatorDialog(QDialog):
     def dispose(self) -> None:
         """Release the active page callback before composition-root shutdown."""
 
+        self._calculation_token = None
         self._callback = None
         self._session = None
         self.close()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._calculation_token = None
         self._callback = None
         self._session = None
         super().closeEvent(event)
@@ -308,7 +315,7 @@ class ProgressionCalculatorDialog(QDialog):
             key: card.owned.value() for key, card in self._material_cards.items()
         }
         try:
-            outcome = self._orchestrator.calculate(
+            calculation = self._orchestrator.freeze_calculation(
                 session,
                 hunter_level=self.hunter_level.value(),
                 effective_identification_level=self.identification_level.currentData(),
@@ -317,6 +324,38 @@ class ProgressionCalculatorDialog(QDialog):
         except (TypeError, ValueError) as exc:
             self.validation.setText(str(exc))
             return
+        token = object()
+        self._calculation_token = token
+        self._set_calculation_busy(True)
+        self.validation.setText("正在计算最低活力…")
+        run_calculation = self._orchestrator.run_calculation
+        worker = WorkerThread(
+            target=lambda frozen=calculation, run=run_calculation: run(frozen),
+            parent=QCoreApplication.instance(),
+        )
+        self._calculation_worker = worker
+        worker.result_ready.connect(
+            lambda outcome, current=token: self._calculation_ready(current, outcome)
+        )
+        worker.error.connect(
+            lambda _message, current=token: self._calculation_failed(current)
+        )
+        worker.finished.connect(
+            lambda current=token, instance=worker: self._calculation_finished(
+                current, instance
+            )
+        )
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _calculation_ready(self, token: object, outcome: object) -> None:
+        if token is not self._calculation_token:
+            return
+        if not isinstance(outcome, ProgressionCalculatorOutcome):
+            self._calculation_failed(token)
+            return
+        self._calculation_token = None
+        self._set_calculation_busy(False)
         self.validation.setText("")
         self._render_result(outcome.result)
         callback = self._callback
@@ -324,6 +363,28 @@ class ProgressionCalculatorDialog(QDialog):
             callback_error = deliver_progression_outcome(callback, outcome)
             if callback_error is not None:
                 self.validation.setText(callback_error)
+
+    def _calculation_failed(self, token: object) -> None:
+        if token is not self._calculation_token:
+            return
+        self._calculation_token = None
+        self._set_calculation_busy(False)
+        self.validation.setText("养成计算失败，请稍后重试。")
+
+    def _calculation_finished(
+        self,
+        token: object,
+        worker: WorkerThread,
+    ) -> None:
+        if self._calculation_worker is worker:
+            self._calculation_worker = None
+        if token is self._calculation_token:
+            self._calculation_token = None
+            self._set_calculation_busy(False)
+
+    def _set_calculation_busy(self, busy: bool) -> None:
+        self.calculate_button.setEnabled(not busy)
+        self.calculate_button.setText("正在计算…" if busy else "计算最低活力")
 
     def _render_result(self, result: ProgressionStaminaResult) -> None:
         self._clear_layout(self.result_layout)

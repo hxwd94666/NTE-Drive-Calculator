@@ -5,9 +5,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.services.static_catalog_mechanics_models import CatalogLink
-
-
 @dataclass(frozen=True)
 class CatalogFilter:
     search: str = ""
@@ -63,7 +60,6 @@ class CatalogValue:
     note: str = ""
     display_label: str = ""
     display_value: str = ""
-    catalog_link: CatalogLink | None = None
 
 
 @dataclass(frozen=True)
@@ -87,3 +83,35 @@ class CatalogDetail:
     sections: tuple[CatalogSection, ...]
     relations: tuple[CatalogRelation, ...] = ()
     notices: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class FeastDifficultyChoice:
+    difficulty_id: int
+    display_name: str
+    monster_level: int
+    score_rate: float
+
+
+@dataclass(frozen=True)
+class FeastOptionChoice:
+    option_id: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class FeastOptionGroup:
+    group_id: str
+    display_name: str
+    options: tuple[FeastOptionChoice, ...]
+
+
+@dataclass(frozen=True)
+class FeastSetup:
+    stage_id: str
+    title: str
+    boss_name: str
+    period_ordinal: int
+    default_difficulty_id: int
+    difficulties: tuple[FeastDifficultyChoice, ...]
+    option_groups: tuple[FeastOptionGroup, ...]

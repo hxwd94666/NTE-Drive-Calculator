@@ -55,14 +55,22 @@ class ProgressionStaminaService:
         self,
         request: ProgressionStaminaRequest,
     ) -> ProgressionStaminaResult:
-        effective_request = request
-        if not request.stages and self._official_stage_source is not None:
-            official_stages = (
-                self._official_stage_source.list_progression_farming_stages()
-            )
-            effective_request = replace(request, stages=official_stages)
+        effective_request = self.freeze_request(request)
         return calculate_progression_stamina(
             effective_request,
             policy=self._policy,
             maximum_search_states=self._maximum_search_states,
         )
+
+    def freeze_request(
+        self,
+        request: ProgressionStaminaRequest,
+    ) -> ProgressionStaminaRequest:
+        """Snapshot formal stage inputs before handing calculation to a worker."""
+
+        if not request.stages and self._official_stage_source is not None:
+            official_stages = (
+                self._official_stage_source.list_progression_farming_stages()
+            )
+            return replace(request, stages=tuple(official_stages))
+        return request

@@ -1,5 +1,5 @@
 # 怪物与玩法域的正式玩法 Buff、选择与掉落投影。
-"""Qt-free gameplay projections with typed combat-mechanics links."""
+"""Qt-free gameplay projections with complete player-facing rule details."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from collections import Counter
 import re
 from typing import Any
 
-from src.services.static_catalog_mechanics_models import CatalogLink, encode_record
 from src.services.static_catalog_monster_display import (
     NAME_UNAVAILABLE,
     display_buff_option,
     display_catalog_scalar,
+    display_damage_type,
 )
 from src.services.static_catalog_monster_models import (
     CatalogDetail,
@@ -47,17 +47,6 @@ def _clean_description(value: object) -> str:
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
-def _effect_link(effect_id: object) -> CatalogLink | None:
-    identity = str(effect_id or "").strip()
-    if not identity:
-        return None
-    return CatalogLink(
-        domain_key="combat_mechanics",
-        record_id=encode_record("effect", f"gameplay_effect{chr(31)}{identity}"),
-        relation_kind="buff_mechanism",
-    )
-
-
 class StaticCatalogMonsterGameplayProjector:
     """Project formal gameplay rows without opening another DAO."""
 
@@ -82,7 +71,6 @@ class StaticCatalogMonsterGameplayProjector:
         entry = self.witch_entries([row])[0]
         property_name = self._term_name("equipment_attribute", row.get("property_id"))
         amount = self._amount(row.get("property_value"), bool(row.get("is_percent")))
-        link = _effect_link(row.get("mechanism_effect_id"))
         section = CatalogSection(
             "魔女赐福",
             (
@@ -92,13 +80,11 @@ class StaticCatalogMonsterGameplayProjector:
                     provenance="official_static",
                     display_label=property_name,
                     display_value=amount,
-                    catalog_link=link,
                 ),
             ),
             _clean_description(row.get("description_zh")),
         )
-        notices = (() if link is not None else ("该赐福尚无可跳转的正式机制记录。",))
-        return CatalogDetail(entry, (section,), notices=notices)
+        return CatalogDetail(entry, (section,))
 
     def outer_buff_detail(self, row: dict[str, Any]) -> CatalogDetail:
         title = self._name(row.get("buff_name_zh"))
@@ -112,7 +98,6 @@ class StaticCatalogMonsterGameplayProjector:
             secondary_id=str(row.get("buff_id") or ""),
             localization_available=self._available(row.get("buff_name_zh")),
         )
-        link = _effect_link(row.get("mechanism_effect_id"))
         values = tuple(
             CatalogValue(
                 label="赛季 Buff 分量",
@@ -122,7 +107,6 @@ class StaticCatalogMonsterGameplayProjector:
                     "equipment_attribute", component.get("property_id")
                 ),
                 display_value=self._component_description(component),
-                catalog_link=link,
             )
             for component in row.get("components", ())
         )
@@ -131,23 +115,26 @@ class StaticCatalogMonsterGameplayProjector:
             values,
             _clean_description(row.get("description_zh")),
         )
-        notices = (() if link is not None else ("该赛季 Buff 尚无可跳转的正式机制记录。",))
-        return CatalogDetail(entry, (section,), notices=notices)
+        return CatalogDetail(entry, (section,))
 
     def feast_option(self, category: str, option: dict[str, Any]) -> CatalogValue:
-        link = _effect_link(option.get("mechanism_effect_id"))
+        effect_kind = str(option.get("effect_kind") or "")
+        display_category = (
+            f"{display_damage_type(self._terminology, option.get('damage_type'))}提升"
+            if effect_kind == "resistance_up"
+            else category
+        )
         return CatalogValue(
             label="争锋加成",
             value=str(option.get("option_id") or ""),
             provenance="official_static",
-            display_label=category,
+            display_label=display_category,
             display_value=display_buff_option(self._terminology, option),
             note=(
                 "挑战时间规则不属于 Buff 乘区。"
-                if str(option.get("effect_kind") or "") == "time_limit"
+                if effect_kind == "time_limit"
                 else ""
             ),
-            catalog_link=link,
         )
 
     def drop_section(self, projection: dict[str, Any] | None) -> CatalogSection:

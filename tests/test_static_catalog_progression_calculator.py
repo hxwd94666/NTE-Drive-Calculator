@@ -356,6 +356,10 @@ class StaticCatalogProgressionCalculatorTests(unittest.TestCase):
         self.assertIn("StaticCatalogTerminologyService", source)
         self.assertIn("更多信息", source)
         self.assertIn("fit_dialog_to_available_screen", source)
+        self.assertIn("WorkerThread(", source)
+        self.assertIn("freeze_calculation(", source)
+        self.assertNotIn("self._orchestrator.calculate(", source)
+        self.assertNotIn("ProgressionCalculatorController", source)
 
 
 if __name__ == "__main__":

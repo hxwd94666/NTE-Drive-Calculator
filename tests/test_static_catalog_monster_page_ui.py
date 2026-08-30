@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -122,7 +123,7 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         self.assertEqual(
             {
                 "大世界图鉴",
-                "争锋",
+                "争锋赏宴",
                 "当前 / 下一期轨外之境",
                 "材料与养成副本",
                 "异象追猎",
@@ -145,6 +146,22 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         self.assertIsNotNone(page.catalog_back_label())
         self.assertTrue(page.catalog_go_back())
         self.assertIsNone(page.catalog_back_label())
+        page.deleteLater()
+
+    def test_home_reflows_to_two_then_one_column(self) -> None:
+        page = build_monster_catalog_page(
+            service=self.service,
+            terminology_service=self.terminology,
+            game_ui_asset_root=ASSET_ROOT,
+        )
+        page.resize(700, 900)
+        page._layout_home(force=True)
+        self.assertEqual("narrow", page._home_layout_bucket)
+        self.assertEqual((0, 1), page.home_grid.getItemPosition(1)[:2])
+        page.resize(480, 900)
+        page._layout_home(force=True)
+        self.assertEqual("compact", page._home_layout_bucket)
+        self.assertEqual((1, 0), page.home_grid.getItemPosition(1)[:2])
         page.deleteLater()
 
     def test_outer_realm_groups_current_next_and_history_in_formal_order(self) -> None:
@@ -182,36 +199,55 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         self.assertNotIn(detail.entry.title, " ".join(candidates))
         page.deleteLater()
 
-    def test_feast_detail_projects_official_buff_options_as_cards(self) -> None:
+    def test_feast_stage_defaults_to_highest_difficulty_and_no_conditions(self) -> None:
         page = build_monster_catalog_page(
             service=self.service,
             terminology_service=self.terminology,
             game_ui_asset_root=ASSET_ROOT,
         )
-        entry = self.controller.entries_for("feast")[0]
-        page.open_detail(entry)
-        option_section = next(
-            section
-            for section in self.controller.detail(entry.key).sections
-            if section.title == "官方加成选项"
-        )
-        visible_options = tuple(
-            value for value in option_section.values
-            if "路径" not in value.label and "资源" not in value.label
-        )
+        page.open_mode("feast")
+        self.assertEqual(8, len(page._active_state.sections[0].cards))
+        page._active_state.sections[0].cards[0].action()
+        self.assertIs(page.feast_view, page.stack.currentWidget())
+        self.assertIn("积分倍率x5", page.feast_view.difficulty_combo.currentText())
+        self.assertTrue(all(
+            combo.currentData() == "" for combo in page.feast_view._option_combos
+        ))
+        self.assertTrue(page.feast_view.options_host.isHidden())
         self.assertEqual(
-            len(visible_options),
-            len(page.detail_view.buff_cards),
+            "未启用挑战条件",
+            page.feast_view.condition_summary.text(),
         )
-        self.assertTrue(page.detail_view.buff_cards)
-        self.assertNotIn(
-            "/Game/",
-            " ".join(
-                label.text()
-                for card in page.detail_view.buff_cards
-                for label in card.findChildren(type(page.detail_view.crumb))
-            ),
+        self.assertFalse(page.feast_view.detail.buff_cards)
+        page.feast_view.conditions_toggle.setChecked(True)
+        self.assertFalse(page.feast_view.options_host.isHidden())
+        page.feast_view._option_combos[0].setCurrentIndex(1)
+        self.assertEqual("已启用 1 项", page.feast_view.condition_summary.text())
+        self.assertEqual(1, len(page.feast_view.detail.buff_cards))
+        self.assertEqual(8, page.feast_view.blessing_combo.count())
+        page.feast_view.blessing_toggle.setChecked(True)
+        self.assertFalse(page.feast_view.blessing_host.isHidden())
+        page.feast_view.blessing_combo.setCurrentIndex(1)
+        self.assertNotEqual(
+            "未选择魔女赐福", page.feast_view.blessing_summary.text(),
         )
+        page.deleteLater()
+
+    def test_feast_narrow_layout_clears_stale_column_stretch(self) -> None:
+        page = build_monster_catalog_page(
+            service=self.service,
+            terminology_service=self.terminology,
+            game_ui_asset_root=ASSET_ROOT,
+        )
+        page.open_mode("feast")
+        page._active_state.sections[0].cards[0].action()
+        page.feast_view.resize(1100, 900)
+        page.feast_view._layout_options(force=True)
+        self.assertEqual(1, page.feast_view.options_layout.columnStretch(2))
+        page.feast_view.resize(600, 900)
+        page.feast_view._layout_options(force=True)
+        self.assertEqual(0, page.feast_view.options_layout.columnStretch(1))
+        self.assertEqual(0, page.feast_view.options_layout.columnStretch(2))
         page.deleteLater()
 
     def test_home_and_encounter_cards_use_packaged_formal_images(self) -> None:
@@ -311,8 +347,8 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         page._open_encounter(feast)
         buff_text = " ".join(
             label.text()
-            for card in page.detail_view.buff_cards
-            for label in card.findChildren(type(page.detail_view.crumb))
+            for card in page.feast_view.detail.buff_cards
+            for label in card.findChildren(type(page.feast_view.detail.crumb))
         )
         self.assertNotIn(feast.primary_id, buff_text)
         for raw_term in (
@@ -354,24 +390,86 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         self.assertTrue(any(card.title == "名称暂未提供" for card in cards))
         page.deleteLater()
 
-    def test_witch_blessing_secondary_entry_renders_effect_inline(self) -> None:
+    def test_witch_blessing_is_embedded_without_mechanism_navigation(self) -> None:
         page = build_monster_catalog_page(
             service=self.service,
             terminology_service=self.terminology,
             game_ui_asset_root=ASSET_ROOT,
         )
-        entry = page.findChild(QPushButton, "monsterWitchBlessingEntry")
-        self.assertIsNotNone(entry)
-        entry.click()
-        self.assertEqual(7, len(page._active_state.sections[0].cards))
+        page.open_mode("feast")
         page._active_state.sections[0].cards[0].action()
-        visible_text = "\n".join(
-            label.text() for label in page.detail_view.findChildren(QLabel)
-        )
-        self.assertIn("效果说明", visible_text)
-        self.assertIsNone(page.detail_view.findChild(
-            QPushButton, "monsterMechanicsLink"
+        page.feast_view.blessing_toggle.setChecked(True)
+        page.feast_view.blessing_combo.setCurrentIndex(1)
+        self.assertTrue(page.feast_view.blessing_summary.text())
+        self.assertIsNone(page.feast_view.blessing_host.findChild(
+            QPushButton, "monsterMechanicsLink",
         ))
+        page.deleteLater()
+
+    def test_enemy_relation_icon_coverage_uses_formal_variant_fallbacks(self) -> None:
+        page = build_monster_catalog_page(
+            service=self.service,
+            terminology_service=self.terminology,
+            game_ui_asset_root=ASSET_ROOT,
+        )
+        cards = []
+        for mode in (
+            "official_illustrated", "outer_realm", "clone",
+            "world_boss", "high_risk",
+        ):
+            for entry in self.controller.entries_for(mode):
+                detail = self.controller.detail(entry.key)
+                cards.extend(
+                    (mode, card) for card in page._monster_cards(detail, entry)
+                )
+        self.assertEqual(956, len(cards))
+        self.assertEqual(43, sum(card.unavailable for _mode, card in cards))
+        self.assertEqual(872, sum(
+            card.icon is not None for _mode, card in cards
+        ))
+        missing = Counter(
+            (mode, _formal_family(card.formal_id))
+            for mode, card in cards
+            if card.icon is None and not card.unavailable
+        )
+        self.assertEqual(
+            {
+                ("clone", "boss:16"): 4,
+                ("clone", "boss:32"): 1,
+                ("clone", "mon:8"): 3,
+                ("high_risk", "boss:6"): 6,
+                ("outer_realm", "boss:6"): 4,
+                ("outer_realm", "mon:8"): 14,
+                ("outer_realm", "mon:22"): 5,
+                ("outer_realm", "mon:39"): 1,
+                ("outer_realm", "mon:51"): 3,
+            },
+            dict(missing),
+        )
+        page.deleteLater()
+
+    def test_open_world_profile_uses_one_highest_level_selection(self) -> None:
+        page = build_monster_catalog_page(
+            service=self.service,
+            terminology_service=self.terminology,
+            game_ui_asset_root=ASSET_ROOT,
+        )
+        entry = self.controller.entries_for("official_illustrated")[0]
+        page._open_encounter(entry)
+        card = next(
+            card for section in page._active_state.sections for card in section.cards
+            if card.action is not None
+        )
+        card.action()
+        combo = page.detail_view.world_level_combo
+        levels = [float(combo.itemText(index).split()[-1]) for index in range(combo.count())]
+        self.assertEqual(len(levels), len(set(levels)))
+        self.assertEqual(max(levels), float(combo.currentText().split()[-1]))
+        self.assertEqual(1, page.detail_view.profile_layout.count())
+        self.assertNotIn(
+            "其他难度 / 档位",
+            " ".join(label.text() for label in page.detail_view.findChildren(QLabel)),
+        )
         page.deleteLater()
 
     def test_outer_rotation_opens_season_buff_with_structured_components(self) -> None:
@@ -394,6 +492,10 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         self.assertEqual(2, len(page.detail_view.buff_cards))
         self.assertTrue(all(
             card.findChild(QPushButton, "monsterMechanicsLink") is None
+            for card in page.detail_view.buff_cards
+        ))
+        self.assertTrue(all(
+            "#231f13" not in card.styleSheet().casefold()
             for card in page.detail_view.buff_cards
         ))
         page.deleteLater()
@@ -424,6 +526,16 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
             for button in page.detail_view.findChildren(QPushButton)
         ))
         page.deleteLater()
+
+
+def _formal_family(formal_id: str) -> str:
+    parts = str(formal_id).strip().casefold().split("_")
+    if len(parts) < 2 or parts[0] not in {"mon", "boss"}:
+        return "unavailable"
+    try:
+        return f"{parts[0]}:{int(parts[1])}"
+    except ValueError:
+        return "unavailable"
 
 
 class _StubMonsterService:
@@ -457,7 +569,7 @@ class StaticCatalogMonsterOpenRecordUnitTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_public_factory_and_open_record_keep_typed_link_contract(self) -> None:
+    def test_public_factory_and_open_record_keep_page_navigation_contract(self) -> None:
         terminology = _terminology_service()
         service = _StubMonsterService(terminology)
         page = build_monster_catalog_page(
@@ -465,9 +577,10 @@ class StaticCatalogMonsterOpenRecordUnitTests(unittest.TestCase):
             terminology_service=terminology,
             game_ui_asset_root=ASSET_ROOT,
         )
-        page.open_record(service.detail.entry.key)
+        self.assertTrue(page.open_record(service.detail.entry.key))
         self.assertIs(page.detail_view, page.stack.currentWidget())
         self.assertTrue(page.detail_view.stat_cards)
+        self.assertFalse(page.open_record("manual_monster|missing"))
         page.deleteLater()
 
 

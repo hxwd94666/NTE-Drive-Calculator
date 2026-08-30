@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import quote, unquote
 
-from src.services.static_catalog_mechanics_models import CatalogLink
 from src.services.static_catalog_monster_display import (
     NAME_UNAVAILABLE,
     display_catalog_scalar,
@@ -17,6 +16,11 @@ from src.services.static_catalog_monster_display import (
 )
 from src.services.static_catalog_monster_gameplay import (
     StaticCatalogMonsterGameplayProjector,
+)
+from src.services.static_catalog_monster_feast import (
+    apply_feast_options,
+    build_feast_setup,
+    selected_feast_options,
 )
 from src.services.static_catalog_monster_models import (
     CatalogDataset,
@@ -27,6 +31,7 @@ from src.services.static_catalog_monster_models import (
     CatalogRelation,
     CatalogSection,
     CatalogValue,
+    FeastSetup,
 )
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
@@ -129,6 +134,39 @@ class StaticCatalogMonsterService:
         """Return the seven formal battle-wide blessing choices."""
 
         return self._gameplay.witch_entries(self._queries.list_divination_buffs())
+
+    def profile_family_keys(self, monster_id: str) -> tuple[str, ...]:
+        """Return profile keys from the same explicit formal ID family."""
+
+        return tuple(
+            _key("profile_monster", row["static_table"], row["monster_id"])
+            for row in self._queries.profile_family_candidates(monster_id)
+        )
+
+    def get_feast_setup(self, stage_id: str) -> FeastSetup | None:
+        """Return one stage's formal difficulty and mutually exclusive choices."""
+
+        row = self._queries.feast_setup(stage_id)
+        return (
+            build_feast_setup(row, project_option=self._gameplay.feast_option)
+            if row is not None
+            else None
+        )
+
+    def get_feast_detail(
+        self,
+        stage_id: str,
+        difficulty_id: int,
+        *,
+        selected_option_ids: tuple[str, ...] = (),
+    ) -> CatalogDetail | None:
+        """Project exactly one difficulty and at most one choice per category."""
+
+        return self._feast_detail(
+            stage_id,
+            difficulty_id,
+            selected_option_ids=selected_option_ids,
+        )
 
     def clone_drop_status_counts(self) -> dict[str, int]:
         """Return gameplay-difficulty coverage for the v30 drop closure."""
@@ -257,7 +295,6 @@ class StaticCatalogMonsterService:
         note: str = "",
         display_label: str = "",
         display_value: str = "",
-        catalog_link: CatalogLink | None = None,
     ) -> CatalogValue:
         return CatalogValue(
             label=label,
@@ -267,7 +304,6 @@ class StaticCatalogMonsterService:
             note=note,
             display_label=display_label,
             display_value=display_value,
-            catalog_link=catalog_link,
         )
 
     @staticmethod
@@ -303,6 +339,7 @@ class StaticCatalogMonsterService:
         *,
         title: str = "等价公式画像",
         level: object = None,
+        variant_kind: str = "",
         note: str = "公式画像不等于怪物正式身份。",
     ) -> CatalogSection:
         if not profile:
@@ -331,6 +368,8 @@ class StaticCatalogMonsterService:
                 display_value="暂无数据",
             ),
         ]
+        if variant_kind:
+            values.append(self._value("画像档位类型", variant_kind, FORMULA))
         for resistance in profile.get("resistances", ()):
             damage_type = str(resistance["damage_type"])
             values.append(self._value(
@@ -446,6 +485,7 @@ class StaticCatalogMonsterService:
             sections.append(self._combat_profile_section(
                 self._queries.combat_profile(variant["profile_set"], variant["pack_id"]),
                 level=variant.get("threshold_level"),
+                variant_kind=str(variant.get("variant_kind") or ""),
                 title=f"等级画像 · 等级 {variant['threshold_level']}",
             ))
         relations: list[CatalogRelation] = [CatalogRelation(
@@ -475,14 +515,25 @@ class StaticCatalogMonsterService:
         )
         return CatalogDetail(entry, tuple(sections), unique_relations(relations), (notice,))
 
-    def _feast_detail(self, stage_id: str, difficulty_id: int) -> CatalogDetail | None:
+    def _feast_detail(
+        self,
+        stage_id: str,
+        difficulty_id: int,
+        *,
+        selected_option_ids: tuple[str, ...] = (),
+    ) -> CatalogDetail | None:
         row = self._queries.feast_encounter(stage_id, difficulty_id)
         if row is None:
             return None
+        selected = selected_feast_options(row.get("options", []), selected_option_ids)
+        profile = apply_feast_options(row.get("profile"), selected)
+        difficulty_name, _ = _text_state(
+            row.get("difficulty_name_zh"), NAME_UNAVAILABLE
+        )
         entry = self._entry(
             _key("feast", stage_id, difficulty_id), domain="encounter", play_mode="feast",
             title_value=row.get("name_zh"), fallback=NAME_UNAVAILABLE,
-            subtitle=f"争锋赏宴 · 难度 {difficulty_id}", primary_id=stage_id,
+            subtitle=f"争锋赏宴 · {difficulty_name}", primary_id=stage_id,
             secondary_id=str(row.get("boss_monster_id") or ""),
             resource_path=str(row.get("boss_icon_path") or ""),
         )
@@ -491,23 +542,34 @@ class StaticCatalogMonsterService:
             self._localized_value("挑战名", row.get("name_zh")),
             self._value("Boss 模板 ID", row.get("boss_monster_id"), copyable=True),
             self._localized_value("Boss 中文名", row.get("boss_name_zh")),
-            self._value("难度", difficulty_id),
+            self._localized_value("难度", row.get("difficulty_name_zh")),
             self._value("怪物等级", row.get("monster_level")),
             self._value("基础分", row.get("base_score")),
             self._value("得分倍率", row.get("score_rate")),
             self._value("特殊高难", bool(row.get("special_high_difficulty"))),
         ))]
         sections.append(self._combat_profile_section(
-            row.get("profile"), level=row.get("monster_level"), title="本难度公式画像"
+            profile, level=row.get("monster_level"), title="当前选择画像"
         ))
-        if row.get("options"):
+        if selected:
             option_values = []
-            for option in row["options"]:
+            for option in selected:
                 category, _available = _text_state(
                     option.get("category_name_zh"), NAME_UNAVAILABLE
                 )
                 option_values.append(self._gameplay.feast_option(category, option))
-            sections.append(CatalogSection("官方加成选项", tuple(option_values)))
+            sections.append(CatalogSection(
+                "已选挑战条件",
+                tuple(option_values),
+                (
+                    "已选攻击提升；当前正式画像没有敌方攻击数值。"
+                    if any(
+                        option.get("effect_kind") == "attack_up"
+                        for option in selected
+                    )
+                    else ""
+                ),
+            ))
         relations = []
         for profile in self._queries.template_profile_candidates(row["boss_monster_id"]):
             relations.append(CatalogRelation(

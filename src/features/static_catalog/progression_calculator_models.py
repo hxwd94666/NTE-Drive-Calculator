@@ -124,6 +124,14 @@ class ProgressionCalculatorOutcome:
     result: ProgressionStaminaResult
 
 
+@dataclass(frozen=True, slots=True)
+class ProgressionCalculationInput:
+    """Fully frozen solver input safe to execute outside the Qt thread."""
+
+    session: ProgressionCalculatorSession
+    stamina_request: ProgressionStaminaRequest
+
+
 def deliver_progression_outcome(
     callback: Callable[[ProgressionCalculatorOutcome], None],
     outcome: ProgressionCalculatorOutcome,
@@ -198,6 +206,26 @@ class ProgressionCalculatorOrchestrator:
         effective_identification_level: int | None,
         owned_quantities: Mapping[str, int],
     ) -> ProgressionCalculatorOutcome:
+        """Compatibility entrypoint for Qt-free callers and tests."""
+
+        calculation = self.freeze_calculation(
+            session,
+            hunter_level=hunter_level,
+            effective_identification_level=effective_identification_level,
+            owned_quantities=owned_quantities,
+        )
+        return self.run_calculation(calculation)
+
+    def freeze_calculation(
+        self,
+        session: ProgressionCalculatorSession,
+        *,
+        hunter_level: int,
+        effective_identification_level: int | None,
+        owned_quantities: Mapping[str, int],
+    ) -> ProgressionCalculationInput:
+        """Resolve formal stages and copy widget inputs before worker startup."""
+
         requirements = tuple(
             MaterialRequirement(
                 item_id=material.canonical_id,
@@ -213,8 +241,22 @@ class ProgressionCalculatorOrchestrator:
             requirements=requirements,
             stages=(),
         )
+        return ProgressionCalculationInput(
+            session=session,
+            stamina_request=self._service.freeze_request(request),
+        )
+
+    def run_calculation(
+        self,
+        calculation: ProgressionCalculationInput,
+    ) -> ProgressionCalculatorOutcome:
+        """Execute only the frozen stamina request on a background worker."""
+
+        session = calculation.session
+        request = calculation.stamina_request
         result = self._service.calculate(request)
-        result = _merge_upstream_status(session, result, bool(requirements))
+        has_requirements = bool(request.requirements)
+        result = _merge_upstream_status(session, result, has_requirements)
         return ProgressionCalculatorOutcome(
             kind=session.kind,
             entity_id=session.entity_id,
@@ -457,6 +499,7 @@ def _owned_quantity(values: Mapping[str, int], key: str) -> int:
 
 __all__ = [
     "CALLBACK_ERROR_TEXT",
+    "ProgressionCalculationInput",
     "ProgressionCalculatorOrchestrator",
     "ProgressionCalculatorOutcome",
     "ProgressionCalculatorSession",

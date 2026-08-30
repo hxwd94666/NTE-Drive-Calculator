@@ -133,6 +133,16 @@ catalog_entry AS (
 """
 
 
+def _numeric_identity(value: object) -> tuple[str, int] | None:
+    parts = str(value or "").strip().casefold().split("_")
+    if len(parts) < 2 or parts[0] not in {"mon", "boss"}:
+        return None
+    try:
+        return parts[0], int(parts[1])
+    except ValueError:
+        return None
+
+
 class StaticCatalogMonsterQueries(StaticGameDataDao):
     """Read-only catalog DAO kept separate from the shared static DAO surface."""
 
@@ -480,6 +490,30 @@ class StaticCatalogMonsterQueries(StaticGameDataDao):
             )
         return profiles
 
+    def profile_family_candidates(
+        self, monster_template_name: str,
+    ) -> list[dict[str, Any]]:
+        """Return profiles sharing the explicit mon/boss numeric ID family."""
+
+        parts = str(monster_template_name).strip().casefold().split("_")
+        if len(parts) < 2 or parts[0] not in {"mon", "boss"}:
+            return []
+        try:
+            ordinal = int(parts[1])
+        except ValueError:
+            return []
+        rows = self._rows(
+            """SELECT static_table, monster_id
+               FROM monster_instance_profile
+               WHERE lower(monster_id) LIKE ?
+               ORDER BY static_table, monster_id""",
+            (f"{parts[0]}_%",),
+        )
+        return [
+            row for row in rows
+            if _numeric_identity(row.get("monster_id")) == (parts[0], ordinal)
+        ]
+
     def template_encounter_references(
         self, monster_template_name: str,
     ) -> list[dict[str, Any]]:
@@ -571,6 +605,44 @@ class StaticCatalogMonsterQueries(StaticGameDataDao):
             (str(stage_id),),
         )
         return row
+
+    def feast_setup(self, stage_id: str) -> dict[str, Any] | None:
+        """Return one formal stage with all selectable difficulty and rule choices."""
+
+        stage = self._one(
+            """
+            SELECT stage_id, name_zh, boss_monster_id, special_high_difficulty
+            FROM feast_stage WHERE stage_id = ?
+            """,
+            (str(stage_id),),
+        )
+        if stage is None:
+            return None
+        stage["difficulties"] = self._rows(
+            """
+            SELECT difficulty_id, name_zh, boss_name_zh, score_rate,
+                   monster_level, boss_icon_path
+            FROM feast_stage_difficulty
+            WHERE stage_id = ? ORDER BY difficulty_id
+            """,
+            (str(stage_id),),
+        )
+        stage["options"] = self._rows(
+            """
+            SELECT so.category_ordinal, so.category_name_zh, so.option_ordinal,
+                   o.option_id, o.effect_kind, o.damage_type, o.add_value,
+                   o.limit_seconds, o.score,
+                   ge.gameplay_effect_id AS mechanism_effect_id
+            FROM feast_stage_option AS so
+            JOIN feast_option AS o USING (option_id)
+            LEFT JOIN gameplay_effect_catalog AS ge
+              ON ge.class_path = o.buff_asset_path COLLATE BINARY
+            WHERE so.stage_id = ?
+            ORDER BY so.category_ordinal, so.option_ordinal
+            """,
+            (str(stage_id),),
+        )
+        return stage
 
     def outer_realm_encounter(
         self, level_config_id: str, level_id: int, fight_stage: str,

@@ -36,11 +36,19 @@ from src.features.static_catalog.domain_pages.monster_browse_models import (
     object_name as _object_name,
     period_label as _period_label,
     profile_parts as _profile_parts,
-    witch_blessing_state as _witch_blessing_state,
 )
 from src.features.static_catalog.domain_pages.monster_detail_view import (
     MonsterContext,
     MonsterDetailView,
+)
+from src.features.static_catalog.domain_pages.monster_feast_view import (
+    FeastEncounterView,
+)
+from src.features.static_catalog.domain_pages.monster_icon_resolver import (
+    MonsterIconResolver,
+)
+from src.features.static_catalog.domain_pages.monster_page_controller import (
+    MonsterCatalogPageController,
 )
 from src.features.static_catalog.domain_pages.monster_widgets import (
     ArchiveCard,
@@ -51,86 +59,11 @@ from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.static_catalog_monster_service import (
     CatalogDetail,
     CatalogEntry,
-    CatalogFilter,
     StaticCatalogMonsterService,
 )
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
-
-class MonsterCatalogPageController:
-    """Own release-static reads and preserve the Service/DAO/UI boundary."""
-
-    def __init__(self, service: StaticCatalogMonsterService) -> None:
-        self._service = service
-        self._entries: dict[str, tuple[CatalogEntry, ...]] = {}
-        self._details: dict[str, CatalogDetail | None] = {}
-
-    def entries_for(self, play_mode: str) -> tuple[CatalogEntry, ...]:
-        if play_mode not in self._entries:
-            rows: list[CatalogEntry] = []
-            offset = 0
-            while True:
-                page = self._service.list_entries(CatalogFilter(
-                    play_mode=play_mode, page_size=200, offset=offset,
-                ))
-                rows.extend(page.items)
-                if not page.has_more:
-                    break
-                offset += len(page.items)
-            if play_mode == "high_risk":
-                rows = [row for row in rows if self._has_formal_pool(row)]
-            self._entries[play_mode] = tuple(rows)
-        return self._entries[play_mode]
-
-    def detail(self, key: str) -> CatalogDetail | None:
-        if key not in self._details:
-            self._details[key] = self._service.get_detail(key)
-        return self._details[key]
-
-    @staticmethod
-    def value(detail: CatalogDetail, label: str) -> str | None:
-        for section in detail.sections:
-            for value in section.values:
-                if value.label == label:
-                    return value.value
-        return None
-
-    def _has_formal_pool(self, entry: CatalogEntry) -> bool:
-        detail = self.detail(entry.key)
-        value = self.value(detail, "逐难度怪物池") if detail else None
-        return bool(value and value != "不可用")
-
-    def outer_rotations(self) -> tuple[CatalogEntry, ...]:
-        representative: dict[str, CatalogEntry] = {}
-        for entry in self.entries_for("outer_realm"):
-            representative.setdefault(entry.primary_id, entry)
-
-        def ordinal(entry: CatalogEntry) -> int:
-            tail = entry.primary_id.rsplit("_", 1)[-1]
-            return int(tail) if tail.isdigit() else -1
-
-        current = sorted(
-            (row for row in representative.values() if row.release_state == "current"),
-            key=ordinal,
-        )
-        upcoming = sorted(
-            (row for row in representative.values() if row.release_state in {"next", "scheduled"}),
-            key=ordinal,
-        )
-        history = sorted(
-            (row for row in representative.values() if row.release_state == "historical"),
-            key=ordinal,
-            reverse=True,
-        )
-        return tuple((*current, *upcoming, *history))
-
-    def witch_blessings(self) -> tuple[CatalogEntry, ...]:
-        return self._service.list_witch_blessings()
-
-    def outer_buff(self, config_id: str) -> CatalogDetail | None:
-        return self.detail(f"outer_buff|{config_id}")
-
 
 class MonsterCatalogPage(QWidget):
     """Independent card archive; shared catalog composition owns final wiring."""
@@ -146,24 +79,27 @@ class MonsterCatalogPage(QWidget):
         self.setObjectName("monsterCatalogPage")
         self.setStyleSheet(themed_style("QWidget#monsterCatalogPage{background:#0d1117;}"))
         self._controller = controller
-        self._asset_catalog = asset_catalog
         self._history: list[BrowseState] = []
         self._active_state: BrowseState | None = None
         self._expanded_sections: set[str] = set()
         self._category_filter = ""
         self._updating_filters = False
         self._browser_layout_bucket = ""
+        self._home_layout_bucket = ""
         self._catalog_navigation_listener: Callable[[], None] = lambda: None
         self.play_group_cards: list[ArchiveCard] = []
+        self._icon_resolver = MonsterIconResolver(controller, asset_catalog)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         self.stack = QStackedWidget(self)
         self.home = self._build_home()
         self.browser = self._build_browser()
         self.detail_view = MonsterDetailView(self)
+        self.feast_view = FeastEncounterView(self)
         self.stack.addWidget(self.home)
         self.stack.addWidget(self.browser)
         self.stack.addWidget(self.detail_view)
+        self.stack.addWidget(self.feast_view)
         root.addWidget(self.stack)
 
     def _build_home(self) -> QWidget:
@@ -175,7 +111,7 @@ class MonsterCatalogPage(QWidget):
         hero.setStyleSheet(themed_style(
             "QFrame#monsterGalleryHero{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
             "stop:0 #10243f,stop:.70 #161b22,stop:1 #23170b);"
-            "border:1px solid #1f6feb;border-radius:18px;}"
+            "border:0;border-radius:18px;}"
         ))
         hero_layout = QHBoxLayout(hero)
         hero_layout.setContentsMargins(22, 17, 22, 17)
@@ -184,7 +120,7 @@ class MonsterCatalogPage(QWidget):
         eyebrow.setStyleSheet(themed_style("color:#58a6ff;font-size:10px;font-weight:900"))
         title = QLabel("怪物与玩法", hero)
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:28px;font-weight:900"))
-        subtitle = QLabel("从正式玩法进入期数、层、半场与刷怪槽位，沿正式绑定关系查看怪物画像。", hero)
+        subtitle = QLabel("从玩法进入期数、层、半场与刷怪槽位，查看当前选择下的怪物画像。", hero)
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         copy.addWidget(eyebrow)
@@ -200,12 +136,10 @@ class MonsterCatalogPage(QWidget):
             "QScrollArea>QWidget>QWidget{background:#0d1117;}"
         ))
         host = QWidget(scroll)
-        grid = QGridLayout(host)
-        grid.setContentsMargins(4, 15, 12, 20)
-        grid.setSpacing(13)
-        grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        for column in range(3):
-            grid.setColumnStretch(column, 1)
+        self.home_grid = QGridLayout(host)
+        self.home_grid.setContentsMargins(4, 15, 12, 20)
+        self.home_grid.setSpacing(13)
+        self.home_grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         for index, mode in enumerate(_PLAY_LABELS):
             card = ArchiveCard(BrowseCard(
                 _PLAY_LABELS[mode], _PLAY_COPY[mode], self._home_badge(mode),
@@ -213,11 +147,7 @@ class MonsterCatalogPage(QWidget):
                 formal_id=mode,
             ), host)
             self.play_group_cards.append(card)
-            grid.addWidget(card, index // 3, index % 3)
-        blessings = QPushButton("查看魔女赐福 · 战前可选规则", host)
-        blessings.setObjectName("monsterWitchBlessingEntry")
-        blessings.clicked.connect(self.open_witch_blessings)
-        grid.addWidget(blessings, 2, 0, 1, 3)
+        self._layout_home(force=True)
         scroll.setWidget(host)
         root.addWidget(scroll, 1)
         return page
@@ -254,7 +184,7 @@ class MonsterCatalogPage(QWidget):
         self.more_filters = QFrame(page)
         self.more_filters.setObjectName("monsterMoreFilters")
         self.more_filters.setStyleSheet(themed_style(
-            "QFrame#monsterMoreFilters{background:#161b22;border:1px solid #30363d;"
+            "QFrame#monsterMoreFilters{background:#161b22;border:0;"
             "border-radius:10px;}"
         ))
         filters_layout = QHBoxLayout(self.more_filters)
@@ -295,32 +225,74 @@ class MonsterCatalogPage(QWidget):
         self._history.clear()
         if mode == "outer_realm":
             state = self._outer_state()
+        elif mode == "feast":
+            state = self._feast_state()
         else:
             entries = self._controller.entries_for(mode)
             grouped = _group(entries, lambda row: row.primary_id)
             cards = tuple(self._entity_card(mode, key, rows) for key, rows in grouped.items())
             state = BrowseState(
                 _PLAY_LABELS[mode], _PLAY_COPY[mode],
-                (BrowseSection(_PLAY_LABELS[mode], f"{len(cards)} 个正式对象", cards),),
+                (BrowseSection(
+                    _PLAY_LABELS[mode], self._home_badge(mode), cards,
+                ),),
             )
         self._show_state(state, push=True)
 
-    def open_witch_blessings(self) -> None:
-        """Open the secondary blessing browser without adding a top-level domain."""
+    def _feast_state(self) -> BrowseState:
+        grouped = _group(
+            self._controller.entries_for("feast"), lambda row: row.primary_id
+        )
+        cards = []
+        for stage_id, entries in grouped.items():
+            setup = self._controller.feast_setup(stage_id)
+            if setup is None:
+                continue
+            cards.append((setup.period_ordinal, BrowseCard(
+                f"第 {setup.period_ordinal} 期 · {setup.title}",
+                f"{setup.boss_name} · 默认最高难度 · 条件默认不启用",
+                f"第 {setup.period_ordinal} 期",
+                self._first_icon(entries),
+                lambda checked=False, rows=entries: self._open_feast_stage(rows),
+                formal_id=stage_id,
+                period=f"第 {setup.period_ordinal} 期",
+            )))
+        ordered = tuple(card for _ordinal, card in sorted(cards, reverse=True))
+        return BrowseState(
+            _PLAY_LABELS["feast"],
+            "按正式关卡顺序浏览各期；进入后只显示当前难度和已选挑战条件。",
+            (BrowseSection("全部期数", f"共 {len(ordered)} 期", ordered),),
+        )
 
-        self._history.clear()
-        self._show_state(_witch_blessing_state(
-            self._controller.witch_blessings(), self.open_detail,
-        ), push=True)
+    def _open_feast_stage(self, entries: tuple[CatalogEntry, ...]) -> None:
+        setup = self._controller.feast_setup(entries[0].primary_id)
+        if setup is None:
+            return
+        default_entry = next(
+            (
+                entry for entry in entries
+                if _key_parts(entry.key)[2] == str(setup.default_difficulty_id)
+            ),
+            entries[-1],
+        )
+        self.feast_view.set_stage(
+            setup,
+            icon=self._formal_icon(self._controller.detail(default_entry.key)),
+            loader=self._controller.feast_detail,
+            blessings=self._controller.witch_blessings(),
+            blessing_loader=self._controller.detail,
+        )
+        self.stack.setCurrentWidget(self.feast_view)
+        self._catalog_navigation_listener()
 
-    def open_record(self, record_id: str) -> None:
+    def open_record(self, record_id: str) -> bool:
         """Open a typed relation without exposing controller internals."""
 
         requested = str(record_id)
         detail = self._controller.detail(requested)
         if detail is not None:
             self.open_detail(detail)
-            return
+            return True
         for mode in _PLAY_LABELS:
             matches = tuple(
                 entry for entry in self._controller.entries_for(mode)
@@ -332,7 +304,8 @@ class MonsterCatalogPage(QWidget):
                 self._open_encounter(matches[0])
             else:
                 self._open_tiers(mode, matches)
-            return
+            return True
+        return False
 
     def _outer_state(self) -> BrowseState:
         rotations = self._controller.outer_rotations()
@@ -418,7 +391,7 @@ class MonsterCatalogPage(QWidget):
             cards = self._monster_cards(detail, entry) if detail else ()
             sections.append(BrowseSection(
                 entry.secondary_label or "名称暂未提供",
-                "按刷怪槽位展示，正式绑定缺失时保持不可用。", cards,
+                "按刷怪槽位展示；身份未确认时不补猜名称。", cards,
             ))
         self._show_state(BrowseState(
             entries[0].title,
@@ -461,18 +434,17 @@ class MonsterCatalogPage(QWidget):
         if detail is None:
             return
         if entry.play_mode == "feast":
-            difficulty = self._controller.value(detail, "难度") or ""
-            self.open_detail(detail, MonsterContext(
-                play=_PLAY_LABELS[entry.play_mode],
-                scene=entry.title,
-                level=f"难度 {difficulty}" if difficulty else "",
-            ))
+            rows = tuple(
+                row for row in self._controller.entries_for("feast")
+                if row.primary_id == entry.primary_id
+            )
+            self._open_feast_stage(rows)
             return
         cards = self._monster_cards(detail, entry)
         if cards:
             self._show_state(BrowseState(
                 detail.entry.title, detail.entry.subtitle,
-                (BrowseSection("正式怪物", "沿正式绑定进入对应怪物画像。", cards),),
+                (BrowseSection("怪物", "选择怪物查看当前属性画像。", cards),),
             ), push=True)
         else:
             self.open_detail(detail)
@@ -516,7 +488,14 @@ class MonsterCatalogPage(QWidget):
                 scene=entry.title,
                 level=level_label,
                 half=entry.secondary_label if entry.play_mode == "outer_realm" else "",
-                slot=section.title,
+                slot=(
+                    section.title
+                    if section.title.startswith(("刷怪槽位", "怪物池成员"))
+                    else ""
+                ),
+                world_level_selector=entry.play_mode in {
+                    "official_illustrated", "world_boss",
+                },
             )
             cards.append(BrowseCard(
                 localized_name, f"{section.title} · 数量 {fields.get('数量', '暂无数据')}",
@@ -573,39 +552,13 @@ class MonsterCatalogPage(QWidget):
         self._catalog_navigation_listener()
 
     def formal_icon_candidates(self, detail: CatalogDetail) -> tuple[str, ...]:
-        candidates = []
-        if _profile_parts(detail.entry.key):
-            candidates.append(detail.entry.key)
-        candidates.extend(
-            relation.target_key for relation in detail.relations
-            if _profile_parts(relation.target_key)
-        )
-        return tuple(dict.fromkeys(candidates))
+        return self._icon_resolver.candidates(detail)
 
     def _formal_icon(self, detail: CatalogDetail | None) -> Path | None:
-        if detail is None:
-            return None
-        if detail.entry.resource_path:
-            icon = self._asset_catalog.encounter_icon(detail.entry.resource_path)
-            if icon:
-                return icon
-        for candidate in self.formal_icon_candidates(detail):
-            parts = _profile_parts(candidate)
-            if parts:
-                icon = self._asset_catalog.monster_icon(*parts)
-                if icon:
-                    return icon
-                icon = self._asset_catalog.monster_family_icon(parts[1])
-                if icon:
-                    return icon
-        return self._asset_catalog.monster_family_icon(detail.entry.primary_id)
+        return self._icon_resolver.resolve(detail)
 
     def _first_icon(self, entries: Iterable[CatalogEntry]) -> Path | None:
-        for entry in entries:
-            icon = self._formal_icon(self._controller.detail(entry.key))
-            if icon:
-                return icon
-        return None
+        return self._icon_resolver.first(entries)
 
     def _mode_icon(self, mode: str) -> Path | None:
         return self._first_icon(self._controller.entries_for(mode))
@@ -715,8 +668,29 @@ class MonsterCatalogPage(QWidget):
         self.browser_body.addStretch(1)
         self._browser_layout_bucket = "narrow" if self.width() < 900 else "wide"
 
+    def _layout_home(self, *, force: bool = False) -> None:
+        width = self.width()
+        if width < 520:
+            bucket, columns = "compact", 1
+        elif width < 900:
+            bucket, columns = "narrow", 2
+        else:
+            bucket, columns = "wide", 3
+        if not force and bucket == self._home_layout_bucket:
+            return
+        while self.home_grid.count():
+            self.home_grid.takeAt(0)
+        for column in range(3):
+            self.home_grid.setColumnStretch(column, 0)
+        for column in range(columns):
+            self.home_grid.setColumnStretch(column, 1)
+        for index, card in enumerate(self.play_group_cards):
+            self.home_grid.addWidget(card, index // columns, index % columns)
+        self._home_layout_bucket = bucket
+
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
         super().resizeEvent(event)
+        self._layout_home()
         bucket = "narrow" if event.size().width() < 900 else "wide"
         if (
             bucket != self._browser_layout_bucket
@@ -753,7 +727,7 @@ class MonsterCatalogPage(QWidget):
 
     def catalog_back_label(self) -> str | None:
         current = self.stack.currentWidget()
-        if current is self.detail_view:
+        if current in {self.detail_view, self.feast_view}:
             return self._active_state.title if self._active_state is not None else "玩法列表"
         if current is self.browser:
             return self._history[-2].title if len(self._history) > 1 else "玩法分类"
@@ -761,7 +735,7 @@ class MonsterCatalogPage(QWidget):
 
     def catalog_go_back(self) -> bool:
         current = self.stack.currentWidget()
-        if current is self.detail_view:
+        if current in {self.detail_view, self.feast_view}:
             self._back_from_detail()
             return True
         if current is self.browser:

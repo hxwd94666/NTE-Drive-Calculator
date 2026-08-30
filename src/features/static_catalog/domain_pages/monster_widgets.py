@@ -35,9 +35,8 @@ class ArchiveCard(QFrame):
         self.setMaximumHeight(228)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(themed_style(
-            "QFrame#monsterArchiveCard{background:#161b22;border:1px solid #30363d;"
-            "border-radius:15px;}QFrame#monsterArchiveCard:hover{border-color:#58a6ff;"
-            "background:#182434;}"
+            "QFrame#monsterArchiveCard{background:#161b22;border:0;"
+            "border-radius:15px;}QFrame#monsterArchiveCard:hover{background:#182434;}"
         ))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(13, 12, 13, 12)
@@ -74,7 +73,7 @@ class MetricCard(QFrame):
         super().__init__(parent)
         self.setProperty("statLabel", label)
         self.setStyleSheet(themed_style(
-            f"QFrame{{background:#161b22;border:1px solid {accent};border-radius:13px;}}"
+            "QFrame{background:#0d1117;border:0;border-radius:11px;}"
         ))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -91,7 +90,7 @@ class ResistanceCard(QFrame):
     def __init__(self, label: str, value: str, parent=None) -> None:
         super().__init__(parent)
         self.setStyleSheet(themed_style(
-            "QFrame{background:#161b22;border:1px solid #30363d;border-radius:11px;}"
+            "QFrame{background:#0d1117;border:0;border-radius:9px;}"
         ))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(11, 8, 11, 8)
@@ -122,13 +121,11 @@ class BuffCard(QFrame):
         label: str,
         value: str,
         parent=None,
-        *,
-        catalog_link=None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("sceneBuffCard")
         self.setStyleSheet(themed_style(
-            "QFrame#sceneBuffCard{background:#161b22;border:1px solid #e3b341;"
+            "QFrame#sceneBuffCard{background:#161b22;border:0;"
             "border-radius:12px;}"
         ))
         layout = QVBoxLayout(self)
@@ -155,7 +152,7 @@ class DropCard(QFrame):
         accent = "#ff7b72" if warning else "#39d0d8"
         self.setObjectName("formalDropCard")
         self.setStyleSheet(themed_style(
-            f"QFrame#formalDropCard{{background:#161b22;border:1px solid {accent};"
+            "QFrame#formalDropCard{background:#161b22;border:0;"
             "border-radius:12px;}"
         ))
         layout = QVBoxLayout(self)

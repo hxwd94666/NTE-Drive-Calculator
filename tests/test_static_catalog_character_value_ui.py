@@ -7,9 +7,12 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFrame,
     QLabel,
     QPushButton,
     QTableWidget,
@@ -121,22 +124,43 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
             if card.action.slot == "A"
         )
         level = card.findChild(QComboBox, "characterSkillLevel")
-        toggle = card.findChild(QPushButton, "characterSkillToggle")
+        toggle = card.findChild(QLabel, "characterSkillToggle")
+        heading = card.findChild(QFrame, "characterSkillHeader")
         self.assertIsNotNone(level)
         self.assertIsNotNone(toggle)
-        assert level is not None and toggle is not None
+        self.assertIsNotNone(heading)
+        assert level is not None and toggle is not None and heading is not None
+        self.assertIsNone(card.findChild(QPushButton, "characterSkillToggle"))
         level.setCurrentIndex(0)
-        toggle.click()
+        QTest.mouseClick(heading, Qt.MouseButton.LeftButton)
         self.app.processEvents()
         first_level = self._visible_text(card)
+        multiplier_label = card.findChild(QLabel, "characterSkillMultiplierLabel")
+        multiplier_value = card.findChild(QLabel, "characterSkillMultiplierValue")
+        self.assertIsNotNone(multiplier_label)
+        self.assertIsNotNone(multiplier_value)
+        assert multiplier_label is not None and multiplier_value is not None
+        self.assertIn("font-size:13px", multiplier_label.styleSheet())
+        self.assertIn("font-size:14px", multiplier_value.styleSheet())
         level.setCurrentIndex(1)
         self.app.processEvents()
         second_level = self._visible_text(card)
+        self.assertTrue(card.drawer.isVisibleTo(card))
 
         self.assertIn("当前等级倍率", first_level)
         self.assertIn("%", first_level)
         self.assertNotEqual(first_level, second_level)
         self.assertNotIn("GE_Player_Zankou_Melee1_Damage", second_level)
+        QTest.mouseClick(heading, Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertFalse(card.drawer.isVisibleTo(card))
+        heading.setFocus()
+        QTest.keyClick(heading, Qt.Key.Key_Return)
+        self.app.processEvents()
+        self.assertTrue(card.drawer.isVisibleTo(card))
+        QTest.keyClick(heading, Qt.Key.Key_Space)
+        self.app.processEvents()
+        self.assertFalse(card.drawer.isVisibleTo(card))
 
     def test_skills_use_official_full_width_rows_and_editable_levels(self) -> None:
         view = self.page.detail_view.skill_view

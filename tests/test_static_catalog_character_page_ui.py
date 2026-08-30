@@ -7,6 +7,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QTableWidget
 
 from src.domain.progression_stamina import (
@@ -457,7 +459,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             )[0],
         )
 
-    def test_level_planner_emits_public_progression_request_without_local_result(self) -> None:
+    def test_level_planner_stays_disabled_without_formal_costs(self) -> None:
         self.page.open_character(1036)
         growth = self.page.detail_view.growth_view
         requests: list[object] = []
@@ -467,23 +469,12 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         growth.include_breakthroughs.setChecked(False)
         growth._request_progression()
 
-        request = requests[-1]
-        self.assertIsInstance(request, dict)
-        assert isinstance(request, dict)
-        self.assertEqual("character_level", request["kind"])
-        self.assertEqual(1036, request["character_id"])
-        self.assertEqual((5, 70), (
-            request["from_level"],
-            request["to_level"],
-        ))
-        self.assertFalse(request["include_breakthroughs"])
-        self.assertEqual((), request["requirements"])
-        self.assertEqual("unavailable", request["requirement_status"])
+        self.assertFalse(growth.progression_button.isEnabled())
+        self.assertEqual([], requests)
         self.assertEqual(
-            ("character_level_cost_unavailable",),
-            tuple(gap.reason_code for gap in request["requirement_gaps"]),
+            "角色等级材料正式数据尚未提供，暂不能计算。",
+            growth.progression_result.text(),
         )
-        self.assertIn("材料体力计算服务尚未接入", growth.progression_result.text())
 
         self.assertTrue(self.page.set_progression_result(
             target="character_level",
@@ -630,7 +621,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             card for card in detail.skill_view.findChildren(SkillActionCard)
             if card.action.slot == "A"
         )
-        a_card.toggle.click()
+        QTest.mouseClick(a_card.heading, Qt.MouseButton.LeftButton)
         self.app.processEvents()
 
         visible_skill_text = "\n".join(

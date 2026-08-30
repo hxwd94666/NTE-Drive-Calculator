@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -30,6 +31,7 @@ from src.features.static_catalog.domain_pages.monster_widgets import (
     source_color,
 )
 from src.services.static_catalog_monster_service import CatalogDetail, CatalogSection
+from src.ui.widgets import NoWheelComboBox
 
 
 _SUMMARY_FIELDS = {
@@ -61,6 +63,7 @@ class MonsterContext:
     level: str = ""
     half: str = ""
     slot: str = ""
+    world_level_selector: bool = False
 
 
 class MonsterDetailView(QWidget):
@@ -113,28 +116,63 @@ class MonsterDetailView(QWidget):
         )
         if profile_sections:
             self.body.addWidget(section_title("战斗画像", "生命、防御、倾陷与抗性"))
-            self.body.addWidget(self._profile(profile_sections[0]))
-            if len(profile_sections) > 1:
-                variants = QWidget(self.host)
-                layout = QVBoxLayout(variants)
-                layout.setContentsMargins(0, 0, 0, 0)
-                for section in profile_sections[1:]:
-                    layout.addWidget(self._profile(section))
-                self.body.addWidget(_disclosure(
-                    f"其他难度 / 档位（{len(profile_sections) - 1}）", variants, self.host,
+            world_sections = tuple(
+                section for section in profile_sections
+                if _profile_kind(section) == "world_level"
+            )
+            self._profile_sections = (
+                world_sections
+                if context and context.world_level_selector and world_sections
+                else profile_sections
+            )
+            self.profile_host = QWidget(self.host)
+            self.profile_layout = QVBoxLayout(self.profile_host)
+            self.profile_layout.setContentsMargins(0, 0, 0, 0)
+            if context and context.world_level_selector and len(self._profile_sections) > 1:
+                selector = QFrame(self.host)
+                selector.setObjectName("monsterWorldLevelSelector")
+                selector.setStyleSheet(themed_style(
+                    "QFrame#monsterWorldLevelSelector{background:#161b22;border:0;"
+                    "border-radius:10px;}"
                 ))
+                selector_layout = QHBoxLayout(selector)
+                selector_layout.setContentsMargins(10, 8, 10, 8)
+                label = QLabel("大世界等级", selector)
+                label.setStyleSheet(themed_style(
+                    "color:#c9d1d9;font-size:10px;font-weight:800"
+                ))
+                self.world_level_combo = NoWheelComboBox(selector)
+                self.world_level_combo.setObjectName("monsterWorldLevelCombo")
+                ordered = sorted(
+                    enumerate(self._profile_sections),
+                    key=lambda item: _profile_level(item[1]),
+                )
+                for section_index, section in ordered:
+                    level = _profile_level(section)
+                    self.world_level_combo.addItem(
+                        f"等级 {level:g}", section_index,
+                    )
+                self.world_level_combo.currentIndexChanged.connect(
+                    self._show_selected_profile
+                )
+                selector_layout.addWidget(label)
+                selector_layout.addWidget(self.world_level_combo, 1)
+                self.body.addWidget(selector)
+                self.world_level_combo.setCurrentIndex(
+                    self.world_level_combo.count() - 1
+                )
+            else:
+                profile_index = _matching_profile_index(
+                    self._profile_sections,
+                    context.level if context else "",
+                )
+                self.profile_layout.addWidget(
+                    self._profile(self._profile_sections[profile_index])
+                )
+            self.body.addWidget(self.profile_host)
         self._add_scene_options(detail)
         self._add_drop_projection(detail)
         self._add_summary(detail)
-        self._add_relations(detail)
-        if detail.notices:
-            note = QLabel("部分名称或数值暂不可用，页面未进行补猜。", self.host)
-            note.setWordWrap(True)
-            note.setStyleSheet(themed_style(
-                "background:#3a2f13;color:#ff9b72;border:1px solid #e3b341;"
-                "border-radius:10px;padding:8px;font-size:10px"
-            ))
-            self.body.addWidget(note)
         self.body.addStretch(1)
 
     def _add_scene_options(self, detail: CatalogDetail) -> None:
@@ -142,7 +180,7 @@ class MonsterDetailView(QWidget):
             (
                 section for section in detail.sections
                 if section.title in {
-                    "官方加成选项", "魔女赐福", "轨外赛季 Buff",
+                    "已选挑战条件", "魔女赐福", "轨外赛季 Buff",
                 }
             ),
             None,
@@ -164,7 +202,7 @@ class MonsterDetailView(QWidget):
             description = QLabel(options.note, self.host)
             description.setWordWrap(True)
             description.setStyleSheet(themed_style(
-                "background:#161b22;color:#c9d1d9;border:1px solid #30363d;"
+                "background:#161b22;color:#c9d1d9;border:0;"
                 "border-radius:10px;padding:9px;font-size:10px"
             ))
             self.body.addWidget(description)
@@ -176,7 +214,6 @@ class MonsterDetailView(QWidget):
                 value.display_label or "规则名称暂未提供",
                 value.display_value or "规则说明暂未提供",
                 preview,
-                catalog_link=value.catalog_link,
             )
             self.buff_cards.append(card)
             preview_grid.addWidget(card, index // 2, index % 2)
@@ -190,7 +227,6 @@ class MonsterDetailView(QWidget):
                     value.display_label or "规则名称暂未提供",
                     value.display_value or "规则说明暂未提供",
                     remainder,
-                    catalog_link=value.catalog_link,
                 )
                 self.buff_cards.append(card)
                 grid.addWidget(card, index // 2, index % 2)
@@ -270,38 +306,6 @@ class MonsterDetailView(QWidget):
             )
         self.body.addWidget(host)
 
-    def _add_relations(self, detail: CatalogDetail) -> None:
-        if not detail.relations:
-            return
-        self.body.addWidget(section_title(
-            "相关画像", "关联内容直接列在本页，不改变当前浏览位置",
-        ))
-        host = QWidget(self.host)
-        grid = QGridLayout(host)
-        grid.setContentsMargins(0, 0, 0, 0)
-        columns = 1 if self.width() < 700 else 2
-        for index, relation in enumerate(detail.relations):
-            card = QFrame(host)
-            card.setStyleSheet(themed_style(
-                "QFrame{background:#161b22;border:1px solid #30363d;"
-                "border-radius:10px;}"
-            ))
-            copy = QVBoxLayout(card)
-            copy.setContentsMargins(10, 7, 10, 7)
-            label = QLabel(relation.label or "相关画像", card)
-            label.setWordWrap(True)
-            label.setStyleSheet(themed_style(
-                "color:#f0f6fc;font-size:11px;font-weight:800"
-            ))
-            copy.addWidget(label)
-            if relation.note:
-                note = QLabel(relation.note, card)
-                note.setWordWrap(True)
-                note.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
-                copy.addWidget(note)
-            grid.addWidget(card, index // columns, index % columns)
-        self.body.addWidget(host)
-
     def _hero(
         self, detail: CatalogDetail, icon: Path | None, context: MonsterContext | None,
     ) -> QFrame:
@@ -311,7 +315,7 @@ class MonsterDetailView(QWidget):
         hero.setStyleSheet(themed_style(
             "QFrame#monsterDetailHero{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
             "stop:0 #10243f,stop:.72 #161b22,stop:1 #0d1117);"
-            "border:1px solid #1f6feb;border-radius:16px;}"
+            "border:0;border-radius:16px;}"
         ))
         layout = QHBoxLayout(hero)
         layout.setContentsMargins(14, 10, 16, 10)
@@ -347,7 +351,7 @@ class MonsterDetailView(QWidget):
     def _profile(self, section: CatalogSection) -> QFrame:
         frame = QFrame(self.host)
         frame.setStyleSheet(themed_style(
-            "QFrame{background:#161b22;border:1px solid #30363d;border-radius:14px;}"
+            "QFrame{background:#161b22;border:0;border-radius:14px;}"
         ))
         layout = QVBoxLayout(frame)
         title = QLabel(_profile_title(section.title), frame)
@@ -372,10 +376,11 @@ class MonsterDetailView(QWidget):
             for label, value in values.items()
             if label.startswith("抗性 ")
         ]
+        columns = 2 if self.width() < 900 else 4
         for index, (label, value) in enumerate(resistances):
             card = ResistanceCard(label, value, frame)
             self.resistance_cards.append(card)
-            resistance_grid.addWidget(card, index // 4, index % 4)
+            resistance_grid.addWidget(card, index // columns, index % columns)
         layout.addLayout(resistance_grid)
         penetration = QLabel(
             f"防御忽略 {_value_text(values.get('防御忽略'))}  ·  "
@@ -386,6 +391,19 @@ class MonsterDetailView(QWidget):
         penetration.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
         layout.addWidget(penetration)
         return frame
+
+    def _show_selected_profile(self) -> None:
+        if not hasattr(self, "world_level_combo"):
+            return
+        section_index = self.world_level_combo.currentData()
+        if section_index is None:
+            return
+        clear_layout(self.profile_layout)
+        self.stat_cards = []
+        self.resistance_cards = []
+        self.profile_layout.addWidget(
+            self._profile(self._profile_sections[int(section_index)])
+        )
 
 
 def _disclosure(title: str, content: QWidget, parent: QWidget) -> QWidget:
@@ -398,9 +416,9 @@ def _disclosure(title: str, content: QWidget, parent: QWidget) -> QWidget:
     toggle.setChecked(False)
     toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
     toggle.setStyleSheet(themed_style(
-        "QToolButton{background:#161b22;color:#8b949e;border:1px solid #30363d;"
+        "QToolButton{background:#161b22;color:#8b949e;border:0;"
         "border-radius:8px;padding:7px 10px;text-align:left;font-weight:700;}"
-        "QToolButton:checked{color:#58a6ff;border-color:#58a6ff;}"
+        "QToolButton:checked{color:#58a6ff;}"
     ))
     content.setVisible(False)
     toggle.toggled.connect(content.setVisible)
@@ -425,6 +443,43 @@ def _display_title(detail: CatalogDetail, context: MonsterContext | None) -> str
 
 def _profile_title(title: str) -> str:
     return title.replace("等价公式", "").replace("公式", "").strip(" ·") or "战斗画像"
+
+
+def _profile_level(section: CatalogSection) -> float:
+    value = next(
+        (item for item in section.values if item.label == "怪物等级"),
+        None,
+    )
+    try:
+        return float(getattr(value, "value", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _profile_kind(section: CatalogSection) -> str:
+    return next(
+        (
+            value.value for value in section.values
+            if value.label == "画像档位类型"
+        ),
+        "",
+    )
+
+
+def _matching_profile_index(
+    sections: tuple[CatalogSection, ...], context_level: str,
+) -> int:
+    match = re.search(r"(?:等级|Lv\.?)[^0-9]*(\d+(?:\.\d+)?)", context_level)
+    if match is None:
+        return 0
+    wanted = float(match.group(1))
+    return next(
+        (
+            index for index, section in enumerate(sections)
+            if _profile_level(section) == wanted
+        ),
+        0,
+    )
 
 
 def _join_profile(values: dict[str, object], *labels: str) -> str:
