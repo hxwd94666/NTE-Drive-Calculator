@@ -100,6 +100,47 @@ class BreakthroughStage:
 
 
 @dataclass(frozen=True, slots=True)
+class CharacterMaterialCost:
+    item_id: str
+    quantity: int
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterUpgradeLevel:
+    level: int
+    need_exp: int
+    source: CatalogSource
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterBreakthroughRequirement:
+    stage: int
+    max_character_level: int
+    required_world_level: int
+    costs: tuple[CharacterMaterialCost, ...]
+    source: CatalogSource
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterExperienceMaterial:
+    item_id: str
+    experience_value: int
+    costs: tuple[CharacterMaterialCost, ...]
+    source: CatalogSource
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterProgressionProfile:
+    character_id: int
+    upgrade_pack_id: str
+    breakthrough_pack_id: str
+    upgrade_levels: tuple[CharacterUpgradeLevel, ...]
+    breakthrough_stages: tuple[CharacterBreakthroughRequirement, ...]
+    experience_materials: tuple[CharacterExperienceMaterial, ...]
+    source: CatalogSource
+
+
+@dataclass(frozen=True, slots=True)
 class LikeabilityProperty:
     property_id: str
     display_name: str
@@ -360,3 +401,4 @@ class CharacterDetail:
     growth_count: int
     combat_link_count: int
     gaps: tuple[CatalogGap, ...]
+    progression: CharacterProgressionProfile | None = None

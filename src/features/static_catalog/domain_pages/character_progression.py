@@ -1,29 +1,32 @@
-# 把公共养成服务结果投影为角色页可读文本，不执行任何计算。
-"""Presentation-only adapter for shared progression stamina results."""
+"""Qt-free material aggregation contracts for character cultivation pages."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
+from functools import reduce
+from math import gcd
 
-from src.domain.progression_stamina import (
-    MaterialRequirement,
-    ProgressionStaminaResult,
-    StaminaPlanStatus,
-)
-from src.features.static_catalog.domain_pages.character_terminology import (
-    project_character_term,
+from src.services.static_catalog_character_models import (
+    CharacterExperienceMaterial,
+    CharacterProgressionProfile,
+    CharacterSkill,
 )
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
-from src.services.static_catalog_character_models import CharacterSkill
+
+
+class MaterialSummaryStatus(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True, slots=True)
-class ProgressionResultProjection:
-    text: str
-    available: bool
-    more_info: tuple[tuple[str, str], ...]
+class CharacterMaterialRequirement:
+    item_id: str
+    required_quantity: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,20 +38,185 @@ class ProgressionRequirementGap:
 
 @dataclass(frozen=True, slots=True)
 class ProgressionRequirementProjection:
-    status: StaminaPlanStatus
-    requirements: tuple[MaterialRequirement, ...]
+    status: MaterialSummaryStatus
+    requirements: tuple[CharacterMaterialRequirement, ...]
     gaps: tuple[ProgressionRequirementGap, ...]
 
 
-def unavailable_character_level_requirements() -> ProgressionRequirementProjection:
-    """Current schema has no normalized character level/breakthrough costs."""
+@dataclass(frozen=True, slots=True)
+class CharacterLevelMaterialProjection:
+    status: MaterialSummaryStatus
+    required_experience: int
+    experience_overflow: int
+    experience_books: tuple[CharacterMaterialRequirement, ...]
+    breakthrough_materials: tuple[CharacterMaterialRequirement, ...]
+    additional_costs: tuple[CharacterMaterialRequirement, ...]
+    included_breakthrough_stages: tuple[int, ...]
+    gaps: tuple[ProgressionRequirementGap, ...]
 
-    return ProgressionRequirementProjection(
-        status=StaminaPlanStatus.UNAVAILABLE,
-        requirements=(),
-        gaps=(ProgressionRequirementGap(
-            reason_code="character_level_cost_unavailable",
-        ),),
+
+def project_character_level_requirements(
+    profile: CharacterProgressionProfile,
+    *,
+    from_level: int,
+    to_level: int,
+    include_breakthroughs: bool,
+) -> CharacterLevelMaterialProjection:
+    """Summarize formal costs; never convert requirements into stamina."""
+
+    start = int(from_level)
+    end = int(to_level)
+    if start < 1 or end > 80 or start >= end:
+        return CharacterLevelMaterialProjection(
+            status=MaterialSummaryStatus.UNAVAILABLE,
+            required_experience=0,
+            experience_overflow=0,
+            experience_books=(),
+            breakthrough_materials=(),
+            additional_costs=(),
+            included_breakthrough_stages=(),
+            gaps=(ProgressionRequirementGap(
+                reason_code="character_level_interval_invalid",
+            ),),
+        )
+
+    level_rows = {row.level: row for row in profile.upgrade_levels}
+    gaps: list[ProgressionRequirementGap] = []
+    required_experience = 0
+    for level in range(start, end):
+        row = level_rows.get(level)
+        if row is None:
+            gaps.append(ProgressionRequirementGap(
+                reason_code="character_level_exp_row_unavailable",
+                level=level,
+            ))
+            continue
+        required_experience += row.need_exp
+
+    books, overflow = _least_waste_experience_books(
+        profile.experience_materials,
+        required_experience,
+    )
+    if required_experience > 0 and not books:
+        gaps.append(ProgressionRequirementGap(
+            reason_code="character_exp_material_unavailable",
+        ))
+
+    additional: dict[str, int] = {}
+    materials_by_id = {
+        material.item_id: material for material in profile.experience_materials
+    }
+    for book in books:
+        material = materials_by_id[book.item_id]
+        for cost in material.costs:
+            additional[cost.item_id] = (
+                additional.get(cost.item_id, 0)
+                + cost.quantity * book.required_quantity
+            )
+
+    breakthrough_totals: dict[str, int] = {}
+    included_stages: list[int] = []
+    stages = sorted(profile.breakthrough_stages, key=lambda item: item.stage)
+    if include_breakthroughs:
+        previous_cap: int | None = None
+        for stage in stages:
+            if stage.stage == 0:
+                previous_cap = stage.max_character_level
+                continue
+            if previous_cap is None:
+                gaps.append(ProgressionRequirementGap(
+                    reason_code="character_breakthrough_stage_zero_unavailable",
+                ))
+                break
+            if start <= previous_cap < end:
+                included_stages.append(stage.stage)
+                for cost in stage.costs:
+                    target = (
+                        additional if cost.item_id == "Fons"
+                        else breakthrough_totals
+                    )
+                    target[cost.item_id] = target.get(cost.item_id, 0) + cost.quantity
+            previous_cap = stage.max_character_level
+
+    status = (
+        MaterialSummaryStatus.PARTIAL
+        if gaps and (books or breakthrough_totals or additional)
+        else MaterialSummaryStatus.UNAVAILABLE
+        if gaps
+        else MaterialSummaryStatus.COMPLETE
+    )
+    return CharacterLevelMaterialProjection(
+        status=status,
+        required_experience=required_experience,
+        experience_overflow=overflow,
+        experience_books=books,
+        breakthrough_materials=_requirements(breakthrough_totals),
+        additional_costs=_requirements(additional),
+        included_breakthrough_stages=tuple(included_stages),
+        gaps=tuple(gaps),
+    )
+
+
+def _least_waste_experience_books(
+    materials: tuple[CharacterExperienceMaterial, ...],
+    required_experience: int,
+) -> tuple[tuple[CharacterMaterialRequirement, ...], int]:
+    if required_experience <= 0:
+        return (), 0
+    usable = tuple(sorted(
+        (item for item in materials if item.experience_value > 0),
+        key=lambda item: (-item.experience_value, item.item_id),
+    ))
+    if not usable:
+        return (), 0
+    divisor = reduce(gcd, (item.experience_value for item in usable))
+    values = tuple(item.experience_value // divisor for item in usable)
+    minimum = (required_experience + divisor - 1) // divisor
+    limit = minimum + max(values) ** 2
+    unreachable = limit + 1
+    counts = [unreachable] * (limit + 1)
+    choices = [-1] * (limit + 1)
+    counts[0] = 0
+    for amount in range(1, limit + 1):
+        for index, value in enumerate(values):
+            if amount < value or counts[amount - value] == unreachable:
+                continue
+            candidate = counts[amount - value] + 1
+            if candidate < counts[amount]:
+                counts[amount] = candidate
+                choices[amount] = index
+    target = next(
+        (amount for amount in range(minimum, limit + 1) if choices[amount] >= 0),
+        None,
+    )
+    if target is None:
+        return (), 0
+    material_counts = [0] * len(usable)
+    cursor = target
+    while cursor > 0:
+        index = choices[cursor]
+        if index < 0:
+            return (), 0
+        material_counts[index] += 1
+        cursor -= values[index]
+    requirements = tuple(
+        CharacterMaterialRequirement(
+            item_id=material.item_id,
+            required_quantity=quantity,
+        )
+        for material, quantity in zip(usable, material_counts)
+        if quantity > 0
+    )
+    return requirements, target * divisor - required_experience
+
+
+def _requirements(
+    totals: dict[str, int],
+) -> tuple[CharacterMaterialRequirement, ...]:
+    return tuple(
+        CharacterMaterialRequirement(item_id=item_id, required_quantity=quantity)
+        for item_id, quantity in sorted(totals.items())
+        if quantity > 0
     )
 
 
@@ -59,13 +227,13 @@ def project_skill_level_requirements(
     to_level: int,
     terminology: StaticCatalogTerminologyService | None,
 ) -> ProgressionRequirementProjection:
-    """Aggregate formal per-level costs without guessing hidden quantities."""
+    """Aggregate formal per-level item costs without any stamina conversion."""
 
     start = int(from_level)
     end = int(to_level)
     if start >= end:
         return ProgressionRequirementProjection(
-            status=StaminaPlanStatus.UNAVAILABLE,
+            status=MaterialSummaryStatus.UNAVAILABLE,
             requirements=(),
             gaps=(ProgressionRequirementGap(
                 reason_code="skill_level_interval_invalid",
@@ -105,15 +273,18 @@ def project_skill_level_requirements(
                 continue
             totals[canonical_id] = totals.get(canonical_id, 0) + int(quantity)
     requirements = tuple(
-        MaterialRequirement(item_id=item_id, required_quantity=quantity)
+        CharacterMaterialRequirement(
+            item_id=item_id,
+            required_quantity=quantity,
+        )
         for item_id, quantity in sorted(totals.items())
     )
     status = (
-        StaminaPlanStatus.PARTIAL
+        MaterialSummaryStatus.PARTIAL
         if gaps and requirements
-        else StaminaPlanStatus.UNAVAILABLE
+        else MaterialSummaryStatus.UNAVAILABLE
         if gaps
-        else StaminaPlanStatus.COMPLETE
+        else MaterialSummaryStatus.COMPLETE
     )
     return ProgressionRequirementProjection(
         status=status,
@@ -138,71 +309,12 @@ def _canonical_item_id(
     return term.canonical_id or stable_id
 
 
-def project_progression_result(
-    result: ProgressionStaminaResult,
-    *,
-    terminology: StaticCatalogTerminologyService | None = None,
-) -> ProgressionResultProjection:
-    """Format the public immutable result; do not infer missing yields."""
-
-    identification = result.identification
-    more_info: list[tuple[str, str]] = []
-    lines = [
-        f"猎人等级 {identification.hunter_level} · "
-        f"鉴别等级 {identification.effective_level}"
-        + ("（已下调）" if identification.lowered else ""),
-    ]
-    deficits = tuple(item for item in result.deficits if item.deficit_quantity > 0)
-    if deficits:
-        projections = tuple(
-            project_character_term(
-                terminology,
-                entity_kind="item",
-                stable_id=item.item_id,
-                identity_label=f"缺口项 {index}",
-                context="progression_cost",
-            )
-            for index, item in enumerate(deficits, start=1)
-        )
-        lines.append("消耗缺口：" + "、".join(
-            f"{projection.display_name} × {item.deficit_quantity}"
-            for item, projection in zip(deficits, projections)
-        ))
-        more_info.extend(
-            row for projection in projections for row in projection.more_info
-        )
-    if result.runs:
-        lines.append("刷取计划：" + "、".join(
-            f"{run.label} × {run.runs} 次（{run.total_stamina} 活力）"
-            for run in result.runs
-        ))
-    if result.total_stamina is not None:
-        lines.append(f"总活力：{result.total_stamina}")
-    elif result.known_stamina:
-        lines.append(f"已知活力：{result.known_stamina}；完整总活力不可用")
-    if result.unresolved_item_ids:
-        unresolved = tuple(
-            project_character_term(
-                terminology,
-                entity_kind="item",
-                stable_id=item_id,
-                identity_label=f"未解析项 {index}",
-                context="progression_cost",
-            )
-            for index, item_id in enumerate(result.unresolved_item_ids, start=1)
-        )
-        lines.append("缺少正式产出：" + "、".join(
-            projection.display_name for projection in unresolved
-        ))
-        more_info.extend(
-            row for projection in unresolved for row in projection.more_info
-        )
-    if result.gaps:
-        lines.append("部分材料缺少正式产出，暂不能计算完整活力。")
-    if len(lines) == 1:
-        lines.append("当前材料已满足，无需额外活力。")
-    return ProgressionResultProjection(
-        text="\n".join(lines),
-        available=result.status == StaminaPlanStatus.COMPLETE,
-        more_info=tuple(more_info),
-    )
+__all__ = [
+    "CharacterLevelMaterialProjection",
+    "CharacterMaterialRequirement",
+    "MaterialSummaryStatus",
+    "ProgressionRequirementGap",
+    "ProgressionRequirementProjection",
+    "project_character_level_requirements",
+    "project_skill_level_requirements",
+]

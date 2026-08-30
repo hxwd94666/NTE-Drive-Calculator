@@ -24,13 +24,6 @@ from src.features.static_catalog.domain_pages.equipment_page import EquipmentCat
 from src.features.static_catalog.domain_pages.fork_page import ForkCatalogPage
 from src.features.static_catalog.domain_pages.monster_page import MonsterCatalogPage
 from src.features.static_catalog.page import StaticCatalogPage
-from src.features.static_catalog.progression_calculator import (
-    ProgressionCalculatorDialog,
-)
-from src.services.static_catalog_fork_release_metadata import (
-    ForkProgressionRequest,
-    ForkProgressionState,
-)
 from src.services.static_catalog_service import StaticCatalogService
 from src.ui.equipment_presentation import EquipmentPresentation
 
@@ -96,39 +89,9 @@ class StaticCatalogDomainPageRoutingTests(unittest.TestCase):
 
         character = page._domain_contents["character"]
         self.assertIsInstance(character, CharacterCatalogPage)
-        character_dialog = character.findChild(ProgressionCalculatorDialog)
-        self.assertIsNotNone(character_dialog)
-        character.progression_requested.emit({
-            "kind": "skill",
-            "character_id": 1036,
-            "skill_id": "integration-skill",
-            "requirements": (),
-            "requirement_status": "complete",
-            "requirement_gaps": (),
-        })
-        self.app.processEvents()
-        assert character_dialog is not None
-        assert character_dialog._session is not None
-        self.assertEqual("1036", character_dialog._session.owner_id)
-        self.assertEqual("integration-skill", character_dialog._session.skill_id)
 
         fork = page._domain_contents["fork"]
         self.assertIsInstance(fork, ForkCatalogPage)
-        fork_dialog = fork.findChild(ProgressionCalculatorDialog)
-        self.assertIsNotNone(fork_dialog)
-        fork.progression_requested.emit(ForkProgressionRequest(
-            kind="fork_progression",
-            fork_id="fork_GoldRecord",
-            current=ForkProgressionState(1, 0, 1),
-            target=ForkProgressionState(1, 0, 1),
-            requirements=(),
-            requirement_gaps=(),
-            required_upgrade_exp=0,
-        ))
-        self.app.processEvents()
-        assert fork_dialog is not None
-        assert fork_dialog._session is not None
-        self.assertEqual("fork_GoldRecord", fork_dialog._session.owner_id)
 
         page.open_catalog_link(CatalogLink(
             "character", "1036", "owner", "Effect1"
@@ -138,7 +101,7 @@ class StaticCatalogDomainPageRoutingTests(unittest.TestCase):
         page.open_catalog_link(CatalogLink(
             "fork", "fork_Arachne", "owner", "1"
         ))
-        self.assertEqual("fork_Arachne", fork._active_fork_id)
+        self.assertIs(fork.profile_view, fork._stack.currentWidget())
 
         equipment = page._domain_contents["equipment"]
         self.assertIsInstance(equipment, EquipmentCatalogPage)

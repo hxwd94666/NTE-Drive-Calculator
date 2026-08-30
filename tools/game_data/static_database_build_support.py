@@ -75,15 +75,17 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "028_game_static_high_risk_commission.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "030_game_static_progression_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "031_game_static_character_progression.sql",
 )
-SCHEMA_VERSION = 30
-IMPORTER_VERSION = 36
+SCHEMA_VERSION = 31
+IMPORTER_VERSION = 37
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
     "character_abilities": "DataTable/Character/DT_CharacterAbilityConfig.json",
     "character_ability_effects": "DataTable/Character/DT_CharacterAbilityEffectConfig.json",
     "character_breakthroughs": "DataTable/Character/DT_CharacterBreakthroughDataTable.json",
+    "character_upgrades": "DataTable/Character/DT_CharacterUpgradeDataTable.json",
     "skill_damage": "DataTable/skill/DT_SkillDamageData.json",
     "skill_damage_modifiers": "DataTable/skill/DT_SkillDamageGameplayModifyData.json",
     "combat_global_curves": "DataTable/skill/GlobalCharacterData/DT_GlobalCommonData.json",

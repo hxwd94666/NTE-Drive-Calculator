@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
-    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -22,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.features.static_catalog.domain_pages.character_progression import (
+    MaterialSummaryStatus,
     project_skill_level_requirements,
 )
 from src.features.static_catalog.domain_pages.character_terminology import (
@@ -542,9 +542,7 @@ class CharacterSkillView(QWidget):
 
 
 class CharacterSkillTrainingView(QWidget):
-    """Separate skill-cultivation page using the shared stamina calculator."""
-
-    progression_requested = Signal(object)
+    """Separate skill-cultivation page with formal material totals."""
 
     def __init__(
         self,
@@ -570,6 +568,14 @@ class CharacterSkillTrainingView(QWidget):
         controls.addWidget(QLabel("→", self))
         controls.addWidget(self.end)
         root.addLayout(controls)
+        self.result = QLabel("选择技能和等级后显示正式材料合计。", self)
+        self.result.setObjectName("skillProgressionResult")
+        self.result.setWordWrap(True)
+        self.result.setStyleSheet(themed_style(
+            "color:#d29922;background:#0d1117;border:1px solid #d29922;"
+            "border-radius:8px;padding:8px"
+        ))
+        root.addWidget(self.result)
         self.cost_scroll = QScrollArea(self)
         self.cost_scroll.setWidgetResizable(True)
         self.cost_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -579,18 +585,6 @@ class CharacterSkillTrainingView(QWidget):
         self.costs.setSpacing(5)
         self.cost_scroll.setWidget(cost_host)
         root.addWidget(self.cost_scroll, 1)
-        request = QPushButton("计算材料缺口与活力", self)
-        request.setObjectName("btnAction")
-        request.clicked.connect(self._request_progression)
-        root.addWidget(request, 0, Qt.AlignmentFlag.AlignLeft)
-        self.result = QLabel("选择技能和等级后可计算材料缺口与活力。", self)
-        self.result.setObjectName("skillProgressionResult")
-        self.result.setWordWrap(True)
-        self.result.setStyleSheet(themed_style(
-            "color:#d29922;background:#0d1117;border:1px solid #d29922;"
-            "border-radius:8px;padding:8px"
-        ))
-        root.addWidget(self.result)
         self.skill.currentIndexChanged.connect(self._refresh_levels)
         self.start.currentIndexChanged.connect(self._refresh_costs)
         self.end.currentIndexChanged.connect(self._refresh_costs)
@@ -633,9 +627,41 @@ class CharacterSkillTrainingView(QWidget):
         action = self._active_action()
         if action is None or action.skill is None or not self.start.count():
             self.costs.addWidget(self._muted("当前正式数据未提供技能养成记录"))
+            self._set_summary("当前正式数据未提供技能养成记录。", available=False)
             return
         start = int(self.start.currentData())
         end = int(self.end.currentData())
+        projection = project_skill_level_requirements(
+            action.skill,
+            from_level=start,
+            to_level=end,
+            terminology=self._terminology,
+        )
+        if projection.requirements:
+            terms = tuple(
+                project_character_term(
+                    self._terminology,
+                    entity_kind="item",
+                    stable_id=item.item_id,
+                    identity_label=f"合计项 {index}",
+                    context="progression_cost",
+                )
+                for index, item in enumerate(projection.requirements, start=1)
+            )
+            summary = "所选区间合计 · " + "、".join(
+                f"{term.display_name} × {item.required_quantity:,}"
+                for item, term in zip(projection.requirements, terms)
+            )
+            if projection.gaps:
+                summary += "\n部分正式数量尚未提供，以上仅为已知合计。"
+        elif start >= end:
+            summary = "目标等级需要高于当前等级。"
+        else:
+            summary = "所选区间没有正式消耗。"
+        self._set_summary(
+            summary,
+            available=projection.status == MaterialSummaryStatus.COMPLETE,
+        )
         rows = {
             level.level: level for level in action.skill.levels
             if start <= level.level < end
@@ -674,36 +700,7 @@ class CharacterSkillTrainingView(QWidget):
             self.costs.addWidget(label)
         self.costs.addStretch(1)
 
-    def _request_progression(self) -> None:
-        action = self._active_action()
-        if action is None or action.skill is None or not self.start.count():
-            return
-        start = int(self.start.currentData())
-        end = int(self.end.currentData())
-        requirements = project_skill_level_requirements(
-            action.skill,
-            from_level=start,
-            to_level=end,
-            terminology=self._terminology,
-        )
-        self.progression_requested.emit({
-            "kind": "skill",
-            "character_id": action.character_id,
-            "skill_id": action.skill.skill_id,
-            "from_level": start,
-            "to_level": end,
-            "requirements": requirements.requirements,
-            "requirement_status": requirements.status.value,
-            "requirement_gaps": requirements.gaps,
-        })
-
-    def set_progression_result(
-        self,
-        text: str,
-        *,
-        available: bool,
-        more_info: tuple[tuple[str, str], ...] = (),
-    ) -> None:
+    def _set_summary(self, text: str, *, available: bool) -> None:
         self.result.setText(text)
         self.result.setStyleSheet(themed_style(
             "color:#3fb950;background:#0d1117;border:1px solid #3fb950;"
@@ -712,7 +709,6 @@ class CharacterSkillTrainingView(QWidget):
             "color:#d29922;background:#0d1117;border:1px solid #d29922;"
             "border-radius:8px;padding:8px"
         ))
-        del more_info
 
     def _muted(self, text: str) -> QLabel:
         label = QLabel(text, self)

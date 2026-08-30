@@ -538,7 +538,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(0, payload_count)
-        self.assertEqual(30, schema_version)
+        self.assertEqual(31, schema_version)
         self.assertGreater(character_count, 0)
         self.assertEqual(source_row_count, source_hash_count)
         # The role-template DAO adds official ID 1051 as the default avatar

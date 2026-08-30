@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -22,7 +22,6 @@ from src.app.theme import themed_style
 from src.domain.static_catalog_terminology import LocalizedForkCampaign
 from src.features.static_catalog.domain_pages.fork_components import (
     ForkCharacterCard,
-    ForkProgressionControls,
     add_effect_tiles,
     breakthrough_cost_text,
     clear_layout,
@@ -38,10 +37,7 @@ from src.services.advancement_stage_service import (
 )
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.static_catalog_character_models import CharacterSummary
-from src.services.static_catalog_fork_release_metadata import (
-    ForkItemDisplayNameService,
-    build_fork_progression_request,
-)
+from src.services.static_catalog_fork_release_metadata import ForkItemDisplayNameService
 from src.services.static_catalog_fork_service import (
     ForkCatalogDetail,
     ForkCatalogMetadata,
@@ -51,8 +47,6 @@ from src.services.static_catalog_fork_service import (
 
 
 class ForkProfileView(QWidget):
-    progression_requested = Signal(object)
-
     def __init__(
         self,
         *,
@@ -244,14 +238,6 @@ class ForkProfileView(QWidget):
         self._detail_layout.addStretch(1)
 
     def _build_cultivation_tab(self) -> None:
-        planner = self._panel("养成计划 · 当前 → 目标")
-        self.progression_controls = ForkProgressionControls(
-            item_names=self._item_names,
-            parent=planner,
-        )
-        self.progression_controls.request_clicked.connect(self._request_progression)
-        planner.layout().addWidget(self.progression_controls)
-        self._cultivation_layout.addWidget(planner)
         current = self._panel("当前等级养成信息")
         self.current_level_cost = QLabel("尚未选择弧盘", current)
         self.current_level_cost.setWordWrap(True)
@@ -278,7 +264,6 @@ class ForkProfileView(QWidget):
     ) -> None:
         self._detail = detail
         self._characters = characters
-        self.progression_controls.set_detail(detail)
         self._level = 80
         self._stage = 6
         self._refinement = 1
@@ -407,11 +392,6 @@ class ForkProfileView(QWidget):
         self.current_level_cost.setText(
             f"Lv.{self._level} · {stage_text} · {exp_text}\n{material_text}\n"
             "逐级升级消耗：当前正式数据未提供；不会伪装为 0。"
-        )
-        self.progression_controls.set_target_state(
-            self._level,
-            self._stage,
-            self._refinement,
         )
         self._refresh_refinement()
         self._refresh_node_states()
@@ -615,17 +595,6 @@ class ForkProfileView(QWidget):
             self._layout_character_cards()
         if self._breakthrough_cards or self._refinement_cost_cards:
             self._layout_cultivation_cards()
-
-    def _request_progression(self) -> None:
-        detail = self._detail
-        if detail is None:
-            return
-        current, target = self.progression_controls.states()
-        self.progression_requested.emit(build_fork_progression_request(
-            detail,
-            current=current,
-            target=target,
-        ))
 
     def _refresh_node_states(self) -> None:
         for level, button in self._level_nodes.items():

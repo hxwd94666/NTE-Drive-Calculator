@@ -65,7 +65,6 @@ def _acquisition_name(
 
 class CharacterDetailView(QWidget):
     variant_requested = Signal(int)
-    progression_requested = Signal(object)
 
     def __init__(
         self,
@@ -176,14 +175,13 @@ class CharacterDetailView(QWidget):
         )
         self.cultivation_tabs = QTabWidget(self)
         self.cultivation_tabs.setObjectName("characterCultivationTabs")
-        self.growth_view = CharacterGrowthView(self.cultivation_tabs)
-        self.growth_view.progression_requested.connect(self.progression_requested)
-        self.skill_training_view = CharacterSkillTrainingView(
+        self.growth_view = CharacterGrowthView(
             terminology=terminology,
             parent=self.cultivation_tabs,
         )
-        self.skill_training_view.progression_requested.connect(
-            self.progression_requested
+        self.skill_training_view = CharacterSkillTrainingView(
+            terminology=terminology,
+            parent=self.cultivation_tabs,
         )
         self.cultivation_tabs.addTab(self.growth_view, "等级养成")
         self.cultivation_tabs.addTab(self.skill_training_view, "技能养成")

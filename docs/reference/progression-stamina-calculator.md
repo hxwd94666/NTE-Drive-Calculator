@@ -1,6 +1,7 @@
 # 养成体力计算
 
-`ProgressionStaminaService` 是角色、弧盘、技能及后续养成页面共用的 Qt/SQLite 无关入口。各页面只负责把
+`ProgressionStaminaService` 是暂未接入玩家页面的 Qt/SQLite 无关计算能力。当前角色、弧盘和技能养成页
+只汇总正式材料，不创建活力计算弹窗。未来重新接入时，各页面只负责把
 自己的当前/目标状态投影为材料需求，不复制鉴别等级、副本过滤或体力算法。
 
 ## 等级输入
@@ -26,30 +27,11 @@
 `ProgressionStaminaService` 可注入只读正式档位来源。请求的 `stages` 非空时，它们是本次用户显式输入并优先
 于正式来源；只有 `stages=()` 时才读取注入来源，未注入时继续按无可用档位处理，不在 Service 内自行打开数据库。
 
-## 游戏资料库公共面板
+## 当前产品边界
 
-角色等级、技能和弧盘详情页把自己的不可变需求 DTO 交给同一个公共养成面板。面板不拥有材料算法，也不读取
-其他页面控件；组合根注入 `ProgressionStaminaService`、`StaticCatalogTerminologyService`，并通过一次性
-结果回调把带稳定路由身份的 `ProgressionStaminaResult` 投回发起页面。冻结会话和结果都显式携带
-`owner_id`（角色 ID 或弧盘 ID）与可选 `skill_id`；组合根直接使用这些字段核对当前详情，不从兼容
-`entity_id` 拼接字符串中拆身份。
-
-面板使用卡片而非数据表：顶部编辑猎人等级并显示原生鉴别等级，原生鉴别等级达到 3 后才提供“下调一级”；
-每张材料卡显示正式本地化名称、所需量和用户可编辑的当前持有量。材料原始 ID、canonical ID、text table/key
-与命中语言只放在默认折叠的“更多信息”。缺少正式名称时统一显示“名称暂未提供”，View 不维护材料名或货币
-别名。
-
-角色字典请求必须提供 `kind`、稳定对象身份、`requirements`、`requirement_status` 与
-`requirement_gaps`；弧盘使用公开 `ForkProgressionRequest`。Qt 无关适配器会合并同一 canonical item、保留
-上游未知数量和 gap code，再把可确定的需求交给公共 Service。上游为 `partial/unavailable` 时，即使已知部分
-可以求得体力，也不得把最终状态提升为 `complete`，且完整 `total_stamina` 保持不可用。弧盘未知总需求若有
-正式已知下界，只计算该下界并明确标记为部分结果。请求若声称 `complete` 却同时携带 gap，适配器会在进入
-公共 Service 前按是否存在可计算需求降为 `partial` 或 `unavailable`，不会接受相互矛盾的完整状态。
-
-公共面板是组合根持有的可复用 modeless dialog；`open_request(..., on_result=...)` 冻结并替换本次请求，
-`dispose()` 在应用关闭时先解除页面回调再关闭窗口。结果回调通过 Qt 无关安全边界调用；目标页面已释放或
-回投失败时记录不含原始路径的错误事件，并在面板显示可读错误，不让异常逃逸 Qt `clicked` 处理器。页面和
-组合根均不得复制体力求解或使用服务定位器。
+游戏资料库组合根当前不创建公共养成弹窗，也不连接角色、技能或弧盘的活力请求与结果回投。schema v31
+已经规范化人物升级、突破和经验书材料需求，对象页只展示这些发行静态事实；个别对象缺记录时明确显示数据
+缺口，不从 View 读取仓库外 JSON。这里保留的 Service 与算法只作为未来能力，不构成当前玩家入口。
 
 ## 输出与算法
 
@@ -75,7 +57,7 @@ Service 将整个掉落包作为一次动作，用离散最短路求满足全部
 
 ## 正式静态档位
 
-schema v30 通过 `clone_activity_difficulty`、`clone_drop_projection` 和
+自 schema v30 起，`clone_activity_difficulty`、`clone_drop_projection` 和
 `clone_drop_projection_item` 提供正式只读档位。稳定档位 ID 为 `clone_id:difficulty_ordinal`；
 `team_level` 投影最低猎人等级，`difficulty_level` 投影最低鉴别等级，单次体力直接读取 `stamina_cost`。
 DAO 只把 `clone_drop_projection_item` 中确定的正整数数量投影为 `FarmingStage`：

@@ -35,12 +35,18 @@ StaticCatalogPage / Controller（集成任务）
 | GA → GE/Buff 与角色所属 Buff | `character_combat_ability_binding`、`combat_ability_effect_binding`、`gameplay_effect_catalog`、`buff_definition` | 独立分页，保留事件 Tag、GE index、Class/Asset 路径 |
 | 名称、ID、GA、GE、Buff、资源路径搜索 | 上述关系表 | 搜索只用于定位所属角色；`%`、`_` 按字面量处理 |
 
-## 明确缺失与降级
+## 养成材料与降级
 
-- schema v30 已规范化养成材料/货币名称和确定副本产出，但尚未保存人物等级区间的经验、材料数量与方斯需求关系。
-- schema v30 保留突破前后面板及正式材料目录，但尚未保存人物突破阶段到材料数量与方斯的关系。
-- 技能升级消耗的正式物品 ID 与数量通过 `progression_item`、`localized_term*` 解析玩家名称；缺名时显示不可用，
-  raw ID 只进入折叠审计，不按 ID 字面猜中文名。
+- schema v31 从 `DT_CharacterUpgradeDataTable` 保存共享的 1–80 逐级 `NeedExp`，从角色正式
+  `UpgradePackId` 建立养成档案；区间总经验按当前等级对应的行累加到目标等级前一行。
+- `DT_ItemConfig` 中三种正式角色经验书保存经验值及每次使用的方斯成本。页面以总经验为目标，先最小化
+  经验溢出，再最小化本数；该折算是确定的材料组合，不读取账号库存，也不换算副本或活力。
+- `DT_CharacterBreakthroughDataTable` 的 0–6 阶、人物等级上限、正式材料和方斯全部规范化；只有玩家选择
+  “包含沿途突破”时，才汇总当前与目标等级之间尚需跨过的阶段。
+- 人物与技能成本中的 lowercase `gold` 只在 `progression_cost` 语境规范成 Fons/方斯；不会映射成
+  Gold/甲硬币。技能升级消耗继续通过 `progression_item`、`localized_term*` 解析玩家名称；缺名时显示
+  “名称暂未提供”，raw ID 不进入默认界面。
+- 没有独立正式养成包的目录条目保持 unavailable，不从同名角色、说明文字或外部 JSON 猜材料。
 - 战斗变身或未完整导入角色可能只有目录/战斗绑定，没有人物面板、好感度、觉醒、培养或毕业模板；Service
   以 `CatalogGap` 返回缺失，不回退同名角色，也不通过中文名或 Actor 路径合并。
 - 毕业模板属于构建期派生静态事实，来源标记为 `character_graduation_template.source_kind`，不冒充原始官方行。

@@ -97,6 +97,7 @@ class StaticDatabaseBuilder(
         self.connection.execute("INSERT INTO schema_migration VALUES (28, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (29, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (30, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (31, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),

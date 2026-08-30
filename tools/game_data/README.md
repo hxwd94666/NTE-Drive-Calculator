@@ -203,6 +203,12 @@ schema v24 从 `DT_CombatAwardQuest` 中带有效大陆服开始/结束时间的
 按开始时间选出的当前与下一配置分别标记为 `inference_ordinal=0/1`。任务中的 `AbyssID` 关联整套
 `AbyssCloneLevelDataTable` 配置，`AbyssLevel` 才是该奖励任务要求完成的层数；不得按配置 ID 数字倒序
 代替正式时间区间。
+schema v30 导入角色发行排期、品质、正式卡池成员关系、公共本地化术语和可确定的养成副本掉落投影；
+schema v31 新增 `DT_CharacterUpgradeDataTable` 的人物逐级经验、角色养成包档案、
+`DT_CharacterBreakthroughDataTable` 的结构化突破阶段/成本，以及 `DT_ItemConfig` 中角色经验书的经验值与
+使用成本。`gold` 只在养成成本语境规范为 Fons；构建器对正式包 ID 使用大小写无关的唯一连接，冲突或未知
+引用继续失败。
+
 规范化导入器不再次读取 Blueprint JSON，
 未导出的引用保留 `target_available = 0`，供推断服务按证据强度处理。
 上游 UnrealExporter 配置继续保留 DataTable、Localization/Game、Text、UI、UI_Icon 和 DataAssets 六类

@@ -1,7 +1,7 @@
 # 静态游戏数据库版本与摘要表清单。
 """Shared metadata for the normalized static game database."""
 
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 SUMMARY_TABLES = (
     "source_file",
@@ -19,6 +19,12 @@ SUMMARY_TABLES = (
     "character_likeability_bonus",
     "character_likeability_bonus_property",
     "character_panel_growth",
+    "character_progression_profile",
+    "character_upgrade_level",
+    "character_breakthrough_stage",
+    "character_breakthrough_cost",
+    "character_exp_material",
+    "character_exp_material_cost",
     "character_skill",
     "character_skill_level",
     "skill_damage",

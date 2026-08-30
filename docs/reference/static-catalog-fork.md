@@ -50,32 +50,16 @@ dataset/schema/importer、资源或动画路径、GE/Calculation/requirement 路
 同类型角色写成专属角色。角色头像与名称、混频效果的触发条件、效果内容和叠加规则直接在弧盘详情内呈现，
 不再用跨页面跳转按钮代替关系内容。
 
-## 养成请求与结果投影
+## 养成材料展示
 
-养成页提供紧凑的“当前 → 目标”输入。当前和目标都使用完整 `ForkProgressionState`：`level`、
-`breakthrough_stage`、`mixing_level`；20/30/40/50/60/70 级的突破前后不会被等级值覆盖。页面只从已冻结的
-`ForkCatalogDetail` 汇总跨越节点的正式成本，不读取账号库存，也不执行材料折算、副本选择或活力算法。
+养成页只读展示当前所选等级的升级经验与突破消耗、0–6 阶完整突破路线，以及混频 1–5 级的正式消耗。
+材料和方斯都由公共术语目录投影正式名称与数量；缺名或缺量保持“名称暂未提供”或“暂未提供”，不显示 raw
+ID，也不伪装成 0。页面不提供“当前 → 目标”、材料缺口、账号库存、副本次数或活力计算，不公开养成请求
+信号和结果回填接口。
 
-`progression_requested` 发出不可变 `ForkProgressionRequest`：
+## schema v31 只读审计
 
-- `kind="fork_progression"`、`fork_id`；
-- `current` 与 `target` 完整状态；
-- `requirements`：按 stable `item_id` 聚合的正式需求。`required_quantity` 只有在全部来源数量确定时才是整数；
-  同时保留 `known_quantity` 和 `source_refs`；
-- `requirement_gaps`：缺突破行、缺混频成本、缺 stable item ID、缺正式数量或等级材料关系时的明确缺口；
-- `required_upgrade_exp`：正式逐级经验行完整时的合计，行不完整时为 `None`。
-
-任一来源数量未知时，页面保留 `required_quantity=None` 和对应 gap，不能把已知部分冒充完整总量。组合根把
-可计算的正式需求、账号已有数量和正式副本产出交给公共 `ProgressionStaminaService`。公开
-`ForkCatalogPage.set_progression_result(fork_id=..., result=...)` 只接受匹配当前弧盘的
-`ProgressionStaminaResult`，投影 complete/partial/unavailable、总活力或已知活力；玩家层只显示可读材料名
-与结果说明，不展示内部材料身份或服务 gap。返回卡墙时页面先清空 active fork identity，再切换视图；切换到其他弧盘时
-也只接受新 identity，因此旧计算器回调返回 `False` 且不会写入隐藏详情。页面不重算结果，也不把
-partial/unavailable 伪装成 0。
-
-## schema v30 只读审计
-
-当前发行 dataset 为 `cn_1_3_13_20260828`，importer 36。实际 schema 中可展示：
+当前发行 dataset 为 `cn_1_3_13_20260828`，importer 37。实际 schema 中可展示：
 
 | 内容 | 权威表 / 字段 | 当前行数或覆盖 |
 | --- | --- | --- |
@@ -96,7 +80,7 @@ partial/unavailable 伪装成 0。
 
 ## 当前 importer 未保留
 
-- schema v30 没有 `fork_skill` / `fork_skill_level` 表。产品中的“弧盘技能”只能展示混频
+- schema v31 没有 `fork_skill` / `fork_skill_level` 表。产品中的“弧盘技能”只能展示混频
   1–5 级描述、参数、Buff 与效果，不可声称另有独立技能目录。
 - `source_payloads_omitted=true`；发行库不能还原原始 JSON 全行，只能展示 importer 保留字段、
   来源文件和校验值。
@@ -104,7 +88,7 @@ partial/unavailable 伪装成 0。
   审计为 0，不从描述文本、名称或路径前缀推测。
 - 49 件弧盘中 33 件有独占角色 ID 或养成推荐关系，余下 16 件不显示专属/推荐徽记；所有弧盘仍可依据
   正式 `group_type` 展示同类型可用角色，不按中文名、描述或效果类型猜专属角色。
-- schema v30 已提供通用养成物品和本地化目录；突破消耗通过稳定 item ID 关联正式名称。缺名仍显示
+- schema v31 已提供通用养成物品和本地化目录；突破消耗通过稳定 item ID 关联正式名称。缺名仍显示
   “名称暂未提供”，玩家页面不展示 raw ID。
 - `combat_effect_definition` 和 `combat_effect_buff_link` 是 importer 正规化的项目投影；
   其中描述、参数和 Buff 路径仍可回溯正式行，但投影 ID 不标成官方原始字段。
@@ -129,7 +113,5 @@ data/game_static.sqlite3
 2. 把返回的 `ForkCatalogPage` 放入“游戏资料库”公共 Page，并在生命周期结束时调用 `dispose()`。
    页面会尝试关闭全部已拥有 Service；单个关闭失败不会跳过后续 owner，最终以 `ExceptionGroup` 暴露错误。
    已成功关闭的 owner 从待关闭集合移除，后续重试只调用失败项，全部完成后 `dispose()` 幂等。
-3. 把 `progression_requested(ForkProgressionRequest)` 连接到公共 `ProgressionStaminaService`，完成后调用
-   `set_progression_result(fork_id=..., result=...)` 回填；弧盘页不得自建材料或体力算法。
-4. 公共导航仍由集成任务一次性添加 `parent_key="toolbox"` 的“游戏资料库”子页；
+3. 公共导航仍由集成任务一次性添加 `parent_key="toolbox"` 的“游戏资料库”子页；
    本域不访问 `MainWindow`、`toolbox/page.py` 或其他并行数据域。

@@ -11,12 +11,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from src.app.theme import apply_app_theme
-from src.domain.progression_stamina import (
-    IdentificationLevelProjection,
-    MaterialDeficit,
-    ProgressionStaminaResult,
-    StaminaPlanStatus,
-)
 from src.domain.static_catalog import CatalogLink
 from src.domain.static_catalog_terminology import LocalizedForkCampaign, LocalizedTerm
 from src.features.static_catalog.domain_pages.fork_page import (
@@ -26,14 +20,11 @@ from src.features.static_catalog.domain_pages.fork_page import (
 )
 from src.services.static_catalog_fork_release_metadata import (
     ForkItemDisplayNameService,
-    ForkProgressionRequest,
-    ForkProgressionState,
-    build_fork_progression_request,
     fork_character_catalog_link,
     fork_mechanics_catalog_routes,
     sort_fork_catalog,
 )
-from src.services.static_catalog_fork_service import ForkCost, StaticCatalogForkService
+from src.services.static_catalog_fork_service import StaticCatalogForkService
 from src.services.static_catalog_mechanics_service import StaticCatalogMechanicsService
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
@@ -89,7 +80,7 @@ class ForkReleaseOrderingTests(unittest.TestCase):
         )
 
 
-class ForkProgressionContractTests(unittest.TestCase):
+class ForkCatalogOrderingContractTests(unittest.TestCase):
     def test_repeat_campaign_uses_pool_identity_and_newest_fork_order(self) -> None:
         def campaign(pool_id: str, fork_id: str, ordinal: int):
             return LocalizedForkCampaign(
@@ -129,49 +120,6 @@ class ForkProgressionContractTests(unittest.TestCase):
             ("pool_repeat", "pool_original"),
             tuple(item.pool_id for item in campaigns if item.featured_fork_id == "fork_a"),
         )
-
-    def test_request_aggregates_known_costs_and_preserves_unknowns(self) -> None:
-        detail = SimpleNamespace(
-            summary=SimpleNamespace(fork_id="fork_contract"),
-            breakthroughs=(
-                SimpleNamespace(
-                    stage=1,
-                    item_costs=(ForkCost("material_a", 2, "2"),),
-                    gold_costs=(ForkCost("gold", 100, "100"),),
-                ),
-                SimpleNamespace(
-                    stage=2,
-                    item_costs=(ForkCost("material_a", 3, "3"),),
-                    gold_costs=(),
-                ),
-            ),
-            refinement_levels=(
-                SimpleNamespace(level=2, need_gold_raw="gold:10"),
-                SimpleNamespace(level=3, need_gold_raw="material_unknown:?"),
-            ),
-            growth_levels=tuple(
-                SimpleNamespace(level=level, need_exp=5)
-                for level in range(21, 31)
-            ),
-        )
-        request = build_fork_progression_request(
-            detail,
-            current=ForkProgressionState(20, 0, 1),
-            target=ForkProgressionState(30, 2, 3),
-        )
-
-        self.assertIsInstance(request, ForkProgressionRequest)
-        self.assertEqual(50, request.required_upgrade_exp)
-        requirements = {item.item_id: item for item in request.requirements}
-        self.assertEqual(5, requirements["material_a"].required_quantity)
-        self.assertEqual(110, requirements["gold"].required_quantity)
-        self.assertIsNone(requirements["material_unknown"].required_quantity)
-        self.assertEqual(0, requirements["material_unknown"].known_quantity)
-        self.assertEqual(
-            {"official_quantity_unavailable", "level_material_relation_unavailable"},
-            {gap.code for gap in request.requirement_gaps},
-        )
-
 
 class ForkCatalogRelationContractTests(unittest.TestCase):
     def test_character_and_structured_effect_links_are_routable(self) -> None:
@@ -418,71 +366,6 @@ class ForkCatalogPageTests(unittest.TestCase):
         self.assertEqual(
             [], page.profile_view.findChildren(QLabel, "forkRawIdentity")
         )
-
-    def test_progression_request_and_result_use_symmetric_public_contract(self) -> None:
-        page = build_fork_catalog_page(
-            database_path=DATABASE,
-            game_ui_asset_root=ASSETS,
-            terminology_service=self.terminology,
-        )
-        self.addCleanup(page.dispose)
-        payloads: list[object] = []
-        page.progression_requested.connect(payloads.append)
-        page.open_fork("fork_GoldRecord")
-        controls = page.profile_view.progression_controls
-        controls.current_level.setValue(20)
-        controls.target_level.setValue(30)
-        controls.target_stage.setCurrentIndex(controls.target_stage.findData(2))
-        controls.target_mixing.setValue(3)
-        controls.request.click()
-        self.app.processEvents()
-
-        self.assertEqual(1, len(payloads))
-        request = payloads[0]
-        self.assertIsInstance(request, ForkProgressionRequest)
-        self.assertEqual(ForkProgressionState(20, 0, 1), request.current)
-        self.assertEqual(ForkProgressionState(30, 2, 3), request.target)
-        self.assertTrue(request.requirements)
-
-        result = ProgressionStaminaResult(
-            status=StaminaPlanStatus.PARTIAL,
-            identification=IdentificationLevelProjection(60, 7, 7, False),
-            deficits=(MaterialDeficit("gold", 100, 20, 80),),
-            runs=(),
-            known_stamina=40,
-            total_stamina=None,
-            unresolved_item_ids=("missing_material",),
-            gaps=("material_yield_unavailable",),
-        )
-        self.assertFalse(page.set_progression_result(
-            fork_id="fork_other",
-            result=result,
-        ))
-        self.assertTrue(page.set_progression_result(
-            fork_id="fork_GoldRecord",
-            result=result,
-        ))
-        self.assertIn("部分可用", controls.result.text())
-        self.assertIn("已知活力：40", controls.result.text())
-        self.assertNotIn("gold", controls.result.text())
-        self.assertNotIn("missing_material", controls.result.text())
-        self.assertNotIn("material_yield_unavailable", controls.result.text())
-
-        self.assertTrue(page.catalog_go_back())
-        self.assertIsNone(page.catalog_back_label())
-        self.assertFalse(page.set_progression_result(
-            fork_id="fork_GoldRecord",
-            result=result,
-        ))
-        page.open_fork("fork_Time")
-        self.assertFalse(page.set_progression_result(
-            fork_id="fork_GoldRecord",
-            result=result,
-        ))
-        self.assertTrue(page.set_progression_result(
-            fork_id="fork_Time",
-            result=result,
-        ))
 
     def test_light_profile_hero_uses_light_mapped_background(self) -> None:
         apply_app_theme(self.app, "light")

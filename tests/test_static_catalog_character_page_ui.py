@@ -11,11 +11,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QTableWidget
 
-from src.domain.progression_stamina import (
-    IdentificationLevelProjection,
-    ProgressionStaminaResult,
-    StaminaPlanStatus,
-)
 from src.features.static_catalog.domain_pages.character_card import CharacterGalleryCard
 from src.features.static_catalog.domain_pages.character_page import (
     CharacterCatalogPage,
@@ -71,6 +66,32 @@ class _TerminologySource:
                 text_table="/Game/Text/ST_Item.ST_Item",
                 text_key="item_Fons_name",
             )
+        progression_names = {
+            "Fons": "方斯",
+            "CharacterUpMaterial_lv1": "新锐猎人攻略",
+            "CharacterUpMaterial_lv2": "资深猎人攻略",
+            "CharacterUpMaterial_lv3": "特级猎人攻略",
+            "OrdinaryMonMaterial_02_lv1": "褪色掠影",
+            "OrdinaryMonMaterial_02_lv2": "失焦掠影",
+            "OrdinaryMonMaterial_02_lv3": "晦暗掠影",
+            "Worldboss_material_03": "妄想彼端的一页",
+            "SkillUpMaterial_03_lv1": "初次的期许",
+            "SkillUpMaterial_03_lv2": "已知的倦怠",
+            "SkillUpMaterial_03_lv3": "「黑帽子」",
+            "OrdinaryMonMaterial_03_lv1": "模糊数符",
+            "OrdinaryMonMaterial_03_lv2": "未解数符",
+            "OrdinaryMonMaterial_03_lv3": "扭曲数符",
+            "weeklycloneboss_a03_01": "记忆的永恒",
+        }
+        if entity_kind == "item" and context == "progression_cost":
+            name = progression_names.get(stable_id)
+            if name is not None:
+                return LocalizedTermRecord(
+                    entity_kind="item",
+                    canonical_id=stable_id,
+                    names={"zh-CN": name},
+                    source_kind="formal_localization",
+                )
         if (entity_kind, stable_id, context) == ("item", "Gold", None):
             return LocalizedTermRecord(
                 entity_kind="item",
@@ -459,118 +480,43 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             )[0],
         )
 
-    def test_level_planner_stays_disabled_without_formal_costs(self) -> None:
-        self.page.open_character(1036)
+    def test_level_planner_summarizes_formal_books_breakthroughs_and_fons(self) -> None:
+        self.page.open_character(1075)
         growth = self.page.detail_view.growth_view
-        requests: list[object] = []
-        self.page.progression_requested.connect(requests.append)
         growth.start_level.setCurrentIndex(4)
-        growth.end_level.setCurrentIndex(69)
-        growth.include_breakthroughs.setChecked(False)
-        growth._request_progression()
+        growth.end_level.setCurrentIndex(79)
+        growth.include_breakthroughs.setChecked(True)
+        self.app.processEvents()
 
-        self.assertFalse(growth.progression_button.isEnabled())
-        self.assertEqual([], requests)
-        self.assertEqual(
-            "角色等级材料正式数据尚未提供，暂不能计算。",
-            growth.progression_result.text(),
-        )
-
-        self.assertTrue(self.page.set_progression_result(
-            target="character_level",
-            character_id=1036,
-            result=ProgressionStaminaResult(
-                status=StaminaPlanStatus.UNAVAILABLE,
-                identification=IdentificationLevelProjection(60, 7, 7, False),
-                deficits=(),
-                runs=(),
-                known_stamina=0,
-                total_stamina=None,
-                unresolved_item_ids=("CharacterExp",),
-                gaps=("material_yield_unavailable",),
-            ),
-        ))
-        self.assertIn("名称暂未提供", growth.progression_result.text())
-        self.assertNotIn("CharacterExp", growth.progression_result.text())
-        self.assertFalse(growth.findChildren(
-            QPushButton, "characterMoreInfoToggle",
+        text = growth.progression_result.text()
+        self.assertIn("升级经验 · 6,169,080", text)
+        self.assertIn("资深猎人攻略 × 2", text)
+        self.assertIn("特级猎人攻略 × 308", text)
+        self.assertIn("溢出 920 经验", text)
+        self.assertIn("褪色掠影 × 17", text)
+        self.assertIn("失焦掠影 × 18", text)
+        self.assertIn("晦暗掠影 × 15", text)
+        self.assertIn("妄想彼端的一页 × 86", text)
+        self.assertIn("方斯 × 2,067,500", text)
+        self.assertNotIn("活力", text)
+        self.assertFalse(any(
+            "计算" in button.text() or "活力" in button.text()
+            for button in growth.findChildren(QPushButton)
         ))
 
-    def test_skill_training_lists_formal_rows_and_delegates_stamina_planning(self) -> None:
+    def test_skill_training_lists_and_summarizes_formal_materials(self) -> None:
         self.page.open_character(1036)
         training = self.page.detail_view.skill_training_view
-        requests: list[object] = []
-        self.page.progression_requested.connect(requests.append)
+        self.app.processEvents()
 
-        training._request_progression()
-
-        request = requests[-1]
-        self.assertIsInstance(request, dict)
-        assert isinstance(request, dict)
-        self.assertEqual("skill", request["kind"])
-        self.assertEqual(1036, request["character_id"])
-        self.assertEqual("GA_Zankou_Melee", request["skill_id"])
-        self.assertEqual(1, request["from_level"])
-        self.assertEqual(10, request["to_level"])
-        requirements = {
-            item.item_id: item.required_quantity
-            for item in request["requirements"]
-        }
-        self.assertEqual("complete", request["requirement_status"])
-        self.assertEqual((), request["requirement_gaps"])
-        self.assertEqual(437_000, requirements["Fons"])
-        self.assertEqual(10, requirements["SkillUpMaterial_03_lv1"])
-        self.assertEqual(10, requirements["OrdinaryMonMaterial_03_lv1"])
-        self.assertEqual(8, requirements["weeklycloneboss_a03_01"])
+        text = training.result.text()
+        self.assertIn("方斯 × 437,000", text)
+        self.assertIn("初次的期许 × 10", text)
+        self.assertIn("模糊数符 × 10", text)
+        self.assertIn("记忆的永恒 × 8", text)
+        self.assertNotIn("活力", text)
         self.assertIn("升至 Lv.10", " ".join(
             label.text() for label in training.findChildren(QLabel)
-        ))
-
-    def test_progression_result_drops_stale_character_and_skill_identity(self) -> None:
-        self.page.open_character(1036)
-        training = self.page.detail_view.skill_training_view
-        result = ProgressionStaminaResult(
-            status=StaminaPlanStatus.UNAVAILABLE,
-            identification=IdentificationLevelProjection(60, 7, 7, False),
-            deficits=(),
-            runs=(),
-            known_stamina=0,
-            total_stamina=None,
-            unresolved_item_ids=("SkillMaterial",),
-            gaps=("material_yield_unavailable",),
-        )
-        label = training.findChild(QLabel, "skillProgressionResult")
-        self.assertIsNotNone(label)
-        assert label is not None
-        before = label.text()
-
-        self.assertFalse(self.page.set_progression_result(
-            target="skill",
-            character_id=1004,
-            skill_id="GA_Zankou_Melee",
-            result=result,
-        ))
-        self.assertFalse(self.page.set_progression_result(
-            target="skill",
-            character_id=1036,
-            skill_id="GA_Zankou_Skill",
-            result=result,
-        ))
-        self.assertEqual(before, label.text())
-        self.assertTrue(self.page.set_progression_result(
-            target="skill",
-            character_id=1036,
-            skill_id="GA_Zankou_Melee",
-            result=result,
-        ))
-        self.assertNotEqual(before, label.text())
-
-        self.page.open_character(1004)
-        self.assertFalse(self.page.set_progression_result(
-            target="skill",
-            character_id=1036,
-            skill_id="GA_Zankou_Melee",
-            result=result,
         ))
 
     def test_skill_requirement_projection_keeps_hidden_quantity_as_gap(self) -> None:

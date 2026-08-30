@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -30,10 +30,6 @@ from src.services.static_catalog_character_release_metadata import (
     CharacterReleaseMetadata,
     CharacterReleaseMetadataService,
 )
-from src.features.static_catalog.domain_pages.character_progression import (
-    project_progression_result,
-)
-from src.domain.progression_stamina import ProgressionStaminaResult
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.static_catalog_character_models import (
     CharacterDetail,
@@ -166,8 +162,6 @@ class CharacterCatalogPageController:
 class CharacterCatalogPage(QWidget):
     """Independent character archive; the shared catalog entry owns navigation."""
 
-    progression_requested = Signal(object)
-
     def __init__(
         self,
         *,
@@ -204,7 +198,6 @@ class CharacterCatalogPage(QWidget):
             parent=self,
         )
         self.detail_view.variant_requested.connect(self.open_character)
-        self.detail_view.progression_requested.connect(self.progression_requested)
         self.stack.addWidget(self.gallery_page)
         self.stack.addWidget(self.detail_view)
         root.addWidget(self.stack)
@@ -559,46 +552,6 @@ class CharacterCatalogPage(QWidget):
     def _notify_catalog_navigation_changed(self) -> None:
         if self._catalog_navigation_listener is not None:
             self._catalog_navigation_listener()
-
-    def set_progression_result(
-        self,
-        *,
-        target: str,
-        character_id: int,
-        result: ProgressionStaminaResult,
-        skill_id: str | None = None,
-    ) -> bool:
-        """Project only a result matching the currently visible frozen identity."""
-
-        if int(character_id) != self._active_character_id:
-            return False
-        if target == "skill":
-            if (
-                not skill_id
-                or str(skill_id)
-                != self.detail_view.skill_training_view.active_skill_id()
-            ):
-                return False
-        elif target != "character_level":
-            return False
-        projection = project_progression_result(
-            result,
-            terminology=self._terminology,
-        )
-        if target == "skill":
-            self.detail_view.skill_training_view.set_progression_result(
-                projection.text,
-                available=projection.available,
-                more_info=projection.more_info,
-            )
-        else:
-            self.detail_view.growth_view.set_progression_result(
-                projection.text,
-                available=projection.available,
-                more_info=projection.more_info,
-            )
-        return True
-
 
 def build_character_catalog_page(
     *,

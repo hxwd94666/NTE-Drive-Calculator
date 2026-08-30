@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -26,13 +25,6 @@ from src.features.static_catalog.domain_pages.monster_page import (
     build_monster_catalog_page,
 )
 from src.features.static_catalog.page import StaticCatalogDomainPageSpec
-from src.features.static_catalog.progression_calculator import (
-    ProgressionCalculatorDialog,
-    build_progression_calculator_dialog,
-)
-from src.features.static_catalog.progression_calculator_models import (
-    ProgressionCalculatorOutcome,
-)
 from src.features.static_catalog.providers.character import CharacterCatalogProvider
 from src.features.static_catalog.providers.fork import ForkCatalogProvider
 from src.features.static_catalog.providers.formula_provider import (
@@ -47,7 +39,6 @@ from src.services.static_catalog_character_release_metadata import (
     CharacterReleaseMetadataService,
 )
 from src.services.static_catalog_monster_service import StaticCatalogMonsterService
-from src.services.progression_stamina_service import ProgressionStaminaService
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -59,7 +50,6 @@ from src.ui.equipment_presentation import EquipmentPresentation
 
 
 InventorySnapshotLoader = Callable[[], tuple[str, int, Mapping[str, Any]]]
-_LOGGER = logging.getLogger(__name__)
 
 
 def _close_owned_components(
@@ -147,9 +137,6 @@ def build_static_catalog_domain_pages(
         queries = StaticCatalogCharacterQueries(path)
         service = StaticCatalogCharacterService(queries)
         release_metadata = CharacterReleaseMetadataService(queries, terminology)
-        progression_service = ProgressionStaminaService(
-            official_stage_source=terminology_dao,
-        )
         monster_service = StaticCatalogMonsterService.from_database(
             path,
             terminology_service=terminology,
@@ -163,80 +150,22 @@ def build_static_catalog_domain_pages(
         raise
     assert queries is not None
     assert monster_service is not None
-    character_dialogs: list[ProgressionCalculatorDialog] = []
     fork_pages: list[ForkCatalogPage] = []
-    fork_dialogs: list[ProgressionCalculatorDialog] = []
     equipment_pages: list[EquipmentCatalogPage] = []
     mechanics_pages: list[CombatMechanicsCatalogPage] = []
     asset_root = Path(game_ui_asset_root).resolve()
 
-    def open_progression_request(
-        dialog: ProgressionCalculatorDialog,
-        request: object,
-        on_result: Callable[[ProgressionCalculatorOutcome], None],
-    ) -> None:
-        """Keep malformed page requests from escaping a Qt signal callback."""
-
-        try:
-            dialog.open_request(request, on_result=on_result)
-        except Exception as exc:
-            try:
-                dialog.dispose()
-            except Exception as close_exc:
-                _LOGGER.error(
-                    "static catalog progression dialog cleanup failed",
-                    extra={"error_type": type(close_exc).__name__},
-                )
-            _LOGGER.error(
-                "static catalog progression request rejected",
-                extra={
-                    "request_type": type(request).__name__,
-                    "error_type": type(exc).__name__,
-                },
-            )
-
     def build_character_page(parent):
-        page = build_character_catalog_page(
+        return build_character_catalog_page(
             service=service,
             release_metadata_service=release_metadata,
             game_ui_asset_root=asset_root,
             terminology_service=terminology,
             parent=parent,
         )
-        dialog: ProgressionCalculatorDialog | None = None
-        try:
-            dialog = build_progression_calculator_dialog(
-                service=progression_service,
-                terminology_service=terminology,
-                parent=page,
-            )
-
-            def project(outcome: ProgressionCalculatorOutcome) -> None:
-                page.set_progression_result(
-                    target=outcome.kind,
-                    character_id=int(outcome.owner_id),
-                    skill_id=outcome.skill_id,
-                    result=outcome.result,
-                )
-
-            page.progression_requested.connect(
-                lambda request: open_progression_request(dialog, request, project)
-            )
-            character_dialogs.append(dialog)
-        except Exception:
-            if dialog is not None:
-                dialog.dispose()
-            page.deleteLater()
-            raise
-        return page
 
     def close_character_pages() -> None:
-        callbacks = tuple(dialog.dispose for dialog in character_dialogs)
-        character_dialogs.clear()
-        _close_owned_components(
-            (*callbacks, queries.close),
-            label="角色图鉴",
-        )
+        queries.close()
 
     def build_fork_page(parent):
         page = build_fork_catalog_page(
@@ -245,36 +174,11 @@ def build_static_catalog_domain_pages(
             terminology_service=terminology,
             parent=parent,
         )
-        dialog: ProgressionCalculatorDialog | None = None
-        try:
-            dialog = build_progression_calculator_dialog(
-                service=progression_service,
-                terminology_service=terminology,
-                parent=page,
-            )
-
-            def project(outcome: ProgressionCalculatorOutcome) -> None:
-                page.set_progression_result(
-                    fork_id=outcome.owner_id,
-                    result=outcome.result,
-                )
-
-            page.progression_requested.connect(
-                lambda request: open_progression_request(dialog, request, project)
-            )
-            fork_pages.append(page)
-            fork_dialogs.append(dialog)
-        except Exception:
-            if dialog is not None:
-                dialog.dispose()
-            page.dispose()
-            raise
+        fork_pages.append(page)
         return page
 
     def close_fork_pages() -> None:
-        callbacks = tuple(dialog.dispose for dialog in fork_dialogs)
-        fork_dialogs.clear()
-        callbacks += tuple(page.dispose for page in fork_pages)
+        callbacks = tuple(page.dispose for page in fork_pages)
         fork_pages.clear()
         _close_owned_components(callbacks, label="弧盘图鉴")
 

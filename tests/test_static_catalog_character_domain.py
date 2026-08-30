@@ -41,7 +41,7 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
         for page in (by_ga, by_ge, by_buff, by_path):
             self.assertIn(1036, {item.character_id for item in page.items})
             self.assertTrue(page.dataset.dataset_id)
-            self.assertEqual(30, page.dataset.schema_version)
+            self.assertEqual(31, page.dataset.schema_version)
 
     def test_character_search_treats_sql_wildcards_as_literal_text(self) -> None:
         page = self.service.list_characters(query="%_", limit=200)
@@ -65,10 +65,59 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
             and stage.after.state == "breakthrough_after"
             for stage in detail.breakthroughs
         ))
+        self.assertIsNotNone(detail.progression)
+        assert detail.progression is not None
+        self.assertEqual(80, len(detail.progression.upgrade_levels))
+        self.assertEqual(7, len(detail.progression.breakthrough_stages))
+        self.assertEqual(3, len(detail.progression.experience_materials))
         gaps = {gap.field_key: gap for gap in detail.gaps}
-        self.assertEqual("unavailable", gaps["character_level_costs"].status)
-        self.assertEqual("unavailable", gaps["character_breakthrough_costs"].status)
+        self.assertNotIn("character_progression_profile", gaps)
         self.assertNotIn("material_item_names", gaps)
+
+    def test_oneiroi_progression_keeps_formal_exp_books_and_breakthrough_costs(self) -> None:
+        detail = self.service.get_character_detail(1075)
+
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertIsNotNone(detail.progression)
+        assert detail.progression is not None
+        progression = detail.progression
+        self.assertEqual(6_169_080, sum(
+            row.need_exp for row in progression.upgrade_levels
+            if 5 <= row.level < 80
+        ))
+        self.assertEqual(
+            {
+                "CharacterUpMaterial_lv1": (1_000, 250),
+                "CharacterUpMaterial_lv2": (5_000, 1_250),
+                "CharacterUpMaterial_lv3": (20_000, 5_000),
+            },
+            {
+                material.item_id: (
+                    material.experience_value,
+                    next(
+                        cost.quantity
+                        for cost in material.costs
+                        if cost.item_id == "Fons"
+                    ),
+                )
+                for material in progression.experience_materials
+            },
+        )
+        totals: dict[str, int] = {}
+        for stage in progression.breakthrough_stages[1:]:
+            for cost in stage.costs:
+                totals[cost.item_id] = totals.get(cost.item_id, 0) + cost.quantity
+        self.assertEqual(
+            {
+                "Fons": 525_000,
+                "OrdinaryMonMaterial_02_lv1": 17,
+                "OrdinaryMonMaterial_02_lv2": 18,
+                "OrdinaryMonMaterial_02_lv3": 15,
+                "Worldboss_material_03": 86,
+            },
+            totals,
+        )
 
     def test_detail_keeps_structured_awakening_and_skill_cost_ids(self) -> None:
         detail = self.service.get_character_detail(1036)

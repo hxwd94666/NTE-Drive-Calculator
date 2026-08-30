@@ -6,6 +6,9 @@ from __future__ import annotations
 from typing import Any
 
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.static_catalog_character_progression_queries import (
+    StaticCatalogCharacterProgressionQueriesMixin,
+)
 
 
 _CHARACTER_SEARCH_PREDICATE = """
@@ -63,7 +66,10 @@ def _search_parameters(query: str) -> tuple[str, ...]:
     return (normalized, *(pattern for _index in range(14)))
 
 
-class StaticCatalogCharacterQueries(StaticGameDataDao):
+class StaticCatalogCharacterQueries(
+    StaticCatalogCharacterProgressionQueriesMixin,
+    StaticGameDataDao,
+):
     """Character-only catalog reader built on the release DB read-only boundary."""
 
     def character_catalog_metadata(self) -> dict[str, Any]:

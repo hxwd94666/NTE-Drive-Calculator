@@ -18,6 +18,7 @@ from src.services.static_catalog_character_models import (
     CharacterDetail,
     CharacterEquipmentPlan,
     CharacterPage,
+    CharacterProgressionProfile,
     CharacterShapeBonus,
     CharacterSkill,
     CharacterSummary,
@@ -44,6 +45,9 @@ from src.services.static_catalog_character_models import (
 from src.services.static_catalog_character_passive_service import (
     StaticCatalogCharacterPassiveService,
 )
+from src.services.static_catalog_character_progression import (
+    project_character_progression,
+)
 
 
 _ELEMENT_LABELS = {
@@ -69,6 +73,9 @@ class CharacterCatalogQueries(Protocol):
         self, character_id: int, *, limit: int = 40, offset: int = 0,
     ) -> list[dict[str, Any]]: ...
     def list_catalog_breakthrough_points(self, character_id: int) -> list[dict[str, Any]]: ...
+    def get_catalog_character_progression(
+        self, character_id: int,
+    ) -> dict[str, Any] | None: ...
     def get_catalog_likeability(self, character_id: int) -> dict[str, Any] | None: ...
     def list_catalog_awakenings(self, character_id: int) -> list[dict[str, Any]]: ...
     def list_catalog_skills(self, character_id: int) -> list[dict[str, Any]]: ...
@@ -190,6 +197,7 @@ class StaticCatalogCharacterService:
         if row is None:
             return None
         growth_count = self._queries.count_catalog_growth_points(raw_character_id)
+        progression = self._progression(raw_character_id)
         return CharacterDetail(
             dataset=self.dataset(),
             character=self._summary(row, growth_count=growth_count),
@@ -208,7 +216,8 @@ class StaticCatalogCharacterService:
             recommended_weights=self._recommended_weights(raw_character_id),
             growth_count=growth_count,
             combat_link_count=self._queries.count_catalog_combat_links(raw_character_id),
-            gaps=self._gaps(growth_count),
+            gaps=self._gaps(growth_count, progression),
+            progression=progression,
         )
 
     def list_growth(
@@ -306,6 +315,12 @@ class StaticCatalogCharacterService:
                     level=level, stage=after.breakthrough_stage, before=before, after=after,
                 ))
         return tuple(result)
+
+    def _progression(self, character_id: int) -> CharacterProgressionProfile | None:
+        row = self._queries.get_catalog_character_progression(character_id)
+        if row is None:
+            return None
+        return project_character_progression(row)
 
     def _likeability(self, character_id: int) -> LikeabilityBonus | None:
         row = self._queries.get_catalog_likeability(character_id)
@@ -729,27 +744,18 @@ class StaticCatalogCharacterService:
         )
 
     @staticmethod
-    def _gaps(growth_count: int) -> tuple[CatalogGap, ...]:
-        gaps = [
-            CatalogGap(
-                field_key="character_level_costs",
-                label="人物升级经验、材料与方斯消耗",
+    def _gaps(
+        growth_count: int,
+        progression: CharacterProgressionProfile | None,
+    ) -> tuple[CatalogGap, ...]:
+        gaps = []
+        if progression is None:
+            gaps.append(CatalogGap(
+                field_key="character_progression_profile",
+                label="人物升级与突破消耗",
                 status="unavailable",
-                reason=(
-                    "schema v30 已有正式材料名称与确定副本产出投影，"
-                    "但尚未保存人物等级区间的经验、材料数量与方斯需求关系"
-                ),
-            ),
-            CatalogGap(
-                field_key="character_breakthrough_costs",
-                label="人物突破材料与方斯消耗",
-                status="unavailable",
-                reason=(
-                    "schema v30 保留突破前后面板及正式材料目录，"
-                    "但尚未保存人物突破阶段到材料数量与方斯的关系"
-                ),
-            ),
-        ]
+                reason="该角色没有独立的正式人物养成包",
+            ))
         if growth_count == 0:
             gaps.append(CatalogGap(
                 field_key="character_panel_growth",

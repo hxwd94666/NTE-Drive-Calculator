@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.progression_stamina import ProgressionStaminaResult
 from src.domain.static_catalog_terminology import LocalizedForkCampaign
 from src.features.static_catalog.domain_pages.fork_profile import ForkProfileView
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
@@ -192,8 +191,6 @@ class ForkGalleryCard(QFrame):
 class ForkCatalogPage(QWidget):
     """Own gallery filters and discardable fork-detail projections only."""
 
-    progression_requested = Signal(object)
-
     def __init__(
         self,
         *,
@@ -231,7 +228,6 @@ class ForkCatalogPage(QWidget):
         self._owned_resources = ForkOwnedResources(close_callbacks)
         self._disposed = False
         self._last_dispose_error: ExceptionGroup | None = None
-        self._active_fork_id: str | None = None
         self._metadata = fork_service.metadata()
         self._summaries = sort_fork_catalog(
             fork_service.list_forks(page_size=200).items,
@@ -262,7 +258,6 @@ class ForkCatalogPage(QWidget):
             display_campaigns=self._display_campaign_by_fork,
             parent=self._stack,
         )
-        self.profile_view.progression_requested.connect(self.progression_requested)
         self._stack.addWidget(self.profile_view)
         root.addWidget(self._stack)
 
@@ -519,14 +514,12 @@ class ForkCatalogPage(QWidget):
         if detail is None:
             return
         self.profile_view.set_data(detail, self._characters, self._metadata)
-        self._active_fork_id = detail.summary.fork_id
         self._stack.setCurrentIndex(1)
         self._catalog_navigation_listener()
 
     def show_gallery(self) -> None:
-        """Leave the detail identity before exposing the gallery again."""
+        """Return from the current detail projection to the gallery."""
 
-        self._active_fork_id = None
         self._stack.setCurrentIndex(0)
         self._catalog_navigation_listener()
 
@@ -543,19 +536,6 @@ class ForkCatalogPage(QWidget):
         if self._stack.currentIndex() != 1:
             return False
         self.show_gallery()
-        return True
-
-    def set_progression_result(
-        self,
-        *,
-        fork_id: str,
-        result: ProgressionStaminaResult,
-    ) -> bool:
-        """Project a shared result only onto the matching active fork."""
-
-        if str(fork_id) != self._active_fork_id:
-            return False
-        self.profile_view.progression_controls.set_progression_result(result)
         return True
 
     def visible_summaries(self) -> tuple[ForkCatalogSummary, ...]:
@@ -580,7 +560,6 @@ class ForkCatalogPage(QWidget):
     def dispose(self) -> None:
         if self._disposed:
             return
-        self._active_fork_id = None
         try:
             self._owned_resources.close_all()
         except ExceptionGroup as exc:
