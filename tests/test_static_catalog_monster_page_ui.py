@@ -189,6 +189,29 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
             value = self.controller.value(detail, "逐难度怪物池")
             self.assertNotIn(value, {None, "", "不可用"})
 
+    def test_high_risk_members_use_unique_numeric_family_display_names(self) -> None:
+        page = build_monster_catalog_page(
+            service=self.service,
+            terminology_service=self.terminology,
+            game_ui_asset_root=ASSET_ROOT,
+        )
+        expected = {
+            "AdvVision_WorldFilm": "胶卷-MANISH",
+            "AdvVision_BoomBox": "音霸魔王",
+            "AdvVision_Mammon": "玛门",
+        }
+        for commission_id, display_name in expected.items():
+            entry = next(
+                row for row in self.controller.entries_for("high_risk")
+                if row.primary_id == commission_id
+            )
+            detail = self.controller.detail(entry.key)
+            cards = page._monster_cards(detail, entry)
+            self.assertEqual(1, len(cards))
+            self.assertEqual(display_name, cards[0].title)
+            self.assertIsNotNone(cards[0].icon)
+        page.deleteLater()
+
     def test_formal_icon_binding_uses_profile_relation_not_display_name(self) -> None:
         page = build_monster_catalog_page(
             service=self.service,

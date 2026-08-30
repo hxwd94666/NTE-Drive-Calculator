@@ -440,7 +440,28 @@ class StaticCatalogMonsterService(
         if row is None:
             return None
         bindings = row.get("manual_bindings", ())
-        title_value = bindings[0].get("name_zh") if bindings else None
+        family_evidence_row = None
+        if not bindings:
+            family_evidence = self._queries.profile_family_display_evidence(
+                monster_id
+            )
+            names = {
+                str(candidate.get("name_zh") or "").strip()
+                for candidate in family_evidence
+                if _text_state(candidate.get("name_zh"), "")[1]
+            }
+            if len(names) == 1:
+                family_evidence_row = next(
+                    candidate for candidate in family_evidence
+                    if str(candidate.get("name_zh") or "").strip() in names
+                )
+        title_value = (
+            bindings[0].get("name_zh")
+            if bindings else (
+                family_evidence_row.get("name_zh")
+                if family_evidence_row else None
+            )
+        )
         entry = self._entry(
             _key("profile_monster", static_table, monster_id),
             domain="monster",
@@ -496,8 +517,12 @@ class StaticCatalogMonsterService(
             ))
         sections.append(self._source_section(row.get("source")))
         notice = (
-            "怪物模板 ID 是正式静态字段；只有显式 monster_template_binding "
-            "才建立与图鉴 ID 的身份关系。共用数值画像不证明身份。"
+            "标题使用同一正式 mon/boss 数字家族中全部可用名称证据的唯一结果；"
+            "这只补充展示，不建立当前模板与图鉴的身份关系。"
+            if family_evidence_row else (
+                "怪物模板 ID 是正式静态字段；只有显式 monster_template_binding "
+                "才建立与图鉴 ID 的身份关系。共用数值画像不证明身份。"
+            )
         )
         return CatalogDetail(entry, tuple(sections), unique_relations(relations), (notice,))
 

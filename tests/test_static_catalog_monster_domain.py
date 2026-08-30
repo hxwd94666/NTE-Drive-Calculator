@@ -210,6 +210,29 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             for relation in feast_links
         ))
 
+    def test_unique_numeric_family_name_is_display_only_not_identity(self):
+        expected = {
+            "Boss_06_ChallengeLv1_BP": "胶卷-MANISH",
+            "Boss_15_ChallengeLv1_BP": "音霸魔王",
+            "boss_17_ChallengeLv1_BP": "玛门",
+        }
+        for monster_id, display_name in expected.items():
+            with self.subTest(monster_id=monster_id):
+                detail = self.service.get_detail(
+                    "profile_monster|monster_static_big_world_gameplay|"
+                    f"{monster_id}"
+                )
+                self.assertIsNotNone(detail)
+                self.assertEqual(display_name, detail.entry.title)
+                self.assertTrue(detail.entry.localization_available)
+                self.assertTrue(any(
+                    "数字家族" in notice for notice in detail.notices
+                ))
+                self.assertFalse(any(
+                    relation.target_key.startswith("manual_monster|")
+                    for relation in detail.relations
+                ))
+
     def test_high_risk_without_difficulty_pool_is_explicitly_unavailable(self):
         page = self.service.list_entries(CatalogFilter(
             play_mode="high_risk",

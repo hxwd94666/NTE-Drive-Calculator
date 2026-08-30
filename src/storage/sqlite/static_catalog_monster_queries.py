@@ -8,6 +8,9 @@ from typing import Any
 from src.storage.sqlite.static_catalog_feast_queries import (
     StaticCatalogHistoricalFeastQueriesMixin,
 )
+from src.storage.sqlite.static_catalog_monster_name_queries import (
+    StaticCatalogMonsterNameQueriesMixin,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -138,18 +141,9 @@ catalog_entry AS (
 """
 
 
-def _numeric_identity(value: object) -> tuple[str, int] | None:
-    parts = str(value or "").strip().casefold().split("_")
-    if len(parts) < 2 or parts[0] not in {"mon", "boss"}:
-        return None
-    try:
-        return parts[0], int(parts[1])
-    except ValueError:
-        return None
-
-
 class StaticCatalogMonsterQueries(
     StaticCatalogHistoricalFeastQueriesMixin,
+    StaticCatalogMonsterNameQueriesMixin,
     StaticGameDataDao,
 ):
     """Read-only catalog DAO kept separate from the shared static DAO surface."""
@@ -497,30 +491,6 @@ class StaticCatalogMonsterQueries(
                 (profile["static_table"], profile["monster_id"]),
             )
         return profiles
-
-    def profile_family_candidates(
-        self, monster_template_name: str,
-    ) -> list[dict[str, Any]]:
-        """Return profiles sharing the explicit mon/boss numeric ID family."""
-
-        parts = str(monster_template_name).strip().casefold().split("_")
-        if len(parts) < 2 or parts[0] not in {"mon", "boss"}:
-            return []
-        try:
-            ordinal = int(parts[1])
-        except ValueError:
-            return []
-        rows = self._rows(
-            """SELECT static_table, monster_id
-               FROM monster_instance_profile
-               WHERE lower(monster_id) LIKE ?
-               ORDER BY static_table, monster_id""",
-            (f"{parts[0]}_%",),
-        )
-        return [
-            row for row in rows
-            if _numeric_identity(row.get("monster_id")) == (parts[0], ordinal)
-        ]
 
     def template_encounter_references(
         self, monster_template_name: str,
