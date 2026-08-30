@@ -216,7 +216,11 @@ def quantify_marginal(
         statuses.append(anchor_status)
         if anchor is not None:
             gaps.extend(anchor.gaps)
-        if anchor_status in buckets:
+        # The factor describes this character's share of a team topple hit, but
+        # the observed hit belongs to exactly one role damage total.  Keep the
+        # shared increment attributable to this character below, while only
+        # putting its baseline share into role-owned buckets for the hit owner.
+        if anchor_status in buckets and hit.character_id == character_id:
             buckets[anchor_status] += contribution
         if anchor_status in {"complete", "partial"}:
             known_increment += team_damage * (ratio - 1.0)
