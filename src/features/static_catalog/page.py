@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
@@ -37,6 +39,16 @@ from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.menu import StaticCatalogMenu
 
 
+@dataclass(frozen=True, slots=True)
+class StaticCatalogDomainPageSpec:
+    """One explicitly injected game-styled domain page and its owned cleanup."""
+
+    domain_key: str
+    title: str
+    build: Callable[[QWidget], QWidget]
+    close: Callable[[], None]
+
+
 class StaticCatalogPage:
     """Own only search controls, selections, and discardable projections."""
 
@@ -46,10 +58,17 @@ class StaticCatalogPage:
         controller: StaticCatalogController,
         dialog_parent: QWidget,
         game_ui_asset_root: str | Path | None = None,
+        domain_pages: tuple[StaticCatalogDomainPageSpec, ...] = (),
     ) -> None:
         self._controller = controller
         self._dialog_parent = dialog_parent
         self._game_ui_asset_root = game_ui_asset_root
+        self._domain_page_specs = domain_pages
+        self._domain_page_specs_by_key = {
+            spec.domain_key: spec for spec in domain_pages
+        }
+        self._domain_pages: dict[str, QWidget] = {}
+        self._closed = False
         self._page: QWidget | None = None
         self._stack: QStackedWidget | None = None
         self._menu: StaticCatalogMenu | None = None
@@ -110,8 +129,13 @@ class StaticCatalogPage:
         self._require(self._stack).setCurrentIndex(0)
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self._search_timer.stop()
         self._controller.close()
+        for spec in self._domain_page_specs:
+            spec.close()
 
     def _build_browser(self, parent: QWidget) -> QWidget:
         host = QWidget(parent)
@@ -146,6 +170,37 @@ class StaticCatalogPage:
         splitter.setStretchFactor(1, 2)
         splitter.setSizes([390, 760])
         layout.addWidget(splitter, 1)
+        return host
+
+    def _build_domain_page(
+        self,
+        spec: StaticCatalogDomainPageSpec,
+        parent: QWidget,
+    ) -> QWidget:
+        host = QWidget(parent)
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        bar = QFrame(host)
+        bar.setObjectName("staticCatalogDomainPageBar")
+        bar.setStyleSheet(themed_style(
+            "QFrame#staticCatalogDomainPageBar{background:#161b22;"
+            "border:1px solid #30363d;border-radius:9px;}"
+        ))
+        bar_layout = QHBoxLayout(bar)
+        bar_layout.setContentsMargins(10, 7, 12, 7)
+        back = QPushButton("‹ 返回资料库", bar)
+        back.setObjectName("staticCatalogBackToMenu")
+        back.clicked.connect(self._show_menu)
+        title = QLabel(spec.title, bar)
+        title.setStyleSheet(themed_style(
+            "color:#f0f6fc;font-size:16px;font-weight:900"
+        ))
+        bar_layout.addWidget(back)
+        bar_layout.addWidget(title)
+        bar_layout.addStretch(1)
+        layout.addWidget(bar)
+        layout.addWidget(spec.build(host), 1)
         return host
 
     def _build_result_pane(self, parent: QWidget) -> QWidget:
@@ -215,6 +270,16 @@ class StaticCatalogPage:
         search.clear()
         search.blockSignals(False)
         self._require(self._domain_title).setText(self._domain_labels[domain_key])
+        spec = self._domain_page_specs_by_key.get(domain_key)
+        if spec is not None:
+            dedicated_page = self._domain_pages.get(domain_key)
+            if dedicated_page is None:
+                stack = self._require(self._stack)
+                dedicated_page = self._build_domain_page(spec, stack)
+                self._domain_pages[domain_key] = dedicated_page
+                stack.addWidget(dedicated_page)
+            self._require(self._stack).setCurrentWidget(dedicated_page)
+            return
         self._require(self._stack).setCurrentIndex(1)
         self._run_search()
 

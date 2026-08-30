@@ -104,7 +104,10 @@ from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxDependencies, ToolboxPage
 from src.features.static_catalog.controller import StaticCatalogController
-from src.features.static_catalog.dependencies import build_static_catalog_providers
+from src.features.static_catalog.dependencies import (
+    build_static_catalog_domain_pages,
+    build_static_catalog_providers,
+)
 from src.features.static_catalog.page import StaticCatalogPage
 from src.services.static_catalog_service import StaticCatalogService
 from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
@@ -325,6 +328,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             ),
             dialog_parent=self,
             game_ui_asset_root=self.app_context.paths.asset_dir / "game_ui",
+            domain_pages=build_static_catalog_domain_pages(
+                self.app_context.paths.static_database_path,
+                self.app_context.paths.asset_dir / "game_ui",
+            ),
         )
         self.onboarding_guide = OnboardingGuide(
             app_context=self.app_context,

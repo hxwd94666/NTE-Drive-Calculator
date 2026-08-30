@@ -22,7 +22,10 @@ from src.features.static_catalog.menu import (
     CatalogMenuCard,
     StaticCatalogMenu,
 )
-from src.features.static_catalog.page import StaticCatalogPage
+from src.features.static_catalog.page import (
+    StaticCatalogDomainPageSpec,
+    StaticCatalogPage,
+)
 
 
 def _domains() -> tuple[CatalogDomain, ...]:
@@ -114,6 +117,46 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         self.assertNotIn("coverage", controller.search_domains)
         self.assertNotIn("all", controller.search_domains)
         host.deleteLater()
+        owner.deleteLater()
+
+    def test_page_lazily_opens_registered_domain_page_and_closes_its_owner(self) -> None:
+        controller = _Controller()
+        owner = QWidget()
+        built: list[QWidget] = []
+        closed: list[bool] = []
+
+        def build_character(parent: QWidget) -> QWidget:
+            widget = QWidget(parent)
+            widget.setObjectName("registeredCharacterPage")
+            built.append(widget)
+            return widget
+
+        page = StaticCatalogPage(
+            controller=cast(Any, controller),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(StaticCatalogDomainPageSpec(
+                domain_key="character",
+                title="角色图鉴",
+                build=build_character,
+                close=lambda: closed.append(True),
+            ),),
+        )
+        page.build()
+        self.assertEqual([], built)
+
+        page._open_domain("character")
+        self.app.processEvents()
+        self.assertEqual(1, len(built))
+        self.assertIs(page._stack.currentWidget(), page._domain_pages["character"])
+        self.assertEqual([], controller.search_domains)
+
+        page._show_menu()
+        page._open_domain("character")
+        self.assertEqual(1, len(built))
+        page.close()
+        page.close()
+        self.assertEqual([True], closed)
         owner.deleteLater()
 
 
