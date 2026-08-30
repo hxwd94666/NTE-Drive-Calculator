@@ -12,14 +12,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from src.app.theme import themed_style
-from src.features.static_catalog.domain_pages.character_more_info import (
-    build_more_info,
-)
 from src.features.static_catalog.domain_pages.character_progression import (
     unavailable_character_level_requirements,
 )
@@ -42,9 +40,17 @@ class CharacterGrowthView(QWidget):
         super().__init__(parent)
         self._detail: CharacterDetail | None = None
         self._points: tuple[GrowthPoint, ...] = ()
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        host = QWidget(scroll)
+        root = QVBoxLayout(host)
+        root.setContentsMargins(4, 4, 4, 12)
+        root.setSpacing(9)
+        scroll.setWidget(host)
+        outer.addWidget(scroll)
 
         calculator = QFrame(self)
         calculator.setObjectName("characterLevelCalculator")
@@ -53,10 +59,11 @@ class CharacterGrowthView(QWidget):
             "border:1px solid #30363d;border-radius:14px;}"
         ))
         layout = QVBoxLayout(calculator)
-        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setContentsMargins(12, 9, 12, 9)
+        layout.setSpacing(5)
         title = QLabel("等级规划", calculator)
         title.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:17px;font-weight:900"
+            "color:#f0f6fc;font-size:15px;font-weight:900"
         ))
         hint = QLabel(
             "选择等级与突破状态。面板由正式曲线即时预览；材料、缺口、副本次数和活力交给公共养成服务。",
@@ -110,7 +117,7 @@ class CharacterGrowthView(QWidget):
         action_row.addStretch(1)
         layout.addLayout(action_row)
         self.progression_result = QLabel(
-            "当前正式数据未提供角色升级/突破消耗；公共 ProgressionStaminaService 尚未接入。",
+            "当前正式数据未提供角色升级/突破消耗；材料体力计算服务尚未接入。",
             calculator,
         )
         self.progression_result.setObjectName("characterProgressionResult")
@@ -120,8 +127,6 @@ class CharacterGrowthView(QWidget):
             "border-radius:8px;padding:9px"
         ))
         layout.addWidget(self.progression_result)
-        self.progression_more_info = QVBoxLayout()
-        layout.addLayout(self.progression_more_info)
         root.addWidget(calculator)
 
         section_title = QLabel("突破里程碑", self)
@@ -256,14 +261,7 @@ class CharacterGrowthView(QWidget):
             "color:#d29922;background:#0d1117;border:1px solid #d29922;"
             "border-radius:8px;padding:9px"
         ))
-        while self.progression_more_info.count():
-            item = self.progression_more_info.takeAt(0)
-            widget = item.widget() if item is not None else None
-            if widget is not None:
-                widget.deleteLater()
-        details = build_more_info(more_info, parent=self)
-        if details is not None:
-            self.progression_more_info.addWidget(details)
+        del more_info
 
     @staticmethod
     def _set_metric(card: QFrame, value: str) -> None:

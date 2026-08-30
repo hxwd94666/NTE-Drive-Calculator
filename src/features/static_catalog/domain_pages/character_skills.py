@@ -23,9 +23,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.features.static_catalog.domain_pages.character_more_info import (
-    build_more_info,
-)
 from src.features.static_catalog.domain_pages.character_progression import (
     project_skill_level_requirements,
 )
@@ -37,13 +34,13 @@ from src.services.static_catalog_character_models import (
     CharacterSkill,
     CombatLink,
 )
-from src.services.static_catalog_mechanics_models import CatalogLink, encode_record
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
 
 
 _MARKUP = re.compile(r"<[^>]+>")
+_HAN_CHARACTER = re.compile(r"[\u3400-\u9fff]")
 _PRIMARY_INPUTS = {
     "Ability.Melee": "A",
     "Ability.Skill": "E",
@@ -70,7 +67,6 @@ class CharacterActionCard:
     resource_path: str | None
     available: bool
     reason: str | None = None
-    related_links: tuple[tuple[str, CatalogLink], ...] = ()
 
 
 def build_action_cards(
@@ -96,7 +92,6 @@ def build_action_cards(
             detail.character.character_id,
             slot,
             by_slot.get(slot),
-            combat_links=combat_links,
             terminology=terminology,
             missing_reason=(
             "当前正式数据未提供 R 动作槽位映射。"
@@ -108,47 +103,58 @@ def build_action_cards(
 
     qte = next((skill for skill in detail.skills if skill.skill_id.endswith("_QTE")), None)
     if qte is not None:
-        cards.append(_skill_card(
+        qte_card = _skill_card(
             detail.character.character_id,
             "QTE",
             qte,
-            combat_links=combat_links,
             terminology=terminology,
             missing_reason="",
-        ))
+        )
+        if (
+            qte_card.title != "名称暂未提供"
+            and _HAN_CHARACTER.search(qte_card.title)
+        ):
+            cards.append(qte_card)
 
     active_links = tuple(link for link in combat_links if link.binding_kind == "active")
     g_link = next((link for link in active_links if (link.input_id or "").endswith("InputID_GSkill")), None)
     if g_link is not None:
-        cards.append(_link_card(
-            detail.character.character_id,
-            "G",
-            skill_names.get(g_link.ability_id or "") or project_character_term(
-                terminology,
-                entity_kind="gameplay_ability",
-                stable_id=g_link.ability_id or "",
-                identity_label="技能",
-            ).display_name,
-            g_link,
-        ))
+        name = _extra_action_name(g_link, skill_names, terminology)
+        if name is not None:
+            cards.append(_link_card(
+                detail.character.character_id, "G", name, g_link,
+            ))
     evade_counter = next((
         link for link in combat_links
         if link.ability_id and link.ability_id.endswith("_PerfectEvade")
     ), None)
     if evade_counter is not None:
-        cards.append(_link_card(
-            detail.character.character_id,
-            "闪避反击",
-            skill_names.get(evade_counter.ability_id or "")
-            or project_character_term(
-                terminology,
-                entity_kind="gameplay_ability",
-                stable_id=evade_counter.ability_id or "",
-                identity_label="技能",
-            ).display_name,
-            evade_counter,
-        ))
+        name = _extra_action_name(evade_counter, skill_names, terminology)
+        if name is not None:
+            cards.append(_link_card(
+                detail.character.character_id, "闪避反击", name, evade_counter,
+            ))
     return tuple(cards)
+
+
+def _extra_action_name(
+    link: CombatLink,
+    skill_names: dict[str, str | None],
+    terminology: StaticCatalogTerminologyService | None,
+) -> str | None:
+    """Return only a localized player name; raw ability identity is not a title."""
+
+    name = skill_names.get(link.ability_id or "") or project_character_term(
+        terminology,
+        entity_kind="gameplay_ability",
+        stable_id=link.ability_id or "",
+        identity_label="技能",
+    ).display_name
+    return (
+        name
+        if name != "名称暂未提供" and _HAN_CHARACTER.search(name)
+        else None
+    )
 
 
 def _skill_card(
@@ -156,7 +162,6 @@ def _skill_card(
     slot: str,
     skill: CharacterSkill | None,
     *,
-    combat_links: tuple[CombatLink, ...],
     terminology: StaticCatalogTerminologyService | None,
     missing_reason: str,
 ) -> CharacterActionCard:
@@ -178,7 +183,6 @@ def _skill_card(
         ability_id=skill.skill_id,
         resource_path=skill.gameplay_ability_path or skill.icon_path,
         available=True,
-        related_links=_skill_links(skill, combat_links),
     )
 
 
@@ -196,68 +200,7 @@ def _link_card(
         ability_id=link.ability_id,
         resource_path=link.ability_asset_path,
         available=True,
-        related_links=_combat_links((link,)),
     )
-
-
-def _effect_link(entity_kind: str, stable_id: str, relation: str) -> CatalogLink:
-    return CatalogLink(
-        "combat_mechanics",
-        encode_record("effect", f"{entity_kind}{chr(31)}{stable_id}"),
-        relation,
-    )
-
-
-def _skill_links(
-    skill: CharacterSkill,
-    combat_links: tuple[CombatLink, ...],
-) -> tuple[tuple[str, CatalogLink], ...]:
-    rows = [
-        (
-            f"伤害项 {index:02d}",
-            _effect_link("skill_damage", item.damage_id, "skill_damage"),
-        )
-        for index, item in enumerate(skill.damage_items, start=1)
-    ]
-    rows.extend(_combat_links(tuple(
-        link for link in combat_links if link.ability_id == skill.skill_id
-    )))
-    return _dedupe_links(rows)
-
-
-def _combat_links(
-    links: tuple[CombatLink, ...],
-) -> tuple[tuple[str, CatalogLink], ...]:
-    rows: list[tuple[str, CatalogLink]] = []
-    ge_index = 0
-    buff_index = 0
-    for link in links:
-        if link.gameplay_effect_id:
-            ge_index += 1
-            rows.append((
-                f"Gameplay Effect {ge_index:02d}",
-                _effect_link(
-                    "gameplay_effect",
-                    link.gameplay_effect_id,
-                    "ability_effect",
-                ),
-            ))
-        if link.buff_definition_id:
-            buff_index += 1
-            rows.append((
-                f"Buff {buff_index:02d}",
-                _effect_link("buff", link.buff_definition_id, "ability_buff"),
-            ))
-    return _dedupe_links(rows)
-
-
-def _dedupe_links(
-    rows: list[tuple[str, CatalogLink]] | tuple[tuple[str, CatalogLink], ...],
-) -> tuple[tuple[str, CatalogLink], ...]:
-    unique: dict[tuple[str, str], tuple[str, CatalogLink]] = {}
-    for label, link in rows:
-        unique.setdefault((link.domain_key, link.record_id), (label, link))
-    return tuple(unique.values())
 
 
 class SkillActionCard(QFrame):
@@ -267,40 +210,44 @@ class SkillActionCard(QFrame):
         super().__init__(parent)
         self.action = action
         self.setProperty("skillActionCard", True)
-        self.setMinimumSize(150, 132)
+        self.setMinimumSize(130, 88)
         self.setStyleSheet(themed_style(
             "QFrame[skillActionCard='true']{background:#161b22;"
             "border:1px solid #30363d;border-radius:14px;}"
         ))
-        self.setMinimumHeight(132)
+        self.setMinimumHeight(88)
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 9, 12, 9)
-        root.setSpacing(4)
+        root.setContentsMargins(9, 7, 9, 7)
+        root.setSpacing(3)
         heading = QHBoxLayout()
         slot = QLabel(action.slot, self)
-        slot.setFixedSize(max(38, len(action.slot) * 13), 38)
+        slot.setObjectName("characterSkillSlot")
+        slot.setFixedSize(
+            max(32, slot.fontMetrics().horizontalAdvance(action.slot) + 14),
+            32,
+        )
         slot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         slot.setStyleSheet(themed_style(
             "background:#1f6feb33;color:#58a6ff;border:1px solid #58a6ff;"
-            "border-radius:10px;font-size:14px;font-weight:900"
+            "border-radius:9px;font-size:12px;font-weight:900"
         ))
         name = QLabel(action.title, self)
+        name.setObjectName("characterSkillTitle")
         name.setWordWrap(True)
         name.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:14px;font-weight:800"
-            if action.available else "color:#6e7681;font-size:13px;font-weight:700"
+            "color:#f0f6fc;font-size:12px;font-weight:800"
+            if action.available else "color:#6e7681;font-size:11px;font-weight:700"
         ))
         heading.addWidget(slot)
         heading.addWidget(name, 1)
         root.addLayout(heading)
-        identity = QLabel(
-            action.reason or "查看技能说明与养成信息", self,
-        )
-        identity.setWordWrap(True)
-        identity.setStyleSheet(themed_style("color:#8b949e;font-size:9px"))
-        root.addWidget(identity, 1)
+        if action.reason:
+            identity = QLabel(action.reason, self)
+            identity.setWordWrap(True)
+            identity.setStyleSheet(themed_style("color:#8b949e;font-size:9px"))
+            root.addWidget(identity)
         controls = QHBoxLayout()
-        details = QPushButton("详情", self)
+        details = QPushButton("说明", self)
         details.setObjectName("btnSm")
         details.setEnabled(action.available)
         details.clicked.connect(lambda: self.requested.emit(self.action, "details"))
@@ -316,7 +263,6 @@ class SkillActionCard(QFrame):
 
 class SkillDetailDrawer(QFrame):
     progression_requested = Signal(object)
-    catalog_link_requested = Signal(object)
 
     def __init__(
         self,
@@ -331,7 +277,7 @@ class SkillDetailDrawer(QFrame):
             "QFrame#characterSkillDrawer{background:#0d1117;border:1px solid #30363d;"
             "border-radius:14px;}"
         ))
-        self.setMinimumHeight(178)
+        self.setMinimumHeight(150)
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
         self.title = QLabel("选择技能卡查看详情", self)
@@ -367,6 +313,7 @@ class SkillDetailDrawer(QFrame):
 
     def show_action(self, action: CharacterActionCard, mode: str) -> None:
         self._action = action
+        self.setVisible(True)
         self.title.setText(f"{action.slot} · {action.title}")
         if mode == "training":
             self._render_training(action)
@@ -394,18 +341,6 @@ class SkillDetailDrawer(QFrame):
     def _render_details(self, action: CharacterActionCard) -> None:
         self._clear(self.details_layout)
         skill = action.skill
-        ability_term = project_character_term(
-            self._terminology,
-            entity_kind="gameplay_ability",
-            stable_id=action.ability_id or "",
-            identity_label="技能",
-        )
-        more_info = build_more_info((
-            *ability_term.more_info,
-            ("Gameplay Tag", skill.gameplay_tag if skill is not None else None),
-        ), parent=self)
-        if more_info is not None:
-            self.details_layout.addWidget(more_info)
         if skill is not None:
             descriptions = tuple(
                 _plain(item.description_zh or item.short_description_zh)
@@ -448,7 +383,6 @@ class SkillDetailDrawer(QFrame):
             else:
                 self.details_layout.addWidget(self._muted("当前正式数据未提供技能描述"))
             self._render_level_hints(skill)
-        self._render_related_links(action.related_links)
         self.details_layout.addStretch(1)
 
     def _render_level_hints(self, skill: CharacterSkill) -> None:
@@ -462,54 +396,18 @@ class SkillDetailDrawer(QFrame):
         ))
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 8, 10, 8)
-        title = QLabel(f"正式等级提示 · {len(skill.level_hints)} 项", panel)
+        title = QLabel(f"等级效果 · {len(skill.level_hints)} 项", panel)
         title.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:11px;font-weight:900"
         ))
         layout.addWidget(title)
         for hint in skill.level_hints:
             text = _plain(hint.description_zh) or "名称暂未提供"
-            if hint.damage_effect_ids:
-                text += f" · 关联 {len(hint.damage_effect_ids)} 个伤害项"
             label = QLabel(text, panel)
             label.setWordWrap(True)
             label.setStyleSheet(themed_style("color:#c9d1d9;font-size:10px"))
             layout.addWidget(label)
         self.details_layout.addWidget(panel)
-
-    def _render_related_links(
-        self,
-        links: tuple[tuple[str, CatalogLink], ...],
-    ) -> None:
-        if not links:
-            return
-        toggle = QPushButton(f"查看正式关系（{len(links)}）  ▾", self)
-        toggle.setObjectName("characterSkillRelationsToggle")
-        toggle.setCheckable(True)
-        host = QFrame(self)
-        host.setObjectName("characterSkillRelations")
-        layout = QGridLayout(host)
-        layout.setContentsMargins(0, 2, 0, 2)
-        layout.setSpacing(6)
-        for index, (label, link) in enumerate(links):
-            button = QPushButton(label, host)
-            button.setObjectName("characterCatalogLink")
-            button.clicked.connect(
-                lambda _checked=False, target=link: self.catalog_link_requested.emit(target)
-            )
-            layout.addWidget(button, index // 2, index % 2)
-        host.setVisible(False)
-
-        def toggle_links(expanded: bool) -> None:
-            host.setVisible(expanded)
-            toggle.setText(
-                f"收起正式关系（{len(links)}）  ▴"
-                if expanded else f"查看正式关系（{len(links)}）  ▾"
-            )
-
-        toggle.toggled.connect(toggle_links)
-        self.details_layout.addWidget(toggle, 0, Qt.AlignmentFlag.AlignLeft)
-        self.details_layout.addWidget(host)
 
     def _description_label(self, text: str) -> QLabel:
         label = QLabel(text, self)
@@ -544,7 +442,7 @@ class SkillDetailDrawer(QFrame):
         formal_costs = QVBoxLayout()
         self.training_layout.addLayout(formal_costs)
         result = QLabel(
-            "公共养成计算尚未接入。点击后由 ProgressionStaminaService 计算材料缺口、"
+            "公共养成计算尚未接入。点击后由材料体力计算服务计算材料缺口、"
             "正式副本档位、预计次数与总活力。",
             self,
         )
@@ -585,14 +483,8 @@ class SkillDetailDrawer(QFrame):
                     for item, projection in zip(level.costs, projections)
                 ) or "当前正式数据未提供消耗项"
                 formal_costs.addWidget(self._material_chip(f"升至 Lv.{level.level}", costs))
-                more_info = build_more_info(tuple(
-                    row for projection in projections
-                    for row in projection.more_info
-                ), parent=self)
-                if more_info is not None:
-                    formal_costs.addWidget(more_info)
             formal_costs.addWidget(self._muted(
-                "这里仅陈列逐级正式 cost 行，不做材料折算或副本/活力推算。"
+                "这里仅陈列逐级消耗记录，不做材料折算或副本/活力推算。"
             ))
 
         def request_progression() -> None:
@@ -625,11 +517,6 @@ class SkillDetailDrawer(QFrame):
             request, 0, Qt.AlignmentFlag.AlignLeft,
         )
         self.training_layout.addWidget(result)
-        more_info_host = QFrame(self)
-        more_info_host.setObjectName("skillProgressionMoreInfo")
-        more_info_layout = QVBoxLayout(more_info_host)
-        more_info_layout.setContentsMargins(0, 0, 0, 0)
-        self.training_layout.addWidget(more_info_host)
 
     def set_progression_result(
         self,
@@ -649,14 +536,7 @@ class SkillDetailDrawer(QFrame):
             "color:#d29922;background:#161b22;border:1px solid #d29922;"
             "border-radius:8px;padding:9px"
         ))
-        host = self.findChild(QFrame, "skillProgressionMoreInfo")
-        layout = host.layout() if host is not None else None
-        if layout is None:
-            return
-        self._clear(layout)
-        details = build_more_info(more_info, parent=host)
-        if details is not None:
-            layout.addWidget(details)
+        del more_info
 
     def _material_chip(self, item_id: str, amount: str) -> QLabel:
         label = QLabel(f"{item_id}    {amount}", self)
@@ -692,7 +572,6 @@ class SkillDetailDrawer(QFrame):
 
 class CharacterSkillView(QWidget):
     progression_requested = Signal(object)
-    catalog_link_requested = Signal(object)
 
     def __init__(
         self,
@@ -722,7 +601,7 @@ class CharacterSkillView(QWidget):
             parent=self,
         )
         self.drawer.progression_requested.connect(self.progression_requested)
-        self.drawer.catalog_link_requested.connect(self.catalog_link_requested)
+        self.drawer.setVisible(False)
         root.addWidget(self.drawer)
         root.addStretch(1)
 
@@ -748,7 +627,7 @@ class CharacterSkillView(QWidget):
         return self.drawer.active_skill_id()
 
     def _relayout(self, *, force: bool = False) -> None:
-        columns = 2 if self.width() < 820 else 4
+        columns = 2 if self.width() < 620 else (3 if self.width() < 1000 else 4)
         if not force and columns == self._columns:
             return
         self._columns = columns

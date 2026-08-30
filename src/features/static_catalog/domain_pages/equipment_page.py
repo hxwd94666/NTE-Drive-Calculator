@@ -26,7 +26,6 @@ from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
-from src.features.static_catalog.contracts import CatalogLink
 from src.ui.equipment_presentation import EquipmentPresentation
 _STATUS_CATALOG = build_warehouse_filter_catalog(())
 _STATUS_LABELS = {option.value: option.label for option in _STATUS_CATALOG.statuses}
@@ -181,15 +180,12 @@ class EquipmentGalleryCard(QFrame):
             self.activated.emit(self.record.item_id)
         super().mouseReleaseEvent(event)
 class EquipmentDetailView(QScrollArea):
-    back_requested = Signal()
     def __init__(self, *, controller: EquipmentCatalogPageController, asset_catalog: GameUiAssetCatalog,
-                 presentation: EquipmentPresentation,
-                 open_catalog_link: Callable[[CatalogLink], None], parent: QWidget) -> None:
+                 presentation: EquipmentPresentation, parent: QWidget) -> None:
         super().__init__(parent)
         self._controller = controller
         self._asset_catalog = asset_catalog
         self._presentation = presentation
-        self._open_catalog_link = open_catalog_link
         self.setWidgetResizable(True)
         self.host = QWidget(self)
         self.layout = QVBoxLayout(self.host)
@@ -203,10 +199,6 @@ class EquipmentDetailView(QScrollArea):
             if widget is not None:
                 widget.setParent(None)
                 widget.deleteLater()
-        back = QPushButton("← 返回空幕与驱动", self.host)
-        back.setObjectName("btnAction")
-        back.clicked.connect(self.back_requested)
-        self.layout.addWidget(back, 0, Qt.AlignLeft)
     def clear_account_projection(self) -> None:
         """Remove all detail widgets that may contain a prior account instance."""
         self._reset()
@@ -233,17 +225,17 @@ class EquipmentDetailView(QScrollArea):
             f"QFrame#equipmentArchiveDetailHero{{background:#161b22;border:2px solid {tone};border-radius:18px;}}"
         ))
         row = QHBoxLayout(hero)
-        row.setContentsMargins(20, 18, 20, 18)
+        row.setContentsMargins(16, 12, 16, 12)
         icon_path = self._asset_catalog.inventory_item_icon(record.kind, record.item_id)
         image = QLabel(hero)
-        image.setFixedSize(160, 160)
+        image.setFixedSize(120, 120)
         pixmap = QPixmap(str(icon_path or ""))
         if not pixmap.isNull():
-            image.setPixmap(pixmap.scaled(160, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            image.setPixmap(pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         row.addWidget(image)
         copy = QVBoxLayout()
         title = QLabel(record.name, hero)
-        title.setStyleSheet(themed_style("color:#f0f6fc;font-size:25px;font-weight:900"))
+        title.setStyleSheet(themed_style("color:#f0f6fc;font-size:22px;font-weight:900"))
         copy.addWidget(title)
         kind = "空幕 / 卡带" if record.kind == "core" else "驱动"
         copy.addWidget(_text(f"{kind}  ·  {quality_label}  ·  最高 Lv.{record.max_level}", hero))
@@ -388,16 +380,10 @@ class EquipmentDetailView(QScrollArea):
                 ))
             if effect.has_conditional_effect:
                 panel.body_layout.addWidget(_text(
-                    "包含战斗条件效果；触发、持续与叠层规则请查看战斗机制。", panel.body, muted=True,
+                    "条件、持续与叠层规则已按当前可读说明在本卡内展示。",
+                    panel.body,
+                    muted=True,
                 ))
-                if effect.mechanics_link is not None:
-                    button = QPushButton("查看战斗机制", panel.body)
-                    button.setObjectName("btnAction")
-                    button.clicked.connect(
-                        lambda _checked=False, link=effect.mechanics_link:
-                        self._open_catalog_link(link)
-                    )
-                    panel.body_layout.addWidget(button, 0, Qt.AlignLeft)
             effects_layout.addWidget(panel)
         self.layout.addWidget(effects)
     def _add_graduations(self, suit_id: str) -> None:
@@ -438,22 +424,20 @@ class EquipmentCatalogPage(QWidget):
     """Independent player archive; account inventory is an injected projection."""
     def __init__(self, *, controller: EquipmentCatalogPageController, asset_catalog: GameUiAssetCatalog,
                  presentation: EquipmentPresentation,
-                 open_catalog_link: Callable[[CatalogLink], None],
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._controller = controller
         self._asset_catalog = asset_catalog
         self._presentation = presentation
-        self._open_catalog_link = open_catalog_link
+        self._catalog_navigation_listener: Callable[[], None] = lambda: None
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         self.stack = QStackedWidget(self)
         self.gallery = self._build_gallery()
         self.detail = EquipmentDetailView(
             controller=controller, asset_catalog=asset_catalog,
-            presentation=presentation, open_catalog_link=open_catalog_link, parent=self,
+            presentation=presentation, parent=self,
         )
-        self.detail.back_requested.connect(self.show_gallery)
         self.stack.addWidget(self.gallery)
         self.stack.addWidget(self.detail)
         root.addWidget(self.stack)
@@ -639,18 +623,37 @@ class EquipmentCatalogPage(QWidget):
             self._controller.strength_experience(item_id),
         )
         self.stack.setCurrentWidget(self.detail)
+        self._catalog_navigation_listener()
     def open_suit(self, suit_id: str) -> None:
         suit = self._controller.suit(suit_id)
         if suit is not None:
             self.detail.show_suit(suit)
             self.stack.setCurrentWidget(self.detail)
+            self._catalog_navigation_listener()
     def open_shape(self, shape_id: str) -> None:
         shape = self._controller.shape(shape_id)
         if shape is not None:
             self.detail.show_shape(shape)
             self.stack.setCurrentWidget(self.detail)
+            self._catalog_navigation_listener()
     def show_gallery(self) -> None:
         self.stack.setCurrentWidget(self.gallery)
+        self._catalog_navigation_listener()
+
+    def set_catalog_navigation_listener(
+        self,
+        listener: Callable[[], None],
+    ) -> None:
+        self._catalog_navigation_listener = listener
+
+    def catalog_back_label(self) -> str | None:
+        return "空幕与驱动列表" if self.stack.currentWidget() is self.detail else None
+
+    def catalog_go_back(self) -> bool:
+        if self.stack.currentWidget() is not self.detail:
+            return False
+        self.show_gallery()
+        return True
     @staticmethod
     def _ownership_text(count: int | None) -> str:
         if count is None:
@@ -664,7 +667,6 @@ def build_equipment_catalog_page(
     *, database_path: str | Path, game_ui_asset_root: str | Path,
     presentation: EquipmentPresentation,
     terminology_service: StaticCatalogTerminologyService | None = None,
-    open_catalog_link: Callable[[CatalogLink], None] | None = None,
     parent: QWidget | None = None,
 ) -> EquipmentCatalogPage:
     return EquipmentCatalogPage(
@@ -674,6 +676,5 @@ def build_equipment_catalog_page(
         ),
         asset_catalog=GameUiAssetCatalog(game_ui_asset_root),
         presentation=presentation,
-        open_catalog_link=open_catalog_link or (lambda _link: None),
         parent=parent,
     )

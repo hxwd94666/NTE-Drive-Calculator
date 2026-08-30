@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 
 from src.services.static_catalog_formula_presenters import (
-    build_counterfactual_model_matrix,
     build_formula_detail_sections,
 )
 from src.services.static_catalog_formula_service import StaticCatalogFormulaService
@@ -23,14 +22,13 @@ from src.services.static_catalog_mechanics_models import (
     FAMILIES,
     FORMULA_CHAPTER_BY_KEY,
     FORMULA_CHAPTER_ORDER,
-    MODEL_FAMILY_BY_KEY,
+    FORMULA_FAMILY_BY_KEY,
     MechanicsCard,
     MechanicsDetail,
     MechanicsFamily,
     PLACEHOLDER_NAME,
     PlayerField,
     PlayerSection,
-    STATUS_ORDER,
     decode_record,
     encode_record,
 )
@@ -43,14 +41,6 @@ from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
 
-_EFFECT_PRESET = {
-    "attributes": "",
-    "reactions": "Reaction",
-    "dot": "State.Damage.Dot",
-    "topple": "Unbal",
-    "events": "Attachment",
-    "formula": "",
-}
 _HIDDEN_FIELD_PARTS = (
     "路径", "SHA", "来源行", "来源文件", "文件 ID", "公式版本", "payload",
 )
@@ -111,11 +101,7 @@ class StaticCatalogMechanicsService:
             for section in build_formula_detail_sections(domain)
             for formula in section.formulas
         }
-        matrix = build_counterfactual_model_matrix(domain)
-        self._models = {
-            row.key: row for row in matrix.rows if row.key in MODEL_FAMILY_BY_KEY
-        }
-        self.projection_version = matrix.projection_version
+        self.projection_version = domain.projection_version
         self.dataset_id = domain.evidence_snapshot.dataset_id
 
     @property
@@ -123,11 +109,8 @@ class StaticCatalogMechanicsService:
         return FAMILIES
 
     def status_counts(self) -> tuple[tuple[str, int], ...]:
-        order = ("complete", "partial", "unavailable", "not_applicable")
-        return tuple(
-            (status, sum(row.status == status for row in self._models.values()))
-            for status in order
-        )
+        """Counterfactual coverage is intentionally absent from the player catalog."""
+        return ()
 
     def browse(
         self,
@@ -140,98 +123,52 @@ class StaticCatalogMechanicsService:
         if family is None:
             raise ValueError(f"未知机制家族：{family_key!r}")
         needle = str(query).strip().casefold()
-        cards: list[MechanicsCard] = []
-        cards.extend(self._formula_cards(family.key, needle))
-        cards.extend(self._model_cards(family.key, needle))
-        cards.extend(self._identity_cards(family.key, needle))
-        if family.key != "formula" or needle:
-            effect_query = str(query).strip() or _EFFECT_PRESET[family.key]
-            page = self._misc.search("effects", effect_query, limit=min(limit, 50))
-            cards.extend(self._public_effect_cards(
-                page.items,
-                family.key,
-                include_unnamed=bool(needle),
-            ))
-        if needle:
-            skill_page = self._misc.search("skills", str(query).strip(), limit=min(limit, 50))
-            cards.extend(self._public_effect_cards(
-                skill_page.items,
-                family.key,
-                include_unnamed=False,
-            ))
-        unique: dict[str, MechanicsCard] = {}
-        for card in cards:
-            unique.setdefault(card.record_id, card)
-        ordered = sorted(
-            unique.values(),
-            key=self._card_sort_key,
-        )
-        return tuple(ordered[:limit])
+        cards = self._formula_cards(family.key, needle)
+        return tuple(sorted(cards, key=self._card_sort_key)[:limit])
 
     def detail(self, record_id: str) -> MechanicsDetail:
         kind, key = decode_record(record_id)
         if kind == "formula":
-            return self._details.formula_detail(self._formulas[key])
+            try:
+                formula = self._formulas[key]
+            except KeyError as exc:
+                raise LookupError("公式不存在") from exc
+            return self._details.formula_detail(formula)
         if kind == "model":
-            return self._details.model_detail(self._models[key])
+            raise LookupError("反事实模型不在玩家图鉴中展示")
         if kind == "effect":
             entity_kind, separator, entity_key = key.partition(chr(31))
             if not separator:
                 raise ValueError("效果记录键格式无效")
-            raw = self._misc.detail(entity_kind, entity_key)
+            try:
+                raw = self._misc.detail(entity_kind, entity_key)
+            except (KeyError, LookupError) as exc:
+                raise LookupError("关联机制不存在") from exc
             if not isinstance(raw, CatalogDetail):
                 raise LookupError("效果详情不可用")
             return self._effect_detail(raw, record_id)
         raise ValueError(f"不支持的战斗机制记录：{kind!r}")
 
     def _formula_cards(self, family_key: str, needle: str) -> list[MechanicsCard]:
-        if family_key != "formula" and not needle:
-            return []
         rows = []
         for formula in self._formulas.values():
+            if FORMULA_FAMILY_BY_KEY.get(formula.key) != family_key:
+                continue
+            title, expression, variables = self._details.player_formula(formula)
             variable_text = " ".join(
-                text
-                for symbol, meaning in formula.variables
-                for text in (symbol, meaning)
+                text for label, meaning in variables for text in (label, meaning)
             )
-            haystack = " ".join((
-                formula.title,
-                formula.expression,
-                formula.section,
-                variable_text,
-            )).casefold()
+            haystack = " ".join((title, expression, variable_text)).casefold()
             if needle and needle not in haystack:
                 continue
             rows.append(MechanicsCard(
                 record_id=encode_record("formula", formula.key),
-                family_key="formula",
+                family_key=family_key,
                 card_kind="formula",
                 eyebrow=FORMULA_CHAPTER_BY_KEY.get(formula.key, "公式"),
-                title=formula.title,
-                subtitle=formula.expression,
-                badges=(formula.boundary_label, "项目公式"),
-            ))
-        return rows
-
-    def _model_cards(self, family_key: str, needle: str) -> list[MechanicsCard]:
-        rows = []
-        for model in self._models.values():
-            model_family = MODEL_FAMILY_BY_KEY[model.key]
-            haystack = " ".join((model.mechanism, model.scope, model.category)).casefold()
-            if needle:
-                if needle not in haystack:
-                    continue
-            elif model_family != family_key:
-                continue
-            rows.append(MechanicsCard(
-                record_id=encode_record("model", model.key),
-                family_key=model_family,
-                card_kind="model",
-                eyebrow="反事实覆盖",
-                title=self._details.player_model_text(model.mechanism),
-                subtitle=self._details.player_model_text(model.scope),
-                badges=(model.status_label, model.category),
-                status=model.status,
+                title=title,
+                subtitle=expression,
+                badges=(),
             ))
         return rows
 
@@ -363,11 +300,13 @@ class StaticCatalogMechanicsService:
 
     def _effect_detail(self, raw: CatalogDetail, record_id: str) -> MechanicsDetail:
         owner_label, owner_link = self._identity_provider.owner(raw)
-        redirect_only = owner_link is not None
         sections: list[PlayerSection] = []
-        identity_fields: list[PlayerField] = []
         unstructured = False
-        property_values: list[str] = []
+        if owner_link is not None:
+            sections.append(PlayerSection(
+                "所属对象",
+                (PlayerField("归属", owner_label, "accent"),),
+            ))
         for section in raw.sections:
             fields: list[PlayerField] = []
             for field in section.fields:
@@ -375,12 +314,7 @@ class StaticCatalogMechanicsService:
                     if "Calculation" in field.label or "/Calculation" in field.value:
                         unstructured = True
                     continue
-                if field.label in {"属性正式 ID", "属性值", "修改运算"}:
-                    property_values.append(field.value)
                 if self._identity(field.label, field.value):
-                    identity_fields.append(PlayerField(
-                        field.label, field.value, "accent"
-                    ))
                     continue
                 if self._unreadable_raw(field.label, field.value):
                     continue
@@ -389,45 +323,28 @@ class StaticCatalogMechanicsService:
                     self._player_value(field.value),
                     self._field_tone(field.label),
                 ))
-            if fields and not redirect_only and any(
+            if fields and any(
                 field.label != "序号" for field in fields
             ):
                 sections.append(PlayerSection(section.title, tuple(fields)))
         display_name = self._effect_display_name(raw)
-        identity_fields = list(dict.fromkeys(identity_fields))
-        badges = [_EFFECT_TYPE_LABELS.get(raw.entity_kind, raw.subtitle), raw.origin_label]
-        if unstructured and not property_values:
-            badges.append("数值规则尚未结构化")
-        related = [] if redirect_only else [
-            (relation.label, self._relation_link(relation.target_kind, relation.target_key))
-            for relation in raw.relations
-            if not self._technical_relation(relation.label)
-        ]
-        if not redirect_only:
-            related.extend(self._identity_provider.additional_links(raw))
-        related.extend(self._formula_links(property_values))
-        related.extend(self._mechanic_formula_links(raw.entity_kind))
-        related = self._dedupe_links(related)
-        notice = (
-            "该机制有唯一归属，完整技能与效果说明由所属对象页面拥有。"
-            if redirect_only else
-            ("存在 Calculation，但数值规则尚未结构化。" if unstructured and not property_values else "")
-        )
+        badges = (_EFFECT_TYPE_LABELS.get(raw.entity_kind, "战斗机制"),)
+        notice = "数值规则暂未形成玩家可读说明。" if unstructured and not sections else ""
         return MechanicsDetail(
             record_id=record_id,
             card_kind="effect",
             title=display_name,
             subtitle=_EFFECT_TYPE_LABELS.get(raw.entity_kind, "公共战斗机制"),
             family_key=self._effect_family(raw),
-            badges=tuple(badges),
+            badges=badges,
             status=None,
             owner_label=owner_label,
             owner_link=owner_link,
-            redirect_only=redirect_only,
+            redirect_only=False,
             sections=tuple(sections),
-            identity_fields=tuple(identity_fields),
+            identity_fields=(),
             evidence_stages=(),
-            related_links=tuple(related),
+            related_links=(),
             audit_references=tuple(
                 f"{section.title}:{field.label}" for section in raw.sections for field in section.fields
             ),
@@ -437,22 +354,22 @@ class StaticCatalogMechanicsService:
     @staticmethod
     def _effect_family(raw: CatalogDetail) -> str:
         if raw.entity_kind in {"gameplay_ability", "skill_damage"}:
-            return "formula"
+            return "damage"
         if raw.entity_kind == "reaction":
-            return "reactions"
+            return "states"
         text = " ".join(
             [raw.title, raw.subtitle]
             + [field.value for section in raw.sections for field in section.fields]
         ).casefold()
         if "state.damage.dot" in text or "持续伤害" in text:
-            return "dot"
+            return "states"
         if "reaction" in text or "环合" in text or "gameplay tag" in text:
-            return "reactions"
+            return "states"
         if "unbal" in text or "倾陷" in text or "抗性" in text:
-            return "topple"
+            return "states"
         if any(token in text for token in ("attachment", "召唤", "治疗", "护盾", "时停")):
-            return "events"
-        return "attributes"
+            return "settlement"
+        return "multipliers"
 
     @staticmethod
     def _hidden(label: str, value: str) -> bool:
@@ -603,6 +520,4 @@ class StaticCatalogMechanicsService:
         secondary = 0
         if card.card_kind == "formula":
             secondary = FORMULA_CHAPTER_ORDER.get(card.eyebrow, 99)
-        elif card.card_kind == "model" and card.status:
-            secondary = STATUS_ORDER.get(card.status, 99)
         return cls._kind_order(card.card_kind), secondary, card.title.casefold()

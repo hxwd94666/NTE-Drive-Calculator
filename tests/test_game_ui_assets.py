@@ -27,10 +27,30 @@ class GameUiAssetTests(unittest.TestCase):
     def test_generated_pngs_stay_inside_dimension_and_size_budgets(self) -> None:
         pngs = sorted(ASSET_ROOT.rglob("*.png"))
         self.assertGreater(len(pngs), 0)
-        self.assertLessEqual(sum(path.stat().st_size for path in pngs), 8 * 1024 * 1024)
+        self.assertLessEqual(sum(path.stat().st_size for path in pngs), 32 * 1024 * 1024)
         for path in pngs:
             with Image.open(path) as image:
-                self.assertLessEqual(max(image.size), 256, path.name)
+                expected_max = 512 if "characters/art" in path.as_posix() else 256
+                self.assertLessEqual(max(image.size), expected_max, path.name)
+
+    def test_catalog_characters_have_formal_default_appearance_art(self) -> None:
+        manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            "/Game/DataTable/Character/Appearance/DT_AppearanceData",
+            manifest["source_appearance_table"],
+        )
+        expected = {
+            str(character_id)
+            for character_id in (
+                1003, 1004, 1008, 1010, 1019, 1020, 1021, 1023, 1025, 1033,
+                1036, 1039, 1046, 1051, 1052, 1054, 1055, 1070, 1071, 1072,
+                1073, 1075, 1076,
+            )
+        }
+        self.assertEqual(expected, set(manifest["character_arts"]))
+        catalog = GameUiAssetCatalog(ASSET_ROOT)
+        self.assertTrue(all(catalog.character_art(int(key)).is_file() for key in expected))
+        self.assertIsNone(catalog.character_art(1056))
 
     def test_all_static_core_items_have_an_official_item_id_mapping(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
@@ -57,6 +77,7 @@ class GameUiAssetTests(unittest.TestCase):
     def test_catalog_resolves_ids_and_rejects_missing_keys(self) -> None:
         catalog = GameUiAssetCatalog(ASSET_ROOT)
         self.assertTrue(catalog.character_icon(1003).is_file())
+        self.assertTrue(catalog.character_art(1003).is_file())
         self.assertEqual("player_canhong_256.png", catalog.character_icon(1036).name)
         self.assertEqual("player_lingke_256.png", catalog.character_icon(1072).name)
         self.assertEqual(catalog.character_icon(1004), catalog.character_icon(1091))

@@ -6,13 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
     QToolButton,
     QVBoxLayout,
@@ -65,10 +64,6 @@ class MonsterContext:
 
 
 class MonsterDetailView(QWidget):
-    back_requested = Signal()
-    reference_requested = Signal(str)
-    catalog_link_requested = Signal(object)
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.stat_cards: list[MetricCard] = []
@@ -78,9 +73,6 @@ class MonsterDetailView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
-        back = QPushButton("← 返回", self)
-        back.clicked.connect(self.back_requested)
-        top.addWidget(back)
         self.crumb = QLabel("怪物与玩法", self)
         self.crumb.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
         top.addWidget(self.crumb)
@@ -135,7 +127,6 @@ class MonsterDetailView(QWidget):
         self._add_drop_projection(detail)
         self._add_summary(detail)
         self._add_relations(detail)
-        self._add_more_info(detail)
         if detail.notices:
             note = QLabel("部分名称或数值暂不可用，页面未进行补猜。", self.host)
             note.setWordWrap(True)
@@ -167,7 +158,7 @@ class MonsterDetailView(QWidget):
             "轨外赛季 Buff": "本期赛季规则",
         }.get(options.title, "场景增益 / 限制")
         self.body.addWidget(section_title(
-            heading, f"{len(values)} 项正式规则，具体机制可继续跳转查看",
+            heading, f"{len(values)} 项规则，效果说明直接在当前页面展开",
         ))
         if options.note:
             description = QLabel(options.note, self.host)
@@ -187,7 +178,6 @@ class MonsterDetailView(QWidget):
                 preview,
                 catalog_link=value.catalog_link,
             )
-            card.mechanism_requested.connect(self.catalog_link_requested.emit)
             self.buff_cards.append(card)
             preview_grid.addWidget(card, index // 2, index % 2)
         self.body.addWidget(preview)
@@ -202,7 +192,6 @@ class MonsterDetailView(QWidget):
                     remainder,
                     catalog_link=value.catalog_link,
                 )
-                card.mechanism_requested.connect(self.catalog_link_requested.emit)
                 self.buff_cards.append(card)
                 grid.addWidget(card, index // 2, index % 2)
             self.body.addWidget(_disclosure(
@@ -284,36 +273,34 @@ class MonsterDetailView(QWidget):
     def _add_relations(self, detail: CatalogDetail) -> None:
         if not detail.relations:
             return
+        self.body.addWidget(section_title(
+            "相关画像", "关联内容直接列在本页，不改变当前浏览位置",
+        ))
         host = QWidget(self.host)
-        layout = QVBoxLayout(host)
-        layout.setContentsMargins(0, 0, 0, 0)
-        for index, relation in enumerate(detail.relations, 1):
-            button = QPushButton(f"查看正式关联画像 {index}", host)
-            button.setProperty("recordId", relation.target_key)
-            button.clicked.connect(
-                lambda _checked=False, key=relation.target_key:
-                self.reference_requested.emit(key)
-            )
-            layout.addWidget(button)
-        self.body.addWidget(_disclosure(
-            f"正式关联（{len(detail.relations)}）", host, self.host,
-        ))
-
-    def _add_more_info(self, detail: CatalogDetail) -> None:
-        host = QFrame(self.host)
-        host.setStyleSheet(themed_style(
-            "QFrame{background:#161b22;border:1px solid #30363d;border-radius:10px;}"
-        ))
-        layout = QVBoxLayout(host)
-        layout.setContentsMargins(11, 8, 11, 8)
-        primary = QLabel(f"正式 ID：{detail.entry.primary_id or '暂不可用'}", host)
-        primary.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(primary)
-        if detail.entry.secondary_id:
-            secondary = QLabel(f"档位 / 类型 ID：{detail.entry.secondary_id}", host)
-            secondary.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            layout.addWidget(secondary)
-        self.body.addWidget(_disclosure("更多信息", host, self.host))
+        grid = QGridLayout(host)
+        grid.setContentsMargins(0, 0, 0, 0)
+        columns = 1 if self.width() < 700 else 2
+        for index, relation in enumerate(detail.relations):
+            card = QFrame(host)
+            card.setStyleSheet(themed_style(
+                "QFrame{background:#161b22;border:1px solid #30363d;"
+                "border-radius:10px;}"
+            ))
+            copy = QVBoxLayout(card)
+            copy.setContentsMargins(10, 7, 10, 7)
+            label = QLabel(relation.label or "相关画像", card)
+            label.setWordWrap(True)
+            label.setStyleSheet(themed_style(
+                "color:#f0f6fc;font-size:11px;font-weight:800"
+            ))
+            copy.addWidget(label)
+            if relation.note:
+                note = QLabel(relation.note, card)
+                note.setWordWrap(True)
+                note.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
+                copy.addWidget(note)
+            grid.addWidget(card, index // columns, index % columns)
+        self.body.addWidget(host)
 
     def _hero(
         self, detail: CatalogDetail, icon: Path | None, context: MonsterContext | None,

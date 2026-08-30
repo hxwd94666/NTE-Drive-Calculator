@@ -1,4 +1,3 @@
-# 验证角色图鉴使用卡片墙、正式筛选和公共养成服务接线位。
 from __future__ import annotations
 
 import os
@@ -35,7 +34,6 @@ from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
 from src.storage.sqlite.static_catalog_character_queries import StaticCatalogCharacterQueries
-
 
 NTE_TEST_TIER = "core"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -163,9 +161,9 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
     def test_gallery_uses_character_cards_and_no_tables(self) -> None:
         cards = self.page.findChildren(CharacterGalleryCard)
 
-        self.assertEqual(23, len(cards))
+        self.assertEqual(22, len(cards))
         self.assertEqual([], self.page.findChildren(QTableWidget))
-        self.assertIn("23 位角色", self.page.result_count.text())
+        self.assertIn("22 位角色", self.page.result_count.text())
         self.assertIsNone(self.page.findChild(QFrame, "characterGalleryHero"))
         self.assertNotIn(1056, self.page._cards)
         self.assertNotIn(1091, self.page._cards)
@@ -177,11 +175,20 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertNotIn("Actor 路径", visible_text)
         self.assertNotIn("资源路径", visible_text)
         self.assertNotIn("战斗形态", visible_text)
+        protagonist = "\n".join(
+            label.text() for label in self.page._cards[1051].findChildren(QLabel)
+        )
+        self.assertIn("2 种形象", protagonist)
+        self.assertIn("ID 1046 / 1051", protagonist)
 
     def test_filters_name_id_element_quality_and_acquisition(self) -> None:
         self.page.search.setText("1036")
         self.app.processEvents()
         self.assertEqual((1036,), self.page._visible_ids)
+
+        self.page.search.setText("1046")
+        self.app.processEvents()
+        self.assertEqual((1051,), self.page._visible_ids)
 
         self.page.search.clear()
         element_button = next(
@@ -248,7 +255,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertTrue(free.isEnabled())
         free.click()
         self.app.processEvents()
-        self.assertEqual({1046, 1051, 1073}, set(self.page._visible_ids))
+        self.assertEqual({1051, 1073}, set(self.page._visible_ids))
         self.assertTrue(all(
             self.release_service.metadata(character_id).acquisition_type
             == "free"
@@ -274,22 +281,23 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(self.page.filter_body.isVisible())
 
-    def test_scheduled_and_released_characters_use_distinct_sections(self) -> None:
+    def test_scheduled_card_leads_the_shared_responsive_grid(self) -> None:
         visible_text = "\n".join(
             label.text() for label in self.page.gallery_host.findChildren(QLabel)
         )
-        self.assertIn("待上线预告", visible_text)
-        self.assertIn("已上线角色", visible_text)
-        self.assertIn("预告角色独立展示", visible_text)
+        self.assertNotIn("待上线预告", visible_text)
+        self.assertNotIn("已上线角色", visible_text)
+        self.assertNotIn("预告角色独立展示", visible_text)
         self.assertTrue(self.page._cards[1072].property("scheduledCharacter"))
         self.assertFalse(self.page._cards[1036].property("scheduledCharacter"))
         scheduled_position = self.page.card_grid.getItemPosition(
-            self.page.card_grid.indexOf(self.page.scheduled_header)
+            self.page.card_grid.indexOf(self.page._cards[1072])
         )
         active_position = self.page.card_grid.getItemPosition(
-            self.page.card_grid.indexOf(self.page.active_header)
+            self.page.card_grid.indexOf(self.page._cards[1036])
         )
-        self.assertLess(scheduled_position[0], active_position[0])
+        self.assertEqual((0, 0), scheduled_position[:2])
+        self.assertEqual((0, 1), active_position[:2])
 
     def test_scheduled_limited_character_uses_future_facing_copy(self) -> None:
         limited = next(
@@ -317,7 +325,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             label.text() for label in self.page.detail_view.findChildren(QLabel)
         )
         self.assertIn("限定 · 待上线", detail_text)
-        self.assertIn("预计上线日期", detail_text)
+        self.assertIn("预计上线 2026-09-03", detail_text)
 
     def test_gallery_defaults_to_newest_release_first(self) -> None:
         self.assertEqual(
@@ -372,8 +380,8 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         slots = [card.action.slot for card in action_cards]
         self.assertEqual(["A", "E", "Q", "R"], slots[:4])
         self.assertIn("QTE", slots)
-        self.assertIn("G", slots)
-        self.assertIn("闪避反击", slots)
+        self.assertTrue(set(slots[4:]).issubset({"QTE", "G"}))
+        self.assertNotIn("闪避反击", slots)
         self.assertNotIn("Z", slots)
         r_card = next(card for card in action_cards if card.action.slot == "R")
         self.assertFalse(r_card.action.available)
@@ -399,15 +407,38 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         ):
             self.assertNotIn(raw_source, visible_text)
 
-    def test_profile_separates_formal_avatar_from_unavailable_full_art(self) -> None:
+    def test_profile_uses_formal_full_art_for_all_catalog_variants(self) -> None:
         self.page.open_character(1004)
         self.app.processEvents()
 
-        avatar = self.page.detail_view.avatar
         full_art = self.page.detail_view.art
-        self.assertFalse(avatar.pixmap().isNull())
-        self.assertTrue(full_art.pixmap().isNull())
-        self.assertIn("当前正式资源未提供", full_art.text())
+        self.assertFalse(full_art.pixmap().isNull())
+        variants = tuple(
+            item for item in self.service.list_characters(limit=200).items
+            if item.classification != "combat_transformation"
+        )
+        self.assertEqual(23, len(variants))
+        self.assertTrue(all(
+            self.page._asset_catalog.character_art(item.character_id) is not None
+            for item in variants
+        ))
+
+    def test_protagonist_variants_switch_inside_one_profile(self) -> None:
+        self.page.open_character(1051)
+        self.app.processEvents()
+        buttons = {
+            button.text(): button
+            for button in self.page.detail_view.findChildren(QPushButton)
+            if button.text() in {"男性形象", "女性形象"}
+        }
+        self.assertEqual({"男性形象", "女性形象"}, set(buttons))
+        self.assertFalse(buttons["女性形象"].isEnabled())
+        self.assertTrue(buttons["男性形象"].isEnabled())
+        buttons["男性形象"].click()
+        self.app.processEvents()
+        self.assertEqual(1046, self.page._active_character_id)
+        self.assertEqual("「零」", self.page.detail_view.name.text())
+        self.assertFalse(self.page.detail_view.art.pixmap().isNull())
 
     def test_profile_reflows_quick_facts_at_narrow_width(self) -> None:
         self.page.open_character(1004)
@@ -416,11 +447,14 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
 
         detail = self.page.detail_view
         self.assertTrue(detail._compact)
-        fact_position = detail.hero_grid.getItemPosition(
-            detail.hero_grid.indexOf(detail.fact_panel)
+        self.assertIsNone(detail.findChild(QFrame, "characterQuickFacts"))
+        self.assertLessEqual(detail.hero.maximumHeight(), 160)
+        self.assertEqual(
+            0,
+            detail.hero_grid.getItemPosition(
+                detail.hero_grid.indexOf(detail.art_panel)
+            )[0],
         )
-        self.assertEqual((1, 0, 1, 2), fact_position)
-        self.assertGreaterEqual(detail.hero.minimumHeight(), 318)
 
     def test_level_planner_emits_public_progression_request_without_local_result(self) -> None:
         self.page.open_character(1036)
@@ -448,7 +482,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             ("character_level_cost_unavailable",),
             tuple(gap.reason_code for gap in request["requirement_gaps"]),
         )
-        self.assertIn("ProgressionStaminaService 尚未接入", growth.progression_result.text())
+        self.assertIn("材料体力计算服务尚未接入", growth.progression_result.text())
 
         self.assertTrue(self.page.set_progression_result(
             target="character_level",
@@ -466,20 +500,8 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         ))
         self.assertIn("名称暂未提供", growth.progression_result.text())
         self.assertNotIn("CharacterExp", growth.progression_result.text())
-        more_info = growth.progression_more_info.itemAt(0).widget()
-        self.assertIsNotNone(more_info)
-        assert more_info is not None
-        content = more_info.findChild(QFrame, "characterMoreInfoContent")
-        toggle = more_info.findChild(QPushButton, "characterMoreInfoToggle")
-        self.assertIsNotNone(content)
-        self.assertIsNotNone(toggle)
-        assert content is not None and toggle is not None
-        self.assertTrue(content.isHidden())
-        toggle.click()
-        self.app.processEvents()
-        self.assertFalse(content.isHidden())
-        self.assertIn("CharacterExp", "\n".join(
-            label.text() for label in content.findChildren(QLabel)
+        self.assertFalse(growth.findChildren(
+            QPushButton, "characterMoreInfoToggle",
         ))
 
     def test_skill_training_lists_formal_rows_and_delegates_stamina_planning(self) -> None:
@@ -617,7 +639,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             ),
         )
 
-    def test_raw_skill_and_awakening_ids_are_collapsed_by_default(self) -> None:
+    def test_raw_skill_and_awakening_ids_are_omitted(self) -> None:
         self.page.open_character(1036)
         detail = self.page.detail_view
         detail.tabs.setCurrentWidget(detail.skill_view)
@@ -639,20 +661,8 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertTrue(all(
             raw_id not in visible_skill_text for raw_id in skill_raw_ids
         ))
-        skill_more = detail.skill_view.drawer.findChild(
-            QFrame, "characterMoreInfoContent",
-        )
-        skill_toggle = detail.skill_view.drawer.findChild(
+        self.assertFalse(detail.skill_view.drawer.findChildren(
             QPushButton, "characterMoreInfoToggle",
-        )
-        self.assertIsNotNone(skill_more)
-        self.assertIsNotNone(skill_toggle)
-        assert skill_more is not None and skill_toggle is not None
-        self.assertFalse(skill_more.isVisible())
-        skill_toggle.click()
-        self.app.processEvents()
-        self.assertIn("GA_Zankou_Melee", "\n".join(
-            label.text() for label in skill_more.findChildren(QLabel)
         ))
 
         detail.tabs.setCurrentWidget(detail.awakening_view)
@@ -678,8 +688,12 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertTrue(all(
             raw_id not in visible_awaken_text for raw_id in raw_effect_ids
         ))
-        self.assertTrue(detail.awakening_view.findChildren(
+        self.assertFalse(detail.awakening_view.findChildren(
             QPushButton, "characterMoreInfoToggle",
+        ))
+        self.assertFalse(any(
+            button.text().startswith(("查看 Buff", "查看 Gameplay"))
+            for button in detail.awakening_view.findChildren(QPushButton)
         ))
 
         detail.tabs.setCurrentWidget(detail.affinity_host)
@@ -721,6 +735,10 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
                 profile.graduation.core_main_property_id,
             )))
         self.assertTrue(all(raw_id not in route_text for raw_id in route_raw))
+        self.assertNotIn("default ", route_text)
+        self.assertFalse(detail.route_view.findChildren(
+            QPushButton, "characterCatalogLink",
+        ))
 
     def test_skill_description_preview_never_clips_a_visible_line(self) -> None:
         self.page.open_character(1036)
@@ -733,10 +751,9 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
                 card for card in detail.skill_view.findChildren(SkillActionCard)
                 if card.action.character_id == 1036
             )
-            self.assertEqual(
-                {"A", "E", "Q", "R", "QTE", "G", "闪避反击"},
-                {card.action.slot for card in cards},
-            )
+            slots = {card.action.slot for card in cards}
+            self.assertTrue({"A", "E", "Q", "R", "QTE"}.issubset(slots))
+            self.assertTrue(slots.issubset({"A", "E", "Q", "R", "QTE", "G"}))
             for card in cards:
                 detail.skill_view.drawer.show_action(card.action, "details")
                 self.app.processEvents()

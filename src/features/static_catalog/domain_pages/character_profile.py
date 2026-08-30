@@ -24,9 +24,6 @@ from src.features.static_catalog.domain_pages.character_builds import (
     CharacterBuildView,
 )
 from src.features.static_catalog.domain_pages.character_growth import CharacterGrowthView
-from src.features.static_catalog.domain_pages.character_more_info import (
-    build_more_info,
-)
 from src.features.static_catalog.domain_pages.character_terminology import (
     project_character_term,
 )
@@ -40,6 +37,7 @@ from src.features.static_catalog.domain_pages.character_skills import (
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.static_catalog_character_models import (
     CharacterDetail,
+    CharacterSummary,
     CombatLinkPage,
     GrowthPage,
 )
@@ -65,9 +63,8 @@ def _acquisition_name(
 
 
 class CharacterDetailView(QWidget):
-    back_requested = Signal()
+    variant_requested = Signal(int)
     progression_requested = Signal(object)
-    catalog_link_requested = Signal(object)
 
     def __init__(
         self,
@@ -90,23 +87,13 @@ class CharacterDetailView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(7)
-        navigation = QHBoxLayout()
-        back = QPushButton("‹  返回角色图鉴", self)
-        back.setObjectName("characterBackButton")
-        back.clicked.connect(self.back_requested)
-        navigation.addWidget(back)
-        navigation.addStretch(1)
-        root.addLayout(navigation)
 
         self.hero = QFrame(self)
         self.hero.setObjectName("characterProfileHero")
-        self.hero.setMinimumHeight(192)
-        self.hero.setMaximumHeight(214)
+        self.hero.setMinimumHeight(152)
+        self.hero.setMaximumHeight(160)
         self.hero.setStyleSheet(themed_style(
-            "QFrame#characterProfileHero{"
-            "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #10243f,stop:0.68 #161b22,stop:1 #0d1117);"
-            "border:1px solid #1f6feb;border-radius:18px;}"
+            "QFrame#characterProfileHero{background:transparent;border:none;}"
         ))
         self.hero_grid = QGridLayout(self.hero)
         self.hero_grid.setContentsMargins(12, 10, 12, 10)
@@ -115,26 +102,19 @@ class CharacterDetailView(QWidget):
 
         self.art_panel = QFrame(self.hero)
         self.art_panel.setObjectName("characterFullArtPanel")
-        self.art_panel.setMinimumWidth(190)
+        self.art_panel.setFixedWidth(122)
         self.art_panel.setStyleSheet(themed_style(
-            "QFrame#characterFullArtPanel{background:#0d1117;"
-            "border:1px dashed #30363d;border-radius:13px;}"
+            "QFrame#characterFullArtPanel{background:transparent;border:none;}"
         ))
         art_layout = QVBoxLayout(self.art_panel)
-        art_layout.setContentsMargins(10, 9, 10, 9)
-        art_caption = QLabel("完整立绘", self.art_panel)
-        art_caption.setStyleSheet(themed_style(
-            "color:#58a6ff;background:transparent;border:none;"
-            "font-size:10px;font-weight:900"
-        ))
-        self.art = QLabel("当前正式资源未提供", self.art_panel)
+        art_layout.setContentsMargins(2, 2, 2, 2)
+        self.art = QLabel("立绘未提供", self.art_panel)
         self.art.setObjectName("characterFullArt")
         self.art.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.art.setWordWrap(True)
         self.art.setStyleSheet(themed_style(
             "color:#8b949e;background:transparent;border:none;font-size:11px"
         ))
-        art_layout.addWidget(art_caption)
         art_layout.addWidget(self.art, 1)
 
         self.identity_panel = QFrame(self.hero)
@@ -145,30 +125,15 @@ class CharacterDetailView(QWidget):
         identity_layout = QHBoxLayout(self.identity_panel)
         identity_layout.setContentsMargins(2, 0, 2, 0)
         identity_layout.setSpacing(12)
-        avatar_shell = QFrame(self.identity_panel)
-        avatar_shell.setObjectName("characterAvatarShell")
-        avatar_shell.setFixedSize(116, 116)
-        avatar_shell.setStyleSheet(themed_style(
-            "QFrame#characterAvatarShell{background:#0d1117;"
-            "border:1px solid #58a6ff;border-radius:15px;}"
-        ))
-        avatar_layout = QVBoxLayout(avatar_shell)
-        avatar_layout.setContentsMargins(5, 5, 5, 5)
-        self.avatar = QLabel(avatar_shell)
-        self.avatar.setObjectName("characterFormalAvatar")
-        self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avatar_layout.addWidget(self.avatar)
-        identity_layout.addWidget(avatar_shell)
-
         copy = QVBoxLayout()
-        copy.setSpacing(7)
-        self.eyebrow = QLabel("CHARACTER ARCHIVE", self.identity_panel)
+        copy.setSpacing(4)
+        self.eyebrow = QLabel("角色图鉴", self.identity_panel)
         self.eyebrow.setStyleSheet(themed_style(
-            "color:#58a6ff;font-size:10px;font-weight:900;letter-spacing:2px"
+            "color:#58a6ff;font-size:10px;font-weight:900"
         ))
         self.name = QLabel("选择角色", self.identity_panel)
         self.name.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:28px;font-weight:900"
+            "color:#f0f6fc;font-size:25px;font-weight:900"
         ))
         self.identity = QLabel("—", self.identity_panel)
         self.identity.setTextInteractionFlags(
@@ -176,6 +141,10 @@ class CharacterDetailView(QWidget):
         )
         self.identity.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:12px;font-weight:700"
+        ))
+        self.release_line = QLabel("上线信息未提供", self.identity_panel)
+        self.release_line.setStyleSheet(themed_style(
+            "color:#8b949e;font-size:10px;font-weight:700"
         ))
         badges = QHBoxLayout()
         self.element_badge = self._badge("属性未提供", "#58a6ff")
@@ -185,37 +154,15 @@ class CharacterDetailView(QWidget):
         badges.addWidget(self.availability_badge)
         badges.addWidget(self.quality_badge)
         badges.addStretch(1)
-        self.description = QLabel(
-            "角色描述 · 当前正式数据未提供", self.identity_panel,
-        )
-        self.description.setWordWrap(True)
-        self.description.setStyleSheet(themed_style(
-            "color:#8b949e;font-size:12px;line-height:1.45"
-        ))
+        self.variant_row = QHBoxLayout()
+        self.variant_row.setSpacing(6)
         copy.addWidget(self.eyebrow)
         copy.addWidget(self.name)
         copy.addWidget(self.identity)
+        copy.addWidget(self.release_line)
         copy.addLayout(badges)
-        copy.addWidget(self.description)
+        copy.addLayout(self.variant_row)
         identity_layout.addLayout(copy, 1)
-
-        self.fact_panel = QFrame(self.hero)
-        self.fact_panel.setObjectName("characterQuickFacts")
-        self.fact_panel.setStyleSheet(themed_style(
-            "QFrame#characterQuickFacts{background:#161b22;"
-            "border:1px solid #30363d;border-radius:13px;}"
-        ))
-        fact_grid = QGridLayout(self.fact_panel)
-        fact_grid.setContentsMargins(10, 9, 10, 9)
-        fact_grid.setHorizontalSpacing(8)
-        fact_grid.setVerticalSpacing(7)
-        self.fact_values: dict[str, QLabel] = {}
-        for index, title in enumerate(("属性", "品质", "获取", "上线")):
-            tile = self._fact_tile(title)
-            self.fact_values[title] = tile.findChild(QLabel, "characterFactValue")
-            fact_grid.addWidget(tile, index // 2, index % 2)
-        fact_grid.setColumnStretch(0, 1)
-        fact_grid.setColumnStretch(1, 1)
         self._layout_hero(False)
         root.addWidget(self.hero)
 
@@ -227,25 +174,16 @@ class CharacterDetailView(QWidget):
             parent=self,
         )
         self.skill_view.progression_requested.connect(self.progression_requested)
-        self.skill_view.catalog_link_requested.connect(
-            self.catalog_link_requested,
-        )
         self.growth_view = CharacterGrowthView(self)
         self.growth_view.progression_requested.connect(self.progression_requested)
         self.awakening_view = CharacterAwakeningView(
             terminology=terminology,
             parent=self,
         )
-        self.awakening_view.catalog_link_requested.connect(
-            self.catalog_link_requested,
-        )
         self.affinity_host, self.affinity_layout = self._scroll_tab()
         self.route_view = CharacterBuildView(
             terminology=terminology,
             parent=self,
-        )
-        self.route_view.catalog_link_requested.connect(
-            self.catalog_link_requested,
         )
         self.tabs.addTab(self.overview_host, "角色档案")
         self.tabs.addTab(self.skill_view, "技能")
@@ -255,52 +193,23 @@ class CharacterDetailView(QWidget):
         self.tabs.addTab(self.route_view, "图纸与毕业")
         root.addWidget(self.tabs, 1)
 
-    @staticmethod
-    def _fact_tile(title: str) -> QFrame:
-        tile = QFrame()
-        tile.setProperty("characterFactTile", True)
-        tile.setStyleSheet(themed_style(
-            "QFrame[characterFactTile='true']{background:#10243f;"
-            "border:1px solid #1f6feb;border-radius:9px;}"
-        ))
-        layout = QVBoxLayout(tile)
-        layout.setContentsMargins(8, 5, 8, 5)
-        layout.setSpacing(1)
-        caption = QLabel(title, tile)
-        caption.setStyleSheet(themed_style(
-            "color:#8b949e;background:transparent;border:none;font-size:9px"
-        ))
-        value = QLabel("当前正式数据未提供", tile)
-        value.setObjectName("characterFactValue")
-        value.setWordWrap(True)
-        value.setStyleSheet(themed_style(
-            "color:#f0f6fc;background:transparent;border:none;"
-            "font-size:11px;font-weight:800"
-        ))
-        layout.addWidget(caption)
-        layout.addWidget(value)
-        return tile
-
     def _layout_hero(self, compact: bool) -> None:
-        for widget in (self.art_panel, self.identity_panel, self.fact_panel):
+        for widget in (self.art_panel, self.identity_panel):
             self.hero_grid.removeWidget(widget)
         if compact:
-            self.hero.setMinimumHeight(318)
-            self.hero.setMaximumHeight(342)
+            self.hero.setMinimumHeight(152)
+            self.hero.setMaximumHeight(160)
             self.hero_grid.addWidget(self.art_panel, 0, 0)
             self.hero_grid.addWidget(self.identity_panel, 0, 1)
-            self.hero_grid.addWidget(self.fact_panel, 1, 0, 1, 2)
             self.hero_grid.setColumnStretch(0, 2)
             self.hero_grid.setColumnStretch(1, 3)
         else:
-            self.hero.setMinimumHeight(192)
-            self.hero.setMaximumHeight(214)
+            self.hero.setMinimumHeight(152)
+            self.hero.setMaximumHeight(160)
             self.hero_grid.addWidget(self.art_panel, 0, 0)
             self.hero_grid.addWidget(self.identity_panel, 0, 1)
-            self.hero_grid.addWidget(self.fact_panel, 0, 2)
             self.hero_grid.setColumnStretch(0, 2)
-            self.hero_grid.setColumnStretch(1, 5)
-            self.hero_grid.setColumnStretch(2, 3)
+            self.hero_grid.setColumnStretch(1, 8)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt override
         super().resizeEvent(event)
@@ -348,6 +257,7 @@ class CharacterDetailView(QWidget):
         growth: GrowthPage,
         combat: CombatLinkPage,
         release: CharacterReleaseMetadata | None,
+        variants: tuple[CharacterSummary, ...] = (),
     ) -> None:
         character_id = detail.character.character_id
         if growth.character_id != character_id or combat.character_id != character_id:
@@ -357,7 +267,7 @@ class CharacterDetailView(QWidget):
         self._release = release
         character = detail.character
         self.name.setText(character.name_zh)
-        self.identity.setText(f"正式 character_id  {character.character_id}")
+        self.identity.setText(f"ID  {character.character_id}")
         self.element_badge.setText(f"{character.element_label}属性")
         acquisition_label = _acquisition_name(release)
         if character.classification == "scheduled_character":
@@ -368,40 +278,30 @@ class CharacterDetailView(QWidget):
             if release is not None and release.quality
             else "品质未提供"
         )
-        self.art.clear()
-        self.art.setText("当前正式资源未提供")
-        avatar_path = self._asset_catalog.character_icon(character_id)
-        pixmap = QPixmap(str(avatar_path)) if avatar_path is not None else QPixmap()
-        if pixmap.isNull():
-            self.avatar.setPixmap(QPixmap())
-            self.avatar.setText("正式头像\n当前未提供")
-            self.avatar.setStyleSheet(themed_style(
-                "color:#8b949e;background:transparent;border:none;font-size:10px"
-            ))
+        if release is not None and release.release_date:
+            prefix = (
+                "预计上线 "
+                if character.classification == "scheduled_character"
+                else "上线 "
+            )
+            self.release_line.setText(prefix + release.release_date)
         else:
-            self.avatar.setText("")
-            self.avatar.setStyleSheet("")
-            self.avatar.setPixmap(pixmap.scaled(
-                104,
-                104,
+            self.release_line.setText("上线信息未提供")
+        self.art.clear()
+        art_path = self._asset_catalog.character_art(character_id)
+        pixmap = QPixmap(str(art_path)) if art_path is not None else QPixmap()
+        if pixmap.isNull():
+            self.art.setPixmap(QPixmap())
+            self.art.setText("立绘未提供")
+        else:
+            self.art.setText("")
+            self.art.setPixmap(pixmap.scaled(
+                116,
+                126,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             ))
-        self.fact_values["属性"].setText(character.element_label)
-        self.fact_values["品质"].setText(
-            f"{release.quality} 级"
-            if release is not None and release.quality
-            else "当前正式数据未提供"
-        )
-        self.fact_values["获取"].setText(acquisition_label)
-        date_prefix = (
-            "预计 " if character.classification == "scheduled_character" else ""
-        )
-        self.fact_values["上线"].setText(
-            date_prefix + release.release_date
-            if release is not None and release.release_date
-            else "当前正式数据未提供"
-        )
+        self._render_variants(character_id, variants)
         self._render_overview(detail, growth, release)
         self.skill_view.set_actions(build_action_cards(
             detail,
@@ -413,6 +313,33 @@ class CharacterDetailView(QWidget):
         self._render_affinity(detail)
         self.route_view.set_data(detail)
 
+    def _render_variants(
+        self,
+        active_character_id: int,
+        variants: tuple[CharacterSummary, ...],
+    ) -> None:
+        self._clear(self.variant_row)
+        if len(variants) <= 1:
+            return
+        for index, variant in enumerate(variants, start=1):
+            character_id = variant.character_id
+            actor_path = str(variant.actor_path or "").casefold()
+            if "female" in actor_path:
+                label = "女性形象"
+            elif "male" in actor_path:
+                label = "男性形象"
+            else:
+                label = f"形象 {index}"
+            button = QPushButton(label, self.identity_panel)
+            button.setCheckable(True)
+            button.setChecked(character_id == active_character_id)
+            button.setEnabled(character_id != active_character_id)
+            button.clicked.connect(
+                lambda _checked=False, target=character_id: self.variant_requested.emit(target)
+            )
+            self.variant_row.addWidget(button)
+        self.variant_row.addStretch(1)
+
     def _render_overview(
         self,
         detail: CharacterDetail,
@@ -420,64 +347,15 @@ class CharacterDetailView(QWidget):
         release: CharacterReleaseMetadata | None,
     ) -> None:
         self._clear(self.overview_layout)
-        metrics = QGridLayout()
-        metric_values = (
-            ("等级面板", f"{detail.growth_count} 条" if detail.growth_count else "未提供"),
-            ("正式技能", f"{detail.character.skill_count} 项"),
-            ("觉醒", f"{detail.character.awakening_count} 项"),
-            ("毕业模板", "已提供" if detail.character.has_graduation else "未提供"),
+        summary = QLabel(
+            f"{detail.character.skill_count} 项技能  ·  "
+            f"{detail.character.awakening_count} 项觉醒  ·  "
+            + ("有毕业模板" if detail.character.has_graduation else "暂无毕业模板"),
         )
-        metric_columns = 2 if self._compact else 4
-        for index, (title, value) in enumerate(metric_values):
-            metrics.addWidget(
-                self._metric_card(title, value),
-                index // metric_columns,
-                index % metric_columns,
-            )
-        for column in range(metric_columns):
-            metrics.setColumnStretch(column, 1)
-        self.overview_layout.addLayout(metrics)
-
-        identity = self._panel("身份与定位")
-        rows = (
-            ("正式 ID", str(detail.character.character_id)),
-            ("中文名", detail.character.name_zh),
-            ("属性", detail.character.element_label),
-            (
-                "品质",
-                f"{release.quality} 级"
-                if release is not None and release.quality
-                else "当前正式数据未提供",
-            ),
-            (
-                "获取方式",
-                _acquisition_name(release),
-            ),
-            (
-                (
-                    "预计上线日期"
-                    if detail.character.classification == "scheduled_character"
-                    else "上线日期"
-                ),
-                release.release_date
-                if release is not None and release.release_date
-                else "当前正式数据未提供",
-            ),
-        )
-        identity_grid = QGridLayout()
-        identity_grid.setHorizontalSpacing(8)
-        identity_grid.setVerticalSpacing(8)
-        identity_columns = 2 if self._compact else 3
-        for index, (title, value) in enumerate(rows):
-            identity_grid.addWidget(
-                self._detail_tile(title, value),
-                index // identity_columns,
-                index % identity_columns,
-            )
-        for column in range(identity_columns):
-            identity_grid.setColumnStretch(column, 1)
-        identity.layout().addLayout(identity_grid)
-        self.overview_layout.addWidget(identity)
+        summary.setStyleSheet(themed_style(
+            "color:#8b949e;background:transparent;font-size:11px"
+        ))
+        self.overview_layout.addWidget(summary)
 
         panel = self._panel("面板速览")
         panel_grid = QGridLayout()
@@ -511,9 +389,6 @@ class CharacterDetailView(QWidget):
             self.affinity_layout.addWidget(self._muted("当前正式数据未提供好感度属性"))
         else:
             hero = self._panel(f"好感度 Lv.{bonus.required_level} 奖励")
-            more_rows: list[tuple[str, str | None]] = [
-                ("正式修改 ID", bonus.modify_data_id),
-            ]
             for item in bonus.properties:
                 value = item.value * 100 if item.show_percent else item.value
                 suffix = "%" if item.show_percent else ""
@@ -531,13 +406,6 @@ class CharacterDetailView(QWidget):
                     display_name,
                     f"{_number(value)}{suffix}",
                 ))
-                more_rows.extend((
-                    (f"{display_name} 属性 ID", item.property_id),
-                    (f"{display_name} 修改操作 ID", item.modifier_operation),
-                ))
-            more_info = build_more_info(more_rows, parent=hero)
-            if more_info is not None:
-                hero.layout().addWidget(more_info)
             self.affinity_layout.addWidget(hero)
         self.affinity_layout.addStretch(1)
 
@@ -610,10 +478,10 @@ class CharacterDetailView(QWidget):
     def _detail_tile(title: str, value: str) -> QFrame:
         card = QFrame()
         card.setProperty("characterDetailTile", True)
-        card.setMinimumHeight(50)
+        card.setMinimumHeight(42)
         card.setStyleSheet(themed_style(
-            "QFrame[characterDetailTile='true']{background:#10243f;"
-            "border:1px solid #1f6feb;border-radius:10px;}"
+            "QFrame[characterDetailTile='true']{background:#161b22;"
+            "border:none;border-radius:8px;}"
         ))
         layout = QVBoxLayout(card)
         layout.setContentsMargins(9, 6, 9, 6)

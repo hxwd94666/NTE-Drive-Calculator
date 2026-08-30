@@ -7,7 +7,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QTableWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget
 
 from src.features.static_catalog.domain_pages.character_page import (
     build_character_catalog_page,
@@ -17,7 +17,6 @@ from src.services.static_catalog_character_release_metadata import (
     CharacterReleaseMetadataService,
 )
 from src.services.static_catalog_character_service import StaticCatalogCharacterService
-from src.services.static_catalog_mechanics_models import CatalogLink, decode_record
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -25,6 +24,7 @@ from src.storage.sqlite.static_catalog_character_queries import (
     StaticCatalogCharacterQueries,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.ui.puzzle_board import PuzzleBoardWidget
 
 
 NTE_TEST_TIER = "core"
@@ -38,7 +38,6 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        self.links: list[CatalogLink] = []
         self.queries = StaticCatalogCharacterQueries(STATIC_DATABASE)
         self.terminology_dao = StaticGameDataDao(STATIC_DATABASE)
         self.terminology = StaticCatalogTerminologyService(self.terminology_dao)
@@ -50,7 +49,6 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
             ),
             game_ui_asset_root=PROJECT_ROOT / "assets" / "game_ui",
             terminology_service=self.terminology,
-            open_catalog_link=self.links.append,
         )
         self.page.resize(1200, 900)
         self.page.show()
@@ -68,11 +66,16 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         view = self.page.detail_view.route_view
         self.page.detail_view.tabs.setCurrentWidget(view)
         self.app.processEvents()
-        cells = view.findChildren(QLabel, "characterBlueprintCell")
+        boards = view.findChildren(PuzzleBoardWidget)
         visible_text = self._visible_text(view)
 
-        self.assertEqual(25, len(cells))
-        self.assertEqual(20, sum(bool(cell.property("occupied")) for cell in cells))
+        self.assertEqual(1, len(boards))
+        self.assertEqual((5, 5), (
+            len(boards[0].matrix), len(boards[0].matrix[0]),
+        ))
+        self.assertEqual(20, sum(
+            value != "0" for row in boards[0].matrix for value in row
+        ))
         self.assertIn("角色图纸 · 正式 5×5", visible_text)
         self.assertIn("正式培养方向", visible_text)
         self.assertIn("正式额外形状与加成", visible_text)
@@ -89,42 +92,21 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(2, view._columns)
 
-    def test_awakening_keeps_structure_collapsed_and_emits_typed_ge_link(self) -> None:
+    def test_awakening_renders_player_facing_effects_without_raw_links(self) -> None:
         view = self.page.detail_view.awakening_view
         self.page.detail_view.tabs.setCurrentWidget(view)
         self.app.processEvents()
         visible_text = self._visible_text(view)
 
-        self.assertIn("结构化正式效果", visible_text)
         self.assertIn("技能等级加成", visible_text)
         self.assertNotIn("$.", visible_text)
-        link_button = next(
-            button for button in view.findChildren(QPushButton)
-            if button.text().startswith("查看 Buff")
-        )
-        link_button.click()
-        self.app.processEvents()
+        self.assertNotIn("Gameplay Effect", visible_text)
+        self.assertFalse(any(
+            button.text().startswith(("查看 Buff", "查看 Gameplay"))
+            for button in view.findChildren(QPushButton)
+        ))
 
-        link = self.links[-1]
-        kind, key = decode_record(link.record_id)
-        self.assertEqual("combat_mechanics", link.domain_key)
-        self.assertEqual("effect", kind)
-        self.assertTrue(key.startswith(f"buff{chr(31)}"))
-
-        self.page.open_character(1004)
-        view = self.page.detail_view.awakening_view
-        self.page.detail_view.tabs.setCurrentWidget(view)
-        self.app.processEvents()
-        ge_button = next(
-            button for button in view.findChildren(QPushButton)
-            if button.text().startswith("查看 Gameplay Effect")
-        )
-        ge_button.click()
-        kind, key = decode_record(self.links[-1].record_id)
-        self.assertEqual("effect", kind)
-        self.assertTrue(key.startswith(f"gameplay_effect{chr(31)}"))
-
-    def test_skill_hints_and_damage_items_use_typed_links_only(self) -> None:
+    def test_skill_hints_render_directly_without_mechanics_links(self) -> None:
         skill_view = self.page.detail_view.skill_view
         self.page.detail_view.tabs.setCurrentWidget(skill_view)
         self.app.processEvents()
@@ -136,37 +118,44 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         self.app.processEvents()
         visible_text = self._visible_text(skill_view.drawer)
 
-        self.assertIn("正式等级提示 · 21 项", visible_text)
-        self.assertIn("关联 2 个伤害项", visible_text)
+        self.assertIn("等级效果 · 21 项", visible_text)
+        self.assertNotIn("伤害项", visible_text)
         self.assertNotIn("GE_Player_Zankou_Melee1_Damage", visible_text)
-        toggle = skill_view.drawer.findChild(
-            QPushButton,
-            "characterSkillRelationsToggle",
-        )
-        assert toggle is not None
-        self.assertFalse(toggle.isChecked())
-        toggle.click()
-        self.app.processEvents()
-        self.page.resize(760, 760)
-        self.app.processEvents()
-        relations = skill_view.drawer.findChild(
-            QFrame,
-            "characterSkillRelations",
-        )
-        assert relations is not None
-        self.assertLessEqual(relations.layout().columnCount(), 2)
-        damage_button = next(
-            button for button in skill_view.drawer.findChildren(QPushButton)
-            if button.text() == "伤害项 01"
-        )
-        damage_button.click()
-        self.app.processEvents()
+        self.assertIsNone(skill_view.drawer.findChild(
+            QPushButton, "characterSkillRelationsToggle",
+        ))
 
-        link = self.links[-1]
-        kind, key = decode_record(link.record_id)
-        self.assertEqual("combat_mechanics", link.domain_key)
-        self.assertEqual("effect", kind)
-        self.assertTrue(key.startswith(f"skill_damage{chr(31)}"))
+    def test_shared_shell_owns_the_only_back_action(self) -> None:
+        events: list[str | None] = []
+        self.page.set_catalog_navigation_listener(
+            lambda: events.append(self.page.catalog_back_label()),
+        )
+
+        self.assertEqual("角色列表", self.page.catalog_back_label())
+        self.assertIsNone(self.page.findChild(QPushButton, "characterBackButton"))
+        self.assertTrue(self.page.catalog_go_back())
+        self.assertIsNone(self.page.catalog_back_label())
+        self.assertFalse(self.page.catalog_go_back())
+        self.assertEqual(["角色列表", None], events)
+
+    def test_skill_cards_never_show_missing_extra_names_or_overlap(self) -> None:
+        view = self.page.detail_view.skill_view
+        self.page.detail_view.tabs.setCurrentWidget(view)
+        for width in (1180, 700):
+            self.page.resize(width, 820)
+            self.app.processEvents()
+            cards = tuple(
+                card for card in view.findChildren(SkillActionCard)
+                if card.isVisibleTo(view)
+            )
+            self.assertTrue(cards)
+            self.assertNotIn("闪避反击", {card.action.slot for card in cards})
+            for card in cards:
+                slot = card.findChild(QLabel, "characterSkillSlot")
+                title = card.findChild(QLabel, "characterSkillTitle")
+                assert slot is not None and title is not None
+                self.assertNotIn("名称暂未提供", title.text())
+                self.assertFalse(slot.geometry().intersects(title.geometry()))
 
     @staticmethod
     def _visible_text(widget) -> str:

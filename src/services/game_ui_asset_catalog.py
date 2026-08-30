@@ -17,7 +17,8 @@ class GameUiAssetCatalog:
             json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest_path.is_file()
             else {
-                "characters": {}, "attributes": {}, "equipment_items": {},
+                "characters": {}, "character_arts": {}, "attributes": {},
+                "equipment_items": {},
                 "equipment_modules": {}, "fork_items": {}, "monster_icons": {},
                 "encounter_icons": {}, "monster_family_icons": {},
             }
@@ -35,6 +36,10 @@ class GameUiAssetCatalog:
 
     def character_icon(self, character_id: int) -> Path | None:
         return self._resolve("characters", str(character_id))
+
+    def character_art(self, character_id: int) -> Path | None:
+        """Return the packaged default appearance art for a playable identity."""
+        return self._resolve("character_arts", str(character_id))
 
     def attribute_icon(self, attribute_key: str) -> Path | None:
         return self._resolve("attributes", str(attribute_key))

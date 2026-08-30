@@ -34,6 +34,8 @@ from src.features.static_catalog.contracts import (
     CatalogDomain,
     CatalogField,
     CatalogItem,
+    CatalogDomainNavigation,
+    CatalogNavigationEntry,
     CatalogRelationGroup,
     CatalogSection,
 )
@@ -75,6 +77,8 @@ class StaticCatalogPage:
         }
         self._domain_pages: dict[str, QWidget] = {}
         self._domain_contents: dict[str, QWidget] = {}
+        self._navigation_history: list[CatalogNavigationEntry] = []
+        self._navigation_buttons: list[QPushButton] = []
         self._closed = False
         self._page: QWidget | None = None
         self._stack: QStackedWidget | None = None
@@ -100,8 +104,8 @@ class StaticCatalogPage:
             return self._page
         page = QWidget()
         root = QVBoxLayout(page)
-        root.setContentsMargins(20, 16, 20, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(10, 8, 10, 10)
+        root.setSpacing(8)
         self._stack = QStackedWidget(page)
         self._menu = StaticCatalogMenu(
             game_ui_asset_root=self._game_ui_asset_root,
@@ -149,6 +153,8 @@ class StaticCatalogPage:
             except Exception as exc:
                 self._show_error(f"刷新{spec.title}失败", exc)
         self._domain_key = ""
+        self._navigation_history.clear()
+        self._update_navigation_buttons()
         self._offset = 0
         self._require(self._stack).setCurrentIndex(0)
 
@@ -176,18 +182,16 @@ class StaticCatalogPage:
         host = QWidget(parent)
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
         bar = QFrame(host)
         bar.setObjectName("staticCatalogBrowserBar")
         bar.setStyleSheet(themed_style(
-            "QFrame#staticCatalogBrowserBar{background:#161b22;"
-            "border:1px solid #30363d;border-radius:9px;}"
+            "QFrame#staticCatalogBrowserBar{background:transparent;"
+            "border:0;border-bottom:1px solid #21262d;}"
         ))
         bar_layout = QHBoxLayout(bar)
-        bar_layout.setContentsMargins(10, 7, 12, 7)
-        back = QPushButton("‹ 返回资料库", bar)
-        back.setObjectName("staticCatalogBackToMenu")
-        back.clicked.connect(self._show_menu)
+        bar_layout.setContentsMargins(0, 0, 0, 5)
+        back = self._navigation_button(bar)
         self._domain_title = QLabel("", bar)
         self._domain_title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:16px;font-weight:900"
@@ -215,18 +219,16 @@ class StaticCatalogPage:
         host = QWidget(parent)
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
         bar = QFrame(host)
         bar.setObjectName("staticCatalogDomainPageBar")
         bar.setStyleSheet(themed_style(
-            "QFrame#staticCatalogDomainPageBar{background:#161b22;"
-            "border:1px solid #30363d;border-radius:9px;}"
+            "QFrame#staticCatalogDomainPageBar{background:transparent;"
+            "border:0;border-bottom:1px solid #21262d;}"
         ))
         bar_layout = QHBoxLayout(bar)
-        bar_layout.setContentsMargins(10, 7, 12, 7)
-        back = QPushButton("‹ 返回资料库", bar)
-        back.setObjectName("staticCatalogBackToMenu")
-        back.clicked.connect(self._show_menu)
+        bar_layout.setContentsMargins(0, 0, 0, 5)
+        back = self._navigation_button(bar)
         title = QLabel(spec.title, bar)
         title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:16px;font-weight:900"
@@ -323,49 +325,147 @@ class StaticCatalogPage:
                     return
                 self._domain_pages[domain_key] = dedicated_page
                 self._domain_contents[domain_key] = content
+                if isinstance(content, CatalogDomainNavigation):
+                    content.set_catalog_navigation_listener(
+                        self._update_navigation_buttons
+                    )
                 stack.addWidget(dedicated_page)
             self._require(self._stack).setCurrentWidget(dedicated_page)
+            self._update_navigation_buttons()
             return
         self._require(self._stack).setCurrentIndex(1)
         self._run_search()
 
-    def open_catalog_link(self, link: "CatalogLink") -> None:
-        """Route one typed relation through public domain-page methods only."""
+    def open_catalog_link(self, link: "CatalogLink") -> bool:
+        """Open one deliberate detail link with reversible cross-domain history.
+
+        Ordinary relations are rendered by the owning domain page and never
+        arrive here.  A page calls this method only for an explicit
+        ``查看详情`` action.  When the target belongs to another domain, the
+        live origin widget is retained so going back restores its exact filter,
+        selection, scroll and nested-detail state.
+        """
 
         domain_key = str(link.domain_key)
-        self._open_domain(domain_key)
-        content = self._domain_contents.get(domain_key)
-        if content is None:
-            return
-        record_id = str(link.record_id)
-        if domain_key == "character":
-            try:
-                character_id = int(record_id)
-            except ValueError:
-                return
-            opener = getattr(content, "open_character", None)
-            if callable(opener):
-                opener(character_id)
-            return
-        if domain_key == "fork":
-            opener = getattr(content, "open_fork", None)
-        elif domain_key == "equipment":
-            method_name = {
-                "suit": "open_suit",
-                "shape": "open_shape",
-            }.get(str(link.relation_kind), "open_equipment")
-            opener = getattr(content, method_name, None)
-        elif domain_key == "combat_mechanics":
-            opener = getattr(content, "open_record", None)
-        else:
-            opener = getattr(content, "open_record", None)
-        if callable(opener):
-            opener(record_id)
+        origin_key = self._current_domain_key()
+        origin_widget = self._require(self._stack).currentWidget()
+        history_size = len(self._navigation_history)
+        if origin_key and origin_key != domain_key:
+            self._navigation_history.append(CatalogNavigationEntry(
+                origin_key,
+                self._domain_labels.get(origin_key, origin_key),
+            ))
+        try:
+            self._open_domain(domain_key)
+            content = self._domain_contents.get(domain_key)
+            if content is None:
+                raise LookupError("该资料领域当前不可用")
+            record_id = str(link.record_id)
+            if domain_key == "character":
+                try:
+                    character_id = int(record_id)
+                except ValueError as exc:
+                    raise LookupError("角色资料已不可用") from exc
+                opener = getattr(content, "open_character", None)
+                argument: object = character_id
+            elif domain_key == "fork":
+                opener = getattr(content, "open_fork", None)
+                argument = record_id
+            elif domain_key == "equipment":
+                method_name = {
+                    "suit": "open_suit",
+                    "shape": "open_shape",
+                }.get(str(link.relation_kind), "open_equipment")
+                opener = getattr(content, method_name, None)
+                argument = record_id
+            else:
+                opener = getattr(content, "open_record", None)
+                argument = record_id
+            if not callable(opener):
+                raise LookupError("该资料暂无可打开的详情")
+            if opener(argument) is False:
+                raise LookupError("该关联资料已失效")
+        except Exception:
+            del self._navigation_history[history_size:]
+            self._require(self._stack).setCurrentWidget(origin_widget)
+            self._domain_key = origin_key
+            self._update_navigation_buttons()
+            QMessageBox.warning(
+                self._dialog_parent,
+                "无法打开关联资料",
+                "该关联资料暂不可用，已返回原页面。",
+            )
+            return False
+        self._update_navigation_buttons()
+        return True
 
     def _show_menu(self) -> None:
         self._search_timer.stop()
         self._domain_key = ""
+        self._navigation_history.clear()
         self._require(self._stack).setCurrentIndex(0)
+        self._update_navigation_buttons()
+
+    def _navigation_button(self, parent: QWidget) -> QPushButton:
+        button = QPushButton("‹ 资料库", parent)
+        button.setObjectName("staticCatalogNavigateBack")
+        button.setMinimumHeight(28)
+        button.clicked.connect(self._go_back)
+        self._navigation_buttons.append(button)
+        return button
+
+    def _go_back(self) -> None:
+        if self._navigation_history:
+            entry = self._navigation_history.pop()
+            target = self._domain_pages.get(entry.domain_key)
+            if target is None:
+                if entry.domain_key not in self._domain_labels:
+                    self._show_menu()
+                    return
+                self._domain_key = entry.domain_key
+                self._require(self._stack).setCurrentIndex(1)
+                self._update_navigation_buttons()
+                return
+            self._domain_key = entry.domain_key
+            self._require(self._stack).setCurrentWidget(target)
+            self._update_navigation_buttons()
+            return
+        content = self._domain_contents.get(self._domain_key)
+        if (
+            isinstance(content, CatalogDomainNavigation)
+            and content.catalog_back_label() is not None
+            and content.catalog_go_back()
+        ):
+            self._update_navigation_buttons()
+            return
+        self._show_menu()
+
+    def _local_back_label(self) -> str | None:
+        content = self._domain_contents.get(self._domain_key)
+        if isinstance(content, CatalogDomainNavigation):
+            return content.catalog_back_label()
+        return None
+
+    def _current_domain_key(self) -> str:
+        stack = self._require(self._stack)
+        if stack.currentIndex() == 0:
+            return ""
+        return self._domain_key
+
+    def _update_navigation_buttons(self) -> None:
+        if self._navigation_history:
+            previous = self._navigation_history[-1]
+            text = f"‹ 返回{previous.title}"
+            tooltip = "返回刚才的页面并保留筛选、选中和滚动位置"
+        elif local_label := self._local_back_label():
+            text = f"‹ 返回{local_label}"
+            tooltip = f"返回{local_label}"
+        else:
+            text = "‹ 资料库"
+            tooltip = "返回游戏资料库"
+        for button in self._navigation_buttons:
+            button.setText(text)
+            button.setToolTip(tooltip)
 
     def _run_search(self) -> None:
         if self._page is None or not self._domain_key:

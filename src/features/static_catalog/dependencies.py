@@ -201,7 +201,6 @@ def build_static_catalog_domain_pages(
             release_metadata_service=release_metadata,
             game_ui_asset_root=asset_root,
             terminology_service=terminology,
-            open_catalog_link=open_catalog_link,
             parent=parent,
         )
         dialog: ProgressionCalculatorDialog | None = None
@@ -248,8 +247,6 @@ def build_static_catalog_domain_pages(
         )
         dialog: ProgressionCalculatorDialog | None = None
         try:
-            if open_catalog_link is not None:
-                page.catalog_link_requested.connect(open_catalog_link)
             dialog = build_progression_calculator_dialog(
                 service=progression_service,
                 terminology_service=terminology,
@@ -298,7 +295,6 @@ def build_static_catalog_domain_pages(
             game_ui_asset_root=asset_root,
             presentation=equipment_presentation,
             terminology_service=terminology,
-            open_catalog_link=open_catalog_link,
             parent=parent,
         )
         try:
@@ -373,7 +369,6 @@ def build_static_catalog_domain_pages(
             service=monster_service,
             terminology_service=terminology,
             game_ui_asset_root=asset_root,
-            open_catalog_link=open_catalog_link,
             parent=parent,
         ),
         close=monster_service.close,

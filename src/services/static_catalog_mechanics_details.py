@@ -11,6 +11,7 @@ from src.services.static_catalog_mechanics_models import (
     CatalogLink,
     EvidenceStage,
     FORMULA_CHAPTER_BY_KEY,
+    FORMULA_FAMILY_BY_KEY,
     MODEL_FAMILY_BY_KEY,
     MechanicsDetail,
     PLACEHOLDER_NAME,
@@ -23,6 +24,93 @@ from src.services.static_catalog_terminology_service import (
 )
 
 
+_PLAYER_FORMULAS: dict[
+    str,
+    tuple[str, str, tuple[tuple[str, str], ...]],
+] = {
+    "panel_attribute": (
+        "角色面板属性",
+        "面板值 = 基础值 ×（1 + 百分比加成）+ 固定加成",
+        (("基础值", "人物、弧盘等基础值合计"),
+         ("百分比加成", "同一属性百分比加成合计"),
+         ("固定加成", "同一属性固定值加成合计")),
+    ),
+    "skill_multiplier": (
+        "技能倍率",
+        "技能倍率 = 等级倍率 ×（1 + 倍率修正合计）",
+        (("等级倍率", "有效技能等级对应的正式倍率档"),
+         ("倍率修正", "作用于该技能的倍率修正合计")),
+    ),
+    "direct_damage": (
+        "直伤计算",
+        "直伤 = 技能倍率 × 对应面板 × 增伤 × 暴击 × 防御 × 抗性 × 易伤 × 独立增伤",
+        (("对应面板", "伤害项指定的攻击、生命或防御面板"),
+         ("独立增伤", "每个明确独立最终来源的乘数")),
+    ),
+    "damage_increase": (
+        "增伤",
+        "增伤倍率 = 1 + 各类增伤合计",
+        (("增伤合计", "通用、属性、技能和状态增伤"),),
+    ),
+    "vulnerability": (
+        "易伤",
+        "易伤倍率 = 1 + 目标受伤提升合计",
+        (("受伤提升", "目标身上的受伤提升效果"),),
+    ),
+    "critical": (
+        "暴击",
+        "暴击伤害 = 向上取整（完整精度伤害 ×（1 + 暴击伤害））",
+        (("暴击率", "角色或机制指定的暴击率"),
+         ("暴击伤害", "暴击分支使用的伤害加成")),
+    ),
+    "defense": (
+        "防御",
+        "防御倍率 =（角色等级 + 100）÷（目标有效防御 + 角色等级 + 100）",
+        (("防御穿透", "攻击方的防御穿透或防御无视"),
+         ("防御降低", "目标当前承受的防御降低")),
+    ),
+    "resistance": (
+        "抗性",
+        "有效抗性 = 基础抗性 − 减抗 − 属性穿透",
+        (("基础抗性", "目标对该伤害属性的战前最终抗性"),
+         ("减抗与穿透", "动态减抗与攻击方属性穿透")),
+    ),
+    "independent_final_damage": (
+        "独立最终增伤",
+        "独立增伤 = 每个明确独立最终增伤逐项相乘",
+        (("独立最终增伤", "满足作用对象与条件的独立最终增伤"),),
+    ),
+    "dot_damage": (
+        "持续伤害",
+        "单次持续伤害 = 直伤同类乘区 × 状态层数 × 持续伤害专属增伤",
+        (("状态层数", "结算前同一目标上的有效层数或系数"),
+         ("持续伤害种类", "结算前仍有效的已确认持续伤害种类数")),
+    ),
+    "topple_damage": (
+        "倾陷伤害",
+        "倾陷伤害 = 等级曲线 × 倾陷强度 × 倾陷上限 × 防御 × 抗性",
+        (("等级曲线", "角色等级对应的正式倾陷曲线"),
+         ("倾陷上限", "目标倾陷上限或冻结档位覆盖")),
+    ),
+    "weave_followup": (
+        "覆纹追加伤害",
+        "覆纹追加 = 实际直伤 × 环合强度修正 × 特殊增伤",
+        (("环合强度", "参与角色中最终采用的环合强度"),),
+    ),
+    "settlement_rounding": (
+        "最终伤害取整",
+        "最终伤害 = 向上取整（不小于零的完整精度伤害）",
+        (("完整精度伤害", "所有适用乘区相乘后的未取整结果"),),
+    ),
+    "max_hp_settlement": (
+        "生命上限下降结算",
+        "有效伤害 = 本次伤害 + 按当前生命比例折算的生命上限下降",
+        (("生命上限变化", "同一目标已确认的最大生命前后值"),
+         ("结算前生命", "生命上限下降前的可靠当前生命")),
+    ),
+}
+
+
 class StaticCatalogMechanicsDetailProjector:
     """Project formula/model domain facts without owning catalog lookup state."""
 
@@ -30,46 +118,22 @@ class StaticCatalogMechanicsDetailProjector:
         self._terminology = terminology_service
 
     def formula_detail(self, formula: FormulaDetailView) -> MechanicsDetail:
+        title, expression, player_variables = self.player_formula(formula)
         variables = tuple(
-            PlayerField(symbol, meaning, "accent")
-            for symbol, meaning in formula.variables
+            PlayerField(label, meaning, "accent")
+            for label, meaning in player_variables
         )
         sections = (
-            PlayerSection("公式", (PlayerField("表达式", formula.expression, "formula"),)),
-            PlayerSection("变量", variables),
-            PlayerSection(
-                "适用范围",
-                tuple(PlayerField("条件", row) for row in formula.applicable_when),
-            ),
-            PlayerSection(
-                "限制",
-                tuple(
-                    PlayerField("边界", row, "warning")
-                    for row in formula.limitations
-                ),
-            ),
-        )
-        links = tuple(
-            (
-                f"查找提供 {symbol} 的机制",
-                CatalogLink(
-                    "combat_mechanics",
-                    encode_record("search", symbol),
-                    "variable",
-                ),
-            )
-            for symbol, _meaning in formula.variables
+            PlayerSection("计算方式", (PlayerField("公式", expression, "formula"),)),
+            PlayerSection("名词说明", variables),
         )
         return MechanicsDetail(
             record_id=encode_record("formula", formula.key),
             card_kind="formula",
-            title=formula.title,
-            subtitle=formula.expression,
-            family_key="formula",
-            badges=(
-                FORMULA_CHAPTER_BY_KEY.get(formula.key, "公式"),
-                formula.boundary_label,
-            ),
+            title=title,
+            subtitle=expression,
+            family_key=FORMULA_FAMILY_BY_KEY[formula.key],
+            badges=(FORMULA_CHAPTER_BY_KEY.get(formula.key, "公式"),),
             status=None,
             owner_label="全局公式",
             owner_link=None,
@@ -77,11 +141,21 @@ class StaticCatalogMechanicsDetailProjector:
             sections=sections,
             identity_fields=(),
             evidence_stages=(),
-            related_links=links,
+            related_links=(),
             audit_references=tuple(
                 f"{source.location}::{source.symbol}" for source in formula.sources
             ),
         )
+
+    @staticmethod
+    def player_formula(
+        formula: FormulaDetailView,
+    ) -> tuple[str, str, tuple[tuple[str, str], ...]]:
+        """Return the curated Chinese projection; internal symbols never reach Qt."""
+        try:
+            return _PLAYER_FORMULAS[formula.key]
+        except KeyError as exc:
+            raise LookupError(f"公式缺少玩家中文投影：{formula.key}") from exc
 
     def model_detail(self, model: CounterfactualMatrixRow) -> MechanicsDetail:
         consumer = (

@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Iterable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -31,6 +31,7 @@ from src.features.static_catalog.domain_pages.monster_browse_models import (
     BrowseSection,
     BrowseState,
     group_entries as _group,
+    home_badge as _home_badge,
     key_parts as _key_parts,
     object_name as _object_name,
     period_label as _period_label,
@@ -47,7 +48,6 @@ from src.features.static_catalog.domain_pages.monster_widgets import (
     section_title,
 )
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_mechanics_models import CatalogLink
 from src.services.static_catalog_monster_service import (
     CatalogDetail,
     CatalogEntry,
@@ -135,8 +135,6 @@ class MonsterCatalogPageController:
 class MonsterCatalogPage(QWidget):
     """Independent card archive; shared catalog composition owns final wiring."""
 
-    catalog_link_requested = Signal(object)
-
     def __init__(
         self,
         *,
@@ -155,6 +153,7 @@ class MonsterCatalogPage(QWidget):
         self._category_filter = ""
         self._updating_filters = False
         self._browser_layout_bucket = ""
+        self._catalog_navigation_listener: Callable[[], None] = lambda: None
         self.play_group_cards: list[ArchiveCard] = []
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -162,11 +161,6 @@ class MonsterCatalogPage(QWidget):
         self.home = self._build_home()
         self.browser = self._build_browser()
         self.detail_view = MonsterDetailView(self)
-        self.detail_view.back_requested.connect(self._back_from_detail)
-        self.detail_view.reference_requested.connect(self._open_reference)
-        self.detail_view.catalog_link_requested.connect(
-            self.catalog_link_requested.emit
-        )
         self.stack.addWidget(self.home)
         self.stack.addWidget(self.browser)
         self.stack.addWidget(self.detail_view)
@@ -233,9 +227,6 @@ class MonsterCatalogPage(QWidget):
         root = QVBoxLayout(page)
         root.setContentsMargins(4, 2, 4, 8)
         top = QHBoxLayout()
-        back = QPushButton("← 返回", page)
-        back.clicked.connect(self._browser_back)
-        top.addWidget(back)
         self.browser_title = QLabel(page)
         self.browser_title.setStyleSheet(themed_style("color:#f0f6fc;font-size:22px;font-weight:900"))
         top.addWidget(self.browser_title)
@@ -579,6 +570,7 @@ class MonsterCatalogPage(QWidget):
             return
         self.detail_view.set_detail(detail, icon=self._formal_icon(detail), context=context)
         self.stack.setCurrentWidget(self.detail_view)
+        self._catalog_navigation_listener()
 
     def formal_icon_candidates(self, detail: CatalogDetail) -> tuple[str, ...]:
         candidates = []
@@ -631,6 +623,7 @@ class MonsterCatalogPage(QWidget):
         self._configure_filters(state)
         self._render_browser_state()
         self.stack.setCurrentWidget(self.browser)
+        self._catalog_navigation_listener()
 
     def _configure_filters(self, state: BrowseState) -> None:
         self._updating_filters = True
@@ -740,6 +733,7 @@ class MonsterCatalogPage(QWidget):
         if len(self._history) <= 1:
             self._history.clear()
             self.stack.setCurrentWidget(self.home)
+            self._catalog_navigation_listener()
             return
         self._history.pop()
         self._show_state(self._history[-1], push=False)
@@ -749,31 +743,40 @@ class MonsterCatalogPage(QWidget):
             self._show_state(self._history[-1], push=False)
         else:
             self.stack.setCurrentWidget(self.home)
+            self._catalog_navigation_listener()
 
-    def _open_reference(self, key: str) -> None:
-        self.open_detail(self._controller.detail(key))
+    def set_catalog_navigation_listener(
+        self,
+        listener: Callable[[], None],
+    ) -> None:
+        self._catalog_navigation_listener = listener
+
+    def catalog_back_label(self) -> str | None:
+        current = self.stack.currentWidget()
+        if current is self.detail_view:
+            return self._active_state.title if self._active_state is not None else "玩法列表"
+        if current is self.browser:
+            return self._history[-2].title if len(self._history) > 1 else "玩法分类"
+        return None
+
+    def catalog_go_back(self) -> bool:
+        current = self.stack.currentWidget()
+        if current is self.detail_view:
+            self._back_from_detail()
+            return True
+        if current is self.browser:
+            self._browser_back()
+            return True
+        return False
 
     def _home_badge(self, mode: str) -> str:
-        identities = {
-            entry.primary_id for entry in self._controller.entries_for(mode)
-        }
-        labels = {
-            "official_illustrated": "名大世界敌人",
-            "feast": "名挑战对象",
-            "clone": "个副本",
-            "world_boss": "名追猎目标",
-            "high_risk": "项高危委托",
-        }
-        if mode == "outer_realm":
-            return "当期与预计期"
-        return f"{len(identities)} {labels[mode]}"
+        return _home_badge(mode, self._controller.entries_for(mode))
 
 def build_monster_catalog_page(
     *,
     service: StaticCatalogMonsterService,
     terminology_service: StaticCatalogTerminologyService,
     game_ui_asset_root: str | Path,
-    open_catalog_link: Callable[[CatalogLink], None] | None = None,
     parent: QWidget | None = None,
 ) -> MonsterCatalogPage:
     """Public factory for the shared catalog composition root."""
@@ -785,6 +788,4 @@ def build_monster_catalog_page(
         asset_catalog=GameUiAssetCatalog(game_ui_asset_root),
         parent=parent,
     )
-    if open_catalog_link is not None:
-        page.catalog_link_requested.connect(open_catalog_link)
     return page

@@ -83,7 +83,6 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
     def setUp(self) -> None:
         app_context = SimpleNamespace(paths=SimpleNamespace(asset_dir=PROJECT_ROOT / "assets"))
         self.presentation = EquipmentPresentation(app_context=app_context, dialog_parent=None)
-        self.catalog_links = []
         self.terminology_dao = StaticGameDataDao(STATIC_DATABASE)
         self.page = build_equipment_catalog_page(
             database_path=STATIC_DATABASE,
@@ -92,7 +91,6 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
             terminology_service=StaticCatalogTerminologyService(
                 self.terminology_dao,
             ),
-            open_catalog_link=self.catalog_links.append,
         )
         self.page.resize(1280, 900)
         self.page.show()
@@ -128,6 +126,7 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
         )
 
     def test_home_is_deduplicated_sorted_player_gallery_without_tables(self) -> None:
+        self.assertIsNone(self.page.catalog_back_label())
         categories = {
             button.property("categoryKey") for button in self.page.findChildren(QPushButton)
             if button.property("categoryKey")
@@ -147,6 +146,10 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
         card_text = "\n".join(label.text() for card in cards[:3] for label in card.findChildren(QLabel))
         self.assertIn("S级空幕", card_text)
         self.assertNotIn("金色", card_text)
+        self.page.open_equipment(cards[0].record.item_id)
+        self.assertEqual("空幕与驱动列表", self.page.catalog_back_label())
+        self.assertTrue(self.page.catalog_go_back())
+        self.assertIsNone(self.page.catalog_back_label())
 
     def test_internal_ids_and_resource_paths_are_not_player_visible(self) -> None:
         self._inject_mag()
@@ -171,12 +174,14 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
         self.assertIsNotNone(selector)
         self.assertFalse(selector.itemIcon(0).isNull())
         self.page.open_suit("Suit10")
-        mechanics_button = next(
-            button for button in self.page.detail.findChildren(QPushButton)
-            if button.text() == "查看战斗机制"
+        suit_text = "\n".join(
+            label.text() for label in self.page.detail.findChildren(QLabel)
         )
-        mechanics_button.click()
-        self.assertEqual("combat_mechanics", self.catalog_links[-1].domain_key)
+        self.assertIn("条件、持续与叠层规则已按当前可读说明在本卡内展示", suit_text)
+        self.assertFalse(any(
+            button.text() == "查看战斗机制"
+            for button in self.page.detail.findChildren(QPushButton)
+        ))
         self.page.open_shape("EquipmentGeometry_Hen2")
         self.app.processEvents()
         shape_text = "\n".join(label.text() for label in self.page.detail.findChildren(QLabel))

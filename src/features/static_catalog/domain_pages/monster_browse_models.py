@@ -92,6 +92,21 @@ def period_label(config_id: str) -> str:
     return f"第 {ordinal} 期" if ordinal.isdigit() else "正式期数"
 
 
+def home_badge(mode: str, entries: Iterable[CatalogEntry]) -> str:
+    """Summarize one home category without duplicating records in the view."""
+
+    if mode == "outer_realm":
+        return "当期与预计期"
+    labels = {
+        "official_illustrated": "名大世界敌人",
+        "feast": "名挑战对象",
+        "clone": "个副本",
+        "world_boss": "名追猎目标",
+        "high_risk": "项高危委托",
+    }
+    return f"{len({entry.primary_id for entry in entries})} {labels[mode]}"
+
+
 def witch_blessing_state(
     entries: Iterable[CatalogEntry],
     open_detail: Callable[[CatalogEntry], None],
@@ -100,7 +115,7 @@ def witch_blessing_state(
 
     cards = tuple(BrowseCard(
         entry.title,
-        "查看正式说明与生效机制",
+        "查看说明与生效规则",
         "战前可选",
         None,
         lambda checked=False, row=entry: open_detail(row),
@@ -109,6 +124,6 @@ def witch_blessing_state(
     ) for entry in entries)
     return BrowseState(
         "魔女赐福",
-        "选择一项赐福，查看正式说明与权威机制详情。",
+        "选择一项赐福，在当前详情中查看完整说明与生效规则。",
         (BrowseSection("可选赐福", f"共 {len(cards)} 项", cards),),
     )

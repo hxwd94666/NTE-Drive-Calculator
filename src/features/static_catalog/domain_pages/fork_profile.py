@@ -21,13 +21,10 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.domain.static_catalog_terminology import LocalizedForkCampaign
 from src.features.static_catalog.domain_pages.fork_components import (
-    ForkCatalogLinkButton,
     ForkCharacterCard,
-    ForkMoreInfo,
     ForkProgressionControls,
     add_effect_tiles,
     breakthrough_cost_text,
-    breakthrough_raw_id_text,
     clear_layout,
     display_number,
     plain_text,
@@ -44,8 +41,6 @@ from src.services.static_catalog_character_models import CharacterSummary
 from src.services.static_catalog_fork_release_metadata import (
     ForkItemDisplayNameService,
     build_fork_progression_request,
-    fork_character_catalog_link,
-    fork_mechanics_catalog_routes,
 )
 from src.services.static_catalog_fork_service import (
     ForkCatalogDetail,
@@ -56,8 +51,6 @@ from src.services.static_catalog_fork_service import (
 
 
 class ForkProfileView(QWidget):
-    back_requested = Signal()
-    catalog_link_requested = Signal(object)
     progression_requested = Signal(object)
 
     def __init__(
@@ -89,13 +82,6 @@ class ForkProfileView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 6, 8, 10)
         root.setSpacing(10)
-        navigation = QHBoxLayout()
-        back = QPushButton("‹  返回弧盘图鉴", self)
-        back.setObjectName("forkBackButton")
-        back.clicked.connect(self.back_requested)
-        navigation.addWidget(back)
-        navigation.addStretch(1)
-        root.addLayout(navigation)
         self.hero = self._build_hero()
         root.addWidget(self.hero)
 
@@ -114,7 +100,9 @@ class ForkProfileView(QWidget):
     def _build_hero(self) -> QFrame:
         hero = QFrame(self)
         hero.setObjectName("forkProfileHero")
-        hero.setMinimumHeight(204)
+        hero.setMinimumHeight(150)
+        hero.setMaximumHeight(168)
+        hero.setMaximumWidth(720)
         hero.setStyleSheet(themed_style(
             "QFrame#forkProfileHero{"
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
@@ -122,9 +110,9 @@ class ForkProfileView(QWidget):
             "border:1px solid #a371f7;border-radius:18px;}"
         ))
         layout = QHBoxLayout(hero)
-        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setContentsMargins(16, 8, 16, 8)
         self.art = QLabel(hero)
-        self.art.setFixedSize(190, 180)
+        self.art.setFixedSize(142, 142)
         self.art.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.art)
         copy = QVBoxLayout()
@@ -135,7 +123,7 @@ class ForkProfileView(QWidget):
         ))
         self.name = QLabel("选择弧盘", hero)
         self.name.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:27px;font-weight:900"
+            "color:#f0f6fc;font-size:23px;font-weight:900"
         ))
         badges = QHBoxLayout()
         self.quality_badge = self._badge("品质未提供", "#d29922")
@@ -155,14 +143,11 @@ class ForkProfileView(QWidget):
         self.description.setStyleSheet(themed_style(
             "color:#8b949e;font-size:11px;line-height:1.45"
         ))
-        self.hero_more_info = ForkMoreInfo(hero)
-        copy.addStretch(1)
         copy.addWidget(eyebrow)
         copy.addWidget(self.name)
         copy.addLayout(badges)
         copy.addWidget(self.owner_label)
         copy.addWidget(self.description)
-        copy.addWidget(self.hero_more_info)
         copy.addStretch(1)
         layout.addLayout(copy, 1)
         return hero
@@ -274,8 +259,6 @@ class ForkProfileView(QWidget):
             "color:#c9d1d9;font-size:12px;font-weight:800"
         ))
         current.layout().addWidget(self.current_level_cost)
-        self.current_more_info = ForkMoreInfo(current)
-        current.layout().addWidget(self.current_more_info)
         self._cultivation_layout.addWidget(current)
         self.breakthrough_host = self._panel("突破路线 · 消耗")
         self.breakthrough_grid = QGridLayout()
@@ -305,7 +288,6 @@ class ForkProfileView(QWidget):
         self.level_slider.blockSignals(False)
         summary = detail.summary
         self.name.setText(summary.name_zh)
-        self.hero_more_info.set_text(f"正式 ID：{summary.fork_id}")
         self.quality_badge.setText(self._item_names.quality_name(summary.quality))
         self.type_badge.setText(summary.fork_type_name_zh or "类型未提供")
         campaign = self._display_campaigns.get(summary.fork_id)
@@ -323,8 +305,8 @@ class ForkProfileView(QWidget):
             self.art.setText("")
             self.art.setStyleSheet("")
             self.art.setPixmap(pixmap.scaled(
-                176,
-                176,
+                134,
+                134,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             ))
@@ -426,9 +408,6 @@ class ForkProfileView(QWidget):
             f"Lv.{self._level} · {stage_text} · {exp_text}\n{material_text}\n"
             "逐级升级消耗：当前正式数据未提供；不会伪装为 0。"
         )
-        self.current_more_info.set_text(
-            breakthrough_raw_id_text(stage, self._item_names),
-        )
         self.progression_controls.set_target_state(
             self._level,
             self._stage,
@@ -500,10 +479,6 @@ class ForkProfileView(QWidget):
             self.effects_layout.addWidget(self._gap(message))
         else:
             add_effect_tiles(self.effects_layout, presentation)
-        for route in fork_mechanics_catalog_routes(refinement, buffs):
-            button = ForkCatalogLinkButton(route.label, route.link, parent=self.effects_host)
-            button.link_requested.connect(self.catalog_link_requested)
-            self.effects_layout.addWidget(button)
 
     def _render_characters(self) -> None:
         clear_layout(self.characters_grid)
@@ -560,13 +535,6 @@ class ForkProfileView(QWidget):
                 art_path=self._asset_catalog.character_icon(character.character_id),
                 parent=self.characters_host,
             )
-            link = fork_character_catalog_link(
-                character.character_id,
-                owner=character.character_id in exclusive_ids,
-            )
-            card.clicked.connect(
-                lambda _checked=False, value=link: self.catalog_link_requested.emit(value),
-            )
             self._character_cards.append(card)
         self._layout_character_cards()
 
@@ -593,9 +561,6 @@ class ForkProfileView(QWidget):
                 "消耗",
                 breakthrough_cost_text(stage, self._item_names).removeprefix("消耗："),
             ))
-            more_info = ForkMoreInfo(card)
-            more_info.set_text(breakthrough_raw_id_text(stage, self._item_names))
-            card.layout().addWidget(more_info)
             modifier_text = "、".join(
                 f"{item.property_name_zh or item.property_id} {item.display_value}"
                 for item in stage.modifiers
@@ -609,10 +574,6 @@ class ForkProfileView(QWidget):
                 "消耗",
                 self._item_names.player_text(costs) or "暂未提供",
             ))
-            more_info = ForkMoreInfo(card)
-            raw_ids = self._item_names.raw_id_text(costs)
-            more_info.set_text(f"正式 ID：{raw_ids}" if raw_ids else "")
-            card.layout().addWidget(more_info)
             card.layout().addWidget(self._info_row(
                 "技能",
                 refinement.title_zh or "当前正式数据未提供",

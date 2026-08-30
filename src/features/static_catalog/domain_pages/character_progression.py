@@ -197,11 +197,7 @@ def project_progression_result(
             row for projection in unresolved for row in projection.more_info
         )
     if result.gaps:
-        lines.append("公共养成服务返回了未完整项，详见更多信息。")
-        more_info.extend(
-            (f"未完整原因 {index}", gap)
-            for index, gap in enumerate(result.gaps, start=1)
-        )
+        lines.append("部分材料缺少正式产出，暂不能计算完整活力。")
     if len(lines) == 1:
         lines.append("当前材料已满足，无需额外活力。")
     return ProgressionResultProjection(

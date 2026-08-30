@@ -19,11 +19,6 @@ from src.domain.progression_stamina import (
 )
 from src.domain.static_catalog import CatalogLink
 from src.domain.static_catalog_terminology import LocalizedForkCampaign, LocalizedTerm
-from src.features.static_catalog.domain_pages.fork_components import (
-    ForkCatalogLinkButton,
-    ForkCharacterCard,
-    ForkMoreInfo,
-)
 from src.features.static_catalog.domain_pages.fork_page import (
     ForkCatalogPage,
     ForkOwnedResources,
@@ -333,29 +328,27 @@ class ForkCatalogPageTests(unittest.TestCase):
         self.app.processEvents()
         self.assertIn("混频 5", profile.refinement_title.text())
 
-    def test_cards_and_effects_emit_one_public_typed_link_signal(self) -> None:
+    def test_character_and_effect_relationships_render_inline_without_jumps(self) -> None:
         page = build_fork_catalog_page(
             database_path=DATABASE,
             game_ui_asset_root=ASSETS,
             terminology_service=self.terminology,
         )
         self.addCleanup(page.dispose)
-        links: list[object] = []
-        page.catalog_link_requested.connect(links.append)
         page.open_fork("fork_GoldRecord")
         page.profile_view.set_refinement(5)
         self.app.processEvents()
 
-        page.profile_view.findChildren(ForkCharacterCard)[0].click()
-        page.profile_view.findChildren(ForkCatalogLinkButton)[0].click()
-        self.app.processEvents()
-
-        self.assertEqual(2, len(links))
-        self.assertTrue(all(isinstance(link, CatalogLink) for link in links))
-        self.assertEqual("character", links[0].domain_key)
-        self.assertIn(links[0].relation_kind, {"owner", "compatible"})
-        self.assertEqual("combat_mechanics", links[1].domain_key)
-        self.assertIn(links[1].relation_kind, {"mixing_effect", "buff"})
+        visible_text = "\n".join(
+            label.text() for label in page.profile_view.findChildren(QLabel)
+            if label.isVisibleTo(page)
+        )
+        self.assertIn("灵可", visible_text)
+        self.assertIn("效果内容", visible_text)
+        self.assertFalse(any(
+            button.text() in {"查看角色", "查看战斗机制", "更多信息"}
+            for button in page.profile_view.findChildren(QPushButton)
+        ))
 
     def test_detail_hides_developer_fields_and_resolves_skill_values(self) -> None:
         page = build_fork_catalog_page(
@@ -383,13 +376,10 @@ class ForkCatalogPageTests(unittest.TestCase):
         self.assertIn("生效时机", visible_text)
         self.assertIn("效果内容", visible_text)
 
-        page.profile_view.hero_more_info.toggle.click()
-        self.app.processEvents()
-        self.assertTrue(page.profile_view.hero_more_info.raw_label.isVisibleTo(page))
-        self.assertIn(
-            "fork_GoldRecord",
-            page.profile_view.hero_more_info.raw_label.text(),
-        )
+        self.assertFalse(any(
+            button.text() == "更多信息"
+            for button in page.profile_view.findChildren(QPushButton)
+        ))
 
     def test_narrow_cultivation_has_no_horizontal_overflow(self) -> None:
         page = build_fork_catalog_page(
@@ -409,8 +399,8 @@ class ForkCatalogPageTests(unittest.TestCase):
         self.assertTrue(page.profile_view.hero.isVisible())
         self.assertGreater(page.profile_view.hero.width(), 600)
         self.assertFalse(page.profile_view.art.pixmap().isNull())
-        back = page.profile_view.findChild(QPushButton, "forkBackButton")
-        self.assertEqual("‹  返回弧盘图鉴", back.text())
+        self.assertEqual("弧盘列表", page.catalog_back_label())
+        self.assertIsNone(page.profile_view.findChild(QPushButton, "forkBackButton"))
         visible_text = "\n".join(
             label.text() for label in page.profile_view.findChildren(QLabel)
             if label.isVisibleTo(page)
@@ -425,15 +415,9 @@ class ForkCatalogPageTests(unittest.TestCase):
         ):
             self.assertNotIn(raw_value, visible_text)
 
-        raw_labels = page.profile_view.findChildren(QLabel, "forkRawIdentity")
-        cost_raw_label = next(
-            label for label in raw_labels if "gold" in label.text()
+        self.assertEqual(
+            [], page.profile_view.findChildren(QLabel, "forkRawIdentity")
         )
-        more = cost_raw_label.parentWidget()
-        self.assertIsInstance(more, ForkMoreInfo)
-        more.toggle.click()
-        self.app.processEvents()
-        self.assertTrue(cost_raw_label.isVisibleTo(page))
 
     def test_progression_request_and_result_use_symmetric_public_contract(self) -> None:
         page = build_fork_catalog_page(
@@ -480,11 +464,12 @@ class ForkCatalogPageTests(unittest.TestCase):
         ))
         self.assertIn("部分可用", controls.result.text())
         self.assertIn("已知活力：40", controls.result.text())
-        self.assertFalse(controls.result_more_info.raw_label.isVisible())
-        self.assertIn("gold", controls.result_more_info.raw_label.text())
+        self.assertNotIn("gold", controls.result.text())
+        self.assertNotIn("missing_material", controls.result.text())
+        self.assertNotIn("material_yield_unavailable", controls.result.text())
 
-        back = page.profile_view.findChild(QPushButton, "forkBackButton")
-        back.click()
+        self.assertTrue(page.catalog_go_back())
+        self.assertIsNone(page.catalog_back_label())
         self.assertFalse(page.set_progression_result(
             fork_id="fork_GoldRecord",
             result=result,

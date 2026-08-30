@@ -74,18 +74,18 @@ class MechanicsGalleryCard(QFrame):
         self.setObjectName("mechanicsGalleryCard")
         self.setProperty("recordId", model.record_id)
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumWidth(240)
-        self.setMinimumHeight(170)
+        self.setMinimumWidth(210)
+        self.setMinimumHeight(112)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(themed_style(
             "QFrame#mechanicsGalleryCard{background:#161b22;"
-            "border:1px solid #30363d;border-radius:14px;}"
+            "border:1px solid #30363d;border-radius:9px;}"
             "QFrame#mechanicsGalleryCard:hover{background:#182434;"
             "border-color:#58a6ff;}"
         ))
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
-        root.setSpacing(7)
+        root.setContentsMargins(12, 9, 12, 9)
+        root.setSpacing(4)
 
         top = QHBoxLayout()
         eyebrow = QLabel(model.eyebrow, self)
@@ -94,36 +94,22 @@ class MechanicsGalleryCard(QFrame):
         ))
         top.addWidget(eyebrow)
         top.addStretch(1)
-        if model.status:
-            top.addWidget(status_pill(model.status, self))
         root.addLayout(top)
 
         title = QLabel(model.title, self)
         title.setObjectName("mechanicsCardTitle")
         title.setWordWrap(True)
         title.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:15px;font-weight:900;"
+            "color:#f0f6fc;font-size:14px;font-weight:900;"
         ))
         root.addWidget(title)
         subtitle = QLabel(model.subtitle, self)
         subtitle.setObjectName("mechanicsCardSubtitle")
         subtitle.setWordWrap(True)
-        subtitle.setMaximumHeight(48)
+        subtitle.setMaximumHeight(40)
         subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:10px;"))
         root.addWidget(subtitle, 1)
 
-        badges = QHBoxLayout()
-        badges.setSpacing(5)
-        for text in model.badges[:3]:
-            badges.addWidget(pill(text, color="#8b949e", parent=self))
-        badges.addStretch(1)
-        root.addLayout(badges)
-
-        owner = QLabel(model.owner_label, self)
-        owner.setStyleSheet(themed_style(
-            "color:#8b949e;font-size:9px;font-weight:700;"
-        ))
-        root.addWidget(owner)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt override
         if event.button() == Qt.LeftButton:
@@ -143,27 +129,22 @@ class FieldCard(QFrame):
         super().__init__(parent)
         self.setObjectName("mechanicsFieldCard")
         self.setStyleSheet(themed_style(
-            f"QFrame#mechanicsFieldCard{{background:#161b22;border:1px solid {accent};"
-            "border-radius:13px;}"
+            f"QFrame#mechanicsFieldCard{{background:transparent;border:0;"
+            f"border-left:2px solid {accent};}}"
         ))
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(11, 6, 8, 6)
+        root.setSpacing(5)
         heading = QLabel(title, self)
         heading.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:13px;font-weight:900;"
         ))
         root.addWidget(heading)
         for field in fields:
-            row = QFrame(self)
-            row.setObjectName("mechanicsFieldRow")
-            row.setStyleSheet(themed_style(
-            "QFrame#mechanicsFieldRow{background:#0d1117;"
-                "border:1px solid #21262d;border-radius:9px;}"
-            ))
+            row = QWidget(self)
             row_layout = QVBoxLayout(row)
-            row_layout.setContentsMargins(10, 7, 10, 7)
-            row_layout.setSpacing(2)
+            row_layout.setContentsMargins(0, 2, 0, 2)
+            row_layout.setSpacing(1)
             label = QLabel(field.label, row)
             label.setStyleSheet(themed_style(
                 "color:#8b949e;font-size:9px;font-weight:800;"

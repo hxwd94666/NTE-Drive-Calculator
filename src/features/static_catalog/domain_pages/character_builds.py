@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -13,16 +13,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
-    QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from src.app.theme import themed_style
-from src.features.static_catalog.domain_pages.character_more_info import (
-    build_more_info,
-)
 from src.features.static_catalog.domain_pages.character_terminology import (
     project_character_term,
 )
@@ -31,10 +28,10 @@ from src.services.static_catalog_character_models import (
     BuildProperty,
     CharacterDetail,
 )
-from src.services.static_catalog_mechanics_models import CatalogLink, encode_record
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
+from src.ui.puzzle_board import PuzzleBoardWidget
 
 
 def _number(value: float) -> str:
@@ -45,18 +42,8 @@ def _plain(value: str | None) -> str:
     return " ".join(re.sub(r"<[^>]+>", "", value or "").split())
 
 
-def _mechanics_link(entity_kind: str, stable_id: str, relation: str) -> CatalogLink:
-    return CatalogLink(
-        "combat_mechanics",
-        encode_record("effect", f"{entity_kind}{chr(31)}{stable_id}"),
-        relation,
-    )
-
-
 class CharacterBuildView(QWidget):
     """Responsive, non-tabular projection of formal and project build facts."""
-
-    catalog_link_requested = Signal(object)
 
     def __init__(
         self,
@@ -115,30 +102,20 @@ class CharacterBuildView(QWidget):
         summary.addWidget(self._chip(f"驱动模板 · Lv.{plan.module_level}"))
         summary.addStretch(1)
         card.layout().addLayout(summary)
-        board = QGridLayout()
-        board.setSpacing(4)
+        matrix = [["0" for _column in range(5)] for _row in range(5)]
         for row, column, module_ordinal in plan.cells:
-            cell = QLabel("" if module_ordinal is None else str(module_ordinal + 1), card)
-            cell.setObjectName("characterBlueprintCell")
-            cell.setProperty("occupied", module_ordinal is not None)
-            cell.setFixedSize(34, 34)
-            cell.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            cell.setStyleSheet(themed_style(
-                "QLabel#characterBlueprintCell{color:#6e7681;background:#0d1117;"
-                "border:1px solid #30363d;border-radius:7px;font-weight:900;}"
-                "QLabel#characterBlueprintCell[occupied='true']{color:#f0f6fc;"
-                "background:#1f6feb;border-color:#58a6ff;}"
-            ))
-            board.addWidget(cell, row - 1, column - 1)
-        card.layout().addLayout(board)
-        more_rows: list[tuple[str, str | None]] = [*core.more_info]
-        for module in plan.modules:
-            name = module.display_name or "名称暂未提供"
-            card.layout().addWidget(self._info(
-                f"驱动 {module.ordinal + 1}",
-                f"{name} · {module.grid_count} 格",
-            ))
-            more_rows.append((f"驱动 {module.ordinal + 1} 正式 ID", module.item_id))
+            if module_ordinal is not None:
+                matrix[row - 1][column - 1] = str(module_ordinal + 1)
+        card.layout().addWidget(
+            PuzzleBoardWidget(matrix, cell_size=28, parent=card),
+            0,
+            Qt.AlignmentFlag.AlignHCenter,
+        )
+        modules = "、".join(
+            f"{module.display_name or '名称暂未提供'} {module.grid_count} 格"
+            for module in plan.modules
+        )
+        card.layout().addWidget(self._info("驱动配置", modules))
         names = self._property_names(plan.core_attributes)
         card.layout().addWidget(self._info(
             "空幕主属性", "、".join(names) or "名称暂未提供",
@@ -147,9 +124,6 @@ class CharacterBuildView(QWidget):
         card.layout().addWidget(self._info(
             "正式推荐属性", "、".join(recommended) or "名称暂未提供",
         ))
-        details = build_more_info(more_rows, parent=card)
-        if details is not None:
-            card.layout().addWidget(details)
         return card
 
     def _cultivation_card(self, detail: CharacterDetail) -> QFrame:
@@ -178,8 +152,6 @@ class CharacterBuildView(QWidget):
                 stable_id=fork_id,
                 identity_label="弧盘",
             )
-            row = QHBoxLayout()
-            copy = QVBoxLayout()
             title = QLabel(
                 formal_name
                 if formal_name and formal_name != fork_id
@@ -190,14 +162,8 @@ class CharacterBuildView(QWidget):
             note = QLabel(description or "正式推荐弧盘", card)
             note.setWordWrap(True)
             note.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
-            copy.addWidget(title)
-            copy.addWidget(note)
-            row.addLayout(copy, 1)
-            row.addWidget(self._link_button(
-                "查看弧盘",
-                CatalogLink("fork", fork_id, "recommended"),
-            ))
-            card.layout().addLayout(row)
+            card.layout().addWidget(title)
+            card.layout().addWidget(note)
         return card
 
     def _shape_card(self, detail: CharacterDetail) -> QFrame:
@@ -212,9 +178,6 @@ class CharacterBuildView(QWidget):
             if prop.value is not None:
                 value = f"{_number(prop.value)}{'%' if prop.show_percent else ''}"
             card.layout().addWidget(self._info(self._property_name(prop), value))
-        details = build_more_info((("正式形状 ID", bonus.shape_label),), parent=card)
-        if details is not None:
-            card.layout().addWidget(details)
         return card
 
     def _graduation_card(self, detail: CharacterDetail) -> QFrame:
@@ -225,28 +188,16 @@ class CharacterBuildView(QWidget):
             card.layout().addWidget(self._muted("当前项目未提供派生毕业模板"))
             return card
         if graduation.fork_id:
-            row = QHBoxLayout()
-            row.addWidget(self._info(
+            card.layout().addWidget(self._info(
                 "推荐弧盘",
                 f"{graduation.fork_name_zh or '名称暂未提供'} · "
                 f"Lv.{graduation.fork_level or '—'}",
-            ), 1)
-            row.addWidget(self._link_button(
-                "查看弧盘",
-                CatalogLink("fork", graduation.fork_id, "graduation"),
             ))
-            card.layout().addLayout(row)
         if graduation.core_suit_id:
-            row = QHBoxLayout()
-            row.addWidget(self._info(
+            card.layout().addWidget(self._info(
                 "空幕套装",
                 graduation.core_suit_name_zh or "名称暂未提供",
-            ), 1)
-            row.addWidget(self._link_button(
-                "查看套装",
-                CatalogLink("equipment", graduation.core_suit_id, "suit"),
             ))
-            card.layout().addLayout(row)
         core_stats = self._property_values(graduation.core_main_stats)
         drive_stats = self._property_values(graduation.drive_template_stats)
         card.layout().addWidget(self._info(
@@ -283,7 +234,8 @@ class CharacterBuildView(QWidget):
         skill_names = {skill.skill_id: skill.name_zh for skill in detail.skills}
         for stage in guide.stages:
             skills = "、".join(
-                f"{slot} {skill_names.get(skill_id) or '名称暂未提供'} Lv.{level}"
+                f"{'' if slot in {'', 'default'} else f'{slot} '}"
+                f"{skill_names.get(skill_id) or '名称暂未提供'} Lv.{level}"
                 for slot, skill_id, level in stage.recommended_skills
             ) or "名称暂未提供"
             card.layout().addWidget(self._info(
@@ -316,16 +268,11 @@ class CharacterBuildView(QWidget):
             identity_label="属性",
         ).display_name
 
-    def _link_button(self, text: str, link: CatalogLink) -> QPushButton:
-        button = QPushButton(text, self)
-        button.setObjectName("characterCatalogLink")
-        button.clicked.connect(lambda: self.catalog_link_requested.emit(link))
-        return button
-
     @staticmethod
     def _panel(title: str) -> QFrame:
         card = QFrame()
         card.setProperty("characterBuildPanel", True)
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         card.setStyleSheet(themed_style(
             "QFrame[characterBuildPanel='true']{background:#161b22;"
             "border:1px solid #30363d;border-radius:13px;}"
@@ -363,6 +310,7 @@ class CharacterBuildView(QWidget):
     @staticmethod
     def _info(title: str, value: str) -> QFrame:
         row = QFrame()
+        row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(row)
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(1)
@@ -389,8 +337,17 @@ class CharacterBuildView(QWidget):
         self._columns = columns
         while self.grid.count():
             self.grid.takeAt(0)
-        for index, card in enumerate(self._cards):
-            self.grid.addWidget(card, index // columns, index % columns)
+        if columns == 1:
+            for index, card in enumerate(self._cards):
+                self.grid.addWidget(card, index, 0, Qt.AlignmentFlag.AlignTop)
+        else:
+            plan, cultivation, shape, graduation, weights, stages = self._cards
+            self.grid.addWidget(plan, 0, 0, 2, 1, Qt.AlignmentFlag.AlignTop)
+            self.grid.addWidget(cultivation, 0, 1, Qt.AlignmentFlag.AlignTop)
+            self.grid.addWidget(graduation, 1, 1, Qt.AlignmentFlag.AlignTop)
+            self.grid.addWidget(shape, 2, 0, Qt.AlignmentFlag.AlignTop)
+            self.grid.addWidget(weights, 2, 1, Qt.AlignmentFlag.AlignTop)
+            self.grid.addWidget(stages, 3, 0, 1, 2, Qt.AlignmentFlag.AlignTop)
         for column in range(2):
             self.grid.setColumnStretch(column, 1 if column < columns else 0)
 
@@ -411,9 +368,7 @@ class CharacterBuildView(QWidget):
 
 
 class CharacterAwakeningView(QWidget):
-    """Readable awakening cards with raw structure collapsed by default."""
-
-    catalog_link_requested = Signal(object)
+    """Readable awakening cards without internal identifiers."""
 
     def __init__(
         self,
@@ -478,43 +433,6 @@ class CharacterAwakeningView(QWidget):
             card.layout().addWidget(CharacterBuildView._chip(
                 f"技能等级加成 · {name} {bonus.level_delta:+d}",
             ))
-        card.layout().addWidget(CharacterBuildView._info(
-            "结构化正式效果", f"{len(awakening.structured_effects)} 个字段",
-        ))
-        relations = QHBoxLayout()
-        for index, effect_id in enumerate(awakening.gameplay_effect_ids, start=1):
-            button = QPushButton(f"查看 Gameplay Effect {index}", card)
-            link = _mechanics_link("gameplay_effect", effect_id, "awakening_effect")
-            button.clicked.connect(
-                lambda _checked=False, target=link: self.catalog_link_requested.emit(target)
-            )
-            relations.addWidget(button)
-        for index, buff_id in enumerate(awakening.buff_definition_ids, start=1):
-            button = QPushButton(f"查看 Buff {index}", card)
-            link = _mechanics_link("buff", buff_id, "awakening_buff")
-            button.clicked.connect(
-                lambda _checked=False, target=link: self.catalog_link_requested.emit(target)
-            )
-            relations.addWidget(button)
-        relations.addStretch(1)
-        if awakening.gameplay_effect_ids or awakening.buff_definition_ids:
-            card.layout().addLayout(relations)
-        details = build_more_info(tuple(
-            (f"结构字段 {index:02d}", f"{field.path} = {field.value_json}")
-            for index, field in enumerate(
-                (
-                    item for item in awakening.structured_effects
-                    if ".Buff." not in item.path
-                    and not item.path.endswith((".SkillName", ".SkillLevel"))
-                ),
-                start=1,
-            )
-        ) + (
-            ("正式觉醒 ID", awakening.effect_id),
-            ("觉醒类型 ID", awakening.awaken_type),
-        ), parent=card)
-        if details is not None:
-            card.layout().addWidget(details)
         return card
 
 

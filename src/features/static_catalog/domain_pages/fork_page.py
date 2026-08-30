@@ -192,7 +192,6 @@ class ForkGalleryCard(QFrame):
 class ForkCatalogPage(QWidget):
     """Own gallery filters and discardable fork-detail projections only."""
 
-    catalog_link_requested = Signal(object)
     progression_requested = Signal(object)
 
     def __init__(
@@ -213,6 +212,7 @@ class ForkCatalogPage(QWidget):
         self._asset_catalog = asset_catalog
         self._item_name_service = item_name_service
         self._campaigns = tuple(campaigns)
+        self._catalog_navigation_listener: Callable[[], None] = lambda: None
         grouped_campaigns: dict[str, list[LocalizedForkCampaign]] = {}
         for campaign in self._campaigns:
             grouped_campaigns.setdefault(campaign.featured_fork_id, []).append(campaign)
@@ -262,8 +262,6 @@ class ForkCatalogPage(QWidget):
             display_campaigns=self._display_campaign_by_fork,
             parent=self._stack,
         )
-        self.profile_view.back_requested.connect(self.show_gallery)
-        self.profile_view.catalog_link_requested.connect(self.catalog_link_requested)
         self.profile_view.progression_requested.connect(self.progression_requested)
         self._stack.addWidget(self.profile_view)
         root.addWidget(self._stack)
@@ -523,12 +521,29 @@ class ForkCatalogPage(QWidget):
         self.profile_view.set_data(detail, self._characters, self._metadata)
         self._active_fork_id = detail.summary.fork_id
         self._stack.setCurrentIndex(1)
+        self._catalog_navigation_listener()
 
     def show_gallery(self) -> None:
         """Leave the detail identity before exposing the gallery again."""
 
         self._active_fork_id = None
         self._stack.setCurrentIndex(0)
+        self._catalog_navigation_listener()
+
+    def set_catalog_navigation_listener(
+        self,
+        listener: Callable[[], None],
+    ) -> None:
+        self._catalog_navigation_listener = listener
+
+    def catalog_back_label(self) -> str | None:
+        return "弧盘列表" if self._stack.currentIndex() == 1 else None
+
+    def catalog_go_back(self) -> bool:
+        if self._stack.currentIndex() != 1:
+            return False
+        self.show_gallery()
+        return True
 
     def set_progression_result(
         self,

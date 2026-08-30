@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QLabel,
     QPushButton,
     QTableView,
     QTableWidget,
@@ -30,7 +31,6 @@ from src.services.static_catalog_monster_service import (
     CatalogValue,
     StaticCatalogMonsterService,
 )
-from src.services.static_catalog_mechanics_models import CatalogLink
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -140,6 +140,11 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         self.assertNotIn("schema", visible_text.casefold())
         self.assertNotIn("importer", visible_text.casefold())
         self.assertNotIn("条正式记录", visible_text)
+        self.assertIsNone(page.catalog_back_label())
+        page.play_group_cards[0].model.action()
+        self.assertIsNotNone(page.catalog_back_label())
+        self.assertTrue(page.catalog_go_back())
+        self.assertIsNone(page.catalog_back_label())
         page.deleteLater()
 
     def test_outer_realm_groups_current_next_and_history_in_formal_order(self) -> None:
@@ -349,26 +354,24 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         self.assertTrue(any(card.title == "名称暂未提供" for card in cards))
         page.deleteLater()
 
-    def test_witch_blessing_secondary_entry_opens_typed_mechanics_link(self) -> None:
-        links: list[CatalogLink] = []
+    def test_witch_blessing_secondary_entry_renders_effect_inline(self) -> None:
         page = build_monster_catalog_page(
             service=self.service,
             terminology_service=self.terminology,
             game_ui_asset_root=ASSET_ROOT,
-            open_catalog_link=links.append,
         )
         entry = page.findChild(QPushButton, "monsterWitchBlessingEntry")
         self.assertIsNotNone(entry)
         entry.click()
         self.assertEqual(7, len(page._active_state.sections[0].cards))
         page._active_state.sections[0].cards[0].action()
-        link_button = page.detail_view.findChild(
-            QPushButton, "monsterMechanicsLink"
+        visible_text = "\n".join(
+            label.text() for label in page.detail_view.findChildren(QLabel)
         )
-        self.assertIsNotNone(link_button)
-        link_button.click()
-        self.assertEqual(1, len(links))
-        self.assertEqual("combat_mechanics", links[0].domain_key)
+        self.assertIn("效果说明", visible_text)
+        self.assertIsNone(page.detail_view.findChild(
+            QPushButton, "monsterMechanicsLink"
+        ))
         page.deleteLater()
 
     def test_outer_rotation_opens_season_buff_with_structured_components(self) -> None:
@@ -390,7 +393,7 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         page._active_state.sections[0].cards[0].action()
         self.assertEqual(2, len(page.detail_view.buff_cards))
         self.assertTrue(all(
-            card.findChild(QPushButton, "monsterMechanicsLink") is not None
+            card.findChild(QPushButton, "monsterMechanicsLink") is None
             for card in page.detail_view.buff_cards
         ))
         page.deleteLater()
@@ -411,6 +414,15 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         )
         self.assertNotIn("drop_id", visible.casefold())
         self.assertNotIn("/Game/", visible)
+        detail_text = " ".join(
+            label.text() for label in page.detail_view.findChildren(QLabel)
+        )
+        self.assertNotIn("正式 ID", detail_text)
+        self.assertNotIn("更多信息", detail_text)
+        self.assertFalse(any(
+            button.text().startswith("查看正式关联画像")
+            for button in page.detail_view.findChildren(QPushButton)
+        ))
         page.deleteLater()
 
 

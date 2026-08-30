@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
-    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -118,8 +117,6 @@ class ResistanceCard(QFrame):
 
 
 class BuffCard(QFrame):
-    mechanism_requested = Signal(object)
-
     def __init__(
         self,
         label: str,
@@ -143,15 +140,6 @@ class BuffCard(QFrame):
         text.setStyleSheet(themed_style("color:#f0f6fc;font-size:10px"))
         layout.addWidget(title)
         layout.addWidget(text)
-        if catalog_link is not None:
-            action = QPushButton("查看战斗机制", self)
-            action.setObjectName("monsterMechanicsLink")
-            action.setProperty("catalogLink", catalog_link)
-            action.clicked.connect(
-                lambda _checked=False, link=catalog_link:
-                self.mechanism_requested.emit(link)
-            )
-            layout.addWidget(action)
 
 
 class DropCard(QFrame):

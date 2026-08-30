@@ -43,7 +43,6 @@ from src.services.static_catalog_character_models import (
     GrowthPage,
 )
 from src.services.static_catalog_character_service import StaticCatalogCharacterService
-from src.services.static_catalog_mechanics_models import CatalogLink
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -60,6 +59,7 @@ class CharacterProfileData:
     growth: GrowthPage
     combat: CombatLinkPage
     release: CharacterReleaseMetadata | None
+    variants: tuple[CharacterSummary, ...]
 
 
 class CharacterCatalogPageController:
@@ -90,11 +90,22 @@ class CharacterCatalogPageController:
 
     def gallery(self) -> CharacterPage:
         page = self._service.list_characters(limit=200)
+        visible_items = tuple(
+            item for item in page.items
+            if item.classification not in _HIDDEN_CLASSIFICATIONS
+        )
+        grouped: dict[str, list[CharacterSummary]] = {}
+        for item in visible_items:
+            logical_key = item.logical_character_key or f"character:{item.character_id}"
+            grouped.setdefault(logical_key, []).append(item)
+        # One gallery card represents one logical role.  Avatar variants remain
+        # selectable inside the detail page and keep their official IDs/data.
+        representatives = tuple(
+            max(variants, key=lambda item: item.character_id)
+            for variants in grouped.values()
+        )
         items = tuple(sorted(
-            (
-                item for item in page.items
-                if item.classification not in _HIDDEN_CLASSIFICATIONS
-            ),
+            representatives,
             key=lambda item: (
                 (
                     metadata.release_date
@@ -118,6 +129,27 @@ class CharacterCatalogPageController:
             items=items,
         )
 
+    def variants(self, character_id: int) -> tuple[CharacterSummary, ...]:
+        page = self._service.list_characters(limit=200)
+        selected = next(
+            (item for item in page.items if item.character_id == character_id),
+            None,
+        )
+        if selected is None:
+            return ()
+        logical_key = selected.logical_character_key or f"character:{character_id}"
+        return tuple(sorted(
+            (
+                item for item in page.items
+                if (
+                    item.logical_character_key
+                    or f"character:{item.character_id}"
+                ) == logical_key
+                and item.classification not in _HIDDEN_CLASSIFICATIONS
+            ),
+            key=lambda item: item.character_id,
+        ))
+
     def profile(self, character_id: int) -> CharacterProfileData | None:
         detail = self._service.get_character_detail(character_id)
         if detail is None:
@@ -127,6 +159,7 @@ class CharacterCatalogPageController:
             growth=self._service.list_growth(character_id, limit=200),
             combat=self._service.list_combat_links(character_id, limit=500),
             release=self.release_metadata(character_id),
+            variants=self.variants(character_id),
         )
 
 
@@ -134,7 +167,6 @@ class CharacterCatalogPage(QWidget):
     """Independent character archive; the shared catalog entry owns navigation."""
 
     progression_requested = Signal(object)
-    catalog_link_requested = Signal(object)
 
     def __init__(
         self,
@@ -156,6 +188,7 @@ class CharacterCatalogPage(QWidget):
         self._cards: dict[int, CharacterGalleryCard] = {}
         self._visible_ids: tuple[int, ...] = ()
         self._active_character_id: int | None = None
+        self._catalog_navigation_listener: Callable[[], None] | None = None
         self._columns = 0
         self._build()
         self.refresh()
@@ -170,11 +203,8 @@ class CharacterCatalogPage(QWidget):
             terminology=self._terminology,
             parent=self,
         )
-        self.detail_view.back_requested.connect(self.show_gallery)
+        self.detail_view.variant_requested.connect(self.open_character)
         self.detail_view.progression_requested.connect(self.progression_requested)
-        self.detail_view.catalog_link_requested.connect(
-            self.catalog_link_requested,
-        )
         self.stack.addWidget(self.gallery_page)
         self.stack.addWidget(self.detail_view)
         root.addWidget(self.stack)
@@ -294,13 +324,6 @@ class CharacterCatalogPage(QWidget):
         self.card_grid.setHorizontalSpacing(12)
         self.card_grid.setVerticalSpacing(12)
         self.card_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.scheduled_header = self._section_header(
-            "待上线预告", "已公开预计上线日期，上线前不与已上线角色混排", True,
-        )
-        self.scheduled_note = self._scheduled_note()
-        self.active_header = self._section_header(
-            "已上线角色", "默认按大陆服上线时间由新到旧", False,
-        )
         self.empty_label = QLabel("没有匹配的角色", self.gallery_host)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setStyleSheet(themed_style(
@@ -310,72 +333,6 @@ class CharacterCatalogPage(QWidget):
         scroll.setWidget(self.gallery_host)
         root.addWidget(scroll, 1)
         return page
-
-    @staticmethod
-    def _section_header(title: str, subtitle: str, scheduled: bool) -> QFrame:
-        frame = QFrame()
-        frame.setProperty("characterSectionHeader", True)
-        frame.setProperty("scheduledSection", scheduled)
-        frame.setStyleSheet(themed_style(
-            "QFrame[characterSectionHeader='true']{background:#161b22;"
-            "border:1px solid #30363d;border-radius:11px;}"
-            "QFrame[scheduledSection='true']{background:#10243f;"
-            "border-color:#d29922;}"
-        ))
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(12, 6, 12, 6)
-        heading = QLabel(title, frame)
-        if scheduled:
-            heading.setStyleSheet(themed_style(
-                "color:#111111;background:#d29922;border:none;"
-                "border-radius:6px;padding:2px 8px;"
-                "font-size:12px;font-weight:900"
-            ))
-        else:
-            heading.setStyleSheet(themed_style(
-                "color:#f0f6fc;background:transparent;border:none;"
-                "font-size:13px;font-weight:900"
-            ))
-        note = QLabel(subtitle, frame)
-        note.setStyleSheet(themed_style(
-            "color:#8b949e;background:transparent;border:none;font-size:10px"
-        ))
-        layout.addWidget(heading)
-        layout.addWidget(note)
-        layout.addStretch(1)
-        return frame
-
-    @staticmethod
-    def _scheduled_note() -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("characterScheduledNote")
-        frame.setStyleSheet(themed_style(
-            "QFrame#characterScheduledNote{background:#161b22;"
-            "border:1px dashed #d29922;border-radius:14px;}"
-        ))
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(18, 18, 18, 18)
-        title = QLabel("预告角色独立展示", frame)
-        title.setStyleSheet(themed_style(
-            "color:#111111;background:#d29922;border:none;"
-            "border-radius:7px;padding:3px 9px;"
-            "font-size:13px;font-weight:900"
-        ))
-        description = QLabel(
-            "仅展示已有正式依据的预计上线日期和获取类型。\n"
-            "实际上线后再归入下方的已上线时间序列。",
-            frame,
-        )
-        description.setWordWrap(True)
-        description.setStyleSheet(themed_style(
-            "color:#8b949e;background:transparent;border:none;"
-            "font-size:11px;line-height:1.5"
-        ))
-        layout.addStretch(1)
-        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(description)
-        layout.addStretch(1)
-        return frame
 
     def _set_filter_expanded(self, expanded: bool) -> None:
         self.filter_body.setVisible(expanded)
@@ -424,9 +381,17 @@ class CharacterCatalogPage(QWidget):
         self._cards = {}
         for summary in page.items:
             metadata = self._controller.release_metadata(summary.character_id)
+            variants = self._controller.variants(summary.character_id)
             card = CharacterGalleryCard(
                 summary,
                 art_path=self._asset_catalog.character_icon(summary.character_id),
+                variant_art_paths=tuple(
+                    (
+                        variant.character_id,
+                        self._asset_catalog.character_icon(variant.character_id),
+                    )
+                    for variant in variants
+                ),
                 release_metadata=metadata,
                 parent=self.gallery_host,
             )
@@ -489,7 +454,15 @@ class CharacterCatalogPage(QWidget):
         if summary.classification in _HIDDEN_CLASSIFICATIONS:
             return False
         metadata = self._controller.release_metadata(summary.character_id)
-        if query and query not in summary.name_zh.casefold() and query not in str(summary.character_id):
+        variant_ids = tuple(
+            item.character_id
+            for item in self._controller.variants(summary.character_id)
+        )
+        if (
+            query
+            and query not in summary.name_zh.casefold()
+            and not any(query in str(character_id) for character_id in variant_ids)
+        ):
             return False
         if element != "all" and summary.element_label != element:
             return False
@@ -516,13 +489,7 @@ class CharacterCatalogPage(QWidget):
         self._columns = columns
         while self.card_grid.count():
             self.card_grid.takeAt(0)
-        for widget in (
-            self.scheduled_header,
-            self.scheduled_note,
-            self.active_header,
-            self.empty_label,
-        ):
-            widget.setVisible(False)
+        self.empty_label.setVisible(False)
         scheduled_ids = tuple(
             character_id for character_id in self._visible_ids
             if self._cards[character_id].summary.classification
@@ -532,35 +499,16 @@ class CharacterCatalogPage(QWidget):
             character_id for character_id in self._visible_ids
             if character_id not in scheduled_ids
         )
-        row = 0
-        for header, character_ids in (
-            (self.scheduled_header, scheduled_ids),
-            (self.active_header, active_ids),
-        ):
-            if not character_ids:
-                continue
-            header.setVisible(True)
-            self.card_grid.addWidget(header, row, 0, 1, columns)
-            row += 1
-            for index, character_id in enumerate(character_ids):
-                self.card_grid.addWidget(
-                    self._cards[character_id],
-                    row + index // columns,
-                    index % columns,
-                )
-            if header is self.scheduled_header and len(character_ids) < columns:
-                self.scheduled_note.setVisible(True)
-                self.card_grid.addWidget(
-                    self.scheduled_note,
-                    row,
-                    len(character_ids),
-                    1,
-                    columns - len(character_ids),
-                )
-            row += (len(character_ids) + columns - 1) // columns
+        display_ids = (*scheduled_ids, *active_ids)
+        for index, character_id in enumerate(display_ids):
+            self.card_grid.addWidget(
+                self._cards[character_id],
+                index // columns,
+                index % columns,
+            )
         self.empty_label.setVisible(not self._visible_ids)
         if not self._visible_ids:
-            self.card_grid.addWidget(self.empty_label, row, 0, 1, columns)
+            self.card_grid.addWidget(self.empty_label, 0, 0, 1, columns)
         for column in range(columns):
             self.card_grid.setColumnStretch(column, 1)
 
@@ -577,13 +525,40 @@ class CharacterCatalogPage(QWidget):
             profile.growth,
             profile.combat,
             profile.release,
+            profile.variants,
         )
         self._active_character_id = profile.detail.character.character_id
         self.stack.setCurrentWidget(self.detail_view)
+        self._notify_catalog_navigation_changed()
 
     def show_gallery(self) -> None:
         self._active_character_id = None
         self.stack.setCurrentWidget(self.gallery_page)
+        self._notify_catalog_navigation_changed()
+
+    def set_catalog_navigation_listener(
+        self,
+        listener: Callable[[], None],
+    ) -> None:
+        """Let the shared catalog shell refresh its single back action."""
+
+        self._catalog_navigation_listener = listener
+        listener()
+
+    def catalog_back_label(self) -> str | None:
+        if self.stack.currentWidget() is self.detail_view:
+            return "角色列表"
+        return None
+
+    def catalog_go_back(self) -> bool:
+        if self.catalog_back_label() is None:
+            return False
+        self.show_gallery()
+        return True
+
+    def _notify_catalog_navigation_changed(self) -> None:
+        if self._catalog_navigation_listener is not None:
+            self._catalog_navigation_listener()
 
     def set_progression_result(
         self,
@@ -631,7 +606,6 @@ def build_character_catalog_page(
     release_metadata_service: CharacterReleaseMetadataService,
     game_ui_asset_root: str | Path,
     terminology_service: StaticCatalogTerminologyService | None = None,
-    open_catalog_link: Callable[[CatalogLink], None] | None = None,
     parent: QWidget | None = None,
 ) -> CharacterCatalogPage:
     """Public factory used by the shared game-catalog composition root."""
@@ -645,6 +619,4 @@ def build_character_catalog_page(
         terminology=terminology_service,
         parent=parent,
     )
-    if open_catalog_link is not None:
-        page.catalog_link_requested.connect(open_catalog_link)
     return page

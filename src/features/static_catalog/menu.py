@@ -39,7 +39,7 @@ class CatalogMenuEntry:
 MENU_GROUPS = (
     ("collection", "角色与养成", "从可操作对象进入，逐层查看成长、技能与关联机制。"),
     ("combat", "装备与敌人", "按游戏图鉴组织空幕、驱动、怪物和玩法环境。"),
-    ("mechanics", "战斗机制", "拆解技能、效果、公式与反事实支持状态。"),
+    ("mechanics", "战斗机制", "查看公共战斗规则和伤害公式。"),
 )
 
 
@@ -66,7 +66,7 @@ MENU_ENTRIES = (
     ),
     CatalogMenuEntry(
         "combat_mechanics", "mechanics", "战斗机制图鉴", "COMBAT MECHANICS",
-        "公共 Buff、环合、DOT、倾陷、召唤、伤害公式与反事实建模。", "#bc8cff", "机制",
+        "环合、持续伤害、倾陷、召唤与伤害公式。", "#bc8cff", "机制",
         "attribute", ("def_ignore",),
     ),
 )
@@ -91,7 +91,7 @@ class CatalogMenuCard(QFrame):
         self.setAttribute(Qt.WA_Hover, True)
         self.setFocusPolicy(Qt.StrongFocus if available else Qt.NoFocus)
         self.setCursor(Qt.PointingHandCursor if available else Qt.ForbiddenCursor)
-        self.setMinimumSize(250, 138)
+        self.setMinimumSize(250, 104)
         self.setStyleSheet(themed_style(
             "QFrame[catalogMenuCard='true']{"
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
@@ -106,8 +106,8 @@ class CatalogMenuCard(QFrame):
 
     def _build(self, art: QPixmap | None) -> None:
         root = QHBoxLayout(self)
-        root.setContentsMargins(15, 12, 12, 12)
-        root.setSpacing(12)
+        root.setContentsMargins(13, 9, 10, 9)
+        root.setSpacing(10)
         copy = QVBoxLayout()
         copy.setSpacing(4)
         kicker = QLabel(self._entry.kicker, self)
@@ -115,11 +115,11 @@ class CatalogMenuCard(QFrame):
             f"color:{self._entry.accent};font-size:9px;font-weight:800;letter-spacing:1px"
         ))
         title = QLabel(self._entry.title, self)
-        title.setStyleSheet(themed_style("color:#f0f6fc;font-size:19px;font-weight:900"))
+        title.setStyleSheet(themed_style("color:#f0f6fc;font-size:17px;font-weight:900"))
         description = QLabel(self._entry.description, self)
         description.setWordWrap(True)
         description.setStyleSheet(themed_style("color:#8b949e;font-size:11px;line-height:1.35"))
-        state = QLabel("进入档案  ›" if self._available else "当前发行不可用", self)
+        state = QLabel("进入  ›" if self._available else "当前发行不可用", self)
         state.setStyleSheet(themed_style(
             f"color:{self._entry.accent if self._available else '#6e7681'};"
             "font-size:11px;font-weight:800;margin-top:4px"
@@ -131,11 +131,11 @@ class CatalogMenuCard(QFrame):
         root.addLayout(copy, 1)
 
         art_label = QLabel(self)
-        art_label.setFixedSize(84, 96)
+        art_label.setFixedSize(68, 76)
         art_label.setAlignment(Qt.AlignCenter)
         if art is not None and not art.isNull():
             art_label.setPixmap(art.scaled(
-                84, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                68, 76, Qt.KeepAspectRatio, Qt.SmoothTransformation
             ))
         else:
             art_label.setText(self._entry.glyph)
@@ -187,8 +187,8 @@ class StaticCatalogMenu(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         host = QWidget(scroll)
         self._content = QVBoxLayout(host)
-        self._content.setContentsMargins(4, 4, 10, 18)
-        self._content.setSpacing(15)
+        self._content.setContentsMargins(2, 2, 8, 10)
+        self._content.setSpacing(8)
         scroll.setWidget(host)
         root.addWidget(scroll)
 
@@ -209,12 +209,12 @@ class StaticCatalogMenu(QWidget):
             heading = QLabel(f"{title}  ·  {subtitle}", self)
             heading.setWordWrap(True)
             heading.setStyleSheet(themed_style(
-                "color:#c9d1d9;font-size:13px;font-weight:800;margin-top:2px"
+                "color:#c9d1d9;font-size:12px;font-weight:800;margin-top:1px"
             ))
             self._content.addWidget(heading)
             grid = QGridLayout()
-            grid.setHorizontalSpacing(12)
-            grid.setVerticalSpacing(12)
+            grid.setHorizontalSpacing(9)
+            grid.setVerticalSpacing(9)
             entries = tuple(entry for entry in MENU_ENTRIES if entry.group == group_key)
             cards: list[CatalogMenuCard] = []
             for entry in entries:
@@ -251,22 +251,23 @@ class StaticCatalogMenu(QWidget):
     def _hero(self) -> QWidget:
         hero = QFrame(self)
         hero.setObjectName("staticCatalogMenuHero")
-        hero.setMinimumHeight(132)
+        hero.setMinimumHeight(72)
+        hero.setMaximumHeight(82)
         hero.setStyleSheet(themed_style(
             "QFrame#staticCatalogMenuHero{"
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
             "stop:0 #10243f,stop:0.72 #161b22,stop:1 #0d1117);"
-            "border:1px solid #1f6feb;border-radius:16px;}"
+            "border:0;border-bottom:1px solid #1f6feb;}"
         ))
         layout = QHBoxLayout(hero)
-        layout.setContentsMargins(24, 18, 18, 10)
+        layout.setContentsMargins(14, 7, 10, 7)
         copy = QVBoxLayout()
         eyebrow = QLabel("NTE · GAME DATA ARCHIVE", hero)
         eyebrow.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:10px;font-weight:900;letter-spacing:2px"
         ))
         title = QLabel("游戏资料库", hero)
-        title.setStyleSheet(themed_style("color:#f0f6fc;font-size:28px;font-weight:900"))
+        title.setStyleSheet(themed_style("color:#f0f6fc;font-size:21px;font-weight:900"))
         subtitle = QLabel("选择一个档案领域。每个入口只呈现与该领域有关的正式数据和关系。", hero)
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
@@ -278,9 +279,9 @@ class StaticCatalogMenu(QWidget):
         art = self._resolve_art("character", ("1036",))
         if art is not None and not art.isNull():
             label = QLabel(hero)
-            label.setFixedSize(132, 112)
+            label.setFixedSize(76, 66)
             label.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
-            label.setPixmap(art.scaled(132, 132, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            label.setPixmap(art.scaled(76, 76, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             layout.addWidget(label, 0, Qt.AlignBottom)
         return hero
 

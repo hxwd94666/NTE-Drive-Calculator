@@ -249,6 +249,7 @@ def build_assets(
     result_maps: dict[str, dict[str, str]] = {}
     groups: list[tuple[str, str, list[dict[str, str]], int]] = [
         ("characters", "character_id", manifest.get("characters", []), 256),
+        ("character_arts", "character_id", manifest.get("character_arts", []), 512),
         ("attributes", "key", manifest.get("attributes", []), 96),
         ("equipment_items", "item_id", manifest.get("equipment_items", []), 128),
     ]
@@ -323,6 +324,7 @@ def build_assets(
     result = {
         "manifest_version": int(manifest["manifest_version"]),
         "source_data_table": manifest["source_data_table"],
+        "source_appearance_table": manifest.get("source_appearance_table"),
         **result_maps,
         "files": built_by_output,
         "total_files": len(built_by_output),

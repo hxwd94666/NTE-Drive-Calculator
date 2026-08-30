@@ -25,9 +25,6 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.features.static_catalog.contracts import CatalogLink
-from src.features.static_catalog.domain_pages.mechanics_counterfactual_panel import (
-    MechanicsCounterfactualPanel,
-)
 from src.features.static_catalog.domain_pages.mechanics_effect_panel import (
     MechanicsEffectPanel,
 )
@@ -36,8 +33,6 @@ from src.features.static_catalog.domain_pages.mechanics_formula_panel import (
 )
 from src.features.static_catalog.domain_pages.mechanics_widgets import (
     MechanicsGalleryCard,
-    pill,
-    status_pill,
 )
 from src.services.static_catalog_mechanics_service import (
     FAMILY_BY_KEY,
@@ -84,11 +79,12 @@ class CombatMechanicsCatalogPage(QWidget):
         self._service = service
         self._game_ui_asset_root = Path(game_ui_asset_root)
         self._external_navigator = open_catalog_link
-        self._family_key = "attributes"
+        self._family_key = "damage"
         self._cards: tuple[MechanicsCard, ...] = ()
         self._card_widgets: list[MechanicsGalleryCard] = []
         self._columns = 0
         self._history: list[str] = []
+        self._navigation_listener: Callable[[], None] = lambda: None
         self.current_record_id: str | None = None
         self._build()
         self.select_family(self._family_key)
@@ -111,7 +107,7 @@ class CombatMechanicsCatalogPage(QWidget):
 
         control = QFrame(page)
         control.setObjectName("mechanicsControlDeck")
-        control.setMaximumHeight(112)
+        control.setMaximumHeight(94)
         control.setStyleSheet(themed_style(
             "QFrame#mechanicsControlDeck{background:#161b22;"
             "border:1px solid #30363d;border-radius:14px;}"
@@ -126,7 +122,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self.gallery_title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:17px;font-weight:900;"
         ))
-        self.gallery_subtitle = QLabel("效果 · 公式 · 反事实覆盖", control)
+        self.gallery_subtitle = QLabel("用中文公式解释伤害如何计算", control)
         self.gallery_subtitle.setStyleSheet(themed_style(
             "color:#8b949e;font-size:9px;font-weight:700;"
         ))
@@ -137,7 +133,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self.search = QLineEdit(control)
         self.search.setObjectName("mechanicsSearch")
         self.search.setClearButtonEnabled(True)
-        self.search.setPlaceholderText("搜索效果、变量或机制")
+        self.search.setPlaceholderText("搜索公式或中文名词")
         self.search.setMaximumWidth(360)
         self.search.setFixedHeight(30)
         self.search.textChanged.connect(self._schedule_refresh)
@@ -214,20 +210,7 @@ class CombatMechanicsCatalogPage(QWidget):
         page = QWidget(self)
         root = QVBoxLayout(page)
         root.setContentsMargins(7, 5, 7, 7)
-        root.setSpacing(8)
-        top = QHBoxLayout()
-        self.back_button = QPushButton("‹  返回图鉴", page)
-        self.back_button.setObjectName("mechanicsBackButton")
-        self.back_button.setCursor(Qt.PointingHandCursor)
-        self.back_button.setStyleSheet(themed_style(
-            "QPushButton#mechanicsBackButton{color:#58a6ff;background:#161b22;"
-            "border:1px solid #30363d;border-radius:9px;padding:6px 10px;"
-            "font-size:10px;font-weight:800;}"
-        ))
-        self.back_button.clicked.connect(self.go_back)
-        top.addWidget(self.back_button)
-        top.addStretch(1)
-        root.addLayout(top)
+        root.setSpacing(5)
 
         self.detail_scroll = QScrollArea(page)
         self.detail_scroll.setWidgetResizable(True)
@@ -253,6 +236,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self._refresh_gallery()
         self.stack.setCurrentWidget(self.gallery_page)
         self.current_record_id = None
+        self._navigation_listener()
 
     def _schedule_refresh(self) -> None:
         QTimer.singleShot(0, self._refresh_gallery)
@@ -268,7 +252,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self._card_widgets = []
         _clear_layout(self.gallery_grid)
         if not self._cards:
-            empty = QLabel("没有匹配的公共机制；唯一归属内容请到对应对象页查看。", self.gallery_host)
+            empty = QLabel("没有匹配的伤害公式。", self.gallery_host)
             empty.setWordWrap(True)
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(themed_style(
@@ -287,7 +271,7 @@ class CombatMechanicsCatalogPage(QWidget):
         if not self._card_widgets:
             return
         width = max(260, self.gallery_scroll.viewport().width() - 12)
-        columns = max(1, min(4, width // 270))
+        columns = max(1, min(4, width // 240))
         if columns == self._columns and not force:
             return
         self._columns = columns
@@ -298,29 +282,37 @@ class CombatMechanicsCatalogPage(QWidget):
         for column in range(4):
             self.gallery_grid.setColumnStretch(column, 1 if column < columns else 0)
 
-    def open_record(self, record_id: str, *, remember: bool = True) -> None:
-        kind, key = decode_record(record_id)
+    def open_record(self, record_id: str, *, remember: bool = True) -> bool:
+        try:
+            kind, key = decode_record(record_id)
+        except ValueError:
+            return False
         if kind == "search":
             self.search.setText(key)
             self.stack.setCurrentWidget(self.gallery_page)
-            return
+            self.current_record_id = None
+            self._navigation_listener()
+            return True
+        try:
+            detail = self._service.detail(record_id)
+        except (KeyError, LookupError, ValueError):
+            return False
         if remember and self.current_record_id:
             self._history.append(self.current_record_id)
-        detail = self._service.detail(record_id)
         self._render_detail(detail)
         self.current_record_id = record_id
         self.stack.setCurrentWidget(self.detail_page)
         self.detail_scroll.verticalScrollBar().setValue(0)
+        self._navigation_listener()
+        return True
 
     def _render_detail(self, detail: MechanicsDetail) -> None:
         _clear_layout(self.detail_layout)
         self.detail_layout.addWidget(self._detail_hero(detail))
         if detail.card_kind == "effect":
             panel = MechanicsEffectPanel(detail, self.open_link, self.detail_host)
-        elif detail.card_kind == "formula":
-            panel = MechanicsFormulaPanel(detail, self.open_link, self.detail_host)
         else:
-            panel = MechanicsCounterfactualPanel(detail, self.open_link, self.detail_host)
+            panel = MechanicsFormulaPanel(detail, self.open_link, self.detail_host)
         self.detail_layout.addWidget(panel)
         self.detail_layout.addStretch(1)
 
@@ -329,11 +321,11 @@ class CombatMechanicsCatalogPage(QWidget):
         hero.setObjectName("mechanicsDetailHero")
         hero.setStyleSheet(themed_style(
             "QFrame#mechanicsDetailHero{background:#161b22;"
-            "border:1px solid #30363d;border-radius:15px;}"
+            "border:0;border-bottom:1px solid #30363d;}"
         ))
         layout = QVBoxLayout(hero)
-        layout.setContentsMargins(16, 13, 16, 13)
-        layout.setSpacing(7)
+        layout.setContentsMargins(12, 8, 12, 9)
+        layout.setSpacing(4)
         top = QHBoxLayout()
         family = FAMILY_BY_KEY[detail.family_key]
         eyebrow = QLabel(f"{family.glyph}  {family.title}", hero)
@@ -342,25 +334,13 @@ class CombatMechanicsCatalogPage(QWidget):
         ))
         top.addWidget(eyebrow)
         top.addStretch(1)
-        if detail.status:
-            top.addWidget(status_pill(detail.status, hero))
         layout.addLayout(top)
         title = QLabel(detail.title, hero)
         title.setWordWrap(True)
         title.setStyleSheet(themed_style(
-            "color:#f0f6fc;font-size:20px;font-weight:900;"
+            "color:#f0f6fc;font-size:18px;font-weight:900;"
         ))
         layout.addWidget(title)
-        if detail.card_kind != "formula":
-            subtitle = QLabel(detail.subtitle, hero)
-            subtitle.setWordWrap(True)
-            subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:10px;"))
-            layout.addWidget(subtitle)
-        badges = QHBoxLayout()
-        for text in detail.badges:
-            badges.addWidget(pill(text, color="#8b949e", parent=hero))
-        badges.addStretch(1)
-        layout.addLayout(badges)
         return hero
 
     def open_link(self, link: CatalogLink) -> None:
@@ -375,11 +355,30 @@ class CombatMechanicsCatalogPage(QWidget):
             return
         self.stack.setCurrentWidget(self.gallery_page)
         self.current_record_id = None
+        self._navigation_listener()
 
     def show_gallery(self) -> None:
         self._history.clear()
         self.stack.setCurrentWidget(self.gallery_page)
         self.current_record_id = None
+        self._navigation_listener()
+
+    def set_catalog_navigation_listener(
+        self,
+        listener: Callable[[], None],
+    ) -> None:
+        self._navigation_listener = listener
+
+    def catalog_back_label(self) -> str | None:
+        if self.stack.currentWidget() is self.detail_page:
+            return "机制列表"
+        return None
+
+    def catalog_go_back(self) -> bool:
+        if self.stack.currentWidget() is not self.detail_page:
+            return False
+        self.show_gallery()
+        return True
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt override
         super().resizeEvent(event)
@@ -387,7 +386,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self.family_scroll.setVisible(not narrow)
         self.family_combo.setVisible(narrow)
         self.gallery_subtitle.setVisible(not narrow)
-        self.search.setPlaceholderText("搜索机制" if narrow else "搜索效果、变量或机制")
+        self.search.setPlaceholderText("搜索公式" if narrow else "搜索公式或中文名词")
         QTimer.singleShot(0, self._reflow_cards)
 
     def dispose(self) -> None:

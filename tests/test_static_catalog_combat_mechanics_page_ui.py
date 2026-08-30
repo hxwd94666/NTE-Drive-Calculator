@@ -1,4 +1,4 @@
-# 验证战斗机制图鉴的卡片、折叠、响应式与互跳行为。
+# 验证战斗机制图鉴的高密度中文公式、失效关系保护与响应式布局。
 from __future__ import annotations
 
 import os
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QLabel,
+    QPushButton,
     QTableView,
     QTableWidget,
 )
@@ -22,6 +23,7 @@ from src.features.static_catalog.domain_pages.combat_mechanics_page import (
 )
 from src.features.static_catalog.domain_pages.mechanics_widgets import (
     CollapsiblePanel,
+    LinkButton,
     MechanicsGalleryCard,
 )
 from src.services.static_catalog_mechanics_service import CatalogLink, encode_record
@@ -53,115 +55,120 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
         self.page.close()
         self.page.deleteLater()
 
-    def test_one_entry_has_six_families_cards_and_no_tables(self) -> None:
-        self.assertEqual(6, len(self.page.family_buttons))
+    def test_one_entry_has_four_dense_formula_families_and_no_tables(self) -> None:
+        self.assertEqual(4, len(self.page.family_buttons))
         self.assertLessEqual(
             self.page.findChild(type(self.page.gallery_page), "mechanicsControlDeck")
             .maximumHeight(),
-            112,
+            94,
         )
-        self.assertTrue(self.page.findChildren(MechanicsGalleryCard))
+        cards = self.page.findChildren(MechanicsGalleryCard)
+        self.assertTrue(cards)
+        self.assertTrue(all(card.minimumHeight() <= 112 for card in cards))
         self.assertEqual([], self.page.findChildren(QTableWidget))
         self.assertEqual([], self.page.findChildren(QTableView))
 
-    def test_narrow_page_reflows_to_one_column(self) -> None:
+    def test_narrow_page_keeps_all_families_and_reflows_without_overflow(self) -> None:
         self.page.resize(700, 760)
         QTest.qWait(20)
         self.app.processEvents()
-
         combo = self.page.findChild(QComboBox, "mechanicsFamilyCombo")
-        self.assertIsNotNone(combo)
         assert combo is not None
         self.assertTrue(combo.isVisible())
         self.assertFalse(self.page.family_scroll.isVisible())
-        self.assertGreater(
-            self.page._card_widgets[0].width(),
-            self.page.gallery_scroll.viewport().width() * 0.4,
-        )
+        self.assertEqual(4, combo.count())
+        self.assertGreaterEqual(self.page._columns, 2)
 
         self.page.resize(430, 760)
+        QTest.qWait(20)
         self.app.processEvents()
         self.assertEqual(1, self.page._columns)
-        self.assertEqual(6, combo.count())
-        combo.setCurrentIndex(5)
+        combo.setCurrentIndex(3)
         self.app.processEvents()
-        self.assertEqual("formula", self.page._family_key)
+        self.assertEqual("settlement", self.page._family_key)
 
-    def test_counterfactual_evidence_chain_is_collapsed_by_default(self) -> None:
-        self.page.open_record(encode_record("model", "formal_dot_classification"))
+    def test_formula_detail_never_renders_internal_expression_or_raw_buttons(self) -> None:
+        self.assertTrue(self.page.open_record(
+            encode_record("formula", "skill_multiplier")
+        ))
         self.app.processEvents()
-        disclosure = self.page.findChild(CollapsiblePanel)
-
-        self.assertIsNotNone(disclosure)
-        assert disclosure is not None
-        self.assertFalse(disclosure.toggle.isChecked())
-        self.assertFalse(disclosure.body.isVisible())
-        disclosure.toggle.click()
-        self.app.processEvents()
-        self.assertTrue(disclosure.body.isVisible())
-
-    def test_raw_professional_identity_only_appears_in_collapsed_more_info(self) -> None:
-        self.page.select_family("dot")
-        self.page.search.setText("State.Damage.Dot")
-        self.app.processEvents()
-        effect = next(card for card in self.page._cards if card.card_kind == "effect")
-        self.assertEqual("名称暂未提供", effect.title)
-        self.page.open_record(effect.record_id)
-        self.app.processEvents()
-        disclosure = next(
-            panel for panel in self.page.findChildren(CollapsiblePanel)
-            if panel.property("identityDisclosure")
+        visible = "\n".join(
+            label.text() for label in self.page.detail_host.findChildren(QLabel)
         )
+        self.assertIn("技能倍率 = 等级倍率", visible)
+        for token in (
+            "CoefModify", "SourceTierCoef", "正式静态", "更多信息", "反事实",
+            "/Game/", "GA_", "GE_",
+        ):
+            self.assertNotIn(token, visible)
+        self.assertEqual([], self.page.detail_host.findChildren(CollapsiblePanel))
+        self.assertEqual([], self.page.detail_host.findChildren(LinkButton))
 
-        self.assertFalse(disclosure.toggle.isChecked())
-        self.assertFalse(disclosure.body.isVisible())
-        self.assertIn("更多信息", disclosure.toggle.text())
+    def test_missing_buff_link_is_ignored_without_changing_page(self) -> None:
+        self.assertIs(self.page.stack.currentWidget(), self.page.gallery_page)
+        record_id = encode_record("effect", f"buff{chr(31)}missing_buff")
+        self.assertFalse(self.page.open_record(record_id))
+        self.assertIs(self.page.stack.currentWidget(), self.page.gallery_page)
+        self.assertIsNone(self.page.current_record_id)
 
-    def test_formula_expression_is_not_repeated_in_detail_hero(self) -> None:
-        self.page.open_record(encode_record("formula", "dot_damage"))
-        self.app.processEvents()
-        expression = self.page._service.detail(
-            encode_record("formula", "dot_damage")
-        ).subtitle
-        occurrences = sum(
-            label.text() == expression
-            for label in self.page.detail_host.findChildren(QLabel)
+    def test_owned_effect_is_rendered_inline_without_navigation_button(self) -> None:
+        record_id = encode_record(
+            "effect", f"combat_effect{chr(31)}character_awaken:1036:Effect1"
         )
+        self.assertTrue(self.page.open_record(record_id))
+        self.app.processEvents()
+        visible = "\n".join(
+            label.text() for label in self.page.detail_host.findChildren(QLabel)
+        )
+        self.assertIn("所属对象", visible)
+        self.assertEqual([], self.page.detail_host.findChildren(LinkButton))
+        self.assertFalse(any(
+            "前往" in button.text()
+            for button in self.page.detail_host.findChildren(QPushButton)
+        ))
+        self.assertEqual([], self.external_links)
 
-        self.assertEqual(1, occurrences)
+    def test_counterfactual_record_is_not_openable(self) -> None:
+        self.assertFalse(self.page.open_record(
+            encode_record("model", "formal_dot_classification")
+        ))
+        self.assertIsNone(self.page.current_record_id)
 
-    def test_internal_and_external_links_use_typed_navigation(self) -> None:
-        model_id = encode_record("model", "formal_dot_classification")
-        formula_id = encode_record("formula", "dot_damage")
-        self.page.open_record(model_id)
-        self.page.open_link(CatalogLink("combat_mechanics", formula_id, "formula"))
-        self.assertEqual(formula_id, self.page.current_record_id)
-
-        self.page.open_link(CatalogLink("character", "1036", "owner"))
-        self.assertEqual("character", self.external_links[-1].domain_key)
+    def test_history_back_returns_to_previous_formula_then_gallery(self) -> None:
+        direct = encode_record("formula", "direct_damage")
+        critical = encode_record("formula", "critical")
+        self.assertTrue(self.page.open_record(direct))
+        self.assertTrue(self.page.open_record(critical))
         self.page.go_back()
-        self.assertEqual(model_id, self.page.current_record_id)
+        self.assertEqual(direct, self.page.current_record_id)
+        self.page.go_back()
+        self.assertIs(self.page.stack.currentWidget(), self.page.gallery_page)
 
-    def test_player_ui_never_renders_audit_paths_or_hashes(self) -> None:
-        self.page.open_record(encode_record("formula", "dot_damage"))
-        self.app.processEvents()
-        visible = "\n".join(label.text() for label in self.page.findChildren(QLabel))
+    def test_single_shell_navigation_contract_returns_to_mechanism_list(self) -> None:
+        updates: list[str] = []
+        self.page.set_catalog_navigation_listener(lambda: updates.append("updated"))
+        self.assertIsNone(self.page.catalog_back_label())
+        self.assertTrue(self.page.open_record(
+            encode_record("formula", "direct_damage")
+        ))
+        self.assertEqual("机制列表", self.page.catalog_back_label())
+        self.assertTrue(self.page.catalog_go_back())
+        self.assertIsNone(self.page.catalog_back_label())
+        self.assertFalse(self.page.catalog_go_back())
+        self.assertGreaterEqual(len(updates), 2)
 
-        self.assertNotIn("/Game/", visible)
-        self.assertNotIn("src/", visible)
-        self.assertNotIn("tests/", visible)
-        self.assertNotIn("SHA-256", visible)
-        self.assertNotIn("来源哈希", visible)
+    def test_external_navigation_contract_remains_explicit_only(self) -> None:
+        link = CatalogLink("character", "1036", "owner")
+        self.page.open_link(link)
+        self.assertEqual([link], self.external_links)
 
-    def test_default_gallery_hides_raw_identity_and_owner_tokens(self) -> None:
+    def test_default_gallery_has_no_skill_effect_or_audit_cards(self) -> None:
         visible = "\n".join(
             label.text() for label in self.page.gallery_host.findChildren(QLabel)
         )
-
         for token in (
-            "/Game/", "GA_", "GE_", "character_awaken", "fork_star",
-            "equipment_suit", "complete", "partial", "unavailable",
-            "not_applicable",
+            "GAMEPLAY", "BUFF", "GA_", "GE_", "反事实", "正式静态",
+            "项目公式", "complete", "partial", "unavailable",
         ):
             self.assertNotIn(token, visible)
 

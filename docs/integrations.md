@@ -115,7 +115,9 @@ manifest 的文件集合、SHA-256 和精确字节数。
 三表关联导入。
 
 游戏 UI 图片由资源构建工具生成到 `assets/game_ui`，`manifest.json` 明确记录 ID 映射、文件哈希和
-`unresolved_assets`。缺失资源保持显式 unresolved，不用相似图片或本机路径占位。
+`unresolved_assets`。角色头像来自正式角色目录；角色形象图只按 `DT_AppearanceData` 中 `IsDefault=true`
+的 `CharacterID → SmallPortraitImg` 关系导入，并压缩为最大 512 px 的随程序资源，不靠文件名猜角色。
+缺失资源保持显式 unresolved，不用相似图片或本机路径占位。
 
 账号 schema 变化新增迁移并覆盖新建、升级、失败回滚和重试。DAO 独占 SQL；快照清理走公开 DAO 并
 保护所有引用。

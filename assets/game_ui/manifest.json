@@ -1,6 +1,7 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "source_data_table": "/Game/DataTable/Character/DT_Character",
+  "source_appearance_table": "/Game/DataTable/Character/Appearance/DT_AppearanceData",
   "characters": {
     "1003": "characters/player_003_256.png",
     "1004": "characters/player_004_256.png",
@@ -27,6 +28,31 @@
     "1075": "characters/player_yiluoyi_256.png",
     "1076": "characters/player_zhenhong_256.png",
     "1091": "characters/player_004_256.png"
+  },
+  "character_arts": {
+    "1003": "characters/art/1003.png",
+    "1004": "characters/art/1004.png",
+    "1008": "characters/art/1008.png",
+    "1010": "characters/art/1010.png",
+    "1019": "characters/art/1019.png",
+    "1020": "characters/art/1020.png",
+    "1021": "characters/art/1021.png",
+    "1023": "characters/art/1023.png",
+    "1025": "characters/art/1025.png",
+    "1033": "characters/art/1033.png",
+    "1036": "characters/art/1036.png",
+    "1039": "characters/art/1039.png",
+    "1046": "characters/art/1046.png",
+    "1051": "characters/art/1051.png",
+    "1052": "characters/art/1052.png",
+    "1054": "characters/art/1054.png",
+    "1055": "characters/art/1055.png",
+    "1070": "characters/art/1070.png",
+    "1071": "characters/art/1071.png",
+    "1072": "characters/art/1072.png",
+    "1073": "characters/art/1073.png",
+    "1075": "characters/art/1075.png",
+    "1076": "characters/art/1076.png"
   },
   "attributes": {
     "attack": "attributes/attack.png",
@@ -526,6 +552,167 @@
       "height": 256,
       "bytes": 148680,
       "sha256": "008323904CD941E789364F1BF7AE3C6FA9DDB2D11DDBCBE0CCB6441E18A96A6A"
+    },
+    "characters/art/1003.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_zaowu.YH_lihui_character_zaowu",
+      "width": 512,
+      "height": 512,
+      "bytes": 233664,
+      "sha256": "30C102DAF637C3039F0C798F2227AC07C2560388B41C998DE316AE335FB66B6F"
+    },
+    "characters/art/1004.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_anhunqu.YH_lihui_character_anhunqu",
+      "width": 512,
+      "height": 512,
+      "bytes": 303278,
+      "sha256": "C7C574C908474D34E59BDB215DDCC7BA35B6EC5E834F1AD7BBABE7B3F5BC8B88"
+    },
+    "characters/art/1008.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_langren.YH_lihui_character_langren",
+      "width": 512,
+      "height": 512,
+      "bytes": 280290,
+      "sha256": "2F6430441F0CE3401882E12F0AF3358A46AE4F13C4118CF40A32DC2B8F0CEF84"
+    },
+    "characters/art/1010.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_nanali.YH_lihui_character_nanali",
+      "width": 512,
+      "height": 512,
+      "bytes": 390657,
+      "sha256": "92FCF63180B7868E0072AD9D8F59A3CBE30282FA03141597889DC0A1F713D375"
+    },
+    "characters/art/1019.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_bohe.YH_lihui_character_bohe",
+      "width": 512,
+      "height": 512,
+      "bytes": 380259,
+      "sha256": "5DFF8C98DD9D7C43272D90F5DAA54DDC5EDBB0D90D12DD3CF89D2ACD0FADB5A6"
+    },
+    "characters/art/1020.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_haniya.YH_lihui_character_haniya",
+      "width": 512,
+      "height": 512,
+      "bytes": 271134,
+      "sha256": "94EF6A37913DFE92EE72612E0FAFDFC27D0C1B542546E51B103BD13D35EE7661"
+    },
+    "characters/art/1021.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_aidejia.YH_lihui_character_aidejia",
+      "width": 512,
+      "height": 512,
+      "bytes": 303809,
+      "sha256": "4454806332DD42D2F07C560BEA8B118E3A0F6234B6BF47A9C515BE9883D372AF"
+    },
+    "characters/art/1023.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_baizhang.YH_lihui_character_baizhang",
+      "width": 512,
+      "height": 512,
+      "bytes": 345644,
+      "sha256": "8ADC9E6794F862F451BBFD6684F9B6F5A7D11FEFB5E1FCB79946A055AC17E4D2"
+    },
+    "characters/art/1025.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_hasuoer.YH_lihui_character_hasuoer",
+      "width": 512,
+      "height": 512,
+      "bytes": 347347,
+      "sha256": "A627EFF78BD4AE518B386B6EA0335F14FB0C44D38FEEFA2DC18BA7FBFCBBC0B5"
+    },
+    "characters/art/1033.png": {
+      "source_asset_path": "/Game/UI/UI/Gacha/YH_lihui_character_adele.YH_lihui_character_adele",
+      "width": 512,
+      "height": 512,
+      "bytes": 277496,
+      "sha256": "B7F2B55047C93858B6A3A8AFD567F74CB089C1EF95E65F30E823F24D935B0E54"
+    },
+    "characters/art/1036.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_canhong.YH_lihui_fashionshop_canhong",
+      "width": 512,
+      "height": 512,
+      "bytes": 421461,
+      "sha256": "CDA2AF8A9B6470830EE037A5A6DE40D2922CE581FADA6F41AF8C5C1CA6DAE91B"
+    },
+    "characters/art/1039.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_fadiya.YH_lihui_character_fadiya",
+      "width": 512,
+      "height": 512,
+      "bytes": 339692,
+      "sha256": "A34B3D7E70D600F5F586EB36D2F5456BF1CBE7977C3B69D736EF8CB16D2EADF6"
+    },
+    "characters/art/1046.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_nanzhu.YH_lihui_character_nanzhu",
+      "width": 512,
+      "height": 512,
+      "bytes": 216646,
+      "sha256": "350C9F41C808B83C2C012D4E6CC12F647906B42D3C2F83B63D16B0762CE5F588"
+    },
+    "characters/art/1051.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_nvzhu.YH_lihui_character_nvzhu",
+      "width": 512,
+      "height": 512,
+      "bytes": 226232,
+      "sha256": "B1DC54936908A1C6B4EC3D997BDB344DAA7270B26A0FD918D606C3E50625FB79"
+    },
+    "characters/art/1052.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_xun.YH_lihui_character_xun",
+      "width": 512,
+      "height": 512,
+      "bytes": 443573,
+      "sha256": "8A93093CBADABB7E643CFAC7BE61A4BB81F7D800259442C2A171FE96A6D9FEA8"
+    },
+    "characters/art/1054.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_dafudier.YH_lihui_character_dafudier",
+      "width": 512,
+      "height": 512,
+      "bytes": 243226,
+      "sha256": "57C19815D62C4690172EBCE28E4EC732BB40E36858CD7AC959D57F6461F7DB1D"
+    },
+    "characters/art/1055.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_jiuyuan.YH_lihui_character_jiuyuan",
+      "width": 512,
+      "height": 512,
+      "bytes": 405524,
+      "sha256": "0771E95A22B8AE1EE400D57BD93FA837386D0C28FB9E8957C194C09B5D8AC7C3"
+    },
+    "characters/art/1070.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_haiyue1.YH_lihui_fashionshop_haiyue1",
+      "width": 512,
+      "height": 512,
+      "bytes": 321448,
+      "sha256": "A93B93FDAB59C803A5EE29866EFEC286252BE3BF6F9967AC6D011F99FC5B80F0"
+    },
+    "characters/art/1071.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_kaesi.YH_lihui_fashionshop_kaesi",
+      "width": 512,
+      "height": 512,
+      "bytes": 296423,
+      "sha256": "64A50513C74C26D87BBEA1958C4ADC16A4E58E166EF0236DEF475CE77BCC6A6B"
+    },
+    "characters/art/1072.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_lingke.YH_lihui_fashionshop_lingke",
+      "width": 512,
+      "height": 512,
+      "bytes": 292090,
+      "sha256": "FBBA30FDACDB58BCC80708BC9662CBA79F59C192B196ED3B9CC72207C7B59141"
+    },
+    "characters/art/1073.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_xiaozhi.YH_lihui_character_xiaozhi",
+      "width": 512,
+      "height": 512,
+      "bytes": 308440,
+      "sha256": "1F1F11DCE9B1C1A7E8BB10A064C8FA66A51FA9C589F4E7A0E7EA7F57483F0D2E"
+    },
+    "characters/art/1075.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_yiluoyi.YH_lihui_fashionshop_yiluoyi",
+      "width": 512,
+      "height": 512,
+      "bytes": 385251,
+      "sha256": "7BC14B99253461C810346CF568F55235E199619FD869A1910F05D2C238E7F3F3"
+    },
+    "characters/art/1076.png": {
+      "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_zhenhong.YH_lihui_fashionshop_zhenhong",
+      "width": 512,
+      "height": 512,
+      "bytes": 395394,
+      "sha256": "E5E03E786FFC8EE11CF18B78C3E6FF2BD57D35ED9B1FBA0ECC4D6AA0EB6D836C"
     },
     "attributes/attack.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_gongji.icon_attri_gongji",
@@ -2068,6 +2255,6 @@
       "sha256": "9E6FBF482074C42A98E7AE23E8474F19C59303BF27A41170C4E4C0BE549662B6"
     }
   },
-  "total_files": 243,
-  "total_bytes": 7786360
+  "total_files": 266,
+  "total_bytes": 15215338
 }

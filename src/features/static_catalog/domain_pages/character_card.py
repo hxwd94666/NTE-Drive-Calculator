@@ -24,6 +24,7 @@ class CharacterGalleryCard(QFrame):
         summary: CharacterSummary,
         *,
         art_path: Path | None,
+        variant_art_paths: tuple[tuple[int, Path | None], ...] = (),
         release_metadata: CharacterReleaseMetadata | None,
         parent: QWidget | None = None,
     ) -> None:
@@ -52,9 +53,13 @@ class CharacterGalleryCard(QFrame):
             "QFrame[characterCard='true']:hover,QFrame[characterCard='true']:focus{"
             "border:2px solid #58a6ff;background:#1c2128;}"
         ))
-        self._build(art_path)
+        self._build(art_path, variant_art_paths)
 
-    def _build(self, art_path: Path | None) -> None:
+    def _build(
+        self,
+        art_path: Path | None,
+        variant_art_paths: tuple[tuple[int, Path | None], ...],
+    ) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(11, 9, 11, 10)
         root.setSpacing(4)
@@ -105,32 +110,42 @@ class CharacterGalleryCard(QFrame):
         visual_layout = QVBoxLayout(visual)
         visual_layout.setContentsMargins(5, 4, 5, 3)
         visual_layout.setSpacing(1)
-        art = QLabel(visual)
-        art.setObjectName("characterAvatar")
-        art.setFixedHeight(106)
-        art.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if art_path is not None:
-            pixmap = QPixmap(str(art_path))
-            if not pixmap.isNull():
-                art.setPixmap(pixmap.scaled(
-                    112,
-                    112,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
+        portraits = QHBoxLayout()
+        portrait_paths = variant_art_paths or ((self.summary.character_id, art_path),)
+        avatar_labels: list[QLabel] = []
+        for _character_id, path in portrait_paths:
+            art = QLabel(visual)
+            art.setObjectName("characterAvatar")
+            art.setMinimumHeight(98)
+            art.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if path is not None:
+                pixmap = QPixmap(str(path))
+                if not pixmap.isNull():
+                    side = 92 if len(portrait_paths) > 1 else 112
+                    art.setPixmap(pixmap.scaled(
+                        side,
+                        side,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    ))
+            if art.pixmap().isNull():
+                art.setText("头像未提供")
+                art.setStyleSheet(themed_style(
+                    "color:#6e7681;background:#0d1117;border:1px dashed #30363d;"
+                    "border-radius:12px;font-size:10px"
                 ))
-        if art.pixmap().isNull():
-            art.setText("正式头像\n当前未提供")
-            art.setStyleSheet(themed_style(
-                "color:#6e7681;background:#0d1117;border:1px dashed #30363d;"
-                "border-radius:12px;font-size:11px"
-            ))
-        avatar_caption = QLabel("正式头像", visual)
+            portraits.addWidget(art, 1)
+            avatar_labels.append(art)
+        avatar_caption = QLabel(
+            f"{len(portrait_paths)} 种形象" if len(portrait_paths) > 1 else "角色头像",
+            visual,
+        )
         avatar_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         avatar_caption.setStyleSheet(themed_style(
             "color:#6e7681;background:transparent;border:none;"
             "font-size:8px;font-weight:700"
         ))
-        visual_layout.addWidget(art)
+        visual_layout.addLayout(portraits)
         visual_layout.addWidget(avatar_caption)
         root.addWidget(visual)
 
@@ -138,7 +153,8 @@ class CharacterGalleryCard(QFrame):
         name.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:17px;font-weight:900"
         ))
-        identity = QLabel(f"CHARACTER  {self.summary.character_id}", self)
+        variant_ids = " / ".join(str(character_id) for character_id, _path in portrait_paths)
+        identity = QLabel(f"ID {variant_ids}", self)
         identity.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px;font-weight:700;letter-spacing:1px"
         ))
@@ -162,11 +178,13 @@ class CharacterGalleryCard(QFrame):
         ))
         root.addWidget(release)
         for widget in (
-            element, state, visual, art, avatar_caption, name, identity, release,
+            element, state, visual, avatar_caption, name, identity, release,
         ):
             widget.setAttribute(
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents, True,
             )
+        for art in avatar_labels:
+            art.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

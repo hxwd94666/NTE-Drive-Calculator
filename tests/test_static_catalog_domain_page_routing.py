@@ -147,21 +147,10 @@ class StaticCatalogDomainPageRoutingTests(unittest.TestCase):
         ))
         self.assertIs(equipment.detail, equipment.stack.currentWidget())
 
-        character.catalog_link_requested.emit(CatalogLink(
-            "fork", "fork_Arachne", "recommended"
-        ))
-        self.assertEqual("fork_Arachne", fork._active_fork_id)
-        fork.catalog_link_requested.emit(CatalogLink(
-            "character", "1036", "owner"
-        ))
-        self.assertEqual(1036, character._active_character_id)
-
         monster = page._domain_contents["monsters"]
         self.assertIsInstance(monster, MonsterCatalogPage)
-        monster.catalog_link_requested.emit(CatalogLink(
-            "equipment", "Suit1", "suit"
-        ))
-        self.assertIs(equipment.detail, equipment.stack.currentWidget())
+        self.assertFalse(hasattr(fork, "catalog_link_requested"))
+        self.assertFalse(hasattr(monster, "catalog_link_requested"))
 
 
 if __name__ == "__main__":

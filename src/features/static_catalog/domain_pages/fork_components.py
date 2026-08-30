@@ -7,8 +7,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QComboBox,
@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.domain.progression_stamina import ProgressionStaminaResult, StaminaPlanStatus
-from src.domain.static_catalog import CatalogLink
 from src.services.advancement_stage_service import (
     fork_breakthrough_choices,
     select_fork_breakthrough,
@@ -212,65 +211,10 @@ def breakthrough_cost_text(
     return f"消耗：{text or '暂未提供'}"
 
 
-def breakthrough_raw_id_text(
-    stage: ForkBreakthrough | None,
-    item_names: ForkItemDisplayNameService,
-) -> str:
-    if stage is None:
-        return ""
-    raw_ids = item_names.raw_id_text((
-        *item_names.present_costs(stage.item_costs),
-        *item_names.present_costs(stage.gold_costs),
-    ))
-    return f"正式 ID：{raw_ids}" if raw_ids else ""
-
-
-class ForkMoreInfo(QFrame):
-    """Keep professional raw identities behind an explicit collapsed action."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("forkMoreInfo")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
-        self.toggle = QPushButton("更多信息  ▾", self)
-        self.toggle.setCheckable(True)
-        self.toggle.setObjectName("forkMoreInfoToggle")
-        self.toggle.clicked.connect(self._toggle)
-        self.raw_label = QLabel("", self)
-        self.raw_label.setObjectName("forkRawIdentity")
-        self.raw_label.setWordWrap(True)
-        self.raw_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse,
-        )
-        self.raw_label.setStyleSheet(themed_style(
-            "color:#8b949e;background:#0d1117;border:1px dashed #30363d;"
-            "border-radius:8px;padding:7px;font-size:10px"
-        ))
-        self.raw_label.setVisible(False)
-        layout.addWidget(self.toggle, 0, Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self.raw_label)
-        self.setVisible(False)
-
-    def set_text(self, text: str) -> None:
-        value = str(text).strip()
-        self.raw_label.setText(value)
-        self.toggle.setChecked(False)
-        self.raw_label.setVisible(False)
-        self.toggle.setText("更多信息  ▾")
-        self.setVisible(bool(value))
-
-    def _toggle(self, expanded: bool) -> None:
-        self.raw_label.setVisible(bool(expanded))
-        self.toggle.setText(f"更多信息  {'▴' if expanded else '▾'}")
-
-
 @dataclass(frozen=True, slots=True)
 class ForkProgressionResultProjection:
     text: str
     available: bool
-    more_info: str
 
 
 def project_fork_progression_result(
@@ -293,36 +237,29 @@ def project_fork_progression_result(
         lines.append("总活力暂不可用")
     deficits = tuple(item for item in result.deficits if item.deficit_quantity > 0)
     if deficits:
-        lines.append(f"材料缺口：{len(deficits)} 项（展开更多信息查看）")
-    if result.status != StaminaPlanStatus.COMPLETE:
-        lines.append("未知产出或数量保持为缺口，不按 0 处理。")
-
-    more_lines: list[str] = []
-    if deficits:
         costs = tuple(ForkCost(
             item_id=item.item_id,
             amount=item.deficit_quantity,
             raw_value=str(item.deficit_quantity),
         ) for item in deficits)
         presented = item_names.present_costs(costs)
-        more_lines.append("材料缺口：" + item_names.player_text(presented))
-        more_lines.append("正式 ID：" + item_names.raw_id_text(presented))
+        lines.append("材料缺口：" + item_names.player_text(presented))
     if result.unresolved_item_ids:
         unresolved = item_names.present_costs(tuple(ForkCost(
             item_id=item_id,
             amount=None,
             raw_value="数量暂未提供",
         ) for item_id in result.unresolved_item_ids))
-        more_lines.append(
-            "缺少正式产出：" + "、".join(item.display_name for item in unresolved)
+        lines.append(
+            "缺少正式产出：" + "、".join(
+                item.display_name for item in unresolved
+            )
         )
-        more_lines.append("未解析正式 ID：" + item_names.raw_id_text(unresolved))
-    if result.gaps:
-        more_lines.append("公共服务缺口：" + "、".join(result.gaps))
+    if result.status != StaminaPlanStatus.COMPLETE:
+        lines.append("未知产出或数量保持为缺口，不按 0 处理。")
     return ForkProgressionResultProjection(
         text="\n".join(lines),
         available=result.status == StaminaPlanStatus.COMPLETE,
-        more_info="\n".join(more_lines),
     )
 
 
@@ -392,8 +329,6 @@ class ForkProgressionControls(QFrame):
         self.result.setWordWrap(True)
         self.result.setVisible(False)
         root.addWidget(self.result)
-        self.result_more_info = ForkMoreInfo(self)
-        root.addWidget(self.result_more_info)
 
         self.current_level.valueChanged.connect(
             lambda _value: self._current_changed(),
@@ -459,7 +394,6 @@ class ForkProgressionControls(QFrame):
             "border-radius:8px;padding:9px;font-weight:700"
         ))
         self.result.setVisible(True)
-        self.result_more_info.set_text(projection.more_info)
 
     def _current_changed(self) -> None:
         self._refresh_stage(
@@ -542,7 +476,6 @@ class ForkProgressionControls(QFrame):
 
     def _clear_result(self) -> None:
         self.result.setVisible(False)
-        self.result_more_info.set_text("")
 
     @staticmethod
     def _set_spin(widget: QSpinBox, value: int) -> None:
@@ -574,7 +507,7 @@ class ForkProgressionControls(QFrame):
         return control
 
 
-class ForkCharacterCard(QPushButton):
+class ForkCharacterCard(QFrame):
     def __init__(
         self,
         character: CharacterSummary,
@@ -586,59 +519,41 @@ class ForkCharacterCard(QPushButton):
         super().__init__(parent)
         self.character_id = character.character_id
         self.setObjectName(f"forkCompatibleCharacter_{character.character_id}")
-        self.setText(
-            f"{character.name_zh}\n{relation_label} · {character.character_id}"
-        )
-        self.setMinimumSize(168, 76)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumSize(168, 68)
         self.setStyleSheet(themed_style(
-            "QPushButton{background:#161b22;color:#f0f6fc;border:1px solid #30363d;"
-            "border-radius:12px;padding:8px;text-align:left;font-weight:800;}"
-            "QPushButton:hover{background:#1c2128;border-color:#58a6ff;}"
+            "QFrame{background:#161b22;border:1px solid #30363d;border-radius:10px;}"
+            "QLabel{border:none;background:transparent;}"
         ))
+        layout = QGridLayout(self)
+        layout.setContentsMargins(7, 6, 9, 6)
+        layout.setHorizontalSpacing(8)
+        image = QLabel(self)
+        image.setFixedSize(48, 48)
+        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if art_path is not None:
             pixmap = QPixmap(str(art_path))
             if not pixmap.isNull():
-                self.setIcon(QIcon(pixmap))
-                self.setIconSize(QSize(54, 54))
-
-
-class ForkCatalogLinkButton(QPushButton):
-    """Emit one immutable cross-domain relation without owning navigation."""
-
-    link_requested = Signal(object)
-
-    def __init__(
-        self,
-        label: str,
-        link: CatalogLink,
-        *,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(label, parent)
-        self.catalog_link = link
-        self.setObjectName("forkCatalogLinkButton")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(themed_style(
-            "QPushButton{background:#1f2937;color:#79c0ff;border:1px solid #388bfd;"
-            "border-radius:9px;padding:7px 12px;text-align:left;font-weight:800;}"
-            "QPushButton:hover{background:#26364d;border-color:#79c0ff;}"
-        ))
-        self.clicked.connect(
-            lambda _checked=False: self.link_requested.emit(self.catalog_link)
-        )
+                image.setPixmap(pixmap.scaled(
+                    46, 46,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                ))
+        layout.addWidget(image, 0, 0, 2, 1)
+        name = QLabel(character.name_zh, self)
+        name.setStyleSheet(themed_style("color:#f0f6fc;font-weight:800;"))
+        layout.addWidget(name, 0, 1)
+        relation = QLabel(relation_label, self)
+        relation.setStyleSheet(themed_style("color:#8b949e;font-size:10px;"))
+        layout.addWidget(relation, 1, 1)
 
 
 __all__ = [
-    "ForkCatalogLinkButton",
     "ForkEffectPresentation",
     "ForkCharacterCard",
-    "ForkMoreInfo",
     "ForkProgressionControls",
     "ForkProgressionResultProjection",
     "add_effect_tiles",
     "breakthrough_cost_text",
-    "breakthrough_raw_id_text",
     "clear_layout",
     "display_number",
     "effect_tile",

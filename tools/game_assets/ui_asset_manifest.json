@@ -1,6 +1,7 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "source_data_table": "/Game/DataTable/Character/DT_Character",
+  "source_appearance_table": "/Game/DataTable/Character/Appearance/DT_AppearanceData",
   "database_groups": [
     "equipment_modules",
     "fork_items"
@@ -39,6 +40,31 @@
     {"character_id": 1075, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_yiluoyi_256.player_yiluoyi_256", "output": "characters/player_yiluoyi_256.png"},
     {"character_id": 1076, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_zhenhong_256.player_zhenhong_256", "output": "characters/player_zhenhong_256.png"},
     {"character_id": 1091, "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_004_256.player_004_256", "output": "characters/player_004_256.png"}
+  ],
+  "character_arts": [
+    {"character_id": 1003, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_zaowu.YH_lihui_character_zaowu", "output": "characters/art/1003.png"},
+    {"character_id": 1004, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_anhunqu.YH_lihui_character_anhunqu", "output": "characters/art/1004.png"},
+    {"character_id": 1008, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_langren.YH_lihui_character_langren", "output": "characters/art/1008.png"},
+    {"character_id": 1010, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_nanali.YH_lihui_character_nanali", "output": "characters/art/1010.png"},
+    {"character_id": 1019, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_bohe.YH_lihui_character_bohe", "output": "characters/art/1019.png"},
+    {"character_id": 1020, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_haniya.YH_lihui_character_haniya", "output": "characters/art/1020.png"},
+    {"character_id": 1021, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_aidejia.YH_lihui_character_aidejia", "output": "characters/art/1021.png"},
+    {"character_id": 1023, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_baizhang.YH_lihui_character_baizhang", "output": "characters/art/1023.png"},
+    {"character_id": 1025, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_hasuoer.YH_lihui_character_hasuoer", "output": "characters/art/1025.png"},
+    {"character_id": 1033, "source_asset_path": "/Game/UI/UI/Gacha/YH_lihui_character_adele.YH_lihui_character_adele", "output": "characters/art/1033.png"},
+    {"character_id": 1036, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_canhong.YH_lihui_fashionshop_canhong", "output": "characters/art/1036.png"},
+    {"character_id": 1039, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_fadiya.YH_lihui_character_fadiya", "output": "characters/art/1039.png"},
+    {"character_id": 1046, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_nanzhu.YH_lihui_character_nanzhu", "output": "characters/art/1046.png"},
+    {"character_id": 1051, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_nvzhu.YH_lihui_character_nvzhu", "output": "characters/art/1051.png"},
+    {"character_id": 1052, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_xun.YH_lihui_character_xun", "output": "characters/art/1052.png"},
+    {"character_id": 1054, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_dafudier.YH_lihui_character_dafudier", "output": "characters/art/1054.png"},
+    {"character_id": 1055, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_jiuyuan.YH_lihui_character_jiuyuan", "output": "characters/art/1055.png"},
+    {"character_id": 1070, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_haiyue1.YH_lihui_fashionshop_haiyue1", "output": "characters/art/1070.png"},
+    {"character_id": 1071, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_kaesi.YH_lihui_fashionshop_kaesi", "output": "characters/art/1071.png"},
+    {"character_id": 1072, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_lingke.YH_lihui_fashionshop_lingke", "output": "characters/art/1072.png"},
+    {"character_id": 1073, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_character_xiaozhi.YH_lihui_character_xiaozhi", "output": "characters/art/1073.png"},
+    {"character_id": 1075, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_yiluoyi.YH_lihui_fashionshop_yiluoyi", "output": "characters/art/1075.png"},
+    {"character_id": 1076, "source_asset_path": "/Game/UI/UI/Appearance/Fashion/1024/YH_lihui_fashionshop_zhenhong.YH_lihui_fashionshop_zhenhong", "output": "characters/art/1076.png"}
   ],
   "attributes": [
     {"key": "attack", "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_gongji.icon_attri_gongji", "output": "attributes/attack.png"},

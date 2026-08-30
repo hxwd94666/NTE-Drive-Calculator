@@ -8,7 +8,9 @@ from typing import Any, cast
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QWidget
+from unittest.mock import patch
+
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
 from src.domain.static_catalog import (
     CatalogDomain,
@@ -115,6 +117,21 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         two_card_grid, _cards = menu._group_cards[0]
         self.assertEqual(0, two_card_grid.getItemPosition(0)[1])
         self.assertEqual(1, two_card_grid.getItemPosition(1)[1])
+        menu.deleteLater()
+
+    def test_menu_uses_compact_header_and_cards(self) -> None:
+        menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)
+        menu.resize(900, 700)
+        menu.set_domains(_domains())
+        menu.show()
+        self.app.processEvents()
+
+        hero = menu.findChild(QWidget, "staticCatalogMenuHero")
+        self.assertIsNotNone(hero)
+        assert hero is not None
+        self.assertLessEqual(hero.maximumHeight(), 82)
+        for card in menu.findChildren(CatalogMenuCard):
+            self.assertLessEqual(card.minimumHeight(), 104)
         menu.deleteLater()
 
     def test_page_starts_on_menu_and_opens_only_the_selected_domain(self) -> None:
@@ -227,6 +244,191 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
             "combat_mechanics", "formula|defense", "formula",
         ))
         self.assertEqual(["formula|defense"], mechanics[0].opened)
+        page.close()
+        owner.deleteLater()
+
+    def test_explicit_cross_domain_link_has_reversible_history(self) -> None:
+        class DomainPage(QWidget):
+            def __init__(self, parent: QWidget) -> None:
+                super().__init__(parent)
+                self.opened: list[str] = []
+
+            def open_record(self, record_id: str) -> None:
+                self.opened.append(record_id)
+
+        owner = QWidget()
+        pages: dict[str, DomainPage] = {}
+
+        def build(key: str):
+            def factory(parent: QWidget) -> QWidget:
+                widget = DomainPage(parent)
+                pages[key] = widget
+                return widget
+            return factory
+
+        page = StaticCatalogPage(
+            controller=cast(Any, _Controller()),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(
+                StaticCatalogDomainPageSpec(
+                    "character", "角色图鉴", build("character"), lambda: None,
+                ),
+                StaticCatalogDomainPageSpec(
+                    "monsters", "怪物与玩法", build("monsters"), lambda: None,
+                ),
+            ),
+        )
+        page.build()
+        page._open_domain("character")
+        origin = page._stack.currentWidget()
+
+        self.assertTrue(page.open_catalog_link(CatalogLink(
+            "monsters", "monster-a", "detail",
+        )))
+        self.assertEqual(["monster-a"], pages["monsters"].opened)
+        self.assertEqual(1, len(page._navigation_history))
+        active_button = page._stack.currentWidget().findChild(
+            QPushButton, "staticCatalogNavigateBack",
+        )
+        self.assertIsNotNone(active_button)
+        assert active_button is not None
+        self.assertIn("返回角色图鉴", active_button.text())
+
+        page._go_back()
+        self.assertIs(origin, page._stack.currentWidget())
+        self.assertEqual("character", page._domain_key)
+        self.assertEqual([], page._navigation_history)
+        page.close()
+        owner.deleteLater()
+
+    def test_domain_navigation_contract_uses_the_single_shell_back_button(self) -> None:
+        class DomainPage(QWidget):
+            def __init__(self, parent: QWidget) -> None:
+                super().__init__(parent)
+                self._nested = False
+                self._listener = lambda: None
+
+            def set_catalog_navigation_listener(self, listener) -> None:
+                self._listener = listener
+
+            def catalog_back_label(self) -> str | None:
+                return "角色列表" if self._nested else None
+
+            def catalog_go_back(self) -> bool:
+                if not self._nested:
+                    return False
+                self._nested = False
+                self._listener()
+                return True
+
+            def open_record(self, _record_id: str) -> None:
+                self._nested = True
+                self._listener()
+
+        owner = QWidget()
+        pages: list[DomainPage] = []
+
+        def build(parent: QWidget) -> QWidget:
+            result = DomainPage(parent)
+            pages.append(result)
+            return result
+
+        page = StaticCatalogPage(
+            controller=cast(Any, _Controller()),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(StaticCatalogDomainPageSpec(
+                "character", "角色图鉴", build, lambda: None,
+            ),),
+        )
+        page.build()
+        page._open_domain("character")
+        pages[0].open_record("1036")
+        button = page._stack.currentWidget().findChild(
+            QPushButton, "staticCatalogNavigateBack",
+        )
+        self.assertIsNotNone(button)
+        assert button is not None
+        self.assertEqual("‹ 返回角色列表", button.text())
+
+        page._go_back()
+        self.assertEqual("‹ 资料库", button.text())
+        self.assertIs(page._domain_pages["character"], page._stack.currentWidget())
+        page.close()
+        owner.deleteLater()
+
+    def test_broken_explicit_link_rolls_back_without_leaking_exception(self) -> None:
+        class BrokenPage(QWidget):
+            def open_record(self, _record_id: str) -> None:
+                raise LookupError("raw internal missing key")
+
+        owner = QWidget()
+        page = StaticCatalogPage(
+            controller=cast(Any, _Controller()),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(
+                StaticCatalogDomainPageSpec(
+                    "character", "角色图鉴", QWidget, lambda: None,
+                ),
+                StaticCatalogDomainPageSpec(
+                    "combat_mechanics", "战斗机制图鉴", BrokenPage, lambda: None,
+                ),
+            ),
+        )
+        page.build()
+        page._open_domain("character")
+        origin = page._stack.currentWidget()
+        messages: list[tuple[str, str]] = []
+        with patch.object(
+            QMessageBox,
+            "warning",
+            side_effect=lambda _parent, title, text: messages.append((title, text)),
+        ):
+            opened = page.open_catalog_link(CatalogLink(
+                "combat_mechanics", "buff|missing", "detail",
+            ))
+
+        self.assertFalse(opened)
+        self.assertIs(origin, page._stack.currentWidget())
+        self.assertEqual([], page._navigation_history)
+        self.assertEqual(
+            [("无法打开关联资料", "该关联资料暂不可用，已返回原页面。")],
+            messages,
+        )
+        page.close()
+        owner.deleteLater()
+
+    def test_rejected_explicit_link_rolls_back_to_the_origin_widget(self) -> None:
+        class RejectedPage(QWidget):
+            def open_record(self, _record_id: str) -> bool:
+                return False
+
+        owner = QWidget()
+        page = StaticCatalogPage(
+            controller=cast(Any, _Controller()),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(
+                StaticCatalogDomainPageSpec(
+                    "character", "角色图鉴", QWidget, lambda: None,
+                ),
+                StaticCatalogDomainPageSpec(
+                    "combat_mechanics", "战斗机制图鉴", RejectedPage, lambda: None,
+                ),
+            ),
+        )
+        page.build()
+        page._open_domain("character")
+        origin = page._stack.currentWidget()
+        with patch.object(QMessageBox, "warning"):
+            opened = page.open_catalog_link(CatalogLink(
+                "combat_mechanics", "buff|missing", "detail",
+            ))
+        self.assertFalse(opened)
+        self.assertIs(origin, page._stack.currentWidget())
+        self.assertEqual([], page._navigation_history)
         page.close()
         owner.deleteLater()
 

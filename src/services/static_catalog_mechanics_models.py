@@ -73,38 +73,55 @@ class MechanicsDetail:
 
 
 FAMILIES = (
-    MechanicsFamily("attributes", "属性与增益", "面板、Buff、增伤与目标减益", "✦", "#58a6ff"),
-    MechanicsFamily("reactions", "异能环合与状态", "反应、Gameplay Tag 与状态消费", "◈", "#bc8cff"),
-    MechanicsFamily("dot", "DOT 与持续结算", "持续伤害、层数、周期与专属最终乘区", "◌", "#ff7b72"),
-    MechanicsFamily("topple", "倾陷与目标机制", "倾陷、目标画像、防御、抗性与生命结算", "◇", "#39d0d8"),
-    MechanicsFamily("events", "召唤、附着物与事件", "派生命中、治疗、护盾、时停与资源缺口", "⌁", "#f2cc60"),
-    MechanicsFamily("formula", "伤害公式与反事实覆盖", "公式章节、固定轴和生产覆盖边界", "ƒ", "#d29922"),
+    MechanicsFamily("damage", "伤害基础", "面板、技能倍率与直伤", "✦", "#58a6ff"),
+    MechanicsFamily("multipliers", "增益与减益", "增伤、易伤、暴击、防御与抗性", "◈", "#bc8cff"),
+    MechanicsFamily("states", "持续与倾陷", "持续伤害、倾陷与覆纹追加", "◌", "#ff7b72"),
+    MechanicsFamily("settlement", "特殊结算", "最终取整、生命上限与独立增伤", "◇", "#39d0d8"),
 )
 FAMILY_BY_KEY = {family.key: family for family in FAMILIES}
 
+FORMULA_FAMILY_BY_KEY = {
+    "panel_attribute": "damage",
+    "skill_multiplier": "damage",
+    "direct_damage": "damage",
+    "damage_increase": "multipliers",
+    "vulnerability": "multipliers",
+    "critical": "multipliers",
+    "defense": "multipliers",
+    "resistance": "multipliers",
+    "dot_damage": "states",
+    "topple_damage": "states",
+    "weave_followup": "states",
+    "independent_final_damage": "settlement",
+    "settlement_rounding": "settlement",
+    "max_hp_settlement": "settlement",
+}
+
 FORMULA_CHAPTER_BY_KEY = {
     "panel_attribute": "面板",
-    "skill_multiplier": "倍率",
-    "direct_damage": "属性伤",
-    "damage_increase": "通伤",
-    "vulnerability": "通伤",
+    "skill_multiplier": "技能倍率",
+    "direct_damage": "直伤",
+    "damage_increase": "增伤",
+    "vulnerability": "易伤",
     "critical": "暴击",
     "defense": "防御",
     "resistance": "抗性",
-    "independent_final_damage": "特殊机制",
-    "dot_damage": "DOT",
+    "independent_final_damage": "独立增伤",
+    "dot_damage": "持续伤害",
     "topple_damage": "倾陷",
-    "weave_followup": "特殊机制",
-    "settlement_rounding": "特殊机制",
-    "max_hp_settlement": "特殊机制",
+    "weave_followup": "覆纹",
+    "settlement_rounding": "最终取整",
+    "max_hp_settlement": "生命结算",
 }
 FORMULA_CHAPTER_ORDER = {
     chapter: index
     for index, chapter in enumerate((
-        "面板", "倍率", "通伤", "属性伤", "防御", "抗性", "暴击",
-        "DOT", "倾陷", "特殊机制",
+        "面板", "技能倍率", "直伤", "增伤", "易伤", "防御", "抗性",
+        "暴击", "持续伤害", "倾陷", "覆纹", "独立增伤", "最终取整",
+        "生命结算",
     ))
 }
+# 反事实模型仍供仓库审计使用，但不属于玩家图鉴的分类或卡墙。
 STATUS_ORDER = {"complete": 0, "partial": 1, "unavailable": 2, "not_applicable": 3}
 MODEL_FAMILY_BY_KEY = {
     "buff_ge_attributes": "attributes",
