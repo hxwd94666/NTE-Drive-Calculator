@@ -324,6 +324,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 )
             ),
             dialog_parent=self,
+            game_ui_asset_root=self.app_context.paths.asset_dir / "game_ui",
         )
         self.onboarding_guide = OnboardingGuide(
             app_context=self.app_context,

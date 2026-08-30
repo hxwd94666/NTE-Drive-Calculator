@@ -1,9 +1,10 @@
-# 构建工具下的游戏资料库三栏只读页面。
-"""Three-pane Qt page for catalog domains, paged results, and details."""
+# 构建工具下的游戏资料库菜单与只读领域页面。
+"""Game-styled catalog menu with paged read-only domain browsing."""
 
 from __future__ import annotations
 
 from functools import partial
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -17,15 +18,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.app.theme import themed_style
 from src.features.static_catalog.contracts import (
-    GLOBAL_DOMAIN_KEY,
     SOURCE_LABELS,
     CatalogDetail,
     CatalogField,
@@ -34,26 +34,36 @@ from src.features.static_catalog.contracts import (
     CatalogSection,
 )
 from src.features.static_catalog.controller import StaticCatalogController
+from src.features.static_catalog.menu import StaticCatalogMenu
 
 
 class StaticCatalogPage:
     """Own only search controls, selections, and discardable projections."""
 
-    def __init__(self, *, controller: StaticCatalogController, dialog_parent: QWidget) -> None:
+    def __init__(
+        self,
+        *,
+        controller: StaticCatalogController,
+        dialog_parent: QWidget,
+        game_ui_asset_root: str | Path | None = None,
+    ) -> None:
         self._controller = controller
         self._dialog_parent = dialog_parent
+        self._game_ui_asset_root = game_ui_asset_root
         self._page: QWidget | None = None
-        self._domain_list: QListWidget | None = None
+        self._stack: QStackedWidget | None = None
+        self._menu: StaticCatalogMenu | None = None
         self._result_list: QListWidget | None = None
         self._search_edit: QLineEdit | None = None
         self._detail_layout: QVBoxLayout | None = None
+        self._domain_title: QLabel | None = None
         self._page_label: QLabel | None = None
         self._previous_button: QPushButton | None = None
         self._next_button: QPushButton | None = None
-        self._status_labels: dict[str, QLabel] = {}
+        self._domain_labels: dict[str, str] = {}
         self._offset = 0
         self._total = 0
-        self._domain_key = GLOBAL_DOMAIN_KEY
+        self._domain_key = ""
         self._search_timer = QTimer()
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(250)
@@ -66,18 +76,15 @@ class StaticCatalogPage:
         root = QVBoxLayout(page)
         root.setContentsMargins(20, 16, 20, 18)
         root.setSpacing(12)
-        root.addWidget(self._build_release_bar(page))
-
-        splitter = QSplitter(Qt.Horizontal, page)
-        splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._build_domain_pane(splitter))
-        splitter.addWidget(self._build_result_pane(splitter))
-        splitter.addWidget(self._build_detail_pane(splitter))
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 2)
-        splitter.setSizes([190, 350, 560])
-        root.addWidget(splitter, 1)
+        self._stack = QStackedWidget(page)
+        self._menu = StaticCatalogMenu(
+            game_ui_asset_root=self._game_ui_asset_root,
+            parent=self._stack,
+        )
+        self._menu.domain_selected.connect(self._open_domain)
+        self._stack.addWidget(self._menu)
+        self._stack.addWidget(self._build_browser(self._stack))
+        root.addWidget(self._stack, 1)
         self._page = page
         self.refresh()
         return page
@@ -92,86 +99,54 @@ class StaticCatalogPage:
         except Exception as exc:
             self._show_error("无法打开游戏资料库", exc)
             return
-        release = request.release
-        values = {
-            "dataset": release.dataset_id,
-            "schema": f"v{release.schema_version}",
-            "importer": f"v{release.importer_version}",
-            "mode": "只读",
-            "path": release.database_path.name,
-        }
-        for key, value in values.items():
-            label = self._status_labels.get(key)
-            if label is not None:
-                label.setText(value)
-        domain_list = self._require(self._domain_list)
-        domain_list.blockSignals(True)
-        domain_list.clear()
-        self._append_domain(GLOBAL_DOMAIN_KEY, "全部", "跨领域搜索")
-        for domain in request.domains:
-            self._append_domain(domain.key, domain.label, domain.description)
-        domain_list.setCurrentRow(0)
-        domain_list.blockSignals(False)
-        self._domain_key = GLOBAL_DOMAIN_KEY
+        visible_domains = tuple(
+            domain for domain in request.domains if domain.key != "coverage"
+        )
+        self._domain_labels = {domain.key: domain.label for domain in visible_domains}
+        if self._menu is not None:
+            self._menu.set_domains(visible_domains)
+        self._domain_key = ""
         self._offset = 0
-        self._run_search()
+        self._require(self._stack).setCurrentIndex(0)
 
     def close(self) -> None:
         self._search_timer.stop()
         self._controller.close()
 
-    def _build_release_bar(self, parent: QWidget) -> QWidget:
-        bar = QFrame(parent)
-        bar.setObjectName("staticCatalogReleaseBar")
+    def _build_browser(self, parent: QWidget) -> QWidget:
+        host = QWidget(parent)
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        bar = QFrame(host)
+        bar.setObjectName("staticCatalogBrowserBar")
         bar.setStyleSheet(themed_style(
-            "QFrame#staticCatalogReleaseBar{background:#161b22;border:1px solid #30363d;"
-            "border-radius:8px;}"
+            "QFrame#staticCatalogBrowserBar{background:#161b22;"
+            "border:1px solid #30363d;border-radius:9px;}"
         ))
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(12)
-        for key, title in (
-            ("dataset", "Dataset"),
-            ("schema", "Schema"),
-            ("importer", "Importer"),
-            ("mode", "状态"),
-        ):
-            caption = QLabel(f"{title}：", bar)
-            caption.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
-            value = QLabel("—", bar)
-            value.setStyleSheet(themed_style("color:#58a6ff;font-weight:700;font-size:11px"))
-            self._status_labels[key] = value
-            layout.addWidget(caption)
-            layout.addWidget(value)
-        layout.addStretch(1)
-        path_caption = QLabel("静态库：", bar)
-        path_caption.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
-        path_value = QLabel("—", bar)
-        path_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        path_value.setStyleSheet(themed_style("color:#c9d1d9;font-size:11px"))
-        path_value.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self._status_labels["path"] = path_value
-        layout.addWidget(path_caption)
-        layout.addWidget(path_value, 1)
-        return bar
+        bar_layout = QHBoxLayout(bar)
+        bar_layout.setContentsMargins(10, 7, 12, 7)
+        back = QPushButton("‹ 返回资料库", bar)
+        back.setObjectName("staticCatalogBackToMenu")
+        back.clicked.connect(self._show_menu)
+        self._domain_title = QLabel("", bar)
+        self._domain_title.setStyleSheet(themed_style(
+            "color:#f0f6fc;font-size:16px;font-weight:900"
+        ))
+        bar_layout.addWidget(back)
+        bar_layout.addWidget(self._domain_title)
+        bar_layout.addStretch(1)
+        layout.addWidget(bar)
 
-    def _build_domain_pane(self, parent: QWidget) -> QWidget:
-        pane = QFrame(parent)
-        pane.setObjectName("staticCatalogDomainPane")
-        pane.setStyleSheet(themed_style(
-            "QFrame#staticCatalogDomainPane{background:#161b22;border:1px solid #30363d;"
-            "border-radius:8px;}"
-        ))
-        layout = QVBoxLayout(pane)
-        layout.setContentsMargins(10, 12, 10, 10)
-        title = QLabel("目录", pane)
-        title.setStyleSheet(themed_style("font-size:15px;font-weight:800;color:#f0f6fc"))
-        layout.addWidget(title)
-        self._domain_list = QListWidget(pane)
-        self._domain_list.setObjectName("staticCatalogDomains")
-        self._domain_list.currentItemChanged.connect(self._on_domain_changed)
-        layout.addWidget(self._domain_list, 1)
-        return pane
+        splitter = QSplitter(Qt.Horizontal, host)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self._build_result_pane(splitter))
+        splitter.addWidget(self._build_detail_pane(splitter))
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([390, 760])
+        layout.addWidget(splitter, 1)
+        return host
 
     def _build_result_pane(self, parent: QWidget) -> QWidget:
         pane = QFrame(parent)
@@ -226,23 +201,30 @@ class StaticCatalogPage:
         self._render_empty_detail("选择一条资料查看正式字段、关联与来源标记。")
         return pane
 
-    def _append_domain(self, key: str, label: str, description: str) -> None:
-        item = QListWidgetItem(label)
-        item.setData(Qt.UserRole, key)
-        item.setToolTip(description)
-        self._require(self._domain_list).addItem(item)
-
     def _queue_search(self) -> None:
         self._offset = 0
         self._search_timer.start()
 
-    def _on_domain_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
-        self._domain_key = str(current.data(Qt.UserRole)) if current is not None else GLOBAL_DOMAIN_KEY
+    def _open_domain(self, domain_key: str) -> None:
+        if domain_key not in self._domain_labels:
+            return
+        self._domain_key = domain_key
         self._offset = 0
+        search = self._require(self._search_edit)
+        search.blockSignals(True)
+        search.clear()
+        search.blockSignals(False)
+        self._require(self._domain_title).setText(self._domain_labels[domain_key])
+        self._require(self._stack).setCurrentIndex(1)
         self._run_search()
 
+    def _show_menu(self) -> None:
+        self._search_timer.stop()
+        self._domain_key = ""
+        self._require(self._stack).setCurrentIndex(0)
+
     def _run_search(self) -> None:
-        if self._page is None:
+        if self._page is None or not self._domain_key:
             return
         query = self._require(self._search_edit).text()
         try:
