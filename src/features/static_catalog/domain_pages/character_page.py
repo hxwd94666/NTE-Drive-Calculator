@@ -576,7 +576,7 @@ class CharacterCatalogPage(QWidget):
             if (
                 not skill_id
                 or str(skill_id)
-                != self.detail_view.skill_view.active_skill_id()
+                != self.detail_view.skill_training_view.active_skill_id()
             ):
                 return False
         elif target != "character_level":
@@ -586,7 +586,7 @@ class CharacterCatalogPage(QWidget):
             terminology=self._terminology,
         )
         if target == "skill":
-            self.detail_view.skill_view.drawer.set_progression_result(
+            self.detail_view.skill_training_view.set_progression_result(
                 projection.text,
                 available=projection.available,
                 more_info=projection.more_info,

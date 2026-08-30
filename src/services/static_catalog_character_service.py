@@ -41,6 +41,9 @@ from src.services.static_catalog_character_models import (
     StructuredEffectField,
     EquipmentPlanModule,
 )
+from src.services.static_catalog_character_passive_service import (
+    StaticCatalogCharacterPassiveService,
+)
 
 
 _ELEMENT_LABELS = {
@@ -69,6 +72,9 @@ class CharacterCatalogQueries(Protocol):
     def get_catalog_likeability(self, character_id: int) -> dict[str, Any] | None: ...
     def list_catalog_awakenings(self, character_id: int) -> list[dict[str, Any]]: ...
     def list_catalog_skills(self, character_id: int) -> list[dict[str, Any]]: ...
+    def list_catalog_ability_details(
+        self, ability_ids: tuple[str, ...],
+    ) -> list[dict[str, Any]]: ...
     def get_catalog_cultivation(self, character_id: int) -> dict[str, Any] | None: ...
     def get_catalog_graduation(self, character_id: int) -> dict[str, Any] | None: ...
     def get_catalog_equipment_plan(self, character_id: int) -> dict[str, Any] | None: ...
@@ -108,6 +114,13 @@ def _string_tuple(value: object, *, context: str) -> tuple[str, ...]:
     return tuple(str(item) for item in parsed if str(item).strip())
 
 
+def _float_tuple(value: object, *, context: str) -> tuple[float, ...]:
+    parsed = _loads(value, context=context)
+    if not isinstance(parsed, list):
+        raise StaticCatalogProjectionError(f"{context} 必须是 JSON 数组")
+    return tuple(float(item) for item in parsed)
+
+
 def _source(row: Mapping[str, Any], table: str, prefix: str = "source") -> CatalogSource:
     return CatalogSource(
         table_name=table,
@@ -141,6 +154,7 @@ class StaticCatalogCharacterService:
 
     def __init__(self, queries: CharacterCatalogQueries) -> None:
         self._queries = queries
+        self._passives = StaticCatalogCharacterPassiveService(queries)
 
     def dataset(self) -> CatalogDataset:
         row = self._queries.character_catalog_metadata()
@@ -186,6 +200,7 @@ class StaticCatalogCharacterService:
             likeability=self._likeability(raw_character_id),
             awakenings=self._awakenings(raw_character_id),
             skills=self._skills(raw_character_id),
+            passives=self._passives.list_passives(row),
             cultivation=self._cultivation(raw_character_id),
             graduation=self._graduation(raw_character_id),
             equipment_plan=self._equipment_plan(raw_character_id),
@@ -388,6 +403,18 @@ class StaticCatalogCharacterService:
                     SkillDamageItem(
                         damage_id=str(item["damage_id"]),
                         damage_type=str(item["damage_type"]),
+                        atk_rates=_float_tuple(
+                            item["atk_rate_base_json"],
+                            context=f"技能 {skill_id} 伤害攻击倍率",
+                        ),
+                        def_rates=_float_tuple(
+                            item["def_rate_base_json"],
+                            context=f"技能 {skill_id} 伤害防御倍率",
+                        ),
+                        hp_rates=_float_tuple(
+                            item["hp_rate_base_json"],
+                            context=f"技能 {skill_id} 伤害生命倍率",
+                        ),
                     )
                     for item in row.get("damage_items", ())
                 ),
@@ -679,6 +706,7 @@ class StaticCatalogCharacterService:
             binding_kind=binding_kind,
             input_id=_optional_text(row.get("input_id")),
             ability_id=_optional_text(row.get("ability_id")),
+            ability_name_zh=_optional_text(row.get("ability_name_zh")),
             ability_asset_path=_optional_text(row.get("ability_asset_path")),
             event_tag=_optional_text(row.get("event_tag")),
             gameplay_effect_id=_optional_text(row.get("effect_id")),

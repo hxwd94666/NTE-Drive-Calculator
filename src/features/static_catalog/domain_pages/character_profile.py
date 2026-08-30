@@ -31,6 +31,7 @@ from src.services.static_catalog_character_release_metadata import (
     CharacterReleaseMetadata,
 )
 from src.features.static_catalog.domain_pages.character_skills import (
+    CharacterSkillTrainingView,
     CharacterSkillView,
     build_action_cards,
 )
@@ -173,9 +174,19 @@ class CharacterDetailView(QWidget):
             terminology=terminology,
             parent=self,
         )
-        self.skill_view.progression_requested.connect(self.progression_requested)
-        self.growth_view = CharacterGrowthView(self)
+        self.cultivation_tabs = QTabWidget(self)
+        self.cultivation_tabs.setObjectName("characterCultivationTabs")
+        self.growth_view = CharacterGrowthView(self.cultivation_tabs)
         self.growth_view.progression_requested.connect(self.progression_requested)
+        self.skill_training_view = CharacterSkillTrainingView(
+            terminology=terminology,
+            parent=self.cultivation_tabs,
+        )
+        self.skill_training_view.progression_requested.connect(
+            self.progression_requested
+        )
+        self.cultivation_tabs.addTab(self.growth_view, "等级养成")
+        self.cultivation_tabs.addTab(self.skill_training_view, "技能养成")
         self.awakening_view = CharacterAwakeningView(
             terminology=terminology,
             parent=self,
@@ -187,7 +198,7 @@ class CharacterDetailView(QWidget):
         )
         self.tabs.addTab(self.overview_host, "角色档案")
         self.tabs.addTab(self.skill_view, "技能")
-        self.tabs.addTab(self.growth_view, "等级与养成")
+        self.tabs.addTab(self.cultivation_tabs, "养成")
         self.tabs.addTab(self.awakening_view, "觉醒")
         self.tabs.addTab(self.affinity_host, "好感度")
         self.tabs.addTab(self.route_view, "图纸与毕业")
@@ -303,11 +314,13 @@ class CharacterDetailView(QWidget):
             ))
         self._render_variants(character_id, variants)
         self._render_overview(detail, growth, release)
-        self.skill_view.set_actions(build_action_cards(
+        actions = build_action_cards(
             detail,
             combat.items,
             terminology=self._terminology,
-        ))
+        )
+        self.skill_view.set_actions(actions)
+        self.skill_training_view.set_actions(actions)
         self.growth_view.set_data(detail, growth)
         self.awakening_view.set_data(detail)
         self._render_affinity(detail)
@@ -363,7 +376,7 @@ class CharacterDetailView(QWidget):
         panel_grid.setVerticalSpacing(8)
         panel_columns = 2 if self._compact else 3
         panel_index = 0
-        for level in (1, 20, 40, 60, 70):
+        for level in (1, 20, 40, 60, 70, 80):
             points = tuple(item for item in growth.items if item.level == level)
             point = next((item for item in points if item.state == "breakthrough_after"), points[-1] if points else None)
             if point is None:

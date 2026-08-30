@@ -412,8 +412,14 @@ class CharacterAwakeningView(QWidget):
         skill_names: dict[str, str | None],
     ) -> QFrame:
         card = CharacterBuildView._panel(
-            f"{awakening.ordinal + 1:02d} · {awakening.title_zh or '名称暂未提供'}",
+            awakening.title_zh or "名称暂未提供",
         )
+        stage = QLabel(_awakening_stage(awakening), card)
+        stage.setObjectName("characterAwakeningStage")
+        stage.setStyleSheet(themed_style(
+            "color:#f0f6fc;font-size:12px;font-weight:900"
+        ))
+        card.layout().insertWidget(0, stage)
         description = QLabel(
             _plain(awakening.description_zh) or "当前正式数据未提供说明",
             card,
@@ -434,6 +440,13 @@ class CharacterAwakeningView(QWidget):
                 f"技能等级加成 · {name} {bonus.level_delta:+d}",
             ))
         return card
+
+
+def _awakening_stage(awakening: AwakeningEffect) -> str:
+    if awakening.awaken_type == "Awaken_Resonance":
+        return "三觉" if awakening.ordinal == 6 else "六觉"
+    names = ("一觉", "二觉", "三觉", "四觉", "五觉", "六觉")
+    return names[awakening.ordinal] if 0 <= awakening.ordinal < len(names) else "觉醒"
 
 
 __all__ = ["CharacterAwakeningView", "CharacterBuildView"]

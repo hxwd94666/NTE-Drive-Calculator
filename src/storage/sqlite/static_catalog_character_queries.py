@@ -432,7 +432,8 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
             )
             skill["damage_items"] = self._rows(
                 """
-                SELECT damage_id, damage_type
+                SELECT damage_id, damage_type, atk_rate_base_json,
+                       def_rate_base_json, hp_rate_base_json
                 FROM skill_damage
                 WHERE ability_id = ?
                 ORDER BY damage_id
@@ -553,6 +554,38 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
             (int(character_id),),
         )
         return weights
+
+    def list_catalog_ability_details(
+        self, ability_ids: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        if not ability_ids:
+            return []
+        placeholders = ",".join("?" for _item in ability_ids)
+        abilities = self._rows(
+            f"""
+            SELECT ability_id, name_zh
+            FROM gameplay_ability_catalog
+            WHERE ability_id IN ({placeholders})
+            """,
+            ability_ids,
+        )
+        descriptions = self._rows(
+            f"""
+            SELECT ability_id, ordinal, description_type, title_zh,
+                   description_zh, short_description_zh, unlock_id,
+                   unlock_description_zh
+            FROM gameplay_ability_description
+            WHERE ability_id IN ({placeholders})
+            ORDER BY ability_id, ordinal
+            """,
+            ability_ids,
+        )
+        by_ability: dict[str, list[dict[str, Any]]] = {}
+        for row in descriptions:
+            by_ability.setdefault(str(row["ability_id"]), []).append(row)
+        for row in abilities:
+            row["descriptions"] = by_ability.get(str(row["ability_id"]), [])
+        return abilities
 
     def get_catalog_cultivation(self, character_id: int) -> dict[str, Any] | None:
         guide = self._one(
@@ -679,7 +712,8 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
             WITH links AS (
                 SELECT 0 AS sort_group, binding.binding_kind,
                        binding.ordinal AS binding_ordinal, binding.input_id,
-                       binding.ability_id, binding.ability_asset_path,
+                       binding.ability_id, ability.name_zh AS ability_name_zh,
+                       binding.ability_asset_path,
                        effect.event_tag, effect.ordinal AS effect_ordinal,
                        effect.effect_id, effect.effect_asset_path,
                        effect.target_type_asset_path,
@@ -692,6 +726,8 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
                        COALESCE(buff_file.relative_path, effect_file.relative_path)
                            AS source_relative_path
                 FROM character_combat_ability_binding AS binding
+                LEFT JOIN gameplay_ability_catalog AS ability
+                  ON ability.ability_id = binding.ability_id
                 LEFT JOIN combat_ability_effect_binding AS effect
                   ON effect.ability_asset_path = binding.ability_asset_path
                 LEFT JOIN gameplay_effect_catalog AS catalog
@@ -710,7 +746,8 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
 
                 SELECT 1 AS sort_group, 'owned_buff' AS binding_kind,
                        0 AS binding_ordinal, NULL AS input_id,
-                       NULL AS ability_id, NULL AS ability_asset_path,
+                       NULL AS ability_id, NULL AS ability_name_zh,
+                       NULL AS ability_asset_path,
                        NULL AS event_tag, 0 AS effect_ordinal,
                        buff.definition_id AS effect_id,
                        buff.asset_path AS effect_asset_path,

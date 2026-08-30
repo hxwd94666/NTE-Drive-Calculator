@@ -27,8 +27,9 @@ StaticCatalogPage / Controller（集成任务）
 | 1–80 级基础面板曲线 | `character_panel_growth` | HP/ATK/DEF；临界等级突破前后是独立行 |
 | 20/30/40/50/60/70 突破阶段 | `character_panel_growth.state` | 只按正式 `breakthrough_before/after` 成对投影 |
 | 好感度正式属性修改 | `character_likeability_bonus*` | 保留属性 ID、值、操作和百分比标记 |
-| 六个普通觉醒与三/六觉共鸣 | `character_awaken_effect`、`character_awaken_skill_level_bonus` | JSON 结构展开为路径和值；不从描述猜机制 |
-| 技能目录、文本、等级、升级条件与消耗 | `character_skill*`、`gameplay_ability_*`、`progression_item`、`localized_term*` | 玩家层显示正式材料名和数量；ID、GA、Tag 与资源路径只作专业身份和折叠审计 |
+| 六个普通觉醒与三/六觉共鸣 | `character_awaken_effect`、`character_awaken_skill_level_bonus` | 玩家顺序显示一觉至六觉、三觉、六觉；结构化事实保留共鸣类型，不从描述猜机制 |
+| 技能目录、文本、等级、倍率曲线、升级条件与消耗 | `character_skill*`、`skill_damage`、`gameplay_ability_*`、`progression_item`、`localized_term*` | 普通攻击、E、Q、QTE 及正式 G 按整行展示；1–10 级可编辑，当前级倍率在行内抽屉显示；玩家层使用中文名和正式材料名，不显示 raw 技能身份 |
+| 两项培养被动 | 官方 `PassiveAbilityList` 关系、`gameplay_ability_catalog`、`gameplay_ability_description` | 每个逻辑角色按突破 2/4 解锁；名称和说明只读正式中文，不把被动伪装成分级主动技能 |
 | 培养阶段与推荐 | `character_cultivation_*` | 保留阶段人物/弧盘/空幕/驱动等级和技能推荐 |
 | 毕业模板与专武/空幕关联 | `character_graduation_template`、`fork_item`、`equipment_suit` | 明确模板来源、生成时间、正式 ID 和资源路径 |
 | GA → GE/Buff 与角色所属 Buff | `character_combat_ability_binding`、`combat_ability_effect_binding`、`gameplay_effect_catalog`、`buff_definition` | 独立分页，保留事件 Tag、GE index、Class/Asset 路径 |

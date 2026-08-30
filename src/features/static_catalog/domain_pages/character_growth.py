@@ -77,11 +77,11 @@ class CharacterGrowthView(QWidget):
         controls.addWidget(QLabel("角色等级", calculator))
         self.start_level = QComboBox(calculator)
         self.end_level = QComboBox(calculator)
-        for level in range(1, 71):
+        for level in range(1, 81):
             self.start_level.addItem(f"Lv.{level}", level)
             self.end_level.addItem(f"Lv.{level}", level)
         self.start_level.setCurrentIndex(4)
-        self.end_level.setCurrentIndex(69)
+        self.end_level.setCurrentIndex(79)
         self.include_breakthroughs = QCheckBox("包含沿途突破", calculator)
         self.include_breakthroughs.setChecked(False)
         controls.addWidget(self.start_level)

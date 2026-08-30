@@ -188,6 +188,9 @@ class SkillLevelHint:
 class SkillDamageItem:
     damage_id: str
     damage_type: str
+    atk_rates: tuple[float, ...]
+    def_rates: tuple[float, ...]
+    hp_rates: tuple[float, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +212,14 @@ class CharacterSkill:
     damage_items: tuple[SkillDamageItem, ...]
     ability_source: CatalogSource
     effect_source: CatalogSource | None
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterPassive:
+    ability_id: str
+    name_zh: str | None
+    unlock_stage: int
+    descriptions: tuple[SkillDescription, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +315,7 @@ class CombatLink:
     binding_kind: str
     input_id: str | None
     ability_id: str | None
+    ability_name_zh: str | None
     ability_asset_path: str | None
     event_tag: str | None
     gameplay_effect_id: str | None
@@ -339,6 +351,7 @@ class CharacterDetail:
     likeability: LikeabilityBonus | None
     awakenings: tuple[AwakeningEffect, ...]
     skills: tuple[CharacterSkill, ...]
+    passives: tuple[CharacterPassive, ...]
     cultivation: CultivationGuide | None
     graduation: GraduationTemplate | None
     equipment_plan: CharacterEquipmentPlan | None

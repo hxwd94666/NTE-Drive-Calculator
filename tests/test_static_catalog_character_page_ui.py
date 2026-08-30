@@ -7,7 +7,6 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QTableWidget
 
 from src.domain.progression_stamina import (
@@ -369,7 +368,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             assert metadata is not None
             self.assertEqual((f"evidence_{character_id}",), metadata.evidence_keys)
 
-    def test_profile_prioritizes_aeqr_and_only_adds_formal_extra_actions(self) -> None:
+    def test_profile_uses_official_skill_order_and_only_adds_formal_g(self) -> None:
         self.page.open_character(1036)
         self.app.processEvents()
 
@@ -378,14 +377,16 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertLessEqual(self.page.detail_view.hero.maximumHeight(), 214)
         action_cards = self.page.detail_view.skill_view.findChildren(SkillActionCard)
         slots = [card.action.slot for card in action_cards]
-        self.assertEqual(["A", "E", "Q", "R"], slots[:4])
-        self.assertIn("QTE", slots)
-        self.assertTrue(set(slots[4:]).issubset({"QTE", "G"}))
+        self.assertEqual(
+            ["A", "E", "Q", "QTE", "G", "PASSIVE", "PASSIVE"], slots,
+        )
+        passives = tuple(card for card in action_cards if card.action.passive is not None)
+        self.assertEqual(("暮落残阳", "殷红幻景"), tuple(
+            card.action.title for card in passives
+        ))
         self.assertNotIn("闪避反击", slots)
+        self.assertNotIn("R", slots)
         self.assertNotIn("Z", slots)
-        r_card = next(card for card in action_cards if card.action.slot == "R")
-        self.assertFalse(r_card.action.available)
-        self.assertIn("正式数据未提供", r_card.action.reason or "")
 
     def test_profile_projects_player_facing_release_metadata_compactly(self) -> None:
         self.page.open_character(1004)
@@ -506,21 +507,11 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
 
     def test_skill_training_lists_formal_rows_and_delegates_stamina_planning(self) -> None:
         self.page.open_character(1036)
-        skill_view = self.page.detail_view.skill_view
-        a_card = next(
-            card for card in skill_view.findChildren(SkillActionCard)
-            if card.action.slot == "A"
-        )
+        training = self.page.detail_view.skill_training_view
         requests: list[object] = []
         self.page.progression_requested.connect(requests.append)
 
-        skill_view.drawer.show_action(a_card.action, "training")
-        self.app.processEvents()
-        calculate = next(
-            button for button in skill_view.drawer.findChildren(QPushButton)
-            if button.text() == "计算材料缺口与活力"
-        )
-        calculate.click()
+        training._request_progression()
 
         request = requests[-1]
         self.assertIsInstance(request, dict)
@@ -529,32 +520,24 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertEqual(1036, request["character_id"])
         self.assertEqual("GA_Zankou_Melee", request["skill_id"])
         self.assertEqual(1, request["from_level"])
-        self.assertGreater(request["to_level"], request["from_level"])
+        self.assertEqual(10, request["to_level"])
         requirements = {
             item.item_id: item.required_quantity
             for item in request["requirements"]
         }
         self.assertEqual("complete", request["requirement_status"])
         self.assertEqual((), request["requirement_gaps"])
-        self.assertEqual(435_000, requirements["Fons"])
-        self.assertEqual(8, requirements["SkillUpMaterial_03_lv1"])
-        self.assertEqual(8, requirements["OrdinaryMonMaterial_03_lv1"])
+        self.assertEqual(437_000, requirements["Fons"])
+        self.assertEqual(10, requirements["SkillUpMaterial_03_lv1"])
+        self.assertEqual(10, requirements["OrdinaryMonMaterial_03_lv1"])
         self.assertEqual(8, requirements["weeklycloneboss_a03_01"])
-        texts = tuple(
-            label.text() for label in skill_view.drawer.findChildren(QLabel)
-        )
-        self.assertTrue(any(
-            "不做材料折算或副本/活力推算" in text for text in texts
+        self.assertIn("升至 Lv.10", " ".join(
+            label.text() for label in training.findChildren(QLabel)
         ))
 
     def test_progression_result_drops_stale_character_and_skill_identity(self) -> None:
         self.page.open_character(1036)
-        skill_view = self.page.detail_view.skill_view
-        a_card = next(
-            card for card in skill_view.findChildren(SkillActionCard)
-            if card.action.slot == "A"
-        )
-        skill_view.drawer.show_action(a_card.action, "training")
+        training = self.page.detail_view.skill_training_view
         result = ProgressionStaminaResult(
             status=StaminaPlanStatus.UNAVAILABLE,
             identification=IdentificationLevelProjection(60, 7, 7, False),
@@ -565,7 +548,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             unresolved_item_ids=("SkillMaterial",),
             gaps=("material_yield_unavailable",),
         )
-        label = skill_view.drawer.findChild(QLabel, "skillProgressionResult")
+        label = training.findChild(QLabel, "skillProgressionResult")
         self.assertIsNotNone(label)
         assert label is not None
         before = label.text()
@@ -609,11 +592,11 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             if card.action.slot == "A"
         )
         assert action.skill is not None
-        level_two = next(
-            level for level in action.skill.levels if level.level == 2
+        level_one = next(
+            level for level in action.skill.levels if level.level == 1
         )
         hidden_level = replace(
-            level_two,
+            level_one,
             costs=(CostItem(
                 item_id="HiddenFormalItem",
                 quantity=0,
@@ -647,13 +630,13 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             card for card in detail.skill_view.findChildren(SkillActionCard)
             if card.action.slot == "A"
         )
-        detail.skill_view.drawer.show_action(a_card.action, "details")
+        a_card.toggle.click()
         self.app.processEvents()
 
         visible_skill_text = "\n".join(
             label.text()
-            for label in detail.skill_view.drawer.findChildren(QLabel)
-            if label.isVisibleTo(detail.skill_view.drawer)
+            for label in a_card.findChildren(QLabel)
+            if label.isVisibleTo(a_card)
         )
         skill_raw_ids = tuple(
             skill.skill_id for skill in detail._detail.skills
@@ -661,7 +644,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertTrue(all(
             raw_id not in visible_skill_text for raw_id in skill_raw_ids
         ))
-        self.assertFalse(detail.skill_view.drawer.findChildren(
+        self.assertFalse(a_card.findChildren(
             QPushButton, "characterMoreInfoToggle",
         ))
 
@@ -740,7 +723,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             QPushButton, "characterCatalogLink",
         ))
 
-    def test_skill_description_preview_never_clips_a_visible_line(self) -> None:
+    def test_skill_rows_and_drawers_fit_common_widths(self) -> None:
         self.page.open_character(1036)
         detail = self.page.detail_view
         detail.tabs.setCurrentWidget(detail.skill_view)
@@ -752,45 +735,15 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
                 if card.action.character_id == 1036
             )
             slots = {card.action.slot for card in cards}
-            self.assertTrue({"A", "E", "Q", "R", "QTE"}.issubset(slots))
-            self.assertTrue(slots.issubset({"A", "E", "Q", "R", "QTE", "G"}))
+            self.assertEqual({"A", "E", "Q", "QTE", "G", "PASSIVE"}, slots)
             for card in cards:
-                detail.skill_view.drawer.show_action(card.action, "details")
-                self.app.processEvents()
-                scroll = detail.skill_view.drawer.details_host
-                scroll.verticalScrollBar().setValue(0)
-                self.app.processEvents()
-                visible_descriptions = tuple(
-                    label for label in scroll.findChildren(QLabel)
-                    if label.objectName() == "characterSkillDescription"
-                    and label.isVisibleTo(scroll.viewport())
-                )
-                self.assertLessEqual(len(visible_descriptions), 1)
-                for label in visible_descriptions:
-                    top = label.mapTo(scroll.viewport(), QPoint(0, 0)).y()
-                    bottom = top + label.height()
-                    self.assertGreaterEqual(top, 0, card.action.slot)
-                    self.assertLessEqual(
-                        bottom,
-                        scroll.viewport().height(),
-                        card.action.slot,
-                    )
-                toggle = next((
-                    button for button in scroll.findChildren(QPushButton)
-                    if button.objectName() == "characterSkillDescriptionToggle"
-                    and button.isVisibleTo(scroll.viewport())
-                ), None)
-                if card.action.skill is not None and len(
-                    card.action.skill.descriptions
-                ) > 1:
-                    self.assertIsNotNone(toggle, card.action.slot)
-                    assert toggle is not None
-                    toggle.click()
-                    self.app.processEvents()
-                    self.assertGreater(
-                        scroll.verticalScrollBar().maximum(), 0,
-                        card.action.slot,
-                    )
+                self.assertGreater(card.width(), detail.skill_view.width() * 0.8)
+            a_card = next(card for card in cards if card.action.slot == "A")
+            a_card.set_expanded(True)
+            self.app.processEvents()
+            drawer = a_card.drawer
+            self.assertTrue(drawer.isVisibleTo(detail.skill_view))
+            self.assertLessEqual(drawer.width(), a_card.width())
 
     def test_factory_returns_public_character_page(self) -> None:
         self.assertIsInstance(self.page, CharacterCatalogPage)

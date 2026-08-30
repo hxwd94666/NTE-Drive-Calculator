@@ -95,6 +95,21 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
         first_costs = {item.item_id: item.quantity for item in melee.levels[0].costs}
         self.assertEqual(2000.0, first_costs["gold"])
         self.assertEqual(2.0, first_costs["SkillUpMaterial_03_lv1"])
+        self.assertEqual(
+            ("暮落残阳", "殷红幻景"),
+            tuple(passive.name_zh for passive in detail.passives),
+        )
+        self.assertEqual((2, 4), tuple(
+            passive.unlock_stage for passive in detail.passives
+        ))
+        self.assertTrue(all(passive.descriptions for passive in detail.passives))
+
+        protagonist = self.service.get_character_detail(1051)
+        assert protagonist is not None
+        self.assertEqual(
+            ("鉴定师", "异象感知力"),
+            tuple(passive.name_zh for passive in protagonist.passives),
+        )
 
     def test_graduation_and_cultivation_keep_formal_fork_association(self) -> None:
         detail = self.service.get_character_detail(1036)
@@ -140,6 +155,11 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
         self.assertEqual(32, len(melee.damage_items))
         self.assertEqual(21, len(melee.level_hints))
         self.assertTrue(all(item.damage_id for item in melee.damage_items))
+        self.assertTrue(any(item.atk_rates for item in melee.damage_items))
+        self.assertTrue(all(
+            all(value >= 0 for value in item.atk_rates)
+            for item in melee.damage_items
+        ))
 
     def test_v30_character_value_coverage_counts_are_preserved(self) -> None:
         characters = tuple(

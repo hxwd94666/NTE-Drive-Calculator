@@ -74,12 +74,13 @@ def project_skill_level_requirements(
     levels = {level.level: level for level in skill.levels}
     totals: dict[str, int] = {}
     gaps: list[ProgressionRequirementGap] = []
-    for level_value in range(start + 1, end + 1):
+    for level_value in range(start, end):
+        target_level = level_value + 1
         level = levels.get(level_value)
         if level is None:
             gaps.append(ProgressionRequirementGap(
                 reason_code="skill_level_cost_row_unavailable",
-                level=level_value,
+                level=target_level,
             ))
             continue
         for item in level.costs:
@@ -90,7 +91,7 @@ def project_skill_level_requirements(
             if item.hidden_amount:
                 gaps.append(ProgressionRequirementGap(
                     reason_code="skill_cost_quantity_hidden",
-                    level=level_value,
+                    level=target_level,
                     item_id=canonical_id,
                 ))
                 continue
@@ -98,7 +99,7 @@ def project_skill_level_requirements(
             if quantity <= 0 or not quantity.is_integer():
                 gaps.append(ProgressionRequirementGap(
                     reason_code="skill_cost_quantity_invalid",
-                    level=level_value,
+                    level=target_level,
                     item_id=canonical_id,
                 ))
                 continue

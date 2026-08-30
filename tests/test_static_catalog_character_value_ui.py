@@ -7,7 +7,13 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+)
 
 from src.features.static_catalog.domain_pages.character_page import (
     build_character_catalog_page,
@@ -110,20 +116,91 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         skill_view = self.page.detail_view.skill_view
         self.page.detail_view.tabs.setCurrentWidget(skill_view)
         self.app.processEvents()
-        action = next(
-            card.action for card in skill_view.findChildren(SkillActionCard)
+        card = next(
+            card for card in skill_view.findChildren(SkillActionCard)
             if card.action.slot == "A"
         )
-        skill_view.drawer.show_action(action, "details")
+        level = card.findChild(QComboBox, "characterSkillLevel")
+        toggle = card.findChild(QPushButton, "characterSkillToggle")
+        self.assertIsNotNone(level)
+        self.assertIsNotNone(toggle)
+        assert level is not None and toggle is not None
+        level.setCurrentIndex(0)
+        toggle.click()
         self.app.processEvents()
-        visible_text = self._visible_text(skill_view.drawer)
+        first_level = self._visible_text(card)
+        level.setCurrentIndex(1)
+        self.app.processEvents()
+        second_level = self._visible_text(card)
 
-        self.assertIn("等级效果 · 21 项", visible_text)
-        self.assertNotIn("伤害项", visible_text)
-        self.assertNotIn("GE_Player_Zankou_Melee1_Damage", visible_text)
-        self.assertIsNone(skill_view.drawer.findChild(
-            QPushButton, "characterSkillRelationsToggle",
+        self.assertIn("当前等级倍率", first_level)
+        self.assertIn("%", first_level)
+        self.assertNotEqual(first_level, second_level)
+        self.assertNotIn("GE_Player_Zankou_Melee1_Damage", second_level)
+
+    def test_skills_use_official_full_width_rows_and_editable_levels(self) -> None:
+        view = self.page.detail_view.skill_view
+        self.page.detail_view.tabs.setCurrentWidget(view)
+        self.app.processEvents()
+        rows = tuple(
+            row for row in view.findChildren(SkillActionCard)
+            if row.isVisibleTo(view)
+        )
+
+        self.assertEqual(["A", "E", "Q", "QTE", "G", "PASSIVE", "PASSIVE"], [
+            row.action.slot for row in rows
+        ])
+        self.assertTrue(all(row.width() > view.width() * 0.8 for row in rows))
+        self.assertTrue(all(
+            row.findChild(QComboBox, "characterSkillLevel") is not None
+            for row in rows if row.action.skill is not None
         ))
+        self.assertFalse(any(
+            button.text() == "养成"
+            for row in rows for button in row.findChildren(QPushButton)
+        ))
+        passive_rows = tuple(row for row in rows if row.action.passive is not None)
+        self.assertEqual(2, len(passive_rows))
+        self.assertTrue(all(
+            not row.level.isVisibleTo(row) for row in passive_rows
+        ))
+        passive_rows[0].set_expanded(True)
+        self.app.processEvents()
+        passive_text = self._visible_text(passive_rows[0].drawer)
+        self.assertIn("突破 2 解锁", passive_text)
+        self.assertIn("浊燃", passive_text)
+        self.assertNotIn("GA_Zankou_Passive1", passive_text)
+
+    def test_cultivation_has_only_level_and_skill_sections(self) -> None:
+        detail = self.page.detail_view
+        tab_labels = tuple(
+            detail.tabs.tabText(index) for index in range(detail.tabs.count())
+        )
+        self.assertIn("养成", tab_labels)
+        self.assertNotIn("等级与养成", tab_labels)
+        self.assertEqual(2, detail.cultivation_tabs.count())
+        self.assertEqual("等级养成", detail.cultivation_tabs.tabText(0))
+        self.assertEqual("技能养成", detail.cultivation_tabs.tabText(1))
+        self.assertEqual(80, detail.growth_view.end_level.count())
+        self.assertEqual(80, detail.growth_view.end_level.currentData())
+
+    def test_overview_includes_level_80_and_awakening_stage_names(self) -> None:
+        detail = self.page.detail_view
+        detail.tabs.setCurrentWidget(detail.overview_host)
+        self.app.processEvents()
+        self.assertIn("Lv.80", self._visible_text(detail.overview_host))
+
+        detail.tabs.setCurrentWidget(detail.awakening_view)
+        self.app.processEvents()
+        stages = tuple(
+            label.text()
+            for label in detail.awakening_view.findChildren(QLabel)
+            if label.objectName() == "characterAwakeningStage"
+        )
+        self.assertEqual(
+            ("一觉", "二觉", "三觉", "四觉", "五觉", "六觉", "三觉", "六觉"),
+            stages,
+        )
 
     def test_shared_shell_owns_the_only_back_action(self) -> None:
         events: list[str | None] = []
