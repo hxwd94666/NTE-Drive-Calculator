@@ -28,7 +28,7 @@ StaticCatalogPage / Controller（集成任务）
 | 20/30/40/50/60/70 突破阶段 | `character_panel_growth.state` | 只按正式 `breakthrough_before/after` 成对投影 |
 | 好感度正式属性修改 | `character_likeability_bonus*` | 保留属性 ID、值、操作和百分比标记 |
 | 六个普通觉醒与三/六觉共鸣 | `character_awaken_effect`、`character_awaken_skill_level_bonus` | JSON 结构展开为路径和值；不从描述猜机制 |
-| 技能目录、文本、等级、升级条件与消耗 | `character_skill*`、`gameplay_ability_*` | 材料显示正式物品 ID 和数量；保留 GA、Tag 和资源路径 |
+| 技能目录、文本、等级、升级条件与消耗 | `character_skill*`、`gameplay_ability_*`、`progression_item`、`localized_term*` | 玩家层显示正式材料名和数量；ID、GA、Tag 与资源路径只作专业身份和折叠审计 |
 | 培养阶段与推荐 | `character_cultivation_*` | 保留阶段人物/弧盘/空幕/驱动等级和技能推荐 |
 | 毕业模板与专武/空幕关联 | `character_graduation_template`、`fork_item`、`equipment_suit` | 明确模板来源、生成时间、正式 ID 和资源路径 |
 | GA → GE/Buff 与角色所属 Buff | `character_combat_ability_binding`、`combat_ability_effect_binding`、`gameplay_effect_catalog`、`buff_definition` | 独立分页，保留事件 Tag、GE index、Class/Asset 路径 |
@@ -36,9 +36,10 @@ StaticCatalogPage / Controller（集成任务）
 
 ## 明确缺失与降级
 
-- `schema v29` 没有规范化的人物升级经验、材料或金币消耗表。
-- `schema v29` 只有突破前后面板，没有规范化的人物突破材料或金币消耗表。
-- 技能升级消耗有正式物品 ID 与数量，但没有通用材料物品中文目录，因此材料名保持 ID，不按 ID 字面猜中文名。
+- schema v30 已规范化养成材料/货币名称和确定副本产出，但尚未保存人物等级区间的经验、材料数量与方斯需求关系。
+- schema v30 保留突破前后面板及正式材料目录，但尚未保存人物突破阶段到材料数量与方斯的关系。
+- 技能升级消耗的正式物品 ID 与数量通过 `progression_item`、`localized_term*` 解析玩家名称；缺名时显示不可用，
+  raw ID 只进入折叠审计，不按 ID 字面猜中文名。
 - 战斗变身或未完整导入角色可能只有目录/战斗绑定，没有人物面板、好感度、觉醒、培养或毕业模板；Service
   以 `CatalogGap` 返回缺失，不回退同名角色，也不通过中文名或 Actor 路径合并。
 - 毕业模板属于构建期派生静态事实，来源标记为 `character_graduation_template.source_kind`，不冒充原始官方行。

@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -144,6 +145,93 @@ def _monster_asset_entries(content_root: Path, table: dict[str, Any]) -> list[di
     return entries
 
 
+def _resource_output(asset_path: str) -> str:
+    package_path = str(asset_path).split(".", 1)[0]
+    source_name = Path(package_path).name
+    suffix = hashlib.sha256(str(asset_path).encode("utf-8")).hexdigest()[:8]
+    return f"monsters/resources/{source_name}_{suffix}.png"
+
+
+def _monster_family_key(monster_manual_id: str) -> str:
+    value = str(monster_manual_id).strip()
+    marker = value.casefold().find("_bp")
+    return value[:marker].casefold() if marker >= 0 else value.casefold()
+
+
+def _unique_family_entries(
+    entries: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    by_key: dict[str, list[dict[str, str]]] = {}
+    for entry in entries:
+        by_key.setdefault(str(entry["key"]), []).append(entry)
+    unique = []
+    for rows in by_key.values():
+        minimum_priority = min(int(row.get("priority", "0")) for row in rows)
+        preferred = [
+            row for row in rows
+            if int(row.get("priority", "0")) == minimum_priority
+        ]
+        if len({row["source_asset_path"] for row in preferred}) == 1:
+            unique.append(preferred[0])
+    return unique
+
+
+def _numeric_family_alias(key: str) -> str | None:
+    match = re.fullmatch(r"(mon|boss)_0+(\d+)(.*)", str(key), re.IGNORECASE)
+    if match is None:
+        return None
+    return (
+        f"{match.group(1).casefold()}_{int(match.group(2))}"
+        f"{match.group(3).casefold()}"
+    )
+
+
+def _encounter_database_asset_entries(
+    static_database_path: Path,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    if not static_database_path.is_file():
+        raise FileNotFoundError(f"静态游戏数据库不存在：{static_database_path}")
+    with sqlite3.connect(static_database_path) as connection:
+        resources = connection.execute(
+            "SELECT DISTINCT boss_icon_path FROM feast_stage_difficulty "
+            "WHERE boss_icon_path IS NOT NULL AND boss_icon_path <> '' "
+            "UNION SELECT image_path FROM monster_catalog "
+            "WHERE image_path IS NOT NULL AND image_path <> '' "
+            "UNION SELECT world_image_path FROM monster_catalog "
+            "WHERE world_image_path IS NOT NULL AND world_image_path <> '' "
+            "ORDER BY 1"
+        ).fetchall()
+        families = connection.execute(
+            "SELECT monster_manual_id, COALESCE(world_image_path, image_path) "
+            "FROM monster_catalog "
+            "WHERE COALESCE(world_image_path, image_path) IS NOT NULL "
+            "AND COALESCE(world_image_path, image_path) <> '' "
+            "ORDER BY monster_manual_id"
+        ).fetchall()
+    resource_entries = [
+        {
+            "key": str(row[0]),
+            "source_asset_path": str(row[0]),
+            "output": _resource_output(str(row[0])),
+        }
+        for row in resources
+    ]
+    family_entries: list[dict[str, str]] = []
+    seen: dict[str, str] = {}
+    for manual_id, asset_path in families:
+        key = _monster_family_key(str(manual_id))
+        previous = seen.setdefault(key, str(asset_path))
+        if previous != str(asset_path):
+            raise ValueError(f"怪物正式 ID 家族 {key} 对应多个图标路径")
+        family_entries.append({
+            "key": key,
+            "source_asset_path": str(asset_path),
+            "output": _resource_output(str(asset_path)),
+            "priority": "1",
+        })
+    return resource_entries, family_entries
+
+
 def build_assets(
     content_root: Path,
     manifest_path: Path = DEFAULT_MANIFEST,
@@ -179,6 +267,30 @@ def build_assets(
         monster_entries.extend(_monster_asset_entries(content_root, monster_table))
     if monster_entries:
         groups.append(("monster_icons", "key", monster_entries, 128))
+    family_icons = [
+        {
+            "key": _monster_family_key(entry["key"].split(":", 1)[1]),
+            "source_asset_path": entry["source_asset_path"],
+            "output": entry["output"],
+            "priority": "0",
+        }
+        for entry in monster_entries
+    ]
+    if manifest.get("encounter_icons_from_database"):
+        encounter_icons, database_family_icons = _encounter_database_asset_entries(
+            static_database_path
+        )
+        groups.append(("encounter_icons", "key", encounter_icons, 160))
+        family_icons.extend(database_family_icons)
+    family_icons.extend(
+        {**entry, "key": alias, "priority": "2"}
+        for entry in tuple(family_icons)
+        if (alias := _numeric_family_alias(entry["key"])) is not None
+    )
+    if family_icons:
+        groups.append((
+            "monster_family_icons", "key", _unique_family_entries(family_icons), 160,
+        ))
 
     for group_name, identity_field, entries, max_dimension in groups:
         result_map = result_maps.setdefault(group_name, {})

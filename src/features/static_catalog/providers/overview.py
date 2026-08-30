@@ -1,5 +1,5 @@
 # 将全量静态表覆盖登记映射到公共资料库契约。
-"""Public provider for the audited 110-table static release registry."""
+"""Public provider for the audited 124-table static release registry."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class StaticCatalogOverviewProvider:
     domain = CatalogDomain(
         key="coverage",
         label="覆盖总览",
-        description="发行静态库 110 张表的逐表行数、领域与可展示状态",
+        description="发行静态库 124 张表的逐表行数、领域与可展示状态",
         order=0,
     )
 

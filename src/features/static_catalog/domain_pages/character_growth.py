@@ -17,6 +17,12 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.features.static_catalog.domain_pages.character_more_info import (
+    build_more_info,
+)
+from src.features.static_catalog.domain_pages.character_progression import (
+    unavailable_character_level_requirements,
+)
 from src.services.static_catalog_character_models import (
     BreakthroughStage,
     CharacterDetail,
@@ -114,6 +120,8 @@ class CharacterGrowthView(QWidget):
             "border-radius:8px;padding:9px"
         ))
         layout.addWidget(self.progression_result)
+        self.progression_more_info = QVBoxLayout()
+        layout.addLayout(self.progression_more_info)
         root.addWidget(calculator)
 
         section_title = QLabel("突破里程碑", self)
@@ -221,15 +229,25 @@ class CharacterGrowthView(QWidget):
         detail = self._detail
         if detail is None:
             return
+        requirement_projection = unavailable_character_level_requirements()
         self.progression_requested.emit({
             "kind": "character_level",
             "character_id": detail.character.character_id,
             "from_level": int(self.start_level.currentData()),
             "to_level": int(self.end_level.currentData()),
             "include_breakthroughs": self.include_breakthroughs.isChecked(),
+            "requirements": requirement_projection.requirements,
+            "requirement_status": requirement_projection.status.value,
+            "requirement_gaps": requirement_projection.gaps,
         })
 
-    def set_progression_result(self, text: str, *, available: bool) -> None:
+    def set_progression_result(
+        self,
+        text: str,
+        *,
+        available: bool,
+        more_info: tuple[tuple[str, str], ...] = (),
+    ) -> None:
         self.progression_result.setText(text)
         self.progression_result.setStyleSheet(themed_style(
             "color:#3fb950;background:#0d1117;border:1px solid #3fb950;"
@@ -238,6 +256,14 @@ class CharacterGrowthView(QWidget):
             "color:#d29922;background:#0d1117;border:1px solid #d29922;"
             "border-radius:8px;padding:9px"
         ))
+        while self.progression_more_info.count():
+            item = self.progression_more_info.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
+        details = build_more_info(more_info, parent=self)
+        if details is not None:
+            self.progression_more_info.addWidget(details)
 
     @staticmethod
     def _set_metric(card: QFrame, value: str) -> None:

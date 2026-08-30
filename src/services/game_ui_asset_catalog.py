@@ -19,6 +19,7 @@ class GameUiAssetCatalog:
             else {
                 "characters": {}, "attributes": {}, "equipment_items": {},
                 "equipment_modules": {}, "fork_items": {}, "monster_icons": {},
+                "encounter_icons": {}, "monster_family_icons": {},
             }
         )
 
@@ -56,3 +57,20 @@ class GameUiAssetCatalog:
 
     def monster_icon(self, static_table: str, monster_id: str) -> Path | None:
         return self._resolve("monster_icons", f"{static_table}:{monster_id}")
+
+    def encounter_icon(self, resource_path: str) -> Path | None:
+        return self._resolve("encounter_icons", str(resource_path))
+
+    def monster_family_icon(self, formal_monster_id: str) -> Path | None:
+        normalized = str(formal_monster_id).strip().casefold()
+        family_map = self._manifest.get("monster_family_icons", {})
+        if not isinstance(family_map, dict):
+            return None
+        matches = [
+            key for key in family_map
+            if isinstance(key, str)
+            and (normalized == key or normalized.startswith(f"{key}_"))
+        ]
+        if not matches:
+            return None
+        return self._resolve("monster_family_icons", max(matches, key=len))

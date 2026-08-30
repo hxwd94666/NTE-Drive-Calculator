@@ -215,6 +215,156 @@
     "monster_static_clone:boss_26_BP_Weekly_Lv6": "monsters/monster_static_clone/Boss_26.png",
     "monster_static_clone:boss_26_BP_Weekly_Lv7": "monsters/monster_static_clone/Boss_26.png"
   },
+  "encounter_icons": {
+    "/Game/UI/UI/DiyBoss/Boss_07_icon.Boss_07_icon": "monsters/resources/Boss_07_icon_6e67194d.png",
+    "/Game/UI/UI/DiyBoss/Boss_08_icon.Boss_08_icon": "monsters/resources/Boss_08_icon_7dbb9555.png",
+    "/Game/UI/UI/DiyBoss/Boss_13_icon.Boss_13_icon": "monsters/resources/Boss_13_icon_8ece5dc9.png",
+    "/Game/UI/UI/DiyBoss/Boss_18_icon.Boss_18_icon": "monsters/resources/Boss_18_icon_97cd5bbb.png",
+    "/Game/UI/UI/DiyBoss/Boss_26_icon.Boss_26_icon": "monsters/resources/Boss_26_icon_a1cb6a63.png",
+    "/Game/UI/UI/DiyBoss/boss_04_icon.boss_04_icon": "monsters/resources/boss_04_icon_ce74691b.png",
+    "/Game/UI/UI/DiyBoss/boss_103_01_100.boss_103_01_100": "monsters/resources/boss_103_01_100_12ec76b7.png",
+    "/Game/UI/UI/DiyBoss/boss_103_02__100.boss_103_02__100": "monsters/resources/boss_103_02__100_891b4b4b.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_05.Boss_05": "monsters/resources/Boss_05_15c4f400.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_07.Boss_07": "monsters/resources/Boss_07_e7437aa6.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_08.Boss_08": "monsters/resources/Boss_08_7df45414.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_09.Boss_09": "monsters/resources/Boss_09_9775518e.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_10.Boss_10": "monsters/resources/Boss_10_6113f0ea.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_13.Boss_13": "monsters/resources/Boss_13_995747c7.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_15.Boss_15": "monsters/resources/Boss_15_e17f976b.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/boss_19.boss_19": "monsters/resources/boss_19_fa16e320.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/boss_33.boss_33": "monsters/resources/boss_33_263d05c0.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_01.mon_01": "monsters/resources/mon_01_e4d77b7e.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_02.mon_02": "monsters/resources/mon_02_2fd1e8a1.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_04.mon_04": "monsters/resources/mon_04_320de28e.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_05.mon_05": "monsters/resources/mon_05_11720267.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_11.mon_11": "monsters/resources/mon_11_863508df.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_12.mon_12": "monsters/resources/mon_12_a3fb1440.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_13_2.mon_13_2": "monsters/resources/mon_13_2_e2e0ca90.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_14.mon_14": "monsters/resources/mon_14_a1b24fcf.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_15.mon_15": "monsters/resources/mon_15_7626afa6.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_16.mon_16": "monsters/resources/mon_16_9fa71460.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_17.mon_17": "monsters/resources/mon_17_4b960ece.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_18.mon_18": "monsters/resources/mon_18_234db98b.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_19.mon_19": "monsters/resources/mon_19_eb773888.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_20.mon_20": "monsters/resources/mon_20_61c26ae9.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_23.mon_23": "monsters/resources/mon_23_0a3fe7ed.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_24.mon_24": "monsters/resources/mon_24_20150b5d.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_25.mon_25": "monsters/resources/mon_25_001a57f6.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_26.mon_26": "monsters/resources/mon_26_d771d213.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_27.mon_27": "monsters/resources/mon_27_933d2134.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_29.mon_29": "monsters/resources/mon_29_7f95204b.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_30.mon_30": "monsters/resources/mon_30_b0088c3b.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_33.mon_33": "monsters/resources/mon_33_9e93c218.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_37.mon_37": "monsters/resources/mon_37_a2199ca7.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_38.mon_38": "monsters/resources/mon_38_5781c958.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_41.mon_41": "monsters/resources/mon_41_392a1975.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_48.mon_48": "monsters/resources/mon_48_c59b7a0a.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_05.Boss_05": "monsters/resources/Boss_05_3df013d2.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_07.Boss_07": "monsters/resources/Boss_07_dd45259e.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_08.Boss_08": "monsters/resources/Boss_08_acc19f46.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_09.Boss_09": "monsters/resources/Boss_09_8308c37c.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_10.Boss_10": "monsters/resources/Boss_10_d2e9894b.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.Boss_13": "monsters/resources/boss_13_a65d48d0.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.boss_13": "monsters/resources/boss_13_e039024a.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_15.Boss_15": "monsters/resources/boss_15_ebff7c18.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_19.boss_19": "monsters/resources/boss_19_b8978bda.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_33.boss_33": "monsters/resources/boss_33_c4816359.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_01.mon_01": "monsters/resources/mon_01_9a4186d5.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_02.mon_02": "monsters/resources/mon_02_af7e03da.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_04.mon_04": "monsters/resources/mon_04_7d82654a.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_05.mon_05": "monsters/resources/mon_05_bf1f943b.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_11.mon_11": "monsters/resources/mon_11_7ad631bc.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_12.mon_12": "monsters/resources/mon_12_99861cae.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_13_2.mon_13_2": "monsters/resources/mon_13_2_f127f6df.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_14.mon_14": "monsters/resources/mon_14_d598d04c.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_15.mon_15": "monsters/resources/mon_15_0a284908.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_16.mon_16": "monsters/resources/mon_16_65e027ff.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_17.mon_17": "monsters/resources/mon_17_9157579e.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_18.mon_18": "monsters/resources/mon_18_0989b07f.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_19.mon_19": "monsters/resources/mon_19_bc0d3751.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_20.mon_20": "monsters/resources/mon_20_4b232eb4.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_23.mon_23": "monsters/resources/mon_23_8d7d8729.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_24.mon_24": "monsters/resources/mon_24_9c5815d5.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_25.mon_25": "monsters/resources/mon_25_00005773.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_26.mon_26": "monsters/resources/mon_26_df9daa3a.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_27.mon_27": "monsters/resources/mon_27_b54b16f7.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_29.mon_29": "monsters/resources/mon_29_f1764be9.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_30_2.mon_30_2": "monsters/resources/mon_30_2_caad220e.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_33.mon_33": "monsters/resources/mon_33_df63c508.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_37.mon_37": "monsters/resources/mon_37_4737128f.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_38.mon_38": "monsters/resources/mon_38_6914bc43.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_41.mon_41": "monsters/resources/mon_41_86781473.png",
+    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_48.mon_48": "monsters/resources/mon_48_7c95e9e4.png"
+  },
+  "monster_family_icons": {
+    "mon_016": "monsters/monster_static_big_world/mon_16.png",
+    "mon_019": "monsters/monster_static_big_world/mon_19.png",
+    "mon_01": "monsters/monster_static_big_world/mon_01.png",
+    "mon_029": "monsters/monster_static_big_world/mon_29.png",
+    "mon_02": "monsters/monster_static_big_world/mon_02.png",
+    "mon_02_green": "monsters/monster_static_big_world/mon_02.png",
+    "mon_03": "monsters/monster_static_big_world/mon_03.png",
+    "mon_04": "monsters/monster_static_big_world/mon_04.png",
+    "mon_04_var_green": "monsters/monster_static_big_world/mon_04.png",
+    "mon_05": "monsters/monster_static_big_world/mon_05.png",
+    "mon_14": "monsters/monster_static_big_world/mon_14.png",
+    "boss_05": "monsters/monster_static_clone/Boss_05.png",
+    "boss_10": "monsters/monster_static_clone/Boss_10.png",
+    "boss_26": "monsters/monster_static_clone/Boss_26.png",
+    "boss_07": "monsters/resources/Boss_07_dd45259e.png",
+    "boss_08": "monsters/resources/Boss_08_acc19f46.png",
+    "boss_09": "monsters/resources/Boss_09_8308c37c.png",
+    "boss_13": "monsters/resources/boss_13_a65d48d0.png",
+    "boss_15": "monsters/resources/boss_15_ebff7c18.png",
+    "boss_19": "monsters/resources/boss_19_b8978bda.png",
+    "boss_33": "monsters/resources/boss_33_c4816359.png",
+    "mon_011": "monsters/resources/mon_11_7ad631bc.png",
+    "mon_012": "monsters/resources/mon_12_99861cae.png",
+    "mon_013": "monsters/resources/mon_13_2_f127f6df.png",
+    "mon_014": "monsters/resources/mon_14_d598d04c.png",
+    "mon_015": "monsters/resources/mon_15_0a284908.png",
+    "mon_017": "monsters/resources/mon_17_9157579e.png",
+    "mon_018": "monsters/resources/mon_18_0989b07f.png",
+    "mon_019_sadbear": "monsters/resources/mon_19_bc0d3751.png",
+    "mon_020": "monsters/resources/mon_20_4b232eb4.png",
+    "mon_023": "monsters/resources/mon_23_8d7d8729.png",
+    "mon_024": "monsters/resources/mon_24_9c5815d5.png",
+    "mon_025": "monsters/resources/mon_25_00005773.png",
+    "mon_026": "monsters/resources/mon_26_df9daa3a.png",
+    "mon_027": "monsters/resources/mon_27_b54b16f7.png",
+    "mon_030": "monsters/resources/mon_30_2_caad220e.png",
+    "mon_033": "monsters/resources/mon_33_df63c508.png",
+    "mon_037": "monsters/resources/mon_37_4737128f.png",
+    "mon_038": "monsters/resources/mon_38_6914bc43.png",
+    "mon_041": "monsters/resources/mon_41_86781473.png",
+    "mon_048": "monsters/resources/mon_48_7c95e9e4.png",
+    "mon_19": "monsters/monster_static_big_world/mon_19.png",
+    "mon_2_green": "monsters/monster_static_big_world/mon_02.png",
+    "mon_3": "monsters/monster_static_big_world/mon_03.png",
+    "mon_4_var_green": "monsters/monster_static_big_world/mon_04.png",
+    "boss_7": "monsters/resources/Boss_07_dd45259e.png",
+    "boss_8": "monsters/resources/Boss_08_acc19f46.png",
+    "boss_9": "monsters/resources/Boss_09_8308c37c.png",
+    "mon_11": "monsters/resources/mon_11_7ad631bc.png",
+    "mon_12": "monsters/resources/mon_12_99861cae.png",
+    "mon_13": "monsters/resources/mon_13_2_f127f6df.png",
+    "mon_15": "monsters/resources/mon_15_0a284908.png",
+    "mon_17": "monsters/resources/mon_17_9157579e.png",
+    "mon_18": "monsters/resources/mon_18_0989b07f.png",
+    "mon_19_sadbear": "monsters/resources/mon_19_bc0d3751.png",
+    "mon_20": "monsters/resources/mon_20_4b232eb4.png",
+    "mon_23": "monsters/resources/mon_23_8d7d8729.png",
+    "mon_24": "monsters/resources/mon_24_9c5815d5.png",
+    "mon_25": "monsters/resources/mon_25_00005773.png",
+    "mon_26": "monsters/resources/mon_26_df9daa3a.png",
+    "mon_27": "monsters/resources/mon_27_b54b16f7.png",
+    "mon_30": "monsters/resources/mon_30_2_caad220e.png",
+    "mon_33": "monsters/resources/mon_33_df63c508.png",
+    "mon_37": "monsters/resources/mon_37_4737128f.png",
+    "mon_38": "monsters/resources/mon_38_6914bc43.png",
+    "mon_41": "monsters/resources/mon_41_86781473.png",
+    "mon_48": "monsters/resources/mon_48_7c95e9e4.png"
+  },
   "files": {
     "characters/player_003_256.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_003_256.player_003_256",
@@ -1363,8 +1513,561 @@
       "height": 128,
       "bytes": 35797,
       "sha256": "0F0ABA97F388AE574D1B8C95FC0D7FF4AAEFE81209BEB64FFBF425233D1B368C"
+    },
+    "monsters/resources/Boss_07_icon_6e67194d.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_07_icon.Boss_07_icon",
+      "width": 100,
+      "height": 100,
+      "bytes": 8992,
+      "sha256": "3B8655DCF287D956F4E2062516C43A92BADFF50683EEDCFC24FF7CA9B1588E6F"
+    },
+    "monsters/resources/Boss_08_icon_7dbb9555.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_08_icon.Boss_08_icon",
+      "width": 100,
+      "height": 100,
+      "bytes": 9155,
+      "sha256": "0A885F4743938ED0870150B1F3FDEFD8CFD596B7C609E08C58C322E3D43A10CA"
+    },
+    "monsters/resources/Boss_13_icon_8ece5dc9.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_13_icon.Boss_13_icon",
+      "width": 100,
+      "height": 100,
+      "bytes": 12108,
+      "sha256": "6FB0256C35D44E347B2FFDF43072444AD6942011A03EBDAEAE51B0D838521F8F"
+    },
+    "monsters/resources/Boss_18_icon_97cd5bbb.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_18_icon.Boss_18_icon",
+      "width": 100,
+      "height": 96,
+      "bytes": 12952,
+      "sha256": "39C10D2A38E2D65A6E1149867F37DA14213C1173AC11186F3465387F59E04821"
+    },
+    "monsters/resources/Boss_26_icon_a1cb6a63.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_26_icon.Boss_26_icon",
+      "width": 100,
+      "height": 100,
+      "bytes": 16840,
+      "sha256": "2E309926077679E4B8955826F4016B3E1FA9F1D5CF9BEDA7F17BBD1FA715281C"
+    },
+    "monsters/resources/boss_04_icon_ce74691b.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/boss_04_icon.boss_04_icon",
+      "width": 99,
+      "height": 100,
+      "bytes": 18263,
+      "sha256": "3B8ACB1F00ABFB22CD5D7B70CE83CFCEB11DA40382A4EDEF1042DC62AD17C7D1"
+    },
+    "monsters/resources/boss_103_01_100_12ec76b7.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/boss_103_01_100.boss_103_01_100",
+      "width": 100,
+      "height": 100,
+      "bytes": 17751,
+      "sha256": "19D9273F989A16F257E3E950590D092CC266564364204CEA16B8A92F161C6C59"
+    },
+    "monsters/resources/boss_103_02__100_891b4b4b.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/boss_103_02__100.boss_103_02__100",
+      "width": 100,
+      "height": 100,
+      "bytes": 13792,
+      "sha256": "7F3DCDD672908B57D0B87E5696DCE38E2949ADD927B8472DE914C4243C65B0E6"
+    },
+    "monsters/resources/Boss_05_15c4f400.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_05.Boss_05",
+      "width": 160,
+      "height": 160,
+      "bytes": 46396,
+      "sha256": "03AAD8790C53E578C1FC45DF847DEF0223A7E89887556C5D1F87962EAD63F4DB"
+    },
+    "monsters/resources/Boss_07_e7437aa6.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_07.Boss_07",
+      "width": 160,
+      "height": 160,
+      "bytes": 29017,
+      "sha256": "6FFEFA7F9918CD98C34D592154B2F971C5B2E0B628A14BB8DA2CB3974B6C0820"
+    },
+    "monsters/resources/Boss_08_7df45414.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_08.Boss_08",
+      "width": 160,
+      "height": 160,
+      "bytes": 30067,
+      "sha256": "96611B11301ED362CFFA0B5F39A48AAE6682E114015F5E5B925A9936640A30E7"
+    },
+    "monsters/resources/Boss_09_9775518e.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_09.Boss_09",
+      "width": 160,
+      "height": 160,
+      "bytes": 36301,
+      "sha256": "45681E0B26752BA1C9B54D1D8A8452252BABEB8566C6032F17FB92CFDFF70C7A"
+    },
+    "monsters/resources/Boss_10_6113f0ea.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_10.Boss_10",
+      "width": 160,
+      "height": 160,
+      "bytes": 34823,
+      "sha256": "98AA30C6CAFC705F69DBC18B357092A8571216315D869DA7540959B6EC244A2A"
+    },
+    "monsters/resources/Boss_13_995747c7.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_13.Boss_13",
+      "width": 160,
+      "height": 160,
+      "bytes": 37725,
+      "sha256": "D0FE29B1E54B7A20B0362771A3FED941BB2E64DBC10BB35BEDB271EB1FE2EAE0"
+    },
+    "monsters/resources/Boss_15_e17f976b.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_15.Boss_15",
+      "width": 160,
+      "height": 160,
+      "bytes": 33646,
+      "sha256": "A5D535585A75CF37794CD658FD3C915EAC99A3B2E3CF28040174CBB2EE1E5C9A"
+    },
+    "monsters/resources/boss_19_fa16e320.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/boss_19.boss_19",
+      "width": 160,
+      "height": 160,
+      "bytes": 38263,
+      "sha256": "85F0FB2F4FD3D57AEF17977985983B6CFE7733406C403008CE93ED2ECBF4E373"
+    },
+    "monsters/resources/boss_33_263d05c0.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/boss_33.boss_33",
+      "width": 160,
+      "height": 160,
+      "bytes": 34200,
+      "sha256": "F45C3809601CB864EB16D38B3BBF2FEE678F31BF9BC032BED0A1A57009D6D6F5"
+    },
+    "monsters/resources/mon_01_e4d77b7e.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_01.mon_01",
+      "width": 160,
+      "height": 160,
+      "bytes": 41117,
+      "sha256": "0239BD6671407EA913E3425132E969AC7D22AE76AABC5B379D59C550AFE673C0"
+    },
+    "monsters/resources/mon_02_2fd1e8a1.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_02.mon_02",
+      "width": 160,
+      "height": 160,
+      "bytes": 38758,
+      "sha256": "9908E2A92C4C62655FD9798B349E3235BAAFFA38048305F17114D4E5B97D6C14"
+    },
+    "monsters/resources/mon_04_320de28e.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_04.mon_04",
+      "width": 160,
+      "height": 160,
+      "bytes": 34593,
+      "sha256": "17DE9DB8F7D29E897CF0C9DFDA882F0C30CC4A3EA6AD876BC8EE7E45A16B7ABA"
+    },
+    "monsters/resources/mon_05_11720267.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_05.mon_05",
+      "width": 160,
+      "height": 160,
+      "bytes": 34236,
+      "sha256": "0CAACF6A40D86DABA744E6178CB70F5024FCD3DDDF2210E0771AC0F37C24651F"
+    },
+    "monsters/resources/mon_11_863508df.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_11.mon_11",
+      "width": 160,
+      "height": 160,
+      "bytes": 34143,
+      "sha256": "778614D0A9E53F15F2B0477AC037DD669D67C76B23D32474F6EF0B5C09FE2C1A"
+    },
+    "monsters/resources/mon_12_a3fb1440.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_12.mon_12",
+      "width": 160,
+      "height": 160,
+      "bytes": 42882,
+      "sha256": "301A35D3CC61440074F2B243EE45653EEEBD6F5B936A8962F542ACFD7D2519A6"
+    },
+    "monsters/resources/mon_13_2_e2e0ca90.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_13_2.mon_13_2",
+      "width": 160,
+      "height": 160,
+      "bytes": 15781,
+      "sha256": "1DC105AD2088F74ED878CD2FA8D13E371A477904EA323E2CD7A8D95C5524731D"
+    },
+    "monsters/resources/mon_14_a1b24fcf.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_14.mon_14",
+      "width": 160,
+      "height": 160,
+      "bytes": 59205,
+      "sha256": "DFD123480210418A38725318A9B76BC1146C016ABB0009F384ABF24703D844D7"
+    },
+    "monsters/resources/mon_15_7626afa6.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_15.mon_15",
+      "width": 160,
+      "height": 160,
+      "bytes": 50693,
+      "sha256": "1C635D2A5F860BA0EFA9AD147964A0CA8E6B8034BB7E7A9FE74B2023C4F59256"
+    },
+    "monsters/resources/mon_16_9fa71460.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_16.mon_16",
+      "width": 160,
+      "height": 160,
+      "bytes": 56559,
+      "sha256": "BA393F138EF25FA30AA0FBD0CD6572D98BFD007EF175BC773AF314BCD8F30CAC"
+    },
+    "monsters/resources/mon_17_4b960ece.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_17.mon_17",
+      "width": 160,
+      "height": 160,
+      "bytes": 36658,
+      "sha256": "44CC4BEFA4461567049192548E5E47C0AFF2716B6D1B32D8FCEE41571EFE5D49"
+    },
+    "monsters/resources/mon_18_234db98b.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_18.mon_18",
+      "width": 160,
+      "height": 160,
+      "bytes": 26237,
+      "sha256": "AD82136334571C6115AF3E3D48C088D3297CF2782C9CF788F174E823C8D8A628"
+    },
+    "monsters/resources/mon_19_eb773888.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_19.mon_19",
+      "width": 160,
+      "height": 160,
+      "bytes": 42157,
+      "sha256": "E097D9BF4AD417751FD758DAD1677439B0FA264049737F36C9523E257D71E8E9"
+    },
+    "monsters/resources/mon_20_61c26ae9.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_20.mon_20",
+      "width": 160,
+      "height": 160,
+      "bytes": 31332,
+      "sha256": "9B18BBE951379105847118D1ED9BACC39C04A8DCC2B878A4AC58620175F17660"
+    },
+    "monsters/resources/mon_23_0a3fe7ed.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_23.mon_23",
+      "width": 160,
+      "height": 160,
+      "bytes": 30434,
+      "sha256": "DD181B740E0AF52F03346E47F71409B33F41AA199D9A1287DCEAC267AF3B59F4"
+    },
+    "monsters/resources/mon_24_20150b5d.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_24.mon_24",
+      "width": 160,
+      "height": 160,
+      "bytes": 32555,
+      "sha256": "1A0A19B922A383512EF01FBFCF60814D8EA544B1A5BC85F1223F7D02B263F53D"
+    },
+    "monsters/resources/mon_25_001a57f6.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_25.mon_25",
+      "width": 160,
+      "height": 160,
+      "bytes": 33973,
+      "sha256": "9113197214EBA322FC0CC152625D8F8BA2CC72A9EAD874C3337BE53080953C7E"
+    },
+    "monsters/resources/mon_26_d771d213.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_26.mon_26",
+      "width": 160,
+      "height": 160,
+      "bytes": 28960,
+      "sha256": "00C4816BD33B1CD7276B917C38A8A482C717AEE444AE13CB5B4F668C4855342F"
+    },
+    "monsters/resources/mon_27_933d2134.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_27.mon_27",
+      "width": 160,
+      "height": 160,
+      "bytes": 28432,
+      "sha256": "CAB39D8DA3FAA194F0546DDC9D3C9C6B8E03C8EABC75D26302591EF477A02A52"
+    },
+    "monsters/resources/mon_29_7f95204b.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_29.mon_29",
+      "width": 160,
+      "height": 160,
+      "bytes": 38291,
+      "sha256": "E46D4C8910DE11B1BCC88097B80E760C4FA2FCDA38E9125A29862C4D96A0425C"
+    },
+    "monsters/resources/mon_30_b0088c3b.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_30.mon_30",
+      "width": 160,
+      "height": 160,
+      "bytes": 41636,
+      "sha256": "4B363409CB07684589C99BBB5AFD55D0536670A1857B67E5B9E5FFFE7F04B86A"
+    },
+    "monsters/resources/mon_33_9e93c218.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_33.mon_33",
+      "width": 160,
+      "height": 160,
+      "bytes": 26128,
+      "sha256": "2D32339926EDD1BC10AB40162D04C549C7F87573451BB0573DD8D03809DC8C9E"
+    },
+    "monsters/resources/mon_37_a2199ca7.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_37.mon_37",
+      "width": 160,
+      "height": 160,
+      "bytes": 18746,
+      "sha256": "37EF156099E4628032E525ACFD63CAE15D2974EC936292A8A131164CC8A090A8"
+    },
+    "monsters/resources/mon_38_5781c958.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_38.mon_38",
+      "width": 160,
+      "height": 160,
+      "bytes": 36317,
+      "sha256": "DDA72560EB7A87D2F9BCCE1F7C8AA9C03B420434496472892673877D6061056F"
+    },
+    "monsters/resources/mon_41_392a1975.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_41.mon_41",
+      "width": 160,
+      "height": 160,
+      "bytes": 51353,
+      "sha256": "46C16A36BC733DA7C9EE4FB9C63A93E781593DDBDF124230E69326E523F1F7AB"
+    },
+    "monsters/resources/mon_48_c59b7a0a.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_48.mon_48",
+      "width": 160,
+      "height": 160,
+      "bytes": 46227,
+      "sha256": "6003934DCDE91863D9027EE8E595B27F2386EEB8EB206DC952C90D96AEE604B0"
+    },
+    "monsters/resources/Boss_05_3df013d2.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_05.Boss_05",
+      "width": 128,
+      "height": 128,
+      "bytes": 27112,
+      "sha256": "5266006DDEC92F270C9DD3C6F88FF4CF401B74B011B131D12B649B570C691861"
+    },
+    "monsters/resources/Boss_07_dd45259e.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_07.Boss_07",
+      "width": 128,
+      "height": 128,
+      "bytes": 22074,
+      "sha256": "8C4827A36153F9CD2C1938FFCEE19FD07597575610A1A51EF7D9A332C99D007D"
+    },
+    "monsters/resources/Boss_08_acc19f46.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_08.Boss_08",
+      "width": 128,
+      "height": 128,
+      "bytes": 21812,
+      "sha256": "8825AE8400BE265757A29D203155A8B8799E39AEF4B84B4945C937A32C508B6A"
+    },
+    "monsters/resources/Boss_09_8308c37c.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_09.Boss_09",
+      "width": 128,
+      "height": 128,
+      "bytes": 23770,
+      "sha256": "E9DB1A134E4350B36B0A394BC3A6620A89A2031BDBFB24EAC073492F28825F68"
+    },
+    "monsters/resources/Boss_10_d2e9894b.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_10.Boss_10",
+      "width": 128,
+      "height": 128,
+      "bytes": 24246,
+      "sha256": "60EBA61B0AEA7725161D964377CB210525791A53FEC677DF6548901658BB1988"
+    },
+    "monsters/resources/boss_13_a65d48d0.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.Boss_13",
+      "width": 128,
+      "height": 128,
+      "bytes": 25639,
+      "sha256": "0F43DBC5508B03268EB3F86803084E91857D56D7E280D91ADDA97204A883C3DC"
+    },
+    "monsters/resources/boss_13_e039024a.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.boss_13",
+      "width": 128,
+      "height": 128,
+      "bytes": 25639,
+      "sha256": "0F43DBC5508B03268EB3F86803084E91857D56D7E280D91ADDA97204A883C3DC"
+    },
+    "monsters/resources/boss_15_ebff7c18.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_15.Boss_15",
+      "width": 128,
+      "height": 128,
+      "bytes": 22601,
+      "sha256": "E39FF9899090105D0064A5515D50E9425610CB344FFFC1ED6469CF773DE33569"
+    },
+    "monsters/resources/boss_19_b8978bda.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_19.boss_19",
+      "width": 128,
+      "height": 128,
+      "bytes": 26684,
+      "sha256": "BD721189C988E04B2BDC626621B97897329B531795087FE8B25C3F8129E2243E"
+    },
+    "monsters/resources/boss_33_c4816359.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_33.boss_33",
+      "width": 128,
+      "height": 128,
+      "bytes": 24231,
+      "sha256": "0284135D5F0DD6A6D5C6B289B04E8C02AC0C2267A6D642898F5EE2EDF1C92680"
+    },
+    "monsters/resources/mon_01_9a4186d5.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_01.mon_01",
+      "width": 128,
+      "height": 128,
+      "bytes": 27121,
+      "sha256": "7C7A13D9C376EE30793703FBED51E6C52EFD9CA413AA175D544CA12C7BD8D0DE"
+    },
+    "monsters/resources/mon_02_af7e03da.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_02.mon_02",
+      "width": 128,
+      "height": 128,
+      "bytes": 26873,
+      "sha256": "18616D3F8E88D0A66DE56987C3BB66EFA14726A2FC95F46B7D373B88FC42CEE1"
+    },
+    "monsters/resources/mon_04_7d82654a.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_04.mon_04",
+      "width": 128,
+      "height": 128,
+      "bytes": 25169,
+      "sha256": "D2342D8268B8B4E45F41955D9A842D6836221B1F9EC70D4129F1DE22204555CB"
+    },
+    "monsters/resources/mon_05_bf1f943b.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_05.mon_05",
+      "width": 128,
+      "height": 128,
+      "bytes": 23565,
+      "sha256": "11431A77F492E287FC69159F7A4E9F4CCA0FEEC377BFF0301ECE0DB00DE35D92"
+    },
+    "monsters/resources/mon_11_7ad631bc.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_11.mon_11",
+      "width": 128,
+      "height": 128,
+      "bytes": 22701,
+      "sha256": "96FBADB99C027B1D1075E6E6D3753894BB2DCA7B43873B3F61F9DACA5D875DE8"
+    },
+    "monsters/resources/mon_12_99861cae.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_12.mon_12",
+      "width": 128,
+      "height": 128,
+      "bytes": 25834,
+      "sha256": "EE3900F12F271AAF5863D1711BFE96EB3DA246436AA9ABF79AA4C7A72861CA38"
+    },
+    "monsters/resources/mon_13_2_f127f6df.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_13_2.mon_13_2",
+      "width": 128,
+      "height": 128,
+      "bytes": 15607,
+      "sha256": "9E66942FA0EC786EE74C83D08CFCE9FB77EDEC81EAF643D458E4FC7874CA53DF"
+    },
+    "monsters/resources/mon_14_d598d04c.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_14.mon_14",
+      "width": 128,
+      "height": 128,
+      "bytes": 32477,
+      "sha256": "90FDCBF99FB4AF527ACAD57FA0071A93C9D11565E36ABF46523DB7CF0A7528EC"
+    },
+    "monsters/resources/mon_15_0a284908.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_15.mon_15",
+      "width": 128,
+      "height": 128,
+      "bytes": 30069,
+      "sha256": "DA7B71EFA887197AB41B4E3C4A54576C6B3AE6F4821ADAAE6039348A9C3FBAC1"
+    },
+    "monsters/resources/mon_16_65e027ff.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_16.mon_16",
+      "width": 128,
+      "height": 128,
+      "bytes": 31081,
+      "sha256": "AAB2CDE6F72F143B4F0DBA3D20AA564893D7680637F534681CDB3F48A0D2D17B"
+    },
+    "monsters/resources/mon_17_9157579e.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_17.mon_17",
+      "width": 128,
+      "height": 128,
+      "bytes": 24533,
+      "sha256": "E6058CCD024A5CE0E8CDFC75023B6B08EBF19AF585B9913F50D4C84F6B92AF13"
+    },
+    "monsters/resources/mon_18_0989b07f.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_18.mon_18",
+      "width": 128,
+      "height": 128,
+      "bytes": 20243,
+      "sha256": "844FB494A93CA3FDE9ECD6E18BCD8BBD466238CA77FBABC7A911972E677804EE"
+    },
+    "monsters/resources/mon_19_bc0d3751.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_19.mon_19",
+      "width": 128,
+      "height": 128,
+      "bytes": 28263,
+      "sha256": "7A0742D092090A1E99D5472E3807FDD72A8DAA08A3F3A091880FD36B0FAFCBF7"
+    },
+    "monsters/resources/mon_20_4b232eb4.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_20.mon_20",
+      "width": 128,
+      "height": 128,
+      "bytes": 22646,
+      "sha256": "D409D108ED5806CB8A44E165CEF4A9F26A6BBB7FAE0BCC613351526901A93423"
+    },
+    "monsters/resources/mon_23_8d7d8729.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_23.mon_23",
+      "width": 128,
+      "height": 128,
+      "bytes": 22551,
+      "sha256": "F6EF7C06CAEEA406079A7F4057B99E0407FB2796EDEDBA37355338A293E2D84D"
+    },
+    "monsters/resources/mon_24_9c5815d5.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_24.mon_24",
+      "width": 128,
+      "height": 128,
+      "bytes": 22908,
+      "sha256": "78A969E2DA664F7C2E6CAD23F8907F57CEFF3A8D19C2DFE5123BB47874FE95D7"
+    },
+    "monsters/resources/mon_25_00005773.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_25.mon_25",
+      "width": 128,
+      "height": 128,
+      "bytes": 26032,
+      "sha256": "16FED0549C93340A14233A1A56928EE4C4BF8C89BCADB32680BFD78B74073D7D"
+    },
+    "monsters/resources/mon_26_df9daa3a.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_26.mon_26",
+      "width": 128,
+      "height": 128,
+      "bytes": 19416,
+      "sha256": "3D3E5FA79587C2CE1388551A073814FCD58441E0C20EE609BE67CA98B29BE741"
+    },
+    "monsters/resources/mon_27_b54b16f7.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_27.mon_27",
+      "width": 128,
+      "height": 128,
+      "bytes": 21804,
+      "sha256": "A7693F932D993A1923D21442A619A654E26378C8DBC7D9C54D9D3028565F2CEC"
+    },
+    "monsters/resources/mon_29_f1764be9.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_29.mon_29",
+      "width": 128,
+      "height": 128,
+      "bytes": 23945,
+      "sha256": "AB688CBF0F066B09629D21601C24B2045CD8D9EEAEA29373F819943AA24DE5F1"
+    },
+    "monsters/resources/mon_30_2_caad220e.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_30_2.mon_30_2",
+      "width": 128,
+      "height": 128,
+      "bytes": 18108,
+      "sha256": "2EB49E3B1FF093D744898A88A52E465572186F45A3FA355A42EC164068DCAB09"
+    },
+    "monsters/resources/mon_33_df63c508.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_33.mon_33",
+      "width": 128,
+      "height": 128,
+      "bytes": 20428,
+      "sha256": "8FC834FB7E1F8E8F0FFFC0E4430C7DC51F28B9D3DBCE39A754BAA02C51614DA4"
+    },
+    "monsters/resources/mon_37_4737128f.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_37.mon_37",
+      "width": 128,
+      "height": 128,
+      "bytes": 18144,
+      "sha256": "A949CF489E42ABBCA087802C4DAA3E73F4CC6CA8D31152663EDAEBDF5951D2D6"
+    },
+    "monsters/resources/mon_38_6914bc43.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_38.mon_38",
+      "width": 128,
+      "height": 128,
+      "bytes": 25771,
+      "sha256": "865399449B24EB462614B074DC414969C08BBF5F51AC499E112DD07B95BF1C4E"
+    },
+    "monsters/resources/mon_41_86781473.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_41.mon_41",
+      "width": 128,
+      "height": 128,
+      "bytes": 23546,
+      "sha256": "1B76D400987D39A0B5DF1E1C2312FFFC2D22D7C59218FCFB60980C54F0BDB314"
+    },
+    "monsters/resources/mon_48_7c95e9e4.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/mon_48.mon_48",
+      "width": 128,
+      "height": 128,
+      "bytes": 28287,
+      "sha256": "9E6FBF482074C42A98E7AE23E8474F19C59303BF27A41170C4E4C0BE549662B6"
     }
   },
-  "total_files": 164,
-  "total_bytes": 5527736
+  "total_files": 243,
+  "total_bytes": 7786360
 }

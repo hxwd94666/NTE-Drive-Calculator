@@ -74,6 +74,13 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertIsNone(catalog.inventory_item_icon("unknown", "Lakshana_orange"))
         self.assertTrue(catalog.fork_icon("fork_yuren").is_file())
         self.assertIsNone(catalog.monster_icon("monster_static_big_world", "unknown"))
+        feast_icon = catalog.encounter_icon(
+            "/Game/UI/UI/DiyBoss/boss_04_icon.boss_04_icon"
+        )
+        self.assertTrue(feast_icon.is_file())
+        self.assertTrue(catalog.monster_family_icon("mon_14_BP_Abyss").is_file())
+        self.assertTrue(catalog.monster_family_icon("boss_09_ChallengeLv1_BP").is_file())
+        self.assertIsNone(catalog.monster_family_icon("mon_140_BP_Abyss"))
         self.assertIsNone(catalog.character_icon(999999))
 
     def test_builder_resizes_and_deduplicates_shared_outputs(self) -> None:

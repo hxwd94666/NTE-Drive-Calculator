@@ -5,6 +5,7 @@
     "equipment_modules",
     "fork_items"
   ],
+  "encounter_icons_from_database": true,
   "monster_tables": [
     {"static_table": "monster_static_big_world", "source_table": "DataTable/Monster/DT_MonsterStaticData_BigWorld.json"},
     {"static_table": "monster_static_big_world_gameplay", "source_table": "DataTable/Monster/DT_MonsterStaticData_BigWorld_Gameplay.json"},

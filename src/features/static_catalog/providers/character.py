@@ -124,8 +124,8 @@ class CharacterCatalogProvider:
             item=self._item(detail.character),
             sections=tuple(sections),
             notes=(
-                "人物升级和突破材料缺失时保持 unavailable，不从文本、同名角色或账号数据猜测。",
-                "技能升级消耗保留正式物品 ID 与数量；发行库没有通用材料中文名目录。",
+                "人物升级和突破需求关系缺失时保持 unavailable，不从文本、同名角色或账号数据猜测。",
+                "技能升级材料名称由公共术语服务解析；本提供器中的 raw ID 只作内部审计，不进入玩家主界面。",
             ),
         )
 
@@ -294,7 +294,7 @@ class CharacterCatalogProvider:
                 fields=(
                     annotation("来源类型", graduation.source_kind),
                     annotation("弧盘", f"{graduation.fork_name_zh or '未保留'} ({graduation.fork_id or '无'})"),
-                    annotation("弧盘等级 / 精炼", f"{graduation.fork_level} / {graduation.fork_refinement_level}"),
+                    annotation("弧盘等级 / 混频", f"{graduation.fork_level} / {graduation.fork_refinement_level}"),
                     annotation("空幕套装", f"{graduation.core_suit_name_zh or '未保留'} ({graduation.core_suit_id or '无'})"),
                     annotation("卡带主属性", graduation.core_main_property_name_zh or graduation.core_main_property_id),
                     annotation("基准伤害", graduation.benchmark_damage),

@@ -6,7 +6,7 @@
 
 ## 数据边界
 
-| 展示域 | schema v29 事实源 | 当前发行库覆盖 |
+| 展示域 | schema v30 事实源 | 当前发行库覆盖 |
 | --- | --- | ---: |
 | 官方图鉴 / 大世界 | `monster_catalog`、`monster_identifier_alias` | 35 个图鉴对象 |
 | 怪物模板与等级画像 | `monster_instance_profile`、`monster_instance_profile_variant` | 4,311 个模板画像 |

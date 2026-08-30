@@ -20,6 +20,7 @@ from tools.game_data.static_database_equipment_imports import EquipmentImportMix
 from tools.game_data.static_database_combat_imports import CombatImportMixin
 from tools.game_data.static_database_catalog_imports import CatalogImportMixin
 from tools.game_data.static_database_encounter_imports import EncounterImportMixin
+from tools.game_data.static_database_progression_imports import ProgressionImportMixin
 
 
 RELEASE_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
@@ -36,6 +37,7 @@ class StaticDatabaseBuilder(
     CombatImportMixin,
     CatalogImportMixin,
     EncounterImportMixin,
+    ProgressionImportMixin,
 ):
     def __init__(
         self,
@@ -94,6 +96,7 @@ class StaticDatabaseBuilder(
         self.connection.execute("INSERT INTO schema_migration VALUES (27, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (28, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (29, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (30, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
@@ -126,6 +129,7 @@ class StaticDatabaseBuilder(
         self._import_combat_blueprints()
         self._import_buff_definitions()
         self._import_encounter_catalogs()
+        self._import_progression_catalog()
         violations = [tuple(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
         if violations:
             raise StaticDatabaseError(f"发现外键错误：{violations[:10]}")

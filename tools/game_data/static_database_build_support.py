@@ -74,18 +74,21 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "027_game_static_abyss_monster_name.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "028_game_static_high_risk_commission.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "030_game_static_progression_catalog.sql",
 )
-SCHEMA_VERSION = 29
-IMPORTER_VERSION = 34
+SCHEMA_VERSION = 30
+IMPORTER_VERSION = 36
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
     "character_abilities": "DataTable/Character/DT_CharacterAbilityConfig.json",
     "character_ability_effects": "DataTable/Character/DT_CharacterAbilityEffectConfig.json",
+    "character_breakthroughs": "DataTable/Character/DT_CharacterBreakthroughDataTable.json",
     "skill_damage": "DataTable/skill/DT_SkillDamageData.json",
     "skill_damage_modifiers": "DataTable/skill/DT_SkillDamageGameplayModifyData.json",
     "combat_global_curves": "DataTable/skill/GlobalCharacterData/DT_GlobalCommonData.json",
     "reaction_damage": "DataTable/Reaction/DT_ReactionDamageData.json",
+    "reaction_element_types": "DataTable/Reaction/DT_ReactionElementTypeData.json",
     "reaction_definitions": "DataTable/Reaction/DT_ReactionData.json",
     "reaction_constants": "DataTable/Reaction/DT_ReactionEffectFigure.json",
     "player_pack": "DataTable/PackData/DT_PlayerPackData.json",
@@ -106,6 +109,8 @@ TABLE_PATHS = {
     "fork_stars": "DataTable/Fork/DT_ForkUpgradeStarDataTable.json",
     "fork_buff_curves": "DataTable/Fork/CT_ForkBuff.json",
     "fork_breakthroughs": "DataTable/Fork/DT_ForkBreakthroughData.json",
+    "fork_lottery_data": "DataTable/Fork/DT_ForkLotteryData.json",
+    "fork_lottery_pools": "DataTable/Fork/DT_ForkLotteryPoolData.json",
     "fork_modify": "DataTable/PackData/ModifyData/DT_ForkModifyData.json",
     "monster_pack": "DataTable/PackData/DT_MonsterPackData.json",
     "monster_pack_night_999": "DataTable/PackData/DT_MonsterPackData_FT.json",
@@ -142,12 +147,29 @@ TABLE_PATHS = {
     "high_risk_commissions": "DataTable/Vision/DT_AdvVision.json",
     "high_risk_monster_pools": "DataTable/Vision/DT_AdvVisionMonsterPool.json",
     "monster_boss_support": "DataTable/Monster/DT_BossSupportDataTable.json",
+    "drop_groups": "DataTable/Drop/Client/ClientDropGroupDataTable.json",
+    "drop_sequences": "DataTable/Drop/DropSequenceDataTable.json",
+    "item_catalog": "DataTable/Inventory/DT_ItemConfig.json",
+    "capital_item_catalog": "DataTable/Inventory/DT_CapitalItemConfig.json",
+    "item_qualities": "DataTable/Inventory/DT_ItemQuality.json",
+    "lottery_permanent": "DataAssets/Lottery/DA_LotteryModulePermanent.json",
+    "lottery_nanali": "DataAssets/Lottery/DA_LotteryModuleNanali.json",
+    "lottery_xun": "DataAssets/Lottery/DA_LotteryModuleXun.json",
+    "lottery_anhunqu": "DataAssets/Lottery/DA_LotteryModule_AnHunQu.json",
+    "lottery_kaesi": "DataAssets/Lottery/DA_LotteryModuleKaesi.json",
+    "lottery_zhenhong": "DataAssets/Lottery/DA_LotteryModuleZhenHong.json",
+    "lottery_yiluoyi": "DataAssets/Lottery/DA_LotteryModuleYiluoyi.json",
+    "lottery_canhong": "DataAssets/Lottery/DA_LotteryModuleCanhong.json",
+    "lottery_lingke": "DataAssets/Lottery/DA_LotteryModuleLingKe.json",
     "string_actor_name": "text/ST_ActorName.json",
     "string_clone": "text/ST_Clone.json",
     "string_map_area": "text/MiniMap/ST_MapAreaDetails.json",
     "string_monster_manual": "text/ST_MonsterManual.json",
     "string_quest_map": "text/ST_QuestDisplayMapNameDetail.json",
     "string_ui": "text/ST_Ui.json",
+    "string_ui_j": "text/ST_UI_J.json",
+    "string_item": "text/ST_Item.json",
+    "string_common": "text/ST_Common.json",
 }
 
 STRING_TABLE_SOURCES = frozenset({
@@ -158,6 +180,9 @@ STRING_TABLE_SOURCES = frozenset({
     "string_monster_manual",
     "string_quest_map",
     "string_ui",
+    "string_ui_j",
+    "string_item",
+    "string_common",
 })
 
 STRING_TABLE_SOURCE_BY_PACKAGE = {
@@ -166,8 +191,23 @@ STRING_TABLE_SOURCE_BY_PACKAGE = {
     "/Game/Text/ST_MonsterManual": "string_monster_manual",
     "/Game/Text/ST_QuestDisplayMapNameDetail": "string_quest_map",
     "/Game/Text/ST_Ui": "string_ui",
+    "/Game/Text/ST_UI_J": "string_ui_j",
+    "/Game/Text/ST_Item": "string_item",
+    "/Game/Text/ST_Common": "string_common",
     "/Game/Text/Minimap/ST_MapAreaDetails": "string_map_area",
 }
+
+PROPERTY_ASSET_SOURCES = frozenset({
+    "lottery_permanent",
+    "lottery_nanali",
+    "lottery_xun",
+    "lottery_anhunqu",
+    "lottery_kaesi",
+    "lottery_zhenhong",
+    "lottery_yiluoyi",
+    "lottery_canhong",
+    "lottery_lingke",
+})
 
 REACTION_CONSTANT_METADATA = {
     "LingZhouCopyCoef": ("ratio", "覆纹追加伤害的基础比例"),
@@ -259,6 +299,7 @@ def write_static_manifest(
             "filename": database.name,
             "dataset_id": str(dataset[0]),
             "schema_version": int(schema[0]),
+            "size_bytes": database.stat().st_size,
             "sha256": file_sha256(database).upper(),
             "generated_at_utc": str(dataset[2]),
             "source_payloads_omitted": payload_count == 0,

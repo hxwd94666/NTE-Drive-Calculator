@@ -345,6 +345,7 @@ def load_official_role_detail(
     asset_root: str | Path | None = None,
     include_inventory_contexts: bool = True,
     static_database_path: str | Path | None = None,
+    static_schema_version: int | None = None,
     shared_database_path: str | Path | None = None,
     request_cache: dict[object, Any] | None = None,
 ) -> dict[str, Any]:
@@ -368,7 +369,10 @@ def load_official_role_detail(
         lambda: GameUiAssetCatalog(resolved_asset_root),
     )
     with (
-        StaticGameDataDao(static_database_path) as static_dao,
+        StaticGameDataDao(
+            static_database_path,
+            expected_schema_version=static_schema_version,
+        ) as static_dao,
         UserDataDao(user_database_path) as user_dao,
     ):
         character = static_dao.get_character(character_id)

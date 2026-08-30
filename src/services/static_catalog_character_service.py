@@ -4,19 +4,24 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Protocol
 
 from src.services.static_catalog_character_models import (
     AwakeningEffect,
     BreakthroughStage,
+    BuildProperty,
     CatalogDataset,
     CatalogGap,
     CatalogSource,
     CharacterDetail,
+    CharacterEquipmentPlan,
     CharacterPage,
+    CharacterShapeBonus,
     CharacterSkill,
     CharacterSummary,
+    CharacterWeightRecommendation,
     CombatLink,
     CombatLinkPage,
     CostItem,
@@ -28,11 +33,13 @@ from src.services.static_catalog_character_models import (
     LikeabilityBonus,
     LikeabilityProperty,
     SkillDescription,
+    SkillDamageItem,
     SkillLevel,
     SkillLevelBonus,
     SkillLevelHint,
     StaticCatalogProjectionError,
     StructuredEffectField,
+    EquipmentPlanModule,
 )
 
 
@@ -64,6 +71,9 @@ class CharacterCatalogQueries(Protocol):
     def list_catalog_skills(self, character_id: int) -> list[dict[str, Any]]: ...
     def get_catalog_cultivation(self, character_id: int) -> dict[str, Any] | None: ...
     def get_catalog_graduation(self, character_id: int) -> dict[str, Any] | None: ...
+    def get_catalog_equipment_plan(self, character_id: int) -> dict[str, Any] | None: ...
+    def get_catalog_character_shape_bonus(self, character_id: int) -> dict[str, Any] | None: ...
+    def get_catalog_character_weights(self, character_id: int) -> dict[str, Any] | None: ...
     def count_catalog_combat_links(self, character_id: int) -> int: ...
     def list_catalog_combat_links(
         self, character_id: int, *, limit: int = 100, offset: int = 0,
@@ -178,6 +188,9 @@ class StaticCatalogCharacterService:
             skills=self._skills(raw_character_id),
             cultivation=self._cultivation(raw_character_id),
             graduation=self._graduation(raw_character_id),
+            equipment_plan=self._equipment_plan(raw_character_id),
+            shape_bonus=self._shape_bonus(raw_character_id),
+            recommended_weights=self._recommended_weights(raw_character_id),
             growth_count=growth_count,
             combat_link_count=self._queries.count_catalog_combat_links(raw_character_id),
             gaps=self._gaps(growth_count),
@@ -322,6 +335,9 @@ class StaticCatalogCharacterService:
                     row["gameplay_effect_ids_json"],
                     context=f"觉醒 {effect_id} gameplay_effect_ids_json",
                 ),
+                buff_definition_ids=tuple(
+                    str(value) for value in row.get("buff_definition_ids", ())
+                ),
                 skill_level_bonuses=tuple(
                     SkillLevelBonus(
                         skill_id=str(item["skill_id"]),
@@ -368,6 +384,13 @@ class StaticCatalogCharacterService:
                 levels=tuple(self._skill_level(skill_id, item) for item in row.get("levels", ())),
                 descriptions=tuple(self._skill_description(item) for item in row.get("descriptions", ())),
                 level_hints=tuple(self._skill_hint(skill_id, item) for item in row.get("level_hints", ())),
+                damage_items=tuple(
+                    SkillDamageItem(
+                        damage_id=str(item["damage_id"]),
+                        damage_type=str(item["damage_type"]),
+                    )
+                    for item in row.get("damage_items", ())
+                ),
                 ability_source=_source(row, "character_skill.ability", "ability_source"),
                 effect_source=(
                     _source(row, "character_skill.effect", "effect_source")
@@ -472,6 +495,27 @@ class StaticCatalogCharacterService:
         row = self._queries.get_catalog_graduation(character_id)
         if row is None:
             return None
+        equipment = _loads(
+            row["equipment_json"], context=f"角色 {character_id} 毕业装备模板",
+        )
+        if not isinstance(equipment, list):
+            raise StaticCatalogProjectionError("毕业装备模板必须是 JSON 数组")
+        core_stats: list[BuildProperty] = []
+        drive_stats: list[BuildProperty] = []
+        for item in equipment:
+            if not isinstance(item, Mapping):
+                continue
+            target = core_stats if item.get("kind") == "core" else drive_stats
+            stat_key = "main_stats" if item.get("kind") == "core" else "sub_stats"
+            for stat in item.get(stat_key, ()):
+                if not isinstance(stat, Mapping) or not stat.get("property_id"):
+                    continue
+                target.append(BuildProperty(
+                    property_id=str(stat["property_id"]),
+                    display_name=None,
+                    value=float(stat["value"]) if stat.get("value") is not None else None,
+                    show_percent=bool(stat.get("percent")),
+                ))
         return GraduationTemplate(
             source_kind=str(row["source_kind"]),
             fork_id=_optional_text(row.get("fork_id")),
@@ -495,6 +539,133 @@ class StaticCatalogCharacterService:
                 _source(row, "fork_item", "fork_source")
                 if row.get("fork_source_row_id") is not None else None
             ),
+            core_main_stats=tuple(core_stats),
+            drive_template_stats=tuple(drive_stats),
+        )
+
+    def _equipment_plan(self, character_id: int) -> CharacterEquipmentPlan | None:
+        row = self._queries.get_catalog_equipment_plan(character_id)
+        if row is None:
+            return None
+        modules = []
+        board: dict[tuple[int, int], int] = {}
+        anchors_by_item: dict[str, list[tuple[int, int]]] = {}
+        for anchor in row.get("anchors", ()):
+            anchors_by_item.setdefault(str(anchor["anchor_item_id"]), []).append((
+                int(anchor["row"]),
+                int(anchor["column"]),
+            ))
+        module_counts = Counter(
+            str(item["item_id"]) for item in row.get("modules", ())
+        )
+        anchor_counts = Counter({
+            item_id: len(anchors) for item_id, anchors in anchors_by_item.items()
+        })
+        if module_counts != anchor_counts:
+            raise StaticCatalogProjectionError(
+                f"角色 {character_id} 图纸模块与锚点数量不一致"
+            )
+        anchor_offsets: dict[str, int] = {}
+        for item in row.get("modules", ()):
+            item_id = str(item["item_id"])
+            offset = anchor_offsets.get(item_id, 0)
+            item_anchors = anchors_by_item.get(item_id, ())
+            anchor = item_anchors[offset] if offset < len(item_anchors) else None
+            anchor_offsets[item_id] = offset + 1
+            anchor_row = anchor[0] if anchor is not None else None
+            anchor_column = anchor[1] if anchor is not None else None
+            occupied = ()
+            if anchor_row is not None and anchor_column is not None:
+                occupied = tuple(
+                    (anchor_row + int(cell["x"]), anchor_column + int(cell["y"]))
+                    for cell in item.get("shape_cells", ())
+                )
+                if any(
+                    not 1 <= row_index <= 5 or not 1 <= column_index <= 5
+                    for row_index, column_index in occupied
+                ):
+                    raise StaticCatalogProjectionError(
+                        f"角色 {character_id} 图纸模块越出 5×5 底盘"
+                    )
+            ordinal = int(item["ordinal"])
+            for cell in occupied:
+                if cell in board:
+                    raise StaticCatalogProjectionError(
+                        f"角色 {character_id} 图纸模块发生重叠"
+                    )
+                board[cell] = ordinal
+            modules.append(EquipmentPlanModule(
+                ordinal=ordinal,
+                item_id=item_id,
+                display_name=_optional_text(item.get("name_zh")),
+                shape_id=_optional_text(item.get("geometry_id")),
+                grid_count=int(item.get("grid_count") or len(occupied)),
+                anchor_row=anchor_row,
+                anchor_column=anchor_column,
+                occupied_cells=occupied,
+            ))
+        if len(board) != 20:
+            raise StaticCatalogProjectionError(
+                f"角色 {character_id} 正式图纸应覆盖 20 格，实际 {len(board)} 格"
+            )
+        cells = tuple(
+            (row_index, column_index, board.get((row_index, column_index)))
+            for row_index in range(1, 6)
+            for column_index in range(1, 6)
+        )
+        return CharacterEquipmentPlan(
+            core_item_id=str(row["core_item_id"]),
+            core_level=int(row["core_level"]),
+            module_level=int(row["module_level"]),
+            cells=cells,
+            modules=tuple(modules),
+            core_attributes=self._build_properties(row.get("core_attributes", ())),
+            recommended_attributes=self._build_properties(
+                row.get("recommended_attributes", ()),
+            ),
+        )
+
+    def _shape_bonus(self, character_id: int) -> CharacterShapeBonus | None:
+        row = self._queries.get_catalog_character_shape_bonus(character_id)
+        if row is None:
+            return None
+        return CharacterShapeBonus(
+            shape_label=str(row["shape_label"]),
+            shape_grid_count=int(row["shape_grid_count"]),
+            properties=self._build_properties(row.get("properties", ())),
+        )
+
+    def _recommended_weights(
+        self, character_id: int,
+    ) -> CharacterWeightRecommendation | None:
+        row = self._queries.get_catalog_character_weights(character_id)
+        if row is None:
+            return None
+        return CharacterWeightRecommendation(properties=tuple(
+            (
+                self._build_property(item),
+                float(item["weight"]),
+                float(item["main_weight"]),
+            )
+            for item in row.get("properties", ())
+        ))
+
+    @classmethod
+    def _build_properties(
+        cls, rows: Iterable[Mapping[str, Any]],
+    ) -> tuple[BuildProperty, ...]:
+        return tuple(cls._build_property(row) for row in rows)
+
+    @staticmethod
+    def _build_property(row: Mapping[str, Any]) -> BuildProperty:
+        return BuildProperty(
+            property_id=str(row["property_id"]),
+            display_name=_optional_text(row.get("display_name_zh")),
+            value=(
+                float(row["display_value"])
+                if row.get("display_value") is not None else None
+            ),
+            show_percent=bool(row.get("show_percent")),
         )
 
     @staticmethod
@@ -534,21 +705,21 @@ class StaticCatalogCharacterService:
         gaps = [
             CatalogGap(
                 field_key="character_level_costs",
-                label="人物升级经验、材料与金币消耗",
+                label="人物升级经验、材料与方斯消耗",
                 status="unavailable",
-                reason="schema v29 没有规范化角色升级消耗表，且发行 manifest 省略原始 payload",
+                reason=(
+                    "schema v30 已有正式材料名称与确定副本产出投影，"
+                    "但尚未保存人物等级区间的经验、材料数量与方斯需求关系"
+                ),
             ),
             CatalogGap(
                 field_key="character_breakthrough_costs",
-                label="人物突破材料与金币消耗",
+                label="人物突破材料与方斯消耗",
                 status="unavailable",
-                reason="schema v29 仅保存突破前后面板，没有规范化角色突破消耗表",
-            ),
-            CatalogGap(
-                field_key="material_item_names",
-                label="技能升级材料中文名",
-                status="partial",
-                reason="技能消耗保存正式物品 ID 与数量，但 schema v29 没有通用材料物品目录",
+                reason=(
+                    "schema v30 保留突破前后面板及正式材料目录，"
+                    "但尚未保存人物突破阶段到材料数量与方斯的关系"
+                ),
             ),
         ]
         if growth_count == 0:

@@ -1,22 +1,18 @@
-# 验证游戏资料库固定登记全部 110 张发行静态表。
+# 验证游戏资料库固定登记全部 124 张发行静态表。
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from src.features.static_catalog.providers.overview import (
     StaticCatalogOverviewProvider,
     registered_static_table_count,
 )
 from src.integrations.static_catalog_release import StaticCatalogReleaseReader
-
-
-ROOT = Path(__file__).resolve().parents[1]
-
+from src.storage.sqlite.static_game_data_dao import resolve_static_database
 
 class StaticCatalogOverviewTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.database_path = ROOT / "data" / "game_static.sqlite3"
+        self.database_path = resolve_static_database()
         self.release = StaticCatalogReleaseReader().freeze(self.database_path)
         self.provider = StaticCatalogOverviewProvider(str(self.database_path))
 
@@ -24,12 +20,12 @@ class StaticCatalogOverviewTests(unittest.TestCase):
         self.provider.close()
 
     def test_registers_every_release_table(self) -> None:
-        self.assertEqual(registered_static_table_count(), 110)
+        self.assertEqual(registered_static_table_count(), 124)
         page = self.provider.search(
-            self.release, query="", offset=0, limit=110
+            self.release, query="", offset=0, limit=124
         )
-        self.assertEqual(page.total, 110)
-        self.assertEqual(len(page.items), 110)
+        self.assertEqual(page.total, 124)
+        self.assertEqual(len(page.items), 124)
         self.assertIn("source_row", {item.record_id for item in page.items})
 
     def test_source_payload_omission_is_explicit(self) -> None:

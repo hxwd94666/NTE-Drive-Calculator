@@ -105,8 +105,8 @@ class StaticCatalogMiscServiceTests(unittest.TestCase):
         metadata = self.service.release_metadata()
 
         self.assertEqual(metadata.dataset_id, "cn_1_3_13_20260828")
-        self.assertEqual(metadata.schema_version, 29)
-        self.assertEqual(metadata.importer_version, 34)
+        self.assertEqual(metadata.schema_version, 30)
+        self.assertEqual(metadata.importer_version, 36)
         self.assertTrue(metadata.source_payloads_omitted)
 
     def test_source_trace_does_not_promise_an_omitted_payload(self) -> None:

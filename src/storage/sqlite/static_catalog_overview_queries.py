@@ -1,4 +1,4 @@
-# 提供游戏资料库 110 张发行静态表的固定只读登记。
+# 提供游戏资料库 124 张发行静态表的固定只读登记。
 """Fixed-table coverage queries for the release static catalog overview."""
 
 from __future__ import annotations
@@ -20,7 +20,13 @@ STATIC_TABLE_CATALOG: tuple[tuple[str, str, str], ...] = (
     ("source_file", "元数据与来源", "C"),
     ("source_row", "元数据与来源", "E"),
     ("application_setting_default", "元数据与来源", "B"),
+    ("localized_term", "元数据与来源", "B"),
+    ("localized_term_name", "元数据与来源", "A"),
     ("character", "角色与养成", "A"),
+    ("character_release_evidence", "角色与养成", "B"),
+    ("character_release_annotation", "角色与养成", "B"),
+    ("character_release_evidence_link", "角色与养成", "B"),
+    ("character_acquisition_membership", "角色与养成", "A"),
     ("character_annotation", "角色与养成", "B"),
     ("character_awaken_effect", "角色与养成", "A"),
     ("character_awaken_skill_level_bonus", "角色与养成", "A"),
@@ -50,6 +56,10 @@ STATIC_TABLE_CATALOG: tuple[tuple[str, str, str], ...] = (
     ("fork_refinement_parameter_value", "弧盘", "A"),
     ("fork_star_level", "弧盘", "A"),
     ("fork_star_parameter", "弧盘", "A"),
+    ("fork_lottery_campaign", "弧盘", "A"),
+    ("progression_item", "角色与养成", "A"),
+    ("progression_item_alias", "角色与养成", "B"),
+    ("item_quality_term", "角色与养成", "A"),
     ("equipment_attribute", "装备与套装", "A"),
     ("equipment_base_attribute_curve", "装备与套装", "B"),
     ("equipment_base_attribute_point", "装备与套装", "B"),
@@ -83,6 +93,7 @@ STATIC_TABLE_CATALOG: tuple[tuple[str, str, str], ...] = (
     ("combat_level_curve_point", "公式与效果证据", "B"),
     ("reaction_definition", "公式与效果证据", "C"),
     ("combat_effect_constant", "公式与效果证据", "C"),
+    ("damage_resistance_term", "公式与效果证据", "A"),
     ("combat_effect_definition", "公式与效果证据", "B"),
     ("combat_effect_buff_link", "公式与效果证据", "B"),
     ("combat_curve", "公式与效果证据", "B"),
@@ -113,6 +124,9 @@ STATIC_TABLE_CATALOG: tuple[tuple[str, str, str], ...] = (
     ("clone_activity_category", "玩法与遭遇", "A"),
     ("clone_activity", "玩法与遭遇", "B"),
     ("clone_activity_difficulty", "玩法与遭遇", "B"),
+    ("clone_drop_projection", "玩法与遭遇", "B"),
+    ("clone_drop_projection_item", "玩法与遭遇", "A"),
+    ("clone_drop_projection_gap", "玩法与遭遇", "C"),
     ("clone_spawn_member", "玩法与遭遇", "B"),
     ("feast_stage", "玩法与遭遇", "A"),
     ("feast_stage_difficulty", "玩法与遭遇", "B"),

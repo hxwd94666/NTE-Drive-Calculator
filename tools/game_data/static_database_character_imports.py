@@ -45,6 +45,19 @@ class CharacterImportMixin:
                     raise StaticDatabaseError(
                         f"StringTable 条目不是对象：{path}"
                     )
+            elif table in PROPERTY_ASSET_SOURCES:
+                payload = json.loads(path.read_text(encoding="utf-8-sig"))
+                try:
+                    properties = payload[0]["Properties"]
+                except (IndexError, KeyError, TypeError) as exc:
+                    raise StaticDatabaseError(
+                        f"DataAsset Properties 结构无效：{path}"
+                    ) from exc
+                if not isinstance(properties, dict):
+                    raise StaticDatabaseError(
+                        f"DataAsset Properties 不是对象：{path}"
+                    )
+                rows = {"Properties": properties}
             else:
                 _, rows = load_datatable(path)
             self.rows[table] = rows

@@ -36,7 +36,7 @@ class StaticCatalogForkServiceTests(unittest.TestCase):
     def test_metadata_reports_release_provenance_and_importer_gaps(self) -> None:
         metadata = self.service.metadata()
 
-        self.assertEqual(metadata.schema_version, 29)
+        self.assertEqual(metadata.schema_version, 30)
         self.assertTrue(metadata.dataset_id)
         self.assertGreaterEqual(dict(metadata.counts)["fork_item"], 1)
         self.assertFalse(metadata.has_fork_skill_tables)

@@ -14,7 +14,7 @@
 | [伤害计算规则](reference/damage-calculation.md) | 修改直伤、DOT、环合、倾陷、怪物属性或技能档位 |
 | [战报治疗事件](reference/treatment-events.md) | 修改治疗生产器、治疗触发 Buff、时停周期或满血事件语义 |
 | [战斗反事实文本盘点](reference/counterfactual/README.md) | 逐项审计技能、觉醒、弧盘、空幕、Buff 和特殊机制的重放覆盖 |
-| [游戏资料库](reference/static-catalog.md) | 浏览角色、弧盘、怪物、装备、公式证据、来源和 110 表覆盖状态 |
+| [游戏资料库](reference/static-catalog.md) | 按角色、弧盘、空幕与驱动、怪物与玩法、战斗机制浏览正式数据与本地化术语 |
 | [养成体力计算](reference/progression-stamina-calculator.md) | 汇总材料缺口、鉴别等级、副本产出、预计次数和最低体力 |
 | [日志事件规范](reference/logging-events.md) | 增加结构化事件、运行日志或脱敏字段 |
 | [战报包格式](reference/battle-report-package.md) | 修改战报导出、压缩容器、读取校验或数据库导入 |

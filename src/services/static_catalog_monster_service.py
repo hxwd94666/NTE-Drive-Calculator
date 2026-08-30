@@ -3,13 +3,34 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import quote, unquote
-from zoneinfo import ZoneInfo
 
+from src.services.static_catalog_mechanics_models import CatalogLink
+from src.services.static_catalog_monster_display import (
+    NAME_UNAVAILABLE,
+    display_catalog_scalar,
+    display_damage_type,
+    display_fight_stage,
+)
+from src.services.static_catalog_monster_gameplay import (
+    StaticCatalogMonsterGameplayProjector,
+)
+from src.services.static_catalog_monster_models import (
+    CatalogDataset,
+    CatalogDetail,
+    CatalogEntry,
+    CatalogFilter,
+    CatalogPage,
+    CatalogRelation,
+    CatalogSection,
+    CatalogValue,
+)
+from src.services.static_catalog_terminology_service import (
+    StaticCatalogTerminologyService,
+)
 from src.storage.sqlite.static_catalog_monster_queries import (
     StaticCatalogMonsterQueries,
 )
@@ -19,6 +40,7 @@ OFFICIAL = "official_static"
 FORMULA = "formula_profile"
 DERIVED = "project_annotation"
 UNAVAILABLE = "unavailable"
+_MAINLAND_TIMEZONE = timezone(timedelta(hours=8))
 
 _PLAY_MODE_LABELS = {
     "official_illustrated": "官方图鉴 / 大世界",
@@ -35,85 +57,6 @@ _RELEASE_LABELS = {
     "historical": "已结束",
     "scheduled": "待开放",
 }
-
-
-@dataclass(frozen=True)
-class CatalogFilter:
-    search: str = ""
-    domain: str = "all"
-    play_mode: str = "all"
-    region: str = ""
-    difficulty: str = ""
-    version: str = ""
-    release_scope: str = "all"
-    page_size: int = 50
-    offset: int = 0
-
-
-@dataclass(frozen=True)
-class CatalogDataset:
-    dataset_id: str
-    importer_version: int
-    built_at_utc: str
-    schema_version: int = 29
-    read_only: bool = True
-
-
-@dataclass(frozen=True)
-class CatalogEntry:
-    key: str
-    domain: str
-    play_mode: str
-    title: str
-    subtitle: str
-    primary_id: str
-    secondary_id: str = ""
-    resource_path: str = ""
-    release_state: str = ""
-    localization_available: bool = True
-
-
-@dataclass(frozen=True)
-class CatalogPage:
-    items: tuple[CatalogEntry, ...]
-    total: int
-    offset: int
-    page_size: int
-    has_more: bool
-
-
-@dataclass(frozen=True)
-class CatalogValue:
-    label: str
-    value: str
-    provenance: str
-    copyable: bool = False
-    note: str = ""
-
-
-@dataclass(frozen=True)
-class CatalogSection:
-    title: str
-    values: tuple[CatalogValue, ...]
-    note: str = ""
-
-
-@dataclass(frozen=True)
-class CatalogRelation:
-    label: str
-    target_key: str
-    relation_kind: str
-    note: str = ""
-
-
-@dataclass(frozen=True)
-class CatalogDetail:
-    entry: CatalogEntry
-    sections: tuple[CatalogSection, ...]
-    relations: tuple[CatalogRelation, ...] = ()
-    notices: tuple[str, ...] = ()
-
-
 def _key(kind: str, *parts: object) -> str:
     encoded = [quote(str(part), safe="") for part in parts]
     return "|".join((kind, *encoded))
@@ -133,14 +76,6 @@ def _text_state(value: object, fallback: str) -> tuple[str, bool]:
     return text, True
 
 
-def _display(value: object) -> str:
-    if value is None or value == "":
-        return "不可用"
-    if isinstance(value, float):
-        return f"{value:g}"
-    return str(value)
-
-
 class StaticCatalogMonsterService:
     """Builds display DTOs without changing or inferring static identity."""
 
@@ -148,12 +83,15 @@ class StaticCatalogMonsterService:
         self,
         queries: StaticCatalogMonsterQueries,
         *,
+        terminology_service: StaticCatalogTerminologyService,
         mainland_now: datetime | None = None,
     ) -> None:
         self._queries = queries
-        now = mainland_now or datetime.now(ZoneInfo("Asia/Shanghai"))
+        self._terminology_service = terminology_service
+        self._gameplay = StaticCatalogMonsterGameplayProjector(terminology_service)
+        now = mainland_now or datetime.now(_MAINLAND_TIMEZONE)
         if now.tzinfo is not None:
-            now = now.astimezone(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None)
+            now = now.astimezone(_MAINLAND_TIMEZONE).replace(tzinfo=None)
         self._mainland_now = now
 
     @classmethod
@@ -161,12 +99,20 @@ class StaticCatalogMonsterService:
         cls,
         database_path: str | Path | None = None,
         *,
+        terminology_service: StaticCatalogTerminologyService,
         mainland_now: datetime | None = None,
     ) -> "StaticCatalogMonsterService":
         return cls(
             StaticCatalogMonsterQueries(database_path),
+            terminology_service=terminology_service,
             mainland_now=mainland_now,
         )
+
+    @property
+    def terminology_service(self) -> StaticCatalogTerminologyService:
+        """Return the frozen central terminology dependency for composition checks."""
+
+        return self._terminology_service
 
     def close(self) -> None:
         self._queries.close()
@@ -178,6 +124,16 @@ class StaticCatalogMonsterService:
             importer_version=int(metadata.get("importer_version") or 0),
             built_at_utc=str(metadata.get("built_at_utc") or ""),
         )
+
+    def list_witch_blessings(self) -> tuple[CatalogEntry, ...]:
+        """Return the seven formal battle-wide blessing choices."""
+
+        return self._gameplay.witch_entries(self._queries.list_divination_buffs())
+
+    def clone_drop_status_counts(self) -> dict[str, int]:
+        """Return gameplay-difficulty coverage for the v30 drop closure."""
+
+        return self._queries.clone_drop_status_counts()
 
     def list_entries(self, filters: CatalogFilter = CatalogFilter()) -> CatalogPage:
         rows, total = self._queries.list_catalog_index(
@@ -215,17 +171,24 @@ class StaticCatalogMonsterService:
             return self._clone_detail(parts[0], int(parts[1]))
         if kind == "high_risk" and len(parts) == 2:
             return self._high_risk_detail(parts[0], int(parts[1]))
+        if kind == "witch_buff" and len(parts) == 1:
+            row = self._queries.divination_buff(parts[0])
+            return self._gameplay.witch_detail(row) if row is not None else None
+        if kind == "outer_buff" and len(parts) == 1:
+            row = self._queries.outer_realm_season_buff(parts[0])
+            return self._gameplay.outer_buff_detail(row) if row is not None else None
         raise ValueError(f"不支持的怪物/玩法资料键：{key}")
 
     def _entry_from_row(self, row: dict[str, Any]) -> CatalogEntry:
-        fallback = str(row.get("primary_id") or row.get("secondary_id") or "未命名记录")
-        title, localization_available = _text_state(row.get("title_zh"), fallback)
+        title, localization_available = _text_state(row.get("title_zh"), NAME_UNAVAILABLE)
         play_mode = str(row.get("play_mode") or "")
         region, region_available = _text_state(
             row.get("region"), _PLAY_MODE_LABELS.get(play_mode, play_mode)
         )
         release_state = str(row.get("release_state") or "")
-        subtitle_parts = [_PLAY_MODE_LABELS.get(play_mode, play_mode), region]
+        subtitle_parts = list(dict.fromkeys((
+            _PLAY_MODE_LABELS.get(play_mode, play_mode), region,
+        )))
         if row.get("difficulty"):
             subtitle_parts.append(f"难度 / 层：{row['difficulty']}")
         if release_state:
@@ -246,6 +209,12 @@ class StaticCatalogMonsterService:
             resource_path=str(row.get("resource_path") or ""),
             release_state=release_state,
             localization_available=localization_available and region_available,
+            secondary_label=(
+                display_fight_stage(
+                    self._terminology_service, row.get("secondary_id"),
+                )
+                if play_mode == "outer_realm" else ""
+            ),
         )
 
     @staticmethod
@@ -261,6 +230,7 @@ class StaticCatalogMonsterService:
         secondary_id: str = "",
         resource_path: str = "",
         release_state: str = "",
+        secondary_label: str = "",
     ) -> CatalogEntry:
         title, available = _text_state(title_value, fallback)
         return CatalogEntry(
@@ -274,6 +244,7 @@ class StaticCatalogMonsterService:
             resource_path=resource_path,
             release_state=release_state,
             localization_available=available,
+            secondary_label=secondary_label,
         )
 
     @staticmethod
@@ -284,12 +255,24 @@ class StaticCatalogMonsterService:
         *,
         copyable: bool = False,
         note: str = "",
+        display_label: str = "",
+        display_value: str = "",
+        catalog_link: CatalogLink | None = None,
     ) -> CatalogValue:
-        return CatalogValue(label, _display(value), provenance, copyable, note)
+        return CatalogValue(
+            label=label,
+            value=display_catalog_scalar(value),
+            provenance=provenance,
+            copyable=copyable,
+            note=note,
+            display_label=display_label,
+            display_value=display_value,
+            catalog_link=catalog_link,
+        )
 
     @staticmethod
     def _localized_value(label: str, value: object) -> CatalogValue:
-        text, available = _text_state(value, "不可用（静态库中文文本损坏）")
+        text, available = _text_state(value, NAME_UNAVAILABLE)
         return CatalogValue(label, text, OFFICIAL if available else UNAVAILABLE)
 
     def _source_section(self, source: dict[str, Any] | None) -> CatalogSection:
@@ -343,15 +326,21 @@ class StaticCatalogMonsterService:
             self._value("倾陷恢复", profile.get("topple_reduce_reset"), FORMULA),
             self._value(
                 "攻击档",
-                "不可用（schema v29 无攻击属性字段）",
+                "不可用（schema v30 无攻击属性字段）",
                 UNAVAILABLE,
+                display_value="暂无数据",
             ),
         ]
         for resistance in profile.get("resistances", ()):
+            damage_type = str(resistance["damage_type"])
             values.append(self._value(
-                f"抗性 {resistance['damage_type']}",
-                f"{_display(resistance.get('resistance_base'))} / 免疫 {_display(resistance.get('immunity'))}",
+                f"抗性 {damage_type}",
+                f"{display_catalog_scalar(resistance.get('resistance_base'))} / "
+                f"免疫 {display_catalog_scalar(resistance.get('immunity'))}",
                 FORMULA,
+                display_label=display_damage_type(
+                    self._terminology_service, damage_type,
+                ),
             ))
         return CatalogSection(title, tuple(values), note)
 
@@ -365,7 +354,7 @@ class StaticCatalogMonsterService:
             domain="encounter" if world_boss else "monster",
             play_mode=mode,
             title_value=row.get("name_zh"),
-            fallback=manual_id,
+            fallback=NAME_UNAVAILABLE,
             subtitle=_PLAY_MODE_LABELS[mode],
             primary_id=manual_id,
             secondary_id=str(row.get("enemy_type") or ""),
@@ -377,9 +366,6 @@ class StaticCatalogMonsterService:
             self._value("敌人类型", row.get("enemy_type")),
             self._localized_value("地区 / 位置", row.get("place_zh")),
             self._value("追踪类型", row.get("trace_type")),
-            self._value("掉落 ID", row.get("drop_id"), copyable=True),
-            self._value("图标路径", row.get("image_path"), copyable=True),
-            self._value("大世界图路径", row.get("world_image_path"), copyable=True),
         )
         sections = [CatalogSection("正式身份", values)]
         if row.get("aliases"):
@@ -435,8 +421,8 @@ class StaticCatalogMonsterService:
             domain="monster",
             play_mode="template_profile",
             title_value=title_value,
-            fallback=monster_id,
-            subtitle=f"{_PLAY_MODE_LABELS['template_profile']} · {static_table}",
+            fallback=NAME_UNAVAILABLE,
+            subtitle=_PLAY_MODE_LABELS["template_profile"],
             primary_id=monster_id,
             secondary_id=static_table,
         )
@@ -460,7 +446,7 @@ class StaticCatalogMonsterService:
             sections.append(self._combat_profile_section(
                 self._queries.combat_profile(variant["profile_set"], variant["pack_id"]),
                 level=variant.get("threshold_level"),
-                title=f"等级画像 · {variant['variant_kind']} · {variant['threshold_level']}",
+                title=f"等级画像 · 等级 {variant['threshold_level']}",
             ))
         relations: list[CatalogRelation] = [CatalogRelation(
             f"正式图鉴：{binding['monster_manual_id']}",
@@ -495,7 +481,7 @@ class StaticCatalogMonsterService:
             return None
         entry = self._entry(
             _key("feast", stage_id, difficulty_id), domain="encounter", play_mode="feast",
-            title_value=row.get("name_zh"), fallback=stage_id,
+            title_value=row.get("name_zh"), fallback=NAME_UNAVAILABLE,
             subtitle=f"争锋赏宴 · 难度 {difficulty_id}", primary_id=stage_id,
             secondary_id=str(row.get("boss_monster_id") or ""),
             resource_path=str(row.get("boss_icon_path") or ""),
@@ -515,25 +501,12 @@ class StaticCatalogMonsterService:
             row.get("profile"), level=row.get("monster_level"), title="本难度公式画像"
         ))
         if row.get("options"):
-            option_values: list[CatalogValue] = []
+            option_values = []
             for option in row["options"]:
                 category, _available = _text_state(
-                    option.get("category_name_zh"), str(option["category_ordinal"])
+                    option.get("category_name_zh"), NAME_UNAVAILABLE
                 )
-                option_values.append(self._value(
-                    f"{category} · {option['option_id']}",
-                    f"类型 {option.get('option_type')} / 效果 {option.get('effect_kind')} / "
-                    f"伤害类型 {option.get('damage_type') or '-'} / "
-                    f"数值 {_display(option.get('add_value'))} / "
-                    f"限时 {_display(option.get('limit_seconds'))} / "
-                    f"得分 {_display(option.get('score'))}",
-                ))
-                if option.get("buff_asset_path"):
-                    option_values.append(self._value(
-                        f"{option['option_id']} Buff 路径",
-                        option["buff_asset_path"],
-                        copyable=True,
-                    ))
+                option_values.append(self._gameplay.feast_option(category, option))
             sections.append(CatalogSection("官方加成选项", tuple(option_values)))
         relations = []
         for profile in self._queries.template_profile_candidates(row["boss_monster_id"]):
@@ -564,18 +537,29 @@ class StaticCatalogMonsterService:
         if row is None:
             return None
         state = self._release_state(row["starts_at_mainland"], row["ends_at_mainland"])
-        title, _ = _text_state(row.get("name_zh"), f"{config_id} · 第 {level_id} 层")
+        title, _ = _text_state(row.get("name_zh"), NAME_UNAVAILABLE)
         entry = self._entry(
             _key("outer_realm", config_id, level_id, fight_stage),
             domain="encounter", play_mode="outer_realm", title_value=title,
-            fallback=f"{config_id} · 第 {level_id} 层",
-            subtitle=f"轨外之境 · {_RELEASE_LABELS[state]} · {fight_stage}",
+            fallback=NAME_UNAVAILABLE,
+            subtitle=(
+                f"轨外之境 · {_RELEASE_LABELS[state]} · "
+                f"{display_fight_stage(self._terminology_service, fight_stage)}"
+            ),
             primary_id=config_id, secondary_id=fight_stage, release_state=state,
+            secondary_label=display_fight_stage(
+                self._terminology_service, fight_stage,
+            ),
         )
         sections = [CatalogSection("正式期数与分区", (
             self._value("配置 ID", config_id, copyable=True),
             self._value("层", level_id),
-            self._value("上/下半场", fight_stage, copyable=True),
+            self._value(
+                "上/下半场", fight_stage, copyable=True,
+                display_value=display_fight_stage(
+                    self._terminology_service, fight_stage,
+                ),
+            ),
             self._value("大陆服开始", row.get("starts_at_mainland")),
             self._value("大陆服结束", row.get("ends_at_mainland")),
             self._value("当前/下一期状态", _RELEASE_LABELS[state], DERIVED),
@@ -608,7 +592,7 @@ class StaticCatalogMonsterService:
             return None
         entry = self._entry(
             _key("clone", clone_id, ordinal), domain="encounter", play_mode="clone",
-            title_value=row.get("name_zh"), fallback=clone_id,
+            title_value=row.get("name_zh"), fallback=NAME_UNAVAILABLE,
             subtitle=f"{_PLAY_MODE_LABELS['clone']} · 难度 {ordinal}",
             primary_id=clone_id, secondary_id=str(row.get("clone_type") or ""),
         )
@@ -634,10 +618,10 @@ class StaticCatalogMonsterService:
             self._value("难度等级", row.get("difficulty_level")),
             self._value("队伍等级", row.get("team_level")),
             self._value("体力", row.get("stamina_cost")),
-            self._value("掉落 ID", row.get("drop_id"), copyable=True),
             self._value("刷怪配置 ID", row.get("spawn_id"), copyable=True),
             self._value("击杀时限", row.get("kill_monster_time_limit")),
         ))]
+        sections.append(self._gameplay.drop_section(row.get("drop_projection")))
         relations: list[CatalogRelation] = []
         members = row.get("members", ())
         if not members:
@@ -669,7 +653,7 @@ class StaticCatalogMonsterService:
             return None
         entry = self._entry(
             _key("high_risk", commission_id, difficulty), domain="encounter",
-            play_mode="high_risk", title_value=row.get("name_zh"), fallback=commission_id,
+            play_mode="high_risk", title_value=row.get("name_zh"), fallback=NAME_UNAVAILABLE,
             subtitle=f"高危委托 · 难度 {difficulty}", primary_id=commission_id,
             secondary_id=str(row.get("monster_pool_id") or ""),
         )

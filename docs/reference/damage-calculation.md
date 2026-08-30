@@ -901,7 +901,7 @@ SDK 结构为 `FSkillDamageExecutionData`，位于：
 静态迁移 v4 引入 `monster_instance_profile` 与 `monster_instance_profile_variant`，保留怪物实例到属性包
 以及世界/副本/深渊等级变体的原始绑定；静态迁移 v5 引入 `abyss_level`、
 `abyss_level_monster_spawn` 与 `abyss_monster_pool_entry`，导入 Abyss 关卡、波次、怪物池和属性包关系。
-这些表继续保留在当前静态 schema v29 中；v27 保存轨外怪物池条目的官方本地化名称，v28 保存高危委托及其逐难度正式怪物池，v29 保存 `DT_BossSupportDataTable` 的正式 Boss 模板成员。v20 起保存属性包的 `HPMaxBase`、`HPMaxUp`、`HPMaxAdd`，
+这些表继续保留在当前静态 schema v30 中；v27 保存轨外怪物池条目的官方本地化名称，v28 保存高危委托及其逐难度正式怪物池，v29 保存 `DT_BossSupportDataTable` 的正式 Boss 模板成员，v30 增加正式术语、角色获取关系、养成物品与确定掉落投影。v20 起保存属性包的 `HPMaxBase`、`HPMaxUp`、`HPMaxAdd`，
 以及 RogueLike 怪物实例和属性修正；战报可据此计算单目标最大生命上限变化，但仍需以运行时敌方实例绑定
 确认实际使用的属性包和修正组合。
 该链路仅以 `HT/Content/DataAssets/DataAssetSet/Abyss` 的专用配置为准：`AbyssCloneLevelDataTable`

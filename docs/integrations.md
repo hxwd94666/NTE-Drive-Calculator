@@ -85,7 +85,7 @@ Mods 插件默认通过游戏目录中的代理 `dwmapi.dll` 加载。只有代�
 
 ## 4. 静态数据与资源
 
-官方数据只通过 `tools/game_data` 生成候选静态库。静态 schema v29 保存培养指南、推荐弧盘/属性/阶段、
+官方数据只通过 `tools/game_data` 生成候选静态库。静态 schema v30 保存培养指南、推荐弧盘/属性/阶段、
 技能说明、GameplayEffect 索引、怪物手册别名、装备 Modify/曲线，以及精确范围内的角色输入、技能效果引用、
 关键效果属性和动画时间证据；同时保存敌方生命三段值、RogueLike 怪物/属性修正，并基于已导入 Blueprint
 证据规范化 Buff/GE 的持续、周期、叠层、属性修正、事件触发及装备/弧盘/觉醒绑定；同时保存官方怪物图鉴、
@@ -94,8 +94,18 @@ Mods 插件默认通过游戏目录中的代理 `dwmapi.dll` 加载。只有代�
 行键与摘要。版本更新先在 `build/` 完成候选构建、工坊权重同步和毕业模板重算，再由
 `tools/game_data/promote_static_release.py` 显式读取仓库外本机配置，核对配置/数据库/manifest dataset、
 当前 schema/importer、全部来源 SHA-256、payload 省略、外键、SQLite 完整性及最终报告后带回滚地晋升。
+正式替换前使用同一工具的 `--finalize-only` 只在候选目录生成最终 manifest 与 JSON/Markdown 报告，再用
+`--verify-only` 只读复核候选数据库、这些最终证据和全部官方来源；两步均不得接触 `data/`，预检不得
+改写候选。
 禁止直接构建到 `data/`、手工复制候选或只修改 manifest；晋升失败仍视为未完成。静态库和
 `data/manifest.json` 作为同一次晋升产生的原子变更审查，改变规范化输出的 importer 修改必须递增版本。
+manifest 从 schema v30 起必须记录并严格核对 `database.size_bytes`；schema v29 旧清单仅在读取时按实际文件
+大小校验并提示迁移。体积统一按 `1 MiB = 1,048,576 bytes`：95 MiB（99,614,720 bytes）默认阻断，只有完成
+增量审计后可显式放行；96 MiB（100,663,296 bytes）是项目仓库绝对预算，100 MiB（104,857,600 bytes）是
+GitHub 单文件永久硬边界。超过项目仓库预算时必须改为 Release 分发或拆分只读库，不能继续提交到 Git。
+静态升级的增量报告必须单列本地化键和当前语言投影的字节贡献；发行库只保留这些必要投影，不导入完整多语言
+原始 payload。`tools/release/prepare_release.py` 会再次核对安装包输入目录内静态库、游戏 UI 资源与各自
+manifest 的文件集合、SHA-256 和精确字节数。
 
 正式静态库重建前先原子备份上一发行库。存在工坊 API Key 时同步 API；没有 Key 时只从该备份继承带
 `workshop_api`/`workshop_cache` 来源的权重，旧库不存在的新角色才保留本次构建回退。两条路径都重新

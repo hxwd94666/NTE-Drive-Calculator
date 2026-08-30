@@ -148,6 +148,117 @@ class StaticCatalogMonsterQueries(StaticGameDataDao):
         )
         return row or {}
 
+    def list_divination_buffs(self) -> list[dict[str, Any]]:
+        """Return formal blessing choices with exact GE identity relations."""
+
+        return self._rows(
+            """
+            SELECT b.buff_id, b.name_zh, b.description_zh, b.property_id,
+                   b.property_value, b.is_percent, b.source_row_id,
+                   ge.gameplay_effect_id AS mechanism_effect_id
+            FROM divination_buff AS b
+            LEFT JOIN gameplay_effect_catalog AS ge
+              ON ge.gameplay_effect_id = b.buff_id COLLATE BINARY
+            ORDER BY b.buff_id
+            """
+        )
+
+    def divination_buff(self, buff_id: str) -> dict[str, Any] | None:
+        row = self._one(
+            """
+            SELECT b.buff_id, b.name_zh, b.description_zh, b.property_id,
+                   b.property_value, b.is_percent, b.source_row_id,
+                   ge.gameplay_effect_id AS mechanism_effect_id
+            FROM divination_buff AS b
+            LEFT JOIN gameplay_effect_catalog AS ge
+              ON ge.gameplay_effect_id = b.buff_id COLLATE BINARY
+            WHERE b.buff_id = ? COLLATE BINARY
+            """,
+            (str(buff_id),),
+        )
+        if row is not None:
+            row["source"] = self.source_trace(row.get("source_row_id"))
+        return row
+
+    def outer_realm_season_buff(
+        self,
+        level_config_id: str,
+    ) -> dict[str, Any] | None:
+        """Return one season Buff and its structured components."""
+
+        row = self._one(
+            """
+            SELECT b.level_config_id, b.season_name_zh, b.buff_id,
+                   b.buff_name_zh, b.description_zh, b.add_to_character,
+                   b.season_source_row_id, b.buff_source_row_id,
+                   ge.gameplay_effect_id AS mechanism_effect_id
+            FROM outer_realm_season_buff AS b
+            LEFT JOIN gameplay_effect_catalog AS ge
+              ON ge.class_path = b.gameplay_effect_path COLLATE BINARY
+            WHERE b.level_config_id = ? COLLATE BINARY
+            """,
+            (str(level_config_id),),
+        )
+        if row is None:
+            return None
+        row["components"] = self._rows(
+            """
+            SELECT component_ordinal, trigger_kind, property_id,
+                   property_value, duration_seconds,
+                   trigger_cooldown_seconds, stack_limit_count
+            FROM outer_realm_season_buff_component
+            WHERE level_config_id = ? COLLATE BINARY
+            ORDER BY component_ordinal
+            """,
+            (str(level_config_id),),
+        )
+        row["source"] = self.source_trace(row.get("buff_source_row_id"))
+        return row
+
+    def clone_drop_projection(self, drop_id: object) -> dict[str, Any] | None:
+        """Return the v30 drop closure without exposing its internal key."""
+
+        identity = str(drop_id or "").strip()
+        if not identity:
+            return None
+        row = self._one(
+            """SELECT status, reason_code
+               FROM clone_drop_projection WHERE drop_id = ? COLLATE BINARY""",
+            (identity,),
+        )
+        if row is None:
+            return None
+        row["items"] = self._rows(
+            """
+            SELECT item_id, quantity
+            FROM clone_drop_projection_item
+            WHERE drop_id = ? COLLATE BINARY
+            ORDER BY item_id
+            """,
+            (identity,),
+        )
+        row["gaps"] = self._rows(
+            """
+            SELECT reason_code
+            FROM clone_drop_projection_gap
+            WHERE drop_id = ? COLLATE BINARY
+            ORDER BY ordinal
+            """,
+            (identity,),
+        )
+        return row
+
+    def clone_drop_status_counts(self) -> dict[str, int]:
+        rows = self._rows(
+            """
+            SELECT COALESCE(p.status, 'unavailable') AS status, COUNT(*) AS count
+            FROM clone_activity_difficulty AS d
+            LEFT JOIN clone_drop_projection AS p ON p.drop_id = d.drop_id
+            GROUP BY COALESCE(p.status, 'unavailable') ORDER BY status
+            """
+        )
+        return {str(row["status"]): int(row["count"]) for row in rows}
+
     def next_outer_realm_start(self, as_of_mainland: str) -> str | None:
         row = self._one(
             "SELECT MIN(starts_at_mainland) AS starts FROM outer_realm_rotation "
@@ -448,9 +559,12 @@ class StaticCatalogMonsterQueries(StaticGameDataDao):
             SELECT so.category_ordinal, so.option_ordinal, so.category_name_zh,
                    o.option_id, o.option_type, o.effect_kind, o.damage_type,
                    o.add_value, o.limit_seconds, o.score, o.buff_asset_path,
-                   o.source_row_id
+                   o.source_row_id,
+                   ge.gameplay_effect_id AS mechanism_effect_id
             FROM feast_stage_option AS so
             JOIN feast_option AS o USING (option_id)
+            LEFT JOIN gameplay_effect_catalog AS ge
+              ON ge.class_path = o.buff_asset_path COLLATE BINARY
             WHERE so.stage_id = ?
             ORDER BY so.category_ordinal, so.option_ordinal
             """,
@@ -518,6 +632,7 @@ class StaticCatalogMonsterQueries(StaticGameDataDao):
         if row is None:
             return None
         row["source"] = self.source_trace(row.get("source_row_id"))
+        row["drop_projection"] = self.clone_drop_projection(row.get("drop_id"))
         row["members"] = self._rows(
             """
             SELECT wave_ordinal, entry_ordinal, monster_template_path,

@@ -579,6 +579,20 @@ class CombatImportMixin:
             "high_risk_commission_difficulty",
             "high_risk_monster_pool_member",
             "monster_boss_support",
+            "character_release_evidence",
+            "character_release_annotation",
+            "character_release_evidence_link",
+            "character_acquisition_membership",
+            "localized_term",
+            "localized_term_name",
+            "fork_lottery_campaign",
+            "damage_resistance_term",
+            "progression_item",
+            "progression_item_alias",
+            "item_quality_term",
+            "clone_drop_projection",
+            "clone_drop_projection_item",
+            "clone_drop_projection_gap",
         )
         return {
             table: int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

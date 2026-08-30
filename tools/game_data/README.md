@@ -29,7 +29,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v29
+## 构建静态 SQLite v30
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -108,10 +108,31 @@ python tools/game_data/promote_static_release.py `
   --local-config $env:NTE_LOCAL_CONFIG
 ```
 
+正式替换前先用同一正式配置最终化候选 manifest 和 JSON/Markdown 报告；该步骤只写候选目录，不接触
+`data/`：
+
+```powershell
+python tools/game_data/promote_static_release.py `
+  --candidate-dir $releaseCandidate `
+  --local-config $env:NTE_LOCAL_CONFIG `
+  --finalize-only
+```
+
+随后执行无副作用预检。该命令不重写候选，也不接触 `data/`：
+
+```powershell
+python tools/game_data/promote_static_release.py `
+  --candidate-dir $releaseCandidate `
+  --local-config $env:NTE_LOCAL_CONFIG `
+  --verify-only
+```
+
 晋升工具不用 PowerShell `Get-FileHash`，会以 Python 流式 SHA-256 复核候选和复制结果，并强制检查：本机配置、
 数据库内部与 manifest 的 dataset 相同；schema/importer 与当前代码相同；全部 `source_file` 与配置指向的
 Content 逐文件一致；发行 payload 已省略；SQLite 和外键正常。它会在权重同步和毕业模板重算之后重写最终
-JSON/Markdown 报告与 manifest，再带回滚地成对替换 `data/game_static.sqlite3` 和 `data/manifest.json`。
+JSON/Markdown 报告与 manifest；`--finalize-only` 只更新候选证据，`--verify-only` 只读复核这些最终证据，
+正式晋升才带回滚地成对替换
+`data/game_static.sqlite3` 和 `data/manifest.json`。
 晋升失败、正式库仍被占用或最终报告与实际 SHA 不一致时，本次刷新未完成，不得提交旧 `data` 文件。
 
 角色额外形状不从上一发行库继承。构建器直接关联官方
@@ -176,7 +197,7 @@ schema v24 从 `DT_CombatAwardQuest` 中带有效大陆服开始/结束时间的
 `outer_realm_rotation`；schema v25 为怪物模板与等级变体的大小写无关连接补充表达式联合索引；schema v26
 从轨外赛季、Buff 配置与曲线表导入当前/下一期 Buff，并只把已审计触发组成写入计算表；schema v27 另保存
 轨外怪物池条目的官方本地化名称；schema v28 从 `DT_AdvVision` 与 `DT_AdvVisionMonsterPool` 导入高危委托、
-逐难度场景/怪物池与怪物模板；schema v29 从 `DT_BossSupportDataTable` 导入正式 Boss 模板成员，供控制类
+逐难度场景/怪物池与怪物模板；历史静态迁移 v29 首次从 `DT_BossSupportDataTable` 导入正式 Boss 模板成员，供控制类
 条件只按官方成员关系阻断默认成功，不从模板名、中文名或生命值猜 Boss。只有带 1–6 难度显式池映射且模板闭合到属性包的条目进入自动候选，Key=0
 通用池只保留为静态来源，不猜测逐难度画像。构建日视为大陆服日切后的有效日期：结束日期等于构建日的旧配置不再进入推断，
 按开始时间选出的当前与下一配置分别标记为 `inference_ordinal=0/1`。任务中的 `AbyssID` 关联整套

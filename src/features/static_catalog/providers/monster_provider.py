@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -28,6 +29,9 @@ from src.services.static_catalog_monster_service import (
     CatalogFilter,
     StaticCatalogMonsterService,
 )
+from src.services.static_catalog_terminology_service import (
+    StaticCatalogTerminologyService,
+)
 
 
 class StaticCatalogMonsterProvider:
@@ -40,20 +44,41 @@ class StaticCatalogMonsterProvider:
         order=30,
     )
 
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        terminology_service: StaticCatalogTerminologyService,
+        close_callbacks: tuple[Callable[[], None], ...] = (),
+    ) -> None:
         self._database_path = Path(database_path).expanduser().resolve()
         self._service = StaticCatalogMonsterService.from_database(
             self._database_path,
+            terminology_service=terminology_service,
             mainland_now=datetime.now(timezone(timedelta(hours=8))).replace(
                 tzinfo=None
             ),
         )
+        self._close_callbacks = close_callbacks
         self._closed = False
 
     def close(self) -> None:
         if not self._closed:
-            self._service.close()
             self._closed = True
+            errors: list[Exception] = []
+            try:
+                self._service.close()
+            except Exception as exc:
+                errors.append(exc)
+            for callback in self._close_callbacks:
+                try:
+                    callback()
+                except Exception as exc:
+                    errors.append(exc)
+            if errors:
+                raise RuntimeError(
+                    f"关闭怪物资料提供器时有 {len(errors)} 个组件失败"
+                ) from errors[0]
 
     def search(
         self,
@@ -112,7 +137,7 @@ class StaticCatalogMonsterProvider:
 
     @classmethod
     def _detail(cls, detail: MonsterDetail) -> CatalogDetail:
-        sections = []
+        sections: list[CatalogSection] = []
         for section in detail.sections:
             values: list[CatalogField] = []
             for value in section.values:

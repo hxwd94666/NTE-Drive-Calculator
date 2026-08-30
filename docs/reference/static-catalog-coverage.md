@@ -1,6 +1,6 @@
 # 游戏资料库全库覆盖清单
 
-本清单按产品领域审计发行静态库 schema v29 的全部 110 张业务表。“覆盖总览”固定登记并显示这些表的
+本清单按产品领域审计发行静态库 schema v30 的全部 124 张业务表。“覆盖总览”固定登记并显示这些表的
 名称、行数、领域和 A–E 状态，其他产品目录仍使用角色、弧盘、装备、技能、效果、怪物、资源和来源等领域
 名。页面不提供任意 SQL、字段输入或原始表浏览器。
 
@@ -20,9 +20,9 @@
 | 表 | 行数 | 是否展示 | 展示入口 / 理由 |
 | --- | ---: | --- | --- |
 | `dataset` | 1 | 摘要 | 顶部发行信息展示 dataset、schema、importer 和构建时间。 |
-| `schema_migration` | 28 | 摘要 | 只展示当前 schema 版本；迁移历史是维护事实。 |
-| `source_file` | 8,126 | 展示 | “来源追溯”统一搜索；复制相对路径和 SHA-256。 |
-| `source_row` | 30,835 | 展示 | 按 row key、内容哈希或来源路径搜索，并在来源文件内分页。 |
+| `schema_migration` | 29 | 摘要 | 只展示当前 schema 版本；迁移历史是维护事实。 |
+| `source_file` | 8,147 | 展示 | “来源追溯”统一搜索；复制相对路径和 SHA-256。 |
+| `source_row` | 47,750 | 展示 | 按 row key、内容哈希或来源路径搜索，并在来源文件内分页。 |
 
 发行 manifest 的 `source_payloads_omitted=true` 时，只展示上述保留元数据；不显示或承诺完整原始 payload。
 
@@ -31,6 +31,25 @@
 | 表 | 行数 | 是否展示 | 展示入口 / 理由 |
 | --- | ---: | --- | --- |
 | `application_setting_default` | 4 | 不展示 | 属于应用运行默认值，不是游戏资料；继续由设置服务消费。 |
+
+## v30 发行注解、正式术语与养成投影（14 表）
+
+| 表 | 行数 | 是否展示 | 展示入口 / 理由 |
+| --- | ---: | --- | --- |
+| `character_release_evidence` | 5 | 摘要 | 角色品质、获取与大陆服日期证据目录。 |
+| `character_release_annotation` | 23 | 合并详情 | 角色品质、获取方式和大陆服日期；保留正式/审阅回退来源类型。 |
+| `character_release_evidence_link` | 67 | 不展示 | 角色字段到证据 key 的审计关系。 |
+| `localized_term` | 138 | 合并详情 | 正式术语身份、文本表/key 与缺名状态。 |
+| `localized_term_name` | 101 | 合并详情 | 当前可用 locale 的玩家可读名称；raw ID 不充当名称。 |
+| `character_acquisition_membership` | 23 | 合并详情 | 常驻/限定正式关系及 free 审阅注解。 |
+| `fork_lottery_campaign` | 8 | 合并详情 | 限定弧盘、正式卡池标题和发行顺序。 |
+| `damage_resistance_term` | 8 | 合并详情 | 抗性身份到正式属性字段的关系；缺正式文本时保持缺名。 |
+| `progression_item` | 105 | 合并详情 | 养成材料、货币的稳定 ID、正式名称和本地化 key。 |
+| `progression_item_alias` | 1 | 不展示 | `progression_cost` 上下文的 exact token 别名。 |
+| `item_quality_term` | 6 | 合并详情 | 品质等级、颜色和正式本地化 key。 |
+| `clone_drop_projection` | 148 | 合并详情 | 副本掉落闭包及 complete/partial/unavailable。 |
+| `clone_drop_projection_item` | 1,172 | 合并详情 | 只保存确定正整数的单次材料产出。 |
+| `clone_drop_projection_gap` | 170 | 不展示 | 概率、分支不一致、缺组或缺名的审计缺口。 |
 
 ## 角色与养成（21 表，并行域）
 
@@ -68,9 +87,9 @@
 | `fork_breakthrough` | 343 | 合并详情 | 弧盘突破阶段。 |
 | `fork_modify_pack` | 1,943 | 合并详情 | 弧盘属性修改条件。 |
 | `fork_modify_value` | 2,286 | 合并详情 | 弧盘属性修改值。 |
-| `fork_refinement_parameter_value` | 975 | 合并详情 | 精炼参数逐级值。 |
-| `fork_star_level` | 245 | 合并详情 | 精炼标题、说明和 Buff 关系。 |
-| `fork_star_parameter` | 720 | 合并详情 | 精炼参数定义。 |
+| `fork_refinement_parameter_value` | 975 | 合并详情 | 混频参数逐级值。 |
+| `fork_star_level` | 245 | 合并详情 | 混频标题、说明和 Buff 关系。 |
+| `fork_star_parameter` | 720 | 合并详情 | 混频参数定义。 |
 
 ## 装备、套装与强化（20 表，B 域）
 
@@ -166,11 +185,11 @@
 
 - 全域或分域搜索只接受固定领域 key；SQL 表、字段和排序均由 DAO 白名单固定，用户输入只作为参数值。
 - 搜索词最长 200 个字符；每页 1–100 条，默认 50 条。UI 应在用户输入后防抖调用，不预建数千个控件。
-- 3k–8k 级实体表只返回当前页；30,835 条来源行只在来源搜索或来源文件内分页。
+- 3k–8k 级实体表只返回当前页；47,750 条来源行只在来源搜索或来源文件内分页。
 - 52,977 条 Blueprint 引用、14,190 条 Tag、9,730 条语义属性和 23,819 条 Notify 只按单个资源 key
   分页，不随搜索结果或基本详情全量加载。
 - 关系跳转只使用正式 ID、GA/GE/Buff key、Gameplay Tag 或资源路径；不存在的目标保持未解析，不按中文名猜。
-- DAO 复用 `StaticGameDataDao` 的 SQLite `mode=ro` 与 schema v29 校验；没有写入方法，也不接受任意 SQL。
+- DAO 复用 `StaticGameDataDao` 的 SQLite `mode=ro` 与 schema v30 校验；没有写入方法，也不接受任意 SQL。
 
 ## 集成接线
 

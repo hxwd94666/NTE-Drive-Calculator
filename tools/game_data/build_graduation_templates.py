@@ -175,6 +175,9 @@ def populate_graduation_templates(
     """Replace all templates using the old full-board selection rules."""
 
     connection.row_factory = sqlite3.Row
+    static_schema_version = int(
+        connection.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0]
+    )
     connection.execute("BEGIN IMMEDIATE")
     connection.execute("DELETE FROM character_graduation_template")
     stats = _stats(config_dir)
@@ -199,7 +202,10 @@ def populate_graduation_templates(
             user_database = Path(temporary_dir) / "graduation.sqlite3"
             with UserDataDao(user_database, account_id="graduation-builder"):
                 pass
-            with StaticGameDataDao(database_path) as static_dao:
+            with StaticGameDataDao(
+                database_path,
+                expected_schema_version=static_schema_version,
+            ) as static_dao:
                 percent_property_ids = {
                     str(row["attribute_id"])
                     for row in static_dao.list_equipment_attributes()
@@ -230,7 +236,12 @@ def populate_graduation_templates(
                 }
             for character in characters:
                 character_id = int(character["character_id"])
-                detail = load_official_role_detail(user_database, character_id)
+                detail = load_official_role_detail(
+                    user_database,
+                    character_id,
+                    static_database_path=database_path,
+                    static_schema_version=static_schema_version,
+                )
                 recommendation = recommendations.get(character_id) or {}
                 # The API synchronization above writes these rows into the
                 # same temporary static database before templates are built.

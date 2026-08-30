@@ -306,7 +306,7 @@ class ForkCatalogWidget(QWidget):
             ("文本键", detail.name_text_key),
             ("升级包", detail.upgrade_pack_id),
             ("突破包", detail.breakthrough_pack_id),
-            ("精炼包", detail.star_pack_id),
+            ("混频数据包", detail.star_pack_id),
             ("描述", detail.summary.description_zh),
         ):
             self._add(overview, label, value, CatalogOrigin.OFFICIAL_STATIC)
@@ -347,7 +347,7 @@ class ForkCatalogWidget(QWidget):
         for stage in detail.breakthroughs:
             self._add_breakthrough(breakthroughs, stage)
 
-        refinements = self._root(f"弧盘技能 / 精炼 ({len(detail.refinement_levels)})")
+        refinements = self._root(f"弧盘技能 / 混频 ({len(detail.refinement_levels)})")
         for refinement in detail.refinement_levels:
             self._add_refinement(refinements, refinement)
 
@@ -404,7 +404,7 @@ class ForkCatalogWidget(QWidget):
     ) -> None:
         node = self._add(
             parent,
-            f"精炼 {refinement.level}",
+            f"混频 {refinement.level}",
             refinement.title_zh,
             CatalogOrigin.OFFICIAL_STATIC,
         )
@@ -439,7 +439,7 @@ class ForkCatalogWidget(QWidget):
     def _add_buff(self, parent: QTreeWidgetItem, buff: ForkBuffDefinition) -> None:
         node = self._add(
             parent,
-            f"精炼 {buff.refinement_level}",
+            f"混频 {buff.refinement_level}",
             buff.definition_id or buff.asset_path,
             CatalogOrigin.OFFICIAL_STATIC,
         )

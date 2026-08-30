@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -30,6 +31,7 @@ from src.app.theme import themed_style
 from src.features.static_catalog.contracts import (
     SOURCE_LABELS,
     CatalogDetail,
+    CatalogDomain,
     CatalogField,
     CatalogItem,
     CatalogRelationGroup,
@@ -37,6 +39,9 @@ from src.features.static_catalog.contracts import (
 )
 from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.menu import StaticCatalogMenu
+
+if TYPE_CHECKING:
+    from src.services.static_catalog_mechanics_service import CatalogLink
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +52,7 @@ class StaticCatalogDomainPageSpec:
     title: str
     build: Callable[[QWidget], QWidget]
     close: Callable[[], None]
+    refresh: Callable[[], None] | None = None
 
 
 class StaticCatalogPage:
@@ -68,6 +74,7 @@ class StaticCatalogPage:
             spec.domain_key: spec for spec in domain_pages
         }
         self._domain_pages: dict[str, QWidget] = {}
+        self._domain_contents: dict[str, QWidget] = {}
         self._closed = False
         self._page: QWidget | None = None
         self._stack: QStackedWidget | None = None
@@ -118,12 +125,29 @@ class StaticCatalogPage:
         except Exception as exc:
             self._show_error("无法打开游戏资料库", exc)
             return
-        visible_domains = tuple(
+        provider_domains = tuple(
             domain for domain in request.domains if domain.key != "coverage"
+        )
+        by_key = {domain.key: domain for domain in provider_domains}
+        next_order = max((domain.order for domain in provider_domains), default=0) + 1
+        for index, spec in enumerate(self._domain_page_specs):
+            by_key.setdefault(
+                spec.domain_key,
+                CatalogDomain(spec.domain_key, spec.title, "", next_order + index),
+            )
+        visible_domains = tuple(
+            sorted(by_key.values(), key=lambda domain: domain.order)
         )
         self._domain_labels = {domain.key: domain.label for domain in visible_domains}
         if self._menu is not None:
             self._menu.set_domains(visible_domains)
+        for spec in self._domain_page_specs:
+            if spec.refresh is None:
+                continue
+            try:
+                spec.refresh()
+            except Exception as exc:
+                self._show_error(f"刷新{spec.title}失败", exc)
         self._domain_key = ""
         self._offset = 0
         self._require(self._stack).setCurrentIndex(0)
@@ -133,9 +157,20 @@ class StaticCatalogPage:
             return
         self._closed = True
         self._search_timer.stop()
-        self._controller.close()
+        errors: list[Exception] = []
+        try:
+            self._controller.close()
+        except Exception as exc:
+            errors.append(exc)
         for spec in self._domain_page_specs:
-            spec.close()
+            try:
+                spec.close()
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise RuntimeError(
+                f"关闭游戏资料库时有 {len(errors)} 个组件失败"
+            ) from errors[0]
 
     def _build_browser(self, parent: QWidget) -> QWidget:
         host = QWidget(parent)
@@ -176,7 +211,7 @@ class StaticCatalogPage:
         self,
         spec: StaticCatalogDomainPageSpec,
         parent: QWidget,
-    ) -> QWidget:
+    ) -> tuple[QWidget, QWidget]:
         host = QWidget(parent)
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -200,8 +235,13 @@ class StaticCatalogPage:
         bar_layout.addWidget(title)
         bar_layout.addStretch(1)
         layout.addWidget(bar)
-        layout.addWidget(spec.build(host), 1)
-        return host
+        try:
+            content = spec.build(host)
+        except Exception:
+            host.deleteLater()
+            raise
+        layout.addWidget(content, 1)
+        return host, content
 
     def _build_result_pane(self, parent: QWidget) -> QWidget:
         pane = QFrame(parent)
@@ -275,13 +315,52 @@ class StaticCatalogPage:
             dedicated_page = self._domain_pages.get(domain_key)
             if dedicated_page is None:
                 stack = self._require(self._stack)
-                dedicated_page = self._build_domain_page(spec, stack)
+                try:
+                    dedicated_page, content = self._build_domain_page(spec, stack)
+                except Exception as exc:
+                    self._show_error(f"无法打开{spec.title}", exc)
+                    self._show_menu()
+                    return
                 self._domain_pages[domain_key] = dedicated_page
+                self._domain_contents[domain_key] = content
                 stack.addWidget(dedicated_page)
             self._require(self._stack).setCurrentWidget(dedicated_page)
             return
         self._require(self._stack).setCurrentIndex(1)
         self._run_search()
+
+    def open_catalog_link(self, link: "CatalogLink") -> None:
+        """Route one typed relation through public domain-page methods only."""
+
+        domain_key = str(link.domain_key)
+        self._open_domain(domain_key)
+        content = self._domain_contents.get(domain_key)
+        if content is None:
+            return
+        record_id = str(link.record_id)
+        if domain_key == "character":
+            try:
+                character_id = int(record_id)
+            except ValueError:
+                return
+            opener = getattr(content, "open_character", None)
+            if callable(opener):
+                opener(character_id)
+            return
+        if domain_key == "fork":
+            opener = getattr(content, "open_fork", None)
+        elif domain_key == "equipment":
+            method_name = {
+                "suit": "open_suit",
+                "shape": "open_shape",
+            }.get(str(link.relation_kind), "open_equipment")
+            opener = getattr(content, method_name, None)
+        elif domain_key == "combat_mechanics":
+            opener = getattr(content, "open_record", None)
+        else:
+            opener = getattr(content, "open_record", None)
+        if callable(opener):
+            opener(record_id)
 
     def _show_menu(self) -> None:
         self._search_timer.stop()

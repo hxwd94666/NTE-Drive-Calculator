@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Protocol
+
 from src.domain.progression_stamina import (
+    FarmingStage,
     HunterLevelPolicy,
     IdentificationLevelProjection,
     ProgressionStaminaRequest,
@@ -11,6 +15,12 @@ from src.domain.progression_stamina import (
     calculate_progression_stamina,
     project_identification_level,
 )
+
+
+class OfficialFarmingStageSource(Protocol):
+    """Narrow read-only source for formal deterministic farming stages."""
+
+    def list_progression_farming_stages(self) -> tuple[FarmingStage, ...]: ...
 
 
 class ProgressionStaminaService:
@@ -21,11 +31,13 @@ class ProgressionStaminaService:
         *,
         hunter_level_policy: HunterLevelPolicy = HunterLevelPolicy(),
         maximum_search_states: int = 300_000,
+        official_stage_source: OfficialFarmingStageSource | None = None,
     ) -> None:
         if maximum_search_states <= 0:
             raise ValueError("体力规划搜索上限必须为正整数")
         self._policy = hunter_level_policy
         self._maximum_search_states = int(maximum_search_states)
+        self._official_stage_source = official_stage_source
 
     def identification_level(
         self,
@@ -43,8 +55,14 @@ class ProgressionStaminaService:
         self,
         request: ProgressionStaminaRequest,
     ) -> ProgressionStaminaResult:
+        effective_request = request
+        if not request.stages and self._official_stage_source is not None:
+            official_stages = (
+                self._official_stage_source.list_progression_farming_stages()
+            )
+            effective_request = replace(request, stages=official_stages)
         return calculate_progression_stamina(
-            request,
+            effective_request,
             policy=self._policy,
             maximum_search_states=self._maximum_search_states,
         )

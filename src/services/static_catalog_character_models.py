@@ -96,7 +96,7 @@ class BreakthroughStage:
     before: GrowthPoint
     after: GrowthPoint
     cost_status: str = "unavailable"
-    cost_reason: str = "发行静态库没有规范化角色突破消耗表"
+    cost_reason: str = "发行静态库尚未保存人物突破阶段到材料数量与方斯的关系"
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +140,7 @@ class AwakeningEffect:
     icon_path: str | None
     structured_effects: tuple[StructuredEffectField, ...]
     gameplay_effect_ids: tuple[str, ...]
+    buff_definition_ids: tuple[str, ...]
     skill_level_bonuses: tuple[SkillLevelBonus, ...]
     source: CatalogSource
 
@@ -184,6 +185,12 @@ class SkillLevelHint:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillDamageItem:
+    damage_id: str
+    damage_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class CharacterSkill:
     skill_id: str
     name_zh: str | None
@@ -199,6 +206,7 @@ class CharacterSkill:
     levels: tuple[SkillLevel, ...]
     descriptions: tuple[SkillDescription, ...]
     level_hints: tuple[SkillLevelHint, ...]
+    damage_items: tuple[SkillDamageItem, ...]
     ability_source: CatalogSource
     effect_source: CatalogSource | None
 
@@ -243,6 +251,51 @@ class GraduationTemplate:
     generated_at_utc: str
     fork_paths: tuple[str, ...]
     fork_source: CatalogSource | None
+    core_main_stats: tuple["BuildProperty", ...] = ()
+    drive_template_stats: tuple["BuildProperty", ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class BuildProperty:
+    property_id: str
+    display_name: str | None
+    value: float | None = None
+    show_percent: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class EquipmentPlanModule:
+    ordinal: int
+    item_id: str
+    display_name: str | None
+    shape_id: str | None
+    grid_count: int
+    anchor_row: int | None
+    anchor_column: int | None
+    occupied_cells: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterEquipmentPlan:
+    core_item_id: str
+    core_level: int
+    module_level: int
+    cells: tuple[tuple[int, int, int | None], ...]
+    modules: tuple[EquipmentPlanModule, ...]
+    core_attributes: tuple[BuildProperty, ...]
+    recommended_attributes: tuple[BuildProperty, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterShapeBonus:
+    shape_label: str
+    shape_grid_count: int
+    properties: tuple[BuildProperty, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterWeightRecommendation:
+    properties: tuple[tuple[BuildProperty, float, float], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +341,9 @@ class CharacterDetail:
     skills: tuple[CharacterSkill, ...]
     cultivation: CultivationGuide | None
     graduation: GraduationTemplate | None
+    equipment_plan: CharacterEquipmentPlan | None
+    shape_bonus: CharacterShapeBonus | None
+    recommended_weights: CharacterWeightRecommendation | None
     growth_count: int
     combat_link_count: int
     gaps: tuple[CatalogGap, ...]

@@ -1,12 +1,18 @@
 # 静态游戏数据库版本与摘要表清单。
 """Shared metadata for the normalized static game database."""
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 SUMMARY_TABLES = (
     "source_file",
     "source_row",
     "character",
+    "character_release_evidence",
+    "character_release_annotation",
+    "character_release_evidence_link",
+    "character_acquisition_membership",
+    "localized_term",
+    "localized_term_name",
     "character_annotation",
     "character_awaken_effect",
     "character_awaken_skill_level_bonus",
@@ -46,6 +52,7 @@ SUMMARY_TABLES = (
     "logical_character_shape_bonus_property",
     "fork_type",
     "fork_item",
+    "fork_lottery_campaign",
     "fork_refinement_parameter_value",
     "character_cultivation_guide",
     "character_cultivation_fork_recommendation",
@@ -87,6 +94,13 @@ SUMMARY_TABLES = (
     "clone_activity_category",
     "clone_activity",
     "clone_activity_difficulty",
+    "progression_item",
+    "progression_item_alias",
+    "item_quality_term",
+    "damage_resistance_term",
+    "clone_drop_projection",
+    "clone_drop_projection_item",
+    "clone_drop_projection_gap",
     "clone_spawn_member",
     "monster_template_binding",
     "outer_realm_rotation",

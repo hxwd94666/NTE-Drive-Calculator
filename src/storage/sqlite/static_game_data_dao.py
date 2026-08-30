@@ -9,7 +9,7 @@ import sqlite3
 import sys
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Iterable
+from typing import Any, Iterable, NoReturn
 
 from .static_game_data_metadata import SCHEMA_VERSION, SUMMARY_TABLES
 
@@ -83,20 +83,41 @@ from src.storage.sqlite.static_game_data_extended_queries import StaticGameDataE
 from src.storage.sqlite.static_game_data_encounter_queries import (
     StaticGameDataEncounterQueriesMixin,
 )
+from src.storage.sqlite.static_game_data_terminology_queries import (
+    StaticGameDataTerminologyQueriesMixin,
+)
+from src.storage.sqlite.static_game_data_progression_queries import (
+    StaticGameDataProgressionQueriesMixin,
+)
 
 
 class StaticGameDataDao(
+    StaticGameDataProgressionQueriesMixin,
+    StaticGameDataTerminologyQueriesMixin,
     StaticGameDataEncounterQueriesMixin,
     StaticGameDataBuffQueriesMixin,
     StaticGameDataCombatBlueprintQueriesMixin,
     StaticGameDataExtendedQueriesMixin,
 ):
-    """面向 schema v29 静态数据库的轻量查询边界。
+    """面向当前发行静态数据库 schema 的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """
 
-    def __init__(self, database_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        database_path: str | Path | None = None,
+        *,
+        expected_schema_version: int | None = None,
+    ) -> None:
+        expected_version = (
+            SCHEMA_VERSION
+            if expected_schema_version is None
+            else int(expected_schema_version)
+        )
+        if expected_version <= 0:
+            raise ValueError("expected_schema_version 必须为正整数")
+        self._schema_version = expected_version
         self.database_path = resolve_static_database(database_path)
         uri = f"{self.database_path.as_uri()}?mode=ro"
         try:
@@ -117,10 +138,10 @@ class StaticGameDataDao(
             self.close()
             raise StaticGameDataError("文件不是 NTE 静态游戏数据库") from exc
         version = version_row["version"] if version_row is not None else None
-        if version != SCHEMA_VERSION:
+        if version != expected_version:
             self.close()
             raise StaticGameDataError(
-                f"不支持的静态数据库结构版本：{version!r}；需要 {SCHEMA_VERSION}"
+                f"不支持的静态数据库结构版本：{version!r}；需要 {expected_version}"
             )
 
     def __enter__(self) -> "StaticGameDataDao":
@@ -149,6 +170,10 @@ class StaticGameDataDao(
         rows = self._rows(sql, parameters)
         return rows[0] if rows else None
 
+    @staticmethod
+    def _raise_static_data_error(message: str) -> NoReturn:
+        raise StaticGameDataError(message)
+
     def summary(self) -> dict[str, Any]:
         dataset = self._one(
             "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
@@ -156,11 +181,21 @@ class StaticGameDataDao(
         if dataset is None:
             raise StaticGameDataError("静态数据库缺少数据集元信息")
         counts = {}
+        available_tables: set[str] | None = None
+        if self._schema_version != SCHEMA_VERSION:
+            available_tables = {
+                str(row["name"])
+                for row in self._rows(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
         for table in SUMMARY_TABLES:
+            if available_tables is not None and table not in available_tables:
+                continue
             row = self._one(f"SELECT COUNT(*) AS count FROM {table}")
             counts[table] = int((row or {}).get("count", 0))
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": self._schema_version,
             "database_path": str(self.database_path),
             "dataset": dataset,
             "counts": counts,

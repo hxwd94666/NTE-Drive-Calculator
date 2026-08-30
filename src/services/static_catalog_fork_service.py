@@ -356,7 +356,7 @@ class StaticCatalogForkService:
         notes: list[str] = []
         if not has_skill_tables:
             notes.append(
-                "schema v29 没有弧盘独立技能表；可展示的技能等级为精炼 1–5 级描述、参数与 Buff。"
+                "schema v30 没有弧盘独立技能表；可展示的技能等级为混频 1–5 级描述、参数与 Buff。"
             )
         if payload_count == 0:
             notes.append(
@@ -694,7 +694,7 @@ class StaticCatalogForkService:
             relations.append(CatalogRelation(
                 kind="buff",
                 target_id=buff.asset_path,
-                label=f"精炼 {buff.refinement_level} · {buff.definition_id or buff.asset_path}",
+                label=f"混频 {buff.refinement_level} · {buff.definition_id or buff.asset_path}",
                 copy_value=buff.asset_path,
                 origin=CatalogOrigin.PROJECT_PROJECTION,
                 available=buff.target_available,
@@ -770,7 +770,7 @@ class StaticCatalogForkService:
             "弧盘根 Buff 可精确关联 Buff/GE 资产；只有资产路径精确匹配时才返回 GA，不从描述文字猜技能。",
         ]
         if not ability_rows:
-            audit_notes.append("schema v29 未保留该弧盘到 GA 的结构化精确关系。")
+            audit_notes.append("schema v30 未保留该弧盘到 GA 的结构化精确关系。")
         if not relations_rows:
             audit_notes.append("该弧盘没有独占角色 ID 或养成推荐关系，角色归属保持未解析。")
         return ForkCatalogDetail(

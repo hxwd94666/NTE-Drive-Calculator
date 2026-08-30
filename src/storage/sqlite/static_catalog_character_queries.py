@@ -78,6 +78,40 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
             raise RuntimeError("静态数据库缺少 dataset 元信息")
         return row
 
+    def list_catalog_character_release_annotations(
+        self,
+    ) -> list[dict[str, object]]:
+        """Read v30 character release facts with deterministic evidence keys."""
+
+        rows = self._rows(
+            """
+            SELECT character_id, quality, quality_source_kind,
+                   acquisition_type, acquisition_source_kind,
+                   mainland_release_date, release_source_kind
+            FROM character_release_annotation
+            ORDER BY character_id
+            """
+        )
+        evidence_rows = self._rows(
+            """
+            SELECT character_id, evidence_key
+            FROM character_release_evidence_link
+            ORDER BY character_id, field_name, ordinal, evidence_key
+            """
+        )
+        evidence_by_character: dict[int, list[str]] = {}
+        for evidence in evidence_rows:
+            character_id = int(evidence["character_id"])
+            evidence_by_character.setdefault(character_id, []).append(
+                str(evidence["evidence_key"])
+            )
+        for row in rows:
+            character_id = int(row["character_id"])
+            row["evidence_keys"] = tuple(dict.fromkeys(
+                evidence_by_character.get(character_id, ())
+            ))
+        return rows
+
     def count_catalog_characters(self, query: str = "") -> int:
         row = self._one(
             f"""
@@ -313,6 +347,23 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
             by_effect.setdefault(str(bonus["effect_id"]), []).append(bonus)
         for row in rows:
             row["skill_level_bonuses"] = by_effect.get(str(row["effect_id"]), [])
+            row["buff_definition_ids"] = tuple(
+                str(item["definition_id"])
+                for item in self._rows(
+                    """
+                    SELECT DISTINCT buff.definition_id
+                    FROM json_tree(?) AS node
+                    JOIN buff_definition AS buff
+                      ON node.key = 'AssetPathName'
+                     AND (
+                         node.atom = buff.asset_path
+                         OR node.atom LIKE buff.asset_path || '.%'
+                     )
+                    ORDER BY buff.definition_id
+                    """,
+                    (row["modify_data_json"],),
+                )
+            )
         return rows
 
     def list_catalog_skills(self, character_id: int) -> list[dict[str, Any]]:
@@ -379,7 +430,129 @@ class StaticCatalogCharacterQueries(StaticGameDataDao):
                 """,
                 (skill_id,),
             )
+            skill["damage_items"] = self._rows(
+                """
+                SELECT damage_id, damage_type
+                FROM skill_damage
+                WHERE ability_id = ?
+                ORDER BY damage_id
+                """,
+                (skill_id,),
+            )
         return skills
+
+    def get_catalog_equipment_plan(
+        self, character_id: int,
+    ) -> dict[str, Any] | None:
+        plan = self._one(
+            """
+            SELECT character_id, core_item_id, core_level, module_level
+            FROM equipment_plan WHERE character_id = ?
+            """,
+            (int(character_id),),
+        )
+        if plan is None:
+            return None
+        plan["modules"] = self._rows(
+            """
+            SELECT module.ordinal, module.item_id, item.name_zh,
+                   item.geometry_id, item.grid_count
+            FROM equipment_plan_module AS module
+            LEFT JOIN equipment_item AS item ON item.item_id = module.item_id
+            WHERE module.character_id = ? ORDER BY module.ordinal
+            """,
+            (int(character_id),),
+        )
+        for module in plan["modules"]:
+            module["shape_cells"] = self._rows(
+                """SELECT x, y FROM equipment_shape_cell
+                   WHERE shape_id = ? ORDER BY ordinal""",
+                (module.get("geometry_id"),),
+            )
+        plan["anchors"] = self._rows(
+            """
+            SELECT row, column, anchor_item_id
+            FROM equipment_plan_cell
+            WHERE character_id = ? AND anchor_item_id IS NOT NULL
+            ORDER BY anchor_item_id, row, column
+            """,
+            (int(character_id),),
+        )
+        plan["core_attributes"] = self._rows(
+            """
+            SELECT value.attribute_id AS property_id, attribute.display_name_zh,
+                   attribute.show_percent
+            FROM equipment_plan_core_attribute AS value
+            LEFT JOIN equipment_attribute AS attribute
+              ON attribute.attribute_id = value.attribute_id
+            WHERE value.character_id = ? ORDER BY value.ordinal
+            """,
+            (int(character_id),),
+        )
+        plan["recommended_attributes"] = self._rows(
+            """
+            SELECT value.attribute_id AS property_id, attribute.display_name_zh,
+                   attribute.show_percent
+            FROM equipment_plan_recommended_attribute AS value
+            LEFT JOIN equipment_attribute AS attribute
+              ON attribute.attribute_id = value.attribute_id
+            WHERE value.character_id = ? ORDER BY value.ordinal
+            """,
+            (int(character_id),),
+        )
+        return plan
+
+    def get_catalog_character_shape_bonus(
+        self, character_id: int,
+    ) -> dict[str, Any] | None:
+        bonus = self._one(
+            """
+            SELECT value.logical_character_key, value.shape_label,
+                   value.shape_grid_count
+            FROM character_annotation AS annotation
+            JOIN logical_character_shape_bonus AS value
+              ON value.logical_character_key = annotation.logical_character_key
+            WHERE annotation.character_id = ?
+            """,
+            (int(character_id),),
+        )
+        if bonus is None:
+            return None
+        bonus["properties"] = self._rows(
+            """
+            SELECT value.property_id, value.display_value,
+                   attribute.display_name_zh, attribute.show_percent
+            FROM logical_character_shape_bonus_property AS value
+            LEFT JOIN equipment_attribute AS attribute
+              ON attribute.attribute_id = value.property_id
+            WHERE value.logical_character_key = ? ORDER BY value.ordinal
+            """,
+            (bonus["logical_character_key"],),
+        )
+        return bonus
+
+    def get_catalog_character_weights(
+        self, character_id: int,
+    ) -> dict[str, Any] | None:
+        weights = self._one(
+            """SELECT character_id FROM character_weight_recommendation
+               WHERE character_id = ?""",
+            (int(character_id),),
+        )
+        if weights is None:
+            return None
+        weights["properties"] = self._rows(
+            """
+            SELECT value.property_id, value.weight, value.main_weight,
+                   attribute.display_name_zh, attribute.show_percent
+            FROM character_weight_recommendation_property AS value
+            LEFT JOIN equipment_attribute AS attribute
+              ON attribute.attribute_id = value.property_id
+            WHERE value.character_id = ? ORDER BY value.ordinal
+            """,
+            (int(character_id),),
+        )
+        return weights
 
     def get_catalog_cultivation(self, character_id: int) -> dict[str, Any] | None:
         guide = self._one(

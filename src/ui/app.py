@@ -110,6 +110,8 @@ from src.features.static_catalog.dependencies import (
 )
 from src.features.static_catalog.page import StaticCatalogPage
 from src.services.static_catalog_service import StaticCatalogService
+from src.services.warehouse_inventory_service import WarehouseInventoryService
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
 from src.features.battle_report.dependencies import build_battle_report_controller
 from src.features.identification.controller import IdentificationController
@@ -317,22 +319,42 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             ),
             dialog_parent=self,
         )
-        self.static_catalog_page = StaticCatalogPage(
-            controller=StaticCatalogController(
-                StaticCatalogService(
-                    static_database_path=self.app_context.paths.static_database_path,
-                    providers=build_static_catalog_providers(
-                        self.app_context.paths.static_database_path
-                    ),
-                )
-            ),
-            dialog_parent=self,
-            game_ui_asset_root=self.app_context.paths.asset_dir / "game_ui",
-            domain_pages=build_static_catalog_domain_pages(
+        static_catalog_controller = StaticCatalogController(
+            StaticCatalogService(
+                static_database_path=self.app_context.paths.static_database_path,
+                providers=build_static_catalog_providers(
+                    self.app_context.paths.static_database_path
+                ),
+            )
+        )
+        static_catalog_domains = ()
+        try:
+            static_catalog_domains = build_static_catalog_domain_pages(
                 self.app_context.paths.static_database_path,
                 self.app_context.paths.asset_dir / "game_ui",
-            ),
-        )
+                equipment_presentation=self.equipment_presentation,
+                equipment_inventory_loader=self._load_static_catalog_inventory,
+                open_catalog_link=lambda link: (
+                    self.static_catalog_page.open_catalog_link(link)
+                ),
+            )
+            self.static_catalog_page = StaticCatalogPage(
+                controller=static_catalog_controller,
+                dialog_parent=self,
+                game_ui_asset_root=self.app_context.paths.asset_dir / "game_ui",
+                domain_pages=static_catalog_domains,
+            )
+        except Exception:
+            for spec in reversed(static_catalog_domains):
+                try:
+                    spec.close()
+                except Exception:
+                    pass
+            try:
+                static_catalog_controller.close()
+            except Exception:
+                pass
+            raise
         self.onboarding_guide = OnboardingGuide(
             app_context=self.app_context,
             parent=self,
@@ -366,6 +388,21 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._on_log("系统就绪")
         self.onboarding_guide.maybe_show()
         self._maybe_check_updates_on_startup()
+
+    def _load_static_catalog_inventory(self):
+        """Freeze the current account projection for the equipment archive."""
+
+        account = self.app_context.account
+        static_path = self.app_context.paths.static_database_path
+        service = WarehouseInventoryService(
+            account.user_database_path,
+            static_dao_factory=lambda: StaticGameDataDao(static_path),
+        )
+        return (
+            account.active_account_id,
+            self.app_context.generation,
+            service.load_current_snapshot(),
+        )
 
     # ── Frameless
     def _on_edge(self, pos):

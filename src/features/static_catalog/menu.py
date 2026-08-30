@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -51,7 +51,7 @@ MENU_ENTRIES = (
     ),
     CatalogMenuEntry(
         "fork", "collection", "弧盘图鉴", "FORK ARCHIVE",
-        "等级突破、面板、精炼技能、Buff 与适配角色。", "#a371f7", "弧",
+        "等级突破、面板、混频技能、Buff 与适配角色。", "#a371f7", "弧",
         "fork", ("fork_DemonBlade",),
     ),
     CatalogMenuEntry(
@@ -61,27 +61,12 @@ MENU_ENTRIES = (
     ),
     CatalogMenuEntry(
         "monsters", "combat", "怪物与玩法", "ENCOUNTER ARCHIVE",
-        "大世界、争锋、轨外、副本、Boss 与正式公式画像。", "#f85149", "敌",
+        "大世界、争锋、轨外、副本、Boss 与敌方属性。", "#f85149", "敌",
         "monster", ("monster_static_big_world", "mon_016_BP_Clone"),
     ),
     CatalogMenuEntry(
-        "skills", "mechanics", "技能招式", "ABILITY LIBRARY",
-        "GA、伤害段、AEQR、Z、HoldE、G 与资源关联。", "#39c5cf", "AEQR",
-        "attribute", ("attack",),
-    ),
-    CatalogMenuEntry(
-        "effects", "mechanics", "效果与 Buff", "EFFECT LIBRARY",
-        "GE、Buff、反应、Gameplay Tag、曲线和触发证据。", "#3fb950", "BUFF",
-        "attribute", ("damage_up",),
-    ),
-    CatalogMenuEntry(
-        "formulas", "mechanics", "伤害公式", "DAMAGE FORMULA",
-        "面板、属性、防御、抗性、暴击和特殊伤害乘区。", "#d29922", "ƒ(x)",
-        "attribute", ("crit_damage",),
-    ),
-    CatalogMenuEntry(
-        "counterfactual_models", "mechanics", "反事实模型", "MODEL MATRIX",
-        "角色被动、觉醒、弧盘与空幕机制的建模状态。", "#bc8cff", "Δ",
+        "combat_mechanics", "mechanics", "战斗机制图鉴", "COMBAT MECHANICS",
+        "公共 Buff、环合、DOT、倾陷、召唤、伤害公式与反事实建模。", "#bc8cff", "机制",
         "attribute", ("def_ignore",),
     ),
 )
@@ -106,7 +91,7 @@ class CatalogMenuCard(QFrame):
         self.setAttribute(Qt.WA_Hover, True)
         self.setFocusPolicy(Qt.StrongFocus if available else Qt.NoFocus)
         self.setCursor(Qt.PointingHandCursor if available else Qt.ForbiddenCursor)
-        self.setMinimumSize(250, 154)
+        self.setMinimumSize(250, 138)
         self.setStyleSheet(themed_style(
             "QFrame[catalogMenuCard='true']{"
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
@@ -121,7 +106,7 @@ class CatalogMenuCard(QFrame):
 
     def _build(self, art: QPixmap | None) -> None:
         root = QHBoxLayout(self)
-        root.setContentsMargins(16, 15, 13, 14)
+        root.setContentsMargins(15, 12, 12, 12)
         root.setSpacing(12)
         copy = QVBoxLayout()
         copy.setSpacing(4)
@@ -146,11 +131,11 @@ class CatalogMenuCard(QFrame):
         root.addLayout(copy, 1)
 
         art_label = QLabel(self)
-        art_label.setFixedSize(92, 112)
+        art_label.setFixedSize(84, 96)
         art_label.setAlignment(Qt.AlignCenter)
         if art is not None and not art.isNull():
             art_label.setPixmap(art.scaled(
-                92, 112, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                84, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation
             ))
         else:
             art_label.setText(self._entry.glyph)
@@ -193,6 +178,8 @@ class StaticCatalogMenu(QWidget):
             GameUiAssetCatalog(game_ui_asset_root)
             if game_ui_asset_root is not None else None
         )
+        self._group_cards: list[tuple[QGridLayout, tuple[CatalogMenuCard, ...]]] = []
+        self._columns = 0
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea(self)
@@ -201,11 +188,13 @@ class StaticCatalogMenu(QWidget):
         host = QWidget(scroll)
         self._content = QVBoxLayout(host)
         self._content.setContentsMargins(4, 4, 10, 18)
-        self._content.setSpacing(20)
+        self._content.setSpacing(15)
         scroll.setWidget(host)
         root.addWidget(scroll)
 
     def set_domains(self, domains: tuple[CatalogDomain, ...]) -> None:
+        self._group_cards.clear()
+        self._columns = 0
         while self._content.count():
             item = self._content.takeAt(0)
             widget = item.widget()
@@ -227,7 +216,8 @@ class StaticCatalogMenu(QWidget):
             grid.setHorizontalSpacing(12)
             grid.setVerticalSpacing(12)
             entries = tuple(entry for entry in MENU_ENTRIES if entry.group == group_key)
-            for index, entry in enumerate(entries):
+            cards: list[CatalogMenuCard] = []
+            for entry in entries:
                 card = CatalogMenuCard(
                     entry,
                     art=self._art(entry),
@@ -235,16 +225,33 @@ class StaticCatalogMenu(QWidget):
                     parent=self,
                 )
                 card.activated.connect(self.domain_selected)
-                grid.addWidget(card, index // 2, index % 2)
-            grid.setColumnStretch(0, 1)
-            grid.setColumnStretch(1, 1)
+                cards.append(card)
+            self._group_cards.append((grid, tuple(cards)))
             self._content.addLayout(grid)
         self._content.addStretch(1)
+        self._reflow_groups()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        self._reflow_groups()
+
+    def _reflow_groups(self) -> None:
+        columns = 1 if self.width() < 680 else 2
+        if columns == self._columns:
+            return
+        self._columns = columns
+        for grid, cards in self._group_cards:
+            while grid.count():
+                grid.takeAt(0)
+            for index, card in enumerate(cards):
+                grid.addWidget(card, index // columns, index % columns)
+            for column in range(2):
+                grid.setColumnStretch(column, 1 if column < columns else 0)
 
     def _hero(self) -> QWidget:
         hero = QFrame(self)
         hero.setObjectName("staticCatalogMenuHero")
-        hero.setMinimumHeight(150)
+        hero.setMinimumHeight(132)
         hero.setStyleSheet(themed_style(
             "QFrame#staticCatalogMenuHero{"
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
@@ -271,9 +278,9 @@ class StaticCatalogMenu(QWidget):
         art = self._resolve_art("character", ("1036",))
         if art is not None and not art.isNull():
             label = QLabel(hero)
-            label.setFixedSize(150, 132)
+            label.setFixedSize(132, 112)
             label.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
-            label.setPixmap(art.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            label.setPixmap(art.scaled(132, 132, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             layout.addWidget(label, 0, Qt.AlignBottom)
         return hero
 

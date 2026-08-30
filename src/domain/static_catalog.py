@@ -73,6 +73,16 @@ class CatalogReference:
 
 
 @dataclass(frozen=True, slots=True)
+class CatalogLink:
+    """Typed cross-domain navigation independent of any catalog feature."""
+
+    domain_key: str
+    record_id: str
+    relation_kind: str = "related"
+    anchor: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class CatalogSection:
     title: str
     fields: tuple[CatalogField, ...]

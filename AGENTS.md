@@ -53,7 +53,7 @@
 - Windows 10/11、Python 3.11、PySide6；入口 `main.py`，GUI 组合根 `src/ui/app.py`。
 - 依赖唯一来源为 `pyproject.toml`，锁文件为 `uv.lock`；版本唯一来源为
   `src/app/version.py::__version__`。
-- 当前 schema：发行静态 v29、公共共享 v2、账号私有 v38。升级时同步常量、追加迁移、测试和本文件。
+- 当前 schema：发行静态 v30、公共共享 v2、账号私有 v38。升级时同步常量、追加迁移、测试和本文件。
 - 质量入口：`tools/quality/run_tests.py`；`core` 覆盖关键边界，`full` 执行全量 unittest 发现。
 
 依赖方向：

@@ -22,7 +22,7 @@ try:
         write_static_manifest,
     )
 except ImportError:  # 支持直接运行
-    from static_database_build_support import (  # type: ignore[no-redef]
+    from static_database_build_support import (
         IMPORTER_VERSION,
         SCHEMA_VERSION,
         write_static_manifest,
@@ -34,10 +34,51 @@ DEFAULT_TARGET_DIR = ROOT / "data"
 DATABASE_FILENAME = "game_static.sqlite3"
 MANIFEST_FILENAME = "manifest.json"
 REPORT_RELATIVE_PATH = Path("report") / "static_database_report.json"
+MIB_BYTES = 1024 * 1024
+DATABASE_WARNING_BYTES = 95 * MIB_BYTES
+DATABASE_REPOSITORY_BUDGET_BYTES = 96 * MIB_BYTES
+DATABASE_HARD_LIMIT_BYTES = 100 * MIB_BYTES
+SIZE_MANIFEST_REQUIRED_SCHEMA_VERSION = 30
 
 
 class StaticReleasePromotionError(RuntimeError):
     """候选静态库不满足发行晋升条件。"""
+
+
+def format_size(size_bytes: int) -> str:
+    """同时显示无歧义的字节数和二进制 MiB。"""
+
+    return f"{size_bytes} bytes ({size_bytes / MIB_BYTES:.2f} MiB)"
+
+
+def validate_database_size(
+    size_bytes: int,
+    *,
+    allow_size_warning: bool = False,
+    repository_bound: bool = True,
+) -> None:
+    """执行项目体积预算与 GitHub 100 MiB 单文件硬边界。"""
+
+    if size_bytes >= DATABASE_HARD_LIMIT_BYTES:
+        raise StaticReleasePromotionError(
+            "发行静态数据库达到 GitHub 单文件永久硬上限："
+            f"实际={format_size(size_bytes)}，"
+            f"上限<{format_size(DATABASE_HARD_LIMIT_BYTES)}"
+        )
+    if repository_bound and size_bytes > DATABASE_REPOSITORY_BUDGET_BYTES:
+        raise StaticReleasePromotionError(
+            "发行静态数据库超过仓库绝对预算："
+            f"实际={format_size(size_bytes)}，"
+            f"预算<={format_size(DATABASE_REPOSITORY_BUDGET_BYTES)}；"
+            "请改为 Release 分发或拆分只读库"
+        )
+    if size_bytes >= DATABASE_WARNING_BYTES and not allow_size_warning:
+        raise StaticReleasePromotionError(
+            "发行静态数据库达到默认阻断边界："
+            f"实际={format_size(size_bytes)}，"
+            f"边界={format_size(DATABASE_WARNING_BYTES)}；"
+            "审计增量后可显式使用 --allow-size-warning"
+        )
 
 
 def sha256(path: Path) -> str:
@@ -173,13 +214,31 @@ def validate_manifest(
     build_tool = manifest.get("build_tool")
     if not isinstance(database, dict) or not isinstance(build_tool, dict):
         raise StaticReleasePromotionError("候选 manifest 缺少 database/build_tool")
+    recorded_size = database.get("size_bytes")
+    if recorded_size is not None and (
+        isinstance(recorded_size, bool) or not isinstance(recorded_size, int)
+    ):
+        raise StaticReleasePromotionError(
+            "候选 manifest 的 database.size_bytes 必须是整数"
+        )
     expected = {
         "filename": DATABASE_FILENAME,
         "dataset_id": summary["dataset_id"],
         "schema_version": summary["schema_version"],
+        "size_bytes": database_path.stat().st_size,
         "sha256": sha256(database_path),
         "source_payloads_omitted": True,
     }
+    if (
+        summary["schema_version"] < SIZE_MANIFEST_REQUIRED_SCHEMA_VERSION
+        and recorded_size is None
+    ):
+        expected.pop("size_bytes")
+    if (
+        summary["schema_version"] >= SIZE_MANIFEST_REQUIRED_SCHEMA_VERSION
+        and recorded_size is None
+    ):
+        raise StaticReleasePromotionError("候选 manifest 缺少 database.size_bytes")
     actual = {key: database.get(key) for key in expected}
     actual["sha256"] = str(actual.get("sha256") or "").upper()
     if actual != expected:
@@ -239,6 +298,17 @@ def refresh_final_report(
         "finalized_at_utc": finalized_at,
         "database_path": str(database_path.resolve()),
         "database_sha256": sha256(database_path).lower(),
+        "database_size_bytes": database_path.stat().st_size,
+        "database_size_mib": round(database_path.stat().st_size / MIB_BYTES, 2),
+        "size_thresholds_bytes": {
+            "default_block": DATABASE_WARNING_BYTES,
+            "repository_budget": DATABASE_REPOSITORY_BUDGET_BYTES,
+            "permanent_hard_limit": DATABASE_HARD_LIMIT_BYTES,
+        },
+        "localization_storage_policy": {
+            "included": ["localization_keys", "current_language_projection"],
+            "excluded": ["full_multilingual_source_payloads"],
+        },
         "source_payloads_included": False,
         "database_counts": counts,
         "foreign_key_violations": [],
@@ -255,6 +325,10 @@ def refresh_final_report(
         "",
         f"数据库 SHA-256：`{report['database_sha256'].upper()}`。",
         "",
+        f"数据库大小：`{format_size(report['database_size_bytes'])}`。",
+        "",
+        "本地化只保留键与当前语言投影；完整多语言原始 payload 不进入发行库。",
+        "",
         "## 数据库数量",
         "",
     ]
@@ -263,14 +337,49 @@ def refresh_final_report(
     return report
 
 
-def finalize_candidate(
+def validate_final_report(
+    database_path: Path,
+    report_path: Path,
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate existing final evidence without rewriting candidate files."""
+
+    report = _read_json_object(report_path, "候选最终报告")
+    with closing(_readonly_connection(database_path)) as connection:
+        counts = _table_counts(connection)
+    expected = {
+        "schema_version": summary["schema_version"],
+        "dataset_id": summary["dataset_id"],
+        "built_at_utc": summary["built_at_utc"],
+        "database_path": str(database_path.resolve()),
+        "database_sha256": sha256(database_path).lower(),
+        "database_size_bytes": database_path.stat().st_size,
+        "database_size_mib": round(database_path.stat().st_size / MIB_BYTES, 2),
+        "source_payloads_included": False,
+        "database_counts": counts,
+        "foreign_key_violations": [],
+    }
+    actual = {key: report.get(key) for key in expected}
+    if actual != expected:
+        raise StaticReleasePromotionError(
+            f"候选最终报告与数据库不一致：报告={actual}，实际={expected}"
+        )
+    finalized_at = report.get("finalized_at_utc")
+    if not isinstance(finalized_at, str) or not finalized_at.strip():
+        raise StaticReleasePromotionError("候选最终报告缺少 finalized_at_utc")
+    if not report_path.with_suffix(".md").is_file():
+        raise StaticReleasePromotionError("候选最终报告缺少 Markdown 审计副本")
+    return report
+
+
+def _validate_candidate_database(
     candidate_dir: Path,
     local_config_path: Path,
+    *,
+    allow_size_warning: bool,
 ) -> dict[str, Any]:
     candidate_dir = candidate_dir.expanduser().resolve()
     database_path = candidate_dir / DATABASE_FILENAME
-    manifest_path = candidate_dir / MANIFEST_FILENAME
-    report_path = candidate_dir / REPORT_RELATIVE_PATH
     config = load_local_config(local_config_path)
     content_root = Path(str(config["official_content_root"])).expanduser().resolve()
     if not content_root.is_dir():
@@ -278,6 +387,11 @@ def finalize_candidate(
     if not database_path.is_file():
         raise StaticReleasePromotionError(f"发行候选数据库不存在：{database_path}")
 
+    database_size = database_path.stat().st_size
+    validate_database_size(
+        database_size,
+        allow_size_warning=allow_size_warning,
+    )
     summary = _database_summary(database_path)
     configured_dataset = str(config["dataset_id"])
     if summary["dataset_id"] != configured_dataset:
@@ -295,9 +409,35 @@ def finalize_candidate(
             f"候选={summary['importer_version']}，代码={IMPORTER_VERSION}"
         )
     validate_source_files(summary["source_files"], content_root)
+    return {
+        "candidate_dir": candidate_dir,
+        "database_path": database_path,
+        "manifest_path": candidate_dir / MANIFEST_FILENAME,
+        "report_path": candidate_dir / REPORT_RELATIVE_PATH,
+        "summary": summary,
+        "database_size_bytes": database_size,
+    }
+
+
+def finalize_candidate(
+    candidate_dir: Path,
+    local_config_path: Path,
+    *,
+    allow_size_warning: bool = False,
+) -> dict[str, Any]:
+    candidate = _validate_candidate_database(
+        candidate_dir,
+        local_config_path,
+        allow_size_warning=allow_size_warning,
+    )
+    database_path = Path(candidate["database_path"])
+    manifest_path = Path(candidate["manifest_path"])
+    report_path = Path(candidate["report_path"])
+    summary = dict(candidate["summary"])
     _write_manifest_atomic(database_path, manifest_path)
     manifest = validate_manifest(database_path, manifest_path, summary)
-    report = refresh_final_report(database_path, report_path, summary)
+    refresh_final_report(database_path, report_path, summary)
+    report = validate_final_report(database_path, report_path, summary)
     return {
         "database_path": database_path,
         "manifest_path": manifest_path,
@@ -305,6 +445,40 @@ def finalize_candidate(
         "summary": summary,
         "manifest": manifest,
         "report": report,
+        "database_size_bytes": candidate["database_size_bytes"],
+    }
+
+
+def verify_candidate(
+    candidate_dir: Path,
+    local_config_path: Path,
+    *,
+    allow_size_warning: bool = False,
+) -> dict[str, Any]:
+    """Fully verify an already finalized candidate without filesystem writes."""
+
+    candidate = _validate_candidate_database(
+        candidate_dir,
+        local_config_path,
+        allow_size_warning=allow_size_warning,
+    )
+    database_path = Path(candidate["database_path"])
+    manifest_path = Path(candidate["manifest_path"])
+    report_path = Path(candidate["report_path"])
+    summary = dict(candidate["summary"])
+    validate_manifest(database_path, manifest_path, summary)
+    validate_final_report(database_path, report_path, summary)
+    return {
+        "verified": True,
+        "dataset_id": summary["dataset_id"],
+        "schema_version": summary["schema_version"],
+        "importer_version": summary["importer_version"],
+        "source_file_count": len(summary["source_files"]),
+        "database_sha256": sha256(database_path),
+        "database_size_bytes": candidate["database_size_bytes"],
+        "candidate_database": str(database_path),
+        "candidate_manifest": str(manifest_path),
+        "final_report": str(report_path),
     }
 
 
@@ -320,16 +494,25 @@ def promote_candidate(
     candidate_dir: Path,
     local_config_path: Path,
     target_dir: Path = DEFAULT_TARGET_DIR,
+    *,
+    allow_size_warning: bool = False,
 ) -> dict[str, Any]:
-    finalized = finalize_candidate(candidate_dir, local_config_path)
+    resolved_candidate_dir = candidate_dir.expanduser().resolve()
+    target_dir = target_dir.expanduser().resolve()
+    if resolved_candidate_dir == target_dir:
+        raise StaticReleasePromotionError("候选目录不得与正式发行目录相同")
+    finalized = finalize_candidate(
+        resolved_candidate_dir,
+        local_config_path,
+        allow_size_warning=allow_size_warning,
+    )
     source_database = Path(finalized["database_path"])
     source_manifest = Path(finalized["manifest_path"])
-    target_dir = target_dir.expanduser().resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     target_database = target_dir / DATABASE_FILENAME
     target_manifest = target_dir / MANIFEST_FILENAME
     if source_database == target_database or source_manifest == target_manifest:
-        raise StaticReleasePromotionError("候选目录不得与正式发行目录相同")
+        raise StaticReleasePromotionError("候选产物不得与正式发行产物相同")
 
     pending_database = _temporary_path(target_dir, DATABASE_FILENAME, "pending")
     pending_manifest = _temporary_path(target_dir, MANIFEST_FILENAME, "pending")
@@ -385,6 +568,7 @@ def promote_candidate(
         "importer_version": finalized["summary"]["importer_version"],
         "source_file_count": len(finalized["summary"]["source_files"]),
         "database_sha256": expected_hash,
+        "database_size_bytes": finalized["database_size_bytes"],
         "target_database": str(target_database),
         "target_manifest": str(target_manifest),
         "final_report": str(finalized["report_path"]),
@@ -411,17 +595,65 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_TARGET_DIR,
         help="正式发行目录；默认是仓库 data 目录",
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--finalize-only",
+        action="store_true",
+        help="只最终化候选 manifest 和报告；不替换正式 data 产物",
+    )
+    mode.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="只读预检已最终化候选；不改写候选，也不替换正式 data 产物",
+    )
+    parser.add_argument(
+        "--allow-size-warning",
+        action="store_true",
+        help=(
+            "显式放行 95 MiB（99614720 bytes）至 96 MiB "
+            "（100663296 bytes）的已审计数据库；"
+            "不覆盖项目仓库预算或 GitHub 100 MiB 单文件硬上限"
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        result = promote_candidate(
-            args.candidate_dir,
-            args.local_config,
-            args.target_dir,
-        )
+        if args.finalize_only:
+            finalized = finalize_candidate(
+                args.candidate_dir,
+                args.local_config,
+                allow_size_warning=args.allow_size_warning,
+            )
+            summary = dict(finalized["summary"])
+            database_path = Path(finalized["database_path"])
+            result = {
+                "finalized": True,
+                "dataset_id": summary["dataset_id"],
+                "schema_version": summary["schema_version"],
+                "importer_version": summary["importer_version"],
+                "source_file_count": len(summary["source_files"]),
+                "database_sha256": sha256(database_path),
+                "database_size_bytes": finalized["database_size_bytes"],
+                "candidate_database": str(database_path),
+                "candidate_manifest": str(finalized["manifest_path"]),
+                "final_report": str(finalized["report_path"]),
+            }
+        elif args.verify_only:
+            result = verify_candidate(
+                args.candidate_dir,
+                args.local_config,
+                allow_size_warning=args.allow_size_warning,
+            )
+        else:
+            result = promote_candidate(
+                args.candidate_dir,
+                args.local_config,
+                args.target_dir,
+                allow_size_warning=args.allow_size_warning,
+            )
     except (OSError, sqlite3.Error, StaticReleasePromotionError) as exc:
         print(f"[失败] {exc}")
         return 1

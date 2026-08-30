@@ -26,6 +26,7 @@ from src.features.static_catalog.page import (
     StaticCatalogDomainPageSpec,
     StaticCatalogPage,
 )
+from src.services.static_catalog_mechanics_service import CatalogLink
 
 
 def _domains() -> tuple[CatalogDomain, ...]:
@@ -49,8 +50,8 @@ class _Controller:
             release=StaticCatalogRelease(
                 database_path=Path("data/game_static.sqlite3").resolve(),
                 dataset_id="menu-test",
-                schema_version=29,
-                importer_version=34,
+                schema_version=30,
+                importer_version=35,
                 built_at_utc="2026-08-30T00:00:00Z",
                 source_payloads_omitted=True,
             ),
@@ -79,7 +80,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         cls.asset_root = Path("assets/game_ui").resolve()
 
-    def test_menu_exposes_only_the_eight_player_facing_entries(self) -> None:
+    def test_menu_exposes_only_the_five_player_facing_entries(self) -> None:
         menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)
         menu.set_domains(_domains())
         self.app.processEvents()
@@ -92,7 +93,28 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         self.assertNotIn("staticCatalogMenuCard_assets", object_names)
         self.assertNotIn("staticCatalogMenuCard_sources", object_names)
         self.assertIn("staticCatalogMenuCard_character", object_names)
-        self.assertIn("staticCatalogMenuCard_counterfactual_models", object_names)
+        self.assertIn("staticCatalogMenuCard_combat_mechanics", object_names)
+        menu.deleteLater()
+
+    def test_menu_reflows_to_one_column_without_a_narrow_horizontal_grid(self) -> None:
+        menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)
+        menu.resize(600, 800)
+        menu.set_domains(_domains())
+        menu.show()
+        self.app.processEvents()
+
+        self.assertEqual(1, menu._columns)
+        for grid, cards in menu._group_cards:
+            for index, _card in enumerate(cards):
+                _row, column, _row_span, _column_span = grid.getItemPosition(index)
+                self.assertEqual(0, column)
+
+        menu.resize(900, 800)
+        self.app.processEvents()
+        self.assertEqual(2, menu._columns)
+        two_card_grid, _cards = menu._group_cards[0]
+        self.assertEqual(0, two_card_grid.getItemPosition(0)[1])
+        self.assertEqual(1, two_card_grid.getItemPosition(1)[1])
         menu.deleteLater()
 
     def test_page_starts_on_menu_and_opens_only_the_selected_domain(self) -> None:
@@ -157,6 +179,118 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         page.close()
         page.close()
         self.assertEqual([True], closed)
+        owner.deleteLater()
+
+    def test_registered_domain_is_available_without_legacy_provider_and_routes_links(self) -> None:
+        class ProviderOnlyController(_Controller):
+            def refresh_release(self) -> StaticCatalogRequest:
+                request = super().refresh_release()
+                return StaticCatalogRequest(
+                    release=request.release,
+                    domains=(CatalogDomain("coverage", "覆盖总览", "", 0),),
+                )
+
+        class MechanicsPage(QWidget):
+            def __init__(self, parent: QWidget) -> None:
+                super().__init__(parent)
+                self.opened: list[str] = []
+
+            def open_record(self, record_id: str) -> None:
+                self.opened.append(record_id)
+
+        owner = QWidget()
+        refreshed: list[bool] = []
+        mechanics: list[MechanicsPage] = []
+
+        def build_mechanics(parent: QWidget) -> QWidget:
+            widget = MechanicsPage(parent)
+            mechanics.append(widget)
+            return widget
+
+        page = StaticCatalogPage(
+            controller=cast(Any, ProviderOnlyController()),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(StaticCatalogDomainPageSpec(
+                domain_key="combat_mechanics",
+                title="战斗机制图鉴",
+                build=build_mechanics,
+                close=lambda: None,
+                refresh=lambda: refreshed.append(True),
+            ),),
+        )
+        page.build()
+
+        self.assertIn("combat_mechanics", page._domain_labels)
+        self.assertEqual([True], refreshed)
+        page.open_catalog_link(CatalogLink(
+            "combat_mechanics", "formula|defense", "formula",
+        ))
+        self.assertEqual(["formula|defense"], mechanics[0].opened)
+        page.close()
+        owner.deleteLater()
+
+    def test_dedicated_page_build_failure_returns_to_menu(self) -> None:
+        controller = _Controller()
+        owner = QWidget()
+        errors: list[tuple[str, str]] = []
+
+        def fail_build(_parent: QWidget) -> QWidget:
+            raise RuntimeError("broken dedicated page")
+
+        page = StaticCatalogPage(
+            controller=cast(Any, controller),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(StaticCatalogDomainPageSpec(
+                domain_key="character",
+                title="角色图鉴",
+                build=fail_build,
+                close=lambda: None,
+            ),),
+        )
+        page._show_error = lambda title, error: errors.append((title, str(error)))
+        page.build()
+
+        page._open_domain("character")
+        self.app.processEvents()
+
+        self.assertEqual(0, page._stack.currentIndex())
+        self.assertNotIn("character", page._domain_pages)
+        self.assertEqual([("无法打开角色图鉴", "broken dedicated page")], errors)
+        page.close()
+        owner.deleteLater()
+
+    def test_close_attempts_every_owner_when_earlier_close_fails(self) -> None:
+        class FailingController(_Controller):
+            def close(self) -> None:
+                raise RuntimeError("controller close failed")
+
+        closed: list[str] = []
+
+        def fail_first() -> None:
+            closed.append("first")
+            raise RuntimeError("first spec close failed")
+
+        owner = QWidget()
+        page = StaticCatalogPage(
+            controller=cast(Any, FailingController()),
+            dialog_parent=owner,
+            game_ui_asset_root=self.asset_root,
+            domain_pages=(
+                StaticCatalogDomainPageSpec(
+                    "character", "角色图鉴", QWidget, fail_first,
+                ),
+                StaticCatalogDomainPageSpec(
+                    "fork", "弧盘图鉴", QWidget,
+                    lambda: closed.append("second"),
+                ),
+            ),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "2 个组件失败"):
+            page.close()
+        self.assertEqual(["first", "second"], closed)
         owner.deleteLater()
 
 

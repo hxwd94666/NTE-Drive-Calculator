@@ -158,7 +158,7 @@ _FIELD_LABELS = {
     "reference_score": "参考分",
     "fork_id": "弧盘 ID",
     "fork_level": "弧盘等级",
-    "fork_refinement_level": "弧盘精炼",
+    "fork_refinement_level": "弧盘混频",
     "core_suit_id": "套装 ID",
     "core_main_property_id": "卡带主词条 ID",
     "drive_area": "驱动面积",

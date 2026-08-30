@@ -3,15 +3,23 @@ from __future__ import annotations
 
 import sqlite3
 import unittest
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from src.domain.static_catalog_terminology import LocalizedTermRecord
 from src.services.static_catalog_monster_service import (
     CatalogFilter,
     FORMULA,
     OFFICIAL,
     UNAVAILABLE,
     StaticCatalogMonsterService,
+)
+from src.services.static_catalog_mechanics_service import (
+    StaticCatalogMechanicsService,
+)
+from src.services.static_catalog_terminology_service import (
+    StaticCatalogTerminologyService,
 )
 from src.storage.sqlite.static_catalog_monster_queries import (
     StaticCatalogMonsterQueries,
@@ -23,10 +31,59 @@ STATIC_DATABASE = PROJECT_ROOT / "data" / "game_static.sqlite3"
 MAINLAND_SNAPSHOT = datetime(2026, 8, 30, 12, 0, 0)
 
 
+class _MonsterTerminologySource:
+    def lookup_localized_term(
+        self,
+        entity_kind: str,
+        stable_id: str,
+        *,
+        context: str | None,
+    ) -> LocalizedTermRecord | None:
+        if entity_kind == "outer_realm_fight_stage":
+            names = {
+                "EAbyssFightStage::FirstHalf": "上半场",
+                "EAbyssFightStage::SecondHalf": "下半场",
+            }
+            name = names.get(stable_id)
+            return (
+                LocalizedTermRecord(
+                    entity_kind=entity_kind,
+                    canonical_id=stable_id,
+                    names={"zh-CN": name},
+                    source_kind="ui_state",
+                )
+                if name is not None
+                else None
+            )
+        if entity_kind == "damage_resistance":
+            return LocalizedTermRecord(
+                entity_kind=entity_kind,
+                canonical_id=stable_id,
+                names={} if stable_id == "normal" else {"zh-CN": "中央抗性名称"},
+                source_kind=(
+                    "name_missing" if stable_id == "normal" else "formal_localization"
+                ),
+            )
+        if entity_kind in {"equipment_attribute", "item"}:
+            return LocalizedTermRecord(
+                entity_kind=entity_kind,
+                canonical_id=stable_id,
+                names={"zh-CN": "中央正式名称"},
+            )
+        return None
+
+    def list_fork_campaigns(self):
+        return ()
+
+
 class StaticCatalogMonsterDomainTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.terminology = StaticCatalogTerminologyService(
+            _MonsterTerminologySource()
+        )
         self.service = StaticCatalogMonsterService.from_database(
             STATIC_DATABASE,
+            terminology_service=self.terminology,
             mainland_now=MAINLAND_SNAPSHOT,
         )
 
@@ -96,7 +153,7 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             if value.label == "攻击档"
         )
         self.assertEqual(UNAVAILABLE, attack_tier.provenance)
-        self.assertIn("schema v29", attack_tier.value)
+        self.assertIn("schema v30", attack_tier.value)
 
     def test_profile_to_gameplay_jump_uses_exact_official_reference(self):
         profile = self.service.list_entries(CatalogFilter(
@@ -164,6 +221,150 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             if value.label == "类目"
         )
         self.assertEqual(UNAVAILABLE, category.provenance)
+
+    def test_player_terms_are_projected_without_overwriting_raw_facts(self):
+        feast = self._page("feast").items[0]
+        detail = self.service.get_detail(feast.key)
+        options = next(
+            section for section in detail.sections
+            if section.title == "官方加成选项"
+        )
+        visible_options = [
+            value for value in options.values if "路径" not in value.label
+        ]
+        self.assertTrue(all(value.display_label for value in visible_options))
+        self.assertTrue(all(value.display_value for value in visible_options))
+        self.assertTrue(all(
+            "attack_up" not in value.display_value
+            and "resistance_up" not in value.display_value
+            and "effect_kind" not in value.value
+            for value in visible_options
+        ))
+
+        outer = self._page("outer_realm").items[0]
+        self.assertIn(outer.secondary_label, {"上半场", "下半场"})
+
+        profile = next(
+            self.service.get_detail(relation.target_key)
+            for relation in detail.relations
+            if relation.target_key.startswith("profile_monster|")
+        )
+        resistances = [
+            value
+            for section in profile.sections
+            for value in section.values
+            if value.label.startswith("抗性 ")
+        ]
+        self.assertTrue(resistances)
+        self.assertTrue(all(value.display_label for value in resistances))
+        self.assertTrue(all("_" not in value.display_label for value in resistances))
+
+    def test_witch_blessings_are_complete_choices_with_typed_mechanism_links(self):
+        blessings = self.service.list_witch_blessings()
+        self.assertEqual(7, len(blessings))
+        details = tuple(self.service.get_detail(entry.key) for entry in blessings)
+        self.assertTrue(all(detail is not None for detail in details))
+        values = tuple(
+            detail.sections[0].values[0]
+            for detail in details
+            if detail is not None
+        )
+        self.assertTrue(all(value.catalog_link is not None for value in values))
+        self.assertTrue(all(
+            value.catalog_link.domain_key == "combat_mechanics"
+            for value in values
+            if value.catalog_link is not None
+        ))
+        self.assertTrue(all("<" not in detail.sections[0].note for detail in details))
+
+    def test_outer_season_buffs_expose_two_seasons_and_four_components(self):
+        details = tuple(
+            self.service.get_detail(f"outer_buff|Abyss_{ordinal}")
+            for ordinal in (8, 9)
+        )
+        self.assertTrue(all(detail is not None for detail in details))
+        components = tuple(
+            value
+            for detail in details
+            if detail is not None
+            for value in detail.sections[0].values
+        )
+        self.assertEqual(4, len(components))
+        self.assertTrue(all(value.catalog_link is not None for value in components))
+        self.assertTrue(all("trigger_" not in value.display_value for value in components))
+
+    def test_every_clone_difficulty_has_an_honest_drop_projection_status(self):
+        self.assertEqual(
+            {"complete": 122, "partial": 36, "unavailable": 60},
+            self.service.clone_drop_status_counts(),
+        )
+        entries = []
+        offset = 0
+        while True:
+            page = self.service.list_entries(CatalogFilter(
+                play_mode="clone", page_size=200, offset=offset,
+            ))
+            entries.extend(page.items)
+            if not page.has_more:
+                break
+            offset += len(page.items)
+        statuses = Counter()
+        for entry in entries:
+            detail = self.service.get_detail(entry.key)
+            drops = next(
+                section for section in detail.sections
+                if section.title == "正式掉落"
+            )
+            statuses[drops.values[0].value] += 1
+            self.assertNotIn("掉落 ID", tuple(
+                value.label for section in detail.sections for value in section.values
+            ))
+        self.assertEqual(self.service.clone_drop_status_counts(), dict(statuses))
+
+    def test_gameplay_buffs_link_to_resolvable_public_mechanics_records(self):
+        feast_entries = self.service.list_entries(CatalogFilter(
+            play_mode="feast", page_size=200,
+        )).items
+        representatives = {
+            entry.primary_id: entry for entry in reversed(feast_entries)
+        }
+        option_values = tuple(
+            value
+            for entry in representatives.values()
+            for section in self.service.get_detail(entry.key).sections
+            if section.title == "官方加成选项"
+            for value in section.values
+        )
+        links = tuple(
+            value.catalog_link for value in option_values
+            if value.catalog_link is not None
+        )
+        unlinked = tuple(
+            value for value in option_values if value.catalog_link is None
+        )
+        self.assertEqual(144, len(option_values))
+        self.assertEqual(120, len(links))
+        self.assertEqual(24, len(unlinked))
+        self.assertTrue(all(
+            value.note == "挑战时间规则不属于 Buff 乘区。"
+            for value in unlinked
+        ))
+        witch_links = tuple(
+            self.service.get_detail(entry.key).sections[0].values[0].catalog_link
+            for entry in self.service.list_witch_blessings()
+        )
+        outer_links = tuple(
+            value.catalog_link
+            for ordinal in (8, 9)
+            for value in self.service.get_detail(
+                f"outer_buff|Abyss_{ordinal}"
+            ).sections[0].values
+        )
+        mechanics = StaticCatalogMechanicsService(STATIC_DATABASE)
+        for link in dict.fromkeys((*links, *witch_links, *outer_links)):
+            self.assertIsNotNone(link)
+            resolved = mechanics.detail(link.record_id)
+            self.assertEqual(link.record_id, resolved.record_id)
 
 
 if __name__ == "__main__":

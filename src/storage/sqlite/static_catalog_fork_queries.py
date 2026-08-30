@@ -457,7 +457,7 @@ class StaticCatalogForkDao(StaticGameDataDao):
         )
 
     def list_fork_gameplay_abilities(self, fork_id: str) -> list[dict[str, Any]]:
-        """Return only exact asset-path GA relations; schema v29 normally has none."""
+        """Return only exact asset-path GA relations; schema v30 normally has none."""
 
         return self._rows(
             """

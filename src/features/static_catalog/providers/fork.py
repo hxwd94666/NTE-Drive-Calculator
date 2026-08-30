@@ -34,7 +34,7 @@ from src.services.static_catalog_fork_service import (
 FORK_DOMAIN = CatalogDomain(
     key="fork",
     label="弧盘数据",
-    description="升级经验与面板、突破消耗、精炼技能、Buff、资源和角色关系",
+    description="升级经验与面板、突破消耗、混频技能、Buff 和角色关系",
     order=20,
 )
 
@@ -117,7 +117,7 @@ class ForkCatalogProvider:
         subtitle = (
             f"{summary.quality} · {summary.fork_type_name_zh or summary.raw_group_type or '未分类'}"
             f" · 突破 {summary.max_breakthrough if summary.max_breakthrough is not None else '未知'}"
-            f" · 精炼 {summary.max_refinement if summary.max_refinement is not None else '未知'}"
+            f" · 混频 {summary.max_refinement if summary.max_refinement is not None else '未知'}"
         )
         return CatalogItem(
             domain_key=FORK_DOMAIN.key,
@@ -139,7 +139,7 @@ class ForkCatalogProvider:
                 official("说明", item.description_zh),
                 official("升级包", detail.upgrade_pack_id, copyable=True),
                 official("突破包", detail.breakthrough_pack_id, copyable=True),
-                official("精炼包", detail.star_pack_id, copyable=True),
+                official("混频数据包", detail.star_pack_id, copyable=True),
                 official("名称文本键", f"{detail.name_text_table or '未保留'}:{detail.name_text_key or '未保留'}"),
             ),
         )
@@ -151,12 +151,12 @@ class ForkCatalogProvider:
             fields=(
                 derived("等级成长行", len(detail.growth_levels)),
                 derived("突破阶段", len(detail.breakthroughs)),
-                derived("精炼等级", len(detail.refinement_levels)),
+                derived("混频等级", len(detail.refinement_levels)),
                 derived("Buff 定义", len(detail.buff_definitions)),
                 derived(
                     "独立弧盘技能表",
                     "available" if bool(getattr(metadata, "has_fork_skill_tables"))
-                    else "unavailable：schema v29 没有 fork_skill / fork_skill_level；以精炼 1–5 级描述、参数和 Buff 展示技能",
+                    else "unavailable：schema v30 没有 fork_skill / fork_skill_level；以混频 1–5 级描述、参数和 Buff 展示技能",
                 ),
                 derived(
                     "原始 source_row payload",
@@ -201,7 +201,7 @@ class ForkCatalogProvider:
             ) or "无面板修改"
             fields.append(official(
                 f"阶段 {row.stage} · 上限 Lv.{row.max_fork_level}",
-                f"材料：{item_costs}；金币：{gold_costs}；面板：{modifiers}",
+                f"材料：{item_costs}；方斯：{gold_costs}；面板：{modifiers}",
             ))
         for state in detail.critical_level_states:
             fields.append(derived(
@@ -216,22 +216,22 @@ class ForkCatalogProvider:
     @staticmethod
     def _refinements(detail: ForkCatalogDetail) -> CatalogSection:
         return CatalogSection(
-            title="弧盘技能 / 精炼 1–5 级",
+            title="弧盘技能 / 混频 1–5 级",
             fields=tuple(
                 official(
-                    f"精炼 {row.level} · {row.title_zh or '未保留标题'}",
+                    f"混频 {row.level} · {row.title_zh or '未保留标题'}",
                     lines([
                         row.description_zh or "无正式说明",
                         "参数：" + (", ".join(
                             f"{parameter.name_id}={parameter.display_value}"
                             for parameter in row.parameters
                         ) or "无"),
-                        "金币字段：" + (row.need_gold_raw or "空"),
+                        "方斯字段：" + (row.need_gold_raw or "空"),
                         "Buff：" + (", ".join(row.buff_asset_paths) or "无"),
                     ]),
                 )
                 for row in detail.refinement_levels
-            ) or (derived("精炼技能", "unavailable：没有精炼等级行"),),
+            ) or (derived("混频技能", "unavailable：没有混频等级行"),),
         )
 
     @staticmethod
@@ -259,11 +259,11 @@ class ForkCatalogProvider:
                 ) or "无"),
             ]
             fields.append(official(
-                f"精炼 {buff.refinement_level} · {buff.definition_id or buff.asset_path}",
+                f"混频 {buff.refinement_level} · {buff.definition_id or buff.asset_path}",
                 lines(values),
                 copyable=True,
             ) if source is CatalogValueSource.OFFICIAL_STATIC else annotation(
-                f"精炼 {buff.refinement_level} · 未导入目标",
+                f"混频 {buff.refinement_level} · 未导入目标",
                 lines(values),
                 copyable=True,
             ))
