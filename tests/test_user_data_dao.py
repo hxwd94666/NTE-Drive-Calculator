@@ -14,6 +14,7 @@ from src.storage.sqlite.user_data_dao import (
     UserDataError,
     UserDataValidationError,
 )
+from tests.user_data_migration_helpers import drop_battle_axis_v23
 
 
 def stat(property_id: str, value: float, percent: bool = False) -> dict:
@@ -170,6 +171,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
             self.assertEqual(SCHEMA_VERSION, initialized.summary()["schema_version"])
 
         connection = sqlite3.connect(legacy_path)
+        drop_battle_axis_v23(connection)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
         drop_inventory_runtime_state_v21(connection)
@@ -215,6 +217,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
             pass
 
         connection = sqlite3.connect(legacy_path)
+        drop_battle_axis_v23(connection)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
         drop_inventory_runtime_state_v21(connection)
@@ -287,12 +290,12 @@ class UserDataDaoSettingsTests(unittest.TestCase):
             awakening_level=3,
             fork_id="fork_example",
             fork_level=80,
+            fork_breakthrough_stage=6,
             fork_refinement_level=1,
             selected_skill_id="Skill1",
             skill_levels={"Skill1": 10, "UltraSkill": 8},
             ordinal=0,
         )
-
         self.assertEqual(1051, saved["character_id"])
         self.assertEqual("fork_example", saved["fork_id"])
         self.assertEqual({"Skill1": 10, "UltraSkill": 8}, saved["skill_levels"])
@@ -312,6 +315,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 awakening_level=3,
                 fork_id="fork_example",
                 fork_level=80,
+                fork_breakthrough_stage=6,
                 fork_refinement_level=1,
                 selected_skill_id="Skill1",
                 skill_levels={"Skill1": 10},
@@ -443,6 +447,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 characters=[],
             )
         connection = sqlite3.connect(legacy_path)
+        drop_battle_axis_v23(connection)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
         drop_inventory_runtime_state_v21(connection)
@@ -487,6 +492,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 ],
             )
         connection = sqlite3.connect(legacy_path)
+        drop_battle_axis_v23(connection)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
         drop_inventory_runtime_state_v21(connection)
@@ -542,6 +548,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 ],
             )
         connection = sqlite3.connect(legacy_path)
+        drop_battle_axis_v23(connection)
         connection.execute(
             "ALTER TABLE optimization_preference_substat_behavior "
             "DROP COLUMN blacklist_zero_weight"
@@ -560,6 +567,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         with UserDataDao(legacy_path, account_id="legacy"):
             pass
         connection = sqlite3.connect(legacy_path)
+        drop_battle_axis_v23(connection)
         connection.execute("DROP TABLE optimization_preference_substat_behavior")
         connection.execute("DELETE FROM schema_migration WHERE version >= 22")
         connection.commit()
@@ -580,6 +588,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         with UserDataDao(legacy_path, account_id="legacy") as initialized:
             self.assertEqual(SCHEMA_VERSION, initialized.summary()["schema_version"])
         connection = sqlite3.connect(legacy_path)
+        drop_battle_axis_v23(connection)
         drop_role_loadout_slots_v15(connection)
         drop_battle_report_v13(connection)
         drop_inventory_runtime_state_v21(connection)
@@ -607,6 +616,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
                 awakening_level=6,
                 fork_id=None,
                 fork_level=None,
+                fork_breakthrough_stage=None,
                 fork_refinement_level=None,
                 selected_skill_id="Skill1",
                 skill_levels={},
@@ -786,6 +796,3 @@ class UserDataDaoSettingsTests(unittest.TestCase):
         self.assertEqual(
             "global_optimal", profile["version"]["allocation_strategy"],
         )
-
-if __name__ == "__main__":
-    unittest.main()

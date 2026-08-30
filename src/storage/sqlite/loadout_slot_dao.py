@@ -103,9 +103,15 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
             ORDER BY character_id, sort_order, slot_id
             """,
         )
+        plans = {
+            int(plan["plan_id"]): plan
+            for plan in self.get_loadout_plans(
+                [int(slot["current_plan_id"]) for slot in slots]
+            )
+        }
         results: list[dict[str, Any]] = []
         for slot in slots:
-            plan = self.get_loadout_plan(int(slot["current_plan_id"]))
+            plan = plans.get(int(slot["current_plan_id"]))
             if plan is None:
                 continue
             slot["is_archived"] = bool(slot["is_archived"])

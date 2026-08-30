@@ -16,8 +16,11 @@ class OfficialRoleProfileUpdate:
     character_level: int
     breakthrough_stage: int
     awakening_level: int
+    selected_awaken_effect_ids: tuple[str, ...]
+    likeability_level_10_enabled: bool
     fork_id: str | None
     fork_level: int | None
+    fork_breakthrough_stage: int | None
     fork_refinement_level: int | None
     selected_skill_id: str | None
     skill_levels: dict[str, int]
@@ -46,8 +49,14 @@ class OfficialRoleProfileService:
                     character_level=update.character_level,
                     breakthrough_stage=update.breakthrough_stage,
                     awakening_level=update.awakening_level,
+                    selected_awaken_effect_ids=update.selected_awaken_effect_ids,
+                    awakening_selection_initialized=True,
+                    likeability_level_10_enabled=(
+                        update.likeability_level_10_enabled
+                    ),
                     fork_id=update.fork_id,
                     fork_level=update.fork_level,
+                    fork_breakthrough_stage=update.fork_breakthrough_stage,
                     fork_refinement_level=update.fork_refinement_level,
                     selected_skill_id=update.selected_skill_id,
                     skill_levels=dict(update.skill_levels),

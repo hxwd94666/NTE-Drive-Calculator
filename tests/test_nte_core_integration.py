@@ -167,6 +167,13 @@ class NteCoreClientTests(unittest.TestCase):
         self.assertEqual(client.shutdown(), {"shutting_down": True})
         self.assertFalse(client.is_running)
 
+    def test_abort_terminates_owned_process_without_shutdown_rpc(self):
+        client = fake_client().start()
+
+        client.abort()
+
+        self.assertFalse(client.is_running)
+
     def test_one_key_wrapper_uses_protocol_native_uid_payload(self):
         with fake_client() as client:
             result = client.equip_one_key(

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.services.advancement_stage_service import fork_panel_stats
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -35,36 +36,15 @@ def load_official_role_fork_templates() -> dict[str, Any]:
         }
 
 
-def _numeric(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _add_modifiers(target: dict[str, float], modifiers: Any) -> None:
-    for modifier in modifiers or []:
-        if not isinstance(modifier, dict):
-            continue
-        mapped = _FORK_PROPERTY_DISPLAY.get(str(modifier.get("property_id") or ""))
+def _fork_stats_at_level(template: dict[str, Any], level: int) -> dict[str, float]:
+    """Project the legacy template model through the shared stage resolver."""
+    stats: dict[str, float] = {}
+    for property_id, value in fork_panel_stats(template, level).items():
+        mapped = _FORK_PROPERTY_DISPLAY.get(property_id)
         if mapped is None:
             continue
         name, scale = mapped
-        target[name] = round(target.get(name, 0.0) + _numeric(modifier.get("value")) * scale, 4)
-
-
-def _fork_stats_at_level(template: dict[str, Any], level: int) -> dict[str, float]:
-    """Combine the official level row with the unlocked breakthrough row."""
-    levels = [row for row in template.get("upgrade_levels", []) if isinstance(row, dict)]
-    if not levels:
-        return {}
-    chosen = min(levels, key=lambda row: abs(int(row.get("level") or 0) - level))
-    stats: dict[str, float] = {}
-    _add_modifiers(stats, chosen.get("modifiers"))
-    breakthroughs = [row for row in template.get("breakthroughs", []) if isinstance(row, dict)]
-    available = [row for row in breakthroughs if int(row.get("max_fork_level") or 0) <= level]
-    if available:
-        _add_modifiers(stats, max(available, key=lambda row: int(row.get("stage") or 0)).get("modifiers"))
+        stats[name] = round(stats.get(name, 0.0) + value * scale, 4)
     return stats
 
 

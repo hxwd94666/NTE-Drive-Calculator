@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nte-drive-calculator.invalid/counterfactual-response-v1.schema.json",
+  "title": "CounterfactualResponseV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "model_version", "dataset_version", "results"],
+  "properties": {
+    "schema_version": {"const": "counterfactual-response-v1"},
+    "model_version": {"type": "string"},
+    "dataset_version": {"type": "string"},
+    "results": {"type": "array", "items": {"$ref": "#/$defs/buff_result"}}
+  },
+  "$defs": {
+    "status": {"enum": ["complete", "partial", "unavailable", "not_applicable"]},
+    "hit_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "status", "quantified_ratio", "candidate_damage", "gap_codes"],
+      "properties": {
+        "event_id": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "quantified_ratio": {"type": ["number", "null"], "minimum": 0},
+        "candidate_damage": {"type": ["number", "null"], "minimum": 0},
+        "gap_codes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "buff_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buff_key", "status", "basis_damage", "fully_quantified_damage", "partially_quantified_damage", "unavailable_damage", "proven_unchanged_damage", "quantified_increment", "gap_codes", "hits"],
+      "properties": {
+        "buff_key": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "basis_damage": {"type": "number", "minimum": 0},
+        "fully_quantified_damage": {"type": "number", "minimum": 0},
+        "partially_quantified_damage": {"type": "number", "minimum": 0},
+        "unavailable_damage": {"type": "number", "minimum": 0},
+        "proven_unchanged_damage": {"type": "number", "minimum": 0},
+        "quantified_increment": {"type": ["number", "null"]},
+        "gap_codes": {"type": "array", "items": {"type": "string"}},
+        "hits": {"type": "array", "items": {"$ref": "#/$defs/hit_result"}}
+      }
+    }
+  }
+}

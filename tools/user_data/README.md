@@ -29,6 +29,7 @@ python tools/user_data/manage_user_database.py --database accounts/default/user_
 python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 inventory --kind module --limit 10
 python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 settings
 python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 plans
+python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 repair-battle-shapes --static-database data/game_static.sqlite3
 python tools/user_data/manage_user_database.py --database accounts/default/user_data.sqlite3 prune-snapshots --retain-recent 20
 ```
 

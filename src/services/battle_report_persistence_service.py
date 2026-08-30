@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -15,8 +15,26 @@ from src.domain.battle_report import (
     BattleSummary,
     BattleSummaryPersistenceOutcome,
 )
+from src.integrations.bundled_resources import bundled_config_dir
 from src.observability import OperationContext
 from src.observability.operation import log_event
+from src.services.battle_counterfactual_analysis_service import (
+    FORMULA_MODEL_VERSION,
+)
+from src.services.advancement_stage_service import select_fork_breakthrough
+from src.services.battle_build_profile_normalization_service import (
+    normalize_inferred_battle_profile,
+)
+from src.services.character_shape_bonus_service import (
+    static_character_shape_profile_fields,
+)
+from src.services.official_role_awakening_service import resolve_awakening_profile
+from src.services.official_role_attribute_service import (
+    calculate_official_role_combat_stat_components,
+    calculate_official_role_combat_stat_sources,
+)
+from src.services.official_role_page_service import load_official_role_detail
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
 
 
@@ -25,6 +43,7 @@ class BattleReportPersistenceDependencies:
     account_id: str
     user_database_path: Path
     generation: int
+    static_database_path: Path | None = None
 
 
 BattleReportContextGuard = Callable[[BattleReportPersistenceDependencies], bool]
@@ -34,6 +53,15 @@ class BattleReportPersistenceService:
     """Validate context and atomically add one summary to account history."""
 
     PAYLOAD_SCHEMA_VERSION = 1
+
+    @staticmethod
+    def _name_mapping_version() -> str:
+        path = bundled_config_dir() / "gameplay_effect_semantics.json"
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return "gameplay-effect-semantics-unavailable"
+        return f"sha256:{digest}"
 
     def __init__(
         self,
@@ -46,9 +74,218 @@ class BattleReportPersistenceService:
             account_id=str(dependencies.account_id),
             user_database_path=Path(dependencies.user_database_path).resolve(),
             generation=int(dependencies.generation),
+            static_database_path=(
+                None
+                if dependencies.static_database_path is None
+                else Path(dependencies.static_database_path).resolve()
+            ),
         )
         self._context_is_current = context_is_current
         self._operation_context = operation_context
+
+    def begin_capture(
+        self,
+        *,
+        capture_operation_id: str,
+        captured_at_utc: str,
+    ) -> None:
+        """Create durable axis staging without choosing the post-battle build yet."""
+
+        dependencies = self._dependencies
+        if not self._context_is_current(dependencies):
+            raise UserDataError("战报账号上下文已经变化")
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            database_profile = user_dao.profile()
+            if str(database_profile["account_id"]) != dependencies.account_id:
+                raise UserDataError("战报目标数据库与冻结账号不一致")
+            if not self._context_is_current(dependencies):
+                raise UserDataError("战报账号上下文已经变化")
+            user_dao.begin_battle_axis_capture(
+                capture_operation_id=capture_operation_id,
+                captured_at_utc=captured_at_utc,
+                account_generation=dependencies.generation,
+            )
+
+    @staticmethod
+    def _load_effective_profiles(
+        *,
+        static_dao: StaticGameDataDao,
+        user_dao: UserDataDao,
+    ) -> dict[int, dict[str, Any]]:
+        profiles: dict[int, dict[str, Any]] = {}
+        fork_templates = {
+            str(row.get("fork_id") or ""): row
+            for row in static_dao.list_fork_templates()
+        }
+
+        def with_explicit_fork_stage(source: Mapping[str, Any]) -> dict[str, Any]:
+            profile = dict(source)
+            fork_id = str(profile.get("fork_id") or "")
+            if not fork_id:
+                profile["fork_breakthrough_stage"] = None
+                return profile
+            if profile.get("fork_breakthrough_stage") is not None:
+                profile["fork_breakthrough_stage"] = int(
+                    profile["fork_breakthrough_stage"]
+                )
+                return profile
+            selected = select_fork_breakthrough(
+                (fork_templates.get(fork_id) or {}).get("breakthroughs") or (),
+                int(profile.get("fork_level") or 1),
+            )
+            if selected is not None:
+                profile["fork_breakthrough_stage"] = int(selected["stage"])
+            return profile
+
+        for template in static_dao.list_character_graduation_templates():
+            character_id = int(template["character_id"])
+            profile = resolve_awakening_profile(
+                with_explicit_fork_stage(template.get("profile") or {}),
+                static_dao.list_character_awaken_effects(character_id),
+            )
+            profile["character_id"] = character_id
+            profile["profile_source"] = "official_graduation"
+            profile = normalize_inferred_battle_profile(profile)
+            profile.update(
+                static_character_shape_profile_fields(static_dao, character_id)
+            )
+            profiles[character_id] = profile
+        for saved in user_dao.list_character_profiles(include_inactive=True):
+            character_id = int(saved["character_id"])
+            if character_id not in profiles:
+                continue
+            profile = resolve_awakening_profile(
+                with_explicit_fork_stage(saved),
+                static_dao.list_character_awaken_effects(character_id),
+            )
+            profile["profile_source"] = "account_role_page"
+            profile.update(
+                static_character_shape_profile_fields(static_dao, character_id)
+            )
+            profiles[character_id] = profile
+        return profiles
+
+    @staticmethod
+    def _resolve_character_stat_snapshots(
+        *,
+        dependencies: BattleReportPersistenceDependencies,
+        user_dao: UserDataDao,
+        snapshot_id: int,
+        character_ids: tuple[int, ...],
+        profiles: Mapping[int, Mapping[str, Any]],
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Freeze formula-ready role stats beside the historical build."""
+
+        all_items = user_dao.list_inventory_items(snapshot_id)
+        snapshots: dict[int, list[dict[str, Any]]] = {}
+        for character_id in character_ids:
+            profile = profiles.get(character_id)
+            if not isinstance(profile, Mapping):
+                continue
+            items = [
+                item
+                for item in all_items
+                if bool(item.get("equipped"))
+                and int(item.get("equipped_character_id") or 0) == character_id
+            ]
+            detail = load_official_role_detail(
+                dependencies.user_database_path,
+                character_id,
+                include_inventory_contexts=False,
+                static_database_path=dependencies.static_database_path,
+            )
+            detail["profile"] = dict(profile)
+            source_rows = calculate_official_role_combat_stat_sources(
+                detail,
+                items,
+            )
+            resolved_rows = calculate_official_role_combat_stat_components(
+                detail,
+                items,
+            )
+            rows: list[dict[str, Any]] = []
+            for source_group, stats in source_rows.items():
+                for ordinal, stat in enumerate(stats):
+                    rows.append(
+                        {
+                            "source_group": source_group,
+                            "property_id": stat.key,
+                            "display_name": stat.label,
+                            "value": stat.value,
+                            "is_percent": stat.percent,
+                            "ordinal": ordinal,
+                        }
+                    )
+            for ordinal, stat in enumerate(resolved_rows):
+                rows.append(
+                    {
+                        "source_group": "resolved",
+                        "property_id": stat.key,
+                        "display_name": stat.label,
+                        "value": stat.value,
+                        "is_percent": stat.percent,
+                        "ordinal": ordinal,
+                    }
+                )
+            snapshots[character_id] = rows
+        return snapshots
+
+    def append_axis_page(
+        self,
+        *,
+        capture_operation_id: str,
+        page: Mapping[str, Any],
+    ) -> None:
+        dependencies = self._dependencies
+        if not self._context_is_current(dependencies):
+            raise UserDataError("战报账号上下文已经变化")
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            user_dao.append_battle_axis_page(
+                capture_operation_id=capture_operation_id,
+                page=page,
+            )
+
+    def replace_axis_pages(
+        self,
+        *,
+        capture_operation_id: str,
+        pages: Sequence[Mapping[str, Any]],
+        source_generation: str,
+        incomplete_reason: str | None = None,
+    ) -> None:
+        dependencies = self._dependencies
+        if not self._context_is_current(dependencies):
+            raise UserDataError("战报账号上下文已经变化")
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            user_dao.replace_staged_battle_axis(
+                capture_operation_id=capture_operation_id,
+                pages=pages,
+                source_generation=source_generation,
+                incomplete_reason=incomplete_reason,
+            )
+
+    def discard_capture(self, *, capture_operation_id: str) -> None:
+        dependencies = self._dependencies
+        if not dependencies.user_database_path.is_file():
+            return
+        with UserDataDao(
+            dependencies.user_database_path,
+            account_id=dependencies.account_id,
+            account_name=dependencies.account_id,
+        ) as user_dao:
+            user_dao.discard_battle_axis_capture(capture_operation_id)
 
     def finalize_summary(
         self,
@@ -58,10 +295,14 @@ class BattleReportPersistenceService:
         capture_operation_id: str,
         captured_at_utc: str,
         finalized_at_utc: str,
+        raw_record_payload: Mapping[str, Any] | None = None,
+        nte_core_provenance: Mapping[str, Any] | None = None,
     ) -> BattleSummaryPersistenceOutcome:
         if summary.total_damage <= 0 and summary.total_hits <= 0:
+            self.discard_capture(capture_operation_id=capture_operation_id)
             return BattleSummaryPersistenceOutcome(status="skipped_empty")
         if not self._context_is_current(self._dependencies):
+            self.discard_capture(capture_operation_id=capture_operation_id)
             return BattleSummaryPersistenceOutcome(status="discarded_stale")
 
         try:
@@ -92,6 +333,40 @@ class BattleReportPersistenceService:
                 raise UserDataError("战报目标数据库与冻结账号不一致")
             if not self._context_is_current(dependencies):
                 return BattleSummaryPersistenceOutcome(status="discarded_stale")
+            capture_state = user_dao.battle_axis_capture_state(capture_operation_id)
+            post_battle_build: dict[str, Any] | None = None
+            if capture_state is not None:
+                if dependencies.static_database_path is None:
+                    raise UserDataError("战报采集缺少静态数据库路径")
+                snapshot_id = user_dao.latest_native_inventory_snapshot_id()
+                if snapshot_id is None:
+                    raise UserDataError("战后没有可保存的完整游戏原生背包快照")
+                with StaticGameDataDao(dependencies.static_database_path) as static_dao:
+                    static_summary = static_dao.summary()
+                    dataset = dict(static_summary.get("dataset") or {})
+                    post_battle_build = {
+                        "snapshot_id": snapshot_id,
+                        "dataset_id": str(dataset.get("dataset_id") or "") or None,
+                        "static_schema_version": int(static_summary["schema_version"]),
+                        "profiles": self._load_effective_profiles(
+                            static_dao=static_dao,
+                            user_dao=user_dao,
+                        ),
+                    }
+                    post_battle_build["stat_snapshots"] = (
+                        self._resolve_character_stat_snapshots(
+                            dependencies=dependencies,
+                            user_dao=user_dao,
+                            snapshot_id=snapshot_id,
+                            character_ids=character_ids,
+                            profiles=cast(
+                                Mapping[int, Mapping[str, Any]],
+                                post_battle_build["profiles"],
+                            ),
+                        )
+                    )
+                if not self._context_is_current(dependencies):
+                    return BattleSummaryPersistenceOutcome(status="discarded_stale")
             result = user_dao.insert_auto_summary_snapshot(
                 capture_operation_id=capture_operation_id,
                 combat_context_kind=(
@@ -118,7 +393,41 @@ class BattleReportPersistenceService:
                 payload_schema_version=self.PAYLOAD_SCHEMA_VERSION,
                 raw_summary_json=raw_json,
                 raw_summary_sha256=raw_sha256,
+                nte_core_version=(nte_core_provenance or {}).get("core_version"),
+                nte_core_protocol_version=(nte_core_provenance or {}).get(
+                    "protocol_version"
+                ),
+                nte_core_data_version=(nte_core_provenance or {}).get("data_version"),
+                nte_core_executable_sha256=(nte_core_provenance or {}).get(
+                    "executable_sha256"
+                ),
             )
+            if post_battle_build is not None:
+                user_dao.finalize_battle_axis_capture(
+                    capture_operation_id=capture_operation_id,
+                    battle_record_id=int(result["record"]["battle_record_id"]),
+                    record=raw_record_payload,
+                    observed_characters=self._observed_characters(summary),
+                    source_inventory_snapshot_id=int(post_battle_build["snapshot_id"]),
+                    static_dataset_id=cast(
+                        str | None,
+                        post_battle_build["dataset_id"],
+                    ),
+                    static_schema_version=int(
+                        post_battle_build["static_schema_version"]
+                    ),
+                    character_profiles=cast(
+                        Mapping[int, Mapping[str, Any]],
+                        post_battle_build["profiles"],
+                    ),
+                    character_stat_snapshots=cast(
+                        Mapping[int, list[Mapping[str, Any]]],
+                        post_battle_build["stat_snapshots"],
+                    ),
+                    formula_model_version=FORMULA_MODEL_VERSION,
+                    name_mapping_version=self._name_mapping_version(),
+                    finalized_at_utc=finalized_at_utc,
+                )
 
         record = result["record"]
         record_id = int(record["battle_record_id"])
@@ -166,3 +475,18 @@ class BattleReportPersistenceService:
             if half is not None:
                 append(half.characters)
         return tuple(ordered)
+
+    @staticmethod
+    def _observed_characters(summary: BattleSummary) -> dict[int, str]:
+        observed: dict[int, str] = {}
+        for characters in (
+            summary.characters,
+            *(
+                half.characters
+                for half in (summary.abyss.first_half, summary.abyss.second_half)
+                if half is not None
+            ),
+        ):
+            for character in characters:
+                observed.setdefault(int(character.character_id), character.name)
+        return observed

@@ -44,11 +44,49 @@ def refresh_account_scoped_settings(window) -> None:
     """Refresh already-built settings controls after an account switch."""
 
     preferences = getattr(window, "_ui_preferences", {}) or {}
+    for editor_name, value_name in (
+        ("_hk_capture_edit", "_hk_capture"),
+        ("_hk_finish_edit", "_hk_finish"),
+        ("_hk_stop_edit", "_hk_stop"),
+        ("_hk_battle_rerecord_edit", "_hk_battle_rerecord"),
+    ):
+        hotkey_editor = getattr(window, editor_name, None)
+        if hotkey_editor is not None:
+            hotkey_editor.blockSignals(True)
+            hotkey_editor.setKeySequence(
+                QKeySequence(str(getattr(window, value_name, "")))
+            )
+            hotkey_editor.blockSignals(False)
     edit = getattr(window, "_protagonist_game_name_edit", None)
     if edit is not None:
         edit.blockSignals(True)
         edit.setText(str(preferences.get("protagonist_game_name") or ""))
         edit.blockSignals(False)
+    game_edit = getattr(window, "_equipment_plugin_game_executable_edit", None)
+    if game_edit is not None:
+        game_edit.blockSignals(True)
+        game_edit.setText(
+            str(preferences.get("equipment_plugin_game_executable") or "")
+        )
+        game_edit.blockSignals(False)
+    method_combo = getattr(window, "_equipment_plugin_loading_method_combo", None)
+    if method_combo is not None:
+        method_combo.blockSignals(True)
+        method_index = method_combo.findData(
+            preferences.get("equipment_plugin_loading_method") or "proxy"
+        )
+        method_combo.setCurrentIndex(max(0, method_index))
+        method_combo.blockSignals(False)
+    consent = getattr(window, "_equipment_plugin_consent", None)
+    if consent is not None:
+        consent.blockSignals(True)
+        consent.setChecked(
+            bool(preferences.get("equipment_plugin_risk_acknowledged", False))
+        )
+        consent.blockSignals(False)
+    refresh_plugin = getattr(window, "_refresh_equipment_plugin_status", None)
+    if callable(refresh_plugin):
+        refresh_plugin()
 
 
 @dataclass(frozen=True)
@@ -130,8 +168,9 @@ def _build_sync_card(window):
         bool(settings["raw_capture_enabled"])
     )
     window._sync_raw_capture_toggle.setToolTip(
+        "背包同步和战报采集都会按各自启动时的设置保存原始包；"
         "文件仅保存到当前账号的 logs/nte_core/raw_capture。"
-        "停止同步后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
+        "采集结束后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
         "正在写入和最新的一份不会被删除。"
     )
     raw_capture_row = QHBoxLayout()
@@ -204,8 +243,9 @@ def _build_environment_card(window):
     equipment_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(equipment_title)
     equipment_description = QLabel(
-        "<b>简单原理：</b>极速装配会把 dwmapi.dll 放入游戏目录，由游戏加载后通过装备 Mod 脚本"
-        "调用或 Hook 游戏内部功能，直接发送装备指令。"
+        "<b>简单原理：</b>默认把 dwmapi.dll 放入游戏目录，由游戏代理加载；"
+        "少数环境不加载代理 DLL 时，可显式改用管理员 Mod Loader。"
+        "两种方式都会通过装备 Mod 脚本调用或 Hook 游戏内部功能，且不会同时启用。"
         "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
         "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
     )
@@ -216,6 +256,29 @@ def _build_environment_card(window):
     )
     card.layout().addWidget(equipment_description)
     form = QFormLayout()
+    window._equipment_plugin_loading_method_combo = NoWheelComboBox()
+    window._equipment_plugin_loading_method_combo.addItem(
+        "代理 DLL（推荐）", "proxy"
+    )
+    window._equipment_plugin_loading_method_combo.addItem(
+        "Mod Loader（备用）", "loader"
+    )
+    loading_method = str(
+        (getattr(window, "_ui_preferences", {}) or {}).get(
+            "equipment_plugin_loading_method"
+        )
+        or "proxy"
+    )
+    method_index = window._equipment_plugin_loading_method_combo.findData(
+        loading_method
+    )
+    window._equipment_plugin_loading_method_combo.setCurrentIndex(
+        max(0, method_index)
+    )
+    window._equipment_plugin_loading_method_combo.currentIndexChanged.connect(
+        window._equipment_plugin_loading_method_changed
+    )
+    form.addRow("加载方式:", window._equipment_plugin_loading_method_combo)
     window._equipment_plugin_game_executable_edit = QLineEdit()
     window._equipment_plugin_game_executable_edit.setPlaceholderText(
         "可手动粘贴 HTGame.exe 的完整文件地址"
@@ -251,6 +314,16 @@ def _build_environment_card(window):
     window._equipment_plugin_consent.setStyleSheet(
         themed_style("color:#d29922;font-weight:600")
     )
+    window._equipment_plugin_consent.setChecked(
+        bool(
+            (getattr(window, "_ui_preferences", {}) or {}).get(
+                "equipment_plugin_risk_acknowledged", False
+            )
+        )
+    )
+    window._equipment_plugin_consent.toggled.connect(
+        window._equipment_plugin_risk_acknowledgement_changed
+    )
     consent_row.addWidget(window._equipment_plugin_consent)
     window._dwmapi_diagnostic_button = QPushButton("诊断 dwmapi")
     window._dwmapi_diagnostic_button.clicked.connect(window._diagnose_dwmapi)
@@ -264,14 +337,18 @@ def _build_environment_card(window):
     )
     card.layout().addWidget(window._equipment_plugin_status_label)
     actions = QHBoxLayout()
-    deploy_button = QPushButton("部署装备插件")
-    deploy_button.setObjectName("btnPrimary")
-    deploy_button.clicked.connect(window._deploy_equipment_plugin)
-    actions.addWidget(deploy_button)
-    restore_button = QPushButton("还原游戏目录")
-    restore_button.setObjectName("btnDanger")
-    restore_button.clicked.connect(window._restore_equipment_plugin)
-    actions.addWidget(restore_button)
+    window._equipment_plugin_primary_button = QPushButton("部署代理 DLL")
+    window._equipment_plugin_primary_button.setObjectName("btnPrimary")
+    window._equipment_plugin_primary_button.clicked.connect(
+        window._activate_equipment_plugin_loading_method
+    )
+    actions.addWidget(window._equipment_plugin_primary_button)
+    window._equipment_plugin_stop_button = QPushButton("还原游戏目录")
+    window._equipment_plugin_stop_button.setObjectName("btnDanger")
+    window._equipment_plugin_stop_button.clicked.connect(
+        window._deactivate_equipment_plugin_loading_method
+    )
+    actions.addWidget(window._equipment_plugin_stop_button)
     actions.addStretch()
     card.layout().addLayout(actions)
     refresher = getattr(window, "_refresh_equipment_plugin_status", None)
@@ -418,6 +495,20 @@ def build_settings_page(
     stop_row.addStretch()
     form.addRow(stop_row)
 
+    rerecord_row = QHBoxLayout()
+    rerecord_row.setSpacing(8)
+    window._hk_battle_rerecord_edit = QKeySequenceEdit(
+        QKeySequence(window._hk_battle_rerecord)
+    )
+    window._hk_battle_rerecord_edit.setMaximumWidth(160)
+    window._hk_battle_rerecord_edit.setToolTip(
+        "战报采集中需在 1.5 秒内连续按两次才会放弃当前战报并重录。"
+    )
+    rerecord_row.addWidget(QLabel("战报重录按键:"))
+    rerecord_row.addWidget(window._hk_battle_rerecord_edit)
+    rerecord_row.addStretch()
+    form.addRow(rerecord_row)
+
     def save_hotkeys_when_complete(_sequence) -> None:
         # QKeySequenceEdit temporarily clears its value before it accepts a
         # replacement shortcut.  Do not persist that transient blank state.
@@ -425,6 +516,7 @@ def build_settings_page(
             window._hk_capture_edit,
             window._hk_finish_edit,
             window._hk_stop_edit,
+            window._hk_battle_rerecord_edit,
         )
         if all(editor.keySequence().toString().strip() for editor in editors):
             window._save_hotkeys()
@@ -435,6 +527,7 @@ def build_settings_page(
         window._hk_capture_edit,
         window._hk_finish_edit,
         window._hk_stop_edit,
+        window._hk_battle_rerecord_edit,
     ):
         editor.keySequenceChanged.connect(save_hotkeys_when_complete)
 

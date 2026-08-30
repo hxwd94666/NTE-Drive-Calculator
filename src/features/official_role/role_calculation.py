@@ -18,6 +18,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QHeaderView
 
+from src.services.advancement_stage_service import (
+    select_character_growth,
+    select_fork_breakthrough,
+)
 from src.services.official_role_graduation_service import (
     graduation_benchmark_damage,
     graduation_tooltip as _graduation_tooltip,
@@ -69,11 +73,50 @@ def _selected_growth(editor: dict) -> tuple[int, int] | None:
     if not hasattr(growth, "value"):
         return None
     level = int(growth.value())
-    candidates = [row for row in (editor.get("growth_rows") or ()) if int(row.get("level") or 0) == level]
-    if not candidates:
+    breakthrough = editor.get("growth_breakthrough")
+    preferred_stage = breakthrough.currentData() if breakthrough is not None else None
+    selected = select_character_growth(
+        editor.get("growth_rows") or (),
+        level,
+        preferred_stage=(
+            int(preferred_stage) if preferred_stage is not None else None
+        ),
+    )
+    if selected is None:
         return None
-    selected = max(candidates, key=lambda row: int(row.get("breakthrough_stage") or 0))
     return int(selected["level"]), int(selected["breakthrough_stage"])
+
+
+def _selected_fork_stage(editor: dict) -> int | None:
+    """Return the valid fork breakthrough stage for the unsaved editor state."""
+
+    fork = editor.get("fork")
+    fork_level = editor.get("fork_level")
+    if fork is None or fork_level is None:
+        return None
+    fork_id = fork.currentData()
+    if not fork_id:
+        return None
+    template = next(
+        (
+            row
+            for row in (editor.get("detail") or {}).get("forks") or ()
+            if row.get("fork_id") == fork_id
+        ),
+        None,
+    )
+    if template is None:
+        return None
+    selector = editor.get("fork_breakthrough")
+    preferred_stage = selector.currentData() if selector is not None else None
+    selected = select_fork_breakthrough(
+        template.get("breakthroughs") or (),
+        int(fork_level.value()),
+        preferred_stage=(
+            int(preferred_stage) if preferred_stage is not None else None
+        ),
+    )
+    return int(selected["stage"]) if selected is not None else None
 
 
 def _calculation_detail(detail: dict, editor: dict) -> dict:
@@ -85,12 +128,18 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
         level, breakthrough = growth
         profile["character_level"] = int(level)
         profile["breakthrough_stage"] = int(breakthrough)
-    awakening = editor.get("awakening")
-    if awakening is not None:
-        profile["awakening_level"] = awakening.value()
-    selected_skill = editor.get("selected_skill")
-    if selected_skill is not None:
-        profile["selected_skill_id"] = selected_skill.currentData()
+    awakening_checks = editor.get("awakening_checks") or {}
+    selected_awaken_effect_ids = [
+        effect_id
+        for effect_id, check in awakening_checks.items()
+        if check.isChecked()
+    ]
+    profile["awakening_level"] = len(selected_awaken_effect_ids)
+    profile["selected_awaken_effect_ids"] = selected_awaken_effect_ids
+    profile["awakening_selection_initialized"] = True
+    likeability = editor.get("likeability_level_10")
+    if likeability is not None:
+        profile["likeability_level_10_enabled"] = likeability.isChecked()
     if editor.get("skill_levels") is not None:
         profile["skill_levels"] = dict(editor["skill_levels"])
     fork = editor.get("fork")
@@ -98,6 +147,9 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
         fork_id = fork.currentData()
         profile["fork_id"] = fork_id
         profile["fork_level"] = editor["fork_level"].value() if fork_id else None
+        profile["fork_breakthrough_stage"] = (
+            _selected_fork_stage(editor) if fork_id else None
+        )
         profile["fork_refinement_level"] = int(editor["refinement"].currentData()) if fork_id else None
     return {
         **detail,

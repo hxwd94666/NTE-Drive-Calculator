@@ -1,0 +1,36 @@
+#include <nte/mod.hpp>
+
+NTE_SCRIPT(5);
+NTE_MOD("reflection-events");
+NTE_REQUIRES("viewport.tick");
+NTE_REQUIRES("game.session");
+NTE_REQUIRES("unreal.reflection");
+NTE_REQUIRES("process.event");
+NTE_REQUIRES("ipc");
+NTE_ROUTE_IPC(12, "ipc.query_mod_events");
+
+void on_viewport_tick(const nte::viewport_tick_event& event)
+{
+    const auto controller = nte::game::player_controller;
+    if (controller != nullptr)
+    {
+        const auto function = nte::unreal::find_function(controller, "HTPlayerController", "IsGamePausedByType");
+        if (function != nullptr)
+        {
+            nte::unreal::watch(controller, function);
+            nte::unreal::params_clear(2);
+            nte::unreal::params_write_u8(0, 2);
+            const auto called = nte::unreal::call(controller, function);
+            const auto ready = nte::event::next();
+            if (called == true)
+            {
+                if (ready == true)
+                {
+                    const auto pause_type = nte::event::read_u8(0);
+                    const auto paused = nte::event::read_u8(1);
+                    nte::ipc::emit("post.reflection.pause", pause_type, paused);
+                }
+            }
+        }
+    }
+}

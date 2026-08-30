@@ -389,8 +389,10 @@ content are never sent to stdout.
 
 `subtract_time_stop` is required and selects the same timing calculation used by
 the GUI. The result is null before any combat or abyss data exists. Otherwise it
-contains total duration, damage, DPS, damage taken, hit count, character rows,
-skill rows, both abyss halves, and the redacted parse-quality counters. Stable
+contains total duration, damage, maximum-HP reduction, DPS, damage taken, hit
+count, character rows, skill rows, both abyss halves, and the redacted
+parse-quality counters. `max_hp_reduction` is the authoritative aggregate of
+maximum-HP reduction and remains separate from `total_damage`. Stable
 `dps_time_mode` values are `subtract_time_stop` and `wall_clock`; quality source
 values are `live`, `pcapng_replay`, `json_replay`, and `unknown`. Each skill row's
 `name` prefers a stable ability or GameplayEffect grouping key over a localized
@@ -427,7 +429,9 @@ Core shuts down; `battle.reset` ends its availability and the next battle gets
 a new ID. Passing a no-longer-available or unknown ID returns
 `BATTLE_RECORD_NOT_FOUND` instead of silently switching to the current battle.
 
-The response contract is version 1. It includes the shared `generation`,
+The response contract is version 4. Version 4 adds aggregate summary and per-hit
+`max_hp_reduction`; version 3 added authoritative per-hit `overkill_damage`.
+The response includes the shared `generation`,
 capture operation ID, state/source, battle bounds, clipped time-stop intervals,
 abyss markers, aggregate summary, quality counters, and axis completeness.
 `generation`, `axis_first_sequence`, and `axis_total_hits` are decimal strings
@@ -452,9 +456,14 @@ string returned by `next_cursor`. Sequence/cursor/total values are strings;
 the page also carries the same battle `generation`. Each row contains the
 bounded, redacted combat facts already held by Core, including its record ID,
 source, attribution status/reason, direction, damage/follow-up, target
-projection, skill identifiers, and abyss half; it never contains packet bytes,
-endpoints, or PCAP data. `team_snapshot_id` is explicitly null until a stable
-team snapshot is available instead of being inferred from current UI state.
+projection, skill identifiers, and abyss half. `overkill_damage` is the portion
+of primary `damage` beyond a valid `target_hp_before`; it excludes follow-up
+damage and is zero when Core has no valid target HP snapshot. Rows never contain
+packet bytes, endpoints, or PCAP data. `max_hp_reduction` is the additional
+maximum-HP loss attributed to that hit and remains separate from `total_damage`.
+`team_snapshot_id` is explicitly null
+until a stable team snapshot is available instead of being inferred from current
+UI state.
 
 Core retains a bounded hit window. Once earlier rows have been trimmed,
 `complete` becomes false and `first_available_cursor` identifies the first
@@ -481,7 +490,7 @@ beyond `total_hits + 1` returns `BATTLE_AXIS_CURSOR_INVALID`.
 and from 0.2 through 10 seconds. The response reuses Core's authoritative
 timeline projection and includes characters, buckets, per-character DPS rows,
 markers, time-stop intervals, and simplified segments. It carries contract
-version 1, the shared battle generation, and `complete:false` if the underlying
+version 4, the shared battle generation, and `complete:false` if the underlying
 axis was trimmed.
 
 Core checks the response budget before allocating the timeline and caps it at

@@ -9,62 +9,17 @@ import sqlite3
 import sys
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Iterable
+from typing import Any, Iterable, NoReturn
 
+from .static_game_data_metadata import SCHEMA_VERSION, SUMMARY_TABLES
 
-SCHEMA_VERSION = 16
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
-_DEFAULT_LOGICAL_CHARACTER_IDS = {
-    "protagonist": 1051,
-}
+_DEFAULT_LOGICAL_CHARACTER_IDS = {"protagonist": 1051}
 _ROLE_TEMPLATE_CLASSIFICATIONS = {
     "available_character",
     "scheduled_character",
     "playable",
 }
-
-SUMMARY_TABLES = (
-    "source_file",
-    "source_row",
-    "character",
-    "character_annotation",
-    "character_awaken_effect",
-    "character_awaken_skill_level_bonus",
-    "character_panel_growth",
-    "character_skill",
-    "character_skill_level",
-    "skill_damage",
-    "skill_damage_modifier",
-    "combat_level_curve",
-    "combat_level_curve_point",
-    "reaction_definition",
-    "combat_effect_constant",
-    "enemy_combat_profile",
-    "enemy_element_resistance",
-    "monster_instance_profile",
-    "monster_instance_profile_variant",
-    "abyss_level",
-    "abyss_level_monster_spawn",
-    "abyss_monster_pool_entry",
-    "equipment_attribute",
-    "equipment_shape",
-    "equipment_suit",
-    "equipment_suit_effect",
-    "equipment_item",
-    "equipment_plan",
-    "character_weight_recommendation",
-    "character_weight_recommendation_property",
-    "character_graduation_template",
-    "application_setting_default",
-    "character_shape_bonus",
-    "character_shape_bonus_property",
-    "logical_character_shape_bonus",
-    "logical_character_shape_bonus_property",
-    "fork_type",
-    "fork_item",
-    "fork_refinement_parameter_value",
-)
-
 
 class StaticGameDataError(RuntimeError):
     """静态数据库缺失或版本不兼容。"""
@@ -118,15 +73,51 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
     raise StaticGameDataError(f"找不到静态数据库；已检查：{checked}")
 
 
+from src.storage.sqlite.static_game_data_combat_blueprint_queries import (
+    StaticGameDataCombatBlueprintQueriesMixin,
+)
+from src.storage.sqlite.static_game_data_buff_queries import (
+    StaticGameDataBuffQueriesMixin,
+)
 from src.storage.sqlite.static_game_data_extended_queries import StaticGameDataExtendedQueriesMixin
+from src.storage.sqlite.static_game_data_encounter_queries import (
+    StaticGameDataEncounterQueriesMixin,
+)
+from src.storage.sqlite.static_game_data_terminology_queries import (
+    StaticGameDataTerminologyQueriesMixin,
+)
+from src.storage.sqlite.static_game_data_progression_queries import (
+    StaticGameDataProgressionQueriesMixin,
+)
 
-class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
-    """面向 schema v16 静态数据库的轻量查询边界。
+
+class StaticGameDataDao(
+    StaticGameDataProgressionQueriesMixin,
+    StaticGameDataTerminologyQueriesMixin,
+    StaticGameDataEncounterQueriesMixin,
+    StaticGameDataBuffQueriesMixin,
+    StaticGameDataCombatBlueprintQueriesMixin,
+    StaticGameDataExtendedQueriesMixin,
+):
+    """面向当前发行静态数据库 schema 的轻量查询边界。
 
     连接始终使用 SQLite 只读模式，避免界面或计算代码意外修改开发者生成的数据包。
     """
 
-    def __init__(self, database_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        database_path: str | Path | None = None,
+        *,
+        expected_schema_version: int | None = None,
+    ) -> None:
+        expected_version = (
+            SCHEMA_VERSION
+            if expected_schema_version is None
+            else int(expected_schema_version)
+        )
+        if expected_version <= 0:
+            raise ValueError("expected_schema_version 必须为正整数")
+        self._schema_version = expected_version
         self.database_path = resolve_static_database(database_path)
         uri = f"{self.database_path.as_uri()}?mode=ro"
         try:
@@ -147,10 +138,10 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
             self.close()
             raise StaticGameDataError("文件不是 NTE 静态游戏数据库") from exc
         version = version_row["version"] if version_row is not None else None
-        if version != SCHEMA_VERSION:
+        if version != expected_version:
             self.close()
             raise StaticGameDataError(
-                f"不支持的静态数据库结构版本：{version!r}；需要 {SCHEMA_VERSION}"
+                f"不支持的静态数据库结构版本：{version!r}；需要 {expected_version}"
             )
 
     def __enter__(self) -> "StaticGameDataDao":
@@ -179,6 +170,10 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
         rows = self._rows(sql, parameters)
         return rows[0] if rows else None
 
+    @staticmethod
+    def _raise_static_data_error(message: str) -> NoReturn:
+        raise StaticGameDataError(message)
+
     def summary(self) -> dict[str, Any]:
         dataset = self._one(
             "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
@@ -186,11 +181,21 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
         if dataset is None:
             raise StaticGameDataError("静态数据库缺少数据集元信息")
         counts = {}
+        available_tables: set[str] | None = None
+        if self._schema_version != SCHEMA_VERSION:
+            available_tables = {
+                str(row["name"])
+                for row in self._rows(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
         for table in SUMMARY_TABLES:
+            if available_tables is not None and table not in available_tables:
+                continue
             row = self._one(f"SELECT COUNT(*) AS count FROM {table}")
             counts[table] = int((row or {}).get("count", 0))
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": self._schema_version,
             "database_path": str(self.database_path),
             "dataset": dataset,
             "counts": counts,
@@ -456,6 +461,11 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
             effect["modify_data"] = json.loads(effect.pop("modify_data_json"))
             effect["gameplay_effect_ids"] = json.loads(effect.pop("gameplay_effect_ids_json"))
             effect["skill_level_bonuses"] = bonuses_by_effect.get(effect["effect_id"], [])
+            effect["description_damage_entries"] = [
+                damage
+                for damage_id in effect["gameplay_effect_ids"]
+                if (damage := self.get_skill_damage(str(damage_id))) is not None
+            ]
         return effects
 
     def get_character_panel_growth(

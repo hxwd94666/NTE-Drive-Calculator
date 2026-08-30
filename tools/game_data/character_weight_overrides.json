@@ -1,0 +1,12 @@
+{
+  "1072": {
+    "source_name": "preimplementation_workshop_fallback",
+    "properties": [
+      {"property_id": "DamageUpNatureBase", "weight": 1.25},
+      {"property_id": "CritBase", "weight": 1.0},
+      {"property_id": "CritDamageBase", "weight": 0.9},
+      {"property_id": "AtkUp", "weight": 0.4},
+      {"property_id": "DamageUpGeneralBase", "weight": 0.9}
+    ]
+  }
+}

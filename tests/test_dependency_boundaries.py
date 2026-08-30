@@ -93,6 +93,34 @@ class DependencyBoundaryTests(unittest.TestCase):
                     violations.append(path.relative_to(ROOT).as_posix())
         self.assertEqual([], violations)
 
+    def test_catalog_link_exports_share_domain_identity(self):
+        from src.domain.static_catalog import CatalogLink as DomainCatalogLink
+        from src.features.static_catalog.contracts import (
+            CatalogLink as FeatureCatalogLink,
+        )
+        from src.services.static_catalog_mechanics_models import (
+            CatalogLink as MechanicsCatalogLink,
+        )
+        from src.services.static_catalog_mechanics_service import (
+            CatalogLink as PublicMechanicsCatalogLink,
+        )
+
+        self.assertIs(DomainCatalogLink, FeatureCatalogLink)
+        self.assertIs(DomainCatalogLink, MechanicsCatalogLink)
+        self.assertIs(DomainCatalogLink, PublicMechanicsCatalogLink)
+
+    def test_catalog_pages_do_not_import_catalog_link_from_mechanics_service(self):
+        violations = []
+        directory = ROOT / "src" / "features" / "static_catalog" / "domain_pages"
+        for path in sorted(directory.glob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if (
+                "CatalogLink" in source
+                and "static_catalog_mechanics_service import CatalogLink" in source
+            ):
+                violations.append(path.relative_to(ROOT).as_posix())
+        self.assertEqual([], violations)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -35,6 +35,20 @@ if TYPE_CHECKING:
             raise NotImplementedError
 
         def _db(self) -> sqlite3.Connection:
+            raise NotImplementedError
+
+        def _insert_hit(
+            self,
+            connection: sqlite3.Connection,
+            capture_id: int,
+            hit: Mapping[str, Any],
+        ) -> int:
+            raise NotImplementedError
+
+        def battle_report_counterfactual_editable(
+            self,
+            battle_record_id: int,
+        ) -> bool:
             raise NotImplementedError
 
         def profile(self) -> dict[str, Any]:

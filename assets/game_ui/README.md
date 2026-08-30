@@ -14,6 +14,7 @@
 | 驱动（drive/module） | `equipment/module/` | `UI/UI/Equip/fangkuai/<asset>.png` | 官方 module `item_id` |
 | 弧盘（arc/fork） | `forks/` | `UI/UI_Icon/Fork/<asset>.png` | 官方 `fork_id` |
 | 怪物头像 | `monsters/<static_table>/` | `UI/UI/MonsterManual/MonsterHeadIcon/200x200/<asset>.png` | `static_table:monster_id` |
+| 玩法与图鉴头像 | `monsters/resources/` | 正式图鉴或玩法记录的资源路径 | 完整 `resource_path` |
 
 驱动、弧盘的官方图片路径来自随程序发布的静态数据库：`equipment_item.icon_path` 和 `fork_item.icon_path`。怪物图标路径来自官方怪物表：
 
@@ -24,6 +25,8 @@
 - `DataTable/Monster/DT_MonsterStaticData_Abyss.json`
 
 仅导入这些表中具有官方 `icon.AssetPathName` 的怪物；缺少图标路径的怪物不会猜测文件名。
+争锋与图鉴入口还会从发行静态库读取正式资源路径。轨外、副本与高危刷怪成员只能在其正式模板 ID
+与唯一无歧义的正式 ID 家族匹配时复用图鉴头像；存在多个候选的家族不会生成映射。
 
 ## 生成方式
 

@@ -12,6 +12,7 @@ from .user_data_support import (
     _integer,
     _plain_object,
     _utc_now,
+    _valid_breakthrough_stage_for_level,
 )
 from .protocols import UserDataDaoMixinHost
 
@@ -449,8 +450,11 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
             """
             SELECT character_id, character_level, breakthrough_stage,
                    awakening_level, fork_id, fork_level,
+                   fork_breakthrough_stage,
                    fork_refinement_level, selected_skill_id, ordinal,
-                   is_active, created_at_utc, updated_at_utc
+                   is_active, likeability_level_10_enabled,
+                   awakening_selection_initialized,
+                   created_at_utc, updated_at_utc
             FROM character_profile WHERE character_id = ?
             """,
             (raw_character_id,),
@@ -458,6 +462,22 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         if profile is None:
             return None
         profile["is_active"] = bool(profile["is_active"])
+        profile["likeability_level_10_enabled"] = bool(
+            profile["likeability_level_10_enabled"]
+        )
+        profile["awakening_selection_initialized"] = bool(
+            profile["awakening_selection_initialized"]
+        )
+        profile["selected_awaken_effect_ids"] = [
+            str(row["effect_id"])
+            for row in self._rows(
+                """
+                SELECT effect_id FROM character_profile_awaken_effect
+                WHERE character_id = ? ORDER BY ordinal
+                """,
+                (raw_character_id,),
+            )
+        ]
         profile["skill_levels"] = {
             row["skill_id"]: int(row["skill_level"])
             for row in self._rows(
@@ -523,11 +543,15 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         awakening_level: int,
         fork_id: str | None,
         fork_level: int | None,
+        fork_breakthrough_stage: int | None,
         fork_refinement_level: int | None,
         selected_skill_id: str | None = None,
         skill_levels: Mapping[str, int] | None = None,
         ordinal: int = 0,
         is_active: bool = True,
+        likeability_level_10_enabled: bool = False,
+        selected_awaken_effect_ids: Sequence[str] | None = None,
+        awakening_selection_initialized: bool = False,
     ) -> dict[str, Any]:
         """原子保存角色指针；角色、弧盘和技能详情仍由官方静态库解析。"""
 
@@ -538,6 +562,8 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         raw_breakthrough = _integer(breakthrough_stage, "breakthrough_stage", minimum=0)
         if raw_breakthrough > 6:
             raise UserDataValidationError("breakthrough_stage 不能大于 6")
+        if not _valid_breakthrough_stage_for_level(raw_level, raw_breakthrough):
+            raise UserDataValidationError("角色等级与突破阶段不匹配")
         raw_awakening = _integer(awakening_level, "awakening_level", minimum=0)
         if raw_awakening > 6:
             raise UserDataValidationError("awakening_level 不能大于 6")
@@ -545,11 +571,23 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         raw_fork_id = self._preference_text(fork_id, "fork_id")
         if raw_fork_id is None:
             raw_fork_level = None
+            raw_fork_breakthrough = None
             raw_refinement = None
         else:
             raw_fork_level = _integer(fork_level, "fork_level", minimum=1)
             if raw_fork_level > 80:
                 raise UserDataValidationError("fork_level 不能大于 80")
+            raw_fork_breakthrough = _integer(
+                fork_breakthrough_stage,
+                "fork_breakthrough_stage",
+                minimum=0,
+            )
+            if raw_fork_breakthrough > 6:
+                raise UserDataValidationError("fork_breakthrough_stage 不能大于 6")
+            if not _valid_breakthrough_stage_for_level(
+                raw_fork_level, raw_fork_breakthrough
+            ):
+                raise UserDataValidationError("弧盘等级与突破阶段不匹配")
             raw_refinement = _integer(
                 fork_refinement_level, "fork_refinement_level", minimum=1
             )
@@ -564,6 +602,19 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
             )
         if raw_selected_skill and raw_selected_skill not in normalized_skills:
             raise UserDataValidationError("selected_skill_id 必须存在于 skill_levels")
+        normalized_awaken_effects: list[str] = []
+        for effect_id in selected_awaken_effect_ids or ():
+            normalized = self._preference_text(
+                effect_id,
+                "awaken_effect_id",
+                required=True,
+            )
+            if normalized in normalized_awaken_effects:
+                raise UserDataValidationError("selected_awaken_effect_ids 不能重复")
+            normalized_awaken_effects.append(normalized)
+        selection_initialized = bool(awakening_selection_initialized)
+        if selection_initialized and len(normalized_awaken_effects) != raw_awakening:
+            raise UserDataValidationError("觉醒等级必须等于已选择的普通觉醒数量")
 
         connection = self._db()
         now = _utc_now()
@@ -573,26 +624,35 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 """
                 INSERT INTO character_profile(
                     character_id, character_level, breakthrough_stage,
-                    awakening_level, fork_id, fork_level,
+                    awakening_level, fork_id, fork_level, fork_breakthrough_stage,
                     fork_refinement_level, selected_skill_id, ordinal,
-                    is_active, created_at_utc, updated_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    is_active, likeability_level_10_enabled,
+                    awakening_selection_initialized,
+                    created_at_utc, updated_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(character_id) DO UPDATE SET
                     character_level = excluded.character_level,
                     breakthrough_stage = excluded.breakthrough_stage,
                     awakening_level = excluded.awakening_level,
                     fork_id = excluded.fork_id,
                     fork_level = excluded.fork_level,
+                    fork_breakthrough_stage = excluded.fork_breakthrough_stage,
                     fork_refinement_level = excluded.fork_refinement_level,
                     selected_skill_id = excluded.selected_skill_id,
                     ordinal = excluded.ordinal,
                     is_active = excluded.is_active,
+                    likeability_level_10_enabled =
+                        excluded.likeability_level_10_enabled,
+                    awakening_selection_initialized =
+                        excluded.awakening_selection_initialized,
                     updated_at_utc = excluded.updated_at_utc
                 """,
                 (
                     raw_character_id, raw_level, raw_breakthrough, raw_awakening,
-                    raw_fork_id, raw_fork_level, raw_refinement,
-                    raw_selected_skill, raw_ordinal, int(bool(is_active)), now, now,
+                    raw_fork_id, raw_fork_level, raw_fork_breakthrough, raw_refinement,
+                    raw_selected_skill, raw_ordinal, int(bool(is_active)),
+                    int(bool(likeability_level_10_enabled)),
+                    int(selection_initialized), now, now,
                 ),
             )
             connection.execute(
@@ -605,6 +665,23 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 [
                     (raw_character_id, skill_id, skill_level)
                     for skill_id, skill_level in normalized_skills.items()
+                ],
+            )
+            connection.execute(
+                "DELETE FROM character_profile_awaken_effect WHERE character_id = ?",
+                (raw_character_id,),
+            )
+            connection.executemany(
+                """
+                INSERT INTO character_profile_awaken_effect(
+                    character_id, effect_id, ordinal
+                ) VALUES (?, ?, ?)
+                """,
+                [
+                    (raw_character_id, effect_id, effect_ordinal)
+                    for effect_ordinal, effect_id in enumerate(
+                        normalized_awaken_effects
+                    )
                 ],
             )
             connection.commit()

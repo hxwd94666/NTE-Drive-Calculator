@@ -1,5 +1,4 @@
 # 测试装备插件的部署、备份与恢复流程。
-# 测试装备插件的部署、备份与恢复流程。
 from __future__ import annotations
 
 import tempfile
@@ -123,6 +122,48 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
             find_game_executables([volume_root]),
             [expected.resolve()],
         )
+
+    def test_detects_registered_nte_install_without_scanning_the_disk(self) -> None:
+        install_root = self.root / "custom-library" / "Neverness To Everness"
+        expected = (
+            install_root / "Client" / "WindowsNoEditor" / "HT"
+            / "Binaries" / "Win64" / "HTGame.exe"
+        )
+        expected.parent.mkdir(parents=True)
+        expected.write_bytes(b"game")
+
+        with (
+            patch(
+                "src.services.equipment_plugin_deployment._registry_game_roots",
+                return_value=[install_root],
+            ),
+            patch(
+                "src.services.equipment_plugin_deployment._disk_roots",
+                return_value=[],
+            ),
+        ):
+            self.assertEqual(find_game_executables(), [expected.resolve()])
+
+    def test_detects_nte_in_the_games_directory_below_a_disk_root(self) -> None:
+        volume_root = self.root / "volume"
+        expected = (
+            volume_root / "games" / "Neverness To Everness" / "Client"
+            / "WindowsNoEditor" / "HT" / "Binaries" / "Win64" / "HTGame.exe"
+        )
+        expected.parent.mkdir(parents=True)
+        expected.write_bytes(b"game")
+
+        with (
+            patch(
+                "src.services.equipment_plugin_deployment._registry_game_roots",
+                return_value=[],
+            ),
+            patch(
+                "src.services.equipment_plugin_deployment._disk_roots",
+                return_value=[volume_root],
+            ),
+        ):
+            self.assertEqual(find_game_executables(), [expected.resolve()])
 
     def test_accepts_a_quoted_path_copied_from_windows_explorer(self) -> None:
         self.assertEqual(game_executable(f'"{self.executable}"'), self.executable.resolve())

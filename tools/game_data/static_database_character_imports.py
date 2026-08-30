@@ -6,6 +6,20 @@ from __future__ import annotations
 from tools.game_data.static_database_build_support import *
 
 
+_PLAYER_VARIANT_PATTERN = re.compile(
+    r"(?:playeruishow|player)_(\d{3})(?:[_./]|$)",
+    re.IGNORECASE,
+)
+
+
+def _player_variant_id(asset: Any) -> str | None:
+    """Return the stable three-digit player asset identity when available."""
+
+    path = (asset_path(asset) or "") if isinstance(asset, dict) else str(asset or "")
+    match = _PLAYER_VARIANT_PATTERN.search(path)
+    return match.group(1) if match is not None else None
+
+
 class CharacterImportMixin:
     def source_row_id(self, table: str, row_key: str) -> int:
         try:
@@ -19,7 +33,33 @@ class CharacterImportMixin:
             path = self.content_root / Path(relative_path)
             if not path.is_file():
                 raise StaticDatabaseError(f"缺少必要的来源文件：{path}")
-            _, rows = load_datatable(path)
+            if table in STRING_TABLE_SOURCES:
+                payload = json.loads(path.read_text(encoding="utf-8-sig"))
+                try:
+                    rows = payload[0]["StringTable"]["KeysToEntries"]
+                except (IndexError, KeyError, TypeError) as exc:
+                    raise StaticDatabaseError(
+                        f"StringTable 结构无效：{path}"
+                    ) from exc
+                if not isinstance(rows, dict):
+                    raise StaticDatabaseError(
+                        f"StringTable 条目不是对象：{path}"
+                    )
+            elif table in PROPERTY_ASSET_SOURCES:
+                payload = json.loads(path.read_text(encoding="utf-8-sig"))
+                try:
+                    properties = payload[0]["Properties"]
+                except (IndexError, KeyError, TypeError) as exc:
+                    raise StaticDatabaseError(
+                        f"DataAsset Properties 结构无效：{path}"
+                    ) from exc
+                if not isinstance(properties, dict):
+                    raise StaticDatabaseError(
+                        f"DataAsset Properties 不是对象：{path}"
+                    )
+                rows = {"Properties": properties}
+            else:
+                _, rows = load_datatable(path)
             self.rows[table] = rows
             self.connection.execute(
                 "INSERT INTO source_file VALUES (?, ?, ?, ?)",
@@ -125,6 +165,52 @@ class CharacterImportMixin:
                 )
                 self.awaken_rows[character_id] = (row, int(cursor.lastrowid))
 
+    def _mirror_character_effect_curve_sources(self) -> None:
+        """镜像角色效果曲线及已建模的技能全局值曲线。"""
+
+        directory = self.content_root / CHARACTER_EFFECT_CURVE_DIRECTORY
+        if not directory.is_dir():
+            raise StaticDatabaseError(f"缺少角色战斗曲线目录：{directory}")
+        lacrimosa_global_values = directory / "DT_GlobalValueLacrimosaData.json"
+        paths = sorted({
+            *directory.glob("*EffectFigure.json"),
+            lacrimosa_global_values,
+        })
+        if not paths:
+            raise StaticDatabaseError(f"角色战斗曲线目录没有 EffectFigure：{directory}")
+        if not lacrimosa_global_values.is_file():
+            raise StaticDatabaseError(
+                f"缺少安魂曲技能全局值曲线：{lacrimosa_global_values}"
+            )
+        source_file_id = int(self.connection.execute(
+            "SELECT COALESCE(MAX(source_file_id), 0) FROM source_file"
+        ).fetchone()[0])
+        for path in paths:
+            _, rows = load_datatable(path)
+            source_file_id += 1
+            relative_path = path.relative_to(self.content_root).as_posix()
+            self.connection.execute(
+                "INSERT INTO source_file VALUES (?, ?, ?, ?)",
+                (source_file_id, relative_path, file_sha256(path), len(rows)),
+            )
+            table_asset_path = f"/Game/{path.relative_to(self.content_root).with_suffix('').as_posix()}"
+            for row_key in sorted(rows):
+                row = rows[row_key]
+                payload_json = canonical_json(row)
+                cursor = self.connection.execute(
+                    "INSERT INTO source_row(source_file_id,row_key,payload_json,content_sha256) "
+                    "VALUES (?,?,?,?)",
+                    (
+                        source_file_id,
+                        str(row_key),
+                        payload_json if self.include_source_payloads else None,
+                        sha256_bytes(payload_json.encode("utf-8")),
+                    ),
+                )
+                self.character_effect_curve_rows.append(
+                    (table_asset_path, str(row_key), row, int(cursor.lastrowid))
+                )
+
     def _import_character_awakens(self) -> None:
         """导入六觉与三/六觉共鸣；用户的选择状态属于账号私有数据。"""
 
@@ -201,6 +287,113 @@ class CharacterImportMixin:
                         "INSERT INTO character_awaken_skill_level_bonus VALUES (?,?,?,?,?)",
                         (character_id, effect_id, skill_ordinal, skill_id, level_delta),
                     )
+
+    def _import_character_likeability_bonuses(self) -> None:
+        """Import the formal level-ten panel bonus for each supported role."""
+
+        known_attributes = {
+            str(row[0])
+            for row in self.connection.execute(
+                "SELECT attribute_id FROM equipment_attribute"
+            )
+        }
+        role_rows = self.rows["likeability_roles"]
+        modify_rows = self.rows["likeability_modify"]
+        character_by_variant: dict[str, int] = {}
+        for character_id, actor_path in self.connection.execute(
+            "SELECT character_id, actor_path FROM character ORDER BY character_id"
+        ):
+            variant_id = _player_variant_id(actor_path)
+            if variant_id is None:
+                continue
+            if variant_id in character_by_variant:
+                raise StaticDatabaseError(
+                    f"多个角色共用 Player 资产编号：{variant_id}"
+                )
+            character_by_variant[variant_id] = int(character_id)
+
+        mapped_roles: dict[int, tuple[str, dict[str, Any]]] = {}
+        for role_row_key, role in role_rows.items():
+            if not isinstance(role, dict):
+                continue
+            variant_id = _player_variant_id(role.get("SoftActorClass"))
+            character_id = character_by_variant.get(variant_id or "")
+            if character_id is None:
+                continue
+            if character_id in mapped_roles:
+                raise StaticDatabaseError(
+                    f"角色存在重复好感度定义：{character_id}"
+                )
+            mapped_roles[character_id] = (str(role_row_key), role)
+
+        for character_id, (role_row_key, role) in sorted(mapped_roles.items()):
+            level_map = role.get("MapModifyData") or []
+            if not isinstance(level_map, list):
+                raise StaticDatabaseError(f"角色好感度等级映射无效：{character_id}")
+            level_ten = [
+                row
+                for row in level_map
+                if isinstance(row, dict) and str(row.get("Key")) == "10"
+            ]
+            if not level_ten:
+                continue
+            if len(level_ten) != 1:
+                raise StaticDatabaseError(f"角色存在重复好感度 10 级加成：{character_id}")
+            modify_data_id = str(level_ten[0].get("Value") or "").strip()
+            modifier = modify_rows.get(modify_data_id)
+            if not modify_data_id or not isinstance(modifier, dict):
+                raise StaticDatabaseError(
+                    f"角色好感度 10 级修改包不存在：{character_id}/{modify_data_id}"
+                )
+            if modifier.get("ConditionArray") != []:
+                raise StaticDatabaseError(
+                    f"角色好感度 10 级修改包存在未建模条件：{modify_data_id}"
+                )
+            modifiers = modifier.get("ModifyData")
+            if not isinstance(modifiers, list) or not modifiers:
+                raise StaticDatabaseError(f"角色好感度修改包为空：{modify_data_id}")
+            role_source = self.source_row_id("likeability_roles", role_row_key)
+            modifier_source = self.source_row_id(
+                "likeability_modify",
+                modify_data_id,
+            )
+            self.connection.execute(
+                "INSERT INTO character_likeability_bonus VALUES (?,?,?,?,?)",
+                (character_id, 10, modify_data_id, role_source, modifier_source),
+            )
+            seen_properties: set[str] = set()
+            for ordinal, row in enumerate(modifiers):
+                if not isinstance(row, dict):
+                    raise StaticDatabaseError(f"角色好感度修改项无效：{modify_data_id}")
+                property_id = str(row.get("PropName") or "").strip()
+                value = row.get("PropValue")
+                operation = str(row.get("ModifierOp") or "").strip()
+                if (
+                    property_id not in known_attributes
+                    or property_id in seen_properties
+                    or isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    or operation != ADDITIVE_MODIFIER_OPERATION
+                ):
+                    raise StaticDatabaseError(
+                        f"角色好感度修改项无法标准化：{modify_data_id}/{property_id}"
+                    )
+                seen_properties.add(property_id)
+                self.connection.execute(
+                    """
+                    INSERT INTO character_likeability_bonus_property
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        character_id,
+                        ordinal,
+                        property_id,
+                        float(value),
+                        operation,
+                        modifier_source,
+                    ),
+                )
 
     @staticmethod
     def _character_panel_values(row: Any, row_key: str) -> dict[str, float]:

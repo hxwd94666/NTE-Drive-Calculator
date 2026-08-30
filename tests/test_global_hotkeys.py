@@ -42,6 +42,7 @@ class GlobalHotkeyManagerTests(unittest.TestCase):
             capture_hotkey="F9",
             finish_hotkey="F10",
             stop_hotkey="F12",
+            battle_rerecord_hotkey="F11",
             thread_factory=thread_factory,
         )
         return manager, threads
@@ -58,6 +59,7 @@ class GlobalHotkeyManagerTests(unittest.TestCase):
 
         manager._dispatch(generation, "capture")
         manager._dispatch(generation, "finish")
+        manager._dispatch(generation, "battle_rerecord")
         manager._dispatch(generation, "stop")
 
         self.assertEqual(["capture", "stop"], actions)
@@ -107,6 +109,7 @@ class GlobalHotkeyManagerTests(unittest.TestCase):
             capture_hotkey="F6",
             finish_hotkey="F7",
             stop_hotkey="F8",
+            battle_rerecord_hotkey="F5",
         )
 
         active_configuration, _callbacks = manager._session_snapshot(
@@ -114,6 +117,21 @@ class GlobalHotkeyManagerTests(unittest.TestCase):
         )
         self.assertEqual("F9", active_configuration.capture)
         self.assertEqual("F8", manager.configuration.stop)
+        self.assertEqual("F5", manager.configuration.battle_rerecord)
+
+    def test_battle_session_routes_only_rerecord_binding(self):
+        manager, _threads = self.make_manager()
+        actions = []
+        manager.start(
+            owner="battle_report",
+            on_battle_rerecord=lambda: actions.append("rerecord"),
+        )
+        generation = manager._generation
+
+        manager._dispatch(generation, "stop")
+        manager._dispatch(generation, "battle_rerecord")
+
+        self.assertEqual(["rerecord"], actions)
 
     def test_supported_virtual_keys_and_invalid_configuration(self):
         self.assertEqual(0x70, GlobalHotkeyManager.hotkey_to_vk("F1"))
@@ -127,6 +145,7 @@ class GlobalHotkeyManagerTests(unittest.TestCase):
                 capture_hotkey="",
                 finish_hotkey="F10",
                 stop_hotkey="F12",
+                battle_rerecord_hotkey="F11",
             )
 
 

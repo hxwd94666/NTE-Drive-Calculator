@@ -54,11 +54,9 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
         self.assertTrue(role["blueprints"])
         self.assertTrue(all(cell not in ("0", "0.0") for row in role["blueprints"][0]["board"] for cell in row))
 
-    def test_public_extra_shape_override_controls_blueprint_preference(self):
+    def test_legacy_public_extra_shape_override_cannot_change_blueprint_preference(self):
         from src.services.blueprint_service import solve_blueprints_from_static
-        from src.services.character_shape_bonus_service import (
-            save_public_character_shape_bonus,
-        )
+        from src.storage.sqlite.shared_data_dao import SharedDataDao
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
         with tempfile.TemporaryDirectory() as directory:
@@ -71,23 +69,32 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
                     for character in dao.list_characters()
                     if dao.get_equipment_plan(int(character["character_id"])) is not None
                 )
-            save_public_character_shape_bonus(
-                character_id,
-                shape_label="Type-4",
-                property_values={"CritBase": 8.0},
-                database_path=static_database,
-                shared_database_path=shared_database,
-            )
+                baseline = solve_blueprints_from_static(dao)
+                logical_key = dao.get_logical_character_key(character_id)
+            with SharedDataDao(shared_database) as shared_dao:
+                shared_dao.upsert_shape_bonus_override(
+                    logical_key,
+                    representative_character_id=character_id,
+                    shape_label="Type-4",
+                    shape_grid_count=4,
+                    properties=[{"property_id": "CritBase", "display_value": 8.0}],
+                    based_on_dataset_id="legacy-fixture",
+                )
             with StaticGameDataDao(static_database) as dao:
                 plans = solve_blueprints_from_static(
                     dao,
                     shared_database_path=shared_database,
                 )
 
+        baseline_role = next(
+            plan for plan in baseline.values() if plan["character_id"] == character_id
+        )
         role = next(
             plan for plan in plans.values() if plan["character_id"] == character_id
         )
-        self.assertEqual("Ⅳ型驱动", role["preferred_extra_label"])
+        self.assertEqual(
+            baseline_role["preferred_extra_label"], role["preferred_extra_label"]
+        )
 
     def test_custom_role_uses_its_saved_board_and_target_suit(self):
         import tempfile

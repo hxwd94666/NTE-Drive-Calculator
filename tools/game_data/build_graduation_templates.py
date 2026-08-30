@@ -63,96 +63,6 @@ def _property_weights(raw: Mapping[str, Any]) -> dict[str, float]:
     }
 
 
-def populate_logical_character_shape_bonuses(
-    connection: sqlite3.Connection,
-    *,
-    config_dir: Path,
-    release_defaults_database: Path | None = None,
-) -> int:
-    """Carry confirmed release shape defaults into a newly imported dataset."""
-
-    # The legacy role profile has been retired, so config_dir is deliberately
-    # ignored.  Only a confirmed immutable release database may seed these rows;
-    # account/shared overrides never enter a static rebuild.
-    del config_dir
-    connection.execute("DELETE FROM logical_character_shape_bonus_property")
-    connection.execute("DELETE FROM logical_character_shape_bonus")
-    connection.execute("DELETE FROM character_shape_bonus_property")
-    connection.execute("DELETE FROM character_shape_bonus")
-    if release_defaults_database is None:
-        return 0
-
-    source_path = release_defaults_database.expanduser().resolve()
-    if not source_path.is_file():
-        raise FileNotFoundError(f"发行形状默认库不存在：{source_path}")
-    source = sqlite3.connect(f"{source_path.as_uri()}?mode=ro", uri=True)
-    try:
-        bonuses = source.execute(
-            """SELECT logical_character_key, representative_character_id,
-                      shape_label, shape_grid_count, source_kind
-               FROM logical_character_shape_bonus
-               ORDER BY logical_character_key"""
-        ).fetchall()
-        properties = source.execute(
-            """SELECT logical_character_key, property_id, display_value, ordinal
-               FROM logical_character_shape_bonus_property
-               ORDER BY logical_character_key, ordinal"""
-        ).fetchall()
-    finally:
-        source.close()
-
-    known_keys = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT DISTINCT logical_character_key FROM character_annotation"
-        )
-    }
-    known_character_ids = {
-        int(row[0])
-        for row in connection.execute("SELECT character_id FROM character")
-    }
-    known_property_ids = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT attribute_id FROM equipment_attribute"
-        )
-    }
-    retained = [
-        row
-        for row in bonuses
-        if str(row[0]) in known_keys and int(row[1]) in known_character_ids
-    ]
-    retained_keys = {str(row[0]) for row in retained}
-    retained_properties = [
-        row
-        for row in properties
-        if str(row[0]) in retained_keys and str(row[1]) in known_property_ids
-    ]
-    missing_properties = [
-        (str(row[0]), str(row[1]))
-        for row in properties
-        if str(row[0]) in retained_keys and str(row[1]) not in known_property_ids
-    ]
-    if missing_properties:
-        raise ValueError(
-            f"发行形状默认值含新数据集无法映射的属性：{missing_properties[:5]}"
-        )
-    connection.executemany(
-        """INSERT INTO logical_character_shape_bonus(
-               logical_character_key, representative_character_id,
-               shape_label, shape_grid_count, source_kind
-           ) VALUES (?, ?, ?, ?, ?)""",
-        retained,
-    )
-    connection.executemany(
-        """INSERT INTO logical_character_shape_bonus_property(
-               logical_character_key, property_id, display_value, ordinal
-           ) VALUES (?, ?, ?, ?)""",
-        retained_properties,
-    )
-    return len(retained)
-
-
 def top_stat_names(
     values: Mapping[str, Any],
     weights: Mapping[str, float],
@@ -211,11 +121,18 @@ def _template_profile(detail: Mapping[str, Any]) -> dict[str, Any]:
             and int(row.get("required_awaken_level") or 0) <= 6
         ]
         if levels:
-            skill_levels[str(skill.get("skill_id"))] = max(levels)
+            skill_levels[str(skill.get("skill_id"))] = max(levels) + 1
     profile.update({
         "character_level": int(growth["level"]),
         "breakthrough_stage": max_stage,
         "awakening_level": 6,
+        "selected_awaken_effect_ids": [
+            str(effect.get("effect_id"))
+            for effect in detail.get("awakenings") or ()
+            if str(effect.get("awaken_type") or "") == "Awaken_Effect"
+        ],
+        "awakening_selection_initialized": True,
+        "likeability_level_10_enabled": bool(detail.get("likeability_bonus")),
         "skill_levels": skill_levels,
     })
     if profile.get("fork_id"):
@@ -258,6 +175,9 @@ def populate_graduation_templates(
     """Replace all templates using the old full-board selection rules."""
 
     connection.row_factory = sqlite3.Row
+    static_schema_version = int(
+        connection.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0]
+    )
     connection.execute("BEGIN IMMEDIATE")
     connection.execute("DELETE FROM character_graduation_template")
     stats = _stats(config_dir)
@@ -282,7 +202,10 @@ def populate_graduation_templates(
             user_database = Path(temporary_dir) / "graduation.sqlite3"
             with UserDataDao(user_database, account_id="graduation-builder"):
                 pass
-            with StaticGameDataDao(database_path) as static_dao:
+            with StaticGameDataDao(
+                database_path,
+                expected_schema_version=static_schema_version,
+            ) as static_dao:
                 percent_property_ids = {
                     str(row["attribute_id"])
                     for row in static_dao.list_equipment_attributes()
@@ -313,7 +236,12 @@ def populate_graduation_templates(
                 }
             for character in characters:
                 character_id = int(character["character_id"])
-                detail = load_official_role_detail(user_database, character_id)
+                detail = load_official_role_detail(
+                    user_database,
+                    character_id,
+                    static_database_path=database_path,
+                    static_schema_version=static_schema_version,
+                )
                 recommendation = recommendations.get(character_id) or {}
                 # The API synchronization above writes these rows into the
                 # same temporary static database before templates are built.

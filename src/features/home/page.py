@@ -1,5 +1,5 @@
-# 构建并刷新 2.1 首页工作台。
-"""构建并刷新 2.1 首页工作台。"""
+# 构建并刷新首页工作台。
+"""构建并刷新首页工作台。"""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.app.constants import APP_VERSION
 from src.app.theme import themed_style
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.dashboard_widgets import metric_card, set_status_badge
@@ -65,6 +66,8 @@ _SYNC_ERROR_GUIDANCE = {
         "处理：检查账号数据目录的写入权限和磁盘剩余空间；后台会自动重试。"
     ),
 }
+
+_WORKBENCH_VERSION = ".".join(APP_VERSION.split(".")[:2])
 
 
 def inventory_sync_error_guidance(error_code: str | None, error: str | None) -> str:
@@ -122,7 +125,7 @@ def build_home_page(window) -> QScrollArea:
     hero_layout = QHBoxLayout(hero)
     hero_layout.setContentsMargins(22, 18, 22, 18)
     title_column = QVBoxLayout()
-    title = QLabel("NTE Drive Calc 2.1 工作台")
+    title = QLabel(f"NTE Drive Calc {_WORKBENCH_VERSION} 工作台")
     title.setStyleSheet(themed_style("color:#f0f6fc;font-size:21px;font-weight:700"))
     window.home_account_label = QLabel("正在读取账号数据…")
     window.home_account_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))

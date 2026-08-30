@@ -130,7 +130,8 @@ python tools/windows_validation/run_validation.py --profile vision `
 - [ ] 锁定备用槽位；下一次计算排除其 UID，覆盖、归档和替换均被阻止。
 - [ ] 批量保存中制造后续角色无效输入；整批回滚，没有部分槽位更新。
 - [ ] 从游戏导入到指定槽位；来源、快照、逐件评分和卡带满级值被冻结，其他槽位不被覆盖。
-- [ ] 修改账号基础权重只影响当前账号；修改公共额外形状后其他账号读取同一公共覆盖。
+- [ ] 修改账号基础权重只影响当前账号；官方角色额外形状在基础权重页只读且严格采用发行静态库，旧公共
+  覆盖不能改变页面、计算、图纸或战报重放结果。
 - [ ] 创建自建角色，保存权重、额外形状、默认套装和 20 格底盘；可进入视觉计算与自动装配，但不进入
   官方角色页、游戏配装导入或极速装配。
 - [ ] 角色图纸生成后返回角色页，父导航保持高亮。
@@ -197,8 +198,12 @@ python tools/windows_validation/run_validation.py --profile vision `
 
 ## 10. 插件、环境、更新与发行
 
-- [ ] 环境诊断分别显示 Npcap、nte-core、dwmapi、插件 presence、SDK 缓存和 IPC 管道状态。
+- [ ] 环境诊断分别显示 Npcap、nte-core、dwmapi、Mod Loader、VC++ 运行库、插件 presence、SDK 缓存和 IPC 管道状态。
 - [ ] 在测试环境执行插件部署、备份和还原；失败保留原 DLL 和运行时 SDK 缓存。
+- [ ] 代理 DLL 可加载的环境保持默认代理方式，启动游戏后 IPC v7 管道出现且 Loader 未启动。
+- [ ] 代理 DLL 不会自动加载的环境先安全还原代理，再经 UAC 启动备用 Loader；游戏启动后 IPC v7 管道出现。
+- [ ] Loader 运行时尝试切到代理方式；应用拒绝。停止 Loader 后确认本次注入的启动器退出，再允许部署代理。
+- [ ] 取消 UAC、Loader 文件缺失、payload 缺失、VC++ 运行库缺失和停止超时分别显示明确错误，不报告加载成功。
 - [ ] 游戏更新后按 [插件适配文档](../reference/mods-plugin-version-adaptation.md) 验证 DLL 哈希、工作区、
   SDK 重建、presence、pipe 和一次受控装配。
 - [ ] 执行 Mirror 更新检查、取消、失败重试和安装器启动；日志无 CDK、Token 和鉴权 URL。

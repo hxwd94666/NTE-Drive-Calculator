@@ -13,10 +13,6 @@ from src.services.character_weight_service import (
     reset_account_character_weights,
     save_account_character_weights,
 )
-from src.services.character_shape_bonus_service import (
-    DEFAULT_EXTRA_SHAPE_LABEL,
-    save_public_character_shape_bonus,
-)
 from src.services.custom_character_service import (
     create_custom_character,
     delete_custom_character,
@@ -73,58 +69,6 @@ class CharacterWeightServiceTests(unittest.TestCase):
         self.assertTrue(restored["seeded_at_utc"] == restored["updated_at_utc"])
         self.assertEqual(before["property_weights"], restored["property_weights"])
         self.assertEqual(before["main_property_weights"], restored["main_property_weights"])
-
-    def test_shared_shape_edit_does_not_freeze_account_weights(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            static_database = root / "game_static.sqlite3"
-            shared_database = root / "app_shared.sqlite3"
-            user_database = root / "user.sqlite3"
-            shutil.copy2(PROJECT_DATABASE, static_database)
-            with UserDataDao(user_database, account_id="weights"):
-                pass
-            with patch.dict(
-                "os.environ",
-                {
-                    "NTE_GAME_STATIC_DB": str(static_database),
-                    "NTE_APP_SHARED_DB": str(shared_database),
-                },
-            ):
-                before = ensure_account_character_weights(user_database, (1051,))[1051]
-                save_public_character_shape_bonus(
-                    1051,
-                    shape_label="Type-3",
-                    property_values={"CritBase": 8.0},
-                    database_path=static_database,
-                    shared_database_path=shared_database,
-                )
-                after = ensure_account_character_weights(user_database, (1051,))[1051]
-
-        self.assertEqual("default", before["source_kind"])
-        self.assertEqual(before, after)
-
-    def test_empty_shape_label_uses_the_visible_type_three_default(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            static_database = root / "game_static.sqlite3"
-            shared_database = root / "app_shared.sqlite3"
-            shutil.copy2(PROJECT_DATABASE, static_database)
-            with patch.dict(
-                "os.environ",
-                {
-                    "NTE_GAME_STATIC_DB": str(static_database),
-                    "NTE_APP_SHARED_DB": str(shared_database),
-                },
-            ):
-                result = save_public_character_shape_bonus(
-                    1051,
-                    shape_label="",
-                    property_values={"CritBase": 8.0},
-                    database_path=static_database,
-                    shared_database_path=shared_database,
-                )
-
-        self.assertEqual(DEFAULT_EXTRA_SHAPE_LABEL, result["shape_label"])
 
     def test_custom_character_has_an_account_owned_weight_seed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

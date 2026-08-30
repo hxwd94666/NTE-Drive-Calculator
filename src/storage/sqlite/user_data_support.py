@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 38
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -35,6 +36,22 @@ USER_MIGRATIONS = {
     20: Path(__file__).with_name("schema") / "021_user_data_v20.sql",
     21: Path(__file__).with_name("schema") / "022_user_data_v21.sql",
     22: Path(__file__).with_name("schema") / "023_user_data_v22.sql",
+    23: Path(__file__).with_name("schema") / "024_user_data_v23.sql",
+    24: Path(__file__).with_name("schema") / "025_user_data_v24.sql",
+    25: Path(__file__).with_name("schema") / "026_user_data_v25.sql",
+    26: Path(__file__).with_name("schema") / "027_user_data_v26.sql",
+    27: Path(__file__).with_name("schema") / "028_user_data_v27.sql",
+    28: Path(__file__).with_name("schema") / "029_user_data_v28.sql",
+    29: Path(__file__).with_name("schema") / "030_user_data_v29.sql",
+    30: Path(__file__).with_name("schema") / "031_user_data_v30.sql",
+    31: Path(__file__).with_name("schema") / "032_user_data_v31.sql",
+    32: Path(__file__).with_name("schema") / "033_user_data_v32.sql",
+    33: Path(__file__).with_name("schema") / "034_user_data_v33.sql",
+    34: Path(__file__).with_name("schema") / "035_user_data_v34.sql",
+    35: Path(__file__).with_name("schema") / "036_user_data_v35.sql",
+    36: Path(__file__).with_name("schema") / "037_user_data_v36.sql",
+    37: Path(__file__).with_name("schema") / "038_user_data_v37.sql",
+    38: Path(__file__).with_name("schema") / "039_user_data_v38.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "vision", "gamepad", "import"})
@@ -57,8 +74,40 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def _valid_breakthrough_stage_for_level(level: int, stage: int) -> bool:
+    """Validate the shared 1-80 level / 0-6 breakthrough boundary."""
+
+    minimum_level = 1 if stage == 0 else (stage + 1) * 10
+    maximum_level = (stage + 2) * 10
+    return 0 <= stage <= 6 and minimum_level <= level <= maximum_level
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _json_object(value: Mapping[str, Any], label: str) -> str:
+    try:
+        return json.dumps(
+            dict(value),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as error:
+        raise UserDataValidationError(f"{label} 无法序列化") from error
+
+
+def _microseconds(value: Any, label: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise UserDataValidationError(f"{label} 必须是数字")
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise UserDataValidationError(f"{label} 必须是有限数字")
+    return int(round(normalized * 1_000_000.0))
 
 
 def _decoded(value: str | None, default: Any) -> Any:
@@ -115,3 +164,22 @@ def _integer(value: Any, label: str, *, minimum: int | None = None) -> int:
     if minimum is not None and value < minimum:
         raise UserDataValidationError(f"{label} 不能小于 {minimum}")
     return value
+
+
+def _finite_number(
+    value: Any,
+    label: str,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise UserDataValidationError(f"{label} 必须是数字")
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise UserDataValidationError(f"{label} 必须是有限数字")
+    if minimum is not None and normalized < minimum:
+        raise UserDataValidationError(f"{label} 不能小于 {minimum:g}")
+    if maximum is not None and normalized > maximum:
+        raise UserDataValidationError(f"{label} 不能大于 {maximum:g}")
+    return normalized

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nte-drive-calculator.invalid/counterfactual-request-v1.schema.json",
+  "title": "CounterfactualRequestV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "model_version", "dataset_version", "axis", "characters", "target_profiles", "hits", "buffs"],
+  "properties": {
+    "schema_version": {"const": "counterfactual-request-v1"},
+    "model_version": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "axis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "range_start_us", "range_end_us"],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "range_start_us": {"type": "integer"},
+        "range_end_us": {"type": "integer"}
+      }
+    },
+    "characters": {"type": "array", "items": {"$ref": "#/$defs/character"}},
+    "target_profiles": {"type": "array", "items": {"$ref": "#/$defs/target_profile"}},
+    "hits": {"type": "array", "items": {"$ref": "#/$defs/hit"}},
+    "buffs": {"type": "array", "items": {"$ref": "#/$defs/buff"}}
+  },
+  "$defs": {
+    "character": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["character_id", "character_level", "stats"],
+      "properties": {
+        "character_id": {"type": "integer"},
+        "character_level": {"type": "number"},
+        "stats": {"type": "object", "additionalProperties": {"type": "number"}}
+      }
+    },
+    "target_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_half", "target_id", "damage_attribute", "resistance", "enemy_defense_base"],
+      "properties": {
+        "scope_half": {"type": "string"},
+        "target_id": {"type": "string", "minLength": 1},
+        "damage_attribute": {"type": "string", "minLength": 1},
+        "resistance": {"type": "number"},
+        "enemy_defense_base": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "hit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "sequence", "relative_time_us", "scope_half", "target_id", "character_id", "damage", "direction", "classification", "damage_attribute", "scaling_property_id", "critical_policy", "critical_state", "critical_rate"],
+      "properties": {
+        "event_id": {"type": "string", "minLength": 1},
+        "sequence": {"type": "integer"},
+        "relative_time_us": {"type": "integer"},
+        "scope_half": {"type": "string"},
+        "target_id": {"type": "string"},
+        "character_id": {"type": ["integer", "null"]},
+        "damage": {"type": "number", "minimum": 0},
+        "direction": {"type": "string"},
+        "classification": {"type": "string"},
+        "damage_attribute": {"type": "string"},
+        "scaling_property_id": {"enum": ["Atk", "HPMax", "Def", ""]},
+        "critical_policy": {"enum": ["character", "fixed", "disabled", "unknown"]},
+        "critical_state": {"enum": ["critical", "non_critical", "not_applicable", "ambiguous", "unreplayable"]},
+        "critical_rate": {"type": ["number", "null"]}
+      }
+    },
+    "modifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property_id", "operation", "value", "value_confidence", "calculation_asset_path"],
+      "properties": {
+        "property_id": {"type": "string", "minLength": 1},
+        "operation": {"type": "string"},
+        "value": {"type": ["number", "null"]},
+        "value_confidence": {"enum": ["low", "medium", "high"]},
+        "calculation_asset_path": {"type": "string"}
+      }
+    },
+    "interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interval_id", "start_us", "end_us", "scope_half", "source_character_id", "target_scope", "target_id", "modifiers"],
+      "properties": {
+        "interval_id": {"type": "string", "minLength": 1},
+        "start_us": {"type": "integer"},
+        "end_us": {"type": "integer"},
+        "scope_half": {"type": "string"},
+        "source_character_id": {"type": "integer"},
+        "target_scope": {"type": "string"},
+        "target_id": {"type": "string"},
+        "modifiers": {"type": "array", "items": {"$ref": "#/$defs/modifier"}}
+      }
+    },
+    "buff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buff_key", "intervals"],
+      "properties": {
+        "buff_key": {"type": "string", "minLength": 1},
+        "intervals": {"type": "array", "items": {"$ref": "#/$defs/interval"}}
+      }
+    }
+  }
+}

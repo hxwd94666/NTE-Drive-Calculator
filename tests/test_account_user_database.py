@@ -89,6 +89,26 @@ class AccountUserDatabaseTests(unittest.TestCase):
             self.assertTrue(first_settings.load("ui")["cloud_nte_mode"])
             self.assertFalse(second_settings.load("ui")["cloud_nte_mode"])
 
+    def test_mod_plugin_loading_preferences_default_and_validate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self.make_manager(Path(temporary))
+            account = manager.initialize()
+            settings = AccountSettingsService(account.user_database_path)
+
+            defaults = settings.load("ui")
+            self.assertEqual(defaults["equipment_plugin_loading_method"], "proxy")
+            self.assertFalse(defaults["equipment_plugin_risk_acknowledged"])
+
+            saved = settings.save(
+                "ui",
+                {
+                    "equipment_plugin_loading_method": "LOADER",
+                    "equipment_plugin_risk_acknowledged": True,
+                },
+            )
+            self.assertEqual(saved["equipment_plugin_loading_method"], "loader")
+            self.assertTrue(saved["equipment_plugin_risk_acknowledged"])
+
     def test_versioned_stats_catalog_replaces_stale_local_copy(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -145,7 +165,12 @@ class AccountUserDatabaseTests(unittest.TestCase):
 
             self.assertEqual(
                 settings.load("hotkeys"),
-                {"capture": "F6", "finish": "F7", "stop": "F8"},
+                {
+                    "capture": "F6",
+                    "finish": "F7",
+                    "stop": "F8",
+                    "battle_rerecord": "F11",
+                },
             )
             self.assertEqual(settings.load("update")["ignored_version"], "1.2.3")
             self.assertEqual(settings.load("update")["mirror_cdk"], "legacy-cdk")

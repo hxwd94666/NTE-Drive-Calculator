@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import closing
 from pathlib import Path
 
 
@@ -13,14 +14,30 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from tools.game_data.static_database_build_support import *
 from tools.game_data.static_database_character_imports import CharacterImportMixin
+from tools.game_data.static_database_blueprint_imports import BlueprintImportMixin
+from tools.game_data.static_database_buff_imports import BuffImportMixin
 from tools.game_data.static_database_equipment_imports import EquipmentImportMixin
 from tools.game_data.static_database_combat_imports import CombatImportMixin
+from tools.game_data.static_database_catalog_imports import CatalogImportMixin
+from tools.game_data.static_database_encounter_imports import EncounterImportMixin
+from tools.game_data.static_database_progression_imports import ProgressionImportMixin
+
+
+RELEASE_DATABASE_PATH = PROJECT_ROOT / "data" / "game_static.sqlite3"
+PREVIOUS_RELEASE_DATABASE_PATH = (
+    PROJECT_ROOT / "build" / "previous" / "data" / "game_static.sqlite3"
+)
 
 
 class StaticDatabaseBuilder(
     CharacterImportMixin,
+    BlueprintImportMixin,
+    BuffImportMixin,
     EquipmentImportMixin,
     CombatImportMixin,
+    CatalogImportMixin,
+    EncounterImportMixin,
+    ProgressionImportMixin,
 ):
     def __init__(
         self,
@@ -37,10 +54,12 @@ class StaticDatabaseBuilder(
         self.dataset_id = dataset_id
         self.as_of = as_of
         self.overrides_path = overrides_path
+        self.combat_blueprint_root = content_root
         self.include_source_payloads = include_source_payloads
         self.rows: dict[str, dict[str, Any]] = {}
         self.source_row_ids: dict[tuple[str, str], int] = {}
         self.awaken_rows: dict[int, tuple[dict[str, Any], int]] = {}
+        self.character_effect_curve_rows: list[tuple[str, str, dict[str, Any], int]] = []
 
     def build(self) -> dict[str, Any]:
         for schema_path in SCHEMA_PATHS:
@@ -64,12 +83,28 @@ class StaticDatabaseBuilder(
         self.connection.execute("INSERT INTO schema_migration VALUES (14, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (15, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (16, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (17, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (18, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (19, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (20, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (21, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (22, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (23, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (24, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (25, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (26, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (27, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (28, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (29, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (30, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (31, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
         )
         self._mirror_sources()
         self._mirror_awaken_sources()
+        self._mirror_character_effect_curve_sources()
         self._import_characters()
         self._import_character_awakens()
         self._import_character_panel_growth()
@@ -77,9 +112,12 @@ class StaticDatabaseBuilder(
         self._import_skill_damage()
         self._import_combat_context()
         self._import_enemy_combat_profiles()
+        self._import_roguelike_modifiers()
         self._import_monster_instance_profiles()
         self._import_abyss_bindings()
         self._import_equipment_attributes()
+        self._import_official_character_shape_bonuses()
+        self._import_character_likeability_bonuses()
         self._import_equipment_shapes()
         self._import_equipment_suits()
         self._import_equipment_items()
@@ -87,6 +125,12 @@ class StaticDatabaseBuilder(
         self._import_equipment_plans()
         self._import_default_character_weights()
         self._import_forks()
+        self._import_combat_catalogs()
+        self._import_combat_curves()
+        self._import_combat_blueprints()
+        self._import_buff_definitions()
+        self._import_encounter_catalogs()
+        self._import_progression_catalog()
         violations = [tuple(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
         if violations:
             raise StaticDatabaseError(f"发现外键错误：{violations[:10]}")
@@ -107,6 +151,48 @@ def render_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def backup_existing_release_database(output: Path, backup: Path) -> None:
+    """Atomically preserve the release database before a rebuild replaces it."""
+
+    output = output.expanduser().resolve()
+    backup = backup.expanduser().resolve()
+    if backup == output:
+        raise ValueError("静态数据库备份路径不能与输出路径相同")
+    if not output.is_file():
+        return
+    try:
+        with closing(
+            sqlite3.connect(f"{output.as_uri()}?mode=ro", uri=True)
+        ) as connection:
+            attributed_count = int(connection.execute(
+                """SELECT COUNT(*) FROM character_weight_recommendation
+                   WHERE source_kind IN ('workshop_api', 'workshop_cache')"""
+            ).fetchone()[0])
+    except sqlite3.Error as exc:
+        raise RuntimeError(f"无法审计待备份的发行静态库：{output}") from exc
+    if attributed_count <= 0:
+        return
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    handle, backup_name = tempfile.mkstemp(
+        prefix=f".{backup.name}.", suffix=".tmp", dir=backup.parent
+    )
+    os.close(handle)
+    backup_temporary = Path(backup_name)
+    try:
+        with (
+            closing(sqlite3.connect(f"{output.as_uri()}?mode=ro", uri=True)) as source,
+            closing(sqlite3.connect(backup_temporary)) as destination,
+        ):
+            source.backup(destination)
+            integrity = destination.execute("PRAGMA integrity_check").fetchone()
+            if integrity is None or integrity[0] != "ok":
+                raise RuntimeError(f"发行静态库备份完整性检查失败：{integrity}")
+        os.replace(backup_temporary, backup)
+    except BaseException:
+        backup_temporary.unlink(missing_ok=True)
+        raise
+
+
 def build_database(
     source: Path,
     output: Path,
@@ -116,7 +202,7 @@ def build_database(
     as_of: date,
     overrides_path: Path = DEFAULT_OVERRIDES,
     config_dir: Path = PROJECT_ROOT / "config",
-    release_shape_defaults_database: Path | None = None,
+    backup_existing_to: Path | None = None,
     include_source_payloads: bool = True,
     manifest_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -125,6 +211,8 @@ def build_database(
     report_dir = report_dir.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
+    if backup_existing_to is not None:
+        backup_existing_release_database(output, backup_existing_to)
     handle, temporary_name = tempfile.mkstemp(
         prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
     )
@@ -145,27 +233,12 @@ def build_database(
             counts = builder.build()
             try:
                 from .build_graduation_templates import (
-                    populate_logical_character_shape_bonuses,
                     populate_graduation_templates,
                 )
             except ImportError:
                 from build_graduation_templates import (
-                    populate_logical_character_shape_bonuses,
                     populate_graduation_templates,
                 )
-            counts["logical_character_shape_bonus"] = populate_logical_character_shape_bonuses(
-                connection,
-                config_dir=config_dir.expanduser().resolve(),
-                release_defaults_database=release_shape_defaults_database,
-            )
-            counts["logical_character_shape_bonus_property"] = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM logical_character_shape_bonus_property"
-                ).fetchone()[0]
-            )
-            counts["character_shape_bonus"] = 0
-            counts["character_shape_bonus_property"] = 0
-            connection.commit()
             counts["character_graduation_template"] = populate_graduation_templates(
                 connection,
                 database_path=temporary,
@@ -210,11 +283,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     parser.add_argument("--config-dir", type=Path, default=PROJECT_ROOT / "config")
     parser.add_argument(
-        "--release-shape-defaults-database",
+        "--backup-existing-to",
         type=Path,
         help=(
-            "从确认的上一发行静态库继承仍可映射的角色额外形状默认值；"
-            "不会读取账号或共享覆盖"
+            "覆盖输出前原子备份现有发行静态库；无工坊 API Key 时用于继承旧权重"
         ),
     )
     parser.add_argument(
@@ -232,6 +304,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    output = args.output.expanduser().resolve()
+    backup_existing_to = args.backup_existing_to
+    if backup_existing_to is None and output == RELEASE_DATABASE_PATH.resolve():
+        backup_existing_to = PREVIOUS_RELEASE_DATABASE_PATH
     report = build_database(
         args.source,
         args.output,
@@ -240,7 +316,7 @@ def main() -> int:
         as_of=args.as_of,
         overrides_path=args.overrides,
         config_dir=args.config_dir,
-        release_shape_defaults_database=args.release_shape_defaults_database,
+        backup_existing_to=backup_existing_to,
         include_source_payloads=not args.omit_source_payloads,
         manifest_path=args.manifest,
     )

@@ -35,7 +35,7 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 | 配装槽位 | `loadout_slot.*` | 创建、重命名、归档、当前方案切换与锁冲突 |
 | 角色 | `role.*` | 索引/详情、配置、替换、动态权重与 dirty 决策 |
 | 基础权重 | `basic_weight.*` | 账号权重、自建角色与底盘保存/重置 |
-| 公共额外形状 | `shape_bonus.*` | 公共覆盖保存、迁移和恢复发行默认 |
+| 官方额外形状 | `shape_bonus.*` | 拒绝旧公共覆盖写入，以及旧覆盖清理/迁移诊断 |
 | 图纸 | `blueprint.*` | 生成、失败和旧账号结果丢弃 |
 | 仓库 | `warehouse.*` | 固定快照、运行时覆盖、筛选、计划、RPC、待确认和最终状态 |
 | 鉴定 | `identification.*` | 输入来源、热键 owner、识别与展示生命周期 |
@@ -43,7 +43,7 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 | 自动装配 | `drive_assembly.*` | 页面阶段、输入后端、动作、停止与可见结果 |
 | 倒带 | `rewind.*` | 推荐请求、八槽保存、OCR 阶段、十连计划和停止 |
 | 战报 | `battle_report.*` | capture 生命周期、摘要持久化、历史恢复和保留策略 |
-| 环境 | `environment.*` | Npcap、nte-core、dwmapi、SDK 缓存、pipe、部署与恢复 |
+| 环境 | `environment.*` | Npcap、nte-core、dwmapi、Mod Loader、VC Runtime、SDK 缓存、pipe、部署与恢复 |
 | 更新 | `update.*` | 检查、下载、取消、失败、完成和安装器启动 |
 
 同步与仓库允许记录驱动、卡带、已装备、锁定和角色实例的聚合数量，不记录 UID 列表。战报允许字段包括

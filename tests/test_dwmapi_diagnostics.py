@@ -9,6 +9,7 @@ from unittest.mock import patch
 from src.services.dwmapi_diagnostics import (
     EQUIPMENT_PIPE_NAME,
     collect_dwmapi_diagnostics,
+    format_dwmapi_diagnostics,
 )
 from src.services.equipment_plugin_deployment import (
     MOD_PLUGIN_SIGNATURE,
@@ -58,6 +59,11 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
                 game_executable_path=self.game,
                 application_root=self.root,
                 recorded_workspace_path=writable_workspace,
+                loading_method="loader",
+                loader_snapshot={
+                    "phase": "running",
+                    "loader_path": str(self.root / "nte-mod-loader.exe"),
+                },
             )
 
         self.assertTrue(report["ok"])
@@ -69,6 +75,9 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
         self.assertTrue(report["registered_workspace_sdk_cache"]["NTE_SDK.checksum"]["exists"])
         self.assertIn("state", report["pipe"])
         self.assertEqual(EQUIPMENT_PIPE_NAME, r"\\.\pipe\nte-mods-plugin-v7")
+        formatted = format_dwmapi_diagnostics(report)
+        self.assertIn("Mod Loader（备用）", formatted)
+        self.assertIn("Microsoft Visual C++ 运行库", formatted)
 
     def test_reports_invalid_game_path_without_mutating_files(self) -> None:
         report = collect_dwmapi_diagnostics(

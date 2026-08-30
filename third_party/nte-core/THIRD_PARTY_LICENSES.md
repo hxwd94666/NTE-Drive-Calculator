@@ -58,6 +58,18 @@ Resolved from `tools/cue4parse_probe/Cue4ParseProbe.csproj` and `tools/external-
 | Windows SDK / Win32 APIs | OS integration through `windows-sys` | Governed by Microsoft SDK and OS terms. |
 | .NET SDK | Builds the optional C# probe | Distributed separately by Microsoft. |
 
+## Native Mod Loader Dependencies
+
+| Component | Vendored location | License | Upstream |
+|---|---|---|---|
+| MinHook | `native/nte-mod-loader/third_party/minhook` | BSD-2-Clause | https://github.com/TsudaKageyu/minhook |
+| Simple Manual Map Injector | `native/nte-mod-loader/third_party/manualmap` | MIT | https://github.com/TheCruZ/Simple-Manual-Map-Injector |
+
+The manually mapped shim and plugin use the Microsoft Visual C++ runtime already
+required by the NTE Windows client; the loader executable links its runtime
+statically. Release validation must inspect PE imports and exercise loader
+startup on the supported Windows image.
+
 ## Resource Files
 
 Files under `res/` can include project-authored JSON, derived metadata, and small client-derived UI resources. They are not automatically covered by the project software license if third-party rights apply. Treat game-derived names, icons, fonts, and tables as third-party material unless you have confirmed a separate right to redistribute them.

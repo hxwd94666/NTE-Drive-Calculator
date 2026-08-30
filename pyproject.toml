@@ -55,6 +55,7 @@ build = [
 dev = [
     "coverage[toml]>=7.6.0",
     "mypy>=1.18.0",
+    "pytest>=8.0.0",
     "ruff>=0.12.0",
 ]
 

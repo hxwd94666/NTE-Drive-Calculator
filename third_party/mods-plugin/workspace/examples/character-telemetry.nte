@@ -1,0 +1,34 @@
+#include <nte/mod.hpp>
+
+NTE_SCRIPT(5);
+NTE_MOD("character-telemetry");
+NTE_REQUIRES("viewport.tick");
+NTE_REQUIRES("game.session");
+NTE_REQUIRES("sdk.read");
+NTE_REQUIRES("ipc");
+NTE_ROUTE_IPC(12, "ipc.query_mod_events");
+
+std::uint64_t last_hp = 0;
+
+void on_viewport_tick(const nte::viewport_tick_event& event)
+{
+    const auto character = nte::game::player_character;
+    if (character != nullptr)
+    {
+        const auto hp = nte::sdk::character_hp_milli(character);
+        if (hp != last_hp)
+        {
+            const auto max_hp = nte::sdk::character_hp_max_milli(character, false);
+            const auto level = nte::sdk::character_level(character);
+            nte::ipc::emit("pre.character.health", hp, max_hp, level);
+            std::uint64_t health_per_mille = 0;
+            if (max_hp > 0)
+            {
+                const auto scaled_hp = hp * 1000;
+                health_per_mille = scaled_hp / max_hp;
+            }
+            nte::ipc::emit("post.character.health", hp, max_hp, health_per_mille);
+            last_hp = hp;
+        }
+    }
+}

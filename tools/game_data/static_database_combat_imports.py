@@ -8,6 +8,26 @@ from tools.game_data.static_database_build_support import *
 
 class CombatImportMixin:
     def _import_forks(self) -> None:
+        canonical_star_packs: dict[str, str] = {}
+        for row_key in self.rows["fork_stars"]:
+            pack_id, _star_level = split_numbered_row(row_key)
+            normalized = pack_id.casefold()
+            previous = canonical_star_packs.setdefault(normalized, pack_id)
+            if previous != pack_id:
+                raise StaticDatabaseError(
+                    f"弧盘精炼包仅大小写不同且无法唯一解析：{previous}/{pack_id}"
+                )
+        canonical_breakthrough_packs: dict[str, str] = {}
+        breakthrough_stages: dict[str, set[int]] = {}
+        for row_key in self.rows["fork_breakthroughs"]:
+            pack_id, stage = split_numbered_row(row_key)
+            normalized = pack_id.casefold()
+            previous = canonical_breakthrough_packs.setdefault(normalized, pack_id)
+            if previous != pack_id:
+                raise StaticDatabaseError(
+                    f"弧盘突破包仅大小写不同且无法唯一解析：{previous}/{pack_id}"
+                )
+            breakthrough_stages.setdefault(normalized, set()).add(int(stage))
         for type_id in sorted(self.rows["fork_types"], key=int):
             row = self.rows["fork_types"][type_id]
             name, _, _ = text_parts(row.get("TypeName"))
@@ -35,6 +55,40 @@ class CombatImportMixin:
             quality = enum_tail(row.get("ItemQuality"), "ITEM_QUALITY_")
             if name is None or quality is None:
                 raise StaticDatabaseError(f"弧盘身份字段不完整：{fork_id}")
+            raw_star_pack_id = optional_text(element.get("UpgradeStarPackID"))
+            star_pack_id = (
+                canonical_star_packs.get(raw_star_pack_id.casefold())
+                if raw_star_pack_id is not None
+                else None
+            )
+            if int(element.get("MaxUpgradeStar") or 0) > 0 and star_pack_id is None:
+                raise StaticDatabaseError(
+                    f"弧盘精炼包无法解析：{fork_id}/{raw_star_pack_id}"
+                )
+            raw_breakthrough_pack_id = optional_text(
+                element.get("BreakthroughPackId")
+            )
+            breakthrough_pack_id = (
+                canonical_breakthrough_packs.get(
+                    raw_breakthrough_pack_id.casefold()
+                )
+                if raw_breakthrough_pack_id is not None
+                else None
+            )
+            maximum_breakthrough = int(element.get("MaxBreakthrough") or 0)
+            if maximum_breakthrough > 0 and breakthrough_pack_id is None:
+                raise StaticDatabaseError(
+                    f"弧盘突破包无法解析：{fork_id}/{raw_breakthrough_pack_id}"
+                )
+            actual_stages = breakthrough_stages.get(
+                (raw_breakthrough_pack_id or "").casefold(), set()
+            )
+            expected_stages = set(range(maximum_breakthrough + 1))
+            if maximum_breakthrough > 0 and actual_stages != expected_stages:
+                raise StaticDatabaseError(
+                    f"弧盘突破档不完整：{fork_id}/"
+                    f"{sorted(actual_stages)} != {sorted(expected_stages)}"
+                )
             self.connection.execute(
                 "INSERT INTO fork_item VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -47,9 +101,9 @@ class CombatImportMixin:
                     FORK_TYPE_ID_BY_CHARACTER_GROUP.get(group_type),
                     group_type,
                     element.get("UpgradePackId"),
-                    element.get("BreakthroughPackId"),
-                    element.get("UpgradeStarPackID"),
-                    element.get("MaxBreakthrough"),
+                    breakthrough_pack_id,
+                    star_pack_id,
+                    maximum_breakthrough,
                     element.get("MaxUpgradeStar"),
                     asset_path(row.get("ItemIcon")),
                     asset_path(element.get("ForkCard")),
@@ -250,7 +304,15 @@ class CombatImportMixin:
             for pack_id in sorted(self.rows[table_name]):
                 row = self.rows[table_name][pack_id]
                 self.connection.execute(
-                    "INSERT INTO enemy_combat_profile VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    """
+                    INSERT INTO enemy_combat_profile(
+                        profile_set, pack_id, defense_base, defense_up,
+                        defense_add, defense_ignore, topple_limit,
+                        topple_accrue_efficiency, topple_anti_accrue_efficiency,
+                        topple_bonus, topple_reduce_natural, topple_reduce_reset,
+                        source_row_id, health_base, health_up, health_add
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
                     (
                         profile_set, pack_id, float_value(row, "DefBase"),
                         float_value(row, "DefUp"), float_value(row, "DefAdd"),
@@ -258,7 +320,11 @@ class CombatImportMixin:
                         float_value(row, "UnbalAccrueEfficiencyBase"),
                         float_value(row, "UnbalAntiAccrueEfficiencyBase"),
                         float_value(row, "UnbaleBonus"), float_value(row, "UnbalReduceNatur"),
-                        float_value(row, "UnbalReduceReset"), self.source_row_id(table_name, pack_id),
+                        float_value(row, "UnbalReduceReset"),
+                        self.source_row_id(table_name, pack_id),
+                        float_value(row, "HPMaxBase"),
+                        float_value(row, "HPMaxUp"),
+                        float_value(row, "HPMaxAdd"),
                     ),
                 )
                 for damage_type, (resistance_field, immunity_field) in ENEMY_RESISTANCE_FIELDS.items():
@@ -269,6 +335,45 @@ class CombatImportMixin:
                             float_value(row, resistance_field), float_value(row, immunity_field),
                         ),
                     )
+
+    def _import_roguelike_modifiers(self) -> None:
+        for modifier_id in sorted(self.rows["roguelike_modify"]):
+            row = self.rows["roguelike_modify"][modifier_id]
+            conditions = row.get("ConditionArray") or []
+            modifiers = row.get("ModifyData") or []
+            if not isinstance(conditions, list) or not isinstance(modifiers, list):
+                raise StaticDatabaseError(
+                    f"RogueLike 修正配置字段不是数组：{modifier_id}"
+                )
+            self.connection.execute(
+                "INSERT INTO roguelike_modifier_profile VALUES (?,?,?)",
+                (
+                    modifier_id,
+                    canonical_json(conditions),
+                    self.source_row_id("roguelike_modify", modifier_id),
+                ),
+            )
+            for ordinal, modifier in enumerate(modifiers):
+                if not isinstance(modifier, dict):
+                    raise StaticDatabaseError(
+                        f"RogueLike 修正条目不是对象：{modifier_id}/{ordinal}"
+                    )
+                property_id = optional_text(modifier.get("PropName"))
+                if property_id is None:
+                    raise StaticDatabaseError(
+                        f"RogueLike 修正条目缺少属性：{modifier_id}/{ordinal}"
+                    )
+                self.connection.execute(
+                    "INSERT INTO roguelike_modifier_property VALUES (?,?,?,?,?,?)",
+                    (
+                        modifier_id,
+                        ordinal,
+                        property_id,
+                        optional_text(modifier.get("ModifierOp")) or "unknown",
+                        float_value(modifier, "PropValue"),
+                        optional_int(modifier.get("SortKey")) or 0,
+                    ),
+                )
 
     def _import_monster_instance_profiles(self) -> None:
         """只导入静态表中的显式绑定；FT_ 是 999 夜前缀，不用于判断 Abyss。"""
@@ -366,12 +471,14 @@ class CombatImportMixin:
                 monster_count = optional_int(monster.get("MonsterCount"))
                 if monster_level is None or monster_count is None:
                     raise StaticDatabaseError(f"Abyss 怪物缺少等级或数量：{monster_pool_id}")
+                monster_name_zh, _, _ = text_parts(monster.get("MonsterName"))
                 self.connection.execute(
-                    "INSERT INTO abyss_monster_pool_entry VALUES (?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO abyss_monster_pool_entry VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         monster_pool_id, ordinal, asset_path(monster.get("MonsterClass")),
                         monster_count, monster_level, "standard", attribute_pack_id,
                         pool_source_row_id, self.source_row_id("monster_pack", attribute_pack_id),
+                        monster_name_zh,
                     ),
                 )
 
@@ -383,7 +490,15 @@ class CombatImportMixin:
             "character_annotation",
             "character_awaken_effect",
             "character_awaken_skill_level_bonus",
+            "character_likeability_bonus",
+            "character_likeability_bonus_property",
             "character_panel_growth",
+            "character_progression_profile",
+            "character_upgrade_level",
+            "character_breakthrough_stage",
+            "character_breakthrough_cost",
+            "character_exp_material",
+            "character_exp_material_cost",
             "character_skill",
             "character_skill_level",
             "skill_damage",
@@ -394,6 +509,8 @@ class CombatImportMixin:
             "combat_effect_constant",
             "enemy_combat_profile",
             "enemy_element_resistance",
+            "roguelike_modifier_profile",
+            "roguelike_modifier_property",
             "monster_instance_profile",
             "monster_instance_profile_variant",
             "abyss_level",
@@ -421,6 +538,67 @@ class CombatImportMixin:
             "fork_breakthrough",
             "fork_star_level",
             "fork_refinement_parameter_value",
+            "character_cultivation_guide",
+            "character_cultivation_fork_recommendation",
+            "character_cultivation_attribute_recommendation",
+            "character_cultivation_stage",
+            "character_cultivation_stage_skill",
+            "gameplay_ability_catalog",
+            "gameplay_ability_description",
+            "gameplay_ability_level_hint",
+            "gameplay_effect_catalog",
+            "monster_catalog",
+            "monster_identifier_alias",
+            "equipment_modify_pack",
+            "equipment_modify_value",
+            "equipment_buff_curve",
+            "equipment_buff_curve_point",
+            "combat_curve",
+            "combat_curve_point",
+            "combat_effect_definition",
+            "combat_blueprint_asset",
+            "character_combat_ability_binding",
+            "combat_blueprint_reference",
+            "combat_blueprint_tag",
+            "combat_blueprint_semantic_property",
+            "combat_ability_montage_binding",
+            "combat_ability_effect_binding",
+            "combat_montage",
+            "combat_montage_section",
+            "combat_montage_notify",
+            "buff_definition",
+            "buff_modifier",
+            "buff_trigger_effect",
+            "combat_effect_buff_link",
+            "feast_stage",
+            "feast_stage_difficulty",
+            "feast_option",
+            "feast_stage_option",
+            "divination_buff",
+            "clone_activity_category",
+            "clone_activity",
+            "clone_activity_difficulty",
+            "clone_spawn_member",
+            "monster_template_binding",
+            "outer_realm_rotation",
+            "high_risk_commission",
+            "high_risk_commission_difficulty",
+            "high_risk_monster_pool_member",
+            "monster_boss_support",
+            "character_release_evidence",
+            "character_release_annotation",
+            "character_release_evidence_link",
+            "character_acquisition_membership",
+            "localized_term",
+            "localized_term_name",
+            "fork_lottery_campaign",
+            "damage_resistance_term",
+            "progression_item",
+            "progression_item_alias",
+            "item_quality_term",
+            "clone_drop_projection",
+            "clone_drop_projection_item",
+            "clone_drop_projection_gap",
         )
         return {
             table: int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

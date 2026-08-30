@@ -19,6 +19,10 @@ from src.services.official_role_profile_service import (
     OfficialRoleProfileService,
     OfficialRoleProfileUpdate,
 )
+from src.services.world_bonus_settings_service import (
+    WorldBonusSettings,
+    WorldBonusSettingsService,
+)
 
 
 class OfficialRoleController:
@@ -27,6 +31,9 @@ class OfficialRoleController:
     def __init__(self, dependencies: OfficialRoleDependencies) -> None:
         self.dependencies = dependencies
         self._profile_service = OfficialRoleProfileService(
+            dependencies.user_database_path
+        )
+        self._world_bonus_service = WorldBonusSettingsService(
             dependencies.user_database_path
         )
 
@@ -82,6 +89,21 @@ class OfficialRoleController:
             saved_count = self._profile_service.save_profiles(updates)
             span.annotate(saved_count=saved_count)
             return saved_count
+
+    def load_world_bonus(self) -> WorldBonusSettings:
+        return self._world_bonus_service.load()
+
+    def save_world_bonus(
+        self, settings: WorldBonusSettings,
+    ) -> WorldBonusSettings:
+        with operation_scope(
+            self._operation(),
+            started_event="role.world_bonus_save_started",
+            succeeded_event="role.world_bonus_save_succeeded",
+            failed_event="role.world_bonus_save_failed",
+            message="保存世界加成",
+        ):
+            return self._world_bonus_service.save(settings)
 
     def reset_profile(self, character_id: int) -> None:
         with operation_scope(

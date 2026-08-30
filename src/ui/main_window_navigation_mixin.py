@@ -125,6 +125,8 @@ class MainWindowNavigationMixin:
                 page = self.blueprint_page.build()
             elif item.key == "my_role":
                 page = build_official_role_page(self)
+            elif item.key == "static_catalog":
+                page = self.static_catalog_page.build()
             else:
                 page = getattr(self, item.page_builder)()
             self.stack.addWidget(page)
@@ -202,6 +204,8 @@ class MainWindowNavigationMixin:
             self.blueprint_page.refresh()
         elif item.key == "my_role":
             refresh_official_role_page(self)
+        elif item.key == "static_catalog":
+            self.static_catalog_page.refresh()
         else:
             getattr(self, item.refresh_method)()
 

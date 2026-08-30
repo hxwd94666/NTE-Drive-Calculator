@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.context import AccountContext
+from src.services.account_naming_service import AccountNamingService
 from src.storage.config_migration import replace_core_config_dir
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
@@ -195,15 +196,15 @@ class AccountManager:
         return account_id
 
     def rename_account(self, account_id: str, name: str) -> None:
-        data = self.read_index()
-        for account in data.get("accounts", []):
-            if account.get("id") == account_id:
-                account["name"] = name
-        self.write_index(data)
         database_path = self.account_dir(account_id) / USER_DATABASE_FILENAME
-        if database_path.is_file():
-            with UserDataDao(database_path) as user_database:
-                user_database.rename_account(name)
+        if not database_path.is_file():
+            raise ValueError("account_database_not_found")
+        AccountNamingService(
+            accounts_index_path=self.accounts_index_file,
+            user_database_path=database_path,
+            account_id=account_id,
+            context_is_current=lambda: True,
+        ).rename(name)
 
     def delete_account(self, account_id: str) -> str | None:
         data = self.read_index()

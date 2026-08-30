@@ -425,6 +425,20 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
         )
         return int(fallback["snapshot_id"]) if fallback is not None else None
 
+    def latest_native_inventory_snapshot_id(self) -> int | None:
+        """Return the newest complete game-native snapshot for battle saving."""
+
+        row = self._one(
+            """
+            SELECT snapshot_id
+            FROM inventory_snapshot
+            WHERE complete = 1 AND source = 'nte_core'
+            ORDER BY observed_at_unix_ms DESC, sequence DESC, snapshot_id DESC
+            LIMIT 1
+            """
+        )
+        return int(row["snapshot_id"]) if row is not None else None
+
     def inventory_snapshot_summary(self, snapshot_id: int) -> dict[str, Any] | None:
         """读取指定不可变快照的摘要，供计算任务固定输入版本。"""
 

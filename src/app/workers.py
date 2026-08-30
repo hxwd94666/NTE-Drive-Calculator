@@ -6,6 +6,7 @@ from __future__ import annotations
 import traceback as tb
 import threading
 import time
+from concurrent.futures import CancelledError
 
 from PySide6.QtCore import QThread, Signal
 
@@ -27,6 +28,7 @@ def _close_scanner(scanner):
 class WorkerThread(QThread):
     result_ready = Signal(object)
     error = Signal(str)
+    progress = Signal(object)
 
     def __init__(self, target, parent=None):
         super().__init__(parent)
@@ -35,6 +37,8 @@ class WorkerThread(QThread):
     def run(self):
         try:
             self.result_ready.emit(self.target())
+        except CancelledError:
+            return
         except SystemExit as exc:
             logger.error(f"WorkerThread 捕获 SystemExit: {exc}")
             self.error.emit(f"系统异常退出: {exc}")

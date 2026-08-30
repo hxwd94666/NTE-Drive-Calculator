@@ -16,6 +16,7 @@ from src.services.character_shape_bonus_service import (
 from src.services.shared_data_migration_service import (
     MIGRATION_KEY,
     migrate_legacy_static_shape_bonuses,
+    write_shape_bonus_baseline,
 )
 from src.storage.sqlite.shared_data_dao import SharedDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -23,9 +24,6 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_DATABASE = ROOT / "data" / "game_static.sqlite3"
-BASELINE = ROOT / "data" / "migrations" / "shape_bonus_defaults_2.0.2.json"
-
-
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -37,10 +35,16 @@ class SharedDataMigrationServiceTests(unittest.TestCase):
         self.legacy = root / "migration" / "game_static.previous.sqlite3"
         self.current = root / "current" / "game_static.sqlite3"
         self.shared = root / "app_shared.sqlite3"
+        self.baseline = root / "shape_bonus_defaults_fixture.json"
         self.legacy.parent.mkdir(parents=True)
         self.current.parent.mkdir(parents=True)
         shutil.copy2(PROJECT_DATABASE, self.legacy)
         shutil.copy2(PROJECT_DATABASE, self.current)
+        write_shape_bonus_baseline(
+            self.legacy,
+            self.baseline,
+            release_version="test-fixture",
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -50,7 +54,7 @@ class SharedDataMigrationServiceTests(unittest.TestCase):
             legacy_database_path=self.legacy,
             current_static_database_path=self.current,
             shared_database_path=self.shared,
-            baseline_path=BASELINE,
+            baseline_path=self.baseline,
         )
 
     def test_pristine_old_default_does_not_become_permanent_override(self) -> None:
@@ -66,7 +70,7 @@ class SharedDataMigrationServiceTests(unittest.TestCase):
                 shared_dao.get_shape_bonus_override("character:1003")
             )
 
-    def test_custom_old_difference_survives_changed_new_default(self) -> None:
+    def test_migrated_old_difference_is_retained_but_not_effective(self) -> None:
         with closing(sqlite3.connect(self.legacy)) as connection:
             with connection:
                 connection.execute(
@@ -98,9 +102,12 @@ class SharedDataMigrationServiceTests(unittest.TestCase):
             new_default = static_dao.get_character_shape_bonus(1003)
 
         self.assertEqual(1, result["migrated_count"])
-        self.assertEqual("Type-4", effective["shape_label"])
-        self.assertEqual("shared_override", effective["effective_source"])
+        self.assertEqual("Type-2", effective["shape_label"])
+        self.assertEqual("static_default", effective["effective_source"])
         self.assertEqual("Type-2", new_default["shape_label"])
+        with SharedDataDao(self.shared) as shared_dao:
+            legacy = shared_dao.get_shape_bonus_override("character:1003")
+        self.assertEqual("Type-4", legacy["shape_label"])
         self.assertEqual(current_hash, _sha256(self.current))
 
     def test_failed_mapping_keeps_backup_and_does_not_mark_migration(self) -> None:

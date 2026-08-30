@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPaintEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -28,9 +29,22 @@ _CARD_HEIGHT = 244
 _VISIBLE_DAMAGE_ROWS = 5
 _DAMAGE_ROW_HEIGHT = 25
 _DAMAGE_ROW_SPACING = 2
+_DAMAGE_VALUE_WIDTH = 92
+_DAMAGE_SHARE_WIDTH = 52
+_DAMAGE_TOTAL_SHARE_WIDTH = 58
 _CHANNEL_COLORS = {
     "direct": "#58a6ff",
+    "direct_follow_up": "#a371f7",
+    "dot": "#ff75b5",
+    "attachment": "#7ee787",
+    "topple": "#d29922",
+    "shared_damage": "#39c5cf",
     "special": "#f0883e",
+    "special_nightmare": "#ff75b5",
+    "special_zankou_erosion": "#ff9b73",
+    "special_zankou_venom": "#c77dff",
+    "max_hp_reduction": "#ffd166",
+    "max_hp_reduction_estimated": "#c9a227",
     "reaction_creation": "#a371f7",
     "reaction_hexed": "#bc8cff",
     "reaction_remora": "#7ee787",
@@ -42,6 +56,7 @@ _CHANNEL_COLORS = {
     "reaction_unknown": "#8b949e",
     "other": "#6e7681",
     "other_topple": "#d29922",
+    "other_reflected_projectile": "#8b949e",
     "other_environment": "#8b949e",
     "other_shared": "#39c5cf",
     "other_unattributed": "#6e7681",
@@ -52,10 +67,46 @@ def _format_damage(value: float) -> str:
     return f"{value:,.0f}"
 
 
+class _ElidedLabel(QLabel):
+    """Keep a row label inside its available column without hiding the full text."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.setToolTip(text)
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt override
+        del event
+        painter = QPainter(self)
+        text_rect = self.contentsRect()
+        elided_text = painter.fontMetrics().elidedText(
+            self.text(),
+            Qt.ElideRight,
+            max(0, text_rect.width()),
+        )
+        self.style().drawItemText(
+            painter,
+            text_rect,
+            self.alignment(),
+            self.palette(),
+            self.isEnabled(),
+            elided_text,
+            self.foregroundRole(),
+        )
+
+
 class BattleDamageCompositionPanel(QWidget):
-    def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        game_ui_asset_root=None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._asset_catalog = GameUiAssetCatalog(game_ui_asset_root)
+        self._asset_catalog = (
+            None
+            if game_ui_asset_root is None
+            else GameUiAssetCatalog(game_ui_asset_root)
+        )
         self._grid = QGridLayout(self)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setHorizontalSpacing(12)
@@ -69,8 +120,24 @@ class BattleDamageCompositionPanel(QWidget):
                 index // 2,
                 index % 2,
             )
-        other_row = (len(composition.roles) + 1) // 2
-        self._grid.addWidget(self._other_card(composition), other_row, 0, 1, 2)
+        next_row = (len(composition.roles) + 1) // 2
+        if composition.system_entries:
+            self._grid.addWidget(
+                self._system_card(composition),
+                next_row,
+                0,
+                1,
+                2,
+            )
+            next_row += 1
+        if composition.other_entries:
+            self._grid.addWidget(
+                self._unattributed_card(composition),
+                next_row,
+                0,
+                1,
+                2,
+            )
         self._grid.setColumnStretch(0, 1)
         self._grid.setColumnStretch(1, 1)
 
@@ -87,7 +154,11 @@ class BattleDamageCompositionPanel(QWidget):
     def _role_card(self, role: RoleDamageComposition) -> QFrame:
         card, layout = self._card_shell()
         header = QHBoxLayout()
-        icon_path = self._asset_catalog.character_icon(role.character_id)
+        icon_path = (
+            None
+            if self._asset_catalog is None
+            else self._asset_catalog.character_icon(role.character_id)
+        )
         if icon_path is not None:
             icon = QLabel()
             icon.setFixedSize(36, 36)
@@ -104,7 +175,10 @@ class BattleDamageCompositionPanel(QWidget):
         name.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#f0f6fc"))
         header.addWidget(name)
         header.addStretch()
-        total = QLabel(f"总伤害  {_format_damage(role.total_damage)}")
+        total = QLabel(
+            f"总伤害  {_format_damage(role.total_damage)}  ·  "
+            f"{role.share_percent:.1f}% 总伤害"
+        )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
         layout.addLayout(header)
@@ -112,12 +186,12 @@ class BattleDamageCompositionPanel(QWidget):
         layout.addWidget(self._rows_scroll(role.entries))
         return card
 
-    def _other_card(self, composition: BattleDamageComposition) -> QFrame:
+    def _system_card(self, composition: BattleDamageComposition) -> QFrame:
         card, layout = self._card_shell()
         header = QHBoxLayout()
-        badge = QLabel("其他")
+        badge = QLabel("系统 / 环境")
         badge.setAlignment(Qt.AlignCenter)
-        badge.setFixedSize(44, 30)
+        badge.setFixedSize(84, 30)
         badge.setStyleSheet(
             themed_style(
                 "background:#21262d;color:#c9d1d9;border:1px solid #30363d;"
@@ -125,13 +199,52 @@ class BattleDamageCompositionPanel(QWidget):
             )
         )
         header.addWidget(badge)
-        description = QLabel("倾陷、环境、共享及未归因伤害")
+        description = QLabel("已识别机制，但没有角色伤害所有者")
+        description.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
+        header.addWidget(description)
+        header.addStretch()
+        total = QLabel(
+            f"{_format_damage(composition.system_total_damage)}  ·  "
+            f"{composition.system_share_percent:.1f}% 时段伤害"
+        )
+        total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
+        header.addWidget(total)
+        layout.addLayout(header)
+        layout.addWidget(self._composition_bar(composition.system_entries))
+        layout.addWidget(
+            self._rows_scroll(
+                composition.system_entries,
+                empty_text="当前范围内没有系统或环境伤害",
+            )
+        )
+        return card
+
+    def _unattributed_card(self, composition: BattleDamageComposition) -> QFrame:
+        card, layout = self._card_shell()
+        header = QHBoxLayout()
+        badge = QLabel("未归因")
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setFixedSize(62, 30)
+        badge.setStyleSheet(
+            themed_style(
+                "background:#21262d;color:#c9d1d9;border:1px solid #30363d;"
+                "border-radius:7px;font-size:12px;font-weight:700"
+            )
+        )
+        header.addWidget(badge)
+        description = QLabel(
+            "倾陷逐角色公式尚未加载"
+            if composition.pending_topple_attribution
+            else "倾陷缺少明确目标或公式证据"
+            if composition.unresolved_topple_attribution
+            else "完整、正常归属的战报这里应为 0"
+        )
         description.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(description)
         header.addStretch()
         total = QLabel(
             f"{_format_damage(composition.other_total_damage)}  ·  "
-            f"{composition.other_share_percent:.1f}% 半场伤害"
+            f"{composition.other_share_percent:.1f}% 时段伤害"
         )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
@@ -140,7 +253,7 @@ class BattleDamageCompositionPanel(QWidget):
         layout.addWidget(
             self._rows_scroll(
                 composition.other_entries,
-                empty_text="当前范围内没有公共其他伤害",
+                empty_text="当前范围内没有未归因伤害",
             )
         )
         return card
@@ -178,7 +291,10 @@ class BattleDamageCompositionPanel(QWidget):
             if entry.share_percent <= 0:
                 continue
             segment = QFrame()
-            color = _CHANNEL_COLORS.get(entry.key, "#6e7681")
+            color = _CHANNEL_COLORS.get(
+                entry.key.split("|", 1)[0],
+                "#6e7681",
+            )
             segment.setStyleSheet(f"background:{color};border:none")
             layout.addWidget(segment, max(1, round(entry.share_percent * 10)))
         remaining = max(0.0, 100.0 - sum(row.share_percent for row in entries))
@@ -238,22 +354,29 @@ class BattleDamageCompositionPanel(QWidget):
         marker = QFrame()
         marker.setFixedSize(8, 8)
         marker.setStyleSheet(
-            f"background:{_CHANNEL_COLORS.get(entry.key, '#6e7681')};"
+            f"background:{_CHANNEL_COLORS.get(entry.key.split('|', 1)[0], '#6e7681')};"
             "border:none;border-radius:4px"
         )
         layout.addWidget(marker)
-        label = QLabel(entry.label)
+        label = _ElidedLabel(entry.label)
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         label.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
-        layout.addWidget(label)
-        layout.addStretch()
+        layout.addWidget(label, 1)
         damage = QLabel(_format_damage(entry.damage))
         damage.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        damage.setMinimumWidth(92)
+        damage.setFixedWidth(_DAMAGE_VALUE_WIDTH)
         damage.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
         layout.addWidget(damage)
         share = QLabel(f"{entry.share_percent:.1f}%")
+        share.setToolTip("占当前角色/公共块伤害")
         share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        share.setFixedWidth(52)
+        share.setFixedWidth(_DAMAGE_SHARE_WIDTH)
         share.setStyleSheet(themed_style("font-size:11px;color:#8b949e"))
         layout.addWidget(share)
+        total_share = QLabel(f"{entry.total_share_percent:.1f}%")
+        total_share.setToolTip("占当前范围团队总伤害")
+        total_share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        total_share.setFixedWidth(_DAMAGE_TOTAL_SHARE_WIDTH)
+        total_share.setStyleSheet(themed_style("font-size:11px;color:#6e7681"))
+        layout.addWidget(total_share)
         return row

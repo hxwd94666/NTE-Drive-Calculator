@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -18,6 +18,12 @@ from src.services.equipment_level_projection_service import (
 )
 from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
 from src.services.inventory_source_capabilities import is_visual_inventory_source
+from src.services.official_role_awakening_service import resolve_awakening_profile
+from src.services.world_bonus_settings_service import (
+    WORLD_BONUS_SETTING_KEY,
+    WorldBonusSettings,
+)
+from src.services.skill_name_rendering_service import SkillNameRenderingService
 from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
@@ -51,6 +57,7 @@ from src.services.official_role_attribute_service import (
     _context_calculation_items,
     _equipment_property_stats,
     _property_stats_by_source,
+    _world_bonus_property_stats,
     _element_damage_property,
     _role_panel_damage_inputs,
     calculate_official_role_equipment_gain,
@@ -149,6 +156,7 @@ def calculate_official_role_damage_breakdown(
         if value - raw_equipment_stats.get(property_id, 0.0)
     }
     for source, source_stats in (
+        ("世界加成", _world_bonus_property_stats(detail)),
         ("弧盘", fork_stats),
         ("空幕/驱动", raw_equipment_stats),
         ("额外形状", shape_stats),
@@ -337,7 +345,9 @@ def load_official_role_detail(
     asset_root: str | Path | None = None,
     include_inventory_contexts: bool = True,
     static_database_path: str | Path | None = None,
+    static_schema_version: int | None = None,
     shared_database_path: str | Path | None = None,
+    request_cache: dict[object, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve one page model from static SQLite plus account SQLite pointers.
 
@@ -346,9 +356,23 @@ def load_official_role_detail(
     plan's whole snapshot merely to render an unrelated allocation result.
     """
 
-    catalog = GameUiAssetCatalog(_asset_root(asset_root))
+    def cached(key: object, factory: Callable[[], Any]) -> Any:
+        if request_cache is None:
+            return factory()
+        if key not in request_cache:
+            request_cache[key] = factory()
+        return request_cache[key]
+
+    resolved_asset_root = _asset_root(asset_root)
+    catalog = cached(
+        ("asset_catalog", str(resolved_asset_root)),
+        lambda: GameUiAssetCatalog(resolved_asset_root),
+    )
     with (
-        StaticGameDataDao(static_database_path) as static_dao,
+        StaticGameDataDao(
+            static_database_path,
+            expected_schema_version=static_schema_version,
+        ) as static_dao,
         UserDataDao(user_database_path) as user_dao,
     ):
         character = static_dao.get_character(character_id)
@@ -356,12 +380,46 @@ def load_official_role_detail(
             raise ValueError(f"官方角色不存在：{character_id}")
         growth_rows = static_dao.list_character_panel_growth(character_id)
         skills = static_dao.list_character_skills(character_id)
+        skill_name_renderer = cached(
+            ("skill_name_renderer", str(static_database_path or "default")),
+            lambda: SkillNameRenderingService.from_static_dao(static_dao),
+        )
+        for skill in skills:
+            skill_id = str(skill.get("skill_id") or "")
+            skill["display_name_zh"] = skill_name_renderer.render_ability_name(
+                skill_id,
+                fallback=skill_id or "技能",
+            )
+            for damage in skill.get("damage_entries") or ():
+                damage_id = str(damage.get("damage_id") or "")
+                damage_type = str(damage.get("damage_type") or "")
+                damage["display_name_zh"] = (
+                    skill_name_renderer.resolve_damage_name(
+                        damage_id,
+                        ability_id=skill_id,
+                    )
+                    or damage_id
+                    or "倍率项"
+                )
+                damage["damage_type_name_zh"] = (
+                    skill_name_renderer.render_damage_type_name(damage_type)
+                )
         awakenings = static_dao.list_character_awaken_effects(character_id)
-        forks = _compatible_forks(character, static_dao.list_fork_templates())
+        likeability_bonus = static_dao.get_character_likeability_bonus(character_id)
+        forks = _compatible_forks(
+            character,
+            cached(
+                ("fork_templates", str(static_database_path or "default")),
+                static_dao.list_fork_templates,
+            ),
+        )
         saved_profile = user_dao.get_character_profile(character_id)
         profile = dict(saved_profile) if saved_profile else _default_profile(
-            character, growth_rows, forks, skills, 0
+            character, growth_rows, forks, skills, awakenings, 0
         )
+        if saved_profile is None:
+            profile["likeability_level_10_enabled"] = likeability_bonus is not None
+        profile = resolve_awakening_profile(profile, awakenings)
         profile["persisted"] = saved_profile is not None
         current_items: list[dict[str, Any]] = []
         saved_plan: Mapping[str, Any] | None = None
@@ -371,9 +429,15 @@ def load_official_role_detail(
         selected_slot: Mapping[str, Any] | None = None
         selected_slot_name = ""
         if include_inventory_contexts:
-            current_snapshot_id = user_dao.current_inventory_snapshot_id()
+            current_snapshot_id = cached(
+                "current_inventory_snapshot_id",
+                user_dao.current_inventory_snapshot_id,
+            )
             current_snapshot = (
-                user_dao.inventory_snapshot_summary(current_snapshot_id)
+                cached(
+                    ("inventory_snapshot_summary", int(current_snapshot_id)),
+                    lambda: user_dao.inventory_snapshot_summary(current_snapshot_id),
+                )
                 if current_snapshot_id is not None
                 else None
             )
@@ -386,7 +450,10 @@ def load_official_role_detail(
             )
             slot_plans = [
                 row
-                for row in user_dao.list_current_loadout_slot_plans()
+                for row in cached(
+                    "current_loadout_slot_plans",
+                    user_dao.list_current_loadout_slot_plans,
+                )
                 if int(row["slot"]["character_id"]) == character_id
             ]
             slot_plans.sort(
@@ -404,13 +471,30 @@ def load_official_role_detail(
                 else ""
             )
             replacement_items = (
-                user_dao.list_inventory_items(int(saved_plan["source_snapshot_id"]))
+                [
+                    dict(item)
+                    for item in cached(
+                        (
+                            "inventory_items",
+                            int(saved_plan["source_snapshot_id"]),
+                        ),
+                        lambda: user_dao.list_inventory_items(
+                            int(saved_plan["source_snapshot_id"])
+                        ),
+                    )
+                ]
                 if saved_plan and saved_plan.get("source_snapshot_id") is not None
                 else []
             )
             saved_snapshot = (
-                user_dao.inventory_snapshot_summary(
-                    int(saved_plan["source_snapshot_id"])
+                cached(
+                    (
+                        "inventory_snapshot_summary",
+                        int(saved_plan["source_snapshot_id"]),
+                    ),
+                    lambda: user_dao.inventory_snapshot_summary(
+                        int(saved_plan["source_snapshot_id"])
+                    ),
                 )
                 if saved_plan and saved_plan.get("source_snapshot_id") is not None
                 else None
@@ -429,12 +513,25 @@ def load_official_role_detail(
                 plan = row["plan"]
                 source_snapshot_id = plan.get("source_snapshot_id")
                 slot_items = (
-                    user_dao.list_inventory_items(int(source_snapshot_id))
+                    [
+                        dict(item)
+                        for item in cached(
+                            ("inventory_items", int(source_snapshot_id)),
+                            lambda: user_dao.list_inventory_items(
+                                int(source_snapshot_id)
+                            ),
+                        )
+                    ]
                     if source_snapshot_id is not None
                     else []
                 )
                 slot_snapshot = (
-                    user_dao.inventory_snapshot_summary(int(source_snapshot_id))
+                    cached(
+                        ("inventory_snapshot_summary", int(source_snapshot_id)),
+                        lambda: user_dao.inventory_snapshot_summary(
+                            int(source_snapshot_id)
+                        ),
+                    )
                     if source_snapshot_id is not None
                     else None
                 )
@@ -456,19 +553,28 @@ def load_official_role_detail(
                     "slot_id": int(slot["slot_id"]),
                     "slot_name": slot_display_name,
                 }
-            characters = {
-                int(row["character_id"]): row
-                for row in static_dao.list_characters()
-            }
+            characters = cached(
+                ("characters", str(static_database_path or "default")),
+                lambda: {
+                    int(row["character_id"]): row
+                    for row in static_dao.list_characters()
+                },
+            )
             owner_by_uid: dict[tuple[int, int], int] = {}
-            for row in user_dao.list_current_loadout_equipment_owners():
+            for row in cached(
+                "current_loadout_equipment_owners",
+                user_dao.list_current_loadout_equipment_owners,
+            ):
                 owner_by_uid.setdefault(
                     (int(row["uid_slot"]), int(row["uid_serial"])),
                     int(row["character_id"]),
                 )
             locked_uids = {
                 (int(row["uid_slot"]), int(row["uid_serial"]))
-                for row in user_dao.list_allocation_locked_equipment_owners()
+                for row in cached(
+                    "allocation_locked_equipment_owners",
+                    user_dao.list_allocation_locked_equipment_owners,
+                )
             }
             candidate_pools = [replacement_items, *(
                 context["replacement_items"]
@@ -523,15 +629,25 @@ def load_official_role_detail(
             static_dao.get_character_recommended_weights(character_id) or {}
         )
         account_weight_record = user_dao.get_character_weight_preferences(character_id)
+        world_bonus = WorldBonusSettings.from_payload(
+            user_dao.list_application_setting_copies().get(WORLD_BONUS_SETTING_KEY)
+        )
         weight_record = account_weight_record or public_weight_record
         weights = {
             str(key): float(value)
             for key, value in (weight_record.get("property_weights") or {}).items()
         }
-        attributes = {
-            row["attribute_id"]: row for row in static_dao.list_equipment_attributes()
-        }
-        equipment_items = static_dao.list_equipment_items()
+        attributes = cached(
+            ("equipment_attributes", str(static_database_path or "default")),
+            lambda: {
+                row["attribute_id"]: row
+                for row in static_dao.list_equipment_attributes()
+            },
+        )
+        equipment_items = cached(
+            ("equipment_items", str(static_database_path or "default")),
+            static_dao.list_equipment_items,
+        )
         equipment_by_id = {
             str(row["item_id"]): row for row in equipment_items
         }
@@ -542,10 +658,13 @@ def load_official_role_detail(
             row["item_id"]: row.get("name_zh") or row["item_id"]
             for row in equipment_items
         }
-        suit_names = {
-            row["suit_id"]: row.get("name_zh") or row["suit_id"]
-            for row in static_dao.list_suits()
-        }
+        suit_names = cached(
+            ("suit_names", str(static_database_path or "default")),
+            lambda: {
+                row["suit_id"]: row.get("name_zh") or row["suit_id"]
+                for row in static_dao.list_suits()
+            },
+        )
         for item in saved_items:
             if not item.get("virtual"):
                 continue
@@ -560,16 +679,19 @@ def load_official_role_detail(
                     item.get("suit_id") or item["names"]["zh_cn"],
                 )
             }
-        item_icon_paths = {
-            str(row["item_id"]): icon_path
-            for row in equipment_items
-            if (
-                icon_path := catalog.inventory_item_icon(
-                    str(row.get("kind") or ""),
-                    str(row["item_id"]),
-                )
-            ) is not None
-        }
+        item_icon_paths = cached(
+            ("item_icon_paths", str(resolved_asset_root)),
+            lambda: {
+                str(row["item_id"]): icon_path
+                for row in equipment_items
+                if (
+                    icon_path := catalog.inventory_item_icon(
+                        str(row.get("kind") or ""),
+                        str(row["item_id"]),
+                    )
+                ) is not None
+            },
+        )
     theory_ids = _theory_properties(weights)
     has_saved_weights = any(float(value) > 0 for value in weights.values())
     theory_weights = {
@@ -584,6 +706,8 @@ def load_official_role_detail(
         "growth_rows": growth_rows,
         "skills": skills,
         "awakenings": awakenings,
+        "likeability_bonus": likeability_bonus,
+        "world_bonus": world_bonus.to_payload(),
         "forks": forks,
         "equipment_plan": equipment_plan,
         "shape_bonus": shape_bonus,

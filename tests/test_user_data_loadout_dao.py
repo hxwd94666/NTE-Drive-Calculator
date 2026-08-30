@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.storage.sqlite.user_data_dao import (
     UserDataDao,
@@ -99,6 +100,44 @@ class UserDataLoadoutDaoTests(unittest.TestCase):
         self.assertTrue(plans[0]["is_active"])
         self.assertEqual(self.dao.get_loadout_plan(plan_id)["plan_id"], plan_id)
         self.assertIsNone(self.dao.get_loadout_plan(plan_id + 1000))
+
+    def test_get_loadout_plan_reads_only_the_requested_plan(self) -> None:
+        snapshot_id = self.dao.import_inventory_snapshot(snapshot(1, [item(11, 22)]))
+        requested_id = self.dao.save_loadout_plan(
+            name="目标方案",
+            character_id=1003,
+            source_snapshot_id=snapshot_id,
+            assignments=[
+                {
+                    "uid_serial": 11,
+                    "uid_slot": 22,
+                    "kind": "module",
+                    "target_row": 2,
+                    "target_column": 3,
+                    "rotation": 0,
+                    "raw_assignment": {"marker": "requested"},
+                }
+            ],
+            payload={"marker": "requested"},
+        )
+        self.dao.save_loadout_plan(
+            name="无关方案",
+            character_id=1004,
+            source_snapshot_id=snapshot_id,
+            assignments=[],
+            payload={"marker": "other"},
+        )
+
+        with patch.object(
+            self.dao,
+            "list_loadout_plans",
+            side_effect=AssertionError("单方案读取不应扫描全部方案"),
+        ):
+            plan = self.dao.get_loadout_plan(requested_id)
+
+        self.assertEqual("requested", plan["payload"]["marker"])
+        self.assertEqual(11, plan["assignments"][0]["uid_serial"])
+        self.assertIn("raw_assignment", plan["assignments"][0])
 
     def test_batch_replace_leaves_empty_changed_placeholder_for_other_active_role(self) -> None:
         snapshot_id = self.dao.import_inventory_snapshot(

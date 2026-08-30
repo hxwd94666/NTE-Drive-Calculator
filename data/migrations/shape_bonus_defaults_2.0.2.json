@@ -536,6 +536,48 @@
           ]
         }
       ]
+    },
+    {
+      "release_version": "test_server_20260819",
+      "database_sha256": "8E6A65542B7037C22D3FE957DFFF7D6A676BB46FBF21981C69E1223B835DA848",
+      "dataset_id": "test_server_20260819",
+      "schema_version": 18,
+      "records_from_release_version": "test_server_20260813"
+    },
+    {
+      "release_version": "cn_1_3_9_20260820",
+      "database_sha256": "F3D977B6404C63ABDC3229112AE4C5B5743C8EEF3C27A99944D1D2FAA5AF0FE8",
+      "dataset_id": "cn_1_3_9_20260820",
+      "schema_version": 21,
+      "records_from_release_version": "test_server_20260813"
+    },
+    {
+      "release_version": "cn_1_3_9_20260820_schema22",
+      "database_sha256": "255A1D82A5B3564A04907425519A71CBE078929C5767130E5F7AF3D5A108CA5C",
+      "dataset_id": "cn_1_3_9_20260820",
+      "schema_version": 22,
+      "records_from_release_version": "test_server_20260813"
+    },
+    {
+      "release_version": "cn_1_3_10_20260821",
+      "database_sha256": "B2D17B5C7FEA4ABB5B06EE390E8A5C29F25FD5455AA8D75B53D6DA943EB505B4",
+      "dataset_id": "cn_1_3_10_20260821",
+      "schema_version": 22,
+      "records_from_release_version": "test_server_20260813"
+    },
+    {
+      "release_version": "cn_1_3_10_20260821_schema23",
+      "database_sha256": "68E60F4C397F12BADD335A56DE430795E29DE220EF4B8EC00C8ED47DD3B15078",
+      "dataset_id": "cn_1_3_10_20260821",
+      "schema_version": 23,
+      "records_from_release_version": "test_server_20260813"
+    },
+    {
+      "release_version": "cn_1_3_9_20260820_schema27",
+      "database_sha256": "ED5A92A72CC5B9C836EBD9D24743A686E9AEFC3A4D72B060A05983918DF2D485",
+      "dataset_id": "cn_1_3_9_20260820",
+      "schema_version": 27,
+      "records_from_release_version": "test_server_20260813"
     }
   ]
 }

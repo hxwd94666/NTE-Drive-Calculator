@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -14,6 +13,10 @@ from src.domain.official_role import (
     OfficialAttributeSummaryValue,
 )
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
+from src.services.advancement_stage_service import (
+    fork_panel_stats,
+    select_fork_breakthrough,
+)
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
 from src.services.virtual_equipment_service import (
     is_virtual_equipment_assignment,
@@ -23,11 +26,11 @@ from src.services.damage_calculation_service import (
     DamageCalculationService,
     DamageScalingStat,
     DirectDamageInput,
-    effective_skill_level,
-    skill_tier_for_effective_level,
+    calculate_attribute_value,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.official_role_labels import _property_label
+from src.services.world_bonus_settings_service import world_bonus_property_stats
 
 
 def _asset_root(value: str | Path | None) -> Path:
@@ -54,16 +57,21 @@ def _compatible_forks(character: Mapping[str, Any], forks: list[dict[str, Any]])
     group_type = str(character.get("group_type") or "")
     compatible = [
         fork for fork in forks
-        if character_id in {str(value) for value in fork.get("exclusive_character_ids") or []}
-        or (
-            not fork.get("exclusive_character_ids")
-            and str(fork.get("raw_group_type") or "") == group_type
-        )
+        if str(fork.get("raw_group_type") or "") == group_type
     ]
+
+    def recommendation_rank(fork: Mapping[str, Any]) -> int:
+        ranks = [
+            int(row.get("ordinal") or 0)
+            for row in fork.get("cultivation_recommendations") or ()
+            if str(row.get("character_id")) == character_id
+        ]
+        return min(ranks) if ranks else 1_000_000
+
     return sorted(
         compatible,
         key=lambda fork: (
-            character_id not in {str(value) for value in fork.get("exclusive_character_ids") or []},
+            recommendation_rank(fork),
             str(fork.get("quality") or "") != "ORANGE",
             str(fork.get("name_zh") or fork.get("fork_id") or ""),
         ),
@@ -75,6 +83,7 @@ def _default_profile(
     growth_rows: list[dict[str, Any]],
     forks: list[dict[str, Any]],
     skills: list[dict[str, Any]],
+    awakenings: list[dict[str, Any]],
     ordinal: int,
 ) -> dict[str, Any]:
     growth = _maximum_growth(growth_rows)
@@ -84,6 +93,11 @@ def _default_profile(
         for row in (selected_fork or {}).get("upgrade_levels", [])
         if row.get("level") is not None
     ]
+    maximum_fork_level = max(fork_levels) if fork_levels else None
+    default_fork_breakthrough = select_fork_breakthrough(
+        (selected_fork or {}).get("breakthroughs") or (),
+        maximum_fork_level or 0,
+    )
     selected_skill = next((skill for skill in skills if skill.get("damage_entries")), None)
     skill_levels = {}
     for skill in skills:
@@ -94,7 +108,7 @@ def _default_profile(
             and int(row.get("required_awaken_level") or 0) <= 6
         ]
         if available:
-            skill_levels[str(skill["skill_id"])] = max(available)
+            skill_levels[str(skill["skill_id"])] = max(available) + 1
     exclusive_ids = {
         str(value) for value in (selected_fork or {}).get("exclusive_character_ids") or []
     }
@@ -102,9 +116,17 @@ def _default_profile(
         "character_id": int(character["character_id"]),
         "character_level": int(growth["level"]),
         "breakthrough_stage": int(growth["breakthrough_stage"]),
-        "awakening_level": 6,
+        "awakening_level": 0,
+        "selected_awaken_effect_ids": [],
+        "awakening_selection_initialized": True,
+        "likeability_level_10_enabled": True,
         "fork_id": selected_fork.get("fork_id") if selected_fork else None,
-        "fork_level": max(fork_levels) if fork_levels else None,
+        "fork_level": maximum_fork_level,
+        "fork_breakthrough_stage": (
+            int(default_fork_breakthrough["stage"])
+            if default_fork_breakthrough is not None
+            else None
+        ),
         "fork_refinement_level": (
             1 if str(character["character_id"]) in exclusive_ids else 5
         ) if selected_fork else None,
@@ -189,28 +211,33 @@ def _fork_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
         (fork for fork in detail.get("forks") or [] if fork.get("fork_id") == fork_id),
         None,
     )
-    if template is None or level <= 0:
+    return fork_panel_stats(
+        template,
+        level,
+        breakthrough_stage=profile.get("fork_breakthrough_stage"),
+    )
+
+
+def _likeability_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
+    profile = detail.get("profile") or {}
+    if not bool(profile.get("likeability_level_10_enabled")):
         return {}
-    upgrade_rows = list(template.get("upgrade_levels") or ())
-    selected_upgrade = min(
-        upgrade_rows,
-        key=lambda row: abs(int(row.get("level") or 0) - level),
-    ) if upgrade_rows else None
-    breakthrough_rows = [
-        row for row in template.get("breakthroughs") or ()
-        if int(row.get("max_fork_level") or 0) <= level
-    ]
-    selected_breakthrough = max(
-        breakthrough_rows,
-        key=lambda row: int(row.get("stage") or 0),
-    ) if breakthrough_rows else None
-    totals: dict[str, float] = {}
-    for row in (selected_upgrade, selected_breakthrough):
-        for modifier in (row or {}).get("modifiers") or ():
-            property_id = str(modifier.get("property_id") or "")
-            if property_id:
-                totals[property_id] = totals.get(property_id, 0.0) + float(modifier.get("value") or 0.0)
-    return totals
+    return {
+        str(row.get("property_id") or ""): float(row.get("value") or 0.0)
+        for row in (detail.get("likeability_bonus") or {}).get("properties") or ()
+        if str(row.get("property_id") or "")
+    }
+
+
+def _world_bonus_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
+    return world_bonus_property_stats(detail.get("world_bonus"))
+
+
+def _add_property_stats(
+    totals: dict[str, float], values: Mapping[str, float],
+) -> None:
+    for property_id, value in values.items():
+        totals[property_id] = totals.get(property_id, 0.0) + float(value)
 
 
 def calculate_official_role_attribute_summaries(
@@ -242,6 +269,8 @@ def calculate_official_role_attribute_summaries(
         for total in equipment_totals
     )
     combined = _fork_property_stats(detail)
+    _add_property_stats(combined, _likeability_property_stats(detail))
+    _add_property_stats(combined, _world_bonus_property_stats(detail))
     for total in equipment_totals:
         combined[total.property_id] = (
             combined.get(total.property_id, 0.0) + float(total.value)
@@ -422,9 +451,195 @@ def _property_stats_by_source(
         detail, _context_calculation_items(context),
     )
     totals = dict(fork_stats)
-    for property_id, value in equipment_stats.items():
-        totals[property_id] = totals.get(property_id, 0.0) + value
+    _add_property_stats(totals, _likeability_property_stats(detail))
+    _add_property_stats(totals, _world_bonus_property_stats(detail))
+    _add_property_stats(totals, equipment_stats)
     return fork_stats, equipment_stats, totals
+
+
+def calculate_official_role_combat_stat_sources(
+    detail: Mapping[str, Any],
+    items: Iterable[Any],
+) -> dict[str, tuple[OfficialAttributeSummaryValue, ...]]:
+    """Freeze formula inputs by owner before producing resolved panel values."""
+
+    profile = detail.get("profile") or {}
+    wanted_growth = (
+        int(profile.get("character_level") or 0),
+        int(profile.get("breakthrough_stage") or 0),
+    )
+    growth: Mapping[str, Any] = next(
+        (
+            row
+            for row in detail.get("growth_rows") or ()
+            if (
+                int(row.get("level") or 0),
+                int(row.get("breakthrough_stage") or 0),
+            )
+            == wanted_growth
+        ),
+        {},
+    )
+    property_percent = {
+        str(property_id): bool(attribute.get("show_percent"))
+        for property_id, attribute in (detail.get("attributes") or {}).items()
+    }
+
+    def rows(
+        values: Mapping[str, float], *, include_zero: bool = False,
+    ) -> tuple[OfficialAttributeSummaryValue, ...]:
+        return tuple(
+            OfficialAttributeSummaryValue(
+                key=property_id,
+                label=_property_label(detail, property_id),
+                value=float(value),
+                percent=property_percent.get(
+                    property_id,
+                    property_id.endswith("Up")
+                    or "Crit" in property_id
+                    or "Damage" in property_id
+                    or property_id.startswith("DefIgnore"),
+                ),
+                weight_property_ids=(property_id,),
+            )
+            for property_id, value in sorted(values.items())
+            if property_id and (include_zero or float(value) != 0.0)
+        )
+
+    character = {
+        "AtkBase": float(growth.get("atk_base") or 0.0),
+        "HPMaxBase": float(growth.get("hp_base") or 0.0),
+        "DefBase": float(growth.get("def_base") or 0.0),
+        "CritBase": 0.05,
+        "CritDamageBase": 0.50,
+    }
+    return {
+        "character": rows(character),
+        "fork": rows(_fork_property_stats(detail)),
+        "likeability": rows(_likeability_property_stats(detail)),
+        "world_bonus": rows(
+            _world_bonus_property_stats(detail),
+            include_zero=True,
+        ),
+        "equipment": rows(_equipment_property_stats(detail, list(items))),
+    }
+
+
+def calculate_official_role_combat_stat_components(
+    detail: Mapping[str, Any],
+    items: Iterable[Any],
+) -> tuple[OfficialAttributeSummaryValue, ...]:
+    """Resolve reusable formula inputs from one frozen role build.
+
+    The values deliberately preserve base/percentage/flat components instead
+    of only returning panel totals. Battle-report counterfactual analysis and
+    the role page therefore share the same growth, fork, likeability and
+    equipment semantics.
+    """
+
+    profile = detail.get("profile") or {}
+    wanted_growth = (
+        int(profile.get("character_level") or 0),
+        int(profile.get("breakthrough_stage") or 0),
+    )
+    growth: Mapping[str, Any] = next(
+        (
+            row
+            for row in detail.get("growth_rows") or ()
+            if (
+                int(row.get("level") or 0),
+                int(row.get("breakthrough_stage") or 0),
+            )
+            == wanted_growth
+        ),
+        {},
+    )
+    property_percent = {
+        str(property_id): bool(attribute.get("show_percent"))
+        for property_id, attribute in (detail.get("attributes") or {}).items()
+    }
+    totals = _fork_property_stats(detail)
+    _add_property_stats(totals, _likeability_property_stats(detail))
+    _add_property_stats(totals, _world_bonus_property_stats(detail))
+    _add_property_stats(totals, _equipment_property_stats(detail, list(items)))
+
+    rows: list[OfficialAttributeSummaryValue] = []
+
+    def add(
+        property_id: str,
+        label: str,
+        value: float,
+        *,
+        percent: bool = False,
+    ) -> None:
+        rows.append(
+            OfficialAttributeSummaryValue(
+                key=property_id,
+                label=label,
+                value=float(value),
+                percent=percent,
+                weight_property_ids=(property_id,),
+            )
+        )
+
+    add("AtkBase", "基础攻击力", float(growth.get("atk_base") or 0.0) + totals.get("AtkBase", 0.0))
+    add("AtkUp", "攻击力提升", totals.get("AtkUp", 0.0), percent=True)
+    add("AtkAdd", "固定攻击力", totals.get("AtkAdd", 0.0))
+    add(
+        "PanelAtk",
+        "总攻击力",
+        calculate_attribute_value(
+            float(growth.get("atk_base") or 0.0) + totals.get("AtkBase", 0.0),
+            totals.get("AtkUp", 0.0),
+            totals.get("AtkAdd", 0.0),
+        ),
+    )
+    add("HPMaxBase", "基础生命值", float(growth.get("hp_base") or 0.0) + totals.get("HPMaxBase", 0.0))
+    add("HPMaxUp", "生命值提升", totals.get("HPMaxUp", 0.0), percent=True)
+    add("HPMaxAdd", "固定生命值", totals.get("HPMaxAdd", 0.0))
+    add(
+        "PanelHP",
+        "总生命值",
+        calculate_attribute_value(
+            float(growth.get("hp_base") or 0.0) + totals.get("HPMaxBase", 0.0),
+            totals.get("HPMaxUp", 0.0),
+            totals.get("HPMaxAdd", 0.0),
+        ),
+    )
+    add("DefBase", "基础防御力", float(growth.get("def_base") or 0.0) + totals.get("DefBase", 0.0))
+    add("DefUp", "防御力提升", totals.get("DefUp", 0.0), percent=True)
+    add("DefAdd", "固定防御力", totals.get("DefAdd", 0.0))
+    add(
+        "PanelDef",
+        "总防御力",
+        calculate_attribute_value(
+            float(growth.get("def_base") or 0.0) + totals.get("DefBase", 0.0),
+            totals.get("DefUp", 0.0),
+            totals.get("DefAdd", 0.0),
+        ),
+    )
+    add("CritBase", "暴击率", 0.05 + totals.get("CritBase", 0.0) + totals.get("CritAdd", 0.0), percent=True)
+    add("CritDamageBase", "暴击伤害", 0.50 + totals.get("CritDamageBase", 0.0) + totals.get("CritDamageAdd", 0.0), percent=True)
+    add(
+        "DamageUpGeneralBase",
+        "通用伤害增强",
+        totals.get("DamageUpGeneralBase", 0.0) + totals.get("DamageUpGeneralAdd", 0.0),
+        percent=True,
+    )
+    add("DefIgnore", "防御忽略", totals.get("DefIgnore", 0.0), percent=True)
+    add("MagBase", "环合强度", totals.get("MagBase", 0.0))
+    add("UnbalIntensityBase", "倾陷强度", totals.get("UnbalIntensityBase", 0.0))
+    element_property = _element_damage_property(
+        str((detail.get("character") or {}).get("element_type") or "")
+    )
+    if element_property:
+        add(
+            element_property,
+            _property_label(detail, element_property),
+            totals.get(element_property, 0.0),
+            percent=property_percent.get(element_property, True),
+        )
+    return tuple(rows)
 
 
 def _element_damage_property(element_type: str) -> str | None:
@@ -432,7 +647,11 @@ def _element_damage_property(element_type: str) -> str | None:
     return ELEMENT_DAMAGE_PROPERTY_BY_TYPE.get(suffix)
 
 
-def _damage_inputs(detail: Mapping[str, Any], context_key: str) -> tuple[DirectDamageInput, ...]:
+def _role_panel_damage_inputs(
+    detail: Mapping[str, Any], context_key: str,
+) -> tuple[DirectDamageInput, ...]:
+    """Return one 100% attack hit using the role's own element and panel."""
+
     if context_key == "theory":
         return ()
     profile = detail.get("profile") or {}
@@ -447,17 +666,8 @@ def _damage_inputs(detail: Mapping[str, Any], context_key: str) -> tuple[DirectD
         ),
         None,
     )
-    selected_skill_id = profile.get("selected_skill_id")
-    skill = next(
-        (row for row in detail.get("skills") or () if row.get("skill_id") == selected_skill_id),
-        None,
-    )
-    if growth is None or skill is None:
+    if growth is None:
         return ()
-    base_skill_level = int((profile.get("skill_levels") or {}).get(selected_skill_id, 1))
-    tier = skill_tier_for_effective_level(
-        effective_skill_level(base_skill_level, int(profile.get("awakening_level") or 0))
-    )
     _fork_stats, _equipment_stats, stats = _property_stats_by_source(detail, context_key)
     element_property = _element_damage_property(
         str((detail.get("character") or {}).get("element_type") or "")
@@ -467,55 +677,28 @@ def _damage_inputs(detail: Mapping[str, Any], context_key: str) -> tuple[DirectD
         for property_id in ("DamageUpGeneralBase", "DamageUpGeneralAdd", element_property)
         if property_id
     )
-    inputs = []
-    for damage in skill.get("damage_entries") or ():
-        arrays = (
-            (DamageScalingStat.ATTACK, damage.get("atk_rate_base") or ()),
-            (DamageScalingStat.HEALTH, damage.get("hp_rate_base") or ()),
-            (DamageScalingStat.DEFENSE, damage.get("def_rate_base") or ()),
-        )
-        scaling, values = next(((kind, values) for kind, values in arrays if values), (None, ()))
-        if scaling is None:
-            continue
-        index = min(tier, len(values) - 1)
-        multiplier = float(values[index])
-        coefficient = damage.get("modifier_atk_rate_base_coefficient")
-        if scaling is DamageScalingStat.ATTACK and coefficient is not None:
-            multiplier *= float(coefficient)
-        inputs.append(
-            DirectDamageInput(
-                skill_multiplier=multiplier,
-                scaling_stat=scaling,
-                attack_base=float(growth.get("atk_base") or 0.0) + stats.get("AtkBase", 0.0),
-                attack_up=stats.get("AtkUp", 0.0),
-                attack_add=stats.get("AtkAdd", 0.0),
-                health_base=float(growth.get("hp_base") or 0.0) + stats.get("HPMaxBase", 0.0),
-                health_up=stats.get("HPMaxUp", 0.0),
-                health_add=stats.get("HPMaxAdd", 0.0),
-                defense_base=float(growth.get("def_base") or 0.0) + stats.get("DefBase", 0.0),
-                defense_up=stats.get("DefUp", 0.0),
-                defense_add=stats.get("DefAdd", 0.0),
-                character_level=float(profile.get("character_level") or 80),
-                enemy_level=80.0,
-                crit_rate=0.05 + stats.get("CritBase", 0.0) + stats.get("CritAdd", 0.0),
-                crit_damage=0.50 + stats.get("CritDamageBase", 0.0) + stats.get("CritDamageAdd", 0.0),
-                defense_penetration=stats.get("DefIgnore", 0.0),
-                defense_reduction=0.0,
-                damage_increases=damage_increases,
-            )
-        )
-    return tuple(inputs)
-
-
-def _role_panel_damage_inputs(
-    detail: Mapping[str, Any], context_key: str,
-) -> tuple[DirectDamageInput, ...]:
-    """Return one representative hit normalized to a 100% skill multiplier."""
-
-    inputs = _damage_inputs(detail, context_key)
-    if not inputs:
-        return ()
-    return (replace(inputs[0], skill_multiplier=1.0),)
+    return (
+        DirectDamageInput(
+            skill_multiplier=1.0,
+            scaling_stat=DamageScalingStat.ATTACK,
+            attack_base=float(growth.get("atk_base") or 0.0) + stats.get("AtkBase", 0.0),
+            attack_up=stats.get("AtkUp", 0.0),
+            attack_add=stats.get("AtkAdd", 0.0),
+            health_base=float(growth.get("hp_base") or 0.0) + stats.get("HPMaxBase", 0.0),
+            health_up=stats.get("HPMaxUp", 0.0),
+            health_add=stats.get("HPMaxAdd", 0.0),
+            defense_base=float(growth.get("def_base") or 0.0) + stats.get("DefBase", 0.0),
+            defense_up=stats.get("DefUp", 0.0),
+            defense_add=stats.get("DefAdd", 0.0),
+            character_level=float(profile.get("character_level") or 80),
+            enemy_level=80.0,
+            crit_rate=0.05 + stats.get("CritBase", 0.0) + stats.get("CritAdd", 0.0),
+            crit_damage=0.50 + stats.get("CritDamageBase", 0.0) + stats.get("CritDamageAdd", 0.0),
+            defense_penetration=stats.get("DefIgnore", 0.0),
+            defense_reduction=0.0,
+            damage_increases=damage_increases,
+        ),
+    )
 
 
 def _total_direct_damage(inputs: tuple[DirectDamageInput, ...]) -> float:

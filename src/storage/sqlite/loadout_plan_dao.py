@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .user_data_support import (
-    SCHEMA_VERSION,
     UserDataError,
     UserDataValidationError,
     _decoded,
@@ -26,6 +25,40 @@ from .loadout_plan_write_dao import LoadoutPlanWriteDaoMixin
 
 
 class LoadoutPlanDaoMixin(LoadoutPlanWriteDaoMixin):
+    def _decode_loadout_plan_rows(
+        self,
+        rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return rows
+        plan_ids = [int(row["plan_id"]) for row in rows]
+        placeholders = ",".join("?" for _plan_id in plan_ids)
+        assignments = self._rows(
+            f"""
+            SELECT plan_id, ordinal, uid_serial, uid_slot, kind, target_row,
+                   target_column, rotation, raw_assignment_json
+            FROM loadout_plan_item
+            WHERE plan_id IN ({placeholders})
+            ORDER BY plan_id, ordinal
+            """,
+            plan_ids,
+        )
+        assignments_by_plan: dict[int, list[dict[str, Any]]] = {
+            plan_id: [] for plan_id in plan_ids
+        }
+        for assignment in assignments:
+            plan_id = int(assignment.pop("plan_id"))
+            assignment["raw_assignment"] = _decoded(
+                assignment.pop("raw_assignment_json"), {}
+            )
+            assignments_by_plan[plan_id].append(assignment)
+        for row in rows:
+            row["is_active"] = bool(row["is_active"])
+            row["allocation_locked"] = bool(row["allocation_locked"])
+            row["payload"] = _decoded(row.pop("payload_json"), {})
+            row["assignments"] = assignments_by_plan[int(row["plan_id"])]
+        return rows
+
     def list_loadout_plans(self, character_id: int | None = None) -> list[dict[str, Any]]:
         where = "" if character_id is None else "WHERE character_id = ?"
         parameters = () if character_id is None else (_integer(character_id, "character_id", minimum=1),)
@@ -39,36 +72,39 @@ class LoadoutPlanDaoMixin(LoadoutPlanWriteDaoMixin):
             """,
             parameters,
         )
-        for row in rows:
-            row["is_active"] = bool(row["is_active"])
-            row["allocation_locked"] = bool(row["allocation_locked"])
-            row["payload"] = _decoded(row.pop("payload_json"), {})
-            row["assignments"] = self._rows(
-                """
-                SELECT ordinal, uid_serial, uid_slot, kind, target_row,
-                       target_column, rotation, raw_assignment_json
-                FROM loadout_plan_item WHERE plan_id = ? ORDER BY ordinal
-                """,
-                (row["plan_id"],),
-            )
-            for assignment in row["assignments"]:
-                assignment["raw_assignment"] = _decoded(
-                    assignment.pop("raw_assignment_json"), {}
-                )
-        return rows
+        return self._decode_loadout_plan_rows(rows)
+
+    def get_loadout_plans(self, plan_ids: Sequence[int]) -> list[dict[str, Any]]:
+        """Return complete plans for a bounded ID set without scanning history."""
+
+        normalized = tuple(dict.fromkeys(
+            _integer(plan_id, "plan_id", minimum=1) for plan_id in plan_ids
+        ))
+        if not normalized:
+            return []
+        placeholders = ",".join("?" for _plan_id in normalized)
+        rows = self._rows(
+            f"""
+            SELECT plan_id, name, character_id, slot_id, source_snapshot_id, status,
+                   score, payload_json, is_active, allocation_locked,
+                   created_at_utc, updated_at_utc
+            FROM loadout_plan
+            WHERE plan_id IN ({placeholders})
+            """,
+            normalized,
+        )
+        by_id = {
+            int(row["plan_id"]): row
+            for row in self._decode_loadout_plan_rows(rows)
+        }
+        return [by_id[plan_id] for plan_id in normalized if plan_id in by_id]
 
     def get_loadout_plan(self, plan_id: int) -> dict[str, Any] | None:
         """按方案 ID 返回完整方案；读取格式与 ``list_loadout_plans`` 一致。"""
 
         raw_plan_id = _integer(plan_id, "plan_id", minimum=1)
-        return next(
-            (
-                plan
-                for plan in self.list_loadout_plans()
-                if plan["plan_id"] == raw_plan_id
-            ),
-            None,
-        )
+        plans = self.get_loadout_plans((raw_plan_id,))
+        return plans[0] if plans else None
 
     def get_active_loadout_plan_for_role(self, role_name: str) -> dict[str, Any] | None:
         """返回指定显示角色名当前槽位中的可执行 SQLite 方案。"""
@@ -160,6 +196,9 @@ class LoadoutPlanDaoMixin(LoadoutPlanWriteDaoMixin):
             raise UserDataError("无法删除配装方案") from exc
 
     def summary(self) -> dict[str, Any]:
+        schema_row = self._one(
+            "SELECT MAX(version) AS version FROM schema_migration"
+        )
         snapshot_count = self._one(
             "SELECT COUNT(*) AS count FROM inventory_snapshot"
         )
@@ -167,7 +206,7 @@ class LoadoutPlanDaoMixin(LoadoutPlanWriteDaoMixin):
             "SELECT COUNT(*) AS count FROM loadout_plan"
         )
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": int((schema_row or {}).get("version", 0)),
             "database_path": str(self.database_path),
             "profile": self.profile(),
             "sync_settings": self.get_sync_settings(),

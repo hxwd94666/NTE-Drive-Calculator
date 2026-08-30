@@ -1,4 +1,5 @@
 # 测试版本、工程元数据与本地发布准备工具保持一致。
+import json
 import tempfile
 import tomllib
 import unittest
@@ -44,6 +45,28 @@ class ProjectMetadataTests(unittest.TestCase):
         prepare_release.ensure_tag_matches_version(__version__)
         with self.assertRaisesRegex(RuntimeError, "不一致"):
             prepare_release.ensure_tag_matches_version(f"v{__version__}")
+
+    def test_release_dataset_must_match_explicit_local_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            content_root = root / "Content"
+            content_root.mkdir()
+            config_path = root / "local.paths.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "dataset_id": "configured-v2",
+                        "official_content_root": str(content_root),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "请先完成候选晋升"):
+                prepare_release.validate_static_dataset_against_local_config(
+                    {"dataset": {"dataset_id": "committed-v1"}},
+                    config_path,
+                )
 
     def test_component_record_hash_parser_is_label_specific(self):
         with tempfile.TemporaryDirectory() as temporary:

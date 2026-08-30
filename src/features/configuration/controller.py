@@ -1,5 +1,5 @@
-# 编排基础权重与公共额外形状的加载、保存、重置及关联日志。
-"""Controller boundary for account weights and shared shape overrides."""
+# 编排基础权重与自创角色额外形状的加载、保存及关联日志。
+"""Controller boundary for account weights and custom-role shape settings."""
 
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ from src.observability import OperationContext
 from src.observability.operation import log_event, operation_scope
 from src.services.character_shape_bonus_service import (
     DEFAULT_EXTRA_SHAPE_LABEL,
-    get_effective_character_shape_bonus,
-    save_public_character_shape_bonus,
 )
 from src.services.character_weight_service import (
     ensure_account_character_weights,
@@ -163,23 +161,12 @@ class BasicWeightController:
             for character in characters:
                 character_id = int(character["character_id"])
                 record = account_weights.get(character_id) or {}
-                shape_bonus = (
-                    get_effective_character_shape_bonus(
-                        static_dao,
-                        character_id,
-                        shared_database_path=self.dependencies.shared_database_path,
-                    )
-                    or {}
-                )
+                shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
                 roles[str(character.get("name_zh") or character_id)] = {
                     "character_id": character_id,
                     "source_kind": str(record.get("source_kind") or "default"),
-                    "shape_bonus_source": str(
-                        shape_bonus.get("effective_source") or "static_default"
-                    ),
-                    "extra_shape_label": str(
-                        shape_bonus.get("shape_label") or DEFAULT_EXTRA_SHAPE_LABEL
-                    ),
+                    "shape_bonus_source": "static_database",
+                    "extra_shape_label": str(shape_bonus.get("shape_label") or ""),
                     "extra_shape_buffs": {
                         str(row["property_id"]): float(row["display_value"])
                         for row in shape_bonus.get("properties") or ()
@@ -251,6 +238,18 @@ class BasicWeightController:
         dirty_target_suit_ids: set[int] | None = None,
     ) -> None:
         operation = self.operation()
+        dirty_shape_ids = {int(value) for value in dirty_shape_bonus_ids}
+        with StaticGameDataDao(self.dependencies.static_database_path) as static_dao:
+            official_shape_edits = sorted(
+                character_id
+                for character_id in dirty_shape_ids
+                if static_dao.get_character(character_id) is not None
+            )
+        if official_shape_edits:
+            joined = "、".join(str(value) for value in official_shape_edits)
+            raise ValueError(
+                f"官方角色的额外形状由静态资源库管理，不可编辑：{joined}"
+            )
         for role_data in data.values():
             character_id = int(role_data["character_id"])
             if character_id in dirty_character_ids:
@@ -273,23 +272,15 @@ class BasicWeightController:
                     character_id,
                     str(role_data.get("target_suit_id") or "") or None,
                 )
-            if character_id in dirty_shape_bonus_ids:
-                if role_data.get("is_custom"):
-                    save_custom_character_shape_bonus(
-                        self.dependencies.user_database_path,
-                        character_id,
-                        shape_label=str(role_data.get("extra_shape_label") or ""),
-                        property_values=role_data.get("extra_shape_buffs") or {},
-                    )
-                else:
-                    save_public_character_shape_bonus(
-                        character_id,
-                        shape_label=str(role_data.get("extra_shape_label") or ""),
-                        property_values=role_data.get("extra_shape_buffs") or {},
-                        database_path=self.dependencies.static_database_path,
-                        shared_database_path=self.dependencies.shared_database_path,
-                        operation_context=operation,
-                    )
+            if character_id in dirty_shape_ids:
+                if not role_data.get("is_custom"):
+                    raise ValueError("只有自创角色可以编辑额外形状")
+                save_custom_character_shape_bonus(
+                    self.dependencies.user_database_path,
+                    character_id,
+                    shape_label=str(role_data.get("extra_shape_label") or ""),
+                    property_values=role_data.get("extra_shape_buffs") or {},
+                )
 
     def create_custom_role(self, name_zh: str) -> dict:
         return create_custom_character(self.dependencies.user_database_path, name_zh)

@@ -91,44 +91,27 @@ from src.utils.logger import (
     logger,
     set_log_dir,
 )
-from src.services.shared_data_migration_service import (
-    migrate_legacy_static_shape_bonuses,
-)
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.qt_log_sink import QtLogSink
-
-
-def _migrate_legacy_shared_shape_bonus() -> None:
-    legacy_database = APPLICATION_PATHS.app_dir / "migration" / "game_static.previous.sqlite3"
-    if not legacy_database.is_file():
-        return
-    try:
-        with StaticGameDataDao() as static_dao:
-            current_static_database = static_dao.database_path
-        migrate_legacy_static_shape_bonuses(
-            legacy_database_path=legacy_database,
-            current_static_database_path=current_static_database,
-            shared_database_path=APPLICATION_PATHS.shared_database_path,
-            baseline_path=(
-                APPLICATION_PATHS.root
-                / "data"
-                / "migrations"
-                / "shape_bonus_defaults_2.0.2.json"
-            ),
-            operation_context=OperationContext.create("database_migration"),
-        )
-    except Exception:
-        logger.warning("旧版公共额外形状迁移失败；备份已保留且新版静态库未修改")
 
 
 from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
 from src.features.settings.page import refresh_account_scoped_settings
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.services.global_theme_settings_service import GlobalThemeSettingsService
+from src.services.mod_plugin_loading_service import ModPluginLoadingService
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxDependencies, ToolboxPage
+from src.features.static_catalog.controller import StaticCatalogController
+from src.features.static_catalog.dependencies import (
+    build_static_catalog_domain_pages,
+    build_static_catalog_providers,
+)
+from src.features.static_catalog.page import StaticCatalogPage
+from src.services.static_catalog_service import StaticCatalogService
+from src.services.warehouse_inventory_service import WarehouseInventoryService
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
 from src.features.battle_report.dependencies import build_battle_report_controller
 from src.features.identification.controller import IdentificationController
@@ -152,7 +135,6 @@ APP_CONTEXT = AppContext(
 GLOBAL_THEME_SETTINGS = GlobalThemeSettingsService(
     APPLICATION_PATHS.global_ui_preferences_file
 )
-_migrate_legacy_shared_shape_bonus()
 from src.features.inventory.warehouse import configure_warehouse_view_template_roots
 
 configure_warehouse_view_template_roots(
@@ -265,17 +247,22 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._hk_capture = "F9"
         self._hk_finish = "F10"
         self._hk_stop = "F12"
+        self._hk_battle_rerecord = "F11"
         self._account_settings = self.app_context.account_settings
         legacy_theme = self._account_settings.legacy_theme_preference()
         self._account_settings.migrate_legacy_settings()
         self._account_settings.remove_legacy_theme_preference()
         self._global_theme_settings = GLOBAL_THEME_SETTINGS
+        self._mod_plugin_loading_service = ModPluginLoadingService(
+            application_root=self.app_context.paths.root
+        )
         self._theme_preference = self._load_theme_preference(legacy_theme)
         self._load_hotkey_config()
         self.global_hotkey_manager = GlobalHotkeyManager(
             capture_hotkey=self._hk_capture,
             finish_hotkey=self._hk_finish,
             stop_hotkey=self._hk_stop,
+            battle_rerecord_hotkey=self._hk_battle_rerecord,
         )
         self.equipment_presentation = EquipmentPresentation(
             app_context=self.app_context,
@@ -316,6 +303,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             ),
             stop_inventory_sync=self._stop_inventory_sync,
             start_inventory_sync=self._start_inventory_sync,
+            hotkey_manager=self.global_hotkey_manager,
         )
         self.blueprint_page = BlueprintPage(
             app_context=self.app_context,
@@ -327,9 +315,46 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                     user_database_path=self.app_context.account.user_database_path,
                     static_database_path=self.app_context.paths.static_database_path,
                 ),
+                navigate_static_catalog=lambda: self._go("static_catalog"),
             ),
             dialog_parent=self,
         )
+        static_catalog_controller = StaticCatalogController(
+            StaticCatalogService(
+                static_database_path=self.app_context.paths.static_database_path,
+                providers=build_static_catalog_providers(
+                    self.app_context.paths.static_database_path
+                ),
+            )
+        )
+        static_catalog_domains = ()
+        try:
+            static_catalog_domains = build_static_catalog_domain_pages(
+                self.app_context.paths.static_database_path,
+                self.app_context.paths.asset_dir / "game_ui",
+                equipment_presentation=self.equipment_presentation,
+                equipment_inventory_loader=self._load_static_catalog_inventory,
+                open_catalog_link=lambda link: (
+                    self.static_catalog_page.open_catalog_link(link)
+                ),
+            )
+            self.static_catalog_page = StaticCatalogPage(
+                controller=static_catalog_controller,
+                dialog_parent=self,
+                game_ui_asset_root=self.app_context.paths.asset_dir / "game_ui",
+                domain_pages=static_catalog_domains,
+            )
+        except Exception:
+            for spec in reversed(static_catalog_domains):
+                try:
+                    spec.close()
+                except Exception:
+                    pass
+            try:
+                static_catalog_controller.close()
+            except Exception:
+                pass
+            raise
         self.onboarding_guide = OnboardingGuide(
             app_context=self.app_context,
             parent=self,
@@ -363,6 +388,21 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._on_log("系统就绪")
         self.onboarding_guide.maybe_show()
         self._maybe_check_updates_on_startup()
+
+    def _load_static_catalog_inventory(self):
+        """Freeze the current account projection for the equipment archive."""
+
+        account = self.app_context.account
+        static_path = self.app_context.paths.static_database_path
+        service = WarehouseInventoryService(
+            account.user_database_path,
+            static_dao_factory=lambda: StaticGameDataDao(static_path),
+        )
+        return (
+            account.active_account_id,
+            self.app_context.generation,
+            service.load_current_snapshot(),
+        )
 
     # ── Frameless
     def _on_edge(self, pos):
@@ -450,6 +490,14 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             self._stop_inventory_sync()
         except Exception as exc:
             logger.warning(f"停止背包同步失败: {exc}")
+        try:
+            self._mod_plugin_loading_service.close()
+        except Exception as exc:
+            logger.warning(f"停止 Mod Loader 失败: {exc}")
+        try:
+            self.static_catalog_page.close()
+        except Exception as exc:
+            logger.warning(f"关闭游戏资料库失败: {exc}")
         self.global_hotkey_manager.close()
         self._unregister_inventory_sync_lifecycle()
         self._account_context_unsubscribe()
@@ -637,6 +685,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             capture_hotkey=self._hk_capture,
             finish_hotkey=self._hk_finish,
             stop_hotkey=self._hk_stop,
+            battle_rerecord_hotkey=self._hk_battle_rerecord,
         )
         self._update_config = self._load_update_config()
         self._ui_preferences = self._load_ui_preferences()

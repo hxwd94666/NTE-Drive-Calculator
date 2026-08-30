@@ -45,7 +45,10 @@ FEATURE_STATIC_ALLOWLIST = {
 
 def _repo_python_files() -> list[Path]:
     # 对方提供的本地核心与插件目录不是本项目源码，不适用项目的中文摘要规范。
-    excluded_parts = {".venv", "__pycache__", "build", "dist", "nte-core", "nte-equipment-plugin"}
+    excluded_parts = {
+        ".venv", "__pycache__", "build", "dist", "local-audits",
+        "nte-core", "nte-equipment-plugin", "third_party",
+    }
     return sorted(
         path
         for path in ROOT.rglob("*.py")

@@ -33,6 +33,7 @@ APP_EXE = DIST_APP / "NTE_Drive_Calc.exe"
 APP_INTERNAL = DIST_APP / "_internal"
 APP_NTE_CORE = APP_INTERNAL / "nte-core.exe"
 APP_MODS_PLUGIN = APP_INTERNAL / "dwmapi.dll"
+APP_MOD_LOADER = APP_INTERNAL / "nte-mod-loader.exe"
 APP_MOD_SET = APP_INTERNAL / "plugins" / "nte-mods.enabled"
 APP_EQUIPMENT_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "equipment.nte"
 APP_COMBAT_CLOCK_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "combat-clock.nte"
@@ -54,6 +55,7 @@ APP_NAME = "NTE Drive Calc"
 APP_EXE_NAME = "NTE_Drive_Calc.exe"
 APP_ID = "{{D7DA28BE-8A19-4E05-9216-3F16C4C2C820}"
 CORE_CONFIG_FILES = ("stats.json",)
+STALE_AMBIENT_ICU_DLLS = ("icuuc.dll", "icudt78.dll")
 LOCAL_CONFIG_ENV = "NTE_LOCAL_CONFIG"
 
 
@@ -187,6 +189,7 @@ def _validate_app_bundle() -> None:
         "PyInstaller 运行目录": APP_INTERNAL,
         "nte-core 本地组件": APP_NTE_CORE,
         "nte-mods-plugin 本地组件": APP_MODS_PLUGIN,
+        "nte-mod-loader 备用加载组件": APP_MOD_LOADER,
         "nte-mods 启用集合": APP_MOD_SET,
         "nte-mods 装备脚本": APP_EQUIPMENT_MOD,
         "nte-mods 战斗时钟脚本": APP_COMBAT_CLOCK_MOD,
@@ -219,7 +222,7 @@ def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False
         build_cmd = [sys.executable, str(ROOT / "build_exe.py")]
         if skip_workshop_sync:
             build_cmd.append("--skip-workshop-sync")
-        if require_workshop_sync:
+        else:
             build_cmd.append("--require-workshop-sync")
         _run(build_cmd)
 
@@ -243,6 +246,10 @@ def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
         f'Source: "{_inno_path(APP_INTERNAL / "config" / name)}"; DestDir: "{{app}}\\config"; '
         'Flags: ignoreversion'
         for name in CORE_CONFIG_FILES
+    )
+    stale_icu_delete_lines = "\n".join(
+        f'Type: files; Name: "{{app}}\\_internal\\{name}"'
+        for name in STALE_AMBIENT_ICU_DLLS
     )
     if vigem_is_exe:
         vigem_install_filename = "{app}\\drivers\\ViGEmBus_Setup.exe"
@@ -387,6 +394,9 @@ Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: i
 {core_runtime_config_lines}
 {vigem_file_line}
 
+[InstallDelete]
+{stale_icu_delete_lines}
+
 [Dirs]
 Name: "{{app}}\\config"; Permissions: users-modify
 Name: "{{app}}\\_internal\\data"; Permissions: users-modify
@@ -452,7 +462,11 @@ def main() -> int:
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
     parser.add_argument("--skip-workshop-sync", action="store_true", help="Do not sync workshop weights before building the app bundle.")
-    parser.add_argument("--require-workshop-sync", action="store_true", help="Fail release packaging if workshop weight sync cannot run.")
+    parser.add_argument(
+        "--require-workshop-sync",
+        action="store_true",
+        help="Require API synchronization or inheritance from the prebuild release backup.",
+    )
     parser.add_argument(
         "--iscc",
         type=Path,

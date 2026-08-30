@@ -1,5 +1,5 @@
-# 通过只读 DAO 查看 schema v12 静态游戏数据库。
-"""通过只读 DAO 查看 schema v12 静态游戏数据库。"""
+# 通过只读 DAO 查看 schema v20 静态游戏数据库。
+"""通过只读 DAO 查看 schema v20 静态游戏数据库。"""
 
 from __future__ import annotations
 
@@ -69,6 +69,18 @@ def select_view(dao: StaticGameDataDao, view: str, item_id: str | None) -> Any:
             )
         profile_set, pack_id = item_id.split(":", 1)
         return dao.get_enemy_combat_profile(profile_set, pack_id)
+    if view == "buff":
+        if item_id is None:
+            raise SystemExit("查看 Buff/GE 时必须传入 --id <asset_path>")
+        return dao.get_buff_definition(item_id)
+    if view == "effect-buffs":
+        if item_id is None:
+            raise SystemExit("查看效果绑定时必须传入 --id <effect_definition_id>")
+        return dao.list_combat_effect_buff_links(item_id)
+    if view == "roguelike-modifier":
+        if item_id is None:
+            raise SystemExit("查看 RogueLike 修正时必须传入 --id <modifier_id>")
+        return dao.get_roguelike_modifier(item_id)
     raise AssertionError(f"unhandled view: {view}")
 
 
@@ -92,6 +104,9 @@ def parse_args() -> argparse.Namespace:
             "combat-constants",
             "skill-damage",
             "enemy-profile",
+            "buff",
+            "effect-buffs",
+            "roguelike-modifier",
         ),
         default="summary",
     )

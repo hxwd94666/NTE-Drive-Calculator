@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.allocation_rating import allocation_grade
+from src.domain.allocation_rating import allocation_grade, loadout_total_grade
 from src.features.inventory.warehouse import warehouse_item_view
 from src.features.inventory.warehouse_result_card import WarehouseResultCard
 from src.services.official_role_equipment_scoring_service import (
@@ -171,7 +171,12 @@ def _refresh_role_page_after_replacement(
 
 
 def _build_equipment_cards_group(
-    window, detail: dict, context_key: str,
+    window,
+    detail: dict,
+    context_key: str,
+    *,
+    allow_replacement: bool = True,
+    replacement_handler=None,
 ) -> QGroupBox:
     context = detail["equipment_contexts"][context_key]
     theory_items: list[tuple[str, object]] = []
@@ -252,7 +257,15 @@ def _build_equipment_cards_group(
                 item,
             )
             replacement_callback = None
-            if context_key == "saved" or context_key.startswith("saved:"):
+            if allow_replacement and callable(replacement_handler):
+                replacement_callback = (
+                    lambda target=dict(item), key=context_key: replacement_handler(
+                        target, key
+                    )
+                )
+            elif allow_replacement and (
+                context_key == "saved" or context_key.startswith("saved:")
+            ):
                 replacement_callback = (
                     lambda target=dict(item), key=context_key: _show_replacement_optimizer(
                         window, detail, target, context_key=key,
@@ -314,7 +327,15 @@ def _aggregate_equipment_stats(detail: dict, context_key: str) -> list[tuple[str
     return rows
 
 
-def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
+def _build_drive_summary_group(
+    window,
+    detail: dict,
+    editor: dict,
+    *,
+    allow_replacement: bool = True,
+    show_context_selector: bool = True,
+    replacement_handler=None,
+) -> QGroupBox:
     group = QGroupBox("空幕加成")
     group.setObjectName("officialRoleDriveGroup")
     layout = QVBoxLayout(group)
@@ -324,12 +345,15 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
     top.addWidget(count_label)
     top.addStretch()
     context_combo = NoWheelComboBox()
+    context_combo.setObjectName("officialRoleEquipmentContextSelector")
     for key, context in detail["equipment_contexts"].items():
-        if key == "current" or key == "saved" or key.startswith("saved:"):
+        if key != "theory":
             context_combo.addItem(context["title"], key)
     wanted_context = str(editor.get("equipment_context_key") or "current")
     context_index = context_combo.findData(wanted_context)
     context_combo.setCurrentIndex(context_index if context_index >= 0 else 0)
+    if context_combo.currentData() is not None:
+        editor["equipment_context_key"] = str(context_combo.currentData())
     # Eleven Chinese characters plus combo padding keeps it compact.
     context_combo.setFixedWidth(
         context_combo.fontMetrics().horizontalAdvance("已保存配装方案选择器")
@@ -337,6 +361,11 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
         + 24
     )
     top.addWidget(context_combo)
+    context_combo.setVisible(show_context_selector)
+    score_label = QLabel("配装评分: --")
+    score_label.setObjectName("officialRoleLoadoutScore")
+    score_label.setStyleSheet("color:#58a6ff;font-weight:bold;font-size:13px;")
+    top.addWidget(score_label)
     margin_label = QLabel("直伤收益: --")
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
     top.addWidget(margin_label)
@@ -353,6 +382,27 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
         modules = _equipment_items(detail, context_key, core=False) if context_key != "theory" else list((detail.get("equipment_plan") or {}).get("module_item_ids") or ())
         cores = _equipment_items(detail, context_key, core=True) if context_key != "theory" else ([1] if detail["equipment_contexts"]["theory"].get("core_item_id") else [])
         count_label.setText(f"已装配驱动: {len(modules)}    空幕: {'已装配' if cores else '未装配'}")
+        score_context = calculation_detail["equipment_contexts"][context_key]
+        score_items = list(
+            score_context.get("calculation_items")
+            or score_context.get("items")
+            or ()
+        )
+        if getattr(window, "scoring_engine", None) is None or not score_items:
+            score_label.setText("配装评分: --")
+        else:
+            total_score = sum(
+                _equipment_weight_score(
+                    window,
+                    calculation_detail,
+                    item,
+                    core=str(item.get("kind") or "") == "core",
+                )
+                for item in score_items
+            )
+            score_label.setText(
+                f"配装评分: {total_score:.1f} · {loadout_total_grade(total_score)}"
+            )
         gain = calculate_official_role_equipment_gain(calculation_detail, context_key)
         if gain:
             margin_label.setText(f"直伤收益: {gain['gain_percent']:+.2f}%")
@@ -375,12 +425,28 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
                 info_layout.addLayout(row)
             summary_layout.addWidget(info_group)
         summary_layout.addWidget(
-            _build_equipment_cards_group(window, calculation_detail, context_key)
+            _build_equipment_cards_group(
+                window,
+                calculation_detail,
+                context_key,
+                allow_replacement=allow_replacement,
+                replacement_handler=(
+                    replace_in_context if callable(replacement_handler) else None
+                ),
+            )
         )
 
     def change_context() -> None:
         editor["equipment_context_key"] = str(context_combo.currentData())
         _refresh_role_calculations(editor)
+
+    def replace_in_context(target: dict, context_key: str) -> bool:
+        if not callable(replacement_handler):
+            return False
+        accepted = bool(replacement_handler(target, context_key))
+        if accepted:
+            _refresh_role_calculations(editor)
+        return accepted
 
     context_combo.currentIndexChanged.connect(change_context)
     _register_calculation_refresh(editor, refresh_summary)

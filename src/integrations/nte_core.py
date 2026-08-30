@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import os
@@ -18,6 +19,7 @@ from typing import Any, Literal
 from src.integrations.nte_core_events import (
     CoalescingEventQueue as _CoalescingEventQueue,
 )
+from src.integrations.nte_core_battle_client import NteCoreBattleQueryMixin
 from src.integrations.nte_core_protocol import (
     JsonObject,
     MODS_PLUGIN_BUSY_CODES,
@@ -172,7 +174,7 @@ def resolve_nte_core_executable(executable: str | os.PathLike[str] | None = None
     )
 
 
-class NteCoreClient:
+class NteCoreClient(NteCoreBattleQueryMixin):
     """管理一个 nte-core 进程，并向调用方暴露原始业务 DTO。
 
     匹配的事件处理器在专用回调线程执行并接管对应事件；未处理事件仍可通过
@@ -225,6 +227,7 @@ class NteCoreClient:
         self._closed = threading.Event()
         self._threads: list[threading.Thread] = []
         self.hello_result: JsonObject | None = None
+        self.executable_sha256: str | None = None
 
     @property
     def process_id(self) -> int | None:
@@ -263,8 +266,15 @@ class NteCoreClient:
         if sys.platform == "win32":
             creation_flags = subprocess.CREATE_NO_WINDOW
         try:
+            command = self._serve_command()
+            if self._base_command is None:
+                with Path(command[0]).open("rb") as executable_stream:
+                    self.executable_sha256 = hashlib.file_digest(
+                        executable_stream,
+                        "sha256",
+                    ).hexdigest().upper()
             self._process = subprocess.Popen(
-                self._serve_command(),
+                command,
                 cwd=str(self.cwd) if self.cwd is not None else None,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -769,6 +779,16 @@ class NteCoreClient:
                 self._process.terminate()
         elif self.is_running:
             self._expected_exit.set()
+            self._process.terminate()
+        self._finish_process()
+
+    def abort(self) -> None:
+        """Abort the owned process and release blocked requests."""
+
+        if self._process is None or self._closed.is_set():
+            return
+        self._expected_exit.set()
+        if self.is_running:
             self._process.terminate()
         self._finish_process()
 
