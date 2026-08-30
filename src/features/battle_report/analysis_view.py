@@ -72,7 +72,6 @@ from src.services.skill_name_rendering_service import (
     preferred_battle_damage_name,
     render_battle_classification,
 )
-from src.ui.dashboard_widgets import metric_card
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
 
 class BattleLongAnalysisView(
@@ -228,21 +227,6 @@ class BattleLongAnalysisView(
         timeline_layout.addWidget(self.timeline_scroll)
         root.addWidget(timeline_card)
 
-        metrics = QGridLayout()
-        definitions = (
-            ("damage", "有效伤害", "正式逐击 + 上限结算"),
-            ("dps", "有效 DPS", "按统一时段"),
-            ("raw_damage", "正式逐击", "nte-core 原始证据"),
-            ("vital_damage", "生命上限结算", "观测差值 × 当前生命比例"),
-            ("duration", "时段长度", "左闭右开"),
-            ("hits", "逐击事件", "主伤害与追加拆分"),
-        )
-        self.metric_labels: dict[str, QLabel] = {}
-        for index, (key, title, subtitle) in enumerate(definitions):
-            card, value, _ = metric_card(title, "—", subtitle)
-            self.metric_labels[key] = value
-            metrics.addWidget(card, index // 3, index % 3)
-        root.addLayout(metrics)
         roles_card, roles_layout = _section("选定时段角色贡献")
         roles_content = QHBoxLayout()
         roles_content.setContentsMargins(0, 0, 0, 0)
@@ -345,11 +329,11 @@ class BattleLongAnalysisView(
             (
                 "时间", "序号", "角色", "伤害项 / 来源技能", "类型",
                 "目标", "伤害", "公式重放 / 误差", "暴击判定",
-                "推算 Buff", "HP 前 → 后",
+                "详情",
             ),
             360,
             default_widths=(
-                112, 72, 140, 360, 230, 170, 130, 190, 125, 310, 190,
+                112, 72, 140, 360, 230, 170, 130, 190, 110, 72,
             ),
         )
         self.log_table.cellClicked.connect(self._log_cell_clicked)
@@ -407,8 +391,6 @@ class BattleLongAnalysisView(
         self.inferred_fact_label.clear_facts()
         self._hide_hit_formula_dialog()
         self._hide_hit_buff_dialog()
-        for label in self.metric_labels.values():
-            label.setText("—")
         for table in (
             self.roles_table,
             self.skills_table,
@@ -724,27 +706,6 @@ class BattleLongAnalysisView(
         )
         self.start_spin.setValue(start_display / 1_000_000.0)
         self.end_spin.setValue(end_display / 1_000_000.0)
-        duration = self._selected_display_duration_seconds()
-        effective_damage = getattr(
-            analysis,
-            "effective_damage",
-            getattr(analysis, "total_damage", 0.0),
-        )
-        self.metric_labels["damage"].setText(_number(effective_damage))
-        self.metric_labels["dps"].setText(
-            _number(effective_damage / duration if duration > 0 else 0.0)
-        )
-        raw_damage = getattr(analysis, "raw_total_damage", 0.0)
-        if not raw_damage:
-            raw_damage = getattr(analysis, "total_damage", 0.0)
-        self.metric_labels["raw_damage"].setText(_number(raw_damage))
-        self.metric_labels["vital_damage"].setText(
-            _number(getattr(analysis, "max_hp_reduction_damage", 0.0))
-        )
-        self.metric_labels["duration"].setText(f"{duration:.3f}s")
-        self.metric_labels["hits"].setText(
-            f"{len(getattr(analysis, 'hits', ())):,}"
-        )
 
     def _zoom_changed(self, _index: int = -1) -> None:
         factor = float(self.zoom_combo.currentData() or 1.0)

@@ -391,6 +391,41 @@ def _fine_hit_channel(
     coarse_key, _coarse_label = _coarse_role_channel(key, label)
     if key in _REACTION_CHANNELS or key == "other_topple":
         return coarse_key, _coarse_label
+    if key in {"direct", "direct_follow_up"}:
+        identity_text = "|".join((
+            hit.attack_type,
+            hit.ability_id,
+            hit.gameplay_effect_id,
+            hit.skill_name,
+            hit.damage_name,
+        )).casefold()
+        attack = hit.attack_type.strip().casefold()
+        if _is_qte_direct_damage(
+            hit.ability_id,
+            hit.gameplay_effect_id,
+            hit.attack_type,
+        ):
+            family = "QTE"
+        elif "appear" in hit.ability_id.casefold() or attack in {"g", "g技能", "进场技"}:
+            family = "G"
+        elif "perfectevade" in identity_text or "闪避反击" in hit.attack_type:
+            family = "闪避反击"
+        elif "block" in identity_text or "格挡反击" in hit.attack_type:
+            family = "格挡反击"
+        elif "passive" in identity_text or hit.attack_type == "Passive Damage":
+            family = "被动"
+        elif attack in {"q技能", "ultra"} or "ultraskill" in identity_text:
+            family = "Q"
+        elif attack in {"e技能", "skill"} or (
+            "_skill" in identity_text and "ultraskill" not in identity_text
+        ):
+            family = "E"
+        elif attack in {"普攻", "普通攻击", "normal", "normalattack", "melee", "a"}:
+            family = "A"
+        else:
+            family = ""
+        if family:
+            return f"direct|action:{family.casefold()}", family
     identity = (
         hit.gameplay_effect_id.strip()
         or "|".join((
@@ -448,10 +483,9 @@ def _entries(
     damage_by_channel: dict[str, float],
     labels: dict[str, str],
     *,
-    denominator: float,
-    include_role_baseline: bool,
+    block_denominator: float,
+    team_denominator: float,
 ) -> tuple[DamageCompositionEntry, ...]:
-    del include_role_baseline
     rows = []
     for key, label in labels.items():
         damage = max(0.0, float(damage_by_channel.get(key, 0.0)))
@@ -462,7 +496,14 @@ def _entries(
                 key=key,
                 label=label,
                 damage=damage,
-                share_percent=damage / denominator * 100.0 if denominator > 0 else 0.0,
+                share_percent=(
+                    damage / block_denominator * 100.0
+                    if block_denominator > 0 else 0.0
+                ),
+                total_share_percent=(
+                    damage / team_denominator * 100.0
+                    if team_denominator > 0 else 0.0
+                ),
             )
         )
     rows.sort(key=lambda row: (_entry_order(row.key), row.label))
@@ -503,8 +544,8 @@ def _finalize_composition(
         entries = _entries(
             channel_damage,
             dict(role_labels.get(character_id, {})),
-            denominator=total_damage,
-            include_role_baseline=True,
+            block_denominator=total_damage,
+            team_denominator=segment_total_damage,
         )
         if total_damage <= 0.0 or not entries:
             continue
@@ -513,6 +554,10 @@ def _finalize_composition(
             character_name=character_name,
             total_damage=total_damage,
             entries=entries,
+            share_percent=(
+                total_damage / segment_total_damage * 100.0
+                if segment_total_damage > 0 else 0.0
+            ),
         ))
 
     other_total = sum(public_damage.values())
@@ -539,8 +584,8 @@ def _finalize_composition(
         other_entries=_entries(
             dict(public_damage),
             public_labels,
-            denominator=segment_total_damage,
-            include_role_baseline=False,
+            block_denominator=other_total,
+            team_denominator=segment_total_damage,
         ),
         system_total_damage=system_total,
         system_share_percent=(
@@ -551,8 +596,8 @@ def _finalize_composition(
         system_entries=_entries(
             system_damage,
             system_labels,
-            denominator=segment_total_damage,
-            include_role_baseline=False,
+            block_denominator=system_total,
+            team_denominator=segment_total_damage,
         ),
         pending_topple_attribution=pending_topple_attribution,
         unresolved_topple_attribution=unresolved_topple_attribution,

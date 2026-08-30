@@ -125,6 +125,22 @@ class BattlePartialQuantificationBuffUiTests(unittest.TestCase):
             damage_coverage_text(BattleDamageCoverage(1_000.0, 600.0, 250.0)),
         )
 
+    def test_buff_audit_keeps_only_decision_columns(self) -> None:
+        panel = BattleBuffEvidencePanel()
+        headers = tuple(
+            panel.table.horizontalHeaderItem(index).text()
+            for index in range(panel.table.columnCount())
+        )
+
+        self.assertEqual(
+            (
+                "来源", "作用对象", "Buff", "值", "触发", "时间覆盖",
+                "覆盖逐击", "伤害覆盖率", "收益率", "详情",
+            ),
+            headers,
+        )
+        self.assertTrue(panel.summary_label.isHidden())
+
     def test_unavailable_does_not_render_zero_gain(self) -> None:
         panel = BattleBuffEvidencePanel()
 
@@ -132,10 +148,9 @@ class BattlePartialQuantificationBuffUiTests(unittest.TestCase):
 
         self.assertEqual("100.0%", panel.table.item(0, 7).text())
         self.assertEqual("—", panel.table.item(0, 8).text())
-        self.assertEqual("未量化", panel.table.item(0, 9).text())
-        self.assertEqual("—", panel.table.item(0, 10).text())
-        self.assertNotIn("+0.00%", panel.table.item(0, 10).text())
-        self.assertIn("未知不记为 0", panel.table.item(0, 10).toolTip())
+        self.assertEqual("查看", panel.table.item(0, 9).text())
+        self.assertNotIn("+0.00%", panel.table.item(0, 8).text())
+        self.assertIn("量化状态：unavailable", panel.table.item(0, 9).toolTip())
 
     def test_partial_is_labeled_as_quantified_component(self) -> None:
         panel = BattleBuffEvidencePanel()
@@ -143,10 +158,9 @@ class BattlePartialQuantificationBuffUiTests(unittest.TestCase):
         panel.render(_analysis(_result(status="partial")))
 
         self.assertEqual("100.0%", panel.table.item(0, 7).text())
-        self.assertEqual("已量化 900.00", panel.table.item(0, 8).text())
-        self.assertEqual("已量化 +100.00", panel.table.item(0, 9).text())
-        self.assertTrue(panel.table.item(0, 10).text().startswith("已量化 +"))
-        self.assertIn("不代表完整 Buff 收益", panel.table.item(0, 10).toolTip())
+        self.assertTrue(panel.table.item(0, 8).text().endswith("（部分）"))
+        self.assertNotIn("已量化", panel.table.item(0, 8).text())
+        self.assertIn("不代表完整 Buff 收益", panel.table.item(0, 9).toolTip())
 
     def test_partial_nullable_fields_do_not_break_tooltip(self) -> None:
         panel = BattleBuffEvidencePanel()
@@ -161,18 +175,16 @@ class BattlePartialQuantificationBuffUiTests(unittest.TestCase):
         panel.render(_analysis(SimpleNamespace(**values)))
 
         self.assertEqual("—", panel.table.item(0, 8).text())
-        self.assertEqual("—", panel.table.item(0, 9).text())
-        self.assertEqual("—", panel.table.item(0, 10).text())
-        self.assertIn("已量化改动下伤害：—", panel.table.item(0, 10).toolTip())
+        self.assertEqual("查看", panel.table.item(0, 9).text())
+        self.assertIn("部分伤害增量：—", panel.table.item(0, 9).toolTip())
 
     def test_not_applicable_hides_numeric_zero_gain(self) -> None:
         panel = BattleBuffEvidencePanel()
 
         panel.render(_analysis(_result(status="not_applicable")))
 
-        self.assertEqual("不适用", panel.table.item(0, 8).text())
-        self.assertEqual("不适用", panel.table.item(0, 9).text())
-        self.assertEqual("不适用", panel.table.item(0, 10).text())
+        self.assertEqual("+0.00%", panel.table.item(0, 8).text())
+        self.assertEqual("查看", panel.table.item(0, 9).text())
 
     def test_source_without_covered_hits_keeps_an_explicit_empty_row(self) -> None:
         table = QTableWidget(0, 10)

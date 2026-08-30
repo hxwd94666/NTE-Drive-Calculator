@@ -164,6 +164,7 @@ class DamageCompositionEntry:
     label: str
     damage: float
     share_percent: float
+    total_share_percent: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +173,7 @@ class RoleDamageComposition:
     character_name: str
     total_damage: float
     entries: tuple[DamageCompositionEntry, ...]
+    share_percent: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

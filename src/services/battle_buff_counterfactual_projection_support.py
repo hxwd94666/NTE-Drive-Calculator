@@ -430,10 +430,14 @@ def beneficiary_result(
         ),
         quantification=quantification,
         damage_coverage=BattleDamageCoverage(
-            basis_damage=max(0.0, baseline_hit_damage),
+            basis_damage=max(0.0, baseline_damage),
             covered_damage=min(
-                max(0.0, baseline_hit_damage),
-                max(0.0, active_baseline_damage),
+                max(0.0, baseline_damage),
+                max(0.0, active_baseline_damage) + sum(
+                    max(0.0, row.baseline_damage)
+                    for row in vital_projections
+                    if row.status != "not_applicable"
+                ),
             ),
         ),
     )

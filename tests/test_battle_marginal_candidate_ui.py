@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QWidget
 
 from src.domain.battle_counterfactual_quantification import (
     BattleDamageQuantification,
@@ -171,12 +171,19 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         self.assertNotIn("保存修改副本", button_texts)
         self.assertNotIn("清除手工属性", button_texts)
 
+    def test_navigation_and_role_selector_are_outside_the_scroll_area(self) -> None:
+        page = BattleMarginalPage()
+
+        self.assertEqual("marginalStickyToolbar", page.layout().itemAt(0).widget().objectName())
+        self.assertIsInstance(page.layout().itemAt(1).widget(), QScrollArea)
+        self.assertEqual("marginalRoleSelector", page.character_combo.parentWidget().objectName())
+
     def test_metric_cards_keep_original_fixed_axis_presentation(self) -> None:
         page = BattleMarginalPage()
         label_texts = {label.text() for label in page.findChildren(QLabel)}
 
-        self.assertIn("新 DPS", label_texts)
-        self.assertIn("新总伤害", label_texts)
+        self.assertIn("当前/候选 DPS", label_texts)
+        self.assertIn("当前/候选总伤害", label_texts)
         self.assertIn("角色伤害", label_texts)
         self.assertIn("其余为分级估计", label_texts)
         self.assertNotIn("投影 DPS", label_texts)
@@ -207,7 +214,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
 
         self.assertEqual("1,100", page.metric_labels["role"].text())
         self.assertEqual(
-            "+10.00% · 原始 1,000",
+            "+10.00% · 基线 1,000",
             page.metric_subtitles["role"].text(),
         )
         self.assertNotIn("已量化变化下", page.metric_labels["role"].text())
@@ -241,6 +248,11 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
                 quantified_increment=10.0,
             ),
             assumption="按逐击 character 暴击策略重放。",
+            panel_value=0.50,
+            weighted_effective_value=0.62,
+            related_role_share_percent=80.0,
+            role_share_percent=40.0,
+            related_team_share_percent=32.0,
         )
         page._analysis = SimpleNamespace(
             baselines=(baseline,), roles=(), build_counterfactual=None,
@@ -263,13 +275,14 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             page._render_selected_role()
 
         self.assertIsNone(page.attribute_table.cellWidget(0, 1))
+        self.assertEqual("50.00%", page.attribute_table.item(0, 1).text())
+        self.assertEqual("62.00%", page.attribute_table.item(0, 2).text())
+        self.assertEqual("80.0%", page.attribute_table.item(0, 5).text())
+        self.assertEqual("40.0%", page.attribute_table.item(0, 6).text())
+        self.assertEqual("32.0%", page.attribute_table.item(0, 7).text())
         self.assertEqual("暴击率 +1.00%", page.attribute_table.item(0, 0).text())
-        self.assertEqual("完整", page.attribute_table.item(0, 1).text())
-        self.assertEqual("+1.00%", page.attribute_table.item(0, 2).text())
-        self.assertEqual("+0.40%", page.attribute_table.item(0, 3).text())
-        self.assertEqual("80.0%", page.attribute_table.item(0, 4).text())
-        self.assertEqual("40.0%", page.attribute_table.item(0, 5).text())
-        self.assertEqual("+10", page.attribute_table.item(0, 6).text())
+        self.assertEqual("+1.00%", page.attribute_table.item(0, 3).text())
+        self.assertEqual("+0.40%", page.attribute_table.item(0, 4).text())
 
     def test_page_renders_team_buff_gain_by_beneficiary(self) -> None:
         page = BattleMarginalPage()
@@ -363,7 +376,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
         self.assertEqual("100.0%", page.buff_benefit_table.item(1, 7).text())
         self.assertEqual("100.0%", page.buff_benefit_table.item(1, 8).text())
-        self.assertEqual("100.0%", page.buff_benefit_table.item(1, 9).text())
+        self.assertEqual(9, page.buff_benefit_table.columnCount())
 
     def test_partial_team_uses_quantified_contribution_for_complete_beneficiary(
         self,
@@ -425,7 +438,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            "已量化 +7.50%",
+            "+7.50%（部分）",
             page.buff_benefit_table.item(0, 5).text(),
         )
 
@@ -521,10 +534,10 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
 
         render_attribute_results(page.attribute_table, (result,))
 
-        self.assertEqual("未量化", page.attribute_table.item(0, 1).text())
         self.assertEqual("—", page.attribute_table.item(0, 2).text())
         self.assertEqual("—", page.attribute_table.item(0, 3).text())
-        self.assertNotIn("0.00%", page.attribute_table.item(0, 2).text())
+        self.assertEqual("—", page.attribute_table.item(0, 4).text())
+        self.assertNotIn("0.00%", page.attribute_table.item(0, 3).text())
 
 
 if __name__ == "__main__":

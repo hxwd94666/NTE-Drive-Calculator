@@ -66,7 +66,7 @@ class BattleReportCompositionUiTests(unittest.TestCase):
 
         view.composition_buttons["fine"].click()
 
-        self.assertIn("普通攻击：燎原 · 蚀心", self._composition_labels(view))
+        self.assertIn("蚀心", self._composition_labels(view))
 
     def test_team_topple_automatically_requests_role_attribution_after_render(self) -> None:
         view = BattleLongAnalysisView()
@@ -125,6 +125,7 @@ class BattleReportCompositionUiTests(unittest.TestCase):
             label="普通攻击：未来自我连续性假设 · 未来自我连续性假设",
             damage=123_456.0,
             share_percent=12.3,
+            total_share_percent=4.5,
         )
         row = BattleDamageCompositionPanel._damage_row(entry)
         row.resize(420, 25)
@@ -134,7 +135,8 @@ class BattleReportCompositionUiTests(unittest.TestCase):
         labels = row.findChildren(QLabel)
         name = next(label for label in labels if label.toolTip() == entry.label)
         damage = next(label for label in labels if label.text() == "123,456")
-        share = next(label for label in labels if label.text() == "12.3%")
+        share = next(label for label in labels if label.toolTip() == "占当前角色/公共块伤害")
+        total_share = next(label for label in labels if label.toolTip() == "占当前范围团队总伤害")
 
         self.assertEqual(entry.label, name.text())
         self.assertGreater(
@@ -143,7 +145,8 @@ class BattleReportCompositionUiTests(unittest.TestCase):
         )
         self.assertEqual(92, damage.width())
         self.assertEqual(52, share.width())
-        self.assertLessEqual(share.geometry().right(), row.rect().right())
+        self.assertEqual("4.5%", total_share.text())
+        self.assertLessEqual(total_share.geometry().right(), row.rect().right())
 
     @staticmethod
     def _composition_labels(view: BattleLongAnalysisView) -> tuple[str, ...]:

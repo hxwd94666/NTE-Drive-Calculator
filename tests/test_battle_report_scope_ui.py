@@ -191,8 +191,8 @@ class BattleReportScopeUiTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual("25.000s", panel.table.item(0, 5).text())
-        self.assertIn("覆盖 1 个出伤事件", panel.summary_label.text())
+        self.assertEqual("25.000s / 25.000s = 100.0%", panel.table.item(0, 5).text())
+        self.assertTrue(panel.summary_label.isHidden())
 
     def test_buff_panel_shows_selected_range_removal_gain(self) -> None:
         panel = BattleBuffEvidencePanel()
@@ -244,11 +244,9 @@ class BattleReportScopeUiTests(unittest.TestCase):
         ))
 
         self.assertEqual("100.0%", panel.table.item(0, 7).text())
-        self.assertEqual("1,000.00", panel.table.item(0, 8).text())
-        self.assertEqual("+150.00", panel.table.item(0, 9).text())
-        self.assertEqual("+15.00%", panel.table.item(0, 10).text())
-        self.assertEqual("完整 100.0%", panel.table.item(0, 11).text())
-        self.assertIn("完整收益率", panel.table.item(0, 10).toolTip())
+        self.assertEqual("+15.00%", panel.table.item(0, 8).text())
+        self.assertEqual("查看", panel.table.item(0, 9).text())
+        self.assertIn("完整伤害增量：+150.00", panel.table.item(0, 9).toolTip())
 
     def test_selected_half_focuses_the_full_timeline_viewport(self) -> None:
         scrollbar = SimpleNamespace(value=None)

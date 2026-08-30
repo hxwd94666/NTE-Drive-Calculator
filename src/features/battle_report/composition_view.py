@@ -31,6 +31,7 @@ _DAMAGE_ROW_HEIGHT = 25
 _DAMAGE_ROW_SPACING = 2
 _DAMAGE_VALUE_WIDTH = 92
 _DAMAGE_SHARE_WIDTH = 52
+_DAMAGE_TOTAL_SHARE_WIDTH = 58
 _CHANNEL_COLORS = {
     "direct": "#58a6ff",
     "direct_follow_up": "#a371f7",
@@ -174,7 +175,10 @@ class BattleDamageCompositionPanel(QWidget):
         name.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#f0f6fc"))
         header.addWidget(name)
         header.addStretch()
-        total = QLabel(f"总伤害  {_format_damage(role.total_damage)}")
+        total = QLabel(
+            f"总伤害  {_format_damage(role.total_damage)}  ·  "
+            f"{role.share_percent:.1f}% 总伤害"
+        )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
         layout.addLayout(header)
@@ -364,8 +368,15 @@ class BattleDamageCompositionPanel(QWidget):
         damage.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
         layout.addWidget(damage)
         share = QLabel(f"{entry.share_percent:.1f}%")
+        share.setToolTip("占当前角色/公共块伤害")
         share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         share.setFixedWidth(_DAMAGE_SHARE_WIDTH)
         share.setStyleSheet(themed_style("font-size:11px;color:#8b949e"))
         layout.addWidget(share)
+        total_share = QLabel(f"{entry.total_share_percent:.1f}%")
+        total_share.setToolTip("占当前范围团队总伤害")
+        total_share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        total_share.setFixedWidth(_DAMAGE_TOTAL_SHARE_WIDTH)
+        total_share.setStyleSheet(themed_style("font-size:11px;color:#6e7681"))
+        layout.addWidget(total_share)
         return row

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -43,6 +42,7 @@ from src.features.battle_report.marginal_result_table_view import (
     display_projection,
     render_attribute_results,
 )
+from src.features.battle_report.marginal_toolbar import build_marginal_toolbar
 from src.features.battle_report.marginal_replacement_controller import (
     show_marginal_equipment_replacement,
 )
@@ -98,77 +98,35 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         self._build()
 
     def _build(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        toolbar = build_marginal_toolbar(
+            back=self.back_requested.emit,
+            role_changed=self._character_changed,
+            inferred_toggled=self._mark_draft_changed,
+            reset=self._reset_draft,
+            recalculate=self._request_recalculate,
+        )
+        self.character_combo = toolbar.character_combo
+        self.change_summary = toolbar.change_summary
+        self.use_inferred_facts = toolbar.use_inferred_facts
+        self.reset_button = toolbar.reset_button
+        self.recalculate_button = toolbar.recalculate_button
+        outer.addWidget(toolbar.widget)
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         content = QWidget()
         scroll.setWidget(content)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
         root = QVBoxLayout(content)
-        root.setContentsMargins(22, 18, 22, 22)
+        root.setContentsMargins(22, 14, 22, 22)
         root.setSpacing(14)
-
-        header = QHBoxLayout()
-        back = QPushButton("← 返回战报")
-        back.clicked.connect(self.back_requested)
-        header.addWidget(back)
-        title = QLabel("固定轴边际计算")
-        title.setObjectName("pageTitle")
-        title.setToolTip(
-            "冻结本场动作、逐击、目标和时段，只替换角色属性与配置。"
-            "缺少变化依赖时分别展示已量化分量与缺口，不把未知记为零收益。"
-        )
-        header.addWidget(title)
-        header.addStretch()
-        help_text = (
-            "冻结本场动作、逐击、目标和时段，只替换角色属性与配置。"
-            "缺少变化依赖时分别展示已量化分量与缺口，不把未知记为零收益。"
-        )
-        help_button = QPushButton("?")
-        help_button.setObjectName("btnHelp")
-        help_button.setToolTip(help_text)
-        help_button.clicked.connect(
-            lambda _checked=False, button=help_button: show_help(
-                button,
-                "固定轴边际计算",
-                help_text,
-            )
-        )
-        header.addWidget(help_button)
-        root.addLayout(header)
-
-        selector = QHBoxLayout()
-        selector.addWidget(QLabel("分析角色"))
-        self.character_combo = NoWheelComboBox()
-        self.character_combo.currentIndexChanged.connect(self._character_changed)
-        selector.addWidget(self.character_combo)
-        self.change_summary = QLabel("等待角色配置")
-        self.change_summary.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-        selector.addWidget(self.change_summary, 1)
-        self.use_inferred_facts = QCheckBox("使用逐击补充的生效事实")
-        self.use_inferred_facts.setChecked(True)
-        self.use_inferred_facts.setToolTip(
-            "仅在当前生效基线缺少、但完整原始逐击可精确证明角色效果已生效时显示；"
-            "取消后只影响本页候选，不会改写战报快照、修改副本或角色页。"
-        )
-        self.use_inferred_facts.hide()
-        self.use_inferred_facts.toggled.connect(self._mark_draft_changed)
-        selector.addWidget(self.use_inferred_facts)
-        self.reset_button = QPushButton("重置")
-        self.reset_button.setToolTip("恢复进入本页时的内存基线，不读库、不保存。")
-        self.reset_button.clicked.connect(self._reset_draft)
-        selector.addWidget(self.reset_button)
-        self.recalculate_button = QPushButton("重算")
-        self.recalculate_button.setObjectName("btnPrimary")
-        self.recalculate_button.clicked.connect(self._request_recalculate)
-        selector.addWidget(self.recalculate_button)
-        root.addLayout(selector)
 
         metrics = QGridLayout()
         definitions = (
-            ("dps", "新 DPS", "固定轴估计"),
-            ("damage", "新总伤害", "相对当前生效基线"),
+            ("dps", "当前/候选 DPS", "固定轴估计"),
+            ("damage", "当前/候选总伤害", "相对当前生效基线"),
             ("role", "角色伤害", "当前分析角色"),
             ("structured", "结构化重放", "其余为分级估计"),
         )
@@ -266,8 +224,8 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
 
         attribute_card, attribute_layout = analysis_section("属性单位边际")
         attribute_note = QLabel(
-            "默认单位为一格金色驱动词条；收益是固定轴上的期望边际。量化率仅统计应用变化比值的角色伤害，不含已证明不受影响的渠道，"
-            "也不是抓包完整率；伤害占比按角色伤害占全队伤害计算。"
+            "默认单位为一格金色驱动词条；面板属性是当前生效基线，伤害加权平均属性按关联伤害发生时的"
+            "动态属性加权。三个伤害百分比分别使用角色总伤害和全队总伤害作明确分母。"
         )
         attribute_note.setStyleSheet(
             themed_style("color:#8b949e;font-size:12px")
@@ -277,16 +235,16 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         self.attribute_table = analysis_table(
             (
                 "属性单位",
-                "变化状态",
-                "本角色期望收益",
+                "面板属性",
+                "伤害加权平均属性",
+                "角色期望收益",
                 "全队期望收益",
-                "量化率",
-                "伤害占比",
-                "伤害变化",
-                "计算说明",
+                "关联角色伤害",
+                "角色伤害",
+                "关联全队伤害",
             ),
             280,
-            default_widths=(220, 110, 150, 150, 110, 110, 140, 440),
+            default_widths=(220, 125, 165, 145, 145, 135, 120, 145),
         )
         attribute_layout.addWidget(self.attribute_table)
         root.addWidget(attribute_card)
@@ -296,7 +254,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             "逐个独立移除 Buff，并按实际造成伤害的角色拆分收益；"
             "角色收益之间可加总为该 Buff 的全队收益，不同 Buff 之间不可直接相加。"
             "具有正式逐击因果证据的机制被动也在此按来源角色合并展示。"
-            "伤害覆盖率统计原始固定轴伤害，量化覆盖统计可安全计算收益的伤害。"
+            "伤害覆盖率统计固定轴有效伤害，并包含由覆盖逐击联动的生命上限结算。"
         )
         buff_note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         buff_note.setWordWrap(True)
@@ -427,7 +385,9 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.counterfactual_timeline.set_analysis(analysis)
             self.metric_labels["dps"].setText(_number(analysis.effective_dps))
             self.metric_labels["damage"].setText(_number(analysis.effective_damage))
-            self.metric_subtitles["damage"].setText("当前候选尚未重算")
+            self.metric_subtitles["damage"].setText(
+                "+0.00% · 当前生效基线（本次未修改）"
+            )
             self.metric_labels["structured"].setText("—")
             self.roles_table.setRowCount(0)
             self.roles_pie.set_roles(())
@@ -464,7 +424,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.metric_subtitles["damage"].setText(
                 "等待候选重算"
                 if gain is None
-                else f"{gain:+.2f}% · 原始 {_number(comparison.baseline_damage)}"
+                else f"{gain:+.2f}% · 基线 {_number(comparison.baseline_damage)}"
             )
             self.metric_labels["structured"].setText(
                 f"{comparison.structured_percent:.1f}%"
@@ -756,7 +716,9 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.metric_labels["role"].setText(
                 "—" if original is None else _number(original.damage)
             )
-            self.metric_subtitles["role"].setText("等待候选重算")
+            self.metric_subtitles["role"].setText(
+                "+0.00% · 当前生效基线（本次未修改）"
+            )
         else:
             projected_damage = display_projection(
                 candidate=role.candidate_damage,
@@ -774,7 +736,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.metric_subtitles["role"].setText(
                 "等待候选重算"
                 if gain is None
-                else f"{gain:+.2f}% · 原始 {_number(role.baseline_damage)}"
+                else f"{gain:+.2f}% · 基线 {_number(role.baseline_damage)}"
             )
 
     def _render_attributes(self, baseline: BattleCharacterBaseline | None) -> None:

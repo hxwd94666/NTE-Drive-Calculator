@@ -518,7 +518,7 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
         }
         self.assertEqual({"reaction_scorch": 100.0}, entries)
 
-    def test_fine_channels_keep_distinct_damage_identities(self) -> None:
+    def test_fine_channels_merge_normal_attack_stages_into_a(self) -> None:
         hits = tuple(
             BattleAnalysisHit(
                 event_id=f"{sequence}:primary",
@@ -560,8 +560,56 @@ class BattleDamageCompositionServiceTests(unittest.TestCase):
         )
 
         rows = {entry.label: entry.damage for entry in composition.roles[0].entries}
-        self.assertEqual(25.0, rows["普通攻击 · 第一段"])
-        self.assertEqual(20.0, rows["普通攻击 · 第二段"])
+        self.assertEqual({"A": 45.0}, rows)
+        self.assertEqual(100.0, composition.roles[0].share_percent)
+        self.assertEqual(100.0, composition.roles[0].entries[0].total_share_percent)
+
+    def test_fine_channels_merge_e_q_but_keep_qte_g_and_passive_independent(self) -> None:
+        specs = (
+            (1, "E技能", "GA_Test_Skill_1", "GE_Test_Skill_1", 10.0),
+            (2, "E技能", "GA_Test_Skill_2", "GE_Test_Skill_2", 15.0),
+            (3, "Q技能", "GA_Test_UltraSkill_1", "GE_Test_Q_1", 20.0),
+            (4, "Q技能", "GA_Test_UltraSkill_2", "GE_Test_Q_2", 25.0),
+            (5, "QTE", "GA_Test_QTE", "GE_Test_QTE", 30.0),
+            (6, "G技能", "GA_Test_Appear", "GE_Test_Appear", 35.0),
+            (7, "Passive Damage", "GA_Test_Passive", "GE_Test_Passive", 40.0),
+        )
+        hits = tuple(
+            BattleAnalysisHit(
+                event_id=f"{sequence}:primary",
+                sequence=sequence,
+                relative_time_us=sequence,
+                character_id=1004,
+                character_name="安魂曲",
+                skill_name=f"技能{sequence}",
+                damage_name=f"伤害{sequence}",
+                damage_component="skill",
+                attack_type=attack_type,
+                damage_attribute="CHAOS",
+                target_id="target",
+                target_name="目标",
+                damage=damage,
+                direction="outgoing",
+                is_follow_up=False,
+                classification="direct",
+                ability_id=ability_id,
+                gameplay_effect_id=effect_id,
+            )
+            for sequence, attack_type, ability_id, effect_id, damage in specs
+        )
+        composition = BattleDamageCompositionService.calculate_from_hits(
+            roles=(),
+            hits=hits,
+            segment_total_damage=sum(hit.damage for hit in hits),
+            role_identities=((1004, "安魂曲"),),
+            grouping="fine",
+        )
+
+        rows = {entry.label: entry.damage for entry in composition.roles[0].entries}
+        self.assertEqual(
+            {"E": 25.0, "Q": 45.0, "QTE": 30.0, "G": 35.0, "被动": 40.0},
+            rows,
+        )
 
     def test_topple_observed_damage_is_split_by_replayed_role_contributions(self) -> None:
         topple = BattleAnalysisHit(

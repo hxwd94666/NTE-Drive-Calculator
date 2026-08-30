@@ -7,11 +7,13 @@ from types import SimpleNamespace
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
+    BattleBuffModifierEvidence,
     BattleCharacterBaseline,
     BattleCharacterStat,
     BattleHitReplayFactor,
     BattleHitReplayResult,
     BattleHitReplayTerm,
+    BattleInferredBuffInterval,
     BattleTargetCondition,
 )
 from src.domain.battle_target import BattleTargetInstanceResolution
@@ -434,6 +436,54 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
         self.assertEqual(1500.0, result.quantification.fully_quantified_damage)
         self.assertEqual(0.0, result.quantification.unavailable_damage)
         self.assertAlmostEqual(75.0, result.damage_share_percent)
+        self.assertEqual(0.0, result.panel_value)
+        self.assertEqual(0.0, result.weighted_effective_value)
+        self.assertAlmostEqual(100.0, result.related_role_share_percent)
+        self.assertAlmostEqual(75.0, result.role_share_percent)
+        self.assertAlmostEqual(75.0, result.related_team_share_percent)
+
+    def test_weighted_property_adds_dynamic_buff_at_associated_hit(self) -> None:
+        hit = _hit()
+        analysis = _analysis(hit, _critical_replay(hit, "character", 0.5))
+        analysis.buff_intervals = (BattleInferredBuffInterval(
+            interval_id="atk-up",
+            buff_asset_path="/Game/Test/Buff_Atk",
+            buff_name="攻击力提升",
+            source_effect_definition_id="fixture:atk-up",
+            source_kind="fixture",
+            source_character_id=CHARACTER_ID,
+            source_character_name="灵可",
+            target_scope="self",
+            start_us=0,
+            end_us=2_000_000,
+            stacks=1,
+            duration_policy="HasDuration",
+            state_confidence="高",
+            value_confidence="高",
+            inference_basis="fixture",
+            trigger_event_type="STATIC_EQUIPPED_SOURCE",
+            evidence_action_ids=(),
+            evidence_event_ids=(),
+            modifiers=(BattleBuffModifierEvidence(
+                property_id="AtkUp",
+                modifier_operation="EGameplayModOp::Additive",
+                magnitude_kind="constant",
+                magnitude_value=0.20,
+                calculation_asset_path="",
+                value_confidence="高",
+            ),),
+        ),)
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"AtkUp": 0.0125},
+        )[0]
+
+        self.assertEqual(0.0, result.panel_value)
+        self.assertAlmostEqual(0.20, result.weighted_effective_value)
+        self.assertAlmostEqual(100.0, result.related_role_share_percent)
 
     def test_legacy_single_target_condition_remains_supported(self) -> None:
         hit = _hit()

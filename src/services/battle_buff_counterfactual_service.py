@@ -25,6 +25,7 @@ from src.services.battle_buff_counterfactual_plan_service import (
 from src.services.battle_buff_interval_index import BattleBuffIntervalIndex
 from src.services.battle_buff_counterfactual_projection_support import (
     HitProjection,
+    VitalProjection,
     aggregate_quantification,
     beneficiary_result,
     vital_projections,
@@ -92,6 +93,7 @@ def _minimum_confidence(
 
 def _damage_coverage(
     active_hits: Sequence[BattleAnalysisHit],
+    projected_vitals: Sequence[VitalProjection],
     intervals: Sequence[BattleInferredBuffInterval],
     *,
     basis_damage: float,
@@ -108,6 +110,15 @@ def _damage_coverage(
             unresolved += damage
         else:
             covered += damage
+    linked_vital_damage = sum(
+        max(0.0, float(row.baseline_damage))
+        for row in projected_vitals
+        if row.status != "not_applicable"
+    )
+    if scope == "unknown":
+        unresolved += linked_vital_damage
+    else:
+        covered += linked_vital_damage
     confirmed = min(basis, covered)
     unresolved = min(max(0.0, basis - confirmed), unresolved)
     return BattleDamageCoverage(
@@ -460,7 +471,8 @@ class BattleBuffCounterfactualService:
             unattributed_damage_gain=unattributed_damage_gain,
             damage_coverage=_damage_coverage(
                 active_hits,
+                projected_vitals,
                 group_intervals,
-                basis_damage=baseline_hit_damage,
+                basis_damage=derived_baseline,
             ),
         )

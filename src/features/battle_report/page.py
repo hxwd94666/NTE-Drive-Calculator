@@ -434,9 +434,19 @@ class BattleReportPage(QWidget):
                 if analysis.axis_complete
                 else 0.0
             )
+            max_hp_settlement = (
+                sum(
+                    max(0.0, float(event.effective_hp_loss))
+                    for event in getattr(analysis, "timeline_max_hp_events", ())
+                    if getattr(event, "included_in_effective_damage", True)
+                )
+                if analysis.axis_complete else 0.0
+            )
             corrected_damage = max(
                 0.0,
-                raw_damage - overkill_correction,
+                raw_damage
+                - overkill_correction
+                + max_hp_settlement,
             )
             battle_start_us = int(getattr(analysis, "battle_start_us", 0))
             intervals = tuple(getattr(analysis, "time_stop_intervals", ()))

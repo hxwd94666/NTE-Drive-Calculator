@@ -52,10 +52,13 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
 
     def test_memory_candidate_compares_current_effective_build(self) -> None:
         candidate = SimpleNamespace(timeline_hits=(object(),))
+        effective = SimpleNamespace(timeline_hits=(object(),))
         original = SimpleNamespace(timeline_hits=(object(),))
+        projected = SimpleNamespace(timeline_hits=(object(),))
+        materialized = SimpleNamespace(timeline_hits=(object(),))
         combined = SimpleNamespace(timeline_hits=(object(),))
         history = Mock()
-        history.load_analysis.side_effect = (candidate, original)
+        history.load_analysis.side_effect = (candidate, effective, original)
         history.load_target_catalog.return_value = {"kinds": ()}
         candidate_request = BattleMarginalCandidateService.freeze(
             12,
@@ -74,11 +77,16 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             patch(
                 "src.services.battle_report_analysis_load_service."
                 "BattleBuildCounterfactualService.compare",
-                return_value=object(),
-            ),
+                side_effect=("effective-comparison", "draft-comparison"),
+            ) as compare,
+            patch(
+                "src.services.battle_report_analysis_load_service."
+                "BattleBuildTimelineProjectionService.project",
+                return_value=projected,
+            ) as project,
             patch(
                 "src.services.battle_report_analysis_load_service.replace",
-                return_value=combined,
+                side_effect=(materialized, combined),
             ),
         ):
             result = BattleReportAnalysisLoadService.load(history, request)
@@ -103,6 +111,15 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                     start_us=10,
                     end_us=20,
                     detail_scope=None,
+                    include_buff_inference=True,
+                    include_hit_replays=True,
+                    include_buff_counterfactuals=False,
+                ),
+                call(
+                    12,
+                    start_us=10,
+                    end_us=20,
+                    detail_scope=None,
                     use_build_edit=False,
                     include_buff_inference=True,
                     include_hit_replays=True,
@@ -111,11 +128,17 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             ],
             history.load_analysis.call_args_list,
         )
+        compare.assert_has_calls([
+            call(original=original, candidate=effective),
+            call(original=materialized, candidate=candidate),
+        ])
+        project.assert_called_once_with(effective, "effective-comparison")
 
-    def test_saved_edit_is_compared_from_immutable_original_without_draft(self) -> None:
+    def test_saved_edit_is_materialized_as_authoritative_baseline_without_draft(self) -> None:
         effective = SimpleNamespace(timeline_hits=(object(),))
         original = SimpleNamespace(timeline_hits=(object(),))
-        combined = SimpleNamespace(timeline_hits=(object(),))
+        projected = SimpleNamespace(timeline_hits=(object(),))
+        materialized = SimpleNamespace(timeline_hits=(object(),))
         history = Mock()
         history.load_analysis.side_effect = (effective, original)
         history.load_target_catalog.return_value = {"kinds": ()}
@@ -124,12 +147,17 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             patch(
                 "src.services.battle_report_analysis_load_service."
                 "BattleBuildCounterfactualService.compare",
-                return_value=object(),
+                return_value="effective-comparison",
             ) as compare,
             patch(
+                "src.services.battle_report_analysis_load_service."
+                "BattleBuildTimelineProjectionService.project",
+                return_value=projected,
+            ) as project,
+            patch(
                 "src.services.battle_report_analysis_load_service.replace",
-                return_value=combined,
-            ),
+                return_value=materialized,
+            ) as clear_comparison,
         ):
             result = BattleReportAnalysisLoadService.load(
                 history,
@@ -139,9 +167,17 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                 ),
             )
 
-        self.assertIs(combined, result.analysis)
-        self.assertEqual(False, history.load_analysis.call_args_list[1].kwargs["use_build_edit"])
+        self.assertIs(materialized, result.analysis)
+        self.assertEqual(
+            False,
+            history.load_analysis.call_args_list[1].kwargs["use_build_edit"],
+        )
         compare.assert_called_once_with(original=original, candidate=effective)
+        project.assert_called_once_with(effective, "effective-comparison")
+        clear_comparison.assert_called_once_with(
+            projected,
+            build_counterfactual=None,
+        )
 
     def test_memory_candidate_reuses_matching_comparison_baseline(self) -> None:
         candidate = SimpleNamespace(

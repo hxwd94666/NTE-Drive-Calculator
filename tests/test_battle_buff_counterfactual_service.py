@@ -519,6 +519,13 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
             1_265.0,
             result.quantification.fully_quantified_damage,
         )
+        self.assertAlmostEqual(1_265.0, result.damage_coverage.basis_damage)
+        self.assertAlmostEqual(1_265.0, result.damage_coverage.covered_damage)
+        self.assertAlmostEqual(100.0, result.damage_coverage.covered_percent)
+        self.assertAlmostEqual(
+            1_265.0,
+            result.beneficiaries[0].damage_coverage.covered_damage,
+        )
 
     def test_unstructured_buff_remains_visible_without_a_numeric_gain(self) -> None:
         hit = _hit("hit1", 900.0)

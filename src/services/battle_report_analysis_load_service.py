@@ -1,4 +1,4 @@
-# 在一个冻结请求中完成长战报候选、原始副本和目标目录读取。
+# 在一个冻结请求中完成长战报候选、当前生效基线和目标目录读取。
 """Background-safe orchestration for loading one battle analysis page."""
 
 from __future__ import annotations
@@ -8,6 +8,9 @@ from dataclasses import dataclass, field, replace
 from src.domain.battle_report import BattleAnalysisSnapshot
 from src.services.battle_build_counterfactual_service import (
     BattleBuildCounterfactualService,
+)
+from src.services.battle_build_timeline_projection_service import (
+    BattleBuildTimelineProjectionService,
 )
 from src.services.battle_report_history_service import BattleReportHistoryService
 from src.services.battle_marginal_candidate_service import BattleMarginalCandidate
@@ -43,6 +46,51 @@ class BattleReportAnalysisLoadService:
     """Build the expensive immutable page projection outside the Qt thread."""
 
     @staticmethod
+    def _materialize_marginal_baseline(
+        history: BattleReportHistoryService,
+        request: BattleReportAnalysisLoadRequest,
+        effective: BattleAnalysisSnapshot,
+        *,
+        progress_callback: BattleAnalysisProgressCallback | None,
+        progress_options: dict[str, BattleAnalysisProgressCallback],
+    ) -> BattleAnalysisSnapshot:
+        """Turn the enabled saved edit into the authoritative current axis."""
+
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="baseline",
+            message="正在读取仅供审计的原始冻结配置…",
+        )
+        frozen_original = history.load_analysis(
+            request.battle_record_id,
+            start_us=request.start_us,
+            end_us=request.end_us,
+            detail_scope=request.detail_scope,
+            use_build_edit=False,
+            include_buff_inference=True,
+            include_hit_replays=True,
+            include_buff_counterfactuals=False,
+            **progress_options,
+        )
+        if frozen_original is None:
+            return effective
+        report_battle_analysis_progress(
+            progress_callback,
+            phase="compare",
+            message="正在物化当前生效配置的固定轴基准…",
+        )
+        comparison = BattleBuildCounterfactualService.compare(
+            original=frozen_original,
+            candidate=effective,
+            **progress_options,
+        )
+        projected = BattleBuildTimelineProjectionService.project(
+            effective,
+            comparison,
+        )
+        return replace(projected, build_counterfactual=None)
+
+    @staticmethod
     def load(
         history: BattleReportHistoryService,
         request: BattleReportAnalysisLoadRequest,
@@ -67,7 +115,7 @@ class BattleReportAnalysisLoadService:
             if candidate is None
             else {"use_build_edit": False, "marginal_candidate": candidate}
         )
-        progress_options = (
+        progress_options: dict[str, BattleAnalysisProgressCallback] = (
             {}
             if progress_callback is None
             else {"progress_callback": progress_callback}
@@ -83,7 +131,22 @@ class BattleReportAnalysisLoadService:
             **progress_options,
             **candidate_options,
         )
-        if detail_level == "marginal" and analysis is not None:
+        materialize_baseline = (
+            BattleReportAnalysisLoadService._materialize_marginal_baseline
+        )
+        if (
+            detail_level == "marginal"
+            and analysis is not None
+            and candidate is None
+        ):
+            analysis = materialize_baseline(
+                history,
+                request,
+                analysis,
+                progress_callback=progress_callback,
+                progress_options=progress_options,
+            )
+        elif detail_level == "marginal" and analysis is not None:
             baseline = request.comparison_baseline
             if (
                 baseline is None
@@ -113,24 +176,34 @@ class BattleReportAnalysisLoadService:
                 report_battle_analysis_progress(
                     progress_callback,
                     phase="baseline",
-                    message="正在重建原始配置的固定轴基准…",
+                    message="正在重建当前生效配置的固定轴基准…",
                 )
-                baseline = history.load_analysis(
+                effective = history.load_analysis(
                     request.battle_record_id,
                     start_us=request.start_us,
                     end_us=request.end_us,
                     detail_scope=request.detail_scope,
-                    use_build_edit=False,
                     include_buff_inference=True,
                     include_hit_replays=True,
                     include_buff_counterfactuals=False,
                     **progress_options,
                 )
+                baseline = (
+                    None
+                    if effective is None
+                    else materialize_baseline(
+                        history,
+                        request,
+                        effective,
+                        progress_callback=progress_callback,
+                        progress_options=progress_options,
+                    )
+                )
             if baseline is not None:
                 report_battle_analysis_progress(
                     progress_callback,
                     phase="compare",
-                    message="正在汇总当前有效配置与原始配置差异…",
+                    message="正在汇总草稿与当前生效配置差异…",
                 )
                 analysis = replace(
                     analysis,

@@ -102,19 +102,6 @@ class BattleAnalysisLogMixin:
             "unreplayable": "未重放",
         }
         for row, hit in enumerate(page):
-            hp_text = "—"
-            if hit.target_hp_before is not None or hit.target_hp_after is not None:
-                before = (
-                    "—"
-                    if hit.target_hp_before is None
-                    else _number(hit.target_hp_before)
-                )
-                after = (
-                    "—"
-                    if hit.target_hp_after is None
-                    else _number(hit.target_hp_after)
-                )
-                hp_text = f"{before} → {after}"
             damage_name = preferred_battle_damage_name(
                 hit.damage_name,
                 hit.skill_name,
@@ -128,13 +115,6 @@ class BattleAnalysisLogMixin:
                 "未识别技能",
             }:
                 damage_source_name = f"{damage_name} / {hit.skill_name}"
-            active_buff_intervals = self._active_buffs_for_hit(hit)
-            active_buff_names = tuple(
-                dict.fromkeys(row.buff_name for row in active_buff_intervals)
-            )
-            buff_text = f"查看 {len(active_buff_intervals)} 个"
-            if active_buff_names:
-                buff_text += " · " + "、".join(active_buff_names)
             replay = replay_by_event.get(hit.event_id)
             replay_text = "—"
             crit_text = "未重放"
@@ -152,9 +132,7 @@ class BattleAnalysisLogMixin:
                         "—" if signed_error is None else f"{signed_error:+.2f}%"
                     )
                     replay_text = f"{_number(replay.selected_damage)} / {error_text}"
-                crit_text = (
-                    f"{crit_labels[replay.critical_state]} · {replay.confidence}"
-                )
+                crit_text = crit_labels[replay.critical_state]
                 details = "\n".join(
                     f"{factor.label}: {factor.value:g}（{factor.evidence_basis}）"
                     for factor in replay.factors
@@ -193,8 +171,7 @@ class BattleAnalysisLogMixin:
                 _number(hit.damage),
                 replay_text,
                 crit_text,
-                buff_text,
-                hp_text,
+                "查看",
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -202,7 +179,9 @@ class BattleAnalysisLogMixin:
                     item.setToolTip(replay_tooltip)
                 if column == 9:
                     item.setData(Qt.ItemDataRole.UserRole, hit.event_id)
-                    item.setToolTip("点击查看本击推算 Buff、具体加成与采用判定。")
+                    item.setToolTip(
+                        "点击查看本击原始字段、HP、公式因子、置信度和推算 Buff。"
+                    )
                     font = item.font()
                     font.setUnderline(True)
                     item.setFont(font)
@@ -256,7 +235,14 @@ class BattleAnalysisLogMixin:
         if dialog is None:
             dialog = BattleHitBuffDialog(getattr(self, "log_dialog", self))
             self._hit_buff_dialog = dialog
-        dialog.show_for_hit(hit, self._active_buffs_for_hit(hit))
+        replay = next(
+            (
+                row for row in getattr(self._analysis, "hit_replays", ())
+                if row.event_id == hit.event_id
+            ),
+            None,
+        )
+        dialog.show_for_hit(hit, self._active_buffs_for_hit(hit), replay=replay)
 
     def _hide_hit_buff_dialog(self) -> None:
         dialog = getattr(self, "_hit_buff_dialog", None)

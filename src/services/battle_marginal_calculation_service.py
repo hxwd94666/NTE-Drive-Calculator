@@ -52,6 +52,7 @@ from src.services.battle_marginal_calculation_support import (
     marginal_assumption,
     quantify_marginal,
 )
+from src.services.battle_marginal_display_metrics import marginal_display_metrics
 
 
 class BattleMarginalCalculationService:
@@ -387,6 +388,32 @@ class BattleMarginalCalculationService:
             percent = property_id not in {
                 "AtkAdd", "HPMaxAdd", "DefAdd", "MagBase", "UnbalIntensityBase",
             }
+            related_damage = (
+                quantification.fully_quantified_damage
+                + quantification.partially_quantified_damage
+                + quantification.unavailable_damage
+            )
+            panel_value = float(edited.get(property_id, 0.0))
+            (
+                weighted_value,
+                related_role_share,
+                role_share,
+                related_team_share,
+            ) = marginal_display_metrics(
+                property_id=property_id,
+                panel_value=panel_value,
+                relevant_hits=relevant_hits,
+                projections=projections,
+                linked_vitals=linked_vital,
+                max_hp_events=max_hp_events,
+                topple_hits=topple_hits,
+                replays=replays,
+                character_id=character_id,
+                anchor_damage=anchor_damage,
+                related_damage=related_damage,
+                role_damage=baseline_damage,
+                team_damage=team_damage,
+            )
             results.append(BattleMarginalResult(
                 property_id=property_id,
                 label=cls._label(property_id, baseline),
@@ -418,6 +445,12 @@ class BattleMarginalCalculationService:
                     ),
                 role_denominator_status=cls._denominator_status(comparison_role),
                 team_denominator_status=cls._denominator_status(comparison),
+                panel_value=panel_value,
+                weighted_effective_value=weighted_value,
+                related_damage=related_damage,
+                related_role_share_percent=related_role_share,
+                role_share_percent=role_share,
+                related_team_share_percent=related_team_share,
             ))
         return tuple(sorted(
             results,

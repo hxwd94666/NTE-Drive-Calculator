@@ -12,7 +12,6 @@ from src.domain.battle_counterfactual import BattleMarginalResult
 from src.domain.battle_counterfactual_quantification import QuantificationStatus
 from src.features.battle_report.marginal_quantification_view import (
     damage_coverage_text,
-    format_quantified_value,
     quantification_status_text,
     quantified_coverage_text,
 )
@@ -28,7 +27,6 @@ BUFF_BENEFIT_HEADERS = (
     "Buff 全队增伤",
     "角色伤害覆盖",
     "团队伤害覆盖",
-    "量化覆盖",
 )
 BUFF_BENEFIT_WIDTHS = (
     150,
@@ -40,7 +38,6 @@ BUFF_BENEFIT_WIDTHS = (
     190,
     150,
     150,
-    130,
 )
 
 
@@ -50,6 +47,42 @@ def _percent(value: float) -> str:
 
 def _amount(value: float) -> str:
     return f"{value:+,.0f}"
+
+
+def _property_value(value: float | None, *, percent: bool) -> str:
+    if value is None:
+        return "—"
+    return f"{value * 100:.2f}%" if percent else f"{value:,.2f}"
+
+
+def _gain_value(
+    status: QuantificationStatus,
+    complete: float | None,
+    partial: float | None,
+) -> str:
+    if status == "complete":
+        return "—" if complete is None else _percent(complete)
+    if status == "partial":
+        return "—" if partial is None else f"{_percent(partial)}（部分）"
+    if status == "not_applicable":
+        return "+0.00%"
+    return "—"
+
+
+def _buff_value(
+    *,
+    status: QuantificationStatus,
+    complete: float | None,
+    partial: float | None,
+    formatter,
+) -> str:
+    if status == "complete":
+        return "—" if complete is None else formatter(complete)
+    if status == "partial":
+        return "—" if partial is None else f"{formatter(partial)}（部分）"
+    if status == "not_applicable":
+        return "不适用"
+    return "—"
 
 
 def _buff_name(result: BattleBuffCounterfactualResult) -> str:
@@ -97,7 +130,6 @@ def render_attribute_results(
             result.quantification.status,
             result.team_denominator_status,
         )
-        status = _combined_status(role_status, team_status)
         unit = (
             f"+{result.unit * 100:.2f}%"
             if result.is_percent
@@ -105,28 +137,24 @@ def render_attribute_results(
         )
         values = (
             f"{result.label} {unit}",
-            quantification_status_text(status),
-            format_quantified_value(
-                status=role_status,
-                complete_value=result.full_role_gain_percent,
-                quantified_value=result.quantified_role_gain_percent,
-                formatter=_percent,
+            _property_value(getattr(result, "panel_value", 0.0), percent=result.is_percent),
+            _property_value(
+                getattr(result, "weighted_effective_value", None),
+                percent=result.is_percent,
             ),
-            format_quantified_value(
-                status=team_status,
-                complete_value=result.full_team_gain_percent,
-                quantified_value=result.quantified_team_gain_percent,
-                formatter=_percent,
+            _gain_value(
+                role_status,
+                result.full_role_gain_percent,
+                result.quantified_role_gain_percent,
             ),
-            quantified_coverage_text(result.quantification),
-            f"{result.damage_share_percent:.1f}%",
-            format_quantified_value(
-                status=status,
-                complete_value=result.quantification.quantified_increment,
-                quantified_value=result.quantification.quantified_increment,
-                formatter=_amount,
+            _gain_value(
+                team_status,
+                result.full_team_gain_percent,
+                result.quantified_team_gain_percent,
             ),
-            result.assumption,
+            f"{getattr(result, 'related_role_share_percent', 0.0):.1f}%",
+            f"{getattr(result, 'role_share_percent', result.damage_share_percent):.1f}%",
+            f"{getattr(result, 'related_team_share_percent', 0.0):.1f}%",
         )
         tooltip = (
             f"{result.assumption}\n"
@@ -153,19 +181,6 @@ def _gain_status(
     return numerator_status
 
 
-def _combined_status(
-    role_status: QuantificationStatus,
-    team_status: QuantificationStatus,
-) -> QuantificationStatus:
-    if "unavailable" in {role_status, team_status}:
-        return "unavailable"
-    if "partial" in {role_status, team_status}:
-        return "partial"
-    if "complete" in {role_status, team_status}:
-        return "complete"
-    return "not_applicable"
-
-
 def _team_gain_text(result: BattleBuffCounterfactualResult) -> str:
     status = result.quantification.status
     if status == "complete":
@@ -179,8 +194,8 @@ def _team_gain_text(result: BattleBuffCounterfactualResult) -> str:
         ):
             return "—"
         return (
-            f"已量化 {result.quantified_damage_gain:+,.0f}"
-            f"（{result.quantified_gain_percent:+.2f}%）"
+            f"{result.quantified_damage_gain:+,.0f}"
+            f"（{result.quantified_gain_percent:+.2f}%，部分）"
         )
     if status == "not_applicable":
         return "不适用"
@@ -241,22 +256,22 @@ def render_buff_benefit_results(
             result.source_character_name,
             _buff_name(result),
             beneficiary.character_name,
-            format_quantified_value(
+            _buff_value(
                 status=status,
-                complete_value=beneficiary.damage_gain,
-                quantified_value=beneficiary.quantified_damage_gain,
+                complete=beneficiary.damage_gain,
+                partial=beneficiary.quantified_damage_gain,
                 formatter=_amount,
             ),
-            format_quantified_value(
+            _buff_value(
                 status=status,
-                complete_value=beneficiary.recipient_gain_percent,
-                quantified_value=beneficiary.quantified_recipient_gain_percent,
+                complete=beneficiary.recipient_gain_percent,
+                partial=beneficiary.quantified_recipient_gain_percent,
                 formatter=_percent,
             ),
-            format_quantified_value(
+            _buff_value(
                 status=team_contribution_status,
-                complete_value=beneficiary.team_contribution_percent,
-                quantified_value=beneficiary.quantified_team_contribution_percent,
+                complete=beneficiary.team_contribution_percent,
+                partial=beneficiary.quantified_team_contribution_percent,
                 formatter=_percent,
             ),
             _team_gain_text(result),
@@ -264,7 +279,6 @@ def render_buff_benefit_results(
                 getattr(beneficiary, "damage_coverage", None)
             ),
             damage_coverage_text(getattr(result, "damage_coverage", None)),
-            quantified_coverage_text(beneficiary.quantification),
         )
         tooltip = (
             f"{result.explanation}\n作用范围：{result.target_scope}；"
@@ -284,7 +298,7 @@ def render_buff_benefit_results(
             else result.without_quantified_effect_damage
         )
         team_gain = gain / denominator * 100.0 if gain is not None and denominator else None
-        prefix = "已量化 " if result.quantification.status == "partial" else ""
+        suffix = "（部分）" if result.quantification.status == "partial" else ""
         beneficiary_label = (
             "不适用"
             if result.quantification.status == "not_applicable"
@@ -296,13 +310,12 @@ def render_buff_benefit_results(
             result.source_character_name,
             _buff_name(result),
             beneficiary_label,
-            "—" if gain is None else f"{prefix}{gain:+,.0f}",
+            "—" if gain is None else f"{gain:+,.0f}{suffix}",
             "—",
-            "—" if team_gain is None else f"{prefix}{team_gain:+.2f}%",
+            "—" if team_gain is None else f"{team_gain:+.2f}%{suffix}",
             _team_gain_text(result),
             "—",
             damage_coverage_text(getattr(result, "damage_coverage", None)),
-            quantified_coverage_text(result.quantification),
         )
         tooltip = f"{result.explanation}\n{_quantification_tooltip(result.quantification)}"
         for column, value in enumerate(values):
@@ -328,7 +341,6 @@ def render_buff_benefit_results(
             _team_gain_text(result),
             "—",
             damage_coverage_text(getattr(result, "damage_coverage", None)),
-            quantified_coverage_text(result.quantification),
         )
         tooltip = (
             f"{result.explanation}\n"

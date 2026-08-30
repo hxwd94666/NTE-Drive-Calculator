@@ -1,4 +1,4 @@
-# 在同一真实逐击轴上比较原始配置与修改配置的整队期望伤害。
+# 在同一真实逐击轴上比较当前基线与候选配置的整队期望伤害。
 """Fixed-axis build comparison with quantified and heuristic projections."""
 
 from __future__ import annotations
@@ -81,12 +81,12 @@ class BattleBuildCounterfactualService:
         progress_callback: BattleAnalysisProgressCallback | None = None,
     ) -> BattleBuildCounterfactual:
         if original.battle_record_id != candidate.battle_record_id:
-            raise ValueError("原始配置与修改配置不属于同一战报")
+            raise ValueError("当前基线与候选配置不属于同一战报")
         if (
             original.range_start_us != candidate.range_start_us
             or original.range_end_us != candidate.range_end_us
         ):
-            raise ValueError("原始配置与修改配置没有冻结到同一分析时段")
+            raise ValueError("当前基线与候选配置没有冻结到同一分析时段")
 
         original_hits = {
             hit.event_id: hit
@@ -122,7 +122,7 @@ class BattleBuildCounterfactualService:
         report_battle_analysis_progress(
             progress_callback,
             phase="build_compare",
-            message="正在逐击汇总修改副本与原始配置差异…",
+            message="正在逐击汇总候选配置与当前基线差异…",
             completed=0,
             total=total_hits,
         )
@@ -170,7 +170,7 @@ class BattleBuildCounterfactualService:
                     dependency_scope="mechanic_specific",
                     cancelled_dimension_ids=("frozen_hit",),
                     explanation=(
-                        "原始与候选的冻结逐击、角色面板及重放输入均未变化。"
+                        "当前基线与候选的冻结逐击、角色面板及重放输入均未变化。"
                     ),
                 )
             if (
@@ -222,7 +222,7 @@ class BattleBuildCounterfactualService:
                 report_battle_analysis_progress(
                     progress_callback,
                     phase="build_compare",
-                    message="正在逐击汇总修改副本与原始配置差异…",
+                    message="正在逐击汇总候选配置与当前基线差异…",
                     completed=ordinal,
                     total=total_hits,
                 )

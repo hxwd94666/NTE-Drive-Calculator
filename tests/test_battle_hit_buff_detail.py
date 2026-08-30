@@ -128,7 +128,7 @@ class BattleHitBuffDetailTests(unittest.TestCase):
         view._render_log()
 
         item = view.log_table.item(0, 9)
-        self.assertIn("查看 1 个", item.text())
+        self.assertEqual("查看", item.text())
         self.assertEqual(
             hit.event_id,
             item.data(Qt.ItemDataRole.UserRole),
@@ -138,6 +138,7 @@ class BattleHitBuffDetailTests(unittest.TestCase):
 
         dialog = view._hit_buff_dialog
         self.assertTrue(dialog.isVisible())
+        self.assertIn("事件 ID：1:primary", dialog.detail.toPlainText())
         self.assertIn("通用伤害提升 +15%", dialog.detail.toPlainText())
         dialog.close()
         view.close()

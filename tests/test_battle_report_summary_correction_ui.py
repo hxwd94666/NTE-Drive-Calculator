@@ -112,6 +112,37 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
         self.assertEqual("750", rendered["damage"])
         self.assertEqual("75", rendered["dps"])
 
+    def test_complete_axis_adds_included_full_timeline_max_hp_settlement(self) -> None:
+        rendered: dict[str, str] = {}
+        page = SimpleNamespace(
+            _latest_summary=SimpleNamespace(total_damage=1_000.0, duration_seconds=10.0),
+            _marginal_baseline_by_scope={},
+            metric_labels={
+                key: SimpleNamespace(
+                    setText=lambda value, name=key: rendered.__setitem__(name, value)
+                )
+                for key in ("damage", "dps", "duration")
+            },
+            long_analysis_view=SimpleNamespace(set_analysis=lambda *_a, **_k: None),
+            marginal_page=SimpleNamespace(set_source_analysis=lambda _analysis: None),
+        )
+        analysis = SimpleNamespace(
+            axis_complete=True,
+            battle_start_us=0,
+            battle_end_us=10_000_000,
+            time_stop_intervals=(),
+            timeline_damage_correction_total=100.0,
+            timeline_max_hp_events=(
+                SimpleNamespace(effective_hp_loss=250.0, included_in_effective_damage=True),
+                SimpleNamespace(effective_hp_loss=50.0, included_in_effective_damage=False),
+            ),
+        )
+
+        BattleReportPage.set_analysis(page, analysis)
+
+        self.assertEqual("1,150", rendered["damage"])
+        self.assertEqual("115", rendered["dps"])
+
     def test_incomplete_axis_does_not_partially_correct_full_summary(self) -> None:
         rendered: dict[str, str] = {}
         page = SimpleNamespace(
@@ -132,6 +163,9 @@ class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
             axis_complete=False,
             battle_end_us=10_000_000,
             timeline_damage_correction_total=250.0,
+            timeline_max_hp_events=(
+                SimpleNamespace(effective_hp_loss=500.0, included_in_effective_damage=True),
+            ),
         )
 
         BattleReportPage.set_analysis(page, analysis)

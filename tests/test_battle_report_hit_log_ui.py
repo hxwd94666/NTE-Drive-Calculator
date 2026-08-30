@@ -76,7 +76,10 @@ class BattleReportHitLogUiTests(unittest.TestCase):
         view.complete_analysis_details("hit", None)
 
         self.assertTrue(view.log_dialog.isVisible())
+        self.assertEqual(10, view.log_table.columnCount())
         self.assertEqual("22 / -8.33%", view.log_table.item(0, 7).text())
+        self.assertEqual("未暴击", view.log_table.item(0, 8).text())
+        self.assertEqual("查看", view.log_table.item(0, 9).text())
         view.log_dialog.hide()
 
 

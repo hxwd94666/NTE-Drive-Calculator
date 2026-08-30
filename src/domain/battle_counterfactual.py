@@ -29,6 +29,12 @@ class BattleMarginalResult:
     assumption: str
     role_denominator_status: QuantificationStatus = "complete"
     team_denominator_status: QuantificationStatus = "complete"
+    panel_value: float = 0.0
+    weighted_effective_value: float | None = None
+    related_damage: float = 0.0
+    related_role_share_percent: float = 0.0
+    role_share_percent: float = 0.0
+    related_team_share_percent: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

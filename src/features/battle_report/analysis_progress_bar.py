@@ -18,7 +18,7 @@ from src.services.battle_analysis_progress import BattleAnalysisProgress
 _DETAIL_COPY = {
     "hit": "正在重建当前范围的 Buff 区间、伤害乘区与逐击公式…",
     "buff": "正在推断 Buff 区间并逐项计算移除反事实…",
-    "marginal": "正在重放修改副本与原始配置，并生成固定轴对照…",
+    "marginal": "正在物化当前生效基线，并生成固定轴对照…",
     "composition": "正在重放倾陷逐角色公式，并更新伤害构成…",
 }
 

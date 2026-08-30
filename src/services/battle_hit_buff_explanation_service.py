@@ -104,11 +104,11 @@ def _time(value_us: int) -> str:
     return f"{minutes:02d}:{seconds - minutes * 60:06.3f}"
 
 
-def _property_label(property_id: str) -> str:
+def battle_buff_property_label(property_id: str) -> str:
     return _PROPERTY_LABELS.get(property_id, property_id)
 
 
-def _value(property_id: str, value: float) -> str:
+def format_battle_buff_value(property_id: str, value: float) -> str:
     if property_id in _PERCENT_PROPERTIES:
         return f"{value * 100:+g}%"
     return f"{value:+,.3f}".rstrip("0").rstrip(".")
@@ -122,13 +122,13 @@ def _raw_modifier_lines(
     applied_ids = set(decision.applied_property_ids)
     for modifier in interval.modifiers:
         property_id = normalize_battle_buff_property_id(modifier.property_id)
-        label = _property_label(property_id)
+        label = battle_buff_property_label(property_id)
         if modifier.magnitude_value is not None:
             total = float(modifier.magnitude_value) * max(1, interval.stacks)
-            value = _value(property_id, total)
+            value = format_battle_buff_value(property_id, total)
             if interval.stacks > 1:
                 value += (
-                    f"（{_value(property_id, float(modifier.magnitude_value))}"
+                    f"（{format_battle_buff_value(property_id, float(modifier.magnitude_value))}"
                     f" × {interval.stacks} 层）"
                 )
         elif modifier.calculation_asset_path:
@@ -189,8 +189,8 @@ class BattleHitBuffExplanationService:
             for modifier in projection.modifiers:
                 sources = "、".join(modifier.buff_names)
                 lines.append(
-                    f"- {_property_label(modifier.property_id)} "
-                    f"{_value(modifier.property_id, modifier.additive_value)}"
+                    f"- {battle_buff_property_label(modifier.property_id)} "
+                    f"{format_battle_buff_value(modifier.property_id, modifier.additive_value)}"
                     f"（{modifier.property_id}，{_SCOPE_LABELS.get(modifier.target_scope, modifier.target_scope)}，"
                     f"置信度 {modifier.confidence}）\n"
                     f"  来源：{sources}"
