@@ -103,6 +103,10 @@ from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxDependencies, ToolboxPage
+from src.features.static_catalog.controller import StaticCatalogController
+from src.features.static_catalog.dependencies import build_static_catalog_providers
+from src.features.static_catalog.page import StaticCatalogPage
+from src.services.static_catalog_service import StaticCatalogService
 from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
 from src.features.battle_report.dependencies import build_battle_report_controller
 from src.features.identification.controller import IdentificationController
@@ -306,6 +310,18 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                     user_database_path=self.app_context.account.user_database_path,
                     static_database_path=self.app_context.paths.static_database_path,
                 ),
+                navigate_static_catalog=lambda: self._go("static_catalog"),
+            ),
+            dialog_parent=self,
+        )
+        self.static_catalog_page = StaticCatalogPage(
+            controller=StaticCatalogController(
+                StaticCatalogService(
+                    static_database_path=self.app_context.paths.static_database_path,
+                    providers=build_static_catalog_providers(
+                        self.app_context.paths.static_database_path
+                    ),
+                )
             ),
             dialog_parent=self,
         )
@@ -433,6 +449,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             self._mod_plugin_loading_service.close()
         except Exception as exc:
             logger.warning(f"停止 Mod Loader 失败: {exc}")
+        try:
+            self.static_catalog_page.close()
+        except Exception as exc:
+            logger.warning(f"关闭游戏资料库失败: {exc}")
         self.global_hotkey_manager.close()
         self._unregister_inventory_sync_lifecycle()
         self._account_context_unsubscribe()

@@ -1,0 +1,352 @@
+{
+  "schema_version": "counterfactual-request-v1",
+  "model_version": "counterfactual-core-v1",
+  "dataset_version": "public-fixture-v1",
+  "axis": {
+    "complete": true,
+    "range_start_us": 0,
+    "range_end_us": 8000000
+  },
+  "characters": [
+    {
+      "character_id": 1,
+      "character_level": 80.0,
+      "stats": {
+        "AtkBase": 100.0,
+        "AtkUp": 0.0,
+        "AtkAdd": 0.0,
+        "CritBase": 0.25,
+        "CritDamageBase": 0.5,
+        "DamageUpGeneralBase": 0.0,
+        "DamageUpChaosBase": 0.0,
+        "DamageUpCosmosBase": 0.0,
+        "DamagePenetrateChaos": 0.0,
+        "DamagePenetrateCosmos": 0.0,
+        "DefIgnore": 0.0
+      }
+    }
+  ],
+  "target_profiles": [
+    {
+      "scope_half": "upper",
+      "target_id": "cosmos-target",
+      "damage_attribute": "cosmos",
+      "resistance": 0.25,
+      "enemy_defense_base": 160.0
+    },
+    {
+      "scope_half": "upper",
+      "target_id": "psychically-target",
+      "damage_attribute": "psychically",
+      "resistance": 0.2,
+      "enemy_defense_base": 220.0
+    }
+  ],
+  "hits": [
+    {
+      "event_id": "upper-non-critical",
+      "sequence": 1,
+      "relative_time_us": 1000000,
+      "scope_half": "upper",
+      "target_id": "shared-wire-id",
+      "character_id": 1,
+      "damage": 1380.0,
+      "direction": "outgoing",
+      "classification": "direct",
+      "damage_attribute": "chaos",
+      "scaling_property_id": "Atk",
+      "critical_policy": "character",
+      "critical_state": "non_critical",
+      "critical_rate": null
+    },
+    {
+      "event_id": "upper-critical",
+      "sequence": 2,
+      "relative_time_us": 2000000,
+      "scope_half": "upper",
+      "target_id": "shared-wire-id",
+      "character_id": 1,
+      "damage": 2160.0,
+      "direction": "outgoing",
+      "classification": "direct",
+      "damage_attribute": "chaos",
+      "scaling_property_id": "Atk",
+      "critical_policy": "character",
+      "critical_state": "critical",
+      "critical_rate": null
+    },
+    {
+      "event_id": "lower-same-wire-id",
+      "sequence": 3,
+      "relative_time_us": 3000000,
+      "scope_half": "lower",
+      "target_id": "shared-wire-id",
+      "character_id": 1,
+      "damage": 1000.0,
+      "direction": "outgoing",
+      "classification": "direct",
+      "damage_attribute": "chaos",
+      "scaling_property_id": "Atk",
+      "critical_policy": "character",
+      "critical_state": "non_critical",
+      "critical_rate": null
+    },
+    {
+      "event_id": "upper-other-target",
+      "sequence": 4,
+      "relative_time_us": 3500000,
+      "scope_half": "upper",
+      "target_id": "other-target",
+      "character_id": 1,
+      "damage": 900.0,
+      "direction": "outgoing",
+      "classification": "direct",
+      "damage_attribute": "chaos",
+      "scaling_property_id": "Atk",
+      "critical_policy": "character",
+      "critical_state": "non_critical",
+      "critical_rate": null
+    },
+    {
+      "event_id": "upper-cosmos-target",
+      "sequence": 5,
+      "relative_time_us": 5000000,
+      "scope_half": "upper",
+      "target_id": "cosmos-target",
+      "character_id": 1,
+      "damage": 1200.0,
+      "direction": "outgoing",
+      "classification": "direct",
+      "damage_attribute": "cosmos",
+      "scaling_property_id": "Atk",
+      "critical_policy": "character",
+      "critical_state": "non_critical",
+      "critical_rate": null
+    },
+    {
+      "event_id": "upper-psychically-target",
+      "sequence": 6,
+      "relative_time_us": 6000000,
+      "scope_half": "upper",
+      "target_id": "psychically-target",
+      "character_id": 1,
+      "damage": 1100.0,
+      "direction": "outgoing",
+      "classification": "direct",
+      "damage_attribute": "psychically",
+      "scaling_property_id": "Atk",
+      "critical_policy": "character",
+      "critical_state": "non_critical",
+      "critical_rate": null
+    },
+    {
+      "event_id": "upper-cosmos-defense",
+      "sequence": 7,
+      "relative_time_us": 7000000,
+      "scope_half": "upper",
+      "target_id": "cosmos-target",
+      "character_id": 1,
+      "damage": 1300.0,
+      "direction": "outgoing",
+      "classification": "direct",
+      "damage_attribute": "cosmos",
+      "scaling_property_id": "Atk",
+      "critical_policy": "character",
+      "critical_state": "non_critical",
+      "critical_rate": null
+    }
+  ],
+  "buffs": [
+    {
+      "buff_key": "buff:complete-damage-up",
+      "intervals": [
+        {
+          "interval_id": "complete-upper",
+          "start_us": 0,
+          "end_us": 3000000,
+          "scope_half": "upper",
+          "source_character_id": 1,
+          "target_scope": "self",
+          "target_id": "",
+          "modifiers": [
+            {
+              "property_id": "DamageUpGeneralBase",
+              "operation": "additive",
+              "value": 0.15,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:partial-damage-and-penetration",
+      "intervals": [
+        {
+          "interval_id": "partial-upper",
+          "start_us": 0,
+          "end_us": 3000000,
+          "scope_half": "upper",
+          "source_character_id": 1,
+          "target_scope": "self",
+          "target_id": "",
+          "modifiers": [
+            {
+              "property_id": "DamageUpGeneralBase",
+              "operation": "additive",
+              "value": 0.15,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            },
+            {
+              "property_id": "DamagePenetrateChaos",
+              "operation": "additive",
+              "value": 0.1,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:unavailable-target-resistance",
+      "intervals": [
+        {
+          "interval_id": "target-upper",
+          "start_us": 0,
+          "end_us": 4000000,
+          "scope_half": "upper",
+          "source_character_id": 1,
+          "target_scope": "target",
+          "target_id": "shared-wire-id",
+          "modifiers": [
+            {
+              "property_id": "DamageResistChaosBase",
+              "operation": "additive",
+              "value": -0.2,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:not-applicable-outside-range",
+      "intervals": [
+        {
+          "interval_id": "future",
+          "start_us": 9000000,
+          "end_us": 10000000,
+          "scope_half": "",
+          "source_character_id": 1,
+          "target_scope": "self",
+          "target_id": "",
+          "modifiers": [
+            {
+              "property_id": "DamageUpGeneralBase",
+              "operation": "additive",
+              "value": 0.5,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:frozen-critical-branch",
+      "intervals": [
+        {
+          "interval_id": "critical-upper",
+          "start_us": 0,
+          "end_us": 3000000,
+          "scope_half": "upper",
+          "source_character_id": 1,
+          "target_scope": "self",
+          "target_id": "",
+          "modifiers": [
+            {
+              "property_id": "CritDamageBase",
+              "operation": "additive",
+              "value": 0.3,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:cosmos-target-resistance",
+      "intervals": [
+        {
+          "interval_id": "cosmos-target-resistance",
+          "start_us": 4500000,
+          "end_us": 5500000,
+          "scope_half": "upper",
+          "source_character_id": 1,
+          "target_scope": "target",
+          "target_id": "cosmos-target",
+          "modifiers": [
+            {
+              "property_id": "DamageResistCosmosBase",
+              "operation": "additive",
+              "value": -0.1,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:psychically-defense-ignore-cancelled",
+      "intervals": [
+        {
+          "interval_id": "psychically-defense-ignore",
+          "start_us": 5500000,
+          "end_us": 6500000,
+          "scope_half": "upper",
+          "source_character_id": 1,
+          "target_scope": "self",
+          "target_id": "",
+          "modifiers": [
+            {
+              "property_id": "DefIgnore",
+              "operation": "additive",
+              "value": 0.3,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:cosmos-defense-ignore",
+      "intervals": [
+        {
+          "interval_id": "cosmos-defense-ignore",
+          "start_us": 6500000,
+          "end_us": 7500000,
+          "scope_half": "upper",
+          "source_character_id": 1,
+          "target_scope": "self",
+          "target_id": "",
+          "modifiers": [
+            {
+              "property_id": "DefIgnore",
+              "operation": "additive",
+              "value": 0.2,
+              "value_confidence": "high",
+              "calculation_asset_path": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,519 @@
+{
+  "schema_version": "counterfactual-response-v1",
+  "model_version": "counterfactual-core-v1",
+  "dataset_version": "public-fixture-v1",
+  "results": [
+    {
+      "buff_key": "buff:complete-damage-up",
+      "status": "complete",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 3540.0,
+      "partially_quantified_damage": 0,
+      "unavailable_damage": 0,
+      "proven_unchanged_damage": 5500.0,
+      "quantified_increment": 408.461538461539,
+      "gap_codes": [],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "complete",
+          "quantified_ratio": 0.8846153846153845,
+          "candidate_damage": 1220.7692307692305,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "complete",
+          "quantified_ratio": 0.8846153846153845,
+          "candidate_damage": 1910.7692307692305,
+          "gap_codes": []
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1200.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1100.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1300.0,
+          "gap_codes": []
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:partial-damage-and-penetration",
+      "status": "partial",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 0,
+      "partially_quantified_damage": 3540.0,
+      "unavailable_damage": 0,
+      "proven_unchanged_damage": 5500.0,
+      "quantified_increment": 408.461538461539,
+      "gap_codes": [
+        "target_resistance_dependency_changed"
+      ],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "partial",
+          "quantified_ratio": 0.8846153846153845,
+          "candidate_damage": 1220.7692307692305,
+          "gap_codes": [
+            "target_resistance_dependency_changed"
+          ]
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "partial",
+          "quantified_ratio": 0.8846153846153845,
+          "candidate_damage": 1910.7692307692305,
+          "gap_codes": [
+            "target_resistance_dependency_changed"
+          ]
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1200.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1100.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1300.0,
+          "gap_codes": []
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:unavailable-target-resistance",
+      "status": "unavailable",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 0,
+      "partially_quantified_damage": 0,
+      "unavailable_damage": 3540.0,
+      "proven_unchanged_damage": 5500.0,
+      "quantified_increment": null,
+      "gap_codes": [
+        "target_resistance_dependency_changed"
+      ],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "unavailable",
+          "quantified_ratio": null,
+          "candidate_damage": null,
+          "gap_codes": [
+            "target_resistance_dependency_changed"
+          ]
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "unavailable",
+          "quantified_ratio": null,
+          "candidate_damage": null,
+          "gap_codes": [
+            "target_resistance_dependency_changed"
+          ]
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1200.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1100.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1300.0,
+          "gap_codes": []
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:not-applicable-outside-range",
+      "status": "not_applicable",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 0,
+      "partially_quantified_damage": 0,
+      "unavailable_damage": 0,
+      "proven_unchanged_damage": 9040.0,
+      "quantified_increment": 0.0,
+      "gap_codes": [],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1380.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 2160.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1200.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1100.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1300.0,
+          "gap_codes": []
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:frozen-critical-branch",
+      "status": "complete",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 3540.0,
+      "partially_quantified_damage": 0,
+      "unavailable_damage": 0,
+      "proven_unchanged_damage": 5500.0,
+      "quantified_increment": 360.0000000000002,
+      "gap_codes": [],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "complete",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1380.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "complete",
+          "quantified_ratio": 0.8333333333333333,
+          "candidate_damage": 1799.9999999999998,
+          "gap_codes": []
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1200.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1100.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1300.0,
+          "gap_codes": []
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:cosmos-target-resistance",
+      "status": "complete",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 1200.0,
+      "partially_quantified_damage": 0,
+      "unavailable_damage": 0,
+      "proven_unchanged_damage": 7840.0,
+      "quantified_increment": 141.17647058823536,
+      "gap_codes": [],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1380.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 2160.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "complete",
+          "quantified_ratio": 0.8823529411764706,
+          "candidate_damage": 1058.8235294117646,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1100.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1300.0,
+          "gap_codes": []
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:psychically-defense-ignore-cancelled",
+      "status": "unavailable",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 0,
+      "partially_quantified_damage": 0,
+      "unavailable_damage": 1100.0,
+      "proven_unchanged_damage": 7940.0,
+      "quantified_increment": null,
+      "gap_codes": [
+        "formula_family_unsupported"
+      ],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1380.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 2160.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1200.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "unavailable",
+          "quantified_ratio": null,
+          "candidate_damage": null,
+          "gap_codes": [
+            "formula_family_unsupported"
+          ]
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1300.0,
+          "gap_codes": []
+        }
+      ]
+    },
+    {
+      "buff_key": "buff:cosmos-defense-ignore",
+      "status": "complete",
+      "basis_damage": 9040.0,
+      "fully_quantified_damage": 1300.0,
+      "partially_quantified_damage": 0,
+      "unavailable_damage": 0,
+      "proven_unchanged_damage": 7740.0,
+      "quantified_increment": 33.54838709677438,
+      "gap_codes": [],
+      "hits": [
+        {
+          "event_id": "upper-non-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1380.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-critical",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 2160.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "lower-same-wire-id",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1000.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-other-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 900.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1200.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-psychically-target",
+          "status": "not_applicable",
+          "quantified_ratio": 1.0,
+          "candidate_damage": 1100.0,
+          "gap_codes": []
+        },
+        {
+          "event_id": "upper-cosmos-defense",
+          "status": "complete",
+          "quantified_ratio": 0.9741935483870967,
+          "candidate_damage": 1266.4516129032256,
+          "gap_codes": []
+        }
+      ]
+    }
+  ]
+}

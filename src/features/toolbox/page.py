@@ -40,6 +40,7 @@ from src.services.rewind_shape_recommendation_service import (
 from src.features.toolbox.rewind_execution_dialog import RewindExecutionOptions
 from src.features.toolbox.rewind_execution_ui import RewindExecutionUiMixin
 from src.features.toolbox.rewind_slot_ui import RewindSlotUiMixin
+from src.features.toolbox.static_catalog_entry import build_static_catalog_entry
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,7 @@ class ToolboxDependencies:
     """Narrow account-bound dependencies assembled by ``src.ui.app``."""
 
     rewind_service_factory: Callable[[], RewindShapeRecommendationService]
+    navigate_static_catalog: Callable[[], None]
 
     def rewind_service(self) -> RewindShapeRecommendationService:
         return self.rewind_service_factory()
@@ -125,6 +127,10 @@ class ToolboxPage:
         row_layout.addWidget(use_button, 0, Qt.AlignVCenter)
 
         layout.addWidget(tool_row)
+        layout.addWidget(build_static_catalog_entry(
+            page,
+            navigate=self._dependencies.navigate_static_catalog,
+        ))
         layout.addStretch()
         self._page = page
         return page
