@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
+from src.i18n import display_term, tr
 from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
 from src.domain.allocation_rating import loadout_total_grade
 from src.optimizer.contracts import (
@@ -92,14 +93,18 @@ def _render_results(self, plan):
         it = self.result_content_layout.takeAt(0)
         if it.widget():
             it.widget().deleteLater()
-    mode_labels = {"role_priority": "角色优先", "global_optimal": "全局最优", "update_mode": "增量更新"}
+    mode_labels = {
+        "role_priority": tr("角色优先"),
+        "global_optimal": tr("全局最优"),
+        "update_mode": tr("增量更新"),
+    }
     mode_name = mode_labels.get(getattr(self, "_pending_strat", ""), "")
     plan_diffs = getattr(self, "allocation_plan_diff", {}) or {}
     if locked_roles:
         locked_label = QLabel(
-            "已保留锁定方案："
-            + "、".join(locked_roles)
-            + "。其真实装备已在评分、词条筛选和求解前排除，本次不会覆盖这些角色。"
+            tr("已保留锁定方案：{names}。"
+               "其真实装备已在评分、词条筛选和求解前排除，本次不会覆盖这些角色。",
+               names=tr("、").join(display_term(r) for r in locked_roles))
         )
         locked_label.setWordWrap(True)
         locked_label.setStyleSheet(
@@ -114,7 +119,10 @@ def _render_results(self, plan):
     for role, p in plan.items():
         if not p or not p.get(PLAN_VALID):
             reason = str((p or {}).get("reason") or "无法凑齐图纸所需的卡带或驱动")
-            failure = QLabel(f"❌ {role}: 无有效配装方案\n原因：{reason}")
+            failure = QLabel(
+                tr("❌ {role}: 无有效配装方案\n原因：{reason}",
+                   role=display_term(role), reason=reason)
+            )
             failure.setWordWrap(True)
             failure.setStyleSheet(themed_style("color:#f85149;padding:8px 2px"))
             self.result_content_layout.addWidget(failure)
@@ -140,7 +148,7 @@ def _render_results(self, plan):
         role_hdr.setSpacing(8)
         # Role name with different color from stat blocks - use teal/cyan tone
         header_height = 34
-        rnl = QLabel(role)
+        rnl = QLabel(display_term(str(role)))
         rnl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rnl.setFixedHeight(header_height)
         rnl.setStyleSheet(
@@ -148,7 +156,7 @@ def _render_results(self, plan):
         )
         role_hdr.addWidget(rnl)
         if role_diff.get(DIFF_CHANGED):
-            diff_btn = QPushButton("变动")
+            diff_btn = QPushButton(tr("变动"))
             diff_btn.setFixedSize(76, header_height)
             diff_btn.setStyleSheet(
                 themed_style(
@@ -172,7 +180,7 @@ def _render_results(self, plan):
         slb.setContentsMargins(4, 0, 4, 0)
         sv = QLabel(f"{total_score:.1f}")
         sv.setStyleSheet(f"font-size:14px;font-weight:800;color:{gc};border:none")
-        slb.addWidget(QLabel("评分"))
+        slb.addWidget(QLabel(tr("评分")))
         slb.addWidget(sv)
         role_hdr.addWidget(sf)
         # Grade badge (separate)
@@ -183,7 +191,7 @@ def _render_results(self, plan):
         glb.setContentsMargins(4, 0, 4, 0)
         gv = QLabel(total_grade)
         gv.setStyleSheet(f"font-size:14px;font-weight:800;color:{gc};border:none")
-        glb.addWidget(QLabel("评级"))
+        glb.addWidget(QLabel(tr("评级")))
         glb.addWidget(gv)
         role_hdr.addWidget(gf)
         gl.addLayout(role_hdr)
@@ -197,7 +205,7 @@ def _render_results(self, plan):
         tape = p.get(PLAN_ASSIGNED_TAPE)
         drives = plan_drives(p)
         if board:
-            gl.addWidget(self._section_label("拼图图纸:"))
+            gl.addWidget(self._section_label(tr("拼图图纸:")))
             bp_row = QHBoxLayout()
             bp_row.setSpacing(18)
             bp_row.setAlignment(Qt.AlignLeft | Qt.AlignTop)
@@ -222,7 +230,7 @@ def _render_results(self, plan):
             t_grade = self._calc_grade(t_score, 15)
             tape_uid = str(_diff_value(tape, "uid", "") or "")
             tape_changed = bool(_diff_value(tape, "is_changed", False) or tape_uid in changed_uids)
-            gl.addWidget(self._section_label("卡带:"))
+            gl.addWidget(self._section_label(tr("卡带:")))
             gl.addWidget(
                 self._equip_card(
                     tape.set_name,
@@ -246,12 +254,9 @@ def _render_results(self, plan):
             )
         else:
             missing_core = QLabel(
-                "卡带缺失："
-                + str(
-                    p.get("missing_core_reason")
-                    or "当前固定快照没有满足角色约束且可唯一分配的卡带"
-                )
-                + "（驱动方案仍可保存）"
+                tr("卡带缺失：{reason}（驱动方案仍可保存）",
+                   reason=str(p.get("missing_core_reason")
+                              or tr("当前固定快照没有满足角色约束且可唯一分配的卡带")))
             )
             missing_core.setWordWrap(True)
             missing_core.setStyleSheet(
@@ -263,7 +268,7 @@ def _render_results(self, plan):
             gl.addWidget(missing_core)
 
         if drives:
-            gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
+            gl.addWidget(self._section_label(tr("驱动 ({count}个):", count=len(drives))))
             for d in drives:
                 score = d.role_scores.get(role, 0) if hasattr(d, "role_scores") else 0
                 grade = self._calc_grade(score, d.area)

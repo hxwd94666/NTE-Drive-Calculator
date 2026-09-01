@@ -6,6 +6,7 @@ from __future__ import annotations
 import ctypes
 import sys
 
+from src.i18n import tr
 from PySide6.QtCore import QObject, QEvent
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMessageBox
@@ -365,6 +366,9 @@ def _standard_button_value(button) -> int:
     return int(getattr(button, "value", button))
 
 
+# Source strings only. They are translated in localize_standard_buttons at
+# call time: this module is imported before set_language() runs, so a
+# module-level tr() here would resolve against the default language.
 STANDARD_BUTTON_TEXT = {
     _standard_button_value(QDialogButtonBox.Ok): "确定",
     _standard_button_value(QDialogButtonBox.Cancel): "取消",
@@ -399,7 +403,7 @@ def localize_standard_buttons(widget) -> None:
         for button in box.buttons():
             text = STANDARD_BUTTON_TEXT.get(_standard_button_value(box.standardButton(button)))
             if text:
-                button.setText(text)
+                button.setText(tr(text))
     if isinstance(widget, QMessageBox):
         for button in widget.buttons():
             try:
@@ -408,7 +412,7 @@ def localize_standard_buttons(widget) -> None:
                 continue
             text = STANDARD_BUTTON_TEXT.get(_standard_button_value(standard))
             if text:
-                button.setText(text)
+                button.setText(tr(text))
 
 
 class _DialogPolishFilter(QObject):

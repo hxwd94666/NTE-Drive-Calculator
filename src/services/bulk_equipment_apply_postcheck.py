@@ -7,6 +7,7 @@ from collections.abc import Callable
 import time
 from typing import Any
 
+from src.i18n import tr
 from src.integrations.nte_core import equipment_request_failure_kind
 from src.utils.logger import logger
 
@@ -72,7 +73,7 @@ def postcheck_and_repair(
         report_progress(
             len(prepared),
             len(prepared),
-            f"第 {attempt} 次装配已下发，正在等待完整背包快照复核…",
+            tr("第 {attempt} 次装配已下发，正在等待完整背包快照复核…", attempt=attempt),
             True,
         )
         round_deadline = time.monotonic() + timeout
@@ -237,7 +238,8 @@ def append_final_mismatch_errors(
             "role_name": row["role_name"],
             "attempt": attempt,
             "kind": "loadout_mismatch",
-            "error": f"第 {attempt} 次装配后完整快照复核仍不一致：{row['last_mismatch']}",
+            "error": tr("第 {attempt} 次装配后完整快照复核仍不一致：{mismatch}",
+                        attempt=attempt, mismatch=row["last_mismatch"]),
         })
 
 
@@ -385,7 +387,7 @@ def dispatch_retry_attempt(
                 "role_name": row["role_name"],
                 "attempt": attempt,
                 "kind": equipment_request_failure_kind(exc),
-                "error": f"第 {attempt} 次装配请求失败：{exc}",
+                "error": tr("第 {attempt} 次装配请求失败：{error}", attempt=attempt, error=exc),
             })
             logger.error("第 {} 次装配 [{}] 请求失败：{}", attempt, row["role_name"], exc)
     return dispatched

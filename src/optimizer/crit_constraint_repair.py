@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
+from src.i18n import tr
 from src.domain.crit_threshold import (
     meets_preference_grade_limit,
     preference_config_active,
@@ -413,23 +414,24 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
                     "（本次从零重配没有高质量完整方案）"
                 )
             if floor <= 0 and cap < float("inf"):
-                return (
-                    f"没有满足暴击率上限 {cap:g}% 的方案"
-                    "（本次从零重配没有高质量完整方案）"
+                return tr(
+                    "没有满足暴击率上限 {cap:g}% 的方案（本次从零重配没有高质量完整方案）", cap=cap
                 )
-            return (
-                f"没有同时满足暴击率区间 {floor:g}%～{cap:g}% 的高质量方案"
-                "（本次从零重配没有高质量完整方案）"
+            return tr(
+                "没有同时满足暴击率区间 {floor:g}%～{cap:g}% 的高质量方案（本次从零重配没有高质量完整方案）",
+                floor=floor, cap=cap,
             )
         highest = max(observed)
         lowest = min(observed)
         if highest + 1e-9 < floor:
-            return f"没有达成暴击率最小值 {floor:g}% 的方案（本次从零重配最高达到 {highest:g}%）"
+            return tr("没有达成暴击率最小值 {floor:g}% 的方案（本次从零重配最高达到 {highest:g}%）",
+                      floor=floor, highest=highest)
         if lowest > cap + 1e-9:
-            return f"没有满足暴击率上限 {cap:g}% 的方案（本次从零重配最低为 {lowest:g}%）"
-        return (
-            f"没有同时满足暴击率区间 {floor:g}%～{cap:g}% 的高质量方案"
-            f"（本次从零重配范围 {lowest:g}%～{highest:g}%）"
+            return tr("没有满足暴击率上限 {cap:g}% 的方案（本次从零重配最低为 {lowest:g}%）",
+                      cap=cap, lowest=lowest)
+        return tr(
+            "没有同时满足暴击率区间 {floor:g}%～{cap:g}% 的高质量方案（本次从零重配范围 {low:g}%～{high:g}%）",
+            floor=floor, cap=cap, low=lowest, high=highest,
         )
 
     def _repair_role_plans(

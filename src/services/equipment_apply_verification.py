@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
+
 from typing import Any
 
 
@@ -42,18 +44,18 @@ def plan_mismatch(
         by_uid = {(item["uid_serial"], item["uid_slot"]): item for item in items}
         verified_core = by_uid.get(core_pair)
         if verified_core is None:
-            return f"卡带 UID {core_pair} 不在复核快照中"
+            return tr("卡带 UID {uid} 不在复核快照中", uid=core_pair)
         if not verified_core["equipped"]:
-            return f"卡带 UID {core_pair} 未装备"
+            return tr("卡带 UID {uid} 未装备", uid=core_pair)
         if verified_core["equipped_character_id"] != character_id:
             return (
-                f"卡带 UID {core_pair} 装到了角色 "
-                f"{verified_core['equipped_character_id']}，目标角色为 {character_id}"
+                tr("卡带 UID {uid} 装到了角色 {actual}，目标角色为 {expected}",
+                   uid=core_pair, actual=verified_core["equipped_character_id"], expected=character_id)
             )
         if verified_core["equipped_character_uid"] != character_uid:
             return (
-                f"卡带 UID {core_pair} 的角色实例不一致："
-                f"实际 {verified_core['equipped_character_uid']}，目标 {character_uid}"
+                tr("卡带 UID {uid} 的角色实例不一致：实际 {actual}，目标 {expected}",
+                   uid=core_pair, actual=verified_core["equipped_character_uid"], expected=character_uid)
             )
 
     actual_uids = {
@@ -67,8 +69,8 @@ def plan_mismatch(
         missing = sorted(expected_uids - actual_uids)
         unexpected = sorted(actual_uids - expected_uids)
         return (
-            "角色装备集合与方案不一致："
-            f"缺少 {missing or '无'}，额外 {unexpected or '无'}"
+            tr("角色装备集合与方案不一致：缺少 {missing}，额外 {unexpected}",
+               missing=missing or tr("无"), unexpected=unexpected or tr("无"))
         )
     return None
 
@@ -98,7 +100,7 @@ def scoped_plan_mismatch(
         if item is None:
             continue
         if not item["equipped"]:
-            return f"装备 UID {uid_pair} 未装备"
+            return tr("装备 UID {uid} 未装备", uid=uid_pair)
     return None
 
 
@@ -122,18 +124,18 @@ def module_plan_mismatch(
             "column": assignment["target_column"],
         }
         if item is None:
-            return f"驱动 UID {uid_pair} 不在复核快照中"
+            return tr("驱动 UID {uid} 不在复核快照中", uid=uid_pair)
         if not item["equipped"]:
-            return f"驱动 UID {uid_pair} 未装备"
+            return tr("驱动 UID {uid} 未装备", uid=uid_pair)
         if item["equipped_character_id"] != character_id:
             return (
-                f"驱动 UID {uid_pair} 装到了角色 {item['equipped_character_id']}，"
-                f"目标角色为 {character_id}"
+                tr("驱动 UID {uid} 装到了角色 {actual}，目标角色为 {expected}",
+                   uid=uid_pair, actual=item["equipped_character_id"], expected=character_id)
             )
         if item["equipped_character_uid"] != character_uid:
             return (
-                f"驱动 UID {uid_pair} 的角色实例不一致："
-                f"实际 {item['equipped_character_uid']}，目标 {character_uid}"
+                tr("驱动 UID {uid} 的角色实例不一致：实际 {actual}，目标 {expected}",
+                   uid=uid_pair, actual=item["equipped_character_uid"], expected=character_uid)
             )
         if ignore_placement:
             continue
@@ -145,7 +147,7 @@ def module_plan_mismatch(
             continue
         if actual_placement != expected_placement:
             return (
-                f"驱动 UID {uid_pair} 的位置不一致："
-                f"实际 {actual_placement}，目标 {expected_placement}"
+                tr("驱动 UID {uid} 的位置不一致：实际 {actual}，目标 {expected}",
+                   uid=uid_pair, actual=actual_placement, expected=expected_placement)
             )
     return None

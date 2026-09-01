@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import current_style_sheet, theme_color, themed_style
+from src.i18n import display_term, tr
 from src.features.allocation.bonus_summary import (
     BonusSummaryContext,
     add_stat_total,
@@ -216,7 +217,10 @@ def _make_bonus_mode_switch(self, default_mode, on_change):
         "QPushButton:checked{background:#1f6feb22;color:#58a6ff;border-color:#58a6ff}"
         "QPushButton:hover{border-color:#58a6ff;color:#c9d1d9}"
     )
-    mode_defs = [("equipment", "空幕属性汇总"), ("character", "角色属性汇总")]
+    mode_defs = [
+        ("equipment", tr("空幕属性汇总")),
+        ("character", tr("角色属性汇总")),
+    ]
     for index, (mode, label) in enumerate(mode_defs):
         btn = QPushButton(label)
         btn.setCheckable(True)
@@ -296,10 +300,13 @@ def _format_panel_value(self, stat, value):
 
 def _display_bonus_stat_label(stat):
     """Compact attribute-damage labels without changing their calculation keys."""
-    label = str(stat or "")
-    if "属性" in label and "伤害" in label:
-        return f"{label.split('属性', 1)[0]}属性伤害"
-    return label
+    key = str(stat or "")
+    translated = display_term(key)
+    if translated != key:
+        return translated
+    if "属性" in key and "伤害" in key:
+        return f"{key.split('属性', 1)[0]}属性伤害"
+    return key
 
 
 def _role_stat_priority_stats(self, role_name):
@@ -439,11 +446,11 @@ def _bonus_delta_column(self, aligned_rows, priority_stats=None, role_name=None,
     layout = QVBoxLayout(column)
     layout.setContentsMargins(7, 5, 7, 5)
     layout.setSpacing(4)
-    title = QLabel("变化")
+    title = QLabel(tr("变化"))
     title.setStyleSheet(themed_style("font-size:11px;font-weight:800;color:#8b949e;border:none;background:transparent"))
     layout.addWidget(title)
     if not aligned_rows:
-        empty = QLabel("无变化")
+        empty = QLabel(tr("无变化"))
         empty.setStyleSheet(themed_style("color:#6e7681;border:none;background:transparent"))
         layout.addWidget(empty)
     else:
@@ -612,7 +619,7 @@ def _refresh_bonus_summary_panel(
     visible = rows[:5]
     colored_stats = {stat for stat, _value in visible} if mode == "character" else None
     if not visible:
-        empty = QLabel("暂无可汇总属性")
+        empty = QLabel(tr("暂无可汇总属性"))
         empty.setStyleSheet(themed_style("color:#6e7681;border:none;background:transparent"))
         content_layout.addWidget(empty)
     for stat, value in visible:
@@ -642,7 +649,10 @@ def _show_bonus_comparison_dialog(
 ):
     priority_stats = list(priority_stats if priority_stats is not None else self._role_stat_priority_stats(role_name))
     dlg = QDialog(getattr(self, "dialog_parent", None))
-    dlg.setWindowTitle(f"{role_name} {self._bonus_summary_mode_label(mode)}对比")
+    dlg.setWindowTitle(
+        tr("{role} {mode}对比",
+           role=display_term(role_name), mode=self._bonus_summary_mode_label(mode))
+    )
     dlg.setMinimumSize(680, 360)
     dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)

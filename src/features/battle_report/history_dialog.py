@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.theme import themed_style
 from src.domain.battle_report import BattleReportHistoryEntry
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
@@ -42,10 +43,10 @@ def _local_time(value: str) -> str:
 
 def _scene_label(entry: BattleReportHistoryEntry) -> str:
     if entry.combat_context_kind != "abyss":
-        return "未知场景"
+        return tr("未知场景")
     if entry.abyss_floor is None:
-        return "深渊"
-    return f"深渊 · 第 {entry.abyss_floor} 层"
+        return tr("深渊")
+    return tr("深渊 · 第 {floor} 层", floor=entry.abyss_floor)
 
 
 class BattleReportHistoryDialog(QDialog):
@@ -61,7 +62,7 @@ class BattleReportHistoryDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self._asset_catalog = GameUiAssetCatalog(game_ui_asset_root)
-        self.setWindowTitle("历史战报")
+        self.setWindowTitle(tr("历史战报"))
         self.resize(1120, 650)
         self.setMinimumSize(920, 480)
         self._build()
@@ -71,18 +72,18 @@ class BattleReportHistoryDialog(QDialog):
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
 
-        title = QLabel("历史战报")
+        title = QLabel(tr("历史战报"))
         title.setStyleSheet(themed_style("font-size:18px;font-weight:700;color:#f0f6fc"))
         layout.addWidget(title)
         description = QLabel(
-            "当前账号最多保留 100 条，第 101 条淘汰最旧自动记录；"
-            "手动保存最多 50 条，第 51 条淘汰最旧手动记录。"
+            tr("当前账号最多保留 100 条，第 101 条淘汰最旧自动记录；"
+            "手动保存最多 50 条，第 51 条淘汰最旧手动记录。")
         )
         description.setWordWrap(True)
         description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         layout.addWidget(description)
 
-        self.empty_label = QLabel("当前账号还没有已保存的战报。")
+        self.empty_label = QLabel(tr("当前账号还没有已保存的战报。"))
         self.empty_label.setAlignment(Qt.AlignCenter)
         self.empty_label.setStyleSheet(
             themed_style("color:#8b949e;font-size:13px;padding:28px")
@@ -91,7 +92,7 @@ class BattleReportHistoryDialog(QDialog):
 
         self.table = QTableWidget(0, 6, self)
         self.table.setHorizontalHeaderLabels(
-            ("角色", "保存时间", "场景", "伤害摘要", "状态", "操作")
+            (tr("角色"), tr("保存时间"), tr("场景"), tr("伤害摘要"), tr("状态"), tr("操作"))
         )
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -124,9 +125,11 @@ class BattleReportHistoryDialog(QDialog):
             self.table.setItem(row, 1, self._text_item(_local_time(entry.saved_at_utc)))
             self.table.setItem(row, 2, self._text_item(_scene_label(entry)))
             summary = (
-                f"伤害 {_format_number(entry.total_damage)}  ·  "
-                f"DPS {_format_number(entry.total_dps)}  ·  "
-                f"{entry.duration_seconds:.1f}s  ·  {entry.total_hits:,} 命中"
+                tr("伤害 {damage}  ·  DPS {dps}  ·  {seconds}s  ·  {hits} 命中",
+                   damage=_format_number(entry.total_damage),
+                   dps=_format_number(entry.total_dps),
+                   seconds=f"{entry.duration_seconds:.1f}",
+                   hits=f"{entry.total_hits:,}")
             )
             self.table.setItem(row, 3, self._text_item(summary))
             self.table.setCellWidget(row, 4, self._status_widget(entry))
@@ -145,7 +148,7 @@ class BattleReportHistoryDialog(QDialog):
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(3)
         if not entry.character_ids:
-            empty = QLabel("无角色数据")
+            empty = QLabel(tr("无角色数据"))
             empty.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
             layout.addWidget(empty)
         for character_id in entry.character_ids[:8]:
@@ -153,7 +156,7 @@ class BattleReportHistoryDialog(QDialog):
             icon = QLabel()
             icon.setFixedSize(25, 25)
             icon.setAlignment(Qt.AlignCenter)
-            icon.setToolTip(f"角色 ID：{character_id}")
+            icon.setToolTip(tr("角色 ID：{cid}", cid=character_id))
             if icon_path is not None:
                 icon.setPixmap(
                     QPixmap(str(icon_path)).scaled(
@@ -180,7 +183,7 @@ class BattleReportHistoryDialog(QDialog):
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(5, 8, 5, 8)
-        badge = QLabel("手动保存" if entry.retention_kind == "manual" else "自动保存")
+        badge = QLabel(tr("手动保存") if entry.retention_kind == "manual" else tr("自动保存"))
         badge.setAlignment(Qt.AlignCenter)
         badge.setStyleSheet(
             themed_style(
@@ -202,7 +205,7 @@ class BattleReportHistoryDialog(QDialog):
         layout.setContentsMargins(4, 5, 4, 5)
         layout.setSpacing(5)
 
-        view = QPushButton("查看")
+        view = QPushButton(tr("查看"))
         view.setObjectName("btnPrimary")
         view.clicked.connect(
             lambda _checked=False, record_id=entry.battle_record_id: (
@@ -210,7 +213,7 @@ class BattleReportHistoryDialog(QDialog):
             )
         )
         toggle = QPushButton(
-            "取消保存" if entry.retention_kind == "manual" else "保存"
+            tr("取消保存") if entry.retention_kind == "manual" else tr("保存")
         )
         toggle.clicked.connect(
             lambda _checked=False, record_id=entry.battle_record_id,
@@ -219,7 +222,7 @@ class BattleReportHistoryDialog(QDialog):
                 retention,
             )
         )
-        delete = QPushButton("删除")
+        delete = QPushButton(tr("删除"))
         delete.setObjectName("btnDanger")
         delete.clicked.connect(
             lambda _checked=False, record_id=entry.battle_record_id: (

@@ -1,5 +1,7 @@
 # 系统架构
 
+*[English](en/architecture.md) · 简体中文*
+
 本文描述当前稳定结构与公共数据流。强制开发门禁见根目录 [`AGENTS.md`](../AGENTS.md)，业务细节见
 [功能原理](features.md)。
 

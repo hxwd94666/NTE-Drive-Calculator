@@ -1,5 +1,9 @@
-# 管理主窗口的全局主题和账号更新偏好。
-"""Global theme and account-scoped update preference methods."""
+# 管理主窗口的全局主题、界面语言和账号更新偏好。
+"""Global theme, interface language, and account-scoped update preferences.
+
+Theme and language both change how every widget is built, so both apply on the
+next start rather than re-skinning a live window.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from src.app.theme import (
     theme_color,
     theme_preference,
 )
+from src.i18n import DEFAULT_LANGUAGE, normalized_language, tr
 
 
 class MainWindowThemeMixin:
@@ -53,28 +58,51 @@ class MainWindowThemeMixin:
         normalized = theme_preference(theme)
         if getattr(self, "_theme_preference", "black") == normalized:
             return True
-        if not self._prompt_restart_for_theme_change():
+        if not self._prompt_restart(tr("切换主题需要重启应用，是否现在重启并应用？")):
             return False
         previous = getattr(self, "_theme_preference", "black")
         self._theme_preference = normalized
         self._save_theme_preference()
-        if not self._restart_application_as_admin():
+        if not self._restart_application_as_admin(tr("主题设置已取消。")):
             self._theme_preference = previous
             self._save_theme_preference()
             return False
         return True
 
-    def _prompt_restart_for_theme_change(self):
+    def _load_language_preference(self):
+        return self._global_language_settings.load()
+
+    def _save_language_preference(self):
+        self._language_preference = self._global_language_settings.save(
+            self._language_preference
+        )
+
+    def _set_language_preference(self, language):
+        normalized = normalized_language(language)
+        if getattr(self, "_language_preference", DEFAULT_LANGUAGE) == normalized:
+            return True
+        if not self._prompt_restart(tr("切换语言需要重启应用，是否现在重启并应用？")):
+            return False
+        previous = getattr(self, "_language_preference", DEFAULT_LANGUAGE)
+        self._language_preference = normalized
+        self._save_language_preference()
+        if not self._restart_application_as_admin(tr("语言设置已取消。")):
+            self._language_preference = previous
+            self._save_language_preference()
+            return False
+        return True
+
+    def _prompt_restart(self, message):
         box = QMessageBox(self)
-        box.setWindowTitle("重启生效")
-        box.setText("切换主题需要重启应用，是否现在重启并应用？")
-        ok_button = box.addButton("好的", QMessageBox.AcceptRole)
-        box.addButton("取消", QMessageBox.RejectRole)
+        box.setWindowTitle(tr("重启生效"))
+        box.setText(message)
+        ok_button = box.addButton(tr("好的"), QMessageBox.AcceptRole)
+        box.addButton(tr("取消"), QMessageBox.RejectRole)
         box.setDefaultButton(ok_button)
         box.exec()
         return box.clickedButton() is ok_button
 
-    def _restart_application_as_admin(self):
+    def _restart_application_as_admin(self, cancelled_message):
         QApplication.processEvents()
         program = sys.executable
         args = sys.argv[:]
@@ -93,10 +121,17 @@ class MainWindowThemeMixin:
                 1,
             )
             if result <= 32:
-                QMessageBox.warning(self, "重启失败", "未能以管理员方式重启应用，主题设置已取消。")
+                QMessageBox.warning(
+                    self,
+                    tr("重启失败"),
+                    tr("未能以管理员方式重启应用，") + cancelled_message,
+                )
                 return False
             QApplication.quit()
             return True
-        QMessageBox.warning(self, "重启失败", "当前系统不支持自动管理员重启，主题设置已取消。")
+        QMessageBox.warning(
+            self,
+            tr("重启失败"),
+            tr("当前系统不支持自动管理员重启，") + cancelled_message,
+        )
         return False
-

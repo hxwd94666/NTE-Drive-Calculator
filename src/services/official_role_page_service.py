@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
 
+from src.i18n import display_term, tr
 from src.domain.official_role import (
     OFFICIAL_ROLE_TAB_ORDER_SCOPE,
     OfficialAttributeSummaryValue,
@@ -168,10 +169,14 @@ def calculate_official_role_damage_breakdown(
         {
             "name": "技能伤害倍率",
             "value": values.skill_multiplier,
-            "detail": "角色面板统一按 100% 计算",
+            "detail": tr("角色面板统一按 100% 计算"),
         },
         {
-            "name": f"倍率对应属性（{scaling_names[values.scaling_stat]}）",
+            # One key for every scaling stat: the view's tr() on the result is a no-op.
+            "name": tr(
+                "倍率对应属性（{stat}）",
+                stat=display_term(scaling_names[values.scaling_stat]),
+            ),
             "value": result.scaling_attribute_value,
             "detail": (
                 f"{scaling_base:g} × (1 + {scaling_up * 100:g}%) + "
@@ -183,7 +188,7 @@ def calculate_official_role_damage_breakdown(
             "value": result.damage_increase_multiplier,
             "detail": "1 + " + (
                 " + ".join(
-                    f"{item['label']} {float(item['value']) * 100:g}%"
+                    f"{display_term(item['label'])} {float(item['value']) * 100:g}%"
                     for item in damage_sources
                 ) or "0%"
             ),
@@ -196,20 +201,25 @@ def calculate_official_role_damage_breakdown(
         {
             "name": "防御区",
             "value": result.defense_multiplier,
-            "detail": (
-                f"敌防 {result.enemy_defense:g}；角色 {values.character_level:g} 级 / "
-                f"敌人 {values.enemy_level:g} 级；穿透 {values.defense_penetration * 100:g}% / "
-                f"减防 {values.defense_reduction * 100:g}%"
+            "detail": tr(
+                "敌防 {defense:g}；角色 {character:g} 级 / 敌人 {enemy:g} 级；"
+                "穿透 {penetration:g}% / 减防 {reduction:g}%",
+                defense=result.enemy_defense,
+                character=values.character_level,
+                enemy=values.enemy_level,
+                penetration=values.defense_penetration * 100,
+                reduction=values.defense_reduction * 100,
             ),
         },
         {
             "name": "抗性区",
             "value": result.resistance_multiplier,
-            "detail": (
-                f"基础抗性 {values.boss_resistance * 100:g}% - 减抗 "
-                f"{sum(values.enemy_resistance_reductions) * 100:g}% - 穿透 "
-                f"{sum(values.resistance_penetrations) * 100:g}% = "
-                f"{result.effective_resistance * 100:g}%"
+            "detail": tr(
+                "基础抗性 {base:g}% - 减抗 {reduction:g}% - 穿透 {penetration:g}% = {total:g}%",
+                base=values.boss_resistance * 100,
+                reduction=sum(values.enemy_resistance_reductions) * 100,
+                penetration=sum(values.resistance_penetrations) * 100,
+                total=result.effective_resistance * 100,
             ),
         },
         {
@@ -225,7 +235,7 @@ def calculate_official_role_damage_breakdown(
             "value": result.independent_multiplier,
             "detail": " × ".join(
                 f"(1 + {value * 100:g}%)" for value in values.independent_damage_bonuses
-            ) or "暂无独立增伤，乘区为 1",
+            ) or tr("暂无独立增伤，乘区为 1"),
         },
     ]
     return {
@@ -444,7 +454,7 @@ def load_official_role_detail(
                 )
                 slot_display_name = _display_loadout_slot_name(character, slot)
                 extra_saved_contexts[f"saved:{slot['slot_id']}"] = {
-                    "title": f"已保存配装 · {slot_display_name}",
+                    "title": tr("已保存配装 · {name}", name=slot_display_name),
                     "items": _resolved_plan_items(
                         user_dao,
                         plan,
@@ -606,13 +616,13 @@ def load_official_role_detail(
         "replacement_items": replacement_items,
         "equipment_contexts": {
             "current": {
-                "title": "游戏当前",
+                "title": tr("游戏当前"),
                 "items": current_items,
                 "calculation_items": current_calculation_items,
                 "available": bool(current_items),
             },
             "saved": {
-                "title": f"已保存配装 · {selected_slot_name}",
+                "title": tr("已保存配装 · {name}", name=selected_slot_name),
                 "items": saved_items,
                 "calculation_items": saved_calculation_items,
                 "plan": saved_plan,
@@ -622,7 +632,7 @@ def load_official_role_detail(
             },
             **extra_saved_contexts,
             "theory": {
-                "title": "理论最优",
+                "title": tr("理论最优"),
                 "items": (),
                 "available": equipment_plan is not None,
                 "core_item_id": (equipment_plan or {}).get("core_item_id"),

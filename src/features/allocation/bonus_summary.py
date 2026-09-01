@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.i18n import tr
 from src.features.role.stat_engine import (
     CharacterStatContext,
     add_stat_total as _engine_add_stat_total,
@@ -210,7 +211,7 @@ def bonus_rows_for_mode(ctx: BonusSummaryContext, role_name: str, tape, drives, 
 
 
 def bonus_summary_mode_label(mode: str) -> str:
-    return "角色属性汇总" if mode == "character" else "空幕属性汇总"
+    return tr("角色属性汇总") if mode == "character" else tr("空幕属性汇总")
 
 
 def bonus_uses_percent(stat) -> bool:

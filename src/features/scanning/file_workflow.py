@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QMessageBox
 
+from src.i18n import tr
 from src.features.scanning.dependencies import ScanningDependencies
 from src.features.scanning.file_lifecycle import (
     ScanFileLifecycle,
@@ -44,8 +45,8 @@ def prepare_incremental_parse(owner, parse_scope):
     if result.baseline_missing:
         QMessageBox.warning(
             owner.dialog_parent,
-            "需要重新全量扫描",
-            "由于版本更新解析逻辑变动，需要重新进行全量扫描",
+            tr("需要重新全量扫描"),
+            tr("由于版本更新解析逻辑变动，需要重新进行全量扫描"),
         )
         return None
     owner._pending_delete_after_parse = list(result.delete_after_parse)

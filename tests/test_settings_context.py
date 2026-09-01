@@ -117,13 +117,14 @@ class SettingsContextTests(unittest.TestCase):
 
     def test_cloud_mode_development_label_uses_complete_feature_name(self):
         source = Path("src/features/settings/page.py").read_text(encoding="utf-8")
-        self.assertIn('QLabel("云异环模式：正在开发中")', source)
-        self.assertNotIn('QLabel("云异环：正在开发中', source)
+        self.assertIn('QLabel(tr("云异环模式：正在开发中"))', source)
+        # Guard the copy itself, in or out of a tr() wrapper.
+        self.assertNotIn('"云异环：正在开发中', source)
 
     def test_capture_device_placeholder_warns_against_manual_input(self):
         source = Path("src/features/settings/page.py").read_text(encoding="utf-8")
         self.assertIn(
-            'setPlaceholderText("特殊情况所需，请勿随意填写此空")',
+            'setPlaceholderText(tr("特殊情况所需，请勿随意填写此空"))',
             source,
         )
 

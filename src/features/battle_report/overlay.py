@@ -18,6 +18,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QWidget
 
+from src.i18n import tr, display_term
 from src.domain.battle_report import (
     BattleCharacterSummary,
     BattleSummary,
@@ -38,7 +39,7 @@ class BattleReportOverlay(QWidget):
 
     def __init__(self, *, game_ui_asset_root) -> None:
         super().__init__(None)
-        self.setWindowTitle("NTE 实时战报")
+        self.setWindowTitle(tr("NTE 实时战报"))
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowFlag(Qt.WindowTransparentForInput, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -93,7 +94,7 @@ class BattleReportOverlay(QWidget):
             self._halo_text(
                 painter,
                 QRectF(16, 0, self.width() - 32, self.height()),
-                "等待战斗数据…",
+                tr("等待战斗数据…"),
                 15,
                 Qt.AlignCenter,
                 QColor("#f0f6fc"),
@@ -111,7 +112,7 @@ class BattleReportOverlay(QWidget):
         self._halo_text(
             painter,
             QRectF(14, 8, 205, 18),
-            f"队伍 DPS · {duration:.1f}s",
+            tr("队伍 DPS · {seconds}s", seconds=f"{duration:.1f}"),
             10,
             Qt.AlignLeft | Qt.AlignVCenter,
             QColor("#d8dee9"),
@@ -119,7 +120,7 @@ class BattleReportOverlay(QWidget):
         self._halo_text(
             painter,
             QRectF(self.width() - 152, 8, 138, 18),
-            "总伤害 / 受击",
+            tr("总伤害 / 受击"),
             9,
             Qt.AlignRight | Qt.AlignVCenter,
             QColor("#d8dee9"),
@@ -154,11 +155,11 @@ class BattleReportOverlay(QWidget):
             painter.drawRect(QRectF(x, bar_rect.y(), width, bar_rect.height()))
             x += width
 
-        half_label = summary.abyss.active_half if summary.abyss.detected else "全局战斗"
+        half_label = summary.abyss.active_half if summary.abyss.detected else tr("全局战斗")
         self._halo_text(
             painter,
             QRectF(14, 69, self.width() - 28, 16),
-            half_label or "深渊战斗",
+            half_label or tr("深渊战斗"),
             9,
             Qt.AlignLeft | Qt.AlignVCenter,
             QColor("#b8c0cc"),
@@ -188,7 +189,7 @@ class BattleReportOverlay(QWidget):
         self._halo_text(
             painter,
             QRectF(45, y, 96, 15),
-            character.name,
+            display_term(str(character.name)),
             9,
             Qt.AlignLeft | Qt.AlignVCenter,
             QColor("#f0f6fc"),

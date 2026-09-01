@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import display_term
+
 from PySide6.QtCore import QEvent, QStringListModel, Qt, QTimer
 from PySide6.QtWidgets import QComboBox, QCompleter, QDoubleSpinBox, QSpinBox
 
@@ -15,6 +17,11 @@ def match_pinyin(name: str, filt: str) -> bool:
     keyword = filt.lower()
     text = str(name or "").lower()
     if keyword in text:
+        return True
+    # Controls display translated game terms, so the English label has to be
+    # searchable too; the Chinese key still matches by text and by pinyin below.
+    translated = display_term(str(name or ""))
+    if translated != name and keyword in translated.lower():
         return True
     try:
         from pypinyin import Style, lazy_pinyin

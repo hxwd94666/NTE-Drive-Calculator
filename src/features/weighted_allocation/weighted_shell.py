@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.features.allocation.role_selector import RoleSelector
 from src.services.character_weight_service import (
     ensure_account_character_weights,
@@ -98,12 +99,12 @@ def build_weighted_allocation_page(window) -> QWidget:
     layout = QVBoxLayout(page)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(12)
-    title = QLabel("词条配装")
+    title = QLabel(tr("词条配装"))
     title.setObjectName("cardTitle")
     layout.addWidget(title)
-    layout.addWidget(QLabel("选择角色并调整优先级，然后开始统一配装。"))
+    layout.addWidget(QLabel(tr("选择角色并调整优先级，然后开始统一配装。")))
 
-    selector_card = window._card("角色优先级")
+    selector_card = window._card(tr("角色优先级"))
     window.weighted_role_selector = RoleSelector(
         parent=selector_card,
         priority_config_path_provider=lambda: Path("__weighted_ui_unused__"),
@@ -119,18 +120,18 @@ def build_weighted_allocation_page(window) -> QWidget:
     layout.addWidget(selector_card)
 
     actions = QHBoxLayout()
-    window.weighted_run_button = QPushButton("开始计算")
+    window.weighted_run_button = QPushButton(tr("开始计算"))
     window.weighted_run_button.setObjectName("btnPrimary")
-    window.weighted_save_button = QPushButton("保存方案")
+    window.weighted_save_button = QPushButton(tr("保存方案"))
     window.weighted_save_button.setEnabled(False)
-    window.weighted_one_key_button = QPushButton("一键装配")
+    window.weighted_one_key_button = QPushButton(tr("一键装配"))
     window.weighted_one_key_button.setObjectName("btnPrimary")
     window.weighted_one_key_button.setEnabled(False)
-    window.weighted_one_key_button.setToolTip("按设置中的装配执行方式装配当前统一方案")
-    window.weighted_automatic_button = QPushButton("自动装配")
+    window.weighted_one_key_button.setToolTip(tr("按设置中的装配执行方式装配当前统一方案"))
+    window.weighted_automatic_button = QPushButton(tr("自动装配"))
     window.weighted_automatic_button.setObjectName("btnPrimary")
     window.weighted_automatic_button.setEnabled(False)
-    window.weighted_automatic_button.setToolTip("模拟游戏内操作，逐步装配当前统一方案")
+    window.weighted_automatic_button.setToolTip(tr("模拟游戏内操作，逐步装配当前统一方案"))
     window._weighted_role_equip_buttons = []
     window.weighted_run_button.clicked.connect(lambda: start_weighted_allocation(window))
     window.weighted_save_button.clicked.connect(lambda: start_weighted_allocation_save(window))
@@ -163,8 +164,8 @@ def _hide_legacy_selector_controls(selector: RoleSelector) -> None:
     for label in selector.findChildren(QLabel):
         if "重置只影响当前界面" in label.text():
             label.setText(
-                "点击选择角色并调整顺序；“=”表示同级联合分配。"
-                "角色管理设置会在计算时自动保存到当前账号。"
+                tr("点击选择角色并调整顺序；“=”表示同级联合分配。"
+                "角色管理设置会在计算时自动保存到当前账号。")
             )
 
 
@@ -256,6 +257,6 @@ def refresh_weighted_allocation_page(window) -> None:
         if database_changed:
             _load_weighted_persistence(window, database_path)
         elif not window.weighted_status_label.text():
-            window.weighted_status_label.setText("请选择角色并设置优先级。")
+            window.weighted_status_label.setText(tr("请选择角色并设置优先级。"))
     except Exception as exc:
-        window.weighted_status_label.setText(f"无法读取角色目录：{exc}")
+        window.weighted_status_label.setText(tr("无法读取角色目录：{error}", error=exc))

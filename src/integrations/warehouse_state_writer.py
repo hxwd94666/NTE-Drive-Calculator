@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
+
 from collections.abc import Mapping
 from typing import Any, Protocol
 
@@ -72,7 +74,7 @@ class WarehouseStateWriter:
             or getattr(state, "phase", None) != "listening"
         ):
             raise WarehouseStateWriteError(
-                "背包同步必须处于稳定监听状态才能管理仓库"
+                tr("背包同步必须处于稳定监听状态才能管理仓库")
             )
         capabilities = (self.sync_service.core_hello_result or {}).get(
             "capabilities",
@@ -80,7 +82,7 @@ class WarehouseStateWriter:
         )
         if not isinstance(capabilities, list) or "equipment" not in capabilities:
             raise WarehouseStateWriteError(
-                "当前 nte-core 不支持 equipment 状态管理能力"
+                tr("当前 nte-core 不支持 equipment 状态管理能力")
             )
 
     def apply_one(
@@ -90,7 +92,7 @@ class WarehouseStateWriter:
         equipment: Mapping[str, int],
     ) -> None:
         if target_state not in {"normal", "locked", "discarded"}:
-            raise WarehouseStateWriteError(f"未知目标状态：{target_state}")
+            raise WarehouseStateWriteError(tr("未知目标状态：{state}", state=target_state))
         discarded = bool(row.get("discarded"))
         locked = bool(row.get("locked"))
         if target_state == "normal":

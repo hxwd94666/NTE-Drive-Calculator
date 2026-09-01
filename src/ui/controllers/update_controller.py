@@ -12,6 +12,7 @@ from typing import Any
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QMessageBox, QProgressDialog, QVBoxLayout
 
+from src.i18n import tr
 from src.app.constants import (
     APP_VERSION,
     BILIBILI_HOME_URL,
@@ -99,7 +100,7 @@ def _check_updates(self, manual=True):
     update_worker = getattr(self, "_update_worker", None)
     if update_worker is not None and update_worker.isRunning():
         if manual:
-            self._update_status.setText("正在检查更新…")
+            self._update_status.setText(tr("正在检查更新…"))
         return
     self._update_check_manual = manual
     self._update_operation_context = _new_update_operation(self)
@@ -113,7 +114,7 @@ def _check_updates(self, manual=True):
     )
     if manual:
         self._check_update_btn.setEnabled(False)
-        self._update_status.setText("正在通过 Mirror 酱检查更新…")
+        self._update_status.setText(tr("正在通过 Mirror 酱检查更新…"))
     self._update_worker = WorkerThread(
         target=self._fetch_update_info, parent=self,
     )
@@ -147,22 +148,25 @@ def _on_update_checked(self, info):
     if manual:
         self._check_update_btn.setEnabled(True)
     if not info.get("has_release"):
-        message = info.get("message") or "Mirror 酱未返回可用更新信息。"
+        message = info.get("message") or tr("Mirror 酱未返回可用更新信息。")
         self._update_status.setText(message)
         if manual:
             self._show_update_failure_netdisk_prompt(info.get("error", message))
         return
-    latest = info.get("latest") or "未知"
+    latest = info.get("latest") or tr("未知")
     if info.get("newer"):
-        self._update_status.setText(f"发现新版本: {latest}（当前 {APP_VERSION}）")
+        self._update_status.setText(
+            tr("发现新版本: {latest}（当前 {current}）", latest=latest, current=APP_VERSION)
+        )
         if manual or self._should_show_startup_update(info):
             self._show_update_dialog(info, manual=manual)
     else:
-        self._update_status.setText(f"当前已是最新版本: {APP_VERSION}")
+        self._update_status.setText(tr("当前已是最新版本: {version}", version=APP_VERSION))
         if manual:
             QMessageBox.information(
-                self, "检查更新",
-                f"当前已是最新版本。\n当前版本: {APP_VERSION}\n最新版本: {latest}",
+                self, tr("检查更新"),
+                tr("当前已是最新版本。\n当前版本: {current}\n最新版本: {latest}",
+                   current=APP_VERSION, latest=latest),
             )
 
 
@@ -179,7 +183,7 @@ def _on_update_error(self, err):
         trigger="manual" if manual else "startup",
         error=err,
     )
-    message = "Mirror 酱更新服务请求失败，请稍后重试。"
+    message = tr("Mirror 酱更新服务请求失败，请稍后重试。")
     if manual:
         self._check_update_btn.setEnabled(True)
         self._update_status.setText(message)
@@ -212,7 +216,7 @@ def _start_mirror_download(self):
         cdk_present=True,
     )
     self._mirror_download_btn.setEnabled(False)
-    self._update_status.setText("正在向 Mirror 酱请求下载地址…")
+    self._update_status.setText(tr("正在向 Mirror 酱请求下载地址…"))
     self._mirror_download_worker = WorkerThread(
         target=lambda: self._fetch_update_info(cdk), parent=self,
     )
@@ -243,11 +247,11 @@ def _on_mirror_download_ready(self, info):
             )
             if hasattr(self, "_mirror_download_btn"):
                 self._mirror_download_btn.setEnabled(True)
-            self._update_status.setText("当前已是最新版本，无法下载历史旧版本。")
+            self._update_status.setText(tr("当前已是最新版本，无法下载历史旧版本。"))
             QMessageBox.information(
                 self,
-                "Mirror 下载",
-                "当前版本高于 Mirror 可下载版本，已是最新版本，无法下载历史旧版本。",
+                tr("Mirror 下载"),
+                tr("当前版本高于 Mirror 可下载版本，已是最新版本，无法下载历史旧版本。"),
             )
             return
         log_event(
@@ -268,7 +272,7 @@ def _on_mirror_download_ready(self, info):
     )
     if hasattr(self, "_mirror_download_btn"):
         self._mirror_download_btn.setEnabled(True)
-    self._update_status.setText("未获取到 Mirror 下载地址，可前往项目页面尝试下载。")
+    self._update_status.setText(tr("未获取到 Mirror 下载地址，可前往项目页面尝试下载。"))
     _show_mirror_project_download_dialog(
         self,
         "未获取到 Mirror 下载地址。请确认 CDK 有效，且存在可下载的新版本；"
@@ -278,9 +282,9 @@ def _on_mirror_download_ready(self, info):
 
 def _start_mirror_installer_download(self, url):
     """Download and launch the installer without sending the user to a browser."""
-    self._update_status.setText("正在通过 Mirror 酱下载更新安装程序…")
+    self._update_status.setText(tr("正在通过 Mirror 酱下载更新安装程序…"))
     progress = QProgressDialog("正在下载更新安装程序…", "取消", 0, 0, self)
-    progress.setWindowTitle("Mirror 下载")
+    progress.setWindowTitle(tr("Mirror 下载"))
     progress.setWindowModality(Qt.WindowModality.WindowModal)
     progress.setAutoClose(False)
     progress.setAutoReset(False)
@@ -303,10 +307,15 @@ def _on_mirror_download_progress(self, downloaded, total):
     if total > 0:
         progress.setRange(0, total)
         progress.setValue(min(downloaded, total))
-        progress.setLabelText(f"正在下载更新安装程序… {downloaded / 1024 / 1024:.1f} / {total / 1024 / 1024:.1f} MB")
+        progress.setLabelText(
+            tr("正在下载更新安装程序… {done:.1f} / {total:.1f} MB",
+               done=downloaded / 1024 / 1024, total=total / 1024 / 1024)
+        )
     else:
         progress.setRange(0, 0)
-        progress.setLabelText(f"正在下载更新安装程序… {downloaded / 1024 / 1024:.1f} MB")
+        progress.setLabelText(
+            tr("正在下载更新安装程序… {done:.1f} MB", done=downloaded / 1024 / 1024)
+        )
 
 
 def _finish_mirror_download_ui(self):
@@ -337,7 +346,7 @@ def _on_mirror_installer_downloaded(self, result):
         operation,
         installer_name=path.name,
     )
-    self._update_status.setText("安装程序下载完成，正在自动启动…")
+    self._update_status.setText(tr("安装程序下载完成，正在自动启动…"))
     QTimer.singleShot(150, lambda: self._launch_mirror_installer(str(path)))
 
 
@@ -356,7 +365,7 @@ def _on_mirror_installer_download_error(self, error):
             "用户取消 Mirror 下载",
             operation,
         )
-        self._update_status.setText("已取消 Mirror 下载。")
+        self._update_status.setText(tr("已取消 Mirror 下载。"))
         return
     log_event(
         "ERROR",
@@ -365,7 +374,7 @@ def _on_mirror_installer_download_error(self, error):
         operation,
         error=message,
     )
-    self._update_status.setText("Mirror 下载失败，可前往项目页面尝试下载。")
+    self._update_status.setText(tr("Mirror 下载失败，可前往项目页面尝试下载。"))
     _show_mirror_project_download_dialog(
         self,
         "下载或启动安装程序失败，请稍后重试；若仍失败，可前往下方项目页面尝试下载。",
@@ -382,7 +391,7 @@ def _launch_mirror_installer(self, path):
     except OSError as exc:
         self._on_mirror_installer_download_error(str(exc))
         return
-    self._update_status.setText("安装程序已启动，当前程序即将退出。")
+    self._update_status.setText(tr("安装程序已启动，当前程序即将退出。"))
     operation = getattr(
         self,
         "_mirror_download_operation_context",
@@ -402,14 +411,16 @@ def _launch_mirror_installer(self, path):
 
 def _show_mirror_cdk_required_dialog(self):
     dialog = QDialog(self)
-    dialog.setWindowTitle("Mirror 下载")
+    dialog.setWindowTitle(tr("Mirror 下载"))
     dialog.setMinimumWidth(460)
     if hasattr(self, "_current_style_sheet"):
         dialog.setStyleSheet(self._current_style_sheet())
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 16, 18, 16)
     layout.setSpacing(10)
-    message = QLabel("请先填写 Mirror CDK 后再下载。<br><br>" + _mirror_project_link_text("获取 CDK"))
+    message = QLabel(
+        tr("请先填写 Mirror CDK 后再下载。<br><br>") + _mirror_project_link_text(tr("获取 CDK"))
+    )
     message.setWordWrap(True)
     message.setTextFormat(Qt.TextFormat.RichText)
     message.setOpenExternalLinks(True)
@@ -439,7 +450,7 @@ def _mirror_download_version_is_available(latest: str, current: str) -> bool:
 def _show_mirror_project_download_dialog(self: Any, summary: str) -> None:
     """Show a download failure with a direct, browser-openable Mirror link."""
     dialog = QDialog(self)
-    dialog.setWindowTitle("Mirror 下载")
+    dialog.setWindowTitle(tr("Mirror 下载"))
     dialog.setMinimumWidth(460)
     if hasattr(self, "_current_style_sheet"):
         dialog.setStyleSheet(self._current_style_sheet())
@@ -449,7 +460,7 @@ def _show_mirror_project_download_dialog(self: Any, summary: str) -> None:
     message = QLabel(summary)
     message.setWordWrap(True)
     layout.addWidget(message)
-    link = QLabel(_mirror_project_link_text("尝试下载"))
+    link = QLabel(_mirror_project_link_text(tr("尝试下载")))
     link.setWordWrap(True)
     link.setTextFormat(Qt.TextFormat.RichText)
     link.setOpenExternalLinks(True)
@@ -477,11 +488,11 @@ def _show_update_dialog(self, info, manual=False):
 
 def _show_update_failure_netdisk_prompt(self, detail=""):
     box = QMessageBox(self)
-    box.setWindowTitle("检查更新失败")
-    box.setText("Mirror 酱更新服务请求失败，请稍后重试。")
+    box.setWindowTitle(tr("检查更新失败"))
+    box.setText(tr("Mirror 酱更新服务请求失败，请稍后重试。"))
     if detail:
         box.setInformativeText(str(detail))
-    box.addButton("确定", QMessageBox.AcceptRole)
+    box.addButton(tr("确定"), QMessageBox.AcceptRole)
     box.exec()
 
 
@@ -502,7 +513,7 @@ def _open_support_homepage(self):
 
 
 def _show_group_chat_notice(self):
-    QMessageBox.information(self, "加入群聊", GROUP_CHAT_NOTICE)
+    QMessageBox.information(self, tr("加入群聊"), GROUP_CHAT_NOTICE)
 
 
 def _show_netdisk_download_dialog(self, links):
@@ -510,13 +521,13 @@ def _show_netdisk_download_dialog(self, links):
     if not links:
         return
     box = QMessageBox(self)
-    box.setWindowTitle("网盘下载")
-    box.setText("请选择下载网盘")
+    box.setWindowTitle(tr("网盘下载"))
+    box.setText(tr("请选择下载网盘"))
     box.setInformativeText("\n\n".join(f"{name}：\n{url}" for name, url in links))
     box.setMinimumSize(620, 300)
     box.setStyleSheet(box.styleSheet() + "\nQLabel{min-width:560px;}")
     buttons = [(box.addButton(f"打开{name}", QMessageBox.AcceptRole), url) for name, url in links]
-    box.addButton("取消", QMessageBox.RejectRole)
+    box.addButton(tr("取消"), QMessageBox.RejectRole)
     box.exec()
     for button, url in buttons:
         if box.clickedButton() is button:

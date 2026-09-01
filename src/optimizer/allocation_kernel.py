@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import re
 from typing import Mapping, Sequence
 
+from src.i18n import display_term, tr
 from src.models.equipment import Drive, Tape
 from src.domain.suit_identity import tape_matches_suit_target
 from src.optimizer.dispatcher import DispatcherEngine
@@ -249,7 +250,9 @@ class AllocationKernel:
             ]
             if not set_cores:
                 plan["missing_core_reason"] = (
-                    f"固定快照中没有套装为 {target_set or '任意套装'} 的卡带"
+                    tr("固定快照中没有套装为 {suit} 的卡带", suit=display_term(target_set))
+                    if target_set
+                    else tr("固定快照中没有任何可用卡带")
                 )
                 continue
             allowed_mains = tuple(request.core_main_filters.get(role) or ())
@@ -275,7 +278,7 @@ class AllocationKernel:
                 if tape_matches_suit_target(tape, target_set, request.sets_db)
             ]
             if not screened:
-                plan["missing_core_reason"] = (
+                plan["missing_core_reason"] = tr(
                     "满足套装和主词条的卡带均被副词条或评分等级硬过滤"
                 )
                 continue
@@ -323,18 +326,19 @@ class AllocationKernel:
         )
         drives = [item for item in plan_items if isinstance(item, Drive)]
         if blueprint and len(drives) != expected_modules:
-            return f"图纸需要 {expected_modules} 个驱动，当前方案仅分配 {len(drives)} 个"
+            return tr("图纸需要 {expected} 个驱动，当前方案仅分配 {actual} 个",
+                      expected=expected_modules, actual=len(drives))
         if len({item.uid for item in plan_items}) != len(plan_items):
-            return "方案包含重复驱动 UID，无法安全分配"
+            return tr("方案包含重复驱动 UID，无法安全分配")
         if self._violates_limits(
             role, plan_items, request.roles_db.get(role, {}),
             request.property_limits.get(role, ()),
         ):
-            return "未满足角色属性上下限"
+            return tr("未满足角色属性上下限")
 
         blueprints = list(request.blueprints_db.get(role) or ())
         if not blueprints:
-            return "角色没有可用图纸"
+            return tr("角色没有可用图纸")
         available_shapes = Counter(
             str(item.shape_id)
             for item in request.inventory
@@ -366,9 +370,9 @@ class AllocationKernel:
                 return "同级组竞争后无剩余候选：所需形状驱动已被同级角色占用"
         if request.strategy == "global_optimal":
             if full_global_candidates:
-                return "扩展至完整背包候选后仍无法形成完整全队方案（角色间形状需求冲突）"
-            return "当前候选范围无法形成完整全队方案"
-        return "候选驱动未能同时满足图纸形状约束"
+                return tr("扩展至完整背包候选后仍无法形成完整全队方案（角色间形状需求冲突）")
+            return tr("当前候选范围无法形成完整全队方案")
+        return tr("候选驱动未能同时满足图纸形状约束")
 
     def _apply_invalid_diagnostics(
         self,

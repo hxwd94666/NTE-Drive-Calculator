@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from src.i18n import tr
 from src.models.equipment import Drive, Tape
 from src.optimizer.scoring import ScoringEngine
 from src.solver.orchestrator import NTEPipelineOrchestrator
@@ -85,7 +86,7 @@ class EquipmentIdentificationService:
                 if not in_set and not in_extra:
                     continue
                 score = scoring.calculate_drive_score(item, weights, max_weight)
-                match_desc = "套装位" if in_set else "散件位"
+                match_desc = tr("套装位") if in_set else tr("散件位")
                 area = item.area
             grade = scoring.get_grade_tag(score, area)
             max_score = area * 10.0

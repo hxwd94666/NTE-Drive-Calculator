@@ -4,6 +4,7 @@ from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 from collections import Counter
 
+from src.i18n import tr
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
 from src.utils.logger import logger
@@ -48,7 +49,7 @@ class RolePriorityGroupStrategyMixin:
                 valid_group.append(role)
                 role_blueprints.append(blueprints)
         if not valid_group:
-            return {role: {"valid": False, "reason": "角色没有可用图纸"} for role in group}
+            return {role: {"valid": False, "reason": tr("角色没有可用图纸")} for role in group}
 
         best_allocation: AllocationResult = {}
         best_key: tuple = (-1, -1, float("-inf"), float("-inf"))
@@ -78,7 +79,7 @@ class RolePriorityGroupStrategyMixin:
 
         for role in group:
             best_allocation.setdefault(
-                role, {"valid": False, "reason": "角色没有可用图纸"},
+                role, {"valid": False, "reason": tr("角色没有可用图纸")},
             )
         return best_allocation
 
@@ -357,7 +358,7 @@ class RolePriorityGroupStrategyMixin:
         for role, plan in result.items():
             if not plan.get("blueprint"):
                 plan["valid"] = False
-                plan["reason"] = "角色没有可用图纸"
+                plan["reason"] = tr("角色没有可用图纸")
                 continue
             items = [
                 plan.get("assigned_tape"),
@@ -370,11 +371,12 @@ class RolePriorityGroupStrategyMixin:
                 matching_count = sum(
                     1 for drive in candidates if drive.shape_id == first["shape"]
                 )
-                slot_label = "套装必要" if first["type"] == "set" else "额外"
+                slot_label = tr("套装必要") if first["type"] == "set" else tr("额外")
                 plan["valid"] = False
                 plan["reason"] = (
-                    f"同级组竞争后无剩余候选：缺少 {first['shape']} 驱动"
-                    f"（{slot_label}槽位，扩展候选 {matching_count} 个）"
+                    tr("同级组竞争后无剩余候选：缺少 {shape} 驱动"
+                       "（{slot}槽位，扩展候选 {count} 个）",
+                       shape=first["shape"], slot=slot_label, count=matching_count)
                 )
             elif not self._within_crit_rate_cap(role, items, crit_rate_caps):
                 cap = self._crit_rate_cap(role, crit_rate_caps)

@@ -22,10 +22,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.theme import themed_style
 
 def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, show_help):
-    scan_card = window._card("第一步 · 扫描模式")
+    scan_card = window._card(tr("第一步 · 扫描模式"))
     window.scan_group = QButtonGroup()
     _add_scan_mode_options(window, scan_card, scan_help, show_help)
     _build_offline_frame(window, scan_card, offline_help, show_help)
@@ -39,10 +40,10 @@ def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, s
 
 def _add_scan_mode_options(window, scan_card, scan_help, show_help):
     scan_options = [
-        ("4", "直接读取库存 — 不扫描，直接重新配装"),
-        ("3", "离线解析 — 解析已有截图并生成库存"),
-        ("2", "增量扫描 — 只录入新获得的装备"),
-        ("1", "全量扫描 — 重扫背包并重建库存"),
+        ("4", tr("直接读取库存 — 不扫描，直接重新配装")),
+        ("3", tr("离线解析 — 解析已有截图并生成库存")),
+        ("2", tr("增量扫描 — 只录入新获得的装备")),
+        ("1", tr("全量扫描 — 重扫背包并重建库存")),
     ]
     for value, text in scan_options:
         row = QHBoxLayout()
@@ -69,7 +70,7 @@ def _build_offline_frame(window, scan_card, offline_help, show_help):
     offline_layout = QHBoxLayout(window.offline_frame)
     offline_layout.setContentsMargins(28, 4, 0, 4)
     offline_layout.setSpacing(10)
-    offline_layout.addWidget(QLabel("离线解析类型:"))
+    offline_layout.addWidget(QLabel(tr("离线解析类型:")))
     window.offline_group = QButtonGroup()
     for key, text in [("full", "全量解析"), ("incremental", "增量解析"), ("all", "全部截图解析")]:
         sub_row = QHBoxLayout()
@@ -98,13 +99,13 @@ def _build_total_count_frame(window, scan_card):
     total_count_layout = QHBoxLayout(window.total_count_frame)
     total_count_layout.setContentsMargins(28, 4, 0, 4)
     total_count_layout.setSpacing(8)
-    total_count_layout.addWidget(QLabel("库存数量:"))
+    total_count_layout.addWidget(QLabel(tr("库存数量:")))
     window.total_count_edit = QLineEdit()
-    window.total_count_edit.setPlaceholderText("请输入当前库存数量")
+    window.total_count_edit.setPlaceholderText(tr("请输入当前库存数量"))
     window.total_count_edit.setValidator(QIntValidator(1, 2000, window.total_count_edit))
     window.total_count_edit.setMaximumWidth(180)
     total_count_layout.addWidget(window.total_count_edit)
-    window.scan_post_action_btn = QPushButton("管理")
+    window.scan_post_action_btn = QPushButton(tr("管理"))
     window.scan_post_action_btn.setObjectName("btnPrimary")
     window.scan_post_action_btn.setMaximumWidth(82)
     if hasattr(window, "_open_scan_post_action_manager"):
@@ -120,7 +121,7 @@ def _build_full_scan_driver_frame(window, scan_card):
     driver_layout = QHBoxLayout(window.full_scan_driver_frame)
     driver_layout.setContentsMargins(28, 4, 0, 4)
     driver_layout.setSpacing(10)
-    driver_layout.addWidget(QLabel("操作方式:"))
+    driver_layout.addWidget(QLabel(tr("操作方式:")))
     window.full_scan_driver_group = QButtonGroup()
     prefs = getattr(window, "_ui_preferences", {}) or {}
     preferred = str(prefs.get("full_scan_capture_driver", "mouse"))
@@ -161,10 +162,10 @@ def build_scan_processing_options(window, scan_card, show_help):
     dual_thread_layout = QHBoxLayout(window.scan_dual_thread_frame)
     dual_thread_layout.setContentsMargins(28, 0, 0, 4)
     dual_thread_layout.setSpacing(8)
-    window.scan_dual_thread_check = QCheckBox("双线程处理")
+    window.scan_dual_thread_check = QCheckBox(tr("双线程处理"))
     prefs = getattr(window, "_ui_preferences", {}) or {}
     window.scan_dual_thread_check.setChecked(bool(prefs.get("full_scan_dual_thread_processing", True)))
-    window.scan_amd_compat_check = QCheckBox("异常兼容模式")
+    window.scan_amd_compat_check = QCheckBox(tr("异常兼容模式"))
     window.scan_amd_compat_check.setChecked(bool(prefs.get("full_scan_amd_compatibility", False)))
 
     def _save_scan_dual_thread_preference(enabled):
@@ -234,7 +235,7 @@ def _build_drone_frame(window, scan_card, drone_help, show_help):
     window.drone_frame.setVisible(False)
     drone_layout = QHBoxLayout(window.drone_frame)
     drone_layout.setContentsMargins(28, 4, 0, 4)
-    drone_layout.addWidget(QLabel("无人机模式:"))
+    drone_layout.addWidget(QLabel(tr("无人机模式:")))
     window.drone_group = QButtonGroup()
     for value, text in [("2", "半自动模式（推荐）"), ("1", "全自动模式")]:
         sub_row = QHBoxLayout()
@@ -257,7 +258,7 @@ def _build_drone_frame(window, scan_card, drone_help, show_help):
 
 
 def _build_priority_card(window, layout, role_selector_cls):
-    priority_card = window._card("第二步 · 角色优先级配置")
+    priority_card = window._card(tr("第二步 · 角色优先级配置"))
     window.role_selector = role_selector_cls()
     window.role_selector.orderChanged.connect(window._on_priority_changed)
     priority_card.layout().addWidget(window.role_selector)
@@ -265,17 +266,17 @@ def _build_priority_card(window, layout, role_selector_cls):
 
 
 def _build_strategy_card(window, layout):
-    strategy_card = window._card("第三步 · 分配策略")
+    strategy_card = window._card(tr("第三步 · 分配策略"))
     title_item = strategy_card.layout().takeAt(0)
     title_label = title_item.widget() if title_item is not None else None
     if title_label is None:
-        title_label = QLabel("第三步 · 分配策略")
+        title_label = QLabel(tr("第三步 · 分配策略"))
         title_label.setObjectName("cardTitle")
     header = QHBoxLayout()
     header.setSpacing(0)
     header.addWidget(title_label)
     header.addSpacing(max(1, title_label.fontMetrics().horizontalAdvance("　") // 2))
-    window.allocation_filter_settings_button = QPushButton("设置")
+    window.allocation_filter_settings_button = QPushButton(tr("设置"))
     window.allocation_filter_settings_button.setObjectName("allocationFilterSettingsButton")
     window.allocation_filter_settings_button.setFixedSize(54, 28)
     window.allocation_filter_settings_button.clicked.connect(
@@ -287,9 +288,9 @@ def _build_strategy_card(window, layout):
 
     window.strategy_group = QButtonGroup()
     strategy_options = [
-        "角色优先 — 按角色顺序配装，优先照顾前排角色",
-        "全局最优 — 追求全队总分最高，适合整体重排",
-        "增量更新 — 保留已穿戴装备，只用闲置装备补配",
+        tr("角色优先 — 按角色顺序配装，优先照顾前排角色"),
+        tr("全局最优 — 追求全队总分最高，适合整体重排"),
+        tr("增量更新 — 保留已穿戴装备，只用闲置装备补配"),
     ]
     for index, text in enumerate(strategy_options):
         rb = QRadioButton(text)
@@ -300,7 +301,7 @@ def _build_strategy_card(window, layout):
 
 
 def _build_run_button(window, layout):
-    window.btn_run = QPushButton("⚡  开始计算")
+    window.btn_run = QPushButton(tr("⚡  开始计算"))
     window.btn_run.setObjectName("btnPrimary")
     window.btn_run.setFixedHeight(46)
     window.btn_run.setStyleSheet("#btnPrimary{font-size:15px;font-weight:700;border-radius:10px}")
@@ -316,9 +317,9 @@ def _build_result_card(window, layout):
     )
     result_layout = QVBoxLayout(window.result_card)
     result_header = QHBoxLayout()
-    result_header.addWidget(QLabel("计算结果"))
+    result_header.addWidget(QLabel(tr("计算结果")))
     result_header.addStretch()
-    window.btn_save = QPushButton("保存装备锁定")
+    window.btn_save = QPushButton(tr("保存装备锁定"))
     window.btn_save.setObjectName("btnAction")
     window.btn_save.clicked.connect(lambda _checked=False: window._save_alloc())
     result_header.addWidget(window.btn_save)

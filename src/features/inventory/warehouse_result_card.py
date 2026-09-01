@@ -17,6 +17,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
+from src.i18n import tr
 from src.app.theme import GRADE_COLORS, theme_color
 from src.features.inventory.warehouse import (
     WarehouseCardDelegate,
@@ -62,12 +63,12 @@ class WarehouseResultCard(QWidget):
         if replacement_callback is not None:
             self.setCursor(QCursor(Qt.PointingHandCursor))
         tooltip = (
-            "点击卡片替换装备" if replacement_callback is not None else ""
+            tr("点击卡片替换装备") if replacement_callback is not None else ""
         )
         if owner_name:
             tooltip += (
                 ("\n" if tooltip else "")
-                + f"当前装配方案持有者：{owner_name}"
+                + tr("当前装配方案持有者：{name}", name=owner_name)
             )
         if tooltip:
             self.setToolTip(tooltip)
@@ -172,7 +173,7 @@ class WarehouseResultCard(QWidget):
             if max_level:
                 level += f" / {max_level}"
         else:
-            level = "等级未知"
+            level = tr("等级未知")
         WarehouseCardDelegate._text(
             painter,
             QRect(left + 52, top + 23, width - 52 - header_reserved, 16),
@@ -190,7 +191,7 @@ class WarehouseResultCard(QWidget):
             WarehouseCardDelegate._text(
                 painter,
                 QRect(left, content_top + 7, width, 18),
-                "暂无词条数据",
+                tr("暂无词条数据"),
                 theme_color("#6e7681"),
                 10,
             )

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
+
 import json
 import os
 import sqlite3
@@ -110,12 +112,12 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
         resolved = Path(database_path).expanduser().resolve()
         if resolved.is_file():
             return resolved
-        raise StaticGameDataError(f"静态数据库不存在：{resolved}")
+        raise StaticGameDataError(tr("静态数据库不存在：{path}", path=resolved))
     for candidate in static_database_candidates():
         if candidate.is_file():
             return candidate
     checked = "、".join(str(path) for path in static_database_candidates())
-    raise StaticGameDataError(f"找不到静态数据库；已检查：{checked}")
+    raise StaticGameDataError(tr("找不到静态数据库；已检查：{checked}", checked=checked))
 
 
 from src.storage.sqlite.static_game_data_extended_queries import StaticGameDataExtendedQueriesMixin
@@ -136,7 +138,7 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
             )
         except sqlite3.Error as exc:
             raise StaticGameDataError(
-                f"无法打开静态数据库：{self.database_path}"
+                tr("无法打开静态数据库：{path}", path=self.database_path)
             ) from exc
         self._connection.row_factory = sqlite3.Row
         try:
@@ -145,12 +147,13 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
             ).fetchone()
         except sqlite3.Error as exc:
             self.close()
-            raise StaticGameDataError("文件不是 NTE 静态游戏数据库") from exc
+            raise StaticGameDataError(tr("文件不是 NTE 静态游戏数据库")) from exc
         version = version_row["version"] if version_row is not None else None
         if version != SCHEMA_VERSION:
             self.close()
             raise StaticGameDataError(
-                f"不支持的静态数据库结构版本：{version!r}；需要 {SCHEMA_VERSION}"
+                tr("不支持的静态数据库结构版本：{version}；需要 {required}",
+                   version=repr(version), required=SCHEMA_VERSION)
             )
 
     def __enter__(self) -> "StaticGameDataDao":
@@ -172,7 +175,7 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
 
     def _rows(self, sql: str, parameters: Iterable[Any] = ()) -> list[dict[str, Any]]:
         if self._connection is None:
-            raise StaticGameDataError("静态数据库 DAO 已关闭")
+            raise StaticGameDataError(tr("静态数据库 DAO 已关闭"))
         return [dict(row) for row in self._connection.execute(sql, tuple(parameters))]
 
     def _one(self, sql: str, parameters: Iterable[Any] = ()) -> dict[str, Any] | None:
@@ -184,7 +187,7 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
             "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
         )
         if dataset is None:
-            raise StaticGameDataError("静态数据库缺少数据集元信息")
+            raise StaticGameDataError(tr("静态数据库缺少数据集元信息"))
         counts = {}
         for table in SUMMARY_TABLES:
             row = self._one(f"SELECT COUNT(*) AS count FROM {table}")
@@ -205,11 +208,11 @@ class StaticGameDataDao(StaticGameDataExtendedQueriesMixin):
                 value = json.loads(row["value_json"])
             except (TypeError, json.JSONDecodeError) as exc:
                 raise StaticGameDataError(
-                    f"静态设置默认值 {row['setting_key']!r} 不是有效 JSON"
+                    tr("静态设置默认值 {key} 不是有效 JSON", key=repr(row["setting_key"]))
                 ) from exc
             if not isinstance(value, dict):
                 raise StaticGameDataError(
-                    f"静态设置默认值 {row['setting_key']!r} 不是 JSON 对象"
+                    tr("静态设置默认值 {key} 不是 JSON 对象", key=repr(row["setting_key"]))
                 )
             defaults[str(row["setting_key"])] = value
         return defaults

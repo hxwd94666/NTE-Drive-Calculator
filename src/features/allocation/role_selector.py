@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 
+from src.i18n import tr, display_term
 from src.integrations.bundled_resources import bundled_config_dir
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
@@ -63,7 +64,7 @@ class PriorityRoleButton(QPushButton):
     """Role chip button that can be clicked to remove or dragged to reorder."""
 
     def __init__(self, selector: "RoleSelector", role: str, index: int):
-        super().__init__(role)
+        super().__init__(display_term(role))
         self.selector = selector
         self.role = role
         self.index = index
@@ -170,27 +171,27 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索角色（支持拼音）...")
+        self.search.setPlaceholderText(tr("搜索角色（支持拼音）..."))
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._filter)
         search_row.addWidget(self.search, 1)
 
-        primary_reset_btn = QPushButton("重置")
+        primary_reset_btn = QPushButton(tr("重置"))
         primary_reset_btn.setObjectName("btnDanger")
         primary_reset_btn.clicked.connect(self.reset_selection)
         search_row.addWidget(primary_reset_btn)
 
-        primary_restore_btn = QPushButton("恢复")
+        primary_restore_btn = QPushButton(tr("恢复"))
         primary_restore_btn.setObjectName("btnAction")
         primary_restore_btn.clicked.connect(self.restore_temporary_priority_config)
         search_row.addWidget(primary_restore_btn)
 
-        primary_save_btn = QPushButton("保存")
+        primary_save_btn = QPushButton(tr("保存"))
         primary_save_btn.setObjectName("btnAction")
         primary_save_btn.clicked.connect(lambda _checked=False: self.save_priority_config())
         search_row.addWidget(primary_save_btn)
 
-        primary_load_btn = QPushButton("读取")
+        primary_load_btn = QPushButton(tr("读取"))
         primary_load_btn.setObjectName("btnAction")
         primary_load_btn.clicked.connect(self.load_priority_config)
         search_row.addWidget(primary_load_btn)
@@ -301,7 +302,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             if not query or match_pinyin(name, query)
         ]
         if not visible_indexes:
-            empty = QLabel("未选择角色")
+            empty = QLabel(tr("未选择角色"))
             empty.setStyleSheet(themed_style("color:#8b949e;border:none;font-size:12px"))
             self.priority_layout.addWidget(empty, 0, 0)
             return
@@ -326,7 +327,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
 
             name_btn = PriorityRoleButton(self, name, index)
             name_btn.setObjectName("btnSm")
-            name_btn.setToolTip("点击移出当前优先级；拖动可调整顺序")
+            name_btn.setToolTip(tr("点击移出当前优先级；拖动可调整顺序"))
             name_btn.setFixedWidth(self._priority_role_name_width())
             name_size = self._priority_role_name_font_size(name)
             name_btn.setStyleSheet(
@@ -338,7 +339,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             )
             item_layout.addWidget(name_btn)
 
-            manage_btn = QPushButton("管理")
+            manage_btn = QPushButton(tr("管理"))
             manage_btn.setObjectName("btnSm")
             manage_btn.setFixedSize(48, 28)
             manage_btn.setStyleSheet(
@@ -374,7 +375,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
                         "background:#ffffff;border-radius:6px;font-weight:700}"
                         "QPushButton:hover{background:#f6f8fa;border-color:#0969da}"
                     )
-                link_btn.setToolTip(">：严格优先；>>：批次边界；=：同批次平级。点击循环切换。")
+                link_btn.setToolTip(tr(">：严格优先；>>：批次边界；=：同批次平级。点击循环切换。"))
                 link_btn.clicked.connect(lambda _checked=False, pos=index: self._cycle_priority_link(pos))
                 unit_layout.addWidget(link_btn)
             unit.setFixedSize(unit.sizeHint())
@@ -391,7 +392,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         layout.setContentsMargins(7, 4, 7, 4)
         layout.setSpacing(0)
 
-        name_label = QLabel(name)
+        name_label = QLabel(display_term(name))
         name_label.setAlignment(Qt.AlignCenter)
         name_label.setStyleSheet(themed_style("font-size:12px;font-weight:700;border:none;background:transparent;color:#c9d1d9"))
         layout.addWidget(name_label, 1)
@@ -520,17 +521,25 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self.orderChanged.emit()
 
     def _show_help(self, title, text):
+        # Help copy lives in module-level constants; translate at call time.
+        title, text = tr(title), tr(text)
         if self._help_callback:
             self._help_callback(self, title, text)
         else:
             QMessageBox.information(self, title, text)
 
     def _fill_search_combo(self, combo: SearchableComboBox, values: list[str], current: str | None = None):
+        # The label is translated; item data keeps the Chinese key so selection
+        # and saving still round-trip through resolve_priority_choice().
         for value in values:
-            combo.addItem(value, value)
+            combo.addItem(display_term(value), value)
         combo.refresh_search_items()
         if current and current in values:
-            combo.setCurrentText(current)
+            index = combo.findData(current)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            else:
+                combo.setCurrentText(display_term(current))
         else:
             combo.setCurrentIndex(-1)
             combo.setEditText("")
@@ -559,7 +568,9 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         separator: str,
         empty_text: str = "Default",
     ):
-        text = empty_text if not selected else separator.join(selected)
+        text = empty_text if not selected else separator.join(
+            display_term(value) for value in selected
+        )
         label.setText(text)
         label.setToolTip(text)
 
@@ -585,10 +596,10 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self._fill_search_combo(combo, choices)
         row.addWidget(combo, 1)
 
-        add_btn = QPushButton("添加")
+        add_btn = QPushButton(tr("添加"))
         add_btn.setObjectName("btnAction")
         add_btn.setFixedWidth(60)
-        clear_btn = QPushButton("清空")
+        clear_btn = QPushButton(tr("清空"))
         clear_btn.setObjectName("btnDanger")
         clear_btn.setFixedWidth(74)
         row.addWidget(add_btn)

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.context import AppContext
 from src.app.theme import current_style_sheet
 from src.features.scanning.file_lifecycle import IMAGE_EXTS
@@ -66,13 +67,13 @@ class OnboardingGuide:
         if not images:
             QMessageBox.warning(
                 self._parent,
-                "使用教程",
-                "未找到教程图片，请检查 config/templates/guide。",
+                tr("使用教程"),
+                tr("未找到教程图片，请检查 config/templates/guide。"),
             )
             return
 
         dialog = QDialog(self._parent)
-        dialog.setWindowTitle("使用教程")
+        dialog.setWindowTitle(tr("使用教程"))
         dialog.setMinimumSize(760, 660)
         dialog.setStyleSheet(current_style_sheet())
         layout = QVBoxLayout(dialog)
@@ -120,7 +121,7 @@ class OnboardingGuide:
         navigation.addWidget(next_button)
         layout.addLayout(navigation)
 
-        dont_show = QCheckBox("不再自动显示")
+        dont_show = QCheckBox(tr("不再自动显示"))
         dont_show.setChecked(auto)
         layout.addWidget(dont_show)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok)

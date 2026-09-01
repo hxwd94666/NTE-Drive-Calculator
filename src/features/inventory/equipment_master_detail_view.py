@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.theme import themed_style
 from src.features.inventory.equipment_plan_renderer import (
     _allocation_lock_icon,
@@ -128,7 +129,7 @@ def _asset_catalog(window: Any) -> GameUiAssetCatalog | None:
 
 def _role_status(state: dict[str, Any]) -> str:
     score = float(state.get(ROLE_TOTAL_SCORE) or 0.0)
-    return f"评分 {score:.1f}"
+    return tr("评分 {score}", score=f"{score:.1f}")
 
 
 def sorted_equipment_role_states(
@@ -178,11 +179,11 @@ def _role_badges(state: dict[str, Any]) -> list[tuple[str, str, str, str]]:
         if state.get("_game_existing_plan_locked"):
             badges.append(("", "对应计算配装已锁定", "#30363d", "lock"))
         if state.get("_game_imported"):
-            badges.append(("✓", "当前游戏配装已导入", "#238636", "imported"))
+            badges.append(("✓", tr("当前游戏配装已导入"), "#238636", "imported"))
         elif not state.get("_game_importable"):
-            badges.append(("!", str(state.get("_game_reason") or "游戏配装不完整"), "#9e6a03", "incomplete"))
+            badges.append(("!", str(state.get("_game_reason") or tr("游戏配装不完整")), "#9e6a03", "incomplete"))
         else:
-            tip = str(state.get("_game_reason") or "可导入为计算配装")
+            tip = str(state.get("_game_reason") or tr("可导入为计算配装"))
             if state.get("_game_existing_plan_locked"):
                 tip += "（需先解除计算配装锁定）"
             badges.append(("↓", tip, "#1f6feb", "importable"))
@@ -208,7 +209,9 @@ def _apply_role_button_status(
         badge.deleteLater()
     badges = _role_badges(state)
     status_text = "、".join(badge[1] for badge in badges) or "暂无特殊状态"
-    button.setToolTip(f"{role_name}\n状态：{status_text}")
+    button.setToolTip(
+        tr("{role}\n状态：{status}", role=display_term(role_name), status=status_text)
+    )
     for index, badge_data in enumerate(badges):
         badge_text, badge_tip, badge_color, badge_kind = badge_data
         badge = QLabel(badge_text, button)
@@ -443,7 +446,7 @@ def show_equipment_master_detail(
         button.setIconSize(QSize(42, 42))
         button.setFixedSize(148, 60)
         button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        display_name = str(state.get("_display_name") or role_name)
+        display_name = display_term(str(state.get("_display_name") or role_name))
         button.setText(f"{display_name}\n{_role_status(state)}")
         character_id = state.get("_character_id")
         icon_path = (
@@ -456,7 +459,7 @@ def show_equipment_master_detail(
         slot_id = state.get("_loadout_slot_id")
         if slot_id is not None:
             manage_button = QToolButton(button)
-            manage_button.setToolTip("管理该角色的配装槽位")
+            manage_button.setToolTip(tr("管理该角色的配装槽位"))
             manage_button.setFixedSize(20, 20)
             manage_button.move(124, 36)
             manage_button.setStyleSheet(
@@ -544,8 +547,8 @@ def filter_equipment_master_detail(window: Any) -> None:
         if not text or match_pinyin(name, text)
     ]
     empty_message = (
-        "没有匹配的游戏内角色。"
+        tr("没有匹配的游戏内角色。")
         if getattr(window, "_equipment_mode", "saved") == "game"
-        else "没有匹配的已配装角色。"
+        else tr("没有匹配的已配装角色。")
     )
     show_equipment_master_detail(window, roles, empty_message=empty_message)

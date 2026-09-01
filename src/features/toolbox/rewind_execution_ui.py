@@ -8,6 +8,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QDialog, QMessageBox
 
+from src.i18n import tr
 from src.app.workers import WorkerThread
 from src.features.drive_assembly.rewind_execution import (
     RewindExecutionRequest,
@@ -32,7 +33,7 @@ class RewindExecutionUiMixin:
             saver(preferences)
         self._saved_rewind_shape_ids = tuple(shape_ids)
         self._saved_rewind_slots = tuple(self._serialize_rewind_slots())
-        self._save_plan_button.setText("方案已保存")
+        self._save_plan_button.setText(tr("方案已保存"))
 
     def _configure_rewind(self) -> None:
         dialog = RewindExecutionDialog(self, initial=self._rewind_options)
@@ -41,7 +42,7 @@ class RewindExecutionUiMixin:
         self._rewind_options = dialog.options()
         self._save_preferences()
         if self._rewind_options.drive_customization == "apply_plan" and len(self._saved_rewind_shape_ids) != 8:
-            self._start_rewind_button.setText("请先保存八槽方案")
+            self._start_rewind_button.setText(tr("请先保存八槽方案"))
             return
         self._start_rewind_execution()
 
@@ -64,8 +65,8 @@ class RewindExecutionUiMixin:
         if active_owner not in (None, self._rewind_hotkey_owner):
             QMessageBox.information(
                 self,
-                "进行倒带",
-                "当前全局停止键正由其他任务使用，请先停止该任务后再进行倒带。",
+                tr("进行倒带"),
+                tr("当前全局停止键正由其他任务使用，请先停止该任务后再进行倒带。"),
             )
             return
         stop_requested = threading.Event()
@@ -75,7 +76,7 @@ class RewindExecutionUiMixin:
                 on_stop=stop_requested.set,
             )
         self._start_rewind_button.setEnabled(False)
-        self._start_rewind_button.setText("倒带中…")
+        self._start_rewind_button.setText(tr("倒带中…"))
         self._prepare_rewind_game_foreground()
 
         def run() -> object:
@@ -115,19 +116,22 @@ class RewindExecutionUiMixin:
         draws = getattr(report, "planned_draws", 0)
         quality_remaining = tuple(getattr(report, "quality_remaining_currency", ()))
         if quality_remaining:
-            quality_labels = {"gold": "金", "purple": "紫", "blue": "蓝"}
+            quality_labels = {"gold": tr("金"), "purple": tr("紫"), "blue": tr("蓝")}
             remaining_text = "、".join(
-                f"{quality_labels.get(quality, quality)}剩{remaining}"
+                tr("{quality}剩{remaining}",
+                   quality=quality_labels.get(quality, quality), remaining=remaining)
                 for quality, remaining in quality_remaining
             )
         else:
-            remaining_text = f"剩余 {getattr(report, 'remaining_currency', 0)}"
-        self._start_rewind_button.setText(f"倒带完成 {draws} 次，{remaining_text}")
+            remaining_text = tr("剩余 {value}", value=getattr(report, "remaining_currency", 0))
+        self._start_rewind_button.setText(
+            tr("倒带完成 {draws} 次，{remaining}", draws=draws, remaining=remaining_text)
+        )
 
     def _on_rewind_error(self, message: str) -> None:
         self._restore_rewind_window()
         self._start_rewind_button.setEnabled(True)
-        self._start_rewind_button.setText("重新进行倒带")
+        self._start_rewind_button.setText(tr("重新进行倒带"))
         self._start_rewind_button.setToolTip(message)
 
     def _prepare_rewind_game_foreground(self) -> None:

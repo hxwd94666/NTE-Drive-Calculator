@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections import Counter
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+# 断言写的是源语言字符串，测试不能受本机语言偏好影响。
+os.environ.setdefault("NTE_UI_LANGUAGE", "zh_CN")
 CORE_MODULE_TOKENS = (
     "_boundaries",
     "_context",

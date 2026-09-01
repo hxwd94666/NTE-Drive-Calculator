@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
 from src.domain.allocation_rating import loadout_total_grade
 from src.features.weighted_allocation.result_equipment_card import (
@@ -125,7 +126,7 @@ def render_weighted_allocation_result(
     result = preview.result
     context = preview.context
     _clear_layout(window.weighted_result_layout)
-    card = window._card("计算结果")
+    card = window._card(tr("计算结果"))
     card_layout = card.layout()
     window._weighted_role_equip_buttons = []
     candidates = {candidate.uid: candidate for candidate in (context.candidates if context else ())}
@@ -206,7 +207,9 @@ class _LazyWeightedRoleCards(QWidget):
             )
             placeholder_layout = QVBoxLayout(placeholder)
             name = getattr(window, "_weighted_role_names", {}).get(option.character_id, "角色")
-            placeholder_layout.addWidget(QLabel(f"正在准备 {name} 的结果…"))
+            placeholder_layout.addWidget(
+                QLabel(tr("正在准备 {name} 的结果…", name=display_term(name)))
+            )
             placeholder_layout.addStretch()
             self._layout.addWidget(placeholder)
             self._pending[placeholder] = option
@@ -355,9 +358,9 @@ def _role_option_card(
     )
     role_header.addWidget(role_label)
     role_header.addStretch()
-    role_header.addWidget(_result_badge("评分", f"{option.score:.1f}", grade_color))
+    role_header.addWidget(_result_badge(tr("评分"), f"{option.score:.1f}", grade_color))
     role_header.addWidget(_result_badge("评级", grade, grade_color))
-    equip_button = QPushButton("装配")
+    equip_button = QPushButton(tr("装配"))
     equip_button.setObjectName("btnPrimary")
     equip_button.setEnabled(
         core is not None
@@ -394,7 +397,7 @@ def _role_option_card(
         detail,
     )
     if option.generated_board:
-        layout.addWidget(_section_label("拼图图纸:"))
+        layout.addWidget(_section_label(tr("拼图图纸:")))
         board_row = QHBoxLayout()
         board_row.setSpacing(18)
         board_row.setAlignment(Qt.AlignLeft | Qt.AlignTop)
@@ -421,7 +424,7 @@ def _role_option_card(
             candidate_map,
             detail=detail,
         )
-        layout.addWidget(_section_label(f"卡带 / 驱动 ({len(equipment_assignments)}件):"))
+        layout.addWidget(_section_label(tr("卡带 / 驱动 ({count}件):", count=len(equipment_assignments))))
         equipment_grid = QGridLayout()
         equipment_grid.setHorizontalSpacing(10)
         equipment_grid.setVerticalSpacing(10)

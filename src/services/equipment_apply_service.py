@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import time
 from typing import Any, Protocol
 
+from src.i18n import tr
 from src.integrations.nte_core import is_mods_plugin_busy_error
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
@@ -77,10 +78,11 @@ def _uid(value: Mapping[str, Any], field: str) -> dict[str, int]:
     for component in ("slot", "serial"):
         raw = value.get(component)
         if isinstance(raw, bool) or not isinstance(raw, int):
-            raise EquipmentApplyError(f"{field}.{component} 必须是整数")
+            raise EquipmentApplyError(tr("{field}.{component} 必须是整数", field=field, component=component))
         if raw <= 0 or raw >= MAX_UID_COMPONENT:
             raise EquipmentApplyError(
-                f"{field}.{component} 必须在 1 到 {MAX_UID_COMPONENT - 1} 之间"
+                tr("{field}.{component} 必须在 1 到 {limit} 之间",
+                   field=field, component=component, limit=MAX_UID_COMPONENT - 1)
             )
         result[component] = raw
     return result
@@ -142,8 +144,8 @@ class EquipmentApplyService:
                 previous_target = targets.setdefault(character_key, role_name)
                 if previous_target != role_name:
                     raise EquipmentApplyError(
-                        "极速全角色方案冲突："
-                        f"[{previous_target}] 与 [{role_name}] 指向同一个角色实例"
+                        tr("极速全角色方案冲突：[{first}] 与 [{second}] 指向同一个角色实例",
+                           first=previous_target, second=role_name)
                     )
         for role_name, plan in validated:
             for assignment in plan["assignments"]:
@@ -151,9 +153,9 @@ class EquipmentApplyService:
                 previous_role = occupied_by.setdefault(uid_pair, role_name)
                 if previous_role != role_name:
                     raise EquipmentApplyError(
-                        "极速全角色方案冲突："
-                        f"装备 UID {uid_pair} 同时被 [{previous_role}]、[{role_name}] 使用。"
-                        "请先在方案中替换其中一个装备后再执行。"
+                        tr("极速全角色方案冲突：装备 UID {uid} 同时被 [{first}]、[{second}] 使用。"
+                           "请先在方案中替换其中一个装备后再执行。",
+                           uid=uid_pair, first=previous_role, second=role_name)
                     )
 
     def _dispatch_with_busy_retry(
@@ -179,16 +181,16 @@ class EquipmentApplyService:
                     raise
                 logger.warning("{} 遇到装备 MOD 队列繁忙，正在重试：{}", operation, exc)
                 time.sleep(0.6)
-        raise EquipmentApplyError(f"{operation} 未能提交到装备 MOD")
+        raise EquipmentApplyError(tr("{operation} 未能提交到装备 MOD", operation=operation))
 
     def require_stable_snapshot(self) -> int:
         """Validate the live sync once and return the snapshot to pin for a job."""
         state = self.sync_service.state
         if not self.sync_service.is_running or state.phase not in {"listening", "collecting"}:
-            raise EquipmentApplyError("背包同步必须处于稳定监听状态才能一键装配")
+            raise EquipmentApplyError(tr("背包同步必须处于稳定监听状态才能一键装配"))
         snapshot_id = self.user_dao.current_inventory_snapshot_id()
         if snapshot_id is None:
-            raise EquipmentApplyError("当前账号还没有可用于极速装配的稳定背包快照")
+            raise EquipmentApplyError(tr("当前账号还没有可用于极速装配的稳定背包快照"))
         if state.last_snapshot_id != snapshot_id:
             # A guarded residual event may temporarily keep the UI state on
             # its earlier notification while the immutable current snapshot
@@ -253,10 +255,10 @@ class EquipmentApplyService:
         )
         if requested_id is not None:
             if requested_id not in present_ids:
-                requested_label = "女主" if requested_id == 1051 else "男主"
+                requested_label = tr("女主") if requested_id == 1051 else tr("男主")
                 raise EquipmentApplyError(
-                    f"当前稳定背包快照未包含{requested_label}主角实例 UID；"
-                    "请改为自动或选择当前账号实际主角"
+                    tr("当前稳定背包快照未包含{label}主角实例 UID；请改为自动或选择当前账号实际主角",
+                       label=requested_label)
                 )
             return (requested_id,)
         if len(present_ids) == 1:
@@ -299,7 +301,7 @@ class EquipmentApplyService:
             return {"slot": slot, "serial": serial}
         if len(current_candidates) > 1:
             raise EquipmentApplyError(
-                f"当前稳定背包中角色 {character_id} 对应多个角色实例 UID"
+                tr("当前稳定背包中角色 {role} 对应多个角色实例 UID", role=character_id)
             )
 
         # A manual selection remains useful only for old snapshots collected
@@ -314,7 +316,7 @@ class EquipmentApplyService:
             return {"slot": slot, "serial": serial}
         if len(manual_candidates) > 1:
             raise EquipmentApplyError(
-                f"角色 {character_id} 存在多个手动保存的实例 UID，请在装配前整理映射"
+                tr("角色 {role} 存在多个手动保存的实例 UID，请在装配前整理映射", role=character_id)
             )
 
         # nte-core 0.3.5 的角色列表在实际使用中可能发生临时缩短（例如同一
@@ -340,12 +342,12 @@ class EquipmentApplyService:
             return {"slot": slot, "serial": serial}
         if len(cached_candidates) > 1:
             raise EquipmentApplyError(
-                f"角色 {character_id} 在账号实例缓存中存在多个 UID，"
-                "请先在一键装配中手动选择角色实例并保存映射"
+                tr("角色 {role} 在账号实例缓存中存在多个 UID，"
+                   "请先在一键装配中手动选择角色实例并保存映射", role=character_id)
             )
         raise EquipmentApplyError(
-            "当前稳定背包和该账号的角色实例缓存均未包含该角色 UID；"
-            "请启动背包同步并等待 nte-core 完成一次稳定快照"
+            tr("当前稳定背包和该账号的角色实例缓存均未包含该角色 UID；"
+               "请启动背包同步并等待 nte-core 完成一次稳定快照")
         )
 
     @staticmethod
@@ -364,11 +366,11 @@ class EquipmentApplyService:
             virtual = isinstance(raw_assignment, Mapping) and bool(raw_assignment.get("virtual"))
             if virtual or int(assignment.get("uid_slot") or 0) <= 0:
                 raise EquipmentApplyError(
-                    "方案包含虚拟补位驱动（slot=0），它不属于真实背包，不能极速装配；"
-                    "请重新计算并保存完整方案"
+                    tr("方案包含虚拟补位驱动（slot=0），它不属于真实背包，不能极速装配；"
+                       "请重新计算并保存完整方案")
                 )
         if not 1 <= len(modules) <= 64 or len(cores) > 1:
-            raise EquipmentApplyError("装配方案必须包含 1..64 个驱动，且至多包含 1 个核心")
+            raise EquipmentApplyError(tr("装配方案必须包含 1..64 个驱动，且至多包含 1 个核心"))
         return modules, cores
 
     def validate_plan_for_fast_apply(
@@ -384,10 +386,10 @@ class EquipmentApplyService:
 
         snapshot_id = int(stable_snapshot_id)
         if self.user_dao.inventory_snapshot_summary(snapshot_id) is None:
-            raise EquipmentApplyError("指定的稳定背包快照不存在")
+            raise EquipmentApplyError(tr("指定的稳定背包快照不存在"))
         plan = self.user_dao.get_loadout_plan(plan_id)
         if plan is None:
-            raise EquipmentApplyError(f"装配方案 {plan_id} 不存在")
+            raise EquipmentApplyError(tr("装配方案 {plan} 不存在", plan=plan_id))
         modules, cores = self._validate_native_plan_assignments(plan)
         inventory_by_uid = {
             (item["uid_serial"], item["uid_slot"]): item
@@ -396,11 +398,11 @@ class EquipmentApplyService:
         for assignment in modules:
             uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
             if inventory_by_uid.get(uid_pair, {}).get("kind") != "module":
-                raise EquipmentApplyError(f"方案驱动 UID {uid_pair} 不在当前稳定背包中")
+                raise EquipmentApplyError(tr("方案驱动 UID {uid} 不在当前稳定背包中", uid=uid_pair))
         for assignment in cores:
             uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
             if inventory_by_uid.get(uid_pair, {}).get("kind") != "core":
-                raise EquipmentApplyError(f"方案核心 UID {uid_pair} 不在当前稳定背包中")
+                raise EquipmentApplyError(tr("方案核心 UID {uid} 不在当前稳定背包中", uid=uid_pair))
         return plan
 
     def verify_plan_in_snapshot(
@@ -453,7 +455,7 @@ class EquipmentApplyService:
 
         plan = self.user_dao.get_loadout_plan(int(plan_id))
         if plan is None:
-            raise EquipmentApplyError("指定的装配方案不存在")
+            raise EquipmentApplyError(tr("指定的装配方案不存在"))
         return frozenset(
             (int(item["uid_slot"]), int(item["uid_serial"]))
             for item in plan.get("assignments") or ()
@@ -475,7 +477,7 @@ class EquipmentApplyService:
 
         plan = self.user_dao.get_loadout_plan(int(plan_id))
         if plan is None:
-            raise EquipmentApplyError("指定的装配方案不存在")
+            raise EquipmentApplyError(tr("指定的装配方案不存在"))
         assignments = plan.get("assignments") or ()
         modules = [item for item in assignments if item.get("kind") == "module"]
         cores = [item for item in assignments if item.get("kind") == "core"]
@@ -528,13 +530,13 @@ class EquipmentApplyService:
         hello = self.sync_service.core_hello_result or {}
         capabilities = hello.get("capabilities", [])
         if not isinstance(capabilities, list) or "equipment" not in capabilities:
-            raise EquipmentApplyError("当前 nte-core 不支持 equipment 能力")
+            raise EquipmentApplyError(tr("当前 nte-core 不支持 equipment 能力"))
         if stable_snapshot_id is None:
             before_snapshot_id = self.require_stable_snapshot()
         else:
             before_snapshot_id = int(stable_snapshot_id)
             if self.user_dao.inventory_snapshot_summary(before_snapshot_id) is None:
-                raise EquipmentApplyError("指定的稳定背包快照不存在")
+                raise EquipmentApplyError(tr("指定的稳定背包快照不存在"))
 
         plan = self.validate_plan_for_fast_apply(
             plan_id, stable_snapshot_id=before_snapshot_id,
@@ -557,17 +559,17 @@ class EquipmentApplyService:
         for index, assignment in enumerate(modules):
             uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
             if uid_pair in selected_uids:
-                raise EquipmentApplyError("方案中存在重复装备 UID")
+                raise EquipmentApplyError(tr("方案中存在重复装备 UID"))
             selected_uids.add(uid_pair)
             item = by_uid.get(uid_pair)
             if item is None or item["kind"] != "module":
-                raise EquipmentApplyError(f"方案驱动 UID {uid_pair} 不在当前稳定背包中")
+                raise EquipmentApplyError(tr("方案驱动 UID {uid} 不在当前稳定背包中", uid=uid_pair))
             if assignment.get("rotation") not in (None, 0):
-                raise EquipmentApplyError("nte-core 一键装配不接受旋转参数")
+                raise EquipmentApplyError(tr("nte-core 一键装配不接受旋转参数"))
             row = assignment.get("target_row")
             column = assignment.get("target_column")
             if row not in range(1, 6) or column not in range(1, 6):
-                raise EquipmentApplyError(f"第 {index + 1} 个驱动位置必须在 1..5")
+                raise EquipmentApplyError(tr("第 {index} 个驱动位置必须在 1..5", index=index + 1))
             placements.append(
                 {
                     "equipment": _item_uid(item),
@@ -580,12 +582,12 @@ class EquipmentApplyService:
         if core_assignment is not None:
             core_pair = (core_assignment["uid_serial"], core_assignment["uid_slot"])
             if core_pair in selected_uids:
-                raise EquipmentApplyError("方案中存在重复装备 UID")
+                raise EquipmentApplyError(tr("方案中存在重复装备 UID"))
             core_item = by_uid.get(core_pair)
             if core_item is None or core_item["kind"] != "core":
-                raise EquipmentApplyError(f"方案核心 UID {core_pair} 不在当前稳定背包中")
+                raise EquipmentApplyError(tr("方案核心 UID {uid} 不在当前稳定背包中", uid=core_pair))
             if core_assignment.get("rotation") not in (None, 0):
-                raise EquipmentApplyError("核心不能包含旋转参数")
+                raise EquipmentApplyError(tr("核心不能包含旋转参数"))
 
         resolved_character_uid = self.resolve_character_uid(
             effective_character_id, before_snapshot_id, character_uid
@@ -634,7 +636,7 @@ class EquipmentApplyService:
                 lambda: self.sync_service.unequip_all(
                     character=resolved_character_uid
                 ),
-                operation="卸下角色现有装备",
+                operation=tr("卸下角色现有装备"),
                 settle_seconds=0.7,
             )
 
@@ -646,7 +648,7 @@ class EquipmentApplyService:
                     core=_item_uid(core_item),
                     timeout=timeout,
                 ),
-                operation="一键装配",
+                operation=tr("一键装配"),
                 settle_seconds=(
                     0.0
                     if verify_after_dispatch
@@ -686,7 +688,7 @@ class EquipmentApplyService:
                     if move_existing
                     else self.sync_service.equip_module
                 )
-                dispatch_name = "移动已装备驱动" if move_existing else "装备驱动"
+                dispatch_name = tr("移动已装备驱动") if move_existing else tr("装备驱动")
                 if verify_after_dispatch:
                     rpc_item_result = dispatcher(
                         character=resolved_character_uid,
@@ -737,7 +739,7 @@ class EquipmentApplyService:
                     verified=False,
                 )
         if after_snapshot_id is None or after_snapshot_id <= before_snapshot_id:
-            raise EquipmentApplyError("核心组件没有返回装配后的新稳定快照")
+            raise EquipmentApplyError(tr("核心组件没有返回装配后的新稳定快照"))
 
         mismatch = (
             plan_mismatch(
@@ -756,7 +758,7 @@ class EquipmentApplyService:
             )
         )
         if mismatch is not None:
-            raise EquipmentApplyError(f"新快照未确认目标配装：{mismatch}")
+            raise EquipmentApplyError(tr("新快照未确认目标配装：{mismatch}", mismatch=mismatch))
         return EquipmentApplyResult(
             plan_id=plan["plan_id"],
             before_snapshot_id=before_snapshot_id,

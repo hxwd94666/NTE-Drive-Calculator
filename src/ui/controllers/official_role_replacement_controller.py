@@ -8,6 +8,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from src.i18n import tr
 from src.domain.allocation_rating import allocation_grade
 from src.domain.loadout_plan_scores import assignment_score_key
 from src.features.inventory.warehouse import warehouse_item_view
@@ -39,8 +40,8 @@ def show_official_role_replacement(
     if not candidates:
         QMessageBox.information(
             window,
-            "替换优化",
-            "没有同套装、同形状且未被当前方案使用的可替换装备。",
+            tr("替换优化"),
+            tr("没有同套装、同形状且未被当前方案使用的可替换装备。"),
         )
         return False
 
@@ -151,5 +152,5 @@ def show_official_role_replacement(
         return False
     if on_saved is not None:
         on_saved()
-    QMessageBox.information(window, "替换优化", "已保存为新的配装方案。")
+    QMessageBox.information(window, tr("替换优化"), tr("已保存为新的配装方案。"))
     return True

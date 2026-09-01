@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr, display_term
 from src.app.context import AppContext
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
@@ -63,22 +64,22 @@ class BlueprintPage:
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(12)
         header = QHBoxLayout()
-        return_button = QPushButton("← 返回角色")
+        return_button = QPushButton(tr("← 返回角色"))
         return_button.setObjectName("returnToRoleButton")
         return_button.clicked.connect(lambda: self._navigate("my_role"))
         header.addWidget(return_button)
         self._search = QLineEdit()
-        self._search.setPlaceholderText("搜索角色图纸（支持拼音）…")
+        self._search.setPlaceholderText(tr("搜索角色图纸（支持拼音）…"))
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self.filter)
         header.addWidget(self._search, 1)
-        refresh_button = QPushButton("生成图纸")
+        refresh_button = QPushButton(tr("生成图纸"))
         refresh_button.setObjectName("btnAction")
         refresh_button.clicked.connect(self.refresh)
         header.addWidget(refresh_button)
         layout.addLayout(header)
         self._status = QLabel(
-            "图纸由本地求解器生成；官方角色读取发行模板，自建角色读取当前账号保存的底盘与默认套装。"
+            tr("图纸由本地求解器生成；官方角色读取发行模板，自建角色读取当前账号保存的底盘与默认套装。")
         )
         self._status.setStyleSheet(themed_style("color:#8b949e"))
         layout.addWidget(self._status)
@@ -94,8 +95,8 @@ class BlueprintPage:
     def refresh(self) -> None:
         content_layout, status = self._require_widgets()
         self._clear_content(content_layout)
-        status.setText("正在生成官方与自建角色图纸…")
-        content_layout.addWidget(QLabel("正在组合驱动并求解盘面…"))
+        status.setText(tr("正在生成官方与自建角色图纸…"))
+        content_layout.addWidget(QLabel(tr("正在组合驱动并求解盘面…")))
         dependencies = BlueprintDependencies.from_app_context(self._app_context)
         controller = BlueprintController(dependencies)
         worker = WorkerThread(target=controller.generate, parent=self._widget)
@@ -118,7 +119,7 @@ class BlueprintPage:
         if self._content_layout is not None:
             self._clear_content(self._content_layout)
         if self._status is not None:
-            self._status.setText("账号已切换，请重新生成角色图纸。")
+            self._status.setText(tr("账号已切换，请重新生成角色图纸。"))
 
     def _render_error(
         self,
@@ -129,7 +130,7 @@ class BlueprintPage:
             BlueprintDependencies.from_app_context(self._app_context)
         ):
             _, status = self._require_widgets()
-            status.setText(f"生成图纸失败：{error}")
+            status.setText(tr("生成图纸失败：{error}", error=error))
 
     def _render(
         self,
@@ -146,7 +147,8 @@ class BlueprintPage:
         )
         _, status = self._require_widgets()
         status.setText(
-            f"已为 {len(self._data)} 名角色生成 {plan_count} 个图纸方案。"
+            tr("已为 {roles} 名角色生成 {plans} 个图纸方案。",
+               roles=len(self._data), plans=plan_count)
         )
         self._draw()
 
@@ -155,7 +157,7 @@ class BlueprintPage:
         self._clear_content(content_layout)
         if not self._data:
             content_layout.addWidget(
-                QLabel("暂无可生成图纸的角色，请点击“生成图纸”。")
+                QLabel(tr("暂无可生成图纸的角色，请点击“生成图纸”。"))
             )
             return
         search_text = filter_text.strip()
@@ -182,7 +184,7 @@ class BlueprintPage:
                 )
             )
         if not shown:
-            content_layout.addWidget(QLabel("没有匹配的角色图纸。"))
+            content_layout.addWidget(QLabel(tr("没有匹配的角色图纸。")))
 
     def _build_role_group(
         self,
@@ -193,7 +195,10 @@ class BlueprintPage:
     ) -> QGroupBox:
         blueprints = role_data["blueprints"]
         group = QGroupBox(
-            f"{role_name}  —  {role_data['suit_name']}  ({len(blueprints)} 套图纸)"
+            tr("{role}  —  {suit}  ({count} 套图纸)",
+               role=display_term(str(role_name)),
+               suit=display_term(str(role_data["suit_name"])),
+               count=len(blueprints))
         )
         group.setStyleSheet(
             themed_style(
@@ -217,7 +222,7 @@ class BlueprintPage:
         hidden_count = len(blueprints) - len(visible)
         if hidden_count > 0:
             more = QLabel(
-                f"仅展示前 4 套图纸；另有 {hidden_count} 套可行方案未展示。"
+                tr("仅展示前 4 套图纸；另有 {count} 套可行方案未展示。", count=hidden_count)
             )
             more.setStyleSheet(
                 themed_style("color:#8b949e;font-size:11px")
@@ -240,7 +245,7 @@ class BlueprintPage:
         extras_layout = QVBoxLayout(extras)
         extras_layout.setContentsMargins(0, 0, 0, 0)
         extras_layout.setSpacing(2)
-        extras_layout.addWidget(QLabel(f"方案 {index} · 额外形状"))
+        extras_layout.addWidget(QLabel(tr("方案 {index} · 额外形状", index=index)))
         image_row = QHBoxLayout()
         image_row.setSpacing(4)
         for shape_id in blueprint.get("extra_pieces", [])[:3]:

@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from src.i18n import tr
 from src.observability import log_event
 from src.services.account_settings_service import AccountSettingsService
 from src.services.raw_capture_retention import prune_raw_capture_files
@@ -105,13 +106,13 @@ def run_inventory_sync(service: Any) -> None:
                 )
             service._publish(
                 "waiting" if current_summary is None else "listening",
-                "等待进入游戏并接收完整背包"
+                tr("等待进入游戏并接收完整背包")
                 if current_summary is None
                 else (
-                    "当前为旧版背包快照，未包含独立角色实例；"
-                    "正在等待新 nte-core 写入完整角色快照"
+                    tr("当前为旧版背包快照，未包含独立角色实例；"
+                       "正在等待新 nte-core 写入完整角色快照")
                     if not current_has_character_instances
-                    else "背包已同步，正在后台监听变化"
+                    else tr("背包已同步，正在后台监听变化")
                 ),
                 running=True,
                 capturing=True,
@@ -188,7 +189,7 @@ def run_inventory_sync(service: Any) -> None:
                         )
                         service._publish(
                             "collecting",
-                            f"已接收 {result.item_count} 件，等待背包内容稳定",
+                            tr("已接收 {count} 件，等待背包内容稳定", count=result.item_count),
                             running=True,
                             capturing=True,
                             pending_item_count=result.item_count,
@@ -206,11 +207,11 @@ def run_inventory_sync(service: Any) -> None:
                         service._publish(
                             "listening",
                             (
-                                "收到与旧版快照相同的背包内容；其中未包含独立角色实例，"
-                                "极速装配仍不可用。请确认本次运行的是新 nte-core，"
-                                "并等待其输出带 characters 的完整快照"
+                                tr("收到与旧版快照相同的背包内容；其中未包含独立角色实例，"
+                                   "极速装配仍不可用。请确认本次运行的是新 nte-core，"
+                                   "并等待其输出带 characters 的完整快照")
                                 if not current_has_character_instances
-                                else "背包变化已撤销，继续后台监听"
+                                else tr("背包变化已撤销，继续后台监听")
                             ),
                             running=True,
                             capturing=True,
@@ -225,7 +226,7 @@ def run_inventory_sync(service: Any) -> None:
                     continue
                 service._publish(
                     "saving",
-                    f"背包已稳定，正在保存 {stable.item_count} 件",
+                    tr("背包已稳定，正在保存 {count} 件", count=stable.item_count),
                     running=True,
                     capturing=True,
                     pending_item_count=stable.item_count,
@@ -248,7 +249,7 @@ def run_inventory_sync(service: Any) -> None:
                     retry_save_at = time.monotonic() + 2.0
                     service._publish(
                         "error",
-                        "保存稳定背包失败，后台将自动重试",
+                        tr("保存稳定背包失败，后台将自动重试"),
                         running=True,
                         capturing=True,
                         error=f"{type(exc).__name__}: {exc}",
@@ -316,7 +317,7 @@ def run_inventory_sync(service: Any) -> None:
                 retry_save_at = 0.0
                 service._publish(
                     "listening",
-                    "背包同步完成，正在后台监听变化",
+                    tr("背包同步完成，正在后台监听变化"),
                     running=True,
                     capturing=True,
                     pending_item_count=None,
@@ -344,7 +345,7 @@ def run_inventory_sync(service: Any) -> None:
         )
         service._publish(
             "error",
-            "背包同步服务已停止",
+            tr("背包同步服务已停止"),
             running=False,
             capturing=False,
             error=f"{type(exc).__name__}: {exc}",
@@ -374,12 +375,12 @@ def run_inventory_sync(service: Any) -> None:
             log_event(
                 "INFO",
                 "inventory_sync.stopped",
-                "背包同步已停止",
+                tr("背包同步已停止"),
                 service._operation_context,
             )
             service._publish(
                 "stopped",
-                "背包同步已停止",
+                tr("背包同步已停止"),
                 running=False,
                 capturing=False,
                 pending_item_count=None,

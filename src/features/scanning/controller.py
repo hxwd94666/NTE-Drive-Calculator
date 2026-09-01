@@ -10,6 +10,7 @@ from typing import Any
 from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton, QWidget
 
+from src.i18n import tr
 from src.app.context import AppContext
 from src.features.allocation.runner import AllocationController
 from src.features.allocation.filter_settings_dialog import AllocationFilterSettingsDialog
@@ -257,7 +258,7 @@ class ScanningController(QObject):
         except Exception as exc:
             QMessageBox.warning(
                 self.dialog_parent,
-                "保存过滤设置失败",
+                tr("保存过滤设置失败"),
                 str(exc),
             )
             return
@@ -270,7 +271,7 @@ class ScanningController(QObject):
         except AllocationFilterValidationError as exc:
             QMessageBox.warning(
                 self.dialog_parent,
-                "过滤设置无效",
+                tr("过滤设置无效"),
                 str(exc),
             )
             return False
@@ -280,7 +281,7 @@ class ScanningController(QObject):
         label = getattr(self, "allocation_filter_summary", None)
         if label is None:
             return
-        quality_names = {"Blue": "蓝色", "Purple": "紫色", "Gold": "金色"}
+        quality_names = {"Blue": tr("蓝色"), "Purple": tr("紫色"), "Gold": tr("金色")}
         type_names = {"tape": "卡带", "drive": "驱动"}
         qualities = "、".join(
             quality_names[value]
@@ -292,7 +293,7 @@ class ScanningController(QObject):
             for value in ("tape", "drive")
             if value in self._allocation_filter_settings.item_types
         ) or "未选择"
-        label.setText(f"过滤设置：品质 {qualities}；类型 {item_types}")
+        label.setText(tr("过滤设置：品质 {qualities}；类型 {types}", qualities=qualities, types=item_types))
 
     def _start_scan_hotkeys(self, mode: str) -> None:
         """Bind this scan session without exposing hotkeys to other features."""

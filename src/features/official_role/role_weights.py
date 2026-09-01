@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.i18n import tr, display_term
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGroupBox,
@@ -36,21 +37,21 @@ _WEIGHT_PROPERTY_CHOICES = (
     ("倾陷强度", "UnbalIntensityBase"),
 )
 _WEIGHT_LABEL_BY_PROPERTY = {
-    property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
+    property_id: display_term(label) for label, property_id in _WEIGHT_PROPERTY_CHOICES
 }
 
 
 def _build_weight_group(
     window, character_id: int, detail: dict, editor: dict,
 ) -> QGroupBox:
-    group = QGroupBox("词条权重（只读）")
+    group = QGroupBox(tr("词条权重（只读）"))
     group.setObjectName("officialRoleWeightGroup")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
     top = QHBoxLayout()
-    top.addWidget(QLabel("当前面板权重:"))
+    top.addWidget(QLabel(tr("当前面板权重:")))
     source_label = QLabel(
-        "直伤公式词条按当前边际收益归一化；未参与直伤公式的词条保留基础权重"
+        tr("直伤公式词条按当前边际收益归一化；未参与直伤公式的词条保留基础权重")
     )
     source_label.setStyleSheet("color:#8b949e;font-size:11px;")
     top.addWidget(source_label)
@@ -90,7 +91,9 @@ def _build_weight_group(
         )
         table = QTableWidget(len(ordered_ids), 4)
         table.setObjectName("officialRoleWeightTable")
-        table.setHorizontalHeaderLabels(["词条", "基础权重", "直伤权重", "最终权重"])
+        table.setHorizontalHeaderLabels(
+            [tr("词条"), tr("基础权重"), tr("直伤权重"), tr("最终权重")]
+        )
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectRows)
         table.verticalHeader().setVisible(False)

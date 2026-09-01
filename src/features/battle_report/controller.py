@@ -10,6 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from src.i18n import tr
 from src.app.context import AppContext
 from src.domain.battle_report import (
     BattleCaptureState,
@@ -119,8 +120,8 @@ class BattleReportController(QObject):
         except Exception as error:
             QMessageBox.warning(
                 self._dialog_parent,
-                "无法开始战报",
-                f"读取抓包设置失败，未启动战报采集：{error}",
+                tr("无法开始战报"),
+                tr("读取抓包设置失败，未启动战报采集：{error}", error=error),
             )
             return
         configured_device = str(sync_settings.get("capture_device_id") or "").strip()
@@ -132,8 +133,8 @@ class BattleReportController(QObject):
                 self._resume_inventory = False
                 QMessageBox.warning(
                     self._dialog_parent,
-                    "无法开始战报",
-                    f"停止背包同步失败，未启动战报采集：{error}",
+                    tr("无法开始战报"),
+                    tr("停止背包同步失败，未启动战报采集：{error}", error=error),
                 )
                 return
         self._overlay_capture_active = True
@@ -194,7 +195,7 @@ class BattleReportController(QObject):
 
     def reset_account_state(self) -> None:
         if self.is_running():
-            raise RuntimeError("战报采集期间不能切换账号")
+            raise RuntimeError(tr("战报采集期间不能切换账号"))
         self._operation_token += 1
         self._service = None
         history_dialog = self._history_dialog
@@ -276,7 +277,7 @@ class BattleReportController(QObject):
             log_event(
                 "WARNING",
                 "battle_report.history_restore_failed",
-                "恢复上次战报失败",
+                tr("恢复上次战报失败"),
                 OperationContext.create(
                     "battle_report",
                     account_id=account.active_account_id,
@@ -295,7 +296,7 @@ class BattleReportController(QObject):
             return
         state = BattleCaptureState(
             phase="history",
-            message="已恢复上次保存的战报。",
+            message=tr("已恢复上次保存的战报。"),
             running=False,
             summary=stored.summary,
             persistence_status="loaded_history",
@@ -320,7 +321,7 @@ class BattleReportController(QObject):
             log_event(
                 "WARNING",
                 "battle_report.page_state_save_failed",
-                "保存战报页面状态失败",
+                tr("保存战报页面状态失败"),
                 OperationContext.create(
                     "battle_report",
                     account_id=self._app_context.account.active_account_id,
@@ -338,9 +339,9 @@ class BattleReportController(QObject):
         try:
             mutation = self._current_history_service().save_record(record_id)
         except Exception as error:
-            self._show_history_error("保存伤害结果失败", error)
+            self._show_history_error(tr("保存伤害结果失败"), error)
             return
-        self._apply_retention_mutation(mutation, message="战报已手动保存。")
+        self._apply_retention_mutation(mutation, message=tr("战报已手动保存。"))
 
     def _show_history(self) -> None:
         if self.is_running():
@@ -348,7 +349,7 @@ class BattleReportController(QObject):
         try:
             entries = self._current_history_service().list_entries()
         except Exception as error:
-            self._show_history_error("读取历史战报失败", error)
+            self._show_history_error(tr("读取历史战报失败"), error)
             return
         dialog = BattleReportHistoryDialog(
             game_ui_asset_root=self._asset_root,
@@ -368,18 +369,18 @@ class BattleReportController(QObject):
             history_service = self._current_history_service()
             stored = history_service.load_summary(battle_record_id)
             if stored is None:
-                raise RuntimeError("所选战报已经不存在")
+                raise RuntimeError(tr("所选战报已经不存在"))
             history_service.update_page_state(
                 battle_record_id=battle_record_id,
                 detail_scope="current",
             )
         except Exception as error:
-            self._show_history_error("读取战报详情失败", error)
+            self._show_history_error(tr("读取战报详情失败"), error)
             self._refresh_history_dialog()
             return
         state = BattleCaptureState(
             phase="history",
-            message="正在查看历史战报。",
+            message=tr("正在查看历史战报。"),
             running=False,
             summary=stored.summary,
             persistence_status="loaded_history",
@@ -400,20 +401,20 @@ class BattleReportController(QObject):
             history_service = self._current_history_service()
             if current_kind == "manual":
                 mutation = history_service.unmark_record(battle_record_id)
-                message = "战报已取消手动保存。"
+                message = tr("战报已取消手动保存。")
             else:
                 mutation = history_service.save_record(battle_record_id)
-                message = "战报已手动保存。"
+                message = tr("战报已手动保存。")
         except Exception as error:
-            self._show_history_error("更新战报保存状态失败", error)
+            self._show_history_error(tr("更新战报保存状态失败"), error)
             return
         self._apply_retention_mutation(mutation, message=message)
 
     def _delete_history_record(self, battle_record_id: int) -> None:
         answer = QMessageBox.question(
             self._history_dialog or self._dialog_parent,
-            "删除战报",
-            "确定删除这条战报吗？删除后不能恢复。",
+            tr("删除战报"),
+            tr("确定删除这条战报吗？删除后不能恢复。"),
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
@@ -424,7 +425,7 @@ class BattleReportController(QObject):
                 battle_record_id
             )
         except Exception as error:
-            self._show_history_error("删除战报失败", error)
+            self._show_history_error(tr("删除战报失败"), error)
             return
         if not deleted:
             self._refresh_history_dialog()
@@ -487,7 +488,7 @@ class BattleReportController(QObject):
         try:
             entries = self._current_history_service().list_entries()
         except Exception as error:
-            self._show_history_error("刷新历史战报失败", error)
+            self._show_history_error(tr("刷新历史战报失败"), error)
             return
         dialog.set_entries(entries)
 

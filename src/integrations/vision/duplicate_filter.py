@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
+
 import os
 import re
 
@@ -115,8 +117,10 @@ def process_image_file(
     recognized_count = recognized_sub_stat_count(item_data, valid_stats.keys())
     if recognized_count < 4:
         if recognized_count == 3:
-            raise RecoverableParseError("识别到 3 条有效副词条，等待用户补录 1 条", item_data, recognized_count)
-        raise ValueError("未识别到有效装备数据")
+            raise RecoverableParseError(
+                tr("识别到 3 条有效副词条，等待用户补录 1 条"), item_data, recognized_count
+            )
+        raise ValueError(tr("未识别到有效装备数据"))
     current_name = filename or os.path.basename(image_path)
     current_signature = processor._item_signature(item_data)
     current_fingerprint = image_fingerprint(image_path)

@@ -69,6 +69,16 @@ APPLICATION_PATHS = ApplicationPaths.from_roots(
 )
 os.environ[SHARED_DATABASE_ENV] = str(APPLICATION_PATHS.shared_database_path)
 
+# 语言必须在导入任何构建界面文案的模块之前激活，模块级 tr() 才会取到正确目录。
+from src.i18n import set_language, tr
+from src.services.global_language_settings_service import GlobalLanguageSettingsService
+
+GLOBAL_LANGUAGE_SETTINGS = GlobalLanguageSettingsService(
+    APPLICATION_PATHS.global_ui_preferences_file
+)
+# 测试与命令行可用 NTE_UI_LANGUAGE 固定语言，避免依赖本机偏好文件。
+set_language(os.environ.get("NTE_UI_LANGUAGE") or GLOBAL_LANGUAGE_SETTINGS.load())
+
 
 def _initialize_accounts():
     return ACCOUNT_MANAGER.initialize()
@@ -271,6 +281,8 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._account_settings.remove_legacy_theme_preference()
         self._global_theme_settings = GLOBAL_THEME_SETTINGS
         self._theme_preference = self._load_theme_preference(legacy_theme)
+        self._global_language_settings = GLOBAL_LANGUAGE_SETTINGS
+        self._language_preference = self._load_language_preference()
         self._load_hotkey_config()
         self.global_hotkey_manager = GlobalHotkeyManager(
             capture_hotkey=self._hk_capture,
@@ -553,8 +565,8 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         if self._equipment_assembly_is_running():
             QMessageBox.information(
                 self,
-                "装配任务运行中",
-                "当前装配任务仍在使用本账号的数据和游戏状态。请等待任务结束，或在自动装配中按 F12 停止后再切换账号。",
+                tr("装配任务运行中"),
+                tr("当前装配任务仍在使用本账号的数据和游戏状态。请等待任务结束，或在自动装配中按 F12 停止后再切换账号。"),
             )
             log_event(
                 "WARNING",
@@ -570,8 +582,8 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         ):
             QMessageBox.information(
                 self,
-                "视觉任务运行中",
-                "当前扫描或鉴定任务仍在使用本账号的截图与数据库。请等待任务结束或取消扫描后再切换账号。",
+                tr("视觉任务运行中"),
+                tr("当前扫描或鉴定任务仍在使用本账号的截图与数据库。请等待任务结束或取消扫描后再切换账号。"),
             )
             log_event(
                 "WARNING",
@@ -584,8 +596,8 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         if self.battle_report_controller.is_running():
             QMessageBox.information(
                 self,
-                "战报采集中",
-                "当前战报仍在使用本账号和 nte-core 会话。请先结束战报采集，再切换账号。",
+                tr("战报采集中"),
+                tr("当前战报仍在使用本账号和 nte-core 会话。请先结束战报采集，再切换账号。"),
             )
             log_event(
                 "WARNING",
@@ -697,7 +709,10 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
     try:
         from PySide6.QtWidgets import QMessageBox
 
-        QMessageBox.critical(None, "程序异常", f"发生未捕获的异常:\n\n{error_msg[:1000]}")
+        QMessageBox.critical(
+            None, tr("程序异常"),
+            tr("发生未捕获的异常:\n\n{error}", error=error_msg[:1000])
+        )
     except Exception as exc:
         logger.error(f"显示全局异常弹窗失败: {exc}")
 

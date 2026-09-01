@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.domain.warehouse_filter import WarehouseFilterSpec
@@ -134,21 +135,21 @@ def _page_warehouse(self):
     layout.setSpacing(10)
 
     title_row = QHBoxLayout()
-    title = QLabel("仓库")
+    title = QLabel(tr("仓库"))
     title.setStyleSheet(themed_style("font-size:18px;font-weight:700;color:#f0f6fc"))
     title_row.addWidget(title)
-    self.warehouse_summary = QLabel("读取背包稳定快照中…")
+    self.warehouse_summary = QLabel(tr("读取背包稳定快照中…"))
     self.warehouse_summary.setStyleSheet(themed_style("color:#8b949e;margin-left:8px"))
     title_row.addWidget(self.warehouse_summary)
-    self.warehouse_selection_label = QLabel("选中 0 件")
+    self.warehouse_selection_label = QLabel(tr("选中 0 件"))
     self.warehouse_selection_label.setStyleSheet(themed_style("color:#8b949e;margin-left:8px"))
     title_row.addWidget(self.warehouse_selection_label)
-    multi_select_hint = QLabel("（按住 CTRL 多选）")
+    multi_select_hint = QLabel(tr("（按住 CTRL 多选）"))
     multi_select_hint.setStyleSheet(themed_style("color:#8b949e"))
     title_row.addWidget(multi_select_hint)
-    self.warehouse_normal_btn = QPushButton("正常")
-    self.warehouse_lock_btn = QPushButton("锁定")
-    self.warehouse_discard_btn = QPushButton("弃置")
+    self.warehouse_normal_btn = QPushButton(tr("正常"))
+    self.warehouse_lock_btn = QPushButton(tr("锁定"))
+    self.warehouse_discard_btn = QPushButton(tr("弃置"))
     for button, target_state in (
         (self.warehouse_normal_btn, "normal"),
         (self.warehouse_lock_btn, "locked"),
@@ -161,12 +162,12 @@ def _page_warehouse(self):
         )
         title_row.addWidget(button)
     title_row.addStretch()
-    self.warehouse_manage_btn = QPushButton("管理")
+    self.warehouse_manage_btn = QPushButton(tr("管理"))
     self.warehouse_manage_btn.setObjectName("btnPrimary")
-    self.warehouse_manage_btn.setToolTip("按管理规则一键同步弃置/锁定状态")
+    self.warehouse_manage_btn.setToolTip(tr("按管理规则一键同步弃置/锁定状态"))
     self.warehouse_manage_btn.clicked.connect(self._open_warehouse_state_manager)
     title_row.addWidget(self.warehouse_manage_btn)
-    self.warehouse_save_btn = QPushButton("保存")
+    self.warehouse_save_btn = QPushButton(tr("保存"))
     self.warehouse_save_btn.setObjectName("btnPrimary")
     self.warehouse_save_btn.setStyleSheet(
         themed_style(
@@ -175,7 +176,7 @@ def _page_warehouse(self):
             "QPushButton:disabled{background:#30363d;color:#8b949e;}"
         )
     )
-    self.warehouse_save_btn.setToolTip("将手动修改的弃置/锁定状态写入游戏")
+    self.warehouse_save_btn.setToolTip(tr("将手动修改的弃置/锁定状态写入游戏"))
     self.warehouse_save_btn.setEnabled(True)
     self.warehouse_save_btn.clicked.connect(self._save_warehouse_state_changes)
     title_row.addWidget(self.warehouse_save_btn)
@@ -184,12 +185,12 @@ def _page_warehouse(self):
     filters = QHBoxLayout()
     filters.setSpacing(8)
     self.warehouse_search = QLineEdit()
-    self.warehouse_search.setPlaceholderText("搜索装备、套装、词条或已装备角色名…")
+    self.warehouse_search.setPlaceholderText(tr("搜索装备、套装、词条或已装备角色名…"))
     self.warehouse_search.setClearButtonEnabled(True)
     self.warehouse_search.setMinimumWidth(280)
     self.warehouse_search.textChanged.connect(self._apply_warehouse_filters)
     filters.addWidget(self.warehouse_search, 1)
-    self.warehouse_filter_btn = QPushButton("筛选")
+    self.warehouse_filter_btn = QPushButton(tr("筛选"))
     self.warehouse_filter_btn.setObjectName("warehouseFilterOpen")
     self.warehouse_filter_btn.clicked.connect(lambda: _open_warehouse_filter_drawer(self))
     filters.addWidget(self.warehouse_filter_btn)
@@ -218,7 +219,7 @@ def _page_warehouse(self):
         themed_style("#warehouseView{background:#0d1117;border:1px solid #21262d;border-radius:10px;padding:8px}")
     )
     layout.addWidget(self.warehouse_view, 1)
-    self.warehouse_hint = QLabel("仓库将在打开此页面时读取最新稳定背包快照。")
+    self.warehouse_hint = QLabel(tr("仓库将在打开此页面时读取最新稳定背包快照。"))
     self.warehouse_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     self.warehouse_hint.setStyleSheet(themed_style("color:#8b949e;padding:8px"))
     layout.addWidget(self.warehouse_hint)
@@ -246,9 +247,9 @@ def _refresh_warehouse(self):
         return
     token = object()
     self._warehouse_load_token = token
-    self.warehouse_hint.setText("正在读取背包稳定快照…")
+    self.warehouse_hint.setText(tr("正在读取背包稳定快照…"))
     self.warehouse_hint.show()
-    self.warehouse_summary.setText("读取中…")
+    self.warehouse_summary.setText(tr("读取中…"))
     database_path = self.app_context.account.user_database_path
     operation = OperationContext.create(
         "warehouse",
@@ -296,7 +297,7 @@ def _on_warehouse_loaded(self, token, result):
     )
     self._apply_warehouse_filters()
     if is_visual_inventory_source(self._warehouse_source):
-        self.warehouse_hint.setText("当前为全量扫描库存：等级、锁定/弃置状态和已装备角色无法识别；鉴定与对比仍可使用。")
+        self.warehouse_hint.setText(tr("当前为全量扫描库存：等级、锁定/弃置状态和已装备角色无法识别；鉴定与对比仍可使用。"))
         self.warehouse_hint.show()
 
 
@@ -305,8 +306,8 @@ def _on_warehouse_load_error(self, token, error):
         return
     self._warehouse_all_items = []
     self.warehouse_model.set_items([])
-    self.warehouse_summary.setText("读取失败")
-    self.warehouse_hint.setText(f"仓库读取失败：{error}")
+    self.warehouse_summary.setText(tr("读取失败"))
+    self.warehouse_hint.setText(tr("仓库读取失败：{error}", error=error))
     self.warehouse_hint.show()
     logger.error(f"读取仓库稳定快照失败: {error}")
 
@@ -321,17 +322,19 @@ def _apply_warehouse_filters(self):
     )
     self.warehouse_model.set_items(filtered)
     total = len(getattr(self, "_warehouse_all_items", []))
-    self.warehouse_summary.setText(f"显示 {len(filtered)} / {total} 件")
+    self.warehouse_summary.setText(
+        tr("显示 {shown} / {total} 件", shown=len(filtered), total=total)
+    )
     active_count = getattr(
         self, "_warehouse_filter_spec", WarehouseFilterSpec()
     ).active_group_count
     self.warehouse_filter_btn.setText(
-        f"筛选 ({active_count})" if active_count else "筛选"
+        tr("筛选 ({count})", count=active_count) if active_count else tr("筛选")
     )
     if filtered:
         self.warehouse_hint.hide()
     else:
-        self.warehouse_hint.setText("当前筛选条件下没有装备。请先完成背包同步，或调整筛选条件。")
+        self.warehouse_hint.setText(tr("当前筛选条件下没有装备。请先完成背包同步，或调整筛选条件。"))
         self.warehouse_hint.show()
 
 
@@ -378,7 +381,7 @@ def _on_warehouse_sync_state(self, state):
         or state_change_running
     ):
         self.warehouse_hint.setText(
-            "游戏背包已有新快照；当前修改完成后仓库将自动刷新。"
+            tr("游戏背包已有新快照；当前修改完成后仓库将自动刷新。")
         )
         self.warehouse_hint.show()
         return
@@ -396,7 +399,7 @@ def _on_warehouse_selection_changed(self, *_args):
         for index in indexes
     )
     if hasattr(self, "warehouse_selection_label"):
-        self.warehouse_selection_label.setText(f"选中 {count} 件")
+        self.warehouse_selection_label.setText(tr("选中 {count} 件", count=count))
     for name in ("warehouse_normal_btn", "warehouse_lock_btn", "warehouse_discard_btn"):
         button = getattr(self, name, None)
         if button is not None:
@@ -489,13 +492,13 @@ def _save_warehouse_state_changes(self):
     pending = dict(getattr(self, "_warehouse_pending_state_changes", {}))
     snapshot_id = getattr(self, "_warehouse_snapshot_id", None)
     if not pending:
-        QMessageBox.information(self, "仓库保存", "没有待保存的弃置/锁定状态修改。")
+        QMessageBox.information(self, tr("仓库保存"), tr("没有待保存的弃置/锁定状态修改。"))
         return
     if not isinstance(snapshot_id, int):
         return
     if getattr(self, "_warehouse_source", "") != "nte_core":
         QMessageBox.information(
-            self, "仓库状态不可用", "全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。"
+            self, tr("仓库状态不可用"), tr("全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。")
         )
         return
     active_worker = getattr(self, "_warehouse_state_worker", None)
@@ -503,7 +506,7 @@ def _save_warehouse_state_changes(self):
         return
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None or not sync_service.is_running:
-        QMessageBox.warning(self, "无法保存仓库状态", "请先在工作台启动背包同步，并等待状态显示为稳定监听。")
+        QMessageBox.warning(self, tr("无法保存仓库状态"), tr("请先在工作台启动背包同步，并等待状态显示为稳定监听。"))
         return
     service = WarehouseStateManagementService(
         self.app_context.account.user_database_path,
@@ -516,7 +519,7 @@ def _save_warehouse_state_changes(self):
         ),
     )
     self._warehouse_state_service = service
-    self._set_warehouse_management_busy(True, "正在检查手动修改…")
+    self._set_warehouse_management_busy(True, tr("正在检查手动修改…"))
     worker = WorkerThread(
         target=lambda: service.plan_manual_changes(snapshot_id, pending),
         parent=self,
@@ -532,25 +535,29 @@ def _on_warehouse_manual_plan_ready(self, plan):
     if not plan.changes:
         self._warehouse_pending_state_changes = {}
         self._update_warehouse_save_state()
-        QMessageBox.information(self, "仓库保存", "所有手动状态已与当前游戏背包一致。")
+        QMessageBox.information(self, tr("仓库保存"), tr("所有手动状态已与当前游戏背包一致。"))
         return
     counts = {"弃置": 0, "锁定": 0, "正常": 0}
     for change in plan.changes:
         counts[{"discarded": "弃置", "locked": "锁定", "normal": "正常"}[change["target_state"]]] += 1
-    message = (
-        f"将保存 {len(plan.changes)} 件装备的手动状态：弃置 {counts['弃置']} 件，"
-        f"锁定 {counts['锁定']} 件，恢复正常 {counts['正常']} 件。\n\n"
-        "确认后会通过本地核心组件直接写入游戏。"
+    message = tr(
+        "将保存 {total} 件装备的手动状态：弃置 {discard} 件，"
+        "锁定 {lock} 件，恢复正常 {normal} 件。\n\n"
+        "确认后会通过本地核心组件直接写入游戏。",
+        total=len(plan.changes),
+        discard=counts["弃置"],
+        lock=counts["锁定"],
+        normal=counts["正常"],
     )
     if (
         QMessageBox.question(
-            self, "确认保存仓库状态", message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel
+            self, tr("确认保存仓库状态"), message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel
         )
         != QMessageBox.Yes
     ):
         return
     service = self._warehouse_state_service
-    self._set_warehouse_management_busy(True, "正在保存弃置/锁定状态到游戏…")
+    self._set_warehouse_management_busy(True, tr("正在保存弃置/锁定状态到游戏…"))
     progress_callback = show_warehouse_state_progress(
         self,
         change_count=len(plan.changes),
@@ -575,7 +582,7 @@ def _open_warehouse_state_manager(self):
         return
     if getattr(self, "_warehouse_source", "") != "nte_core":
         QMessageBox.information(
-            self, "仓库管理不可用", "全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。"
+            self, tr("仓库管理不可用"), tr("全量扫描库存无法读取或修改锁定、弃置状态；请先获取背包同步快照。")
         )
         return
     account = self.app_context.account
@@ -584,7 +591,7 @@ def _open_warehouse_state_manager(self):
         account.user_config_dir,
         self.app_context.paths.config_dir,
         user_database_path=account.user_database_path,
-        window_title="仓库弃置/锁定管理",
+        window_title=tr("仓库弃置/锁定管理"),
     ):
         return
     config = load_scan_post_action_config(
@@ -593,11 +600,11 @@ def _open_warehouse_state_manager(self):
     )
     error = validate_post_action_config(config)
     if error:
-        QMessageBox.warning(self, "管理配置无效", error)
+        QMessageBox.warning(self, tr("管理配置无效"), error)
         return
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None or not sync_service.is_running:
-        QMessageBox.warning(self, "无法管理仓库", "请先在工作台启动背包同步，并等待状态显示为稳定监听。")
+        QMessageBox.warning(self, tr("无法管理仓库"), tr("请先在工作台启动背包同步，并等待状态显示为稳定监听。"))
         return
     service = WarehouseStateManagementService(
         account.user_database_path,
@@ -611,7 +618,7 @@ def _open_warehouse_state_manager(self):
         ),
     )
     self._warehouse_state_service = service
-    self._set_warehouse_management_busy(True, "正在计算弃置/锁定目标…")
+    self._set_warehouse_management_busy(True, tr("正在计算弃置/锁定目标…"))
     worker = WorkerThread(target=lambda: service.evaluate(config), parent=self)
     self._warehouse_state_worker = worker
     worker.result_ready.connect(self._on_warehouse_state_plan_ready)
@@ -622,7 +629,7 @@ def _open_warehouse_state_manager(self):
 def _on_warehouse_state_plan_ready(self, plan):
     self._set_warehouse_management_busy(False)
     if not plan.changes:
-        QMessageBox.information(self, "仓库管理", "当前稳定背包没有符合规则、需要变更状态的装备。")
+        QMessageBox.information(self, tr("仓库管理"), tr("当前稳定背包没有符合规则、需要变更状态的装备。"))
         return
     counts = {"弃置": 0, "锁定": 0, "取消弃置/锁定": 0}
     for change in plan.changes:
@@ -633,19 +640,24 @@ def _on_warehouse_state_plan_ready(self, plan):
             counts["锁定"] += 1
         else:
             counts["取消弃置/锁定"] += 1
-    message = (
-        f"将按快照 #{plan.snapshot_id} 操作 {len(plan.changes)} 件装备：\n"
-        f"弃置 {counts['弃置']} 件，锁定 {counts['锁定']} 件，"
-        f"取消状态 {counts['取消弃置/锁定']} 件。\n\n"
-        "确认后会通过本地核心组件直接写入游戏。"
+    message = tr(
+        "将按快照 #{snapshot} 操作 {total} 件装备：\n"
+        "弃置 {discard} 件，锁定 {lock} 件，"
+        "取消状态 {clear} 件。\n\n"
+        "确认后会通过本地核心组件直接写入游戏。",
+        snapshot=plan.snapshot_id,
+        total=len(plan.changes),
+        discard=counts["弃置"],
+        lock=counts["锁定"],
+        clear=counts["取消弃置/锁定"],
     )
     if (
-        QMessageBox.question(self, "确认一键管理", message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        QMessageBox.question(self, tr("确认一键管理"), message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
         != QMessageBox.Yes
     ):
         return
     service = self._warehouse_state_service
-    self._set_warehouse_management_busy(True, "正在通过本地核心组件同步弃置/锁定状态…")
+    self._set_warehouse_management_busy(True, tr("正在通过本地核心组件同步弃置/锁定状态…"))
     progress_callback = show_warehouse_state_progress(
         self,
         change_count=len(plan.changes),
@@ -692,35 +704,37 @@ def _on_warehouse_state_applied(self, result):
             else item
             for item in getattr(self, "_warehouse_all_items", [])
         ]
-    result_message = (
-        f"已完成弃置/锁定操作：弃置 {summary['discard_set_count']} 件，"
-        f"锁定 {summary['lock_set_count']} 件，"
-        f"取消弃置 {summary['discard_clear_count']} 件，"
-        f"取消锁定 {summary['lock_clear_count']} 件。"
+    result_message = tr(
+        "已完成弃置/锁定操作：弃置 {discard} 件，锁定 {lock} 件，"
+        "取消弃置 {discard_clear} 件，取消锁定 {lock_clear} 件。",
+        discard=summary["discard_set_count"], lock=summary["lock_set_count"],
+        discard_clear=summary["discard_clear_count"], lock_clear=summary["lock_clear_count"],
     )
     if getattr(result, "inventory_reduction_observed", False):
-        result_message += (
+        result_message += tr(
             "\n\n检测到库存减少；如游戏内未分解库存，请重新在游戏登录页面背包同步。"
         )
     if getattr(result, "verified", False) and not getattr(result, "inventory_reduction_observed", False):
-        result_message += (
-            f"\n\n已通过游戏返回的新稳定快照 "
-            f"#{after_snapshot_id} 确认，仓库将自动刷新。"
+        result_message += tr(
+            "\n\n已通过游戏返回的新稳定快照 #{snapshot} 确认，仓库将自动刷新。",
+            snapshot=after_snapshot_id,
         )
         QMessageBox.information(
             self,
-            "仓库状态已确认",
+            tr("仓库状态已确认"),
             result_message,
         )
     else:
         if not getattr(result, "verified", False):
-            result_message += (
-                "\n\n修改指令已经提交，但尚未从游戏快照完整确认。"
-                f"\n{getattr(result, 'verification_error', None) or '等待后续背包快照确认。'}"
+            result_message += tr(
+                "\n\n修改指令已经提交，但尚未从游戏快照完整确认。\n{detail}",
+                detail=getattr(result, "verification_error", None) or tr("等待后续背包快照确认。"),
             )
         QMessageBox.warning(
             self,
-            "检测到库存减少" if getattr(result, "inventory_reduction_observed", False) else "仓库状态待确认",
+            tr("检测到库存减少")
+            if getattr(result, "inventory_reduction_observed", False)
+            else tr("仓库状态待确认"),
             result_message,
         )
     self._warehouse_pending_state_changes = {}
@@ -750,8 +764,8 @@ def _on_warehouse_state_applied(self, result):
     }
     self._apply_warehouse_filters()
     self.warehouse_hint.setText(
-        "修改已提交，当前页面暂按核心组件接受结果显示；"
-        "收到后续稳定快照时将自动刷新。"
+        tr("修改已提交，当前页面暂按核心组件接受结果显示；"
+        "收到后续稳定快照时将自动刷新。")
     )
     self.warehouse_hint.show()
 

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import display_term, tr
+
 import hashlib
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -178,7 +180,7 @@ class GameLoadoutProjectionService:
         snapshot_id = self.user_dao.current_inventory_snapshot_id()
         if snapshot_id is None:
             return GameLoadoutSnapshotProjection(
-                None, "", "", False, "请先完成一次背包同步。", 0, (),
+                None, "", "", False, tr("请先完成一次背包同步。"), 0, (),
             )
         summary = self.user_dao.inventory_snapshot_summary(snapshot_id) or {}
         source = str(summary.get("source") or "")
@@ -189,7 +191,7 @@ class GameLoadoutProjectionService:
                 source,
                 captured_at,
                 False,
-                "当前快照不是 nte-core 同步结果，没有可靠的游戏内装备归属。",
+                tr("当前快照不是 nte-core 同步结果，没有可靠的游戏内装备归属。"),
                 int(summary.get("equipped_count") or 0),
                 (),
             )
@@ -238,13 +240,13 @@ class GameLoadoutProjectionService:
             )
             importable = module_assignments is not None and len(cores) <= 1
             if not modules:
-                status, reason = "empty", "游戏快照中没有已装备驱动。"
+                status, reason = "empty", tr("游戏快照中没有已装备驱动。")
             elif len(cores) > 1:
-                status, reason = "incomplete", "需要且只能有一张已装备卡带。"
+                status, reason = "incomplete", tr("需要且只能有一张已装备卡带。")
             elif module_assignments is None:
-                status, reason = "layout_unresolved", "当前驱动形状无法还原为该角色的完整图纸。"
+                status, reason = "layout_unresolved", tr("当前驱动形状无法还原为该角色的完整图纸。")
             elif not cores:
-                status, reason = "missing_tape", "当前只缺少卡带，可先导入完整驱动图纸。"
+                status, reason = "missing_tape", tr("当前只缺少卡带，可先导入完整驱动图纸。")
             else:
                 status, reason = "ready", ""
             assignments = list(module_assignments or ())
@@ -311,13 +313,13 @@ class GameLoadoutProjectionService:
         requests: Sequence[GameLoadoutImportRequest],
     ) -> tuple[int, ...]:
         if not requests:
-            raise GameLoadoutProjectionError("没有可导入的游戏内方案。")
+            raise GameLoadoutProjectionError(tr("没有可导入的游戏内方案。"))
         current_snapshot_id = self.user_dao.current_inventory_snapshot_id()
         if any(
             request.projection.snapshot_id != current_snapshot_id
             for request in requests
         ):
-            raise GameLoadoutProjectionError("背包快照已经变化，请刷新游戏内模式后重试。")
+            raise GameLoadoutProjectionError(tr("背包快照已经变化，请刷新游戏内模式后重试。"))
         all_items = self.user_dao.list_inventory_items(
             int(current_snapshot_id),
             equipped=True,
@@ -334,15 +336,16 @@ class GameLoadoutProjectionService:
             projection = request.projection
             if not projection.importable:
                 raise GameLoadoutProjectionError(
-                    projection.reason or f"[{projection.role_name}] 当前游戏内方案不可导入。"
+                    projection.reason
+                    or tr("[{role}] 当前游戏内方案不可导入。", role=display_term(projection.role_name))
                 )
             if projection.character_id in character_ids:
-                raise GameLoadoutProjectionError("一键导入中不能重复包含同一角色。")
+                raise GameLoadoutProjectionError(tr("一键导入中不能重复包含同一角色。"))
             character_ids.add(projection.character_id)
             current_items = items_by_character.get(projection.character_id, [])
             if _equipment_fingerprint(current_items) != projection.equipment_fingerprint:
                 raise GameLoadoutProjectionError(
-                    f"[{projection.role_name}] 的游戏内装备已经变化，请刷新后重试。"
+                    tr("[{role}] 的游戏内装备已经变化，请刷新后重试。", role=display_term(projection.role_name))
                 )
             exact_score = exact_assignment_score_total(
                 projection.assignments,
@@ -350,15 +353,15 @@ class GameLoadoutProjectionService:
             )
             if exact_score is None:
                 raise GameLoadoutProjectionError(
-                    f"[{projection.role_name}] 导入方案缺少完整的逐件评分。"
+                    tr("[{role}] 导入方案缺少完整的逐件评分。", role=display_term(projection.role_name))
                 )
             if abs(float(request.score) - exact_score) > 1e-6:
                 raise GameLoadoutProjectionError(
-                    f"[{projection.role_name}] 的方案总分与逐件评分不一致。"
+                    tr("[{role}] 的方案总分与逐件评分不一致。", role=display_term(projection.role_name))
                 )
             plans.append({
                 "slot_id": request.slot_id,
-                "name": f"游戏内方案：{projection.role_name}",
+                "name": tr("游戏内方案：{role}", role=display_term(projection.role_name)),
                 "character_id": projection.character_id,
                 "source_snapshot_id": projection.snapshot_id,
                 "status": (
@@ -390,12 +393,14 @@ class GameLoadoutProjectionService:
         if any(slot_id is not None for slot_id in slot_ids):
             if any(slot_id is None for slot_id in slot_ids):
                 raise GameLoadoutProjectionError(
-                    "批量游戏内导入必须为每个角色指定配装槽位，不能混用旧主力入口。"
+                    tr("批量游戏内导入必须为每个角色指定配装槽位，不能混用旧主力入口。")
                 )
             try:
                 return tuple(int(plan_id) for plan_id in self.user_dao.save_plans_to_slots(plans))
             except Exception as exc:
-                raise GameLoadoutProjectionError(f"保存指定配装槽位失败：{exc}") from exc
+                raise GameLoadoutProjectionError(
+                    tr("保存指定配装槽位失败：{error}", error=exc)
+                ) from exc
         return tuple(
             int(plan_id)
             for plan_id in self.user_dao.replace_active_loadout_plans(plans)

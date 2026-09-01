@@ -13,6 +13,8 @@
 [![Stars](https://img.shields.io/github/stars/hxwd94666/NTE-Drive-Calculator?label=stars&color=f4b400)](https://github.com/hxwd94666/NTE-Drive-Calculator/stargazers)
 
 
+[English](README.en.md) · 简体中文
+
 [下载安装](#download) · [功能亮点](#features) · [快速开始](#quick-start) · [反馈问题](#feedback)
 
 </div>

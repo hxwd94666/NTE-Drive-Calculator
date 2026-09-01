@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
+
 from dataclasses import dataclass
 import hashlib
 import json
@@ -77,7 +79,7 @@ def game_executable(path: str | Path) -> Path:
     candidate = Path(raw_path).expanduser().resolve()
     if not candidate.is_file() or candidate.name.casefold() != GAME_EXECUTABLE_NAME.casefold():
         raise EquipmentPluginDeploymentError(
-            f"请选择游戏主程序 {GAME_EXECUTABLE_NAME}，而不是文件夹或其他可执行文件"
+            tr("请选择游戏主程序 {name}，而不是文件夹或其他可执行文件", name=GAME_EXECUTABLE_NAME)
         )
     return candidate
 
@@ -86,7 +88,7 @@ def plugin_dll(path: str | Path) -> Path:
     candidate = Path(path).expanduser().resolve()
     if not candidate.is_file() or candidate.name.casefold() != PLUGIN_FILENAME:
         raise EquipmentPluginDeploymentError(
-            f"请选择提供方授权的 {PLUGIN_FILENAME} 文件"
+            tr("请选择提供方授权的 {name} 文件", name=PLUGIN_FILENAME)
         )
     return candidate
 
@@ -128,7 +130,8 @@ def packaged_plugin_dll(application_root: str | Path) -> Path:
                 return plugin
     checked = "、".join(str(candidate) for candidate in candidates)
     raise EquipmentPluginDeploymentError(
-        f"未找到带新版 MOD 签名的 {PLUGIN_FILENAME}；已检查：{checked}"
+        tr("未找到带新版 MOD 签名的 {name}；已检查：{checked}",
+           name=PLUGIN_FILENAME, checked=checked)
     )
 
 
@@ -145,7 +148,8 @@ def packaged_mod_workspace(application_root: str | Path) -> Path:
             return candidate.resolve()
     checked = "、".join(str(candidate) for candidate in candidates)
     raise EquipmentPluginDeploymentError(
-        f"未找到与 {PLUGIN_FILENAME} 配套的 nte-mods 工作区；已检查：{checked}"
+        tr("未找到与 {name} 配套的 nte-mods 工作区；已检查：{checked}",
+           name=PLUGIN_FILENAME, checked=checked)
     )
 
 
@@ -155,7 +159,9 @@ def _managed_workspace_hashes(path: Path) -> dict[str, str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise EquipmentPluginDeploymentError(f"无法读取托管 Mod 工作区记录：{path}") from exc
+        raise EquipmentPluginDeploymentError(
+            tr("无法读取托管 Mod 工作区记录：{path}", path=path)
+        ) from exc
     files = payload.get("files") if isinstance(payload, dict) else None
     if (
         not isinstance(payload, dict)
@@ -166,7 +172,9 @@ def _managed_workspace_hashes(path: Path) -> dict[str, str]:
             for name, digest in files.items()
         )
     ):
-        raise EquipmentPluginDeploymentError(f"托管 Mod 工作区记录格式错误：{path}")
+        raise EquipmentPluginDeploymentError(
+            tr("托管 Mod 工作区记录格式错误：{path}", path=path)
+        )
     return files
 
 
@@ -187,7 +195,7 @@ def mod_workspace_registry_snapshot() -> tuple[bool, str | None]:
     except FileNotFoundError:
         return False, None
     except OSError as exc:
-        raise EquipmentPluginDeploymentError("无法读取 nte-mods 工作区注册表") from exc
+        raise EquipmentPluginDeploymentError(tr("无法读取 nte-mods 工作区注册表")) from exc
     if value_type != winreg.REG_SZ or not isinstance(value, str):
         return False, None
     return True, value
@@ -195,7 +203,7 @@ def mod_workspace_registry_snapshot() -> tuple[bool, str | None]:
 
 def _register_mod_workspace(workspace: Path) -> tuple[bool, str | None]:
     if os.name != "nt":
-        raise EquipmentPluginDeploymentError("nte-mods 工作区注册仅支持 Windows")
+        raise EquipmentPluginDeploymentError(tr("nte-mods 工作区注册仅支持 Windows"))
     import winreg
 
     previous_exists, previous_value = mod_workspace_registry_snapshot()
@@ -213,7 +221,7 @@ def _register_mod_workspace(workspace: Path) -> tuple[bool, str | None]:
                 str(workspace),
             )
     except OSError as exc:
-        raise EquipmentPluginDeploymentError("无法注册 nte-mods 工作区") from exc
+        raise EquipmentPluginDeploymentError(tr("无法注册 nte-mods 工作区")) from exc
     return previous_exists, previous_value
 
 
@@ -274,7 +282,7 @@ def restore_mod_workspace(
                 except FileNotFoundError:
                     pass
     except OSError as exc:
-        raise EquipmentPluginDeploymentError("无法还原 nte-mods 工作区注册表") from exc
+        raise EquipmentPluginDeploymentError(tr("无法还原 nte-mods 工作区注册表")) from exc
     return True
 
 
@@ -334,7 +342,7 @@ def prepare_mod_workspace(
         raise
     except OSError as exc:
         raise EquipmentPluginDeploymentError(
-            f"无法准备 nte-mods 工作区：{destination}"
+            tr("无法准备 nte-mods 工作区：{path}", path=destination)
         ) from exc
 
     if register_workspace:
@@ -385,7 +393,7 @@ def deploy_plugin(
     source = plugin_dll(plugin_dll_path)
     if not is_mods_plugin_dll(source):
         raise EquipmentPluginDeploymentError(
-            f"所选 {PLUGIN_FILENAME} 不是与当前脚本匹配的新版 nte-mods-plugin"
+            tr("所选 {name} 不是与当前脚本匹配的新版 nte-mods-plugin", name=PLUGIN_FILENAME)
         )
     workspace = prepare_mod_workspace(
         application_root=application_root,
@@ -394,7 +402,7 @@ def deploy_plugin(
     )
     target = executable.parent / PLUGIN_FILENAME
     if source == target:
-        raise EquipmentPluginDeploymentError("所选插件已经位于目标游戏目录，无需重复部署")
+        raise EquipmentPluginDeploymentError(tr("所选插件已经位于目标游戏目录，无需重复部署"))
 
     source_hash = _file_sha256(source)
     target_existed_before = target.exists()
@@ -409,7 +417,7 @@ def deploy_plugin(
         shutil.copy2(source, target)
     except OSError as exc:
         raise EquipmentPluginDeploymentError(
-            f"无法写入游戏目录：{target}。请关闭游戏，并以有该目录写入权限的身份重试。"
+            tr("无法写入游戏目录：{path}。请关闭游戏，并以有该目录写入权限的身份重试。", path=target)
         ) from exc
     try:
         registry_existed, registry_value = _register_mod_workspace(workspace)
@@ -421,12 +429,11 @@ def deploy_plugin(
                 target.unlink()
         except OSError as rollback_exc:
             raise EquipmentPluginDeploymentError(
-                "MOD 工作区注册失败，且游戏目录 DLL 自动回滚失败；"
-                f"请保持游戏关闭并手动检查 {target}"
+                tr("MOD 工作区注册失败，且游戏目录 DLL 自动回滚失败；请保持游戏关闭并手动检查 {path}",
+                   path=target)
             ) from rollback_exc
         raise EquipmentPluginDeploymentError(
-            "MOD 工作区注册失败，游戏目录 DLL 已回滚："
-            + str(exc)
+            tr("MOD 工作区注册失败，游戏目录 DLL 已回滚：{error}", error=exc)
         ) from exc
     return PluginDeployment(
         executable,
@@ -452,10 +459,10 @@ def restore_plugin(
     executable = game_executable(game_executable_path)
     target = executable.parent / PLUGIN_FILENAME
     if not target.is_file():
-        raise EquipmentPluginDeploymentError("游戏目录中没有可还原的 dwmapi.dll")
+        raise EquipmentPluginDeploymentError(tr("游戏目录中没有可还原的 dwmapi.dll"))
     if _file_sha256(target) != str(deployed_sha256).strip().lower():
         raise EquipmentPluginDeploymentError(
-            "目标 dwmapi.dll 已被其他程序修改；为避免覆盖他人文件，已拒绝还原"
+            tr("目标 dwmapi.dll 已被其他程序修改；为避免覆盖他人文件，已拒绝还原")
         )
     try:
         restored_backup = False
@@ -467,7 +474,9 @@ def restore_plugin(
         if not restored_backup:
             target.unlink()
     except OSError as exc:
-        raise EquipmentPluginDeploymentError("无法还原游戏目录中的 dwmapi.dll，请确认游戏已关闭") from exc
+        raise EquipmentPluginDeploymentError(
+            tr("无法还原游戏目录中的 dwmapi.dll，请确认游戏已关闭")
+        ) from exc
     return restore_mod_workspace(
         workspace_path=mod_workspace_path,
         previous_value=workspace_registry_value_before,

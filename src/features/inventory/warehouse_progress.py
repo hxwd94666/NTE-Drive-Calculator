@@ -10,6 +10,7 @@ from typing import Any
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QMessageBox, QProgressDialog
 
+from src.i18n import tr
 from src.utils.logger import logger
 
 
@@ -34,13 +35,13 @@ def show_warehouse_state_progress(
     close_warehouse_state_progress(window)
     messages: SimpleQueue[str] = SimpleQueue()
     dialog = QProgressDialog(
-        f"正在准备写入 {change_count} 件装备状态…",
+        tr("正在准备写入 {count} 件装备状态…", count=change_count),
         "",
         0,
         0,
         window,
     )
-    dialog.setWindowTitle("仓库状态修改进度")
+    dialog.setWindowTitle(tr("仓库状态修改进度"))
     dialog.setWindowModality(Qt.WindowModality.WindowModal)
     dialog.setCancelButton(None)
     dialog.setAutoClose(False)
@@ -100,7 +101,7 @@ def update_warehouse_save_state(window: Any) -> None:
     if hasattr(window, "warehouse_save_btn"):
         window.warehouse_save_btn.setEnabled(True)
         window.warehouse_save_btn.setText(
-            f"保存 ({pending_count})" if pending_count else "保存"
+            tr("保存 ({count})", count=pending_count) if pending_count else tr("保存")
         )
 
 
@@ -110,6 +111,6 @@ def on_warehouse_state_error(window: Any, error: str) -> None:
     logger.error(f"仓库状态管理失败: {error}")
     QMessageBox.critical(
         window,
-        "仓库管理失败",
-        f"未能完成一键弃置/锁定：\n{error}",
+        tr("仓库管理失败"),
+        tr("未能完成一键弃置/锁定：\n{error}", error=error),
     )

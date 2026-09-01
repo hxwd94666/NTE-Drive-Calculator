@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.theme import themed_style
 from src.domain.rewind_shape_recommendation import RewindPricingRule, RewindShape, RewindShapeRecommendation
 from src.domain.warehouse_filter import warehouse_shape_order
@@ -89,8 +90,8 @@ class RewindSlotUiMixin:
         self._editable_slots.extend([None] * (REWIND_SLOT_COUNT - len(self._editable_slots)))
         self._editable_pricing_rule = RewindPricingRule()
         self._render_rewind_slots(
-            "已保存方案" if self._slots_complete() else "自定义方案",
-            "已载入上次保存的八槽方案。" if self._slots_complete() else "点击空槽，从 12 种驱动中逐个添加。",
+            tr("已保存方案") if self._slots_complete() else tr("自定义方案"),
+            tr("已载入上次保存的八槽方案。") if self._slots_complete() else tr("点击空槽，从 12 种驱动中逐个添加。"),
         )
 
     def _render_rewind_slots(self, title: str, detail: str) -> None:
@@ -108,7 +109,7 @@ class RewindSlotUiMixin:
         label.setWordWrap(True)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:12px;padding:2px 4px"))
         header.addWidget(label, 1)
-        clear_button = QPushButton("清空候选")
+        clear_button = QPushButton(tr("清空候选"))
         clear_button.setObjectName("rewindClearCandidates")
         clear_button.setEnabled(any(self._editable_slots))
         clear_button.clicked.connect(self._clear_rewind_slots)
@@ -122,11 +123,11 @@ class RewindSlotUiMixin:
         self._populate_rewind_slot_grid(grid)
         layout.addLayout(grid)
         layout.addStretch(1)
-        self._result_tabs.addTab(page, "推荐结果")
+        self._result_tabs.addTab(page, tr("推荐结果"))
         complete = self._slots_complete()
         self._save_plan_button.setEnabled(complete)
         self._start_rewind_button.setEnabled(True)
-        self._save_plan_button.setText("保存方案" if complete else "填满八槽后保存")
+        self._save_plan_button.setText(tr("保存方案") if complete else tr("填满八槽后保存"))
 
     def _populate_rewind_slot_grid(self, grid: QGridLayout) -> None:
         filled = [slot for slot in self._editable_slots if slot is not None]
@@ -142,11 +143,11 @@ class RewindSlotUiMixin:
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(10, 9, 10, 9)
             card_layout.setSpacing(4)
-            slot_label = QLabel(f"第 {index + 1} 槽")
+            slot_label = QLabel(tr("第 {index} 槽", index=index + 1))
             slot_label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
             card_layout.addWidget(slot_label)
             if recommendation is None:
-                empty = QLabel("+\n点击添加驱动")
+                empty = QLabel(tr("+\n点击添加驱动"))
                 empty.setAlignment(Qt.AlignCenter)
                 empty.setStyleSheet(themed_style("font-size:15px;font-weight:700;color:#58a6ff"))
                 card_layout.addWidget(empty, 1)
@@ -157,17 +158,21 @@ class RewindSlotUiMixin:
                 if not pixmap.isNull():
                     icon.setPixmap(pixmap.scaled(86, 86, Qt.KeepAspectRatio, Qt.SmoothTransformation))
                 else:
-                    icon.setText("驱动")
+                    icon.setText(tr("驱动"))
                 card_layout.addWidget(icon, 1)
-                shape_label = QLabel(f"{recommendation.shape.cell_count} 型驱动")
+                shape_label = QLabel(
+                    tr("{size} 型驱动", size=recommendation.shape.cell_count)
+                )
                 shape_label.setAlignment(Qt.AlignCenter)
                 shape_label.setStyleSheet(themed_style("font-weight:700;color:#f0f6fc"))
                 card_layout.addWidget(shape_label)
                 quantity = sum(slot.shape.shape_id == recommendation.shape.shape_id for slot in filled)
                 probability = self._editable_pricing_rule.probability_for_quantity(quantity)
                 probability_label = QLabel(
-                    f"缺分 {recommendation.quality_gap:g} · "
-                    f"库存 {recommendation.owned_count} · 概率 {probability:.0%}"
+                    tr("缺分 {gap} · 库存 {owned} · 概率 {chance}",
+                       gap=f"{recommendation.quality_gap:g}",
+                       owned=recommendation.owned_count,
+                       chance=f"{probability:.0%}")
                 )
                 probability_label.setObjectName("rewindShapeMetrics")
                 probability_label.setProperty("slotIndex", index)
@@ -195,7 +200,7 @@ class RewindSlotUiMixin:
         if selected is None:
             return
         self._editable_slots[slot_index] = selected
-        self._render_rewind_slots("自定义方案", "点击槽位可继续逐个调整形状。")
+        self._render_rewind_slots(tr("自定义方案"), tr("点击槽位可继续逐个调整形状。"))
 
     def _serialize_rewind_slots(self) -> list[dict[str, object]]:
         """Serialize the durable plan fields; inventory remains snapshot-derived."""
@@ -212,8 +217,8 @@ class RewindSlotUiMixin:
     def _clear_rewind_slots(self) -> None:
         self._editable_slots = [None] * REWIND_SLOT_COUNT
         self._render_rewind_slots(
-            "自定义方案",
-            "当前页面候选已清空；已保存方案保持不变，重新打开后会再次载入。",
+            tr("自定义方案"),
+            tr("当前页面候选已清空；已保存方案保持不变，重新打开后会再次载入。"),
         )
 
     def _slots_complete(self) -> bool:
@@ -253,8 +258,10 @@ class RewindSlotUiMixin:
             )
             probability = self._editable_pricing_rule.probability_for_quantity(quantity)
             label.setText(
-                f"缺分 {recommendation.quality_gap:g} · "
-                f"库存 {recommendation.owned_count} · 概率 {probability:.0%}"
+                tr("缺分 {gap} · 库存 {owned} · 概率 {chance}",
+                   gap=f"{recommendation.quality_gap:g}",
+                   owned=recommendation.owned_count,
+                   chance=f"{probability:.0%}")
             )
 
     def _apply_recommendations(self, recommendations: Iterable[RewindShapeRecommendation]) -> None:

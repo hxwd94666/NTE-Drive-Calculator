@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.domain.post_actions import (
     DEFAULT_EXCLUDED_SET_NAMES,
     DEFAULT_EXCLUDED_SHAPE_IDS,
@@ -45,11 +46,11 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.widgets import NoWheelComboBox
 
 
-ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
-QUALITY_SCOPE_OPTIONS = (("全部", "all"), ("仅金品质", "gold"), ("仅金紫品质", "gold_purple"))
-TYPE_SCOPE_OPTIONS = (("全部", "all"), ("仅驱动", "drive"), ("仅卡带", "tape"))
-STATE_ACTION_OPTIONS = (("跳过", "skip"), ("正常处理", "normal"))
-SUB_MATCH_OPTIONS = (("任意一个", 1), ("任意两个", 2), ("任意三个", 3), ("任意四个", 4))
+ROLE_SCOPE_OPTIONS = ((tr("所有角色"), "all"), (tr("所选角色"), "selected"))
+QUALITY_SCOPE_OPTIONS = ((tr("全部"), "all"), (tr("仅金品质"), "gold"), (tr("仅金紫品质"), "gold_purple"))
+TYPE_SCOPE_OPTIONS = ((tr("全部"), "all"), (tr("仅驱动"), "drive"), (tr("仅卡带"), "tape"))
+STATE_ACTION_OPTIONS = ((tr("跳过"), "skip"), (tr("正常处理"), "normal"))
+SUB_MATCH_OPTIONS = ((tr("任意一个"), 1), (tr("任意两个"), 2), (tr("任意三个"), 3), (tr("任意四个"), 4))
 
 
 def scan_post_action_config_path(user_config_dir: Path) -> Path:
@@ -105,6 +106,10 @@ def _button_style(checked: bool) -> str:
     return themed_style("QPushButton{border:1px solid #30363d;background:#161b22;color:#c9d1d9;border-radius:6px;padding:4px}")
 
 
+def _item_stat(item) -> str:
+    """The raw stat name behind a list row; the visible text may be translated."""
+    return str(item.data(Qt.UserRole) or item.text())
+
 class TypeRangeDialog(QDialog):
     def __init__(
         self,
@@ -115,7 +120,7 @@ class TypeRangeDialog(QDialog):
         selected_set_names: list[str],
     ):
         super().__init__(parent)
-        self.setWindowTitle("选择类型范围")
+        self.setWindowTitle(tr("选择类型范围"))
         self.setMinimumSize(760, 560)
         self.shape_options = shape_options
         self.set_options = set_options
@@ -137,8 +142,8 @@ class TypeRangeDialog(QDialog):
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout()
-        header.addWidget(QLabel("驱动形状"))
-        select_all = QPushButton("全选")
+        header.addWidget(QLabel(tr("驱动形状")))
+        select_all = QPushButton(tr("全选"))
         select_all.clicked.connect(lambda: self._set_all_shapes(True))
         header.addStretch()
         header.addWidget(select_all)
@@ -154,7 +159,7 @@ class TypeRangeDialog(QDialog):
                 continue
             row = QHBoxLayout()
             row.setSpacing(8)
-            title = QLabel(f"{area}型")
+            title = QLabel(tr("{area}型", area=area))
             title.setFixedWidth(36)
             row.addWidget(title)
             for shape_id in shape_ids:
@@ -180,8 +185,8 @@ class TypeRangeDialog(QDialog):
         outer = QVBoxLayout(section)
         outer.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout()
-        header.addWidget(QLabel("卡带套装"))
-        select_all = QPushButton("全选")
+        header.addWidget(QLabel(tr("卡带套装")))
+        select_all = QPushButton(tr("全选"))
         select_all.clicked.connect(lambda: self._set_all_sets(True))
         header.addStretch()
         header.addWidget(select_all)
@@ -194,7 +199,7 @@ class TypeRangeDialog(QDialog):
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(6)
         for index, set_name in enumerate(self.set_options):
-            checkbox = QCheckBox(set_name)
+            checkbox = QCheckBox(display_term(set_name))
             checkbox.setChecked(set_name in selected)
             self.set_checks.append((checkbox, set_name))
             grid.addWidget(checkbox, index // 2, index % 2)
@@ -230,12 +235,15 @@ def _preserve_rule_summary(rule: dict) -> str:
     if rule.get("sub_stats"):
         raw_mode = rule.get("sub_match", "all")
         if raw_mode == "all":
-            mode = "任意四个"
+            mode = tr("任意四个")
         else:
             try:
-                mode = {1: "任意一个", 2: "任意两个", 3: "任意三个", 4: "任意四个"}.get(int(raw_mode), "任意一个")
+                mode = {
+                    1: tr("任意一个"), 2: tr("任意两个"),
+                    3: tr("任意三个"), 4: tr("任意四个"),
+                }.get(int(raw_mode), tr("任意一个"))
             except (TypeError, ValueError):
-                mode = "任意一个"
+                mode = tr("任意一个")
         parts.append(f"副：{_rule_summary_values(rule['sub_stats'])}（{mode}）")
     if rule.get("required_sub_stats"):
         parts.append(f"必含：{_rule_summary_values(rule['required_sub_stats'])}")
@@ -254,7 +262,7 @@ class PreserveRuleEditor(QDialog):
         config_dir: Path,
     ):
         super().__init__(parent)
-        self.setWindowTitle("预留规则")
+        self.setWindowTitle(tr("预留规则"))
         self.setMinimumSize(700, 610)
         self.rule = copy.deepcopy(DEFAULT_PRESERVE_RULE)
         if isinstance(rule, dict):
@@ -297,20 +305,22 @@ class PreserveRuleEditor(QDialog):
 
     @staticmethod
     def _selected_stats(widget: QListWidget) -> list[str]:
-        return [item.text() for item in widget.selectedItems()]
+        return [_item_stat(item) for item in widget.selectedItems()]
 
     @staticmethod
     def _set_selected_stats(widget: QListWidget, stats: list[str]) -> None:
         selected = set(stats)
         for index in range(widget.count()):
-            widget.item(index).setSelected(widget.item(index).text() in selected)
+            widget.item(index).setSelected(_item_stat(widget.item(index)) in selected)
 
     def _make_stat_list(self, options: list[str], selected: list[str], height: int) -> QListWidget:
         widget = QListWidget()
         widget.setSelectionMode(QAbstractItemView.MultiSelection)
         widget.setMaximumHeight(height)
         for stat in options:
-            item = QListWidgetItem(stat)
+            item = QListWidgetItem(display_term(stat))
+            # The raw stat name stays the key; only the label is translated.
+            item.setData(Qt.UserRole, stat)
             widget.addItem(item)
             item.setSelected(stat in selected)
         return widget
@@ -399,7 +409,7 @@ class PreserveRuleEditor(QDialog):
         try:
             for index in range(required_list.count()):
                 item = required_list.item(index)
-                allowed = item.text() in selected_sub_stats
+                allowed = _item_stat(item) in selected_sub_stats
                 item.setFlags(
                     item.flags() | Qt.ItemIsEnabled
                     if allowed
@@ -416,25 +426,25 @@ class PreserveRuleEditor(QDialog):
         root.setSpacing(12)
         form = QFormLayout()
         self.name_edit = QLineEdit(str(self.rule.get("name") or ""))
-        self.name_edit.setPlaceholderText("例如：双爆输出卡带")
-        form.addRow("规则名称", self.name_edit)
+        self.name_edit.setPlaceholderText(tr("例如：双爆输出卡带"))
+        form.addRow(tr("规则名称"), self.name_edit)
         type_widget, self._type_buttons = self._build_segment(
-            (("卡带", "tape"), ("驱动", "drive")), self._item_type, self._change_item_type
+            ((display_term("卡带"), "tape"), (display_term("驱动"), "drive")), self._item_type, self._change_item_type
         )
-        form.addRow("装备对象", type_widget)
+        form.addRow(tr("装备对象"), type_widget)
         action_widget, self._action_buttons = self._build_segment(
-            (("仅保留", "keep"), ("直接锁定", "lock")), self._action, self._change_action
+            ((tr("仅保留"), "keep"), (tr("直接锁定"), "lock")), self._action, self._change_action
         )
-        form.addRow("命中后处理", action_widget)
+        form.addRow(tr("命中后处理"), action_widget)
         root.addLayout(form)
 
-        self.main_group = QGroupBox("卡带主词条（命中任一）")
+        self.main_group = QGroupBox(tr("卡带主词条（命中任一）"))
         main_layout = QVBoxLayout(self.main_group)
         self.main_stat_list = self._make_stat_list(self._main_stat_options, self.rule.get("main_stats", []), 112)
         main_layout.addWidget(self.main_stat_list)
         root.addWidget(self.main_group)
 
-        self.sub_group = QGroupBox("副词条")
+        self.sub_group = QGroupBox(tr("副词条"))
         sub_layout = QVBoxLayout(self.sub_group)
         sub_layout.setContentsMargins(9, 9, 9, 9)
         sub_layout.setSpacing(8)
@@ -452,7 +462,7 @@ class PreserveRuleEditor(QDialog):
         tape_match_layout.setContentsMargins(0, 0, 0, 0)
         tape_match_layout.setSpacing(3)
         tape_match_row = QHBoxLayout()
-        tape_match_row.addWidget(QLabel("副词条命中"))
+        tape_match_row.addWidget(QLabel(tr("副词条命中")))
         self.tape_sub_match_combo = _combo(SUB_MATCH_OPTIONS, self._normalized_sub_match(), 132)
         self.tape_sub_match_combo.currentIndexChanged.connect(self._change_sub_match)
         tape_match_row.addWidget(self.tape_sub_match_combo)
@@ -470,7 +480,7 @@ class PreserveRuleEditor(QDialog):
         tape_required_layout = QVBoxLayout(self.tape_required_container)
         tape_required_layout.setContentsMargins(0, 0, 0, 0)
         tape_required_layout.setSpacing(3)
-        tape_required_layout.addWidget(QLabel("必须包含（可多选）"))
+        tape_required_layout.addWidget(QLabel(tr("必须包含（可多选）")))
         self.tape_required_sub_stat_list = self._make_stat_list(self._sub_stat_options, selected_required, 132)
         self.tape_required_sub_stat_list.itemSelectionChanged.connect(self._refresh_sub_match_hint)
         tape_required_layout.addWidget(self.tape_required_sub_stat_list)
@@ -487,7 +497,7 @@ class PreserveRuleEditor(QDialog):
         drive_match_layout.setContentsMargins(0, 0, 0, 0)
         drive_match_layout.setSpacing(8)
         drive_match_row = QHBoxLayout()
-        drive_match_row.addWidget(QLabel("副词条命中"))
+        drive_match_row.addWidget(QLabel(tr("副词条命中")))
         self.drive_sub_match_combo = _combo(SUB_MATCH_OPTIONS, self._normalized_sub_match(), 132)
         self.drive_sub_match_combo.currentIndexChanged.connect(self._change_sub_match)
         drive_match_row.addWidget(self.drive_sub_match_combo)
@@ -505,7 +515,7 @@ class PreserveRuleEditor(QDialog):
         drive_required_layout = QVBoxLayout(self.drive_required_container)
         drive_required_layout.setContentsMargins(0, 0, 0, 0)
         drive_required_layout.setSpacing(8)
-        drive_required_layout.addWidget(QLabel("必须包含（可多选）"))
+        drive_required_layout.addWidget(QLabel(tr("必须包含（可多选）")))
         self.drive_required_sub_stat_list = self._make_stat_list(self._sub_stat_options, selected_required, 92)
         self.drive_required_sub_stat_list.itemSelectionChanged.connect(self._refresh_sub_match_hint)
         drive_required_layout.addWidget(self.drive_required_sub_stat_list)
@@ -515,16 +525,16 @@ class PreserveRuleEditor(QDialog):
 
         advanced = QFormLayout()
         self.quality_combo = _combo(QUALITY_SCOPE_OPTIONS, self.rule.get("quality_scope", "gold_purple"), 150)
-        advanced.addRow("品质范围", self.quality_combo)
+        advanced.addRow(tr("品质范围"), self.quality_combo)
         self.range_summary = QLabel()
         range_row = QWidget()
         range_layout = QHBoxLayout(range_row)
         range_layout.setContentsMargins(0, 0, 0, 0)
-        range_button = QPushButton("选择范围")
+        range_button = QPushButton(tr("选择范围"))
         range_button.clicked.connect(self._open_range_dialog)
         range_layout.addWidget(self.range_summary, 1)
         range_layout.addWidget(range_button)
-        advanced.addRow("类型范围", range_row)
+        advanced.addRow(tr("类型范围"), range_row)
         root.addLayout(advanced)
         self._refresh_visibility()
         self._refresh_range_summary()
@@ -579,9 +589,9 @@ class PreserveRuleEditor(QDialog):
         required_count = len(self._selected_stats(required_widget))
         match_count = int(combo.currentData() or 1)
         if (selected_count or required_count) and selected_count < match_count:
-            hint.setText("不能少于命中数量")
+            hint.setText(tr("不能少于命中数量"))
         elif required_count >= match_count:
-            hint.setText("必须包含数量必须少于命中数量")
+            hint.setText(tr("必须包含数量必须少于命中数量"))
         else:
             hint.clear()
 
@@ -603,7 +613,7 @@ class PreserveRuleEditor(QDialog):
 
     def _refresh_range_summary(self) -> None:
         shapes, sets = self._range_defaults()
-        label = "卡带套装" if self._item_type == "tape" else "驱动形状"
+        label = tr("卡带套装") if self._item_type == "tape" else tr("驱动形状")
         count = len(sets) if self._item_type == "tape" else len(shapes)
         total = len(self.set_options) if self._item_type == "tape" else len(self.shape_options)
         self.range_summary.setText(f"{label} {count}/{total}")
@@ -625,23 +635,23 @@ class PreserveRuleEditor(QDialog):
         required_sub_stats = self._selected_stats(required_list)
         match_count = int(combo.currentData() or 1)
         if self._item_type == "drive" and not sub_stats:
-            QMessageBox.warning(self, "规则无效", "驱动规则至少选择一个副词条。")
+            QMessageBox.warning(self, tr("规则无效"), tr("驱动规则至少选择一个副词条。"))
             return
         if self._item_type == "tape" and not (main_stats or sub_stats):
-            QMessageBox.warning(self, "规则无效", "卡带规则至少选择主词条或副词条。")
+            QMessageBox.warning(self, tr("规则无效"), tr("卡带规则至少选择主词条或副词条。"))
             return
         if not set(required_sub_stats).issubset(sub_stats):
-            QMessageBox.warning(self, "规则无效", "必须包含的副词条必须同时在副词条命中池中。")
+            QMessageBox.warning(self, tr("规则无效"), tr("必须包含的副词条必须同时在副词条命中池中。"))
             return
         if (sub_stats or required_sub_stats) and len(sub_stats) < match_count:
             QMessageBox.warning(
                 self,
-                "规则无效",
-                "不能少于命中数量。",
+                tr("规则无效"),
+                tr("不能少于命中数量。"),
             )
             return
         if len(required_sub_stats) >= match_count:
-            QMessageBox.warning(self, "规则无效", "必须包含的副词条数量必须少于命中数量。")
+            QMessageBox.warning(self, tr("规则无效"), tr("必须包含的副词条数量必须少于命中数量。"))
             return
         name = self.name_edit.text().strip() or ("预留卡带" if self._item_type == "tape" else "预留驱动")
         self._result_rule = {

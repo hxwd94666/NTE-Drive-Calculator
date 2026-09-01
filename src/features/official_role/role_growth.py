@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, display_text, tr
 from src.services.official_role_page_service import (
     calculate_official_role_margins,
 )
@@ -52,7 +53,7 @@ _WEIGHT_PROPERTY_CHOICES = (
     ("倾陷强度", "UnbalIntensityBase"),
 )
 _WEIGHT_LABEL_BY_PROPERTY = {
-    property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
+    property_id: display_term(label) for label, property_id in _WEIGHT_PROPERTY_CHOICES
 }
 
 
@@ -60,7 +61,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     character = detail["character"]
     profile = detail["profile"]
     growth_rows = detail["growth_rows"]
-    group = QGroupBox("基础加成")
+    group = QGroupBox(tr("基础加成"))
     group.setObjectName("officialRoleBaseGroup")
     group.setStyleSheet("QGroupBox{font-weight:bold;}")
     layout = QVBoxLayout(group)
@@ -84,7 +85,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
             avatar.setScaledContents(True)
             avatar.setPixmap(pixmap)
             left_layout.addWidget(avatar, alignment=Qt.AlignHCenter)
-    role_name = QLabel(str(character.get("name_zh") or character_id))
+    role_name = QLabel(display_term(str(character.get("name_zh") or character_id)))
     role_name.setAlignment(Qt.AlignHCenter)
     role_name.setStyleSheet("font-weight:bold;color:#58a6ff;")
     left_layout.addWidget(role_name)
@@ -97,7 +98,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     growth_combo.setButtonSymbols(QSpinBox.NoButtons)
     level_row = QHBoxLayout()
     level_row.setSpacing(6)
-    level_label = QLabel("等级:")
+    level_label = QLabel(tr("等级:"))
     level_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     level_row.addWidget(level_label)
     growth_combo.setFixedWidth(72)
@@ -132,11 +133,11 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     stats_grid.setVerticalSpacing(8)
     stat_values = {}
     stat_specs = (
-        ("生命白值", "hp_base"),
-        ("攻击力白值", "atk_base"),
-        ("防御力白值", "def_base"),
-        ("暴击率%", "crit_rate"),
-        ("暴击伤害%", "crit_damage"),
+        (tr("生命白值"), "hp_base"),
+        (tr("攻击力白值"), "atk_base"),
+        (tr("防御力白值"), "def_base"),
+        (display_term("暴击率%"), "crit_rate"),
+        (display_term("暴击伤害%"), "crit_damage"),
     )
     for stat_index, (label_text, key) in enumerate(stat_specs):
         grid_row = stat_index // 2
@@ -178,23 +179,25 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     growth_combo.valueChanged.connect(update_stats)
 
     pointer_dialog = QDialog(window)
-    pointer_dialog.setWindowTitle(f"{character.get('name_zh') or character_id} - 养成指针")
+    pointer_dialog.setWindowTitle(
+        tr("{role} - 养成指针", role=display_term(character.get("name_zh") or character_id))
+    )
     pointer_dialog.resize(520, 240)
     pointer_layout = QVBoxLayout(pointer_dialog)
     pointer_form = QFormLayout()
-    pointer_form.addRow("觉醒等级", awakening)
-    pointer_form.addRow("直伤技能", skill_combo)
+    pointer_form.addRow(tr("觉醒等级"), awakening)
+    pointer_form.addRow(tr("直伤技能"), skill_combo)
     skill_level = NoWheelSpinBox()
     skill_level.setMinimum(1)
-    pointer_form.addRow("技能等级", skill_level)
+    pointer_form.addRow(tr("技能等级"), skill_level)
     pointer_layout.addLayout(pointer_form)
-    pointer_note = QLabel("角色等级与突破在主页面左侧选择；其余技能等级会继续保留在账号数据库中。")
+    pointer_note = QLabel(tr("角色等级与突破在主页面左侧选择；其余技能等级会继续保留在账号数据库中。"))
     pointer_note.setWordWrap(True)
     pointer_layout.addWidget(pointer_note)
-    pointer_close = QPushButton("关闭")
+    pointer_close = QPushButton(tr("关闭"))
     pointer_close.clicked.connect(pointer_dialog.accept)
     pointer_layout.addWidget(pointer_close)
-    help_button.setToolTip("设置觉醒和直伤技能")
+    help_button.setToolTip(tr("设置觉醒和直伤技能"))
     help_button.clicked.connect(pointer_dialog.exec)
 
     skills_by_id = {str(skill["skill_id"]): skill for skill in detail["skills"]}
@@ -265,10 +268,24 @@ def _display_property_value(detail: dict, property_id: str, value: float) -> str
     return f"+{value:.2f}".rstrip("0").rstrip(".")
 
 
-def _fork_skill_description(star: dict) -> str:
+def _fork_star_locres_key(fork: dict | None, suffix: str) -> str:
+    """Build the ST_Fork key for a star pack: upgradestar_pack_X -> buff_X."""
+    pack_id = str((fork or {}).get("star_pack_id") or "")
+    if not pack_id:
+        return ""
+    return f"buff_{pack_id.replace('upgradestar_pack_', '')}{suffix}"
+
+
+def _fork_skill_description(star: dict, fork: dict | None = None) -> str:
     """Render official refinement placeholders with the selected level's curve values."""
 
-    description = str(star.get("description_zh") or "")
+    # The English string table keeps the same {n} placeholders, so the
+    # substitution below works in either language.
+    description = display_text(
+        "ST_Fork",
+        _fork_star_locres_key(fork, "_effect"),
+        str(star.get("description_zh") or ""),
+    )
     for parameter in star.get("parameters") or ():
         value = parameter.get("value")
         if value is None:
@@ -286,25 +303,26 @@ def _fork_skill_description(star: dict) -> str:
 
 def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> QGroupBox:
     profile = detail["profile"]
-    group = QGroupBox("弧盘加成")
+    group = QGroupBox(tr("弧盘加成"))
     group.setObjectName("officialRoleForkGroup")
     layout = QVBoxLayout(group)
     identity = QHBoxLayout()
-    identity.addWidget(QLabel("名称:"))
+    identity.addWidget(QLabel(tr("名称:")))
     fork_combo = NoWheelComboBox()
     fork_combo.setMaxVisibleItems(10)
-    fork_combo.addItem("未装备弧盘", None)
+    fork_combo.addItem(tr("未装备弧盘"), None)
     for fork in detail["forks"]:
         exclusive = str(character_id) in {str(value) for value in fork.get("exclusive_character_ids") or []}
-        suffix = "（专属）" if exclusive else "（常驻同类型）"
-        fork_combo.addItem(f"{fork.get('name_zh') or fork['fork_id']} {suffix}", fork["fork_id"])
+        suffix = tr("（专属）") if exclusive else tr("（常驻同类型）")
+        fork_name = display_term(str(fork.get("name_zh") or fork["fork_id"]))
+        fork_combo.addItem(f"{fork_name} {suffix}", fork["fork_id"])
     fork_index = fork_combo.findData(profile.get("fork_id"))
     fork_combo.setCurrentIndex(fork_index if fork_index >= 0 else 0)
     identity.addWidget(fork_combo, 1)
     fork_level = NoWheelSpinBox()
     fork_level.setRange(1, 80)
     fork_level.setValue(int(profile.get("fork_level") or 80))
-    identity.addWidget(QLabel("等级:"))
+    identity.addWidget(QLabel(tr("等级:")))
     identity.addWidget(fork_level)
     refinement = NoWheelComboBox()
     refinement.setMaxVisibleItems(5)
@@ -312,20 +330,20 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         refinement.addItem(str(level), level)
     refinement_index = refinement.findData(int(profile.get("fork_refinement_level") or 1))
     refinement.setCurrentIndex(refinement_index if refinement_index >= 0 else 0)
-    identity.addWidget(QLabel("精炼:"))
+    identity.addWidget(QLabel(tr("精炼:")))
     identity.addWidget(refinement)
-    margin_label = QLabel("直伤收益: --")
+    margin_label = QLabel(tr("直伤收益: --"))
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
     identity.addWidget(margin_label)
     layout.addLayout(identity)
-    base_label = QLabel("基础加成：")
+    base_label = QLabel(tr("基础加成："))
     base_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(base_label)
     stats_widget = QWidget()
     stats_layout = QVBoxLayout(stats_widget)
     stats_layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(stats_widget)
-    effect_label = QLabel("技能描述：")
+    effect_label = QLabel(tr("技能描述："))
     effect_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(effect_label)
     effect_text = QLabel()
@@ -339,7 +357,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         level = fork_level.value()
         stats = _fork_stats(detail, fork_id, level)
         if not stats:
-            stats_layout.addWidget(QLabel("未装备弧盘"))
+            stats_layout.addWidget(QLabel(tr("未装备弧盘")))
         for property_id, value in stats.items():
             row = QHBoxLayout()
             row.addWidget(QLabel(_attribute_name(detail, property_id)))
@@ -364,9 +382,9 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         baseline = calculate_official_role_margins(without_fork, context_key)
         if current and baseline and baseline["damage"] > 0:
             gain = (current["damage"] / baseline["damage"] - 1.0) * 100.0
-            margin_label.setText(f"直伤收益: {gain:+.2f}%")
+            margin_label.setText(tr("直伤收益: {value}%", value=f"{gain:+.2f}"))
         else:
-            margin_label.setText("直伤收益: --")
+            margin_label.setText(tr("直伤收益: --"))
         fork = next((item for item in detail["forks"] if item.get("fork_id") == fork_id), None)
         star_rows = list((fork or {}).get("star_levels") or ())
         star = next(
@@ -374,10 +392,15 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
             star_rows[0] if star_rows else None,
         )
         if star:
-            description = _fork_skill_description(star)
-            effect_text.setText(f"{star.get('title_zh') or ''}\n{description}".strip())
+            description = _fork_skill_description(star, fork)
+            title = display_text(
+                "ST_Fork",
+                _fork_star_locres_key(fork, "_name"),
+                str(star.get("title_zh") or ""),
+            )
+            effect_text.setText(f"{title}\n{description}".strip())
         else:
-            effect_text.setText("暂无官方精炼说明。")
+            effect_text.setText(tr("暂无官方精炼说明。"))
 
     fork_combo.currentIndexChanged.connect(refresh_fork_summary)
     fork_level.valueChanged.connect(refresh_fork_summary)

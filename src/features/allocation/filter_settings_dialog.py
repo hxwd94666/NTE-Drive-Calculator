@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.dialogs import show_help
 from src.app.theme import themed_style
 from src.services.allocation_filter_settings import (
@@ -42,7 +43,7 @@ class AllocationFilterSettingsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("分配设置")
+        self.setWindowTitle(tr("分配设置"))
         self.resize(QSize(340, 205))
         self.setMinimumWidth(320)
         current = initial or AllocationFilterSettings()
@@ -50,7 +51,7 @@ class AllocationFilterSettingsDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
-        module = QGroupBox("筛选设置")
+        module = QGroupBox(tr("筛选设置"))
         module.setObjectName("allocationFilterModule")
         module_layout = QVBoxLayout(module)
         module_layout.setContentsMargins(8, 8, 8, 8)
@@ -59,7 +60,7 @@ class AllocationFilterSettingsDialog(QDialog):
         module_help = QPushButton("?", module)
         module_help.setObjectName("allocationFilterHelp")
         module_help.setFixedSize(20, 20)
-        module_help.setToolTip("查看筛选设置说明")
+        module_help.setToolTip(tr("查看筛选设置说明"))
         module_help.clicked.connect(
             lambda _checked=False, parent=module_help: show_help(
                 parent,
@@ -75,14 +76,14 @@ class AllocationFilterSettingsDialog(QDialog):
 
         self.type_buttons = self._selection_row(
             module_layout,
-            "分配类型",
+            tr("分配类型"),
             (("卡带", "tape"), ("驱动", "drive")),
             current.item_types,
         )
         self.quality_buttons = self._selection_row(
             module_layout,
             "分配品质",
-            (("蓝色", "Blue"), ("紫色", "Purple"), ("金色", "Gold")),
+            ((tr("蓝色"), "Blue"), (tr("紫色"), "Purple"), (tr("金色"), "Gold")),
             current.qualities,
         )
         root.addWidget(module)
@@ -137,6 +138,6 @@ class AllocationFilterSettingsDialog(QDialog):
         try:
             self.settings()
         except AllocationFilterValidationError as exc:
-            QMessageBox.warning(self, "分配设置无效", str(exc))
+            QMessageBox.warning(self, tr("分配设置无效"), str(exc))
             return
         self.accept()

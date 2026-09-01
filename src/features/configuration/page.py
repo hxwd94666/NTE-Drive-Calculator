@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr, display_term
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, match_pinyin
 from src.app.theme import themed_style
 from src.features.configuration.controller import BasicWeightController
@@ -57,13 +58,13 @@ def build_config_page(window):
     )
 
     top_row = QHBoxLayout()
-    return_button = QPushButton("← 返回角色")
+    return_button = QPushButton(tr("← 返回角色"))
     return_button.setObjectName("returnToRoleButton")
     return_button.clicked.connect(lambda: window._go("my_role"))
     top_row.addWidget(return_button)
 
     window.config_role_search = QLineEdit()
-    window.config_role_search.setPlaceholderText("搜索角色（支持拼音）...")
+    window.config_role_search.setPlaceholderText(tr("搜索角色（支持拼音）..."))
     window.config_role_search.setClearButtonEnabled(True)
     window.config_role_search.textChanged.connect(
         lambda text: getattr(window, "_filter_config_roles", lambda _text: None)(text)
@@ -72,22 +73,22 @@ def build_config_page(window):
 
     top_row.addStretch()
 
-    reset_current_btn = QPushButton("重置当前")
+    reset_current_btn = QPushButton(tr("重置当前"))
     reset_current_btn.setObjectName("btnDanger")
     reset_current_btn.clicked.connect(window._reset_current_config_weights)
     top_row.addWidget(reset_current_btn)
 
-    reset_all_btn = QPushButton("重置所有")
+    reset_all_btn = QPushButton(tr("重置所有"))
     reset_all_btn.setObjectName("btnDanger")
     reset_all_btn.clicked.connect(window._reset_all_config_weights)
     top_row.addWidget(reset_all_btn)
 
-    new_btn = QPushButton("新建")
+    new_btn = QPushButton(tr("新建"))
     new_btn.setObjectName("btnNew")
     new_btn.clicked.connect(lambda: create_custom_role(window))
     top_row.addWidget(new_btn)
 
-    save_btn = QPushButton("保存")
+    save_btn = QPushButton(tr("保存"))
     save_btn.setObjectName("btnPrimary")
     save_btn.clicked.connect(window._save_config_form)
     top_row.addWidget(save_btn)
@@ -115,8 +116,8 @@ def confirm_pending_config_changes(window, config_dir):
         return True
     ret = QMessageBox.question(
         window,
-        "未保存配置",
-        "当前账号词条权重有未保存修改，是否先保存？",
+        tr("未保存配置"),
+        tr("当前账号词条权重有未保存修改，是否先保存？"),
         QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
         QMessageBox.Save,
     )
@@ -152,8 +153,8 @@ def switch_config_form(window, name=_ACCOUNT_WEIGHT_CONFIG, config_dir=None, use
     if current_name and current_name != name and getattr(window, "_config_dirty", False):
         ret = QMessageBox.question(
             window,
-            "未保存配置",
-            f"{current_name} 有未保存修改，是否先保存？",
+            tr("未保存配置"),
+            tr("{name} 有未保存修改，是否先保存？", name=display_term(str(current_name))),
             QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
             QMessageBox.Save,
         )
@@ -211,17 +212,17 @@ def _add_extra_shape_row(window, data, role_name, role_data, form_layout):
     )
     role_data["extra_shape_label"] = current_label
     value.setCurrentText(current_label)
-    value.setPlaceholderText("选择额外形状标签")
+    value.setPlaceholderText(tr("选择额外形状标签"))
     ownership = (
-        "点击“保存”后写入当前账号的自建角色数据。"
+        tr("点击“保存”后写入当前账号的自建角色数据。")
         if role_data.get("is_custom")
-        else "点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。"
+        else tr("点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。")
     )
-    value.setToolTip(f"选择额外形状标签；{ownership}")
+    value.setToolTip(tr("选择额外形状标签；{ownership}", ownership=ownership))
     value.currentTextChanged.connect(
         lambda text, rn=role_name: save_extra_shape_label(window, rn, text, data)
     )
-    _field("额外形状标签", value, form_layout)
+    _field(tr("额外形状标签"), value, form_layout)
 
 
 def _add_extra_shape_buff_row(
@@ -236,20 +237,20 @@ def _add_extra_shape_buff_row(
     extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
     selected_property, selected_value = next(iter(extra_buffs.items()), ("", 0.0))
     row = QHBoxLayout()
-    row.addWidget(QLabel("额外形状加成："))
+    row.addWidget(QLabel(tr("额外形状加成：")))
     property_combo = NoWheelComboBox()
     property_combo.setMaxVisibleItems(6)
-    property_combo.addItem("无加成", "")
+    property_combo.addItem(tr("无加成"), "")
     for label, property_id in getattr(window, "_config_shape_bonus_choices", ()):
-        property_combo.addItem(str(label), str(property_id))
+        property_combo.addItem(display_term(str(label)), str(property_id))
     selected_index = property_combo.findData(str(selected_property))
     property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
     ownership = (
-        "点击“保存”后写入当前账号的自建角色数据。"
+        tr("点击“保存”后写入当前账号的自建角色数据。")
         if role_data.get("is_custom")
-        else "点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。"
+        else tr("点击“保存”后写入本机公共额外形状覆盖库，所有账号共用。")
     )
-    property_combo.setToolTip(f"选择额外形状提供的属性；{ownership}")
+    property_combo.setToolTip(tr("选择额外形状提供的属性；{ownership}", ownership=ownership))
     row.addWidget(property_combo, 1)
     value_spin = NoWheelDoubleSpinBox()
     value_spin.setRange(0, 1000000)
@@ -258,7 +259,7 @@ def _add_extra_shape_buff_row(
     value_spin.setValue(float(selected_value))
     value_spin.setKeyboardTracking(False)
     value_spin.setEnabled(bool(property_combo.currentData()))
-    value_spin.setToolTip(f"额外形状加成数值；{ownership}")
+    value_spin.setToolTip(tr("额外形状加成数值；{ownership}", ownership=ownership))
     row.addWidget(value_spin)
     form_layout.addLayout(row)
 
@@ -289,18 +290,18 @@ def _add_role_weight_group(window, data, role_name, role_data, form_layout, rebu
 
     weights = role_data.get(field_name, {}) or {}
     if not weights:
-        empty_label = QLabel("暂无配置")
+        empty_label = QLabel(tr("暂无配置"))
         empty_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         form_layout.addWidget(empty_label)
         return
     for weight_key in sorted(weights.keys()):
         weight_row = QHBoxLayout()
         weight_row.setSpacing(6)
-        weight_row.addWidget(QLabel(
+        weight_row.addWidget(QLabel(display_term(
             getattr(window, "_config_weight_property_labels", {}).get(
                 weight_key, weight_key
             )
-        ))
+        )))
         spin = NoWheelDoubleSpinBox()
         spin.setRange(0, 10)
         spin.setSingleStep(0.05)
@@ -329,13 +330,13 @@ def _add_role_weight_group(window, data, role_name, role_data, form_layout, rebu
 def _add_custom_target_suit_row(window, role_name, role_data, form_layout):
     combo = NoWheelComboBox()
     combo.setMaxVisibleItems(8)
-    combo.addItem("请选择套装", "")
+    combo.addItem(tr("请选择套装"), "")
     for label, suit_id in getattr(window, "_config_suit_choices", ()):
         combo.addItem(str(label), str(suit_id))
     target_suit_id = str(role_data.get("target_suit_id") or "")
     index = combo.findData(target_suit_id)
     combo.setCurrentIndex(index if index >= 0 else 0)
-    combo.setToolTip("自建角色的默认计算套装；角色管理可在单次计算中临时调整。")
+    combo.setToolTip(tr("自建角色的默认计算套装；角色管理可在单次计算中临时调整。"))
 
     def update_target_suit(_index: int) -> None:
         selected = str(combo.currentData() or "")
@@ -347,12 +348,12 @@ def _add_custom_target_suit_row(window, role_name, role_data, form_layout):
         window._config_dirty = True
 
     combo.currentIndexChanged.connect(update_target_suit)
-    _field("默认计算套装", combo, form_layout)
+    _field(tr("默认计算套装"), combo, form_layout)
 
 
 def _add_custom_board(window, role_name, role_data, form_layout):
     board_header = QHBoxLayout()
-    board_header.addWidget(QLabel("底盘矩阵：必须保持20格"))
+    board_header.addWidget(QLabel(tr("底盘矩阵：必须保持20格")))
     board_header.addStretch()
     enabled_count_label = QLabel()
     enabled_count_label.setObjectName("customRoleBoardEnabledCount")
@@ -369,7 +370,7 @@ def _add_custom_board(window, role_name, role_data, form_layout):
 
     def refresh_count() -> None:
         count = enabled_count()
-        enabled_count_label.setText(f"已启用 {count}/20")
+        enabled_count_label.setText(tr("已启用 {count}/20", count=count))
         enabled_count_label.setStyleSheet(themed_style(
             "color:#3fb950;font-weight:700" if count == 20 else
             "color:#f85149;font-weight:700"
@@ -429,23 +430,23 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
     form_layout.setContentsMargins(12, 12, 12, 12)
 
     source_text = (
-        f"角色：{role_name}　当前账号 SQLite 权重设置"
-        f"（初始来源：{role_data.get('source_kind') or 'default'}）"
+        tr("角色：{role}　当前账号 SQLite 权重设置（初始来源：{source}）",
+           role=display_term(str(role_name)),
+           source=role_data.get("source_kind") or "default")
     )
     if not role_data.get("is_custom"):
-        source_text += "\n额外形状：全部账号共用 · " + (
-            "本机覆盖"
-            if role_data.get("shape_bonus_source") == "shared_override"
-            else "发行默认"
-        )
+        source_text += tr("\n额外形状：全部账号共用 · {origin}",
+                          origin=tr("本机覆盖")
+                          if role_data.get("shape_bonus_source") == "shared_override"
+                          else tr("发行默认"))
     source = QLabel(source_text)
     source.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     form_layout.addWidget(source)
     if role_data.get("is_custom"):
         custom_row = QHBoxLayout()
-        custom_row.addWidget(QLabel("自建可计算角色：没有发行模板；请在此设置默认计算套装与额外形状。"))
+        custom_row.addWidget(QLabel(tr("自建可计算角色：没有发行模板；请在此设置默认计算套装与额外形状。")))
         custom_row.addStretch()
-        delete_btn = QPushButton("删除角色")
+        delete_btn = QPushButton(tr("删除角色"))
         delete_btn.setObjectName("btnDanger")
         delete_btn.clicked.connect(
             lambda: delete_custom_role(window, role_name, role_data, rebuild_all_tabs)
@@ -463,8 +464,8 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
         _add_extra_shape_buff_row(
             window, data, role_name, role_data, form_layout, rebuild_all_tabs,
         )
-    _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "卡带主词条权重", "main_weights", "+ 添加主词条")
-    _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
+    _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, tr("卡带主词条权重"), "main_weights", tr("+ 添加主词条"))
+    _add_role_weight_group(window, data, role_name, role_data, form_layout, rebuild_all_tabs, tr("副词条权重"), "weights", tr("+ 添加副词条"))
     form_layout.addStretch()
 
 
@@ -509,7 +510,7 @@ def render_roles_form(window, data, active_role=None):
             tab_scroll.setWidgetResizable(True)
             tab_scroll.setProperty("role_name", role_name)
             tab_scroll.setProperty("loaded", False)
-            index = roles_tabs.addTab(tab_scroll, role_name)
+            index = roles_tabs.addTab(tab_scroll, display_term(role_name))
             tab_indices[role_name] = index
 
         role_search = getattr(window, "config_role_search", None)
@@ -538,10 +539,11 @@ def add_weight(window, rn, data, cb, config_dir, weight_field="weights"):
         if property_id not in existing
     ]
     if not available:
-        QMessageBox.information(window, "提示", "所有词条已添加。")
+        QMessageBox.information(window, tr("提示"), tr("所有词条已添加。"))
         return
     label, accepted = QInputDialog.getItem(
-        window, "添加词条", "选择词条:", [row[0] for row in available], 0, False,
+        window, tr("添加词条"), tr("选择词条:"),
+        [display_term(str(row[0])) for row in available], 0, False,
     )
     if accepted:
         property_id = dict(available).get(str(label))
@@ -573,15 +575,15 @@ def save_extra_shape_label(window, rn, value, data):
 def create_custom_role(window):
     name, accepted = QInputDialog.getText(
         window,
-        "新建角色",
-        "角色名称（也作为游戏内名称）：",
+        tr("新建角色"),
+        tr("角色名称（也作为游戏内名称）："),
     )
     if not accepted:
         return
     try:
         role = _basic_weight_controller(window).create_custom_role(name)
     except Exception as exc:
-        QMessageBox.warning(window, "新建角色失败", str(exc))
+        QMessageBox.warning(window, tr("新建角色失败"), str(exc))
         return
     window._config_dirty = False
     window._config_form_data = None
@@ -598,8 +600,8 @@ def create_custom_role(window):
 def delete_custom_role(window, role_name, role_data, rebuild_all_tabs):
     if QMessageBox.question(
         window,
-        "删除角色",
-        f"删除 [{role_name}] 以及它的计算偏好和配装槽位？",
+        tr("删除角色"),
+        tr("删除 [{role}] 以及它的计算偏好和配装槽位？", role=display_term(str(role_name))),
         QMessageBox.Yes | QMessageBox.Cancel,
         QMessageBox.Cancel,
     ) != QMessageBox.Yes:
@@ -608,7 +610,7 @@ def delete_custom_role(window, role_name, role_data, rebuild_all_tabs):
     try:
         _basic_weight_controller(window).delete_custom_role(character_id)
     except Exception as exc:
-        QMessageBox.warning(window, "删除角色失败", str(exc))
+        QMessageBox.warning(window, tr("删除角色失败"), str(exc))
         return
     window._config_dirty = False
     window._config_dirty_character_ids.discard(character_id)
@@ -677,7 +679,7 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
             target_suit_dirty_ids,
         )
     except Exception as exc:
-        QMessageBox.warning(window, "保存失败", str(exc))
+        QMessageBox.warning(window, tr("保存失败"), str(exc))
         return
     window._config_dirty = False
     for field_name in (
@@ -694,8 +696,8 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
         reload_data()
     QMessageBox.information(
         window,
-        "保存",
-        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到本机公共覆盖库，所有账号共用。",
+        tr("保存"),
+        tr("卡带主词条和驱动副词条权重已保存到当前账号 SQLite；额外形状加成已保存到本机公共覆盖库，所有账号共用。"),
     )
 
 
@@ -703,7 +705,7 @@ def _confirm_weight_reset(window, message: str) -> bool:
     if getattr(window, "_current_config_name", None) != _ACCOUNT_WEIGHT_CONFIG:
         return False
     return QMessageBox.question(
-        window, "确认重置权重", message,
+        window, tr("确认重置权重"), message,
         QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
     ) == QMessageBox.Yes
 
@@ -727,10 +729,10 @@ def reset_current_config_weights(window, config_dir):
     data = getattr(window, "_config_form_data", {}) or {}
     role_data = data.get(role_name) or {}
     if not role_name or not role_data:
-        QMessageBox.information(window, "重置当前", "请先选择一个角色。")
+        QMessageBox.information(window, tr("重置当前"), tr("请先选择一个角色。"))
         return
     if role_data.get("is_custom"):
-        QMessageBox.information(window, "重置当前", "自建角色没有发行默认权重，保留当前自定义值。")
+        QMessageBox.information(window, tr("重置当前"), tr("自建角色没有发行默认权重，保留当前自定义值。"))
         return
     if not _confirm_weight_reset(
         window,
@@ -744,11 +746,11 @@ def reset_current_config_weights(window, config_dir):
             (int(role_data["character_id"]),)
         )
     except Exception as exc:
-        QMessageBox.warning(window, "重置失败", str(exc))
+        QMessageBox.warning(window, tr("重置失败"), str(exc))
         return
     _reload_after_weight_reset(window, config_dir, role_name)
     QMessageBox.information(
-        window, "重置当前", f"[{role_name}] 已恢复为默认权重，后续可随新版本更新。",
+        window, tr("重置当前"), tr("[{role}] 已恢复为默认权重，后续可随新版本更新。", role=display_term(role_name)),
     )
 
 
@@ -767,20 +769,20 @@ def reset_all_config_weights(window, config_dir):
         return
     if not _confirm_weight_reset(
         window,
-        f"将清除当前账号全部 {len(character_ids)} 名角色的自定义卡带主词条和驱动副词条权重，"
-        "恢复为当前异环工坊默认值。\n\n"
-        "此操作无法撤销；额外形状标签和额外形状加成不会改变，当前未保存编辑会丢弃。",
+        tr("将清除当前账号全部 {count} 名角色的自定义卡带主词条和驱动副词条权重，"
+           "恢复为当前异环工坊默认值。\n\n"
+           "此操作无法撤销；额外形状标签和额外形状加成不会改变，当前未保存编辑会丢弃。", count=len(character_ids)),
     ):
         return
     try:
         restored = _basic_weight_controller(window).reset_weights(character_ids)
     except Exception as exc:
-        QMessageBox.warning(window, "重置失败", str(exc))
+        QMessageBox.warning(window, tr("重置失败"), str(exc))
         return
     active_role = str(getattr(window, "_config_active_role", "") or "")
     _reload_after_weight_reset(window, config_dir, active_role)
     QMessageBox.information(
-        window, "重置所有", f"已恢复 {len(restored)} 名角色的默认权重，后续可随新版本更新。",
+        window, tr("重置所有"), tr("已恢复 {count} 名角色的默认权重，后续可随新版本更新。", count=len(restored)),
     )
 
 

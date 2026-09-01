@@ -14,6 +14,7 @@ from pathlib import Path
 import time
 from typing import Any
 
+from src.i18n import tr
 from src.domain.post_actions import summarize_state_changes
 from src.integrations.warehouse_state_writer import (
     LiveInventorySync,
@@ -70,7 +71,7 @@ def _current_state(row: Mapping[str, Any]) -> str:
 def _equipment_uid(row: Mapping[str, Any]) -> dict[str, int]:
     slot, serial = row.get("uid_slot"), row.get("uid_serial")
     if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in (slot, serial)):
-        raise WarehouseStateManagementError("稳定快照包含无效的装备 UID")
+        raise WarehouseStateManagementError(tr("稳定快照包含无效的装备 UID"))
     return {"slot": slot, "serial": serial}
 
 
@@ -124,7 +125,7 @@ class WarehouseStateManagementService:
         with self.dao_factory(self.database_path) as user_dao, self.static_dao_factory() as static_dao:
             snapshot_id = user_dao.current_inventory_snapshot_id()
             if snapshot_id is None:
-                raise WarehouseStateManagementError("尚无稳定背包快照，无法管理仓库")
+                raise WarehouseStateManagementError(tr("尚无稳定背包快照，无法管理仓库"))
             projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
             snapshot_id = projection.snapshot_id
             source_rows = user_dao.list_inventory_items(snapshot_id)
@@ -135,7 +136,7 @@ class WarehouseStateManagementService:
         for index, payload in enumerate(projection.items, 1):
             source = source_by_uid.get(payload["uid"])
             if source is None:
-                raise WarehouseStateManagementError("稳定快照投影与原始装备 UID 不一致")
+                raise WarehouseStateManagementError(tr("稳定快照投影与原始装备 UID 不一致"))
             item = Drive(**payload) if payload["item_type"] == "drive" else Tape(**payload)
             inventory.append(item)
             parsed_items.append((index, item, _current_state(source)))
@@ -150,7 +151,7 @@ class WarehouseStateManagementService:
         for change in evaluation.state_changes:
             source = source_by_uid.get(str(change.get("uid") or ""))
             if source is None:
-                raise WarehouseStateManagementError("状态管理目标不在固定稳定快照中")
+                raise WarehouseStateManagementError(tr("状态管理目标不在固定稳定快照中"))
             enriched = dict(change)
             enriched["equipment"] = _equipment_uid(source)
             changes.append(enriched)
@@ -191,19 +192,21 @@ class WarehouseStateManagementService:
         targets: Mapping[str, str],
     ) -> WarehouseStateManagementPlan:
         if not isinstance(snapshot_id, int) or snapshot_id <= 0:
-            raise WarehouseStateManagementError("没有可保存的稳定背包快照")
+            raise WarehouseStateManagementError(tr("没有可保存的稳定背包快照"))
         with self.dao_factory(self.database_path) as user_dao:
             if user_dao.current_inventory_snapshot_id() != snapshot_id:
-                raise WarehouseStateManagementError("游戏背包已更新，请等待仓库自动刷新后重新编辑")
+                raise WarehouseStateManagementError(tr("游戏背包已更新，请等待仓库自动刷新后重新编辑"))
             rows = user_dao.list_inventory_items(snapshot_id)
         by_uid = {_compat_uid(row): row for row in rows}
         changes: list[dict[str, Any]] = []
         for uid, target_state in targets.items():
             if target_state not in {"normal", "locked", "discarded"}:
-                raise WarehouseStateManagementError(f"仓库中包含未知目标状态：{target_state}")
+                raise WarehouseStateManagementError(
+                tr("仓库中包含未知目标状态：{state}", state=target_state)
+            )
             row = by_uid.get(str(uid))
             if row is None:
-                raise WarehouseStateManagementError("已编辑的装备不在当前稳定背包快照中")
+                raise WarehouseStateManagementError(tr("已编辑的装备不在当前稳定背包快照中"))
             if _current_state(row) != target_state:
                 changes.append(
                     {
@@ -258,7 +261,7 @@ class WarehouseStateManagementService:
     ) -> WarehouseStateManagementResult:
         self._report_progress(
             progress_callback,
-            "正在检查背包同步状态和核心组件能力…",
+            tr("正在检查背包同步状态和核心组件能力…"),
         )
         try:
             self.state_writer.ensure_ready()
@@ -269,7 +272,7 @@ class WarehouseStateManagementService:
         with self.dao_factory(self.database_path) as user_dao:
             current_snapshot_id = user_dao.current_inventory_snapshot_id()
             if current_snapshot_id != plan.snapshot_id:
-                raise WarehouseStateManagementError("背包快照已更新，请刷新仓库并重新确认管理目标")
+                raise WarehouseStateManagementError(tr("背包快照已更新，请刷新仓库并重新确认管理目标"))
             current_rows = {
                 (row["uid_slot"], row["uid_serial"]): row
                 for row in user_dao.list_inventory_items(plan.snapshot_id)
@@ -305,10 +308,11 @@ class WarehouseStateManagementService:
                     equipment = dict(change["equipment"])
                     row = current_rows.get((equipment["slot"], equipment["serial"]))
                     if row is None:
-                        raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
+                        raise WarehouseStateManagementError(tr("目标装备已不在当前稳定快照中"))
                     self._report_progress(
                         progress_callback,
-                        f"正在向游戏提交第 {index}/{total_changes} 件装备状态…",
+                        tr("正在向游戏提交第 {index}/{total} 件装备状态…",
+                           index=index, total=total_changes),
                     )
                     try:
                         self.state_writer.apply_one(
@@ -353,7 +357,7 @@ class WarehouseStateManagementService:
         if not plan.changes:
             self._report_progress(
                 progress_callback,
-                "当前状态无需修改。",
+                tr("当前状态无需修改。"),
             )
             return WarehouseStateManagementResult(
                 before_snapshot_id=plan.snapshot_id,
@@ -365,7 +369,7 @@ class WarehouseStateManagementService:
         try:
             self._report_progress(
                 progress_callback,
-                "修改指令已全部提交，正在等待游戏产生新的完整背包快照…",
+                tr("修改指令已全部提交，正在等待游戏产生新的完整背包快照…"),
             )
             after_snapshot_id, verified, verification_error = (
                 self._wait_for_confirmation(
@@ -432,15 +436,15 @@ class WarehouseStateManagementService:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 if latest_snapshot_id is None:
-                    message = (
+                    message = tr(
                         "未在限定时间内收到修改后的新背包快照；"
                         "当前 nte-core 协议不能主动要求游戏刷新，"
                         "需等待游戏后续产生完整背包数据"
                     )
                 else:
-                    message = (
-                        f"已收到新快照 #{latest_snapshot_id}，但仍有 "
-                        f"{remaining_mismatches} 件状态尚未确认"
+                    message = tr(
+                        "已收到新快照 #{snapshot}，但仍有 {count} 件状态尚未确认",
+                        snapshot=latest_snapshot_id, count=remaining_mismatches,
                     )
                 return latest_snapshot_id, False, message
             try:
@@ -450,22 +454,22 @@ class WarehouseStateManagementService:
                 )
             except TimeoutError:
                 if latest_snapshot_id is None:
-                    message = (
+                    message = tr(
                         "未在限定时间内收到修改后的新背包快照；"
                         "当前 nte-core 协议不能主动要求游戏刷新，"
                         "需等待游戏后续产生完整背包数据"
                     )
                 else:
-                    message = (
-                        f"已收到新快照 #{latest_snapshot_id}，但仍有 "
-                        f"{remaining_mismatches} 件状态尚未确认"
+                    message = tr(
+                        "已收到新快照 #{snapshot}，但仍有 {count} 件状态尚未确认",
+                        snapshot=latest_snapshot_id, count=remaining_mismatches,
                     )
                 return latest_snapshot_id, False, message
             except Exception as exc:
                 return (
                     latest_snapshot_id,
                     False,
-                    f"等待新背包快照时同步服务异常（{type(exc).__name__}）",
+                    tr("等待新背包快照时同步服务异常（{name}）", name=type(exc).__name__),
                 )
 
             snapshot_id = getattr(state, "last_snapshot_id", None)
@@ -476,13 +480,13 @@ class WarehouseStateManagementService:
                 return (
                     latest_snapshot_id,
                     False,
-                    "同步服务未返回递增的新背包快照编号",
+                    tr("同步服务未返回递增的新背包快照编号"),
                 )
             latest_snapshot_id = snapshot_id
             cursor = snapshot_id
             self._report_progress(
                 progress_callback,
-                f"已收到新快照 #{snapshot_id}，正在核对修改结果…",
+                tr("已收到新快照 #{snapshot}，正在核对修改结果…", snapshot=snapshot_id),
             )
             with self.dao_factory(self.database_path) as user_dao:
                 rows = user_dao.list_inventory_items(snapshot_id)
@@ -493,12 +497,13 @@ class WarehouseStateManagementService:
             if remaining_mismatches == 0:
                 self._report_progress(
                     progress_callback,
-                    f"新快照 #{snapshot_id} 已确认全部修改。",
+                    tr("新快照 #{snapshot} 已确认全部修改。", snapshot=snapshot_id),
                 )
                 return snapshot_id, True, None
             self._report_progress(
                 progress_callback,
-                f"快照 #{snapshot_id} 尚有 {remaining_mismatches} 件未确认，继续等待…",
+                tr("快照 #{snapshot} 尚有 {count} 件未确认，继续等待…",
+                   snapshot=snapshot_id, count=remaining_mismatches),
             )
 
     @staticmethod

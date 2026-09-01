@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from src.i18n import tr
 from src.integrations.nte_core import NteCoreClient
 from src.observability import OperationContext, log_event
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -444,7 +445,7 @@ class InventorySyncService:
             self._latest_inventory_event = None
         self._publish(
             "starting",
-            "正在启动背包同步服务",
+            tr("正在启动背包同步服务"),
             running=True,
             capturing=False,
             error=None,

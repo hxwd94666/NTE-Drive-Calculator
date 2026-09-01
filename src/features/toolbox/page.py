@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr, display_term
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
@@ -101,17 +102,17 @@ class ToolboxPage:
 
         copy = QVBoxLayout()
         copy.setSpacing(4)
-        title = QLabel("倒带推荐", tool_row)
+        title = QLabel(tr("倒带推荐"), tool_row)
         title.setObjectName("toolboxRewindRecommendationTitle")
         title.setStyleSheet(themed_style("font-size:16px;font-weight:800;color:#58a6ff"))
         copy.addWidget(title)
-        description = QLabel("根据培养角色、目标评分与当前库存，生成 8 个驱动形状的自定义抽取方案。", tool_row)
+        description = QLabel(tr("根据培养角色、目标评分与当前库存，生成 8 个驱动形状的自定义抽取方案。"), tool_row)
         description.setWordWrap(True)
         description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         copy.addWidget(description)
         row_layout.addLayout(copy, 1)
 
-        use_button = QPushButton("使用", tool_row)
+        use_button = QPushButton(tr("使用"), tool_row)
         use_button.setObjectName("toolboxRewindRecommendation")
         use_button.setCursor(Qt.PointingHandCursor)
         use_button.setMinimumSize(76, 38)
@@ -136,7 +137,11 @@ class ToolboxPage:
         try:
             service = self._dependencies.rewind_service()
         except Exception as exc:
-            QMessageBox.warning(self._dialog_parent, "倒带推荐", f"读取倒带分析数据失败：{exc}")
+            QMessageBox.warning(
+                self._dialog_parent,
+                tr("倒带推荐"),
+                tr("读取倒带分析数据失败：{error}", error=exc),
+            )
             return
         dialog = _RewindRecommendationDialog(service, self._dialog_parent)
         dialog.exec()
@@ -169,13 +174,13 @@ class _RoleSelectionDialog(QDialog):
         root.addWidget(note)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜索角色（支持拼音）")
+        self.search_edit.setPlaceholderText(tr("搜索角色（支持拼音）"))
         self.search_edit.textChanged.connect(self._apply_filter)
         root.addWidget(self.search_edit)
 
         toolbar = QHBoxLayout()
-        select_all = QPushButton("全选")
-        clear_all = QPushButton("清空")
+        select_all = QPushButton(tr("全选"))
+        clear_all = QPushButton(tr("清空"))
         select_all.clicked.connect(lambda: self._set_visible_checked(True))
         clear_all.clicked.connect(lambda: self._set_visible_checked(False))
         toolbar.addWidget(select_all)
@@ -200,7 +205,7 @@ class _RoleSelectionDialog(QDialog):
             card.setObjectName("rewindRoleSelectionCard")
             card.setCheckable(True)
             card.setChecked(role.character_id in selected)
-            card.setText(role.name)
+            card.setText(display_term(role.name))
             card.setToolTip(role.name)
             avatar_path = catalog.character_icon(role.character_id)
             if avatar_path is not None:
@@ -254,7 +259,7 @@ class _RoleSelectionDialog(QDialog):
         self._update_count()
 
     def _update_count(self, _checked: bool | None = None) -> None:
-        self.count_label.setText(f"已选 {len(self.selected_character_ids())} 名")
+        self.count_label.setText(tr("已选 {count} 名", count=len(self.selected_character_ids())))
 
     def selected_character_ids(self) -> tuple[int, ...]:
         return tuple(
@@ -268,8 +273,8 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
     """Immediate shell for the rewind advisor; data work stays off the UI thread."""
 
     _strategy_labels = {
-        "balanced": "全面均衡",
-        "focused": "少角冲分",
+        "balanced": tr("全面均衡"),
+        "focused": tr("少角冲分"),
     }
 
     def __init__(self, service: RewindShapeRecommendationService, parent: QWidget) -> None:
@@ -302,7 +307,7 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         self._saved_rewind_slots = tuple(preferences.get("saved_rewind_slots", ()))
         self._rewind_worker: WorkerThread | None = None
 
-        self.setWindowTitle("倒带推荐")
+        self.setWindowTitle(tr("倒带推荐"))
         self.resize(900, 700)
         self.setMinimumWidth(760)
 
@@ -319,17 +324,17 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        self._save_plan_button = QPushButton("保存方案")
+        self._save_plan_button = QPushButton(tr("保存方案"))
         self._save_plan_button.setObjectName("rewindSavePlan")
         self._save_plan_button.setEnabled(False)
         self._save_plan_button.clicked.connect(self._save_plan)
         buttons.addWidget(self._save_plan_button)
-        self._start_rewind_button = QPushButton("进行倒带")
+        self._start_rewind_button = QPushButton(tr("进行倒带"))
         self._start_rewind_button.setObjectName("rewindStartRun")
         self._start_rewind_button.setEnabled(False)
         self._start_rewind_button.clicked.connect(self._configure_rewind)
         buttons.addWidget(self._start_rewind_button)
-        close_button = QPushButton("关闭")
+        close_button = QPushButton(tr("关闭"))
         close_button.clicked.connect(self.accept)
         buttons.addWidget(close_button)
         layout.addLayout(buttons)
@@ -360,31 +365,31 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         top = QHBoxLayout()
         top.setSpacing(10)
         top.addWidget(self._build_role_card(
-            title="培养角色",
-            description="仅在全面均衡策略中生效",
+            title=tr("培养角色"),
+            description=tr("仅在全面均衡策略中生效"),
             main=False,
         ), 1)
         top.addWidget(self._build_role_card(
-            title="冲分角色",
-            description="仅在少角冲分策略中生效",
+            title=tr("冲分角色"),
+            description=tr("仅在少角冲分策略中生效"),
             main=True,
         ), 1)
         root.addLayout(top)
 
         strategy_row = QHBoxLayout()
-        strategy_title = QLabel("培养策略")
+        strategy_title = QLabel(tr("培养策略"))
         strategy_title.setStyleSheet(themed_style("font-weight:700;color:#f0f6fc"))
         strategy_row.addWidget(strategy_title)
         help_button = QPushButton("?")
         help_button.setObjectName("btnHelp")
-        help_button.setToolTip("查看两种培养策略的差异")
+        help_button.setToolTip(tr("查看两种培养策略的差异"))
         help_button.clicked.connect(self._show_strategy_help)
         strategy_row.addWidget(help_button)
         strategy_row.addSpacing(6)
 
         self._strategy_group = QButtonGroup(self)
         self._strategy_buttons: dict[str, QPushButton] = {}
-        for label, value in (("全面均衡", "balanced"), ("少角冲分", "focused")):
+        for label, value in ((tr("全面均衡"), "balanced"), (tr("少角冲分"), "focused")):
             button = QPushButton(label)
             button.setObjectName("rewindStrategy")
             button.setCheckable(True)
@@ -396,7 +401,7 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         strategy_row.addStretch(1)
         root.addLayout(strategy_row)
         grade_row = QHBoxLayout()
-        grade_row.addWidget(QLabel("评分等级"))
+        grade_row.addWidget(QLabel(tr("评分等级")))
         self._grade_buttons: dict[str, QPushButton] = {}
         self._grade_group = QButtonGroup(self)
         for grade in ("D", "C", "B", "A", "S", "SS", "SSS", "ACE"):
@@ -408,7 +413,7 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
             self._grade_group.addButton(button)
             self._grade_buttons[grade] = button
             grade_row.addWidget(button)
-        self._custom_target_button = QPushButton("自选")
+        self._custom_target_button = QPushButton(tr("自选"))
         self._custom_target_button.setObjectName("rewindStrategy")
         self._custom_target_button.setCheckable(True)
         self._custom_target_button.setChecked(self._target_threshold_mode == "custom")
@@ -440,12 +445,12 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         self._custom_percent_step_up = QToolButton()
         self._custom_percent_step_up.setObjectName("rewindPercentStepUp")
         self._custom_percent_step_up.setText("▲")
-        self._custom_percent_step_up.setToolTip("增加 0.1%")
+        self._custom_percent_step_up.setToolTip(tr("增加 0.1%"))
         self._custom_percent_step_up.clicked.connect(self._custom_percent_input.stepUp)
         self._custom_percent_step_down = QToolButton()
         self._custom_percent_step_down.setObjectName("rewindPercentStepDown")
         self._custom_percent_step_down.setText("▼")
-        self._custom_percent_step_down.setToolTip("减少 0.1%")
+        self._custom_percent_step_down.setToolTip(tr("减少 0.1%"))
         self._custom_percent_step_down.clicked.connect(self._custom_percent_input.stepDown)
         percent_steps.addWidget(self._custom_percent_step_up)
         percent_steps.addWidget(self._custom_percent_step_down)
@@ -454,11 +459,11 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         grade_row.addWidget(percent_control)
         grade_help_button = QPushButton("?")
         grade_help_button.setObjectName("btnHelp")
-        grade_help_button.setToolTip("查看评分等级对应的目标百分比")
+        grade_help_button.setToolTip(tr("查看评分等级对应的目标百分比"))
         grade_help_button.clicked.connect(self._show_grade_help)
         grade_row.addWidget(grade_help_button)
         grade_row.addStretch(1)
-        self._generate_button = QPushButton("生成方案")
+        self._generate_button = QPushButton(tr("生成方案"))
         self._generate_button.setObjectName("btnPrimary")
         self._generate_button.clicked.connect(self._refresh_analysis)
         grade_row.addWidget(self._generate_button)
@@ -484,7 +489,7 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         summary.setWordWrap(False)
         summary.setStyleSheet(themed_style("color:#c9d1d9"))
         selection_row.addWidget(summary, 1)
-        button = QPushButton("选择冲分角色" if main else "选择角色")
+        button = QPushButton(tr("选择冲分角色") if main else tr("选择角色"))
         button.setObjectName("btnAction")
         button.setEnabled(False)
         button.clicked.connect(self._choose_main_roles if main else self._choose_target_roles)
@@ -548,8 +553,8 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
     def _load_roles_async(self) -> None:
         if self._roles_worker is not None and self._roles_worker.isRunning():
             return
-        self._target_summary.setText("正在加载角色列表…")
-        self._main_summary.setText("正在加载角色列表…")
+        self._target_summary.setText(tr("正在加载角色列表…"))
+        self._main_summary.setText(tr("正在加载角色列表…"))
         worker = WorkerThread(target=self._load_role_and_inventory_catalog, parent=self)
         self._roles_worker = worker
         worker.result_ready.connect(self._on_roles_loaded)
@@ -580,16 +585,16 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         self._update_role_summaries()
 
     def _on_roles_load_error(self, message: str) -> None:
-        self._target_summary.setText("角色列表加载失败")
-        self._main_summary.setText("角色列表加载失败")
+        self._target_summary.setText(tr("角色列表加载失败"))
+        self._main_summary.setText(tr("角色列表加载失败"))
 
     def _choose_target_roles(self) -> None:
         if not self._roles:
             return
         dialog = _RoleSelectionDialog(
             self,
-            title="选择意向培养角色",
-            description="选择希望培养的角色。倒带会优先覆盖这些角色所需卡带的驱动形状。",
+            title=tr("选择意向培养角色"),
+            description=tr("选择希望培养的角色。倒带会优先覆盖这些角色所需卡带的驱动形状。"),
             roles=self._roles,
             selected_character_ids=self._target_character_ids,
         )
@@ -603,8 +608,8 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
             return
         dialog = _RoleSelectionDialog(
             self,
-            title="选择冲分角色",
-            description="可多选。少角冲分只分析这些角色低于目标等级的已装配驱动。",
+            title=tr("选择冲分角色"),
+            description=tr("可多选。少角冲分只分析这些角色低于目标等级的已装配驱动。"),
             roles=self._roles,
             selected_character_ids=self._main_character_ids,
         )
@@ -633,30 +638,34 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
     def _update_role_summaries(self) -> None:
         if not self._roles and self._roles_worker is not None:
             return
-        self._target_summary.setText(self._role_summary(self._target_character_ids, "未选择，请选择角色"))
-        self._main_summary.setText(self._role_summary(self._main_character_ids, "未选择，请选择角色"))
+        self._target_summary.setText(self._role_summary(self._target_character_ids, tr("未选择，请选择角色")))
+        self._main_summary.setText(self._role_summary(self._main_character_ids, tr("未选择，请选择角色")))
 
     def _role_summary(self, character_ids: set[int], empty_text: str) -> str:
-        names = [self._role_names[identifier] for identifier in sorted(character_ids) if identifier in self._role_names]
+        names = [
+            display_term(self._role_names[identifier])
+            for identifier in sorted(character_ids)
+            if identifier in self._role_names
+        ]
         if not names:
             return empty_text
-        shown = "、".join(names[:3])
-        return shown if len(names) <= 3 else f"{shown} 等 {len(names)} 名"
+        shown = tr("、").join(names[:3])
+        return shown if len(names) <= 3 else tr("{shown} 等 {count} 名", shown=shown, count=len(names))
 
     def _show_strategy_help(self) -> None:
         QMessageBox.information(
             self,
-            "培养策略说明",
-            "· 全面均衡：优先补培养角色中没达到目标评分的驱动，并兼顾库存\n"
-            "· 少角冲分：只看冲分角色，优先补缺分更多的驱动",
+            tr("培养策略说明"),
+            tr("· 全面均衡：优先补培养角色中没达到目标评分的驱动，并兼顾库存\n"
+            "· 少角冲分：只看冲分角色，优先补缺分更多的驱动"),
         )
 
     def _show_grade_help(self) -> None:
         message = QMessageBox(self)
-        message.setWindowTitle("自选评分等级说明")
+        message.setWindowTitle(tr("自选评分等级说明"))
         message.setIcon(QMessageBox.Icon.NoIcon)
         message.setText(
-            "D：0%\n"
+            tr("D：0%\n"
             "C：20%\n"
             "B：30%\n"
             "A：40%\n"
@@ -664,20 +673,20 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
             "SS：60%\n"
             "SSS：70%\n"
             "ACE：80%\n"
-            "自选：以填写百分比为准",
+            "自选：以填写百分比为准"),
         )
         message.exec()
 
     def _refresh_analysis(self) -> None:
         if self._target_threshold_mode == "custom" and self._target_custom_percent is None:
-            message = "请选择自选评分百分比（1.0%～100.0%）。"
-            QMessageBox.warning(self, "生成推荐", message)
-            self._render_message("未生成推荐", message)
+            message = tr("请选择自选评分百分比（1.0%～100.0%）。")
+            QMessageBox.warning(self, tr("生成推荐"), message)
+            self._render_message(tr("未生成推荐"), message)
             return
         token = object()
         self._analysis_token = token
         self._generate_button.setEnabled(False)
-        self._generate_button.setText("分析中…")
+        self._generate_button.setText(tr("分析中…"))
         self._render_loading()
         target_ids = tuple(sorted(self._target_character_ids))
         primary_ids = tuple(sorted(self._main_character_ids))
@@ -707,9 +716,9 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         if token is not self._analysis_token or not isinstance(analysis, RewindShapeAnalysis):
             return
         self._generate_button.setEnabled(True)
-        self._generate_button.setText("生成方案")
+        self._generate_button.setText(tr("生成方案"))
         if analysis.notice:
-            self._render_message("推荐提示", analysis.notice)
+            self._render_message(tr("推荐提示"), analysis.notice)
             return
         self._render_plans(analysis)
 
@@ -717,12 +726,12 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         if token is not self._analysis_token:
             return
         self._generate_button.setEnabled(True)
-        self._generate_button.setText("重新生成")
-        QMessageBox.warning(self, "生成推荐", message)
-        self._render_message("未生成推荐", message)
+        self._generate_button.setText(tr("重新生成"))
+        QMessageBox.warning(self, tr("生成推荐"), message)
+        self._render_message(tr("未生成推荐"), message)
 
     def _render_loading(self) -> None:
-        self._render_message("正在生成推荐", "已打开倒带推荐，正在后台读取快照并匹配角色评分质量…")
+        self._render_message(tr("正在生成推荐"), tr("已打开倒带推荐，正在后台读取快照并匹配角色评分质量…"))
 
     def _render_message(self, title: str, detail: str) -> None:
         while self._result_tabs.count():
@@ -744,7 +753,7 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         detail_label.setStyleSheet(themed_style("color:#8b949e"))
         box.addWidget(detail_label)
         box.addStretch()
-        self._result_tabs.addTab(page, "推荐结果")
+        self._result_tabs.addTab(page, tr("推荐结果"))
 
     def _render_plans(self, analysis: RewindShapeAnalysis) -> None:
         recommendations = tuple(
@@ -755,10 +764,10 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         self._set_replacement_inventory_counts(dict(analysis.owned_shape_counts))
         self._apply_recommendations(recommendations)
         description = {
-            "balanced": "全面均衡推荐已生成；可继续手动调整八个槽位。",
-            "focused": "少角冲分推荐已生成；可继续手动调整八个槽位。",
-        }.get(analysis.strategy, "推荐已生成；可继续手动调整八个槽位。")
-        self._render_rewind_slots("推荐方案", description)
+            "balanced": tr("全面均衡推荐已生成；可继续手动调整八个槽位。"),
+            "focused": tr("少角冲分推荐已生成；可继续手动调整八个槽位。"),
+        }.get(analysis.strategy, tr("推荐已生成；可继续手动调整八个槽位。"))
+        self._render_rewind_slots(tr("推荐方案"), description)
 
 
 def _matches_role_name(name: str, keyword: str) -> bool:

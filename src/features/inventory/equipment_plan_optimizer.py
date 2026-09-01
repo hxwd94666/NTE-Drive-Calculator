@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr, display_term
 from src.domain.allocation_rating import allocation_grade
 from src.domain.loadout_plan_scores import exact_assignment_score_total
 from src.app.theme import themed_style
@@ -285,7 +286,7 @@ def _open_official_saved_plan_optimizer(
     if not isinstance(plan, dict):
         return False
     if plan.get("allocation_locked"):
-        QMessageBox.information(window, "替换优化", "当前方案已锁定，请先在配装页解除锁定。")
+        QMessageBox.information(window, tr("替换优化"), tr("当前方案已锁定，请先在配装页解除锁定。"))
         return True
     character_id = plan.get("character_id")
     if character_id is None:
@@ -420,9 +421,9 @@ def _optimize_saved_equipment(
                 ):
                     return
             except Exception as exc:
-                QMessageBox.warning(self, "优化替换", f"无法读取官方角色详情：{exc}")
+                QMessageBox.warning(self, tr("优化替换"), tr("无法读取官方角色详情：{error}", error=exc))
                 return
-            QMessageBox.warning(self, "优化替换", "当前方案无法在官方角色详情中定位，请重新计算并保存后重试。")
+            QMessageBox.warning(self, tr("优化替换"), tr("当前方案无法在官方角色详情中定位，请重新计算并保存后重试。"))
             return
         # Custom roles intentionally have no official detail or damage model.
         # Their replacement flow ranks only by their current account weights.
@@ -433,7 +434,7 @@ def _optimize_saved_equipment(
             database_path, role_name, item_kind, uid, plan_id=plan_id
         )
     except Exception as exc:
-        QMessageBox.warning(self, "优化替换", str(exc))
+        QMessageBox.warning(self, tr("优化替换"), str(exc))
         return
     if exclude_used_by_others:
         candidates = [candidate for candidate in candidates if not candidate.get("_used_by")]
@@ -485,7 +486,7 @@ def _optimize_saved_equipment(
         reverse=True,
     )[:30]
     if not ranked:
-        QMessageBox.information(self, "优化替换", "当前快照中没有可替换的同类装备。")
+        QMessageBox.information(self, tr("优化替换"), tr("当前快照中没有可替换的同类装备。"))
         return
 
     # Keep the same current-item / candidate-list layout used by the 角色功能 page.
@@ -497,7 +498,7 @@ def _optimize_saved_equipment(
     dialog.setWindowTitle(f"{role_name} · {title}")
     dialog.resize(850, 650)
     layout = QVBoxLayout(dialog)
-    role_header = QLabel(f"装配角色：{role_name}")
+    role_header = QLabel(tr("装配角色：{role}", role=display_term(role_name)))
     role_header.setStyleSheet(
         themed_style(
             "font-size:15px;font-weight:800;color:#4dd0e1;"
@@ -515,14 +516,17 @@ def _optimize_saved_equipment(
         else "候选按当前词条配装权重评分排序"
         )
     )
+    scope_term = tr("形状") if item_kind == "drive" else tr("套装")
     summary = QLabel(
-        f"{summary_text}；仅显示同{('形状' if item_kind == 'drive' else '套装')}的候选装备，"
-        "不会占用本方案其他已选装备。"
+        tr("{summary}；仅显示同{scope}的候选装备，不会占用本方案其他已选装备。",
+           summary=summary_text, scope=scope_term)
     )
     summary.setWordWrap(True)
     summary.setStyleSheet(themed_style("color:#8b949e"))
     layout.addWidget(summary)
-    current_group = QGroupBox("当前驱动" if item_kind == "drive" else f"当前{core_term}")
+    current_group = QGroupBox(
+        tr("当前驱动") if item_kind == "drive" else tr("当前{term}", term=core_term)
+    )
     current_layout = QVBoxLayout(current_group)
     current_layout.addWidget(
         presentation.equipment_card(
@@ -553,7 +557,9 @@ def _optimize_saved_equipment(
         )
     )
     layout.addWidget(current_group)
-    candidates_group = QGroupBox(f"可替换{'驱动' if item_kind == 'drive' else core_term} ({len(ranked)}个)")
+    candidates_group = QGroupBox(tr("可替换{kind} ({count}个)",
+                             kind=display_term("驱动") if item_kind == "drive" else core_term,
+                             count=len(ranked)))
     candidates_layout = QVBoxLayout(candidates_group)
     scroll = QScrollArea(candidates_group)
     scroll.setWidgetResizable(True)
@@ -624,14 +630,14 @@ def _optimize_saved_equipment(
                                 **save_kwargs,
                             )
             except Exception as exc:
-                QMessageBox.warning(dialog, "替换失败", str(exc))
+                QMessageBox.warning(dialog, tr("替换失败"), str(exc))
                 return
             dialog.accept()
             self._saved_equipment_cache_valid = False
             self._refresh_equip(restore_role_name=role_name)
             if callable(after_replace):
                 after_replace(selected, selected_score, current_score)
-            QMessageBox.information(self, "优化替换", "已保存为新的配装方案。")
+            QMessageBox.information(self, tr("优化替换"), tr("已保存为新的配装方案。"))
 
         candidate_card = QWidget()
         candidate_layout = QVBoxLayout(candidate_card)
@@ -668,12 +674,14 @@ def _optimize_saved_equipment(
             )
         )
         if rank_by_damage:
-            margin = QLabel(f"直伤收益：{candidate_margin:+.2f}%")
+            margin = QLabel(tr("直伤收益：{value:+.2f}%", value=candidate_margin))
             margin.setStyleSheet(themed_style("color:#ffaa00;font-weight:700;font-size:12px"))
             candidate_layout.addWidget(margin)
         used_by = tuple(candidate.get("_used_by") or ())
         if used_by:
-            user_label = QLabel(f"使用者：{', '.join(used_by)}")
+            user_label = QLabel(
+                tr("使用者：{names}", names=", ".join(display_term(n) for n in used_by))
+            )
             user_label.setStyleSheet(themed_style("color:#ff9800;font-size:12px"))
             candidate_layout.addWidget(user_label)
         content_layout.addWidget(candidate_card)
@@ -681,7 +689,7 @@ def _optimize_saved_equipment(
     scroll.setWidget(content)
     candidates_layout.addWidget(scroll)
     layout.addWidget(candidates_group, 1)
-    close = QPushButton("关闭")
+    close = QPushButton(tr("关闭"))
     close.clicked.connect(dialog.accept)
     layout.addWidget(close)
     dialog.exec()

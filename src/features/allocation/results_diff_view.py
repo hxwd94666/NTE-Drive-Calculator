@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.constants import ALLOCATION_TOTAL_SCORE_AREA
 from src.app.theme import current_style_sheet, themed_style
 from src.domain.allocation_rating import loadout_total_grade
@@ -416,7 +417,7 @@ def _append_equipment_swap_frame(body_layout, role_name, old_item, new_item, dif
     pair_layout.setSpacing(6)
     pair_layout.setContentsMargins(8, 6, 8, 6)
 
-    old_lbl = QLabel("← 卸下（旧）")
+    old_lbl = QLabel(tr("← 卸下（旧）"))
     old_lbl.setStyleSheet(
         themed_style("font-size:11px;font-weight:700;color:#f85149;border:none;background:transparent;padding:2px 4px")
     )
@@ -424,7 +425,7 @@ def _append_equipment_swap_frame(body_layout, role_name, old_item, new_item, dif
     if old_item is not None:
         pair_layout.addWidget(diff_item_card(role_name, old_item, is_new=False))
     else:
-        pair_layout.addWidget(QLabel("  （无需卸下）"))
+        pair_layout.addWidget(QLabel(tr("  （无需卸下）")))
 
     arrow = QLabel("  ↓")
     arrow.setStyleSheet(
@@ -434,7 +435,7 @@ def _append_equipment_swap_frame(body_layout, role_name, old_item, new_item, dif
     )
     pair_layout.addWidget(arrow)
 
-    new_lbl = QLabel("→ 换上（新）")
+    new_lbl = QLabel(tr("→ 换上（新）"))
     new_lbl.setStyleSheet(
         themed_style("font-size:11px;font-weight:700;color:#56d364;border:none;background:transparent;padding:2px 4px")
     )
@@ -442,14 +443,14 @@ def _append_equipment_swap_frame(body_layout, role_name, old_item, new_item, dif
     if new_item is not None:
         pair_layout.addWidget(diff_item_card(role_name, new_item, is_new=True))
     else:
-        pair_layout.addWidget(QLabel("  （无需换上）"))
+        pair_layout.addWidget(QLabel(tr("  （无需换上）")))
 
     body_layout.addWidget(pair_frame)
 
 
 def _build_plan_diff_dialog(self, role_name, diff):
     dlg = QDialog(getattr(self, "dialog_parent", None))
-    dlg.setWindowTitle(f"{role_name} - 配装变动")
+    dlg.setWindowTitle(tr("{role} - 配装变动", role=display_term(role_name)))
     dlg.setMinimumSize(820, 560)
     dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
@@ -470,7 +471,7 @@ def _build_plan_diff_dialog(self, role_name, diff):
     added = diff.get(DIFF_ADDED, []) or []
 
     if not removed and not added:
-        body_layout.addWidget(QLabel("本次配装与已保存方案没有装备变动。"))
+        body_layout.addWidget(QLabel(tr("本次配装与已保存方案没有装备变动。")))
     else:
         removed_tape = [it for it in removed if it.get(EQUIP_TYPE) == "tape"]
         removed_drives = [it for it in removed if it.get(EQUIP_TYPE) != "tape"]

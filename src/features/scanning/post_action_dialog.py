@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.domain.post_actions import (
     DEFAULT_EXCLUDED_SET_NAMES,
     DEFAULT_EXCLUDED_SHAPE_IDS,
@@ -43,11 +44,11 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.widgets import NoWheelComboBox
 
 
-ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
-QUALITY_SCOPE_OPTIONS = (("全部", "all"), ("仅金品质", "gold"), ("仅金紫品质", "gold_purple"))
-TYPE_SCOPE_OPTIONS = (("全部", "all"), ("仅驱动", "drive"), ("仅卡带", "tape"))
-STATE_ACTION_OPTIONS = (("跳过", "skip"), ("正常处理", "normal"))
-SUB_MATCH_OPTIONS = (("任意一个", 1), ("任意两个", 2), ("任意三个", 3), ("任意四个", 4))
+ROLE_SCOPE_OPTIONS = ((tr("所有角色"), "all"), (tr("所选角色"), "selected"))
+QUALITY_SCOPE_OPTIONS = ((tr("全部"), "all"), (tr("仅金品质"), "gold"), (tr("仅金紫品质"), "gold_purple"))
+TYPE_SCOPE_OPTIONS = ((tr("全部"), "all"), (tr("仅驱动"), "drive"), (tr("仅卡带"), "tape"))
+STATE_ACTION_OPTIONS = ((tr("跳过"), "skip"), (tr("正常处理"), "normal"))
+SUB_MATCH_OPTIONS = ((tr("任意一个"), 1), (tr("任意两个"), 2), (tr("任意三个"), 3), (tr("任意四个"), 4))
 
 
 def scan_post_action_config_path(user_config_dir: Path) -> Path:
@@ -106,6 +107,7 @@ def _set_combo_data(combo: NoWheelComboBox, value: object) -> None:
 
 def _combo(options, value: object, width: int = 130) -> NoWheelComboBox:
     combo = NoWheelComboBox()
+    combo.setSizeAdjustPolicy(NoWheelComboBox.AdjustToContents)
     for label, data in options:
         combo.addItem(label, data)
     _set_combo_data(combo, value)
@@ -198,13 +200,13 @@ class ScanPostActionDialog(QDialog):
         config_dir: Path,
         *,
         user_database_path: Path | None = None,
-        window_title: str = "全量扫描管理",
+        window_title: str = "",
     ):
         super().__init__(parent)
         self.user_config_dir = Path(user_config_dir)
         self.config_dir = Path(config_dir)
         self.user_database_path = user_database_path
-        self.setWindowTitle(window_title)
+        self.setWindowTitle(window_title or tr("全量扫描管理"))
         self.setMinimumWidth(560)
         self.config = load_scan_post_action_config(
             self.user_config_dir,
@@ -220,7 +222,7 @@ class ScanPostActionDialog(QDialog):
         self._build_ui()
 
     def _style_toggle_button(self, button: QPushButton, checked: bool) -> None:
-        button.setText("开启中" if checked else "关闭中")
+        button.setText(tr("开启中") if checked else tr("关闭中"))
         if checked:
             button.setStyleSheet(
                 "QPushButton{background:#238636;color:#fff;border:1px solid #2ea043;"
@@ -247,16 +249,16 @@ class ScanPostActionDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(12)
         footer = QHBoxLayout()
-        self.hmt_region_check = QCheckBox("港澳台服")
+        self.hmt_region_check = QCheckBox(tr("港澳台服"))
         self.hmt_region_check.setChecked(self.config.get("server_region") == "hmt")
-        self.hmt_region_check.setToolTip("开启后，扫描后弃置/锁定使用港澳台服的十字键左右直控方式。")
+        self.hmt_region_check.setToolTip(tr("开启后，扫描后弃置/锁定使用港澳台服的十字键左右直控方式。"))
         footer.addWidget(self.hmt_region_check)
         footer.addStretch()
         self._scoring_footer = footer
 
         self._main_tabs = QTabWidget()
-        self._main_tabs.addTab(self._build_scoring_page(), "评分处理")
-        self._main_tabs.addTab(self._build_preserve_rules_page(), "预留规则")
+        self._main_tabs.addTab(self._build_scoring_page(), tr("评分处理"))
+        self._main_tabs.addTab(self._build_preserve_rules_page(), tr("预留规则"))
         root.addWidget(self._main_tabs, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -271,8 +273,8 @@ class ScanPostActionDialog(QDialog):
         root.setSpacing(12)
         modules = QHBoxLayout()
         modules.setSpacing(14)
-        modules.addWidget(self._build_module_panel("discard", "弃置模块", "最高评分低于等于"), 1)
-        modules.addWidget(self._build_module_panel("lock", "锁定模块", "最高评分高于等于"), 1)
+        modules.addWidget(self._build_module_panel("discard", tr("弃置模块"), tr("最高评分低于等于")), 1)
+        modules.addWidget(self._build_module_panel("lock", tr("锁定模块"), tr("最高评分高于等于")), 1)
         root.addLayout(modules)
         root.addLayout(self._scoring_footer)
         root.addStretch()
@@ -285,9 +287,9 @@ class ScanPostActionDialog(QDialog):
         root.setSpacing(10)
 
         header = QHBoxLayout()
-        title = QLabel("命中规则的装备将被保留或直接锁定")
+        title = QLabel(tr("命中规则的装备将被保留或直接锁定"))
         title.setStyleSheet("color:#8b949e")
-        add_button = QPushButton("新增规则")
+        add_button = QPushButton(tr("新增规则"))
         add_button.setStyleSheet(
             "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
             "border-radius:6px;padding:5px 12px;font-weight:700;}"
@@ -322,7 +324,7 @@ class ScanPostActionDialog(QDialog):
     def _render_preserve_rules(self) -> None:
         self._clear_layout(self._preserve_rules_layout)
         if not self._preserve_rules:
-            empty = QLabel("暂未添加预留规则")
+            empty = QLabel(tr("暂未添加预留规则"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet("color:#8b949e;padding:48px 0")
             self._preserve_rules_layout.addWidget(empty)
@@ -339,13 +341,13 @@ class ScanPostActionDialog(QDialog):
         layout.setContentsMargins(12, 10, 10, 10)
         layout.setSpacing(10)
         enabled = QCheckBox()
-        enabled.setToolTip("启用此规则")
+        enabled.setToolTip(tr("启用此规则"))
         enabled.setChecked(bool(rule.get("enabled", True)))
         enabled.toggled.connect(lambda checked, current=index: self._set_preserve_rule_enabled(current, checked))
         layout.addWidget(enabled)
         details = QVBoxLayout()
         details.setSpacing(3)
-        name = QLabel(str(rule.get("name") or "未命名规则"))
+        name = QLabel(str(rule.get("name") or tr("未命名规则")))
         name.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
         summary = QLabel(_preserve_rule_summary(rule))
         summary.setStyleSheet(themed_style("color:#8b949e"))
@@ -353,9 +355,9 @@ class ScanPostActionDialog(QDialog):
         details.addWidget(name)
         details.addWidget(summary)
         layout.addLayout(details, 1)
-        edit_button = QPushButton("编辑")
-        copy_button = QPushButton("复制")
-        delete_button = QPushButton("删除")
+        edit_button = QPushButton(tr("编辑"))
+        copy_button = QPushButton(tr("复制"))
+        delete_button = QPushButton(tr("删除"))
         compact_height = edit_button.sizeHint().height()
         item_type = "卡带" if rule.get("item_type") == "tape" else "驱动"
         type_badge = QLabel(item_type)
@@ -429,7 +431,7 @@ class ScanPostActionDialog(QDialog):
     def _delete_preserve_rule(self, index: int) -> None:
         if not 0 <= index < len(self._preserve_rules):
             return
-        if QMessageBox.question(self, "删除规则", "确定删除这条预留规则？") != QMessageBox.Yes:
+        if QMessageBox.question(self, tr("删除规则"), tr("确定删除这条预留规则？")) != QMessageBox.Yes:
             return
         del self._preserve_rules[index]
         self._render_preserve_rules()
@@ -447,7 +449,7 @@ class ScanPostActionDialog(QDialog):
         )
 
     def _show_module_help(self, key: str, title: str) -> None:
-        QMessageBox.information(self, f"{title}说明", self._module_help_text(key))
+        QMessageBox.information(self, tr("{title}说明", title=title), self._module_help_text(key))
 
     def _build_module_panel(self, key: str, title: str, grade_label: str) -> QWidget:
         module = self.config[key]
@@ -489,7 +491,7 @@ class ScanPostActionDialog(QDialog):
         type_range_layout.setContentsMargins(0, 0, 0, 0)
         type_range_layout.setSpacing(8)
         type_range_summary = QLabel(self._type_range_summary(key))
-        type_range_button = QPushButton("选择")
+        type_range_button = QPushButton(tr("选择"))
         type_range_button.setStyleSheet(
             "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
             "border-radius:6px;padding:3px 12px;font-weight:700;}"
@@ -503,7 +505,7 @@ class ScanPostActionDialog(QDialog):
         role_scope_layout.setContentsMargins(0, 0, 0, 0)
         role_scope_layout.setSpacing(8)
         role_scope_summary = QLabel()
-        role_scope_button = QPushButton("选择")
+        role_scope_button = QPushButton(tr("选择"))
         role_scope_button.setStyleSheet(
             "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
             "border-radius:6px;padding:3px 10px;font-weight:700;}"
@@ -514,12 +516,12 @@ class ScanPostActionDialog(QDialog):
         role_scope_layout.addWidget(role_scope_summary, 1)
         role_scope_layout.addWidget(role_scope_button)
         form.addRow(grade_label, grade_combo)
-        form.addRow("角色范围", role_scope_row)
-        form.addRow("品质范围", quality_scope)
-        form.addRow("处理类别", type_scope)
-        form.addRow("类型范围", type_range_row)
-        form.addRow("遇到锁定", on_locked)
-        form.addRow("遇到弃置", on_discarded)
+        form.addRow(tr("角色范围"), role_scope_row)
+        form.addRow(tr("品质范围"), quality_scope)
+        form.addRow(tr("处理类别"), type_scope)
+        form.addRow(tr("类型范围"), type_range_row)
+        form.addRow(tr("遇到锁定"), on_locked)
+        form.addRow(tr("遇到弃置"), on_discarded)
         outer.addLayout(form)
         self._widgets[key] = {
             "enabled": enabled,
@@ -548,7 +550,7 @@ class ScanPostActionDialog(QDialog):
             return
         uses_selected = combo.currentData() == "selected"
         count = len(self._selected_character_ids)
-        summary.setText(f"已选{count}名" if uses_selected else "")
+        summary.setText(tr("已选{count}名", count=count) if uses_selected else "")
         summary.setStyleSheet("color:#58a6ff" if count else "color:#f85149")
         button.setVisible(uses_selected)
 
@@ -577,7 +579,11 @@ class ScanPostActionDialog(QDialog):
 
     def _type_range_summary(self, key: str) -> str:
         values = self._range_values[key]
-        return f"驱动 {len(values['shape_ids'])}/{len(self._shape_options)}，卡带 {len(values['set_names'])}/{len(self._set_options)}"
+        return tr(
+            "驱动 {shapes}/{shape_total}，卡带 {sets}/{set_total}",
+            shapes=len(values["shape_ids"]), shape_total=len(self._shape_options),
+            sets=len(values["set_names"]), set_total=len(self._set_options),
+        )
 
     def _update_type_range_summary(self, key: str) -> None:
         label = self._widgets[key].get("type_range_summary")
@@ -617,7 +623,7 @@ class ScanPostActionDialog(QDialog):
         config = self._collect_config()
         error = validate_post_action_config(config)
         if error:
-            QMessageBox.warning(self, "配置无效", error)
+            QMessageBox.warning(self, tr("配置无效"), error)
             return
         save_scan_post_action_config(
             self.user_config_dir,
@@ -633,7 +639,7 @@ def show_scan_post_action_dialog(
     config_dir: Path,
     *,
     user_database_path: Path | None = None,
-    window_title: str = "全量扫描管理",
+    window_title: str = "",
 ) -> bool:
     dialog = ScanPostActionDialog(
         parent,

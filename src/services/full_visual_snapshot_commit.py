@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
+
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,8 @@ from src.services.vision_inventory_snapshot import import_vision_inventory
 class IncompleteVisionScanError(RuntimeError):
     def __init__(self, *, expected_count: int, parsed_count: int, failed_count: int) -> None:
         super().__init__(
-            f"预计 {expected_count} 件，完整解析 {parsed_count} 件，失败 {failed_count} 件。"
+            tr("预计 {expected} 件，完整解析 {parsed} 件，失败 {failed} 件。",
+               expected=expected_count, parsed=parsed_count, failed=failed_count)
         )
         self.expected_count = expected_count
         self.parsed_count = parsed_count

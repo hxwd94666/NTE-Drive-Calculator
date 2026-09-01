@@ -7,6 +7,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QMessageBox
 
+from src.i18n import tr
 from src.app.workers import WorkerThread
 from src.features.home.page import inventory_sync_error_guidance
 from src.observability import OperationContext
@@ -53,10 +54,10 @@ def _open_raw_capture_directory(self):
         directory.mkdir(parents=True, exist_ok=True)
         opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
     except OSError as exc:
-        QMessageBox.warning(self, "诊断抓包", f"无法打开抓包目录：{exc}")
+        QMessageBox.warning(self, tr("诊断抓包"), tr("无法打开抓包目录：{error}", error=exc))
         return
     if not opened:
-        QMessageBox.information(self, "诊断抓包", f"抓包目录：\n{directory}")
+        QMessageBox.information(self, tr("诊断抓包"), tr("抓包目录：\n{path}", path=directory))
 
 def _save_sync_settings(self):
     try:
@@ -76,16 +77,16 @@ def _save_sync_settings(self):
         if was_running:
             self._stop_inventory_sync()
             self._start_inventory_sync()
-        QMessageBox.information(self,"同步设置","同步设置已保存。")
+        QMessageBox.information(self,tr("同步设置"),tr("同步设置已保存。"))
         return settings
     except Exception as exc:
-        QMessageBox.warning(self,"同步设置",f"保存失败：{exc}")
+        QMessageBox.warning(self, tr("同步设置"), tr("保存失败：{error}", error=exc))
         return None
 
 def _prune_inventory_snapshots(self):
     current_worker = getattr(self, "_snapshot_prune_worker", None)
     if current_worker is not None and current_worker.isRunning():
-        QMessageBox.information(self, "快照维护", "历史快照正在清理，请等待当前任务完成。")
+        QMessageBox.information(self, tr("快照维护"), tr("历史快照正在清理，请等待当前任务完成。"))
         return
     retain_recent = self._snapshot_retention_spin.value()
     message = (
@@ -96,7 +97,7 @@ def _prune_inventory_snapshots(self):
     )
     if QMessageBox.question(
         self,
-        "确认清理历史快照",
+        tr("确认清理历史快照"),
         message,
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
@@ -127,18 +128,17 @@ def _on_inventory_snapshots_pruned(self, result):
     self._refresh_home()
     QMessageBox.information(
         self,
-        "快照维护完成",
-        "已清理 "
-        f"{result['deleted_snapshot_count']} 份历史快照，"
-        f"当前保留 {result['total_after']} 份。\n\n"
-        "当前快照和被装配方案引用的快照未被删除。"
-        "SQLite 数据库文件大小可能不会立刻缩小，但空间会供后续同步复用。",
+        tr("快照维护完成"),
+        tr("已清理 {deleted} 份历史快照，当前保留 {kept} 份。\n\n"
+           "当前快照和被装配方案引用的快照未被删除。"
+           "SQLite 数据库文件大小可能不会立刻缩小，但空间会供后续同步复用。",
+           deleted=result["deleted_snapshot_count"], kept=result["total_after"]),
     )
 
 def _on_inventory_snapshot_prune_error(self, error):
     if hasattr(self, "_prune_snapshots_button"):
         self._prune_snapshots_button.setEnabled(True)
-    QMessageBox.warning(self, "快照维护", f"清理失败：{error}")
+    QMessageBox.warning(self, tr("快照维护"), tr("清理失败：{error}", error=error))
 
 def _maybe_auto_start_inventory_sync(self):
     try:
@@ -162,8 +162,8 @@ def _stop_inventory_sync(self):
     self._inventory_sync_service=None
     if hasattr(self,"home_sync_badge"):
         from src.ui.dashboard_widgets import set_status_badge
-        set_status_badge(self.home_sync_badge,"已停止","neutral")
-        self.home_sync_detail.setText("后台背包同步已停止，数据库中的稳定快照仍可用于计算。")
+        set_status_badge(self.home_sync_badge, tr("已停止"), "neutral")
+        self.home_sync_detail.setText(tr("后台背包同步已停止，数据库中的稳定快照仍可用于计算。"))
         self.home_start_sync_button.setEnabled(True)
         self.home_stop_sync_button.setEnabled(False)
 
@@ -181,13 +181,14 @@ def _on_inventory_sync_state(self,state):
         "saving":"active","listening":"success","error":"error","stopped":"neutral",
     }.get(state.phase,"neutral")
     label={
-        "starting":"启动中","waiting":"等待进入游戏","collecting":"接收中",
-        "saving":"保存中","listening":"后台监听","error":"同步异常","stopped":"已停止",
+        "starting": tr("启动中"), "waiting": tr("等待进入游戏"), "collecting": tr("接收中"),
+        "saving": tr("保存中"), "listening": tr("后台监听"),
+        "error": tr("同步异常"), "stopped": tr("已停止"),
     }.get(state.phase,state.phase)
     set_status_badge(self.home_sync_badge,label,tone)
-    detail=state.message
+    detail=tr(state.message)
     if state.pending_item_count is not None:
-        detail+=f" · 当前 {state.pending_item_count} 件"
+        detail+=tr(" · 当前 {count} 件", count=state.pending_item_count)
     if state.error:
         detail+=f"\n\n{inventory_sync_error_guidance(state.error_code, state.error)}"
         detail+=f"\n\n技术详情：{state.error}"

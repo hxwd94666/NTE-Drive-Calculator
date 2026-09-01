@@ -17,6 +17,7 @@ from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QRect
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
+from src.i18n import display_localized, display_term, tr
 from src.app.theme import theme_color
 from src.domain.warehouse_filter import (
     WarehouseFilterSpec,
@@ -134,11 +135,27 @@ def _localized(value: Any, fallback: str) -> str:
     return fallback
 
 
-def _display_suit_name(value: str) -> str:
-    """Remove only the decorative full-width title brackets from card tape names."""
+def _display_suit_name(value: str, names: Any = None) -> str:
+    """Remove only the decorative full-width title brackets from card tape names.
+
+    The game data's own localized name wins when nte-core supplied one. Otherwise
+    the glossary is keyed on the bracketed name the game ships, so translation
+    happens before the brackets are stripped.
+    """
     text = str(value or "").strip()
-    pairs = (("「", "」"), ("【", "】"), ("[", "]"))
-    for left, right in pairs:
+    localized = display_localized(names, "")
+    if localized:
+        # The payload keeps the game's decorative brackets in Chinese.
+        return _strip_title_brackets(localized)
+    translated = display_term(text)
+    if translated != text:
+        return translated
+    return _strip_title_brackets(text)
+
+
+def _strip_title_brackets(value: str) -> str:
+    text = str(value or "").strip()
+    for left, right in (("「", "」"), ("【", "】"), ("[", "]")):
         if text.startswith(left) and text.endswith(right) and len(text) > len(left) + len(right):
             return text[len(left):-len(right)].strip()
     return text
@@ -171,7 +188,12 @@ def _drive_type_label(shape: str) -> str:
 def _stat_view(stat: Mapping[str, Any], *, main: bool = False) -> dict[str, Any]:
     """Prepare one stat for aligned card rendering while keeping its original value."""
     property_id = str(stat.get("property_id") or "")
-    label = _localized(stat.get("names"), _STAT_LABELS.get(property_id, property_id or "未知属性"))
+    # nte-core carries the localized stat name; fall back to the glossary for
+    # vision-sourced rows, which only ever have Chinese.
+    label = display_localized(
+        stat.get("names"),
+        _localized(stat.get("names"), _STAT_LABELS.get(property_id, property_id or "未知属性")),
+    )
     value = float(stat.get("value", 0.0) or 0.0)
     if stat.get("percent"):
         value_text = f"+{value * 100:g}%"
@@ -332,19 +354,24 @@ def warehouse_item_view(
     quality_key = _quality_key(row.get("quality"))
     quality_label, quality_color = _QUALITY_META.get(quality_key, (str(row.get("quality") or "未知"), "#8b949e"))
     item_name = _localized(row.get("names"), str(row.get("item_id") or "未知装备"))
-    suit_name = _display_suit_name(_localized(row.get("suit_names"), str(row.get("suit_id") or "未识别套装")))
+    suit_name = _display_suit_name(
+        _localized(row.get("suit_names"), str(row.get("suit_id") or "未识别套装")),
+        row.get("suit_names"),
+    )
     main_stat_rows = [_stat_view(stat, main=True) for stat in _warehouse_main_stats(row, source)]
     sub_stat_rows = [_stat_view(stat) for stat in row.get("sub_stats") or [] if isinstance(stat, Mapping)]
     stats = [f"{stat['label']}  {stat['value']}" for stat in [*main_stat_rows, *sub_stat_rows]]
-    kind_label = "驱动" if kind == "module" else "卡带" if kind == "core" else kind or "未知"
+    kind_label = display_term("驱动") if kind == "module" else display_term("卡带") if kind == "core" else kind or tr("未知")
     suit_id = str(row.get("suit_id") or "")
     shape_id = str(row.get("geometry") or "")
     shape = _shape_label(shape_id) if kind == "module" else "卡带"
     title = _drive_type_label(shape) if kind == "module" else "卡带"
-    display_name = title if kind == "module" else suit_name
+    raw_display_name = title if kind == "module" else suit_name
     type_value = shape_id if kind == "module" else suit_id
-    item_type_id = f"{kind}:{type_value or display_name}"
-    item_type_label = title if kind == "module" else suit_name
+    # 过滤键使用未翻译的原值，只有展示名走 display_term。
+    item_type_id = f"{kind}:{type_value or raw_display_name}"
+    display_name = display_term(raw_display_name)
+    item_type_label = display_term(raw_display_name)
     state_row = dict(row)
     state_row["state_known"] = state_known
     tags = _state_tags(state_row)

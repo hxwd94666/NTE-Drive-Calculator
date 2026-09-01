@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.domain.stat_catalog import StatCatalog
 def _stat_pool(config_dir: Path) -> list[str]:
     catalog = StatCatalog.from_config_dir(config_dir)
@@ -32,14 +33,14 @@ def _stat_pool(config_dir: Path) -> list[str]:
 class ManualRecoveryDialog(QDialog):
     def __init__(self, records: list[dict], stat_names: list[str], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("补录未识别词条")
+        self.setWindowTitle(tr("补录未识别词条"))
         self.resize(760, 520)
         self.records = list(records or [])
         self.stat_names = list(stat_names or [])
         self.rows = []
 
         root = QVBoxLayout(self)
-        root.addWidget(QLabel("以下装备已识别到 3 条有效副词条，请补录缺失的 1 条后入库。"))
+        root.addWidget(QLabel(tr("以下装备已识别到 3 条有效副词条，请补录缺失的 1 条后入库。")))
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -56,10 +57,10 @@ class ManualRecoveryDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         ok_button = buttons.button(QDialogButtonBox.Ok)
         if ok_button:
-            ok_button.setText("补录入库")
+            ok_button.setText(tr("补录入库"))
         cancel_button = buttons.button(QDialogButtonBox.Cancel)
         if cancel_button:
-            cancel_button.setText("跳过")
+            cancel_button.setText(tr("跳过"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -82,7 +83,7 @@ class ManualRecoveryDialog(QDialog):
 
         stats = item.get("sub_stats") or {}
         stat_text = "；".join(f"{name} {value:g}" for name, value in stats.items()) or "无"
-        label = QLabel(f"已识别：{stat_text}")
+        label = QLabel(tr("已识别：{text}", text=stat_text))
         label.setWordWrap(True)
         layout.addWidget(label)
 
@@ -98,14 +99,14 @@ class ManualRecoveryDialog(QDialog):
         value.setDecimals(3)
         value.setSingleStep(0.1)
         value.setValue(0.0)
-        form.addRow("缺失词条", combo)
-        form.addRow("数值", value)
+        form.addRow(tr("缺失词条"), combo)
+        form.addRow(tr("数值"), value)
         layout.addLayout(form)
 
         preview_row = QHBoxLayout()
         preview_row.addStretch()
         path = str(record.get("image_path") or "")
-        open_btn = QPushButton("打开截图")
+        open_btn = QPushButton(tr("打开截图"))
         open_btn.setEnabled(bool(path))
         open_btn.clicked.connect(lambda _checked=False, p=path: self._open_path(p))
         preview_row.addWidget(open_btn)
@@ -122,7 +123,7 @@ class ManualRecoveryDialog(QDialog):
 
             os.startfile(path)
         except Exception as exc:
-            QMessageBox.warning(self, "打开截图失败", str(exc))
+            QMessageBox.warning(self, tr("打开截图失败"), str(exc))
 
     def completed_items(self) -> list[dict] | None:
         items = []
@@ -131,10 +132,13 @@ class ManualRecoveryDialog(QDialog):
             stats = dict(item.get("sub_stats") or {})
             stat_name = combo.currentText().strip()
             if not stat_name:
-                QMessageBox.warning(self, "补录未完成", "请选择缺失词条。")
+                QMessageBox.warning(self, tr("补录未完成"), tr("请选择缺失词条。"))
                 return None
             if stat_name in stats:
-                QMessageBox.warning(self, "补录重复", f"{stat_name} 已存在，请选择真正缺失的词条。")
+                QMessageBox.warning(
+                    self, tr("补录重复"),
+                    tr("{stat} 已存在，请选择真正缺失的词条。", stat=display_term(stat_name))
+                )
                 return None
             stats[stat_name] = float(value.value())
             item["sub_stats"] = stats

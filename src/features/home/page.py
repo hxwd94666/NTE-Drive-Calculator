@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.theme import themed_style
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.dashboard_widgets import metric_card, set_status_badge
@@ -71,18 +72,18 @@ def inventory_sync_error_guidance(error_code: str | None, error: str | None) -> 
     """Translate sync failures into concrete user actions while retaining diagnostics."""
     code = str(error_code or "").strip()
     if code in _SYNC_ERROR_GUIDANCE:
-        return _SYNC_ERROR_GUIDANCE[code]
+        return tr(_SYNC_ERROR_GUIDANCE[code])
     detail = str(error or "").lower()
     if "permission denied" in detail or "access is denied" in detail:
-        return "原因：程序没有权限启动组件或写入账号数据。\n处理：检查程序和账号数据目录权限，并尝试以管理员身份运行。"
+        return tr("原因：程序没有权限启动组件或写入账号数据。\n处理：检查程序和账号数据目录权限，并尝试以管理员身份运行。")
     if "database is locked" in detail:
-        return (
+        return tr(
             "原因：当前账号数据库正被另一个程序或本程序的残留进程占用。\n"
             "处理：关闭其他 NTE Drive Calc 窗口，重启本程序后再同步。"
         )
     if "no space" in detail or "disk full" in detail:
-        return "原因：磁盘空间不足。\n处理：清理程序所在盘或账号数据所在盘后重新同步。"
-    return (
+        return tr("原因：磁盘空间不足。\n处理：清理程序所在盘或账号数据所在盘后重新同步。")
+    return tr(
         "原因：背包同步组件发生未分类错误。\n"
         "处理：先停止并重新启动同步；仍失败时查看下方技术详情和日志，再反馈完整错误。"
     )
@@ -122,9 +123,9 @@ def build_home_page(window) -> QScrollArea:
     hero_layout = QHBoxLayout(hero)
     hero_layout.setContentsMargins(22, 18, 22, 18)
     title_column = QVBoxLayout()
-    title = QLabel("NTE Drive Calc 2.1 工作台")
+    title = QLabel(tr("NTE Drive Calc 2.1 工作台"))
     title.setStyleSheet(themed_style("color:#f0f6fc;font-size:21px;font-weight:700"))
-    window.home_account_label = QLabel("正在读取账号数据…")
+    window.home_account_label = QLabel(tr("正在读取账号数据…"))
     window.home_account_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     title_column.addWidget(title)
     title_column.addWidget(window.home_account_label)
@@ -147,9 +148,9 @@ def build_home_page(window) -> QScrollArea:
         )
         hero_icon.setStyleSheet("background:transparent")
         hero_layout.addWidget(hero_icon)
-    window.home_sync_badge = QLabel("未启动")
+    window.home_sync_badge = QLabel(tr("未启动"))
     window.home_sync_badge.setAlignment(Qt.AlignCenter)
-    set_status_badge(window.home_sync_badge, "未启动", "neutral")
+    set_status_badge(window.home_sync_badge, tr("未启动"), "neutral")
     hero_layout.addWidget(window.home_sync_badge)
     root.addWidget(hero)
 
@@ -157,12 +158,12 @@ def build_home_page(window) -> QScrollArea:
     metrics.setHorizontalSpacing(12)
     metrics.setVerticalSpacing(12)
     definitions = (
-        ("inventory", "稳定背包", "等待首次同步"),
-        ("module", "驱动", "原始游戏 UID"),
-        ("core", "卡带", "原始游戏 UID"),
-        ("equipped", "已装备", "按当前稳定快照"),
-        ("plans", "配装方案", "保存在当前账号"),
-        ("characters", "角色数据", "来自随程序静态数据库"),
+        ("inventory", tr("稳定背包"), tr("等待首次同步")),
+        ("module", display_term("驱动"), tr("原始游戏 UID")),
+        ("core", display_term("卡带"), tr("原始游戏 UID")),
+        ("equipped", tr("已装备"), tr("按当前稳定快照")),
+        ("plans", tr("配装方案"), tr("保存在当前账号")),
+        ("characters", tr("角色数据"), tr("来自随程序静态数据库")),
     )
     window.home_metric_labels = {}
     for index, (key, label, subtitle) in enumerate(definitions):
@@ -172,20 +173,20 @@ def build_home_page(window) -> QScrollArea:
     root.addLayout(metrics)
 
     sync_card, sync_layout = _section(
-        "背包同步",
-        "请先关闭代理和加速器，停留在游戏登录页，再启动同步并进入游戏；稳定后仍会在后台监听后续变化。",
+        tr("背包同步"),
+        tr("请先关闭代理和加速器，停留在游戏登录页，再启动同步并进入游戏；稳定后仍会在后台监听后续变化。"),
     )
-    window.home_sync_detail = QLabel("尚未启动 nte-core")
+    window.home_sync_detail = QLabel(tr("尚未启动 nte-core"))
     window.home_sync_detail.setWordWrap(True)
     sync_layout.addWidget(window.home_sync_detail)
     sync_actions = QHBoxLayout()
-    window.home_start_sync_button = QPushButton("启动背包同步")
+    window.home_start_sync_button = QPushButton(tr("启动背包同步"))
     window.home_start_sync_button.setObjectName("btnPrimary")
     window.home_start_sync_button.clicked.connect(window._start_inventory_sync)
-    window.home_stop_sync_button = QPushButton("停止同步")
+    window.home_stop_sync_button = QPushButton(tr("停止同步"))
     window.home_stop_sync_button.clicked.connect(window._stop_inventory_sync)
     window.home_stop_sync_button.setEnabled(False)
-    environment_button = QPushButton("环境配置")
+    environment_button = QPushButton(tr("环境配置"))
     environment_button.clicked.connect(window._focus_environment_configuration)
     sync_actions.addWidget(window.home_start_sync_button)
     sync_actions.addWidget(window.home_stop_sync_button)
@@ -194,14 +195,14 @@ def build_home_page(window) -> QScrollArea:
     sync_layout.addLayout(sync_actions)
     root.addWidget(sync_card)
 
-    actions_card, actions_layout = _section("快捷操作")
+    actions_card, actions_layout = _section(tr("快捷操作"))
     actions = QHBoxLayout()
     for label, page_key in (
-        ("计算配装", "execute"),
-        ("查看方案", "equipment"),
-        ("角色边际", "my_role"),
-        ("仓库管理", "warehouse"),
-        ("空幕鉴定", "identify"),
+        (tr("计算配装"), "execute"),
+        (tr("查看方案"), "equipment"),
+        (tr("角色边际"), "my_role"),
+        (tr("仓库管理"), "warehouse"),
+        (tr("空幕鉴定"), "identify"),
     ):
         button = QPushButton(label)
         button.clicked.connect(lambda _checked=False, key=page_key: window._go(key))
@@ -217,7 +218,10 @@ def build_home_page(window) -> QScrollArea:
 def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
     account = dashboard["account"]
     inventory = dashboard.get("inventory")
-    window.home_account_label.setText(f"当前账号：{account['account_name']} · 数据库仅保存该账号的稳定背包与方案")
+    window.home_account_label.setText(
+        tr("当前账号：{name} · 数据库仅保存该账号的稳定背包与方案",
+           name=tr(str(account["account_name"])))
+    )
 
     values = {
         "inventory": int(inventory["stored_item_count"]) if inventory else 0,
@@ -232,6 +236,9 @@ def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
 
     inventory_subtitle = window.home_metric_labels["inventory"][1]
     if inventory:
-        inventory_subtitle.setText(f"快照 #{inventory['snapshot_id']} · {inventory['captured_at_utc']}")
+        inventory_subtitle.setText(
+            tr("快照 #{snapshot} · {captured}",
+               snapshot=inventory["snapshot_id"], captured=inventory["captured_at_utc"])
+        )
     else:
-        inventory_subtitle.setText("等待首次同步")
+        inventory_subtitle.setText(tr("等待首次同步"))

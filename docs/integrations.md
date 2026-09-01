@@ -1,5 +1,7 @@
 # 外部集成与扩展
 
+*[English](en/integrations.md) · 简体中文*
+
 本文说明外部能力进入项目时的边界。业务所有权与生命周期见 [系统架构](architecture.md)，真实环境步骤
 见 [Windows 验收](validation/windows.md)。
 

@@ -12,6 +12,7 @@ from typing import Any
 from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton, QVBoxLayout
 
+from src.i18n import tr, display_term
 from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.optimizer.plan_diff import build_plan_diff
@@ -135,11 +136,11 @@ def _run_allocation(
         database_path, config_dir, user_config_dir, _, static_database_path = _allocation_paths(self)
         logger.info(f"开始分配计算: 策略={strat}, 角色={sel}")
         if not database_path.is_file():
-            raise RuntimeError("尚无官方背包数据，请先完成背包同步并生成稳定快照。")
+            raise RuntimeError(tr("尚无官方背包数据，请先完成背包同步并生成稳定快照。"))
         with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
             snapshot_id = user_dao.current_inventory_snapshot_id()
             if snapshot_id is None:
-                raise RuntimeError("尚无稳定背包快照，请先在首页启动背包同步并进入游戏。")
+                raise RuntimeError(tr("尚无稳定背包快照，请先在首页启动背包同步并进入游戏。"))
             projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
             lock_snapshot = build_allocation_lock_snapshot(
                 user_dao,
@@ -352,20 +353,20 @@ def _confirm_unsaved_allocation_before_recompute(self: Any) -> bool:
         self._allocation_dirty = False
         return True
     dlg = QDialog(getattr(self, "dialog_parent", None))
-    dlg.setWindowTitle("当前配装尚未保存")
+    dlg.setWindowTitle(tr("当前配装尚未保存"))
     dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(14)
-    msg = QLabel("重新执行计算会覆盖当前计算结果，是否先保存当前配装？")
+    msg = QLabel(tr("重新执行计算会覆盖当前计算结果，是否先保存当前配装？"))
     msg.setWordWrap(True)
     layout.addWidget(msg)
     row = QHBoxLayout()
     row.setSpacing(10)
-    dont_btn = QPushButton("不再提醒")
+    dont_btn = QPushButton(tr("不再提醒"))
     dont_btn.setObjectName("btnDanger")
-    skip_btn = QPushButton("不保存")
-    save_btn = QPushButton("保存")
+    skip_btn = QPushButton(tr("不保存"))
+    save_btn = QPushButton(tr("保存"))
     save_btn.setObjectName("btnPrimary")
     row.addWidget(dont_btn)
     row.addWidget(skip_btn)
@@ -406,7 +407,7 @@ def _on_done(self: Any, r: Any) -> None:
         self._allocation_lock_snapshot = r.lock_snapshot
         self._selected_locked_role_names = r.selected_locked_role_names
         self.btn_run.setEnabled(True)
-        self.btn_run.setText("⚡  开始计算")
+        self.btn_run.setText(tr("⚡  开始计算"))
         self._allocation_custom_weapons = dict(getattr(self, "_pending_custom_weapons", {}) or {})
         # The old JSON-state path was removed.  Comparing with the active
         # SQLite plans restores NEW/CHANGE labels and the per-role diff button.
@@ -418,16 +419,16 @@ def _on_done(self: Any, r: Any) -> None:
         import traceback as tb
 
         logger.error(f"_on_done 异常: {e}\n{tb.format_exc()}")
-        QMessageBox.critical(self.dialog_parent, "渲染失败", f"{e}")
+        QMessageBox.critical(self.dialog_parent, tr("渲染失败"), f"{e}")
 
 
 def _on_exec_error(self: Any, err: str) -> None:
     self.btn_run.setEnabled(True)
-    self.btn_run.setText("⚡  开始计算")
+    self.btn_run.setText(tr("⚡  开始计算"))
     QMessageBox.critical(
         self.dialog_parent,
-        "计算失败",
-        f"发生错误:\n{err}",
+        tr("计算失败"),
+        tr("发生错误:\n{error}", error=err),
     )
 
 
@@ -455,13 +456,13 @@ def _select_allocation_save_slots(
         else:
             labels = [
                 str(slot["slot_name"])
-                + ("（已锁定）" if (slot.get("current_plan") or {}).get("allocation_locked") else "")
+                + (tr("（已锁定）") if (slot.get("current_plan") or {}).get("allocation_locked") else "")
                 for slot in slots
             ]
             selected, accepted = QInputDialog.getItem(
                 self.dialog_parent,
-                "选择保存槽位",
-                f"[{role_name}] 的计算结果保存到：",
+                tr("选择保存槽位"),
+                tr("[{role}] 的计算结果保存到：", role=display_term(str(role_name))),
                 labels,
                 0,
                 False,
@@ -470,7 +471,11 @@ def _select_allocation_save_slots(
                 return None
             slot = slots[labels.index(selected)]
         if (slot.get("current_plan") or {}).get("allocation_locked"):
-            QMessageBox.warning(self.dialog_parent, "保存方案", f"[{role_name}] 选择的槽位已锁定，不能覆盖。")
+            QMessageBox.warning(
+                self.dialog_parent,
+                tr("保存方案"),
+                tr("[{role}] 选择的槽位已锁定，不能覆盖。", role=display_term(str(role_name))),
+            )
             return None
         targets[role_name] = (character_id, int(slot["slot_id"]))
     return targets
@@ -483,14 +488,14 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
         database_path, _, _, _, static_database_path = _allocation_paths(self)
         snapshot_id = getattr(self, "_pending_allocation_snapshot_id", None)
         if snapshot_id is None:
-            raise RuntimeError("本次计算未绑定官方背包快照，请重新执行计算。")
+            raise RuntimeError(tr("本次计算未绑定官方背包快照，请重新执行计算。"))
         saved_roles = []
         with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
             lock_snapshot = getattr(self, "_allocation_lock_snapshot", None)
             if not isinstance(lock_snapshot, AllocationLockSnapshot):
-                raise RuntimeError("本次计算缺少配装锁定快照，请重新执行计算。")
+                raise RuntimeError(tr("本次计算缺少配装锁定快照，请重新执行计算。"))
             if lock_snapshot.inventory_snapshot_id != snapshot_id:
-                raise RuntimeError("计算快照与配装锁定快照不一致，请重新执行计算。")
+                raise RuntimeError(tr("计算快照与配装锁定快照不一致，请重新执行计算。"))
             verify_allocation_lock_snapshot(user_dao, lock_snapshot)
             targets = _select_allocation_save_slots(
                 self,
@@ -541,7 +546,7 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
                 )
                 saved_roles.append(role_name)
         if not saved_roles:
-            raise RuntimeError("本次计算没有可保存的有效方案。")
+            raise RuntimeError(tr("本次计算没有可保存的有效方案。"))
         self._allocation_dirty = False
         # The saved target slot is now known, so update the visible calculation
         # comparison with the same baseline that was persisted into the plan.
@@ -558,12 +563,13 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
         if show_message:
             QMessageBox.information(
                 self.dialog_parent,
-                "保存成功",
-                f"已将 {len(saved_roles)} 个方案保存到官方 SQLite 数据库，并同步到角色与配装页面。",
+                tr("保存成功"),
+                tr("已将 {count} 个方案保存到官方 SQLite 数据库，并同步到角色与配装页面。",
+                   count=len(saved_roles)),
             )
         return True
     except Exception as e:
-        QMessageBox.critical(self.dialog_parent, "失败", str(e))
+        QMessageBox.critical(self.dialog_parent, tr("失败"), str(e))
         return False
 
 

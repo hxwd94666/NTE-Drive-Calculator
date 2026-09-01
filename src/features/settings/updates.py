@@ -15,6 +15,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout
 
+from src.i18n import tr
 from src.app.constants import NETDISK_DOWNLOAD_LINKS
 from src.app.theme import themed_style
 
@@ -210,17 +211,17 @@ def should_show_startup_update(update_config: dict, info: dict) -> bool:
 def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -> dict:
     latest = str(info.get("latest") or "未知")
     dialog = QDialog(parent)
-    dialog.setWindowTitle("发现更新")
+    dialog.setWindowTitle(tr("发现更新"))
     dialog.setMinimumSize(560, 420)
     dialog.setStyleSheet(style_sheet)
 
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(16, 16, 16, 16)
     layout.setSpacing(10)
-    title = QLabel(f"发现新版本 {latest}")
+    title = QLabel(tr("发现新版本 {version}", version=latest))
     title.setStyleSheet("font-size:18px;font-weight:700;color:#58a6ff")
     layout.addWidget(title)
-    subtitle = QLabel(f"当前版本: {app_version}")
+    subtitle = QLabel(tr("当前版本: {version}", version=app_version))
     subtitle.setStyleSheet(themed_style("color:#8b949e"))
     layout.addWidget(subtitle)
     notes = QTextBrowser()
@@ -238,14 +239,14 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -
         link.setTextInteractionFlags(Qt.TextBrowserInteraction)
         link.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         layout.addWidget(link)
-    never_cb = QCheckBox("永不提醒")
-    ignore_cb = QCheckBox("当前版本不再提醒")
+    never_cb = QCheckBox(tr("永不提醒"))
+    ignore_cb = QCheckBox(tr("当前版本不再提醒"))
     layout.addWidget(never_cb)
     layout.addWidget(ignore_cb)
     footer = QHBoxLayout()
     footer.addStretch()
-    netdisk_button = QPushButton("网盘下载")
-    mirror_button = QPushButton("Mirror 下载")
+    netdisk_button = QPushButton(tr("网盘下载"))
+    mirror_button = QPushButton(tr("Mirror 下载"))
     buttons = QDialogButtonBox(QDialogButtonBox.Ok)
     buttons.accepted.connect(dialog.accept)
     def open_netdisk_download():

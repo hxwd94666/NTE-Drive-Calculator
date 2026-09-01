@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr, display_term
 from src.app.theme import themed_style
 from src.domain.allocation_rating import allocation_grade
 from src.features.inventory.warehouse import warehouse_item_view
@@ -57,7 +58,7 @@ _WEIGHT_PROPERTY_CHOICES = (
     ("倾陷强度", "UnbalIntensityBase"),
 )
 _WEIGHT_LABEL_BY_PROPERTY = {
-    property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
+    property_id: display_term(label) for label, property_id in _WEIGHT_PROPERTY_CHOICES
 }
 
 
@@ -193,17 +194,17 @@ def _build_equipment_cards_group(
         if int(item.get("uid_slot") or 0) or int(item.get("uid_serial") or 0)
     } if context_key != "theory" else {}
 
-    group = QGroupBox(f"卡带 / 驱动详情 ({item_count}件)")
+    group = QGroupBox(tr("卡带 / 驱动详情 ({count} 件)", count=item_count))
     group.setObjectName("officialRoleEquipmentCards")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
     if context_key == "theory":
         layout.addWidget(QLabel(
-            "官方推荐主属性：" + (
+            tr("官方推荐主属性：") + (
                 "、".join(
                     _attribute_name(detail, property_id)
                     for property_id in context.get("core_main_property_ids") or ()
-                ) or "未提供"
+                ) or tr("未提供")
             )
         ))
 
@@ -216,10 +217,10 @@ def _build_equipment_cards_group(
                 WarehouseResultCard(
                     {
                         "kind": kind,
-                        "display_name": str(
+                        "display_name": display_term(str(
                             detail.get("item_names", {}).get(item_id, item_id)
-                            or ("卡带" if kind == "core" else "驱动")
-                        ),
+                            or (display_term("卡带") if kind == "core" else display_term("驱动"))
+                        )),
                         "item_name": str(item_id or ""),
                         "item_icon_path": detail.get("item_icon_paths", {}).get(
                             str(item_id or "")
@@ -242,10 +243,10 @@ def _build_equipment_cards_group(
                 Qt.AlignLeft | Qt.AlignTop,
             )
         if not theory_items:
-            grid.addWidget(QLabel("官方方案未提供卡带或驱动。"), 0, 0)
+            grid.addWidget(QLabel(tr("官方方案未提供卡带或驱动。")), 0, 0)
     else:
         if not items:
-            grid.addWidget(QLabel("暂无卡带或驱动。"), 0, 0)
+            grid.addWidget(QLabel(tr("暂无卡带或驱动。")), 0, 0)
         for index, item in enumerate(items):
             display_item = calculation_by_uid.get(
                 (int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0)),
@@ -282,7 +283,7 @@ def _build_equipment_cards_group(
 def _aggregate_equipment_stats(detail: dict, context_key: str) -> list[tuple[str, str]]:
     if context_key == "theory":
         return [
-            (_attribute_name(detail, property_id), "目标词条")
+            (_attribute_name(detail, property_id), tr("目标词条"))
             for property_id in detail["equipment_contexts"]["theory"].get("property_ids") or ()
         ]
     property_percent = {
@@ -315,7 +316,7 @@ def _aggregate_equipment_stats(detail: dict, context_key: str) -> list[tuple[str
 
 
 def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
-    group = QGroupBox("空幕加成")
+    group = QGroupBox(tr("空幕加成"))
     group.setObjectName("officialRoleDriveGroup")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
@@ -337,7 +338,7 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
         + 24
     )
     top.addWidget(context_combo)
-    margin_label = QLabel("直伤收益: --")
+    margin_label = QLabel(tr("直伤收益: --"))
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
     top.addWidget(margin_label)
     layout.addLayout(top)
@@ -352,22 +353,26 @@ def _build_drive_summary_group(window, detail: dict, editor: dict) -> QGroupBox:
         calculation_detail = _calculation_detail(detail, editor)
         modules = _equipment_items(detail, context_key, core=False) if context_key != "theory" else list((detail.get("equipment_plan") or {}).get("module_item_ids") or ())
         cores = _equipment_items(detail, context_key, core=True) if context_key != "theory" else ([1] if detail["equipment_contexts"]["theory"].get("core_item_id") else [])
-        count_label.setText(f"已装配驱动: {len(modules)}    空幕: {'已装配' if cores else '未装配'}")
+        count_label.setText(
+            tr("已装配驱动: {count}    空幕: {state}",
+               count=len(modules),
+               state=tr("已装配") if cores else tr("未装配"))
+        )
         gain = calculate_official_role_equipment_gain(calculation_detail, context_key)
         if gain:
-            margin_label.setText(f"直伤收益: {gain['gain_percent']:+.2f}%")
+            margin_label.setText(tr("直伤收益: {value}%", value=f"{gain['gain_percent']:+.2f}"))
         else:
-            margin_label.setText("直伤收益: --")
+            margin_label.setText(tr("直伤收益: --"))
         rows = _aggregate_equipment_stats(calculation_detail, context_key)
         if not rows:
-            summary_layout.addWidget(QLabel("（暂无驱动/空幕，请先同步背包或保存配装方案）"))
+            summary_layout.addWidget(QLabel(tr("（暂无驱动/空幕，请先同步背包或保存配装方案）")))
         else:
-            info_group = QGroupBox("汇总属性（实时计算）")
+            info_group = QGroupBox(tr("汇总属性（实时计算）"))
             info_group.setStyleSheet(themed_style("QGroupBox{border:1px solid #30363d;border-radius:5px;padding:8px}"))
             info_layout = QVBoxLayout(info_group)
             for name, value in rows:
                 row = QHBoxLayout()
-                row.addWidget(QLabel(name))
+                row.addWidget(QLabel(display_term(str(name))))
                 row.addStretch()
                 label = QLabel(value)
                 label.setStyleSheet("color:#58a6ff;font-weight:700;")

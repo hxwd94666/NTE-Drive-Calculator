@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import display_term, tr
+
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,16 +37,18 @@ class AllocationFilterSettings:
         unknown_qualities = self.qualities.difference(ALLOCATION_QUALITIES)
         if unknown_qualities:
             raise AllocationFilterValidationError(
-                "未知分配品质：" + "、".join(sorted(unknown_qualities))
+                tr("未知分配品质：{values}",
+                   values=tr("、").join(display_term(v) for v in sorted(unknown_qualities)))
             )
         unknown_types = self.item_types.difference(ALLOCATION_ITEM_TYPES)
         if unknown_types:
             raise AllocationFilterValidationError(
-                "未知分配类型：" + "、".join(sorted(unknown_types))
+                tr("未知分配类型：{values}",
+                   values=tr("、").join(display_term(v) for v in sorted(unknown_types)))
             )
         if self.item_types and not self.qualities:
             raise AllocationFilterValidationError(
-                "选择分配类型后，必须至少选择一种分配品质。"
+                tr("选择分配类型后，必须至少选择一种分配品质。")
             )
 
     def to_payload(self) -> dict[str, list[str]]:
@@ -60,9 +64,9 @@ class AllocationFilterSettings:
         qualities = raw.get("qualities", ())
         item_types = raw.get("item_types", ())
         if not isinstance(qualities, (list, tuple, set, frozenset)):
-            raise AllocationFilterValidationError("分配品质设置必须是列表。")
+            raise AllocationFilterValidationError(tr("分配品质设置必须是列表。"))
         if not isinstance(item_types, (list, tuple, set, frozenset)):
-            raise AllocationFilterValidationError("分配类型设置必须是列表。")
+            raise AllocationFilterValidationError(tr("分配类型设置必须是列表。"))
         settings = cls(
             qualities=frozenset(str(value).strip() for value in qualities),
             item_types=frozenset(str(value).strip() for value in item_types),

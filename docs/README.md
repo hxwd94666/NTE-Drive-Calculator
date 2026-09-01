@@ -1,5 +1,7 @@
 # NTE Drive Calc 开发文档
 
+*[English](en/README.md) · 简体中文*
+
 根目录 [`AGENTS.md`](../AGENTS.md) 是仓库强制契约；本目录只保存系统原理、现有功能、外部边界、仍未完成
 事项和真实环境验收。阅读时先确认任务类型，再进入对应文档。
 
@@ -13,6 +15,7 @@
 | [当前路线图](roadmap.md) | 判断某项能力是否仍在开发、受何种上游条件阻塞 |
 | [伤害计算规则](reference/damage-calculation.md) | 修改直伤、DOT、环合、倾陷、怪物属性或技能档位 |
 | [日志事件规范](reference/logging-events.md) | 增加结构化事件、运行日志或脱敏字段 |
+| [界面本地化](reference/localization.md) | 新增界面文案、切换语言或维护游戏术语显示名 |
 | [装配插件版本适配](reference/mods-plugin-version-adaptation.md) | 排查 presence、IPC 管道、动态 SDK 和插件升级 |
 | [Windows 验收](validation/windows.md) | 验证真实游戏、驱动、插件、扫描、装配和更新 |
 

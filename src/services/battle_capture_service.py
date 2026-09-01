@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol
 
+from src.i18n import tr
 from src.domain.battle_report import (
     BattleCaptureState,
     BattleSummary,
@@ -128,7 +129,7 @@ class BattleCaptureService:
         if self.is_running:
             return
         self._stop_event.clear()
-        self._publish("starting", "正在启动 nte-core 战斗采集……", running=True)
+        self._publish("starting", tr("正在启动 nte-core 战斗采集……"), running=True)
         self._thread = threading.Thread(
             target=self._run,
             name="battle-capture-service",
@@ -141,7 +142,7 @@ class BattleCaptureService:
             return
         self._publish(
             "stopping",
-            "正在停止采集并读取最终战报……",
+            tr("正在停止采集并读取最终战报……"),
             running=True,
             summary=self._latest_summary,
         )
@@ -182,7 +183,7 @@ class BattleCaptureService:
             capture_started = True
             self._publish(
                 "running",
-                "采集中：进入战斗后将实时显示队伍伤害。",
+                tr("采集中：进入战斗后将实时显示队伍伤害。"),
                 running=True,
             )
             self._stop_event.wait()
@@ -245,13 +246,13 @@ class BattleCaptureService:
                 else None
             )
             message = {
-                "saved": "战报采集已结束并自动保存。",
-                "skipped_empty": "战报采集已结束；没有有效伤害，未保存记录。",
-                "discarded_stale": "账号上下文已变化，旧战报未保存。",
+                "saved": tr("战报采集已结束并自动保存。"),
+                "skipped_empty": tr("战报采集已结束；没有有效伤害，未保存记录。"),
+                "discarded_stale": tr("账号上下文已变化，旧战报未保存。"),
                 "final_summary_unavailable": (
-                    "战报采集已结束，但未取得最终摘要，未保存记录。"
+                    tr("战报采集已结束，但未取得最终摘要，未保存记录。")
                 ),
-            }.get(persistence_status, "战报采集已结束。")
+            }.get(persistence_status, tr("战报采集已结束。"))
             self._publish(
                 "stopped",
                 message,
@@ -277,7 +278,7 @@ class BattleCaptureService:
         else:
             self._publish(
                 "error",
-                "战报采集失败。",
+                tr("战报采集失败。"),
                 running=False,
                 summary=summary,
                 error=str(terminal_error),
@@ -309,9 +310,9 @@ class BattleCaptureService:
         self._publish(
             "stopping" if current_phase == "stopping" else "running",
             (
-                "正在停止采集并读取最终战报……"
+                tr("正在停止采集并读取最终战报……")
                 if current_phase == "stopping"
-                else "采集中：已收到实时伤害数据。"
+                else tr("采集中：已收到实时伤害数据。")
             ),
             running=True,
             summary=summary,

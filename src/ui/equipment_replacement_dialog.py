@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.features.inventory.warehouse_result_card import WarehouseResultCard
@@ -138,7 +139,7 @@ def show_equipment_replacement_dialog(
     root = QVBoxLayout(dialog)
     root.setSpacing(10)
 
-    header = QLabel(f"装配角色：{role_name}")
+    header = QLabel(tr("装配角色：{role}", role=display_term(role_name)))
     header.setStyleSheet(themed_style(
         "font-size:15px;font-weight:800;color:#4dd0e1;"
         "border:1px solid #4dd0e1;border-radius:7px;padding:5px 12px;"
@@ -150,7 +151,7 @@ def show_equipment_replacement_dialog(
     description.setStyleSheet(themed_style("color:#8b949e"))
     root.addWidget(description)
 
-    comparison_group = QGroupBox("候选装备与当前装备")
+    comparison_group = QGroupBox(tr("候选装备与当前装备"))
     comparison_group.setObjectName("equipmentReplacementComparisonGroup")
     comparison_group.setLayoutDirection(Qt.LeftToRight)
     comparison_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -160,7 +161,7 @@ def show_equipment_replacement_dialog(
     comparison_layout.setSpacing(10)
     current_column = QVBoxLayout()
     current_column.setSpacing(3)
-    current_label = QLabel("当前装备")
+    current_label = QLabel(tr("当前装备"))
     current_label.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
     current_column.addWidget(current_label)
     current_host = QWidget(comparison_group)
@@ -181,7 +182,7 @@ def show_equipment_replacement_dialog(
 
     comparison_layout.addStretch(1)
 
-    comparison_text = QLabel("点击下方候选卡片进行比较。")
+    comparison_text = QLabel(tr("点击下方候选卡片进行比较。"))
     comparison_text.setObjectName("equipmentReplacementComparison")
     comparison_text.setAlignment(Qt.AlignCenter)
     comparison_text.setWordWrap(True)
@@ -196,14 +197,14 @@ def show_equipment_replacement_dialog(
 
     selected_column = QVBoxLayout()
     selected_column.setSpacing(3)
-    selected_label = QLabel("候选装备")
+    selected_label = QLabel(tr("候选装备"))
     selected_label.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
     selected_column.addWidget(selected_label)
     selected_host = QWidget(comparison_group)
     selected_host.setFixedSize(WarehouseResultCard.CARD_SIZE)
     selected_host_layout = QVBoxLayout(selected_host)
     selected_host_layout.setContentsMargins(0, 0, 0, 0)
-    selected_placeholder = QLabel("点击下方卡片\n在此生成比较副本", selected_host)
+    selected_placeholder = QLabel(tr("点击下方卡片\n在此生成比较副本"), selected_host)
     selected_placeholder.setAlignment(Qt.AlignCenter)
     selected_placeholder.setStyleSheet(themed_style(
         "color:#8b949e;border:1px dashed #484f58;border-radius:9px;"
@@ -223,7 +224,7 @@ def show_equipment_replacement_dialog(
     comparison_scroll.setWidget(comparison_group)
     root.addWidget(comparison_scroll)
 
-    candidate_group = QGroupBox(f"候选装备 ({len(candidates)}个)")
+    candidate_group = QGroupBox(tr("候选装备 ({count}个)", count=len(candidates)))
     candidate_group.setObjectName("equipmentReplacementCandidateGroup")
     candidate_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
     # The card list owns its own scrollbar, so it may yield vertical space to
@@ -242,7 +243,7 @@ def show_equipment_replacement_dialog(
     candidate_widgets: dict[str, WarehouseResultCard] = {}
     selected: list[EquipmentReplacementCard | None] = [None]
 
-    confirm = QPushButton("确定替换")
+    confirm = QPushButton(tr("确定替换"))
     confirm.setObjectName("btnAction")
     confirm.setEnabled(False)
 
@@ -293,8 +294,9 @@ def show_equipment_replacement_dialog(
             else f"{float(choice.direct_damage_score):.2f}%"
         )
         comparison_text.setText(
-            f"已选择：{choice.item_view.get('display_name') or choice.key}\n"
-            f"直伤边际收益：{current_direct_text} → {selected_direct_text}"
+            tr("已选择：{name}\n直伤边际收益：{current} → {selected}",
+               name=choice.item_view.get("display_name") or choice.key,
+               current=current_direct_text, selected=selected_direct_text)
             + (f"\n{choice.note}" if choice.note else "")
         )
         confirm.setEnabled(True)
@@ -321,7 +323,7 @@ def show_equipment_replacement_dialog(
             replacement_callback=lambda value=choice: select(value),
             parent=content,
         )
-        card.setToolTip("点击选择，并在上方与当前装备比较")
+        card.setToolTip(tr("点击选择，并在上方与当前装备比较"))
         candidate_widgets[choice.key] = card
         grid.addWidget(
             card,
@@ -336,7 +338,7 @@ def show_equipment_replacement_dialog(
 
     actions = QHBoxLayout()
     actions.addStretch()
-    cancel = QPushButton("取消")
+    cancel = QPushButton(tr("取消"))
     cancel.clicked.connect(dialog.reject)
     actions.addWidget(cancel)
     actions.addWidget(confirm)
@@ -349,7 +351,7 @@ def show_equipment_replacement_dialog(
         try:
             on_confirm(choice)
         except Exception as exc:
-            QMessageBox.warning(dialog, "替换失败", str(exc))
+            QMessageBox.warning(dialog, tr("替换失败"), str(exc))
             return
         dialog.accept()
 

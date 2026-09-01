@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from src.i18n import display_term, tr
 from typing import Any
 
 
@@ -22,18 +23,18 @@ def build_fast_apply_completion_summary(
     del mismatch_role_names
     last_attempt = max((int(row.get("attempt_count") or 1) for row in applied), default=1)
 
-    summary = f"已下发 {len(applied)} 个角色的配装"
+    summary = tr("已下发 {count} 个角色的配装", count=len(applied))
     if last_attempt > 1:
-        summary += f"（已进行至第 {last_attempt} 轮装配）"
+        summary += tr("（已进行至第 {attempt} 轮装配）", attempt=last_attempt)
     lines = []
     for row in applied:
-        role_name = str(row.get("role_name") or "未知角色")
+        role_name = display_term(str(row.get("role_name") or tr("未知角色")))
         module_count = row.get("module_count")
         if module_count is None:
-            detail = "已下发"
+            detail = tr("已下发")
         else:
-            detail = f"{int(module_count)} 个驱动"
+            detail = tr("{count} 个驱动", count=int(module_count))
             if row.get("core_count"):
-                detail += " + 1 个核心"
-        lines.append(f"• {role_name}：{detail}")
+                detail += tr(" + 1 个核心")
+        lines.append(tr("• {role}：{detail}", role=role_name, detail=detail))
     return summary, "\n".join(lines)

@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr, display_term
 from src.app.theme import themed_style
 from src.domain.warehouse_filter import (
     WarehouseFilterCatalog,
@@ -96,10 +97,10 @@ class WarehouseFilterDrawer(QFrame):
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(10)
         header = QHBoxLayout()
-        title = QLabel("筛选")
+        title = QLabel(tr("筛选"))
         title.setStyleSheet(themed_style("font-size:20px;font-weight:700;color:#f0f6fc"))
         header.addWidget(title)
-        self.summary = QLabel("0 项条件")
+        self.summary = QLabel(tr("{count} 项条件", count=0))
         self.summary.setObjectName("warehouseFilterSummary")
         self.summary.setStyleSheet(themed_style("color:#8b949e"))
         header.addWidget(self.summary)
@@ -108,15 +109,15 @@ class WarehouseFilterDrawer(QFrame):
         close_button.setObjectName("warehouseFilterClose")
         close_button.setText("×")
         close_button.setFixedSize(32, 32)
-        close_button.setToolTip("关闭且不应用本次修改")
+        close_button.setToolTip(tr("关闭且不应用本次修改"))
         close_button.clicked.connect(self.close_panel)
         header.addWidget(close_button)
         outer.addLayout(header)
 
         kind_row = QHBoxLayout()
         kind_row.setSpacing(8)
-        self.card_tab = QPushButton("卡带")
-        self.drive_tab = QPushButton("驱动块")
+        self.card_tab = QPushButton(tr("卡带"))
+        self.drive_tab = QPushButton(tr("驱动块"))
         for button, kind in ((self.card_tab, "core"), (self.drive_tab, "module")):
             button.setObjectName("warehouseFilterKindTab")
             button.setFixedHeight(38)
@@ -140,11 +141,11 @@ class WarehouseFilterDrawer(QFrame):
         outer.addWidget(self.scroll, 1)
 
         footer = QHBoxLayout()
-        reset_button = QPushButton("重置")
+        reset_button = QPushButton(tr("重置"))
         reset_button.setObjectName("warehouseFilterReset")
         reset_button.clicked.connect(self._reset_draft)
         footer.addWidget(reset_button, 1)
-        apply_button = QPushButton("确认")
+        apply_button = QPushButton(tr("确认"))
         apply_button.setObjectName("warehouseFilterApply")
         apply_button.setStyleSheet(
             themed_style(
@@ -258,7 +259,8 @@ class WarehouseFilterDrawer(QFrame):
             )
         else:
             grouped_shape_ids: set[str] = set()
-            for size, title in ((2, "II型驱动"), (3, "III型驱动"), (4, "IV型驱动")):
+            for size, title in ((2, display_term("II型驱动")), (3, display_term("III型驱动")),
+                                (4, display_term("IV型驱动"))):
                 options = tuple(
                     option
                     for option in self._catalog.item_types
@@ -313,7 +315,9 @@ class WarehouseFilterDrawer(QFrame):
             ),
         )
         self.content_layout.addStretch()
-        self.summary.setText(f"{self._draft.active_group_count} 项条件")
+        self.summary.setText(
+            tr("{count} 项条件", count=self._draft.active_group_count)
+        )
 
     def _add_section(
         self,
@@ -333,7 +337,7 @@ class WarehouseFilterDrawer(QFrame):
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(6)
         if title:
-            label = QLabel(title)
+            label = QLabel(tr(title))
             label.setObjectName("warehouseFilterSectionTitle")
             layout.addWidget(label)
         grid = QGridLayout()
@@ -341,15 +345,17 @@ class WarehouseFilterDrawer(QFrame):
         grid.setSpacing(7)
         row_height = 56 if visual else 42
         for index, option in enumerate(options):
+            # option.value stays raw: it is the filter key. Only the label changes.
+            chip_label = display_term(option.label)
             button = QPushButton(
-                f"{option.label}  {option.count}" if option.count else option.label
+                f"{chip_label}  {option.count}" if option.count else chip_label
             )
             button.setObjectName(
                 "warehouseFilterVisualChip" if visual else "warehouseFilterChip"
             )
             button.setCheckable(True)
             button.setChecked(option.value in selected)
-            button.setToolTip(option.label)
+            button.setToolTip(chip_label)
             if visual:
                 button.setIcon(self._visual_option_icon(option))
                 button.setIconSize(QSize(36, 36))
@@ -436,7 +442,9 @@ class WarehouseFilterDrawer(QFrame):
                 sub_property_ids=selected,
                 min_sub_stat_matches=minimum,
             )
-        self.summary.setText(f"{self._draft.active_group_count} 项条件")
+        self.summary.setText(
+            tr("{count} 项条件", count=self._draft.active_group_count)
+        )
 
     def _reset_draft(self) -> None:
         self._draft = WarehouseFilterSpec()

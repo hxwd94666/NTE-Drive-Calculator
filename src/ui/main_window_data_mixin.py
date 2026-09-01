@@ -3,6 +3,7 @@
 from __future__ import annotations
 from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import QFrame, QLabel, QMessageBox, QVBoxLayout
+from src.i18n import tr
 from src.app.constants import APP_VERSION, NETDISK_DOWNLOAD_LINKS
 from src.app.theme import theme_color
 from src.domain.stat_catalog import StatCatalog
@@ -60,10 +61,10 @@ class MainWindowDataMixin:
             return
         path = session_log_path()
         if self._log_enabled and path is not None:
-            label.setText(f"详细日志：{path.name}")
+            label.setText(tr("详细日志：{name}", name=path.name))
             label.setToolTip(str(path))
             return
-        label.setText("详细日志：未启用")
+        label.setText(tr("详细日志：未启用"))
         label.setToolTip("")
 
     def _toggle_log(self, enabled, *, reason="settings"):
@@ -83,7 +84,7 @@ class MainWindowDataMixin:
                     toggle.blockSignals(False)
                 self._ui_preferences["log_enabled"] = False
                 self._save_ui_preferences()
-                QMessageBox.warning(self, "运行日志", "无法创建运行日志文件，请检查日志目录是否可写")
+                QMessageBox.warning(self, tr("运行日志"), tr("无法创建运行日志文件，请检查日志目录是否可写"))
                 self._refresh_log_session_status()
                 return
             self._log_enabled = True
@@ -180,12 +181,12 @@ class MainWindowDataMixin:
                     summary = dao.current_inventory_summary()
                 if summary is not None:
                     count = int(summary["stored_item_count"])
-                    self.status_lbl.setText(f"稳定背包 {count} 件")
+                    self.status_lbl.setText(tr("稳定背包 {count} 件", count=count))
                     self.status_lbl.setStyleSheet("color:#3fb950;font-size:12px")
                     return
         except Exception as exc:
             logger.debug(f"读取 SQLite 背包状态失败: {exc}")
-        self.status_lbl.setText("库存为空")
+        self.status_lbl.setText(tr("库存为空"))
         self.status_lbl.setStyleSheet("color:#d2991d;font-size:12px")
 
     def _card(self, title):
@@ -212,7 +213,7 @@ class MainWindowDataMixin:
             ).load()
             refresh_home_page(self, dashboard)
         except Exception as exc:
-            self.home_account_label.setText(f"工作台数据暂时不可用：{exc}")
+            self.home_account_label.setText(tr("工作台数据暂时不可用：{error}", error=exc))
             logger.warning(f"刷新 2.0 工作台失败: {exc}")
 
     def _page_settings(self):
@@ -230,7 +231,10 @@ class MainWindowDataMixin:
             account.screenshot_dir,
             account.account_data_root,
         )
-        self._ss_info.setText(f"当前截图: {usage.count} 个 · {usage.size_mb:.1f} MB")
+        self._ss_info.setText(
+            tr("当前截图: {count} 个 · {size} MB",
+               count=usage.count, size=f"{usage.size_mb:.1f}")
+        )
 
     def _clear_ss(self):
         account = self.app_context.account
@@ -239,11 +243,11 @@ class MainWindowDataMixin:
             account.account_data_root,
         )
         if plan.total_count == 0:
-            QMessageBox.information(self, "清理", "没有需要清理的文件。")
+            QMessageBox.information(self, tr("清理"), tr("没有需要清理的文件。"))
             return
         if (
             QMessageBox.question(
-                self, "确认清理", plan.confirmation_text(), QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                self, tr("确认清理"), plan.confirmation_text(), QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
             == QMessageBox.Yes
         ):
@@ -251,8 +255,11 @@ class MainWindowDataMixin:
             self._refresh_ss()
             logger.success(f"已清理 {result.deleted} 个截图")
             if result.failed_files:
-                QMessageBox.warning(self, "清理完成", f"有 {len(result.failed_files)} 个文件删除失败，可能正在被占用。")
+                QMessageBox.warning(
+                    self, tr("清理完成"),
+                    tr("有 {count} 个文件删除失败，可能正在被占用。", count=len(result.failed_files))
+                )
             if plan.baseline_missing:
                 QMessageBox.warning(
-                    self, "清理完成", "注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"
+                    self, tr("清理完成"), tr("注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。")
                 )

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.i18n import tr
 from src.app.workers import WorkerThread
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
@@ -64,8 +65,8 @@ def _refresh_equipment_plugin_status(self):
     label = getattr(self, "_npcap_status_label", None)
     if label is not None:
         label.setText(
-            "Npcap：已检测到" if npcap_installation_present()
-            else "Npcap：未检测到（请选择官方安装程序安装）"
+            tr("Npcap：已检测到") if npcap_installation_present()
+            else tr("Npcap：未检测到（请选择官方安装程序安装）")
         )
     plugin_label = getattr(self, "_equipment_plugin_status_label", None)
     if plugin_label is None:
@@ -78,21 +79,21 @@ def _refresh_equipment_plugin_status(self):
         bundled_plugin = packaged_plugin_dll(self.app_context.paths.root)
         packaged_mod_workspace(self.app_context.paths.root)
         if bundle_label is not None:
-            bundle_label.setText(f"打包插件与 Mod 脚本：{bundled_plugin}")
+            bundle_label.setText(tr("打包插件与 Mod 脚本：{value}", value=bundled_plugin))
     except EquipmentPluginDeploymentError:
         bundled_plugin = None
         if bundle_label is not None:
-            bundle_label.setText("打包插件缺失：请重新安装完整应用包")
+            bundle_label.setText(tr("打包插件缺失：请重新安装完整应用包"))
     if not executable.text().strip():
-        plugin_label.setText("尚未选择 HTGame.exe")
+        plugin_label.setText(tr("尚未选择 HTGame.exe"))
     elif bundled_plugin is None:
-        plugin_label.setText("应用根目录缺少打包的 dwmapi.dll，无法部署")
+        plugin_label.setText(tr("应用根目录缺少打包的 dwmapi.dll，无法部署"))
     else:
-        plugin_label.setText("已选择游戏目录；部署前仍需确认")
+        plugin_label.setText(tr("已选择游戏目录；部署前仍需确认"))
 
 def _select_equipment_plugin_game_executable(self):
     selected, _ = QFileDialog.getOpenFileName(
-        self, "选择游戏主程序", "", "HTGame.exe (HTGame.exe)"
+        self, tr("选择游戏主程序"), "", "HTGame.exe (HTGame.exe)"
     )
     if selected:
         self._equipment_plugin_game_executable_edit.setText(selected)
@@ -105,7 +106,7 @@ def _detect_equipment_plugin_game_executable(self):
     button = getattr(self, "_equipment_plugin_detect_button", None)
     if button is not None:
         button.setEnabled(False)
-        button.setText("正在检测…")
+        button.setText(tr("正在检测…"))
     worker = WorkerThread(target=find_game_executables, parent=self)
     self._equipment_plugin_detection_worker = worker
     operation = _new_environment_operation(self, "game_detection")
@@ -119,7 +120,7 @@ def _detect_equipment_plugin_game_executable(self):
     def finish(candidates):
         if button is not None:
             button.setEnabled(True)
-            button.setText("自动检测")
+            button.setText(tr("自动检测"))
         choices = [str(path) for path in candidates]
         log_event(
             "INFO",
@@ -131,17 +132,17 @@ def _detect_equipment_plugin_game_executable(self):
         if not choices:
             QMessageBox.information(
                 self,
-                "检测游戏位置",
-                "未自动找到 HTGame.exe。你可以手动填写或选择文件，定位步骤如下：\n\n"
+                tr("检测游戏位置"),
+                tr("未自动找到 HTGame.exe。你可以手动填写或选择文件，定位步骤如下：\n\n"
                 "1. 右键点击桌面游戏图标，选择“打开文件所在位置”。\n"
                 "2. 进入 Client\\WindowsNoEditor\\HT\\Binaries\\Win64，找到 HTGame.exe。\n"
-                "3. 右键点击 HTGame.exe，选择“复制文件地址”，再粘贴到游戏主程序方框。",
+                "3. 右键点击 HTGame.exe，选择“复制文件地址”，再粘贴到游戏主程序方框。"),
             )
             return
         selected = choices[0]
         if len(choices) > 1:
             selected, accepted = QInputDialog.getItem(
-                self, "选择游戏位置", "检测到多个 HTGame.exe，请选择正在使用的游戏：",
+                self, tr("选择游戏位置"), tr("检测到多个 HTGame.exe，请选择正在使用的游戏："),
                 choices, 0, False,
             )
             if not accepted:
@@ -152,7 +153,7 @@ def _detect_equipment_plugin_game_executable(self):
     def failed(error):
         if button is not None:
             button.setEnabled(True)
-            button.setText("自动检测")
+            button.setText(tr("自动检测"))
         log_event(
             "ERROR",
             "environment.game_detection_failed",
@@ -162,12 +163,12 @@ def _detect_equipment_plugin_game_executable(self):
         )
         QMessageBox.warning(
             self,
-            "检测游戏位置",
-            f"自动检测失败：{error}\n\n"
-            "你可以手动填写或选择文件：\n"
-            "1. 右键点击桌面游戏图标，选择“打开文件所在位置”。\n"
-            "2. 进入 Client\\WindowsNoEditor\\HT\\Binaries\\Win64，找到 HTGame.exe。\n"
-            "3. 右键点击 HTGame.exe，选择“复制文件地址”，再粘贴到游戏主程序方框。",
+            tr("检测游戏位置"),
+            tr("自动检测失败：{error}\n\n"
+               "你可以手动填写或选择文件：\n"
+               "1. 右键点击桌面游戏图标，选择“打开文件所在位置”。\n"
+               "2. 进入 Client\\WindowsNoEditor\\HT\\Binaries\\Win64，找到 HTGame.exe。\n"
+               "3. 右键点击 HTGame.exe，选择“复制文件地址”，再粘贴到游戏主程序方框。", error=error),
         )
 
     worker.result_ready.connect(finish)
@@ -180,26 +181,26 @@ def _open_npcap_download(self):
 def _show_npcap_status(self):
     if npcap_installation_present():
         QMessageBox.information(
-            self, "Npcap 状态", "已检测到 Npcap，背包同步环境已满足该项依赖。"
+            self, tr("Npcap 状态"), tr("已检测到 Npcap，背包同步环境已满足该项依赖。")
         )
         return
     QMessageBox.warning(
         self,
-        "Npcap 状态",
-        "未检测到 Npcap。背包同步无法通过本地核心组件读取游戏数据；"
-        "请点击“下载 Npcap 1.88”完成安装后再检测。",
+        tr("Npcap 状态"),
+        tr("未检测到 Npcap。背包同步无法通过本地核心组件读取游戏数据；"
+        "请点击“下载 Npcap 1.88”完成安装后再检测。"),
     )
 
 
 def _diagnose_nte_core(self):
     current_worker = getattr(self, "_nte_core_diagnostic_worker", None)
     if current_worker is not None and current_worker.isRunning():
-        QMessageBox.information(self, "nte-core 诊断", "诊断正在进行，请稍候。")
+        QMessageBox.information(self, tr("nte-core 诊断"), tr("诊断正在进行，请稍候。"))
         return
     button = getattr(self, "_nte_core_diagnostic_button", None)
     if button is not None:
         button.setEnabled(False)
-        button.setText("诊断中…")
+        button.setText(tr("诊断中…"))
     worker = WorkerThread(
         target=lambda: collect_nte_core_diagnostics(
             cwd=self.app_context.paths.app_dir
@@ -218,7 +219,7 @@ def _diagnose_nte_core(self):
     def finish(result):
         if button is not None:
             button.setEnabled(True)
-            button.setText("诊断 nte-core")
+            button.setText(tr("诊断 nte-core"))
         detected = result.get("capture_detect")
         devices = capture_device_names(detected) if isinstance(detected, dict) else []
         log_event(
@@ -236,7 +237,7 @@ def _diagnose_nte_core(self):
     def failed(error):
         if button is not None:
             button.setEnabled(True)
-            button.setText("诊断 nte-core")
+            button.setText(tr("诊断 nte-core"))
         log_event(
             "ERROR",
             "environment.nte_core_diagnostics_failed",
@@ -244,7 +245,7 @@ def _diagnose_nte_core(self):
             operation,
             error=error,
         )
-        QMessageBox.warning(self, "nte-core 诊断", f"诊断程序执行失败：{error}")
+        QMessageBox.warning(self, tr("nte-core 诊断"), tr("诊断程序执行失败：{error}", error=error))
 
     worker.result_ready.connect(finish)
     worker.error.connect(failed)
@@ -257,12 +258,12 @@ def _show_nte_core_diagnostic_report(
     devices: list[str] | None = None,
 ) -> None:
     dialog = QDialog(self)
-    dialog.setWindowTitle("nte-core 诊断结果")
+    dialog.setWindowTitle(tr("nte-core 诊断结果"))
     dialog.resize(720, 510)
     layout = QVBoxLayout(dialog)
     hint = QLabel(
-        "报告仅保留抓包所需的核心、Npcap 驱动、网卡和 DLL 线索；"
-        "不会启动抓包、保存原始数据或显示 IP/MAC 地址。"
+        tr("报告仅保留抓包所需的核心、Npcap 驱动、网卡和 DLL 线索；"
+        "不会启动抓包、保存原始数据或显示 IP/MAC 地址。")
     )
     hint.setWordWrap(True)
     layout.addWidget(hint)
@@ -274,14 +275,14 @@ def _show_nte_core_diagnostic_report(
     if devices:
         select_device_button = cast(
             QAbstractButton,
-            actions.addButton("选择可用网卡", QDialogButtonBox.ActionRole),
+            actions.addButton(tr("选择可用网卡"), QDialogButtonBox.ActionRole),
         )
 
         def select_capture_device() -> None:
             selected, accepted = QInputDialog.getItem(
                 dialog,
-                "选择抓取网卡",
-                "请选择要手动启用的网卡：",
+                tr("选择抓取网卡"),
+                tr("请选择要手动启用的网卡："),
                 devices,
                 0,
                 False,
@@ -292,21 +293,21 @@ def _show_nte_core_diagnostic_report(
             if capture_device_edit is None:
                 QMessageBox.warning(
                     self,
-                    "抓取网卡",
-                    "未找到“抓取网卡”设置，请重新打开设置页面后重试。",
+                    tr("抓取网卡"),
+                    tr("未找到“抓取网卡”设置，请重新打开设置页面后重试。"),
                 )
                 return
             capture_device_edit.setText(selected)
             QMessageBox.information(
                 self,
-                "抓取网卡",
-                "已将所选网卡填入“抓取网卡”。请点击“保存同步设置”后重新启动同步。",
+                tr("抓取网卡"),
+                tr("已将所选网卡填入“抓取网卡”。请点击“保存同步设置”后重新启动同步。"),
             )
 
         select_device_button.clicked.connect(select_capture_device)
     copy_button = cast(
         QAbstractButton,
-        actions.addButton("复制诊断", QDialogButtonBox.ActionRole),
+        actions.addButton(tr("复制诊断"), QDialogButtonBox.ActionRole),
     )
     copy_button.clicked.connect(lambda: QApplication.clipboard().setText(report))
     actions.rejected.connect(dialog.reject)
@@ -317,14 +318,14 @@ def _show_nte_core_diagnostic_report(
 def _diagnose_dwmapi(self):
     current_worker = getattr(self, "_dwmapi_diagnostic_worker", None)
     if current_worker is not None and current_worker.isRunning():
-        QMessageBox.information(self, "dwmapi 诊断", "诊断正在进行，请稍候。")
+        QMessageBox.information(self, tr("dwmapi 诊断"), tr("诊断正在进行，请稍候。"))
         return
     executable_edit = getattr(self, "_equipment_plugin_game_executable_edit", None)
     executable = executable_edit.text().strip() if executable_edit is not None else ""
     button = getattr(self, "_dwmapi_diagnostic_button", None)
     if button is not None:
         button.setEnabled(False)
-        button.setText("诊断中…")
+        button.setText(tr("诊断中…"))
     preferences = getattr(self, "_ui_preferences", {}) or {}
     worker = WorkerThread(
         target=lambda: collect_dwmapi_diagnostics(
@@ -352,7 +353,7 @@ def _diagnose_dwmapi(self):
     def finish(result):
         if button is not None:
             button.setEnabled(True)
-            button.setText("诊断 dwmapi")
+            button.setText(tr("诊断 dwmapi"))
         log_event(
             "INFO",
             "environment.dwmapi_diagnostics_succeeded",
@@ -365,7 +366,7 @@ def _diagnose_dwmapi(self):
     def failed(error):
         if button is not None:
             button.setEnabled(True)
-            button.setText("诊断 dwmapi")
+            button.setText(tr("诊断 dwmapi"))
         log_event(
             "ERROR",
             "environment.dwmapi_diagnostics_failed",
@@ -373,7 +374,7 @@ def _diagnose_dwmapi(self):
             operation,
             error=error,
         )
-        QMessageBox.warning(self, "dwmapi 诊断", f"诊断程序执行失败：{error}")
+        QMessageBox.warning(self, tr("dwmapi 诊断"), tr("诊断程序执行失败：{error}", error=error))
 
     worker.result_ready.connect(finish)
     worker.error.connect(failed)
@@ -382,10 +383,10 @@ def _diagnose_dwmapi(self):
 
 def _show_dwmapi_diagnostic_report(self: Any, report: str) -> None:
     dialog = QDialog(self)
-    dialog.setWindowTitle("dwmapi 装备插件诊断结果")
+    dialog.setWindowTitle(tr("dwmapi 装备插件诊断结果"))
     dialog.resize(760, 540)
     layout = QVBoxLayout(dialog)
-    hint = QLabel("以下信息可直接复制后发送用于排查；本操作不会执行装备、复制或修改 DLL。")
+    hint = QLabel(tr("以下信息可直接复制后发送用于排查；本操作不会执行装备、复制或修改 DLL。"))
     hint.setWordWrap(True)
     layout.addWidget(hint)
     content = QPlainTextEdit(dialog)
@@ -395,7 +396,7 @@ def _show_dwmapi_diagnostic_report(self: Any, report: str) -> None:
     actions = QDialogButtonBox(QDialogButtonBox.Close, parent=dialog)
     copy_button = cast(
         QAbstractButton,
-        actions.addButton("复制诊断", QDialogButtonBox.ActionRole),
+        actions.addButton(tr("复制诊断"), QDialogButtonBox.ActionRole),
     )
     copy_button.clicked.connect(lambda: QApplication.clipboard().setText(report))
     actions.rejected.connect(dialog.reject)
@@ -407,8 +408,8 @@ def _deploy_equipment_plugin(self):
     if consent is None or not consent.isChecked():
         QMessageBox.warning(
             self,
-            "部署装备插件",
-            "请先阅读风险提示，并勾选确认自愿使用装备插件、承担相应风险。",
+            tr("部署装备插件"),
+            tr("请先阅读风险提示，并勾选确认自愿使用装备插件、承担相应风险。"),
         )
         return
     executable = self._equipment_plugin_game_executable_edit.text().strip()
@@ -416,17 +417,20 @@ def _deploy_equipment_plugin(self):
         source = packaged_plugin_dll(self.app_context.paths.root)
         workspace_source = packaged_mod_workspace(self.app_context.paths.root)
     except EquipmentPluginDeploymentError as exc:
-        QMessageBox.warning(self, "部署装备插件", str(exc))
+        QMessageBox.warning(self, tr("部署装备插件"), str(exc))
         return
     if QMessageBox.question(
         self,
-        "确认部署装备插件",
-        "将把应用打包的 nte-mods-plugin dwmapi.dll 复制到所选 HTGame.exe 同目录，"
-        "并准备与最新版 nte-core 配套的装备 Mod 脚本。\n"
-        "若目录已有同名文件，会先备份到当前账号数据目录。请先关闭游戏。\n\n"
-        "该功能会介入游戏进程，但不会直接篡改游戏数据；"
-        "仍可能触发游戏保护，产生兼容问题或账号风险。\n\n"
-        f"游戏：{executable}\n打包插件：{source}\n脚本模板：{workspace_source}",
+        tr("确认部署装备插件"),
+        tr(
+            "将把应用打包的 nte-mods-plugin dwmapi.dll 复制到所选 HTGame.exe 同目录，"
+            "并准备与最新版 nte-core 配套的装备 Mod 脚本。\n"
+            "若目录已有同名文件，会先备份到当前账号数据目录。请先关闭游戏。\n\n"
+            "该功能会介入游戏进程，但不会直接篡改游戏数据；"
+            "仍可能触发游戏保护，产生兼容问题或账号风险。\n\n"
+            "游戏：{executable}\n打包插件：{source}\n脚本模板：{workspace}",
+            executable=executable, source=source, workspace=workspace_source,
+        ),
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     ) != QMessageBox.Yes:
@@ -490,11 +494,11 @@ def _deploy_equipment_plugin(self):
             backup_created=bool(deployed.backup_path),
             registry_value_existed=bool(registry_value_existed),
         )
-        self._equipment_plugin_status_label.setText("最新版 Mod 插件与装备脚本已部署；退出游戏前可在此还原。")
+        self._equipment_plugin_status_label.setText(tr("最新版 Mod 插件与装备脚本已部署；退出游戏前可在此还原。"))
         QMessageBox.information(
             self,
-            "部署装备插件",
-            f"已部署 dwmapi.dll，并注册 Mod 工作区：\n{deployed.workspace_path}",
+            tr("部署装备插件"),
+            tr("已部署 dwmapi.dll，并注册 Mod 工作区：\n{path}", path=deployed.workspace_path),
         )
     except EquipmentPluginDeploymentError as exc:
         log_event(
@@ -504,19 +508,19 @@ def _deploy_equipment_plugin(self):
             operation,
             error=exc,
         )
-        QMessageBox.warning(self, "部署装备插件", str(exc))
+        QMessageBox.warning(self, tr("部署装备插件"), str(exc))
 
 def _restore_equipment_plugin(self):
     preferences = self._ui_preferences or {}
     executable = self._equipment_plugin_game_executable_edit.text().strip()
     deployed_sha256 = str(preferences.get("equipment_plugin_deployed_sha256") or "")
     if not executable or not deployed_sha256:
-        QMessageBox.information(self, "还原装备插件", "当前账号没有可还原的部署记录。")
+        QMessageBox.information(self, tr("还原装备插件"), tr("当前账号没有可还原的部署记录。"))
         return
     if QMessageBox.question(
-        self, "还原装备插件",
-        "将还原部署前备份的 dwmapi.dll；若没有备份，则只删除本程序部署的文件。\n"
-        "若 Mod 工作区仍由本程序持有，也会恢复部署前的注册表值。",
+        self, tr("还原装备插件"),
+        tr("将还原部署前备份的 dwmapi.dll；若没有备份，则只删除本程序部署的文件。\n"
+        "若 Mod 工作区仍由本程序持有，也会恢复部署前的注册表值。"),
         QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
     ) != QMessageBox.Yes:
         return
@@ -556,15 +560,15 @@ def _restore_equipment_plugin(self):
             operation,
             workspace_restored=bool(workspace_restored),
         )
-        self._equipment_plugin_status_label.setText("已还原游戏目录中的 dwmapi.dll。")
+        self._equipment_plugin_status_label.setText(tr("已还原游戏目录中的 dwmapi.dll。"))
         QMessageBox.information(
             self,
-            "还原装备插件",
-            "已完成还原。"
+            tr("还原装备插件"),
+            tr("已完成还原。")
             + (
-                "并已恢复此前的 Mod 工作区。"
+                tr("并已恢复此前的 Mod 工作区。")
                 if workspace_restored
-                else "Mod 工作区已被其他程序接管或不存在，未修改其注册表值。"
+                else tr("Mod 工作区已被其他程序接管或不存在，未修改其注册表值。")
             ),
         )
     except EquipmentPluginDeploymentError as exc:
@@ -575,7 +579,7 @@ def _restore_equipment_plugin(self):
             operation,
             error=exc,
         )
-        QMessageBox.warning(self, "还原装备插件", str(exc))
+        QMessageBox.warning(self, tr("还原装备插件"), str(exc))
 
 def _focus_environment_configuration(self):
     self._go("settings")

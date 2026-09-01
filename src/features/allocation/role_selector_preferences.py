@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 
+from src.i18n import tr, display_term
 from src.ui.widgets import SearchableComboBox, match_pinyin
 from src.domain.crit_threshold import persistable_stat_priority_config
 from src.domain.grade_limits import GRADE_LADDER
@@ -57,13 +58,14 @@ def resolve_priority_choice(values: list[str], raw_text: str | None, current_dat
 def resolve_optional_priority_choice(
     values: list[str],
     raw_text: str | None,
+    current_data=None,
 ) -> str:
     """Resolve an optional combo while preserving an explicit clear action."""
 
     raw = str(raw_text or "").strip()
     if not raw:
         return ""
-    return resolve_priority_choice(values, raw)
+    return resolve_priority_choice(values, raw, current_data)
 
 
 def temporary_priority_config_path(path: Path) -> Path:
@@ -97,7 +99,7 @@ class RoleSelectorPreferencesMixin:
 
     def _manage_role_preferences(self, name):
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"{name} · 管理")
+        dlg.setWindowTitle(tr("{name} · 管理", name=display_term(str(name))))
         dlg.setMinimumSize(560, 320)
         if self._style_sheet:
             dlg.setStyleSheet(self._style_sheet)
@@ -107,20 +109,20 @@ class RoleSelectorPreferencesMixin:
         role_data = self.all_roles.get(name, {})
         current_set = self.custom_sets.get(name) or role_data.get("default_set", self.all_sets[0] if self.all_sets else "")
         default_weapon = self._default_weapon_for_role(name)
-        set_box = QGroupBox("角色配置")
+        set_box = QGroupBox(tr("角色配置"))
         set_layout = QVBoxLayout(set_box)
         set_layout.setContentsMargins(8, 8, 8, 8)
         set_layout.setSpacing(5)
         set_row = QHBoxLayout()
         set_row.setSpacing(8)
-        set_row.addWidget(QLabel("卡带："))
+        set_row.addWidget(QLabel(tr("卡带：")))
         set_combo = SearchableComboBox()
         self._fill_search_combo(set_combo, self.all_sets, current_set)
         set_row.addWidget(set_combo, 1)
         set_layout.addLayout(set_row)
         weapon_row = QHBoxLayout()
         weapon_row.setSpacing(8)
-        weapon_row.addWidget(QLabel("弧盘："))
+        weapon_row.addWidget(QLabel(tr("弧盘：")))
         weapon_combo = SearchableComboBox()
         weapon_names = sorted(self.weapons_db.keys())
         self._fill_search_combo(
@@ -134,7 +136,7 @@ class RoleSelectorPreferencesMixin:
         set_layout.addLayout(weapon_row)
         layout.addWidget(set_box)
 
-        template_box = QGroupBox("自选配置")
+        template_box = QGroupBox(tr("自选配置"))
         template_layout = QVBoxLayout(template_box)
         template_layout.setContentsMargins(8, 6, 8, 6)
         template_layout.setSpacing(5)
@@ -145,11 +147,11 @@ class RoleSelectorPreferencesMixin:
             else self._default_tape_main_filter(name)
         )
         main_box = self._build_multi_select_row(
-            "卡带主词条：",
+            tr("卡带主词条："),
             self.tape_main_stats,
             selected_main_stats,
             "、",
-            empty_text="未选择",
+            empty_text=tr("未选择"),
         )
         template_layout.addWidget(main_box)
 
@@ -160,11 +162,11 @@ class RoleSelectorPreferencesMixin:
         )
         selected_stats = self._selected_substat_priority(name)
         stat_box = self._build_multi_select_row(
-            "卡带/驱动副词条：",
+            tr("卡带/驱动副词条："),
             self.drive_sub_stats,
             selected_stats,
             " > ",
-            empty_text="未选择",
+            empty_text=tr("未选择"),
         )
         stat_layout = stat_box.layout()
         selected_blacklist = [
@@ -174,11 +176,11 @@ class RoleSelectorPreferencesMixin:
         ]
         stat_layout.addWidget(
             self._build_multi_select_row(
-                "副词条黑名单：",
+                tr("副词条黑名单："),
                 self.drive_sub_stats,
                 selected_blacklist,
                 "、",
-                empty_text="未选择",
+                empty_text=tr("未选择"),
             )
         )
         help_btn = QPushButton("?")
@@ -189,15 +191,15 @@ class RoleSelectorPreferencesMixin:
         stat_option_row = QHBoxLayout()
         stat_option_row.setContentsMargins(0, 4, 0, 0)
         stat_option_row.setSpacing(16)
-        stat_equal = QCheckBox("副词条优先级一致")
+        stat_equal = QCheckBox(tr("副词条优先级一致"))
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
-        blacklist_zero_weight = QCheckBox("黑名单为零权重")
+        blacklist_zero_weight = QCheckBox(tr("黑名单为零权重"))
         blacklist_zero_weight.setChecked(
             bool(current_stat_cfg.get("blacklist_zero_weight", False))
         )
-        ignore_grade_limit = QCheckBox("不限制评分等级")
+        ignore_grade_limit = QCheckBox(tr("不限制评分等级"))
         ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
-        grade_label = QLabel("最低生效等级")
+        grade_label = QLabel(tr("最低生效等级"))
         grade_combo = QComboBox()
         grade_combo.setFixedWidth(84)
         for grade in GRADE_LADDER:
@@ -215,7 +217,7 @@ class RoleSelectorPreferencesMixin:
         stat_option_row.addStretch(1)
         stat_layout.addLayout(stat_option_row)
 
-        crit_threshold_label = QLabel("暴击率最小值")
+        crit_threshold_label = QLabel(tr("暴击率最小值"))
         crit_threshold_help = QPushButton("?")
         crit_threshold_help.setObjectName("btnHelp")
         crit_threshold_help.setFixedSize(24, 24)
@@ -237,17 +239,17 @@ class RoleSelectorPreferencesMixin:
         template_layout.addWidget(stat_box)
         layout.addWidget(template_box)
 
-        effect_box = QGroupBox("其他配置")
+        effect_box = QGroupBox(tr("其他配置"))
         effect_layout = QVBoxLayout(effect_box)
         effect_layout.setContentsMargins(8, 8, 8, 8)
         effect_layout.setSpacing(5)
         effect_row = QHBoxLayout()
         effect_row.setSpacing(8)
-        effect_row.addWidget(QLabel("套装效果："))
+        effect_row.addWidget(QLabel(tr("套装效果：")))
         effect_combo = QComboBox()
-        effect_combo.addItem("四件套", FOUR_PIECE)
-        effect_combo.addItem("二件套", TWO_PIECE)
-        effect_combo.addItem("无效果", NO_EFFECT)
+        effect_combo.addItem(tr("四件套"), FOUR_PIECE)
+        effect_combo.addItem(tr("二件套"), TWO_PIECE)
+        effect_combo.addItem(tr("无效果"), NO_EFFECT)
         current_effect = normalize_set_effect_mode(self.set_effect_modes.get(name))
         effect_index = effect_combo.findData(current_effect)
         effect_combo.setCurrentIndex(effect_index if effect_index >= 0 else 0)
@@ -264,7 +266,7 @@ class RoleSelectorPreferencesMixin:
         crit_row.addWidget(QLabel("%"))
         crit_row.addWidget(crit_threshold_help)
         crit_row.addSpacing(12)
-        crit_row.addWidget(QLabel("暴击率上限："))
+        crit_row.addWidget(QLabel(tr("暴击率上限：")))
         crit_cap_edit = QLineEdit()
         current_cap = self.crit_rate_caps.get(name)
         if current_cap is None:
@@ -273,7 +275,7 @@ class RoleSelectorPreferencesMixin:
             )
         if current_cap is not None:
             crit_cap_edit.setText(f"{float(current_cap):g}")
-        crit_cap_edit.setPlaceholderText("留空不限制")
+        crit_cap_edit.setPlaceholderText(tr("留空不限制"))
 
         def apply_weapon_cap(text):
             raw = str(text or "").strip()
@@ -310,6 +312,7 @@ class RoleSelectorPreferencesMixin:
             resolved_weapon = resolve_optional_priority_choice(
                 weapon_names,
                 weapon_value,
+                weapon_combo.currentData(),
             )
             selected_weapon = resolved_weapon if resolved_weapon in weapon_names else ""
             self._set_custom_weapon(name, selected_weapon)
@@ -472,7 +475,7 @@ class RoleSelectorPreferencesMixin:
     def save_priority_config(self, show_message: bool = True):
         self._write_priority_config(self._priority_config_path())
         if show_message:
-            QMessageBox.information(self, "保存成功", "当前角色优先级方案已保存，可随时读取该方案。")
+            QMessageBox.information(self, tr("保存成功"), tr("当前角色优先级方案已保存，可随时读取该方案。"))
 
     def save_temporary_priority_config(self):
         self._write_priority_config(temporary_priority_config_path(self._priority_config_path()))
@@ -589,7 +592,9 @@ class RoleSelectorPreferencesMixin:
                     self.set_effect_modes[role] = normalized
             self._render_grid(self.search.text())
         except Exception as exc:
-            QMessageBox.warning(self, "恢复优先级", f"读取优先级配置失败：{exc}")
+            QMessageBox.warning(
+                self, tr("恢复优先级"), tr("读取优先级配置失败：{error}", error=exc)
+            )
 
     def _load_custom_set_overrides(self, data: dict) -> dict[str, str]:
         if isinstance(data.get("custom_set_overrides"), dict):

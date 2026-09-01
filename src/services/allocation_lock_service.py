@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.i18n import display_term, tr
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -76,7 +78,7 @@ def build_allocation_lock_snapshot(
         payload = plan.get("payload") or {}
         role_name = str(payload.get("source_role_name") or "")
         if not role_name:
-            raise UserDataValidationError("锁定方案缺少角色名称，请解除锁定后重新保存")
+            raise UserDataValidationError(tr("锁定方案缺少角色名称，请解除锁定后重新保存"))
         character_id = int(plan["character_id"])
         if fully_locked_roles.setdefault(
             character_id,
@@ -85,12 +87,14 @@ def build_allocation_lock_snapshot(
             locked_role_names.add(role_name)
         assignments = tuple(plan.get("assignments") or ())
         if not assignments:
-            raise UserDataValidationError(f"锁定方案 [{role_name}] 为空，请解除锁定后重试")
+            raise UserDataValidationError(
+                tr("锁定方案 [{role}] 为空，请解除锁定后重试", role=display_term(role_name))
+            )
         for assignment in assignments:
             resolved_assignment = normalized_equipment_assignment(assignment)
             if is_virtual_equipment_assignment(resolved_assignment):
                 raise UserDataValidationError(
-                    f"锁定方案 [{role_name}] 含虚拟装备，请解除锁定后重试"
+                    tr("锁定方案 [{role}] 含虚拟装备，请解除锁定后重试", role=display_term(role_name))
                 )
             try:
                 slot = int(assignment["uid_slot"])
@@ -98,16 +102,17 @@ def build_allocation_lock_snapshot(
                 kind = str(assignment["kind"])
             except (KeyError, TypeError, ValueError) as exc:
                 raise UserDataValidationError(
-                    f"锁定方案 [{role_name}] 含无效装备 UID，请解除锁定后重试"
+                    tr("锁定方案 [{role}] 含无效装备 UID，请解除锁定后重试", role=display_term(role_name))
                 ) from exc
             if kind not in {"module", "core"} or slot <= 0 or serial <= 0:
                 raise UserDataValidationError(
-                    f"锁定方案 [{role_name}] 含非真实装备，请解除锁定后重试"
+                    tr("锁定方案 [{role}] 含非真实装备，请解除锁定后重试", role=display_term(role_name))
                 )
             if current_items.get((slot, serial)) != kind:
                 raise UserDataValidationError(
-                    f"锁定方案 [{role_name}] 的装备 ({slot}, {serial}) 不在当前稳定背包快照中；"
-                    "请同步背包后检查方案，或解除锁定。"
+                    tr("锁定方案 [{role}] 的装备 ({slot}, {serial}) 不在当前稳定背包快照中；"
+                       "请同步背包后检查方案，或解除锁定。",
+                       role=display_term(role_name), slot=slot, serial=serial)
                 )
             reserved_uids.add(_display_uid(kind, slot, serial))
         revisions.append((int(plan["plan_id"]), str(plan.get("updated_at_utc") or "")))
@@ -131,7 +136,7 @@ def verify_allocation_lock_snapshot(
     )
     if current != snapshot:
         raise UserDataValidationError(
-            "配装锁定状态已在计算期间变化，请重新计算后再保存"
+            tr("配装锁定状态已在计算期间变化，请重新计算后再保存")
         )
 
 

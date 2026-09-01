@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from src.i18n import tr
 from src.app.theme import theme_color
 from src.features.official_role.page import (
     build_official_role_page,
@@ -86,7 +87,7 @@ class MainWindowNavigationMixin:
         tbh.setContentsMargins(20, 10, 20, 10)
         self.topbar_title = QLabel(NAV_ITEMS[0].label)
         tbh.addWidget(self.topbar_title)
-        self.topbar_source_label = QLabel("评分标准来源于微信小程序“异环工坊”")
+        self.topbar_source_label = QLabel(tr("评分标准来源于微信小程序“异环工坊”"))
         self.topbar_source_label.setStyleSheet("color:#8b949e;font-size:12px;margin-left:12px")
         self.topbar_source_label.setWordWrap(False)
         self.topbar_source_label.setVisible(False)
@@ -100,18 +101,18 @@ class MainWindowNavigationMixin:
         self.account_combo.setFixedWidth(150)
         self.account_combo.currentIndexChanged.connect(self._on_account_combo_changed)
         tbh.addWidget(self.account_combo)
-        account_btn = QPushButton("管理账号")
+        account_btn = QPushButton(tr("管理账号"))
         account_btn.setObjectName("btnAction")
         account_btn.clicked.connect(self._manage_accounts)
         tbh.addWidget(account_btn)
-        guide_btn = QPushButton("新手向导")
+        guide_btn = QPushButton(tr("新手向导"))
         guide_btn.setObjectName("btnAction")
         guide_btn.clicked.connect(self.onboarding_guide.show)
         tbh.addWidget(guide_btn)
-        self.status_lbl = QLabel("就绪")
+        self.status_lbl = QLabel(tr("就绪"))
         self.status_lbl.setStyleSheet(f"color:{theme_color('#6e7681')};font-size:12px")
         tbh.addWidget(self.status_lbl)
-        guide_btn.setText("使用教程")
+        guide_btn.setText(tr("使用教程"))
         rr.addWidget(tbar)
         self.stack = QStackedWidget()
         for item in NAV_ITEMS:
@@ -137,9 +138,9 @@ class MainWindowNavigationMixin:
         lf.setContentsMargins(0, 0, 0, 0)
         lh = QHBoxLayout()
         lh.setContentsMargins(16, 6, 16, 6)
-        lh.addWidget(QLabel("运行日志"))
+        lh.addWidget(QLabel(tr("运行日志")))
         lh.addStretch()
-        cb = QPushButton("清空")
+        cb = QPushButton(tr("清空"))
         cb.setObjectName("btnSm")
         cb.clicked.connect(self._clear_log)
         lh.addWidget(cb)

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.i18n import tr
 from src.app.context import AccountContext
 from src.storage.config_migration import replace_core_config_dir
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -329,7 +330,7 @@ def populate_account_combo(combo: QComboBox, accounts_index: dict, active_accoun
     combo.clear()
     active_index = 0
     for idx, account in enumerate(accounts_index.get("accounts", [])):
-        combo.addItem(account.get("name") or account.get("id"), account.get("id"))
+        combo.addItem(tr(str(account.get("name") or account.get("id"))), account.get("id"))
         if account.get("id") == active_account_id:
             active_index = idx
     combo.setCurrentIndex(active_index)
@@ -338,7 +339,7 @@ def populate_account_combo(combo: QComboBox, accounts_index: dict, active_accoun
 
 def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManager, active_account_id: str, switch_account_callback, refresh_account_combo_callback) -> None:
     dialog = QDialog(parent)
-    dialog.setWindowTitle("管理账号")
+    dialog.setWindowTitle(tr("管理账号"))
     dialog.setMinimumSize(460, 220)
     dialog.setStyleSheet(style_sheet)
 
@@ -346,27 +347,27 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
     layout.setSpacing(10)
 
     row = QHBoxLayout()
-    row.addWidget(QLabel("账号"))
+    row.addWidget(QLabel(tr("账号")))
     combo = QComboBox()
     row.addWidget(combo, 1)
     layout.addLayout(row)
 
     name_edit = QLineEdit()
-    name_edit.setPlaceholderText("账号名称")
+    name_edit.setPlaceholderText(tr("账号名称"))
     layout.addWidget(name_edit)
 
     btn_row = QHBoxLayout()
-    add_btn = QPushButton("添加")
+    add_btn = QPushButton(tr("添加"))
     add_btn.setObjectName("btnAction")
-    rename_btn = QPushButton("保存命名")
+    rename_btn = QPushButton(tr("保存命名"))
     rename_btn.setObjectName("btnAction")
-    delete_btn = QPushButton("删除账号")
-    export_btn = QPushButton("导出数据")
+    delete_btn = QPushButton(tr("删除账号"))
+    export_btn = QPushButton(tr("导出数据"))
     export_btn.setObjectName("btnAction")
-    import_btn = QPushButton("导入数据")
+    import_btn = QPushButton(tr("导入数据"))
     import_btn.setObjectName("btnAction")
     delete_btn.setObjectName("btnDanger")
-    close_btn = QPushButton("关闭")
+    close_btn = QPushButton(tr("关闭"))
     for btn in (add_btn, rename_btn, export_btn, import_btn, delete_btn):
         btn_row.addWidget(btn)
     btn_row.addStretch()
@@ -411,13 +412,14 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         account_id = current_id()
         data = manager.read_index()
         if len(data.get("accounts", [])) <= 1:
-            QMessageBox.information(dialog, "删除账号", "至少需要保留一个账号。")
+            QMessageBox.information(dialog, tr("删除账号"), tr("至少需要保留一个账号。"))
             return
         account = manager.account_meta(account_id)
         ret = QMessageBox.question(
             dialog,
-            "删除账号",
-            f"确定删除账号「{account.get('name', account_id)}」及其库存、配装、截图等数据吗？\n此操作不可恢复。",
+            tr("删除账号"),
+            tr("确定删除账号「{name}」及其库存、配装、截图等数据吗？\n此操作不可恢复。",
+               name=account.get("name", account_id)),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -442,9 +444,9 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         try:
             export_account_data(manager, account_id, Path(path))
         except Exception as exc:
-            QMessageBox.critical(dialog, "导出账号数据", f"导出失败：{exc}")
+            QMessageBox.critical(dialog, tr("导出账号数据"), tr("导出失败：{error}", error=exc))
             return
-        QMessageBox.information(dialog, "导出账号数据", "当前账号数据已导出。")
+        QMessageBox.information(dialog, tr("导出账号数据"), tr("当前账号数据已导出。"))
 
     def import_account():
         path, _ = QFileDialog.getOpenFileName(dialog, "导入账号数据", "", "NTE Account Export (*.zip)")
@@ -453,13 +455,13 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         try:
             imported_id = import_account_data(manager, Path(path))
         except Exception as exc:
-            QMessageBox.critical(dialog, "导入账号数据", f"导入失败：{exc}")
+            QMessageBox.critical(dialog, tr("导入账号数据"), tr("导入失败：{error}", error=exc))
             return
         runtime["active_id"] = imported_id
         switch_account_callback(imported_id)
         refresh(imported_id)
         refresh_account_combo_callback()
-        QMessageBox.information(dialog, "导入账号数据", "账号数据已导入。")
+        QMessageBox.information(dialog, tr("导入账号数据"), tr("账号数据已导入。"))
 
     combo.currentIndexChanged.connect(on_combo_changed)
     add_btn.clicked.connect(add_account)

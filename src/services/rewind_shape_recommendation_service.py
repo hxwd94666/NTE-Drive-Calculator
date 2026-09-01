@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from src.i18n import display_term, tr
 from src.domain.rewind_shape_recommendation import (
     RewindPlan,
     RewindPricingRule,
@@ -169,7 +170,7 @@ class RewindShapeRecommendationService:
         if strategy not in {"balanced", "focused"}:
             raise ValueError(f"unknown rewind strategy: {strategy}")
         if not target_character_ids:
-            raise ValueError("请先选择培养角色，再生成推荐。")
+            raise ValueError(tr("请先选择培养角色，再生成推荐。"))
         target_label = _target_label(target_grade, target_custom_percent)
         role_names: dict[int, str] = {}
         with self._static_dao_factory(self._static_database_path) as static_dao:
@@ -256,7 +257,7 @@ class RewindShapeRecommendationService:
                     if primary_character_id is not None:
                         selected_ids.add(int(primary_character_id))
                 if strategy == "focused" and not selected_ids:
-                    raise ValueError("请先选择冲分角色，再生成少角冲分推荐。")
+                    raise ValueError(tr("请先选择冲分角色，再生成少角冲分推荐。"))
 
                 # A saved plan is immutable with respect to its source snapshot.
                 # The current inventory can have changed after the plan was saved,
@@ -357,11 +358,14 @@ class RewindShapeRecommendationService:
                                 shortfalls[shape_id] += 1
                                 score_gaps[shape_id] += gap
             if missing_plans:
-                raise ValueError(f"{ '、'.join(missing_plans) } 尚未生成计算方案，请先生成方案。")
+                raise ValueError(
+                    tr("{names} 尚未生成计算方案，请先生成方案。",
+                       names=tr("、").join(display_term(n) for n in missing_plans))
+                )
             if missing_items:
                 raise ValueError(
-                    f"{ '、'.join(sorted(set(missing_items))) } 的计算方案来源快照"
-                    "缺少已装配驱动，无法读取其保存评分。"
+                    tr("{names} 的计算方案来源快照缺少已装配驱动，无法读取其保存评分。",
+                       names=tr("、").join(display_term(n) for n in sorted(set(missing_items))))
                 )
         pricing_rule = RewindPricingRule()
         notice = ""
@@ -377,18 +381,18 @@ class RewindShapeRecommendationService:
             1 for score_gap in score_gaps.values() if score_gap > 0
         )
         if positive_shortfall_shape_count > selection_limit:
-            notice = (
-                f"所需驱动超过 {selection_limit} 个，"
-                "建议降低评分等级或使用随机倒带抽取。"
+            notice = tr(
+                "所需驱动超过 {limit} 个，建议降低评分等级或使用随机倒带抽取。",
+                limit=selection_limit,
             )
         elif not recommendations:
-            notice = (
-                "已读取所选角色的保存方案；"
-                f"没有低于{target_label}的已装配驱动。"
+            notice = tr(
+                "已读取所选角色的保存方案；没有低于{label}的已装配驱动。",
+                label=target_label,
             )
         benefit = sum(row.priority_score * row.quantity for row in recommendations)
         cost = sum(pricing_rule.cost_for_quantity(row.quantity) for row in recommendations)
-        labels = {"balanced": "全面均衡", "focused": "少角冲分"}
+        labels = {"balanced": tr("全面均衡"), "focused": tr("少角冲分")}
         plans = (RewindPlan(strategy, labels[strategy], recommendations, benefit, cost),) if recommendations else ()
         return RewindShapeAnalysis(
             snapshot_id=snapshot_id,
@@ -412,9 +416,9 @@ def _target_label(target_grade: str, target_custom_percent: float | None) -> str
     """Format and validate the threshold name shown in rewind analysis notices."""
 
     if target_custom_percent is None:
-        return f" {target_grade.upper()} 评分等级"
+        return tr(" {grade} 评分等级", grade=target_grade.upper())
     target_percentage_score(target_custom_percent, 1)
-    return f"自选 {float(target_custom_percent):g}% 目标"
+    return tr("自选 {percent}% 目标", percent=f"{float(target_custom_percent):g}")
 
 
 def _official_shape_id(value: str, known_shape_ids: set[str]) -> str:

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.i18n import tr, display_term
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.optimizer.contracts import (
@@ -141,7 +142,7 @@ def _show_saved_plan_diff_dialog(self, role_name, diff):
     if callable(build_dialog):
         build_dialog(role_name, diff).exec()
         return
-    QMessageBox.information(self, "配装变动", self._saved_plan_diff_text(role_name, diff))
+    QMessageBox.information(self, tr("配装变动"), self._saved_plan_diff_text(role_name, diff))
 
 
 def _clear_all_equipment(self):
@@ -166,12 +167,12 @@ def _clear_all_equipment(self):
                 for role_name, plan in dao.list_active_loadout_plans_by_role().items()
             ]
     if not plans:
-        QMessageBox.information(self, "清空配装", "当前没有已保存的配装。")
+        QMessageBox.information(self, tr("清空配装"), tr("当前没有已保存的配装。"))
         return
     ret = QMessageBox.question(
         self,
-        "清空配装",
-        "确定要从当前配装页移除所有已保存方案吗？\n方案历史和任务记录会保留，但这些方案不再参与装配。",
+        tr("清空配装"),
+        tr("确定要从当前配装页移除所有已保存方案吗？\n方案历史和任务记录会保留，但这些方案不再参与装配。"),
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )
@@ -189,8 +190,9 @@ def _clear_all_equipment(self):
     if skipped_locked:
         QMessageBox.information(
             self,
-            "清空配装",
-            "已清空未锁定方案。以下方案因计算锁定而保留：" + "、".join(skipped_locked),
+            tr("清空配装"),
+            tr("已清空未锁定方案。以下方案因计算锁定而保留：{names}",
+               names=tr("、").join(display_term(n) for n in skipped_locked)),
         )
     logger.success("已清空所有未锁定角色配装")
 
@@ -243,8 +245,9 @@ def _delete_role_equipment(
         return
     ret = QMessageBox.question(
         self,
-        "删除角色配装",
-        f"确定要从当前配装页移除 [{role_name}] 的已保存方案吗？\n方案历史会保留，但该方案不再参与装配。",
+        tr("删除角色配装"),
+        tr("确定要从当前配装页移除 [{role}] 的已保存方案吗？\n方案历史会保留，但该方案不再参与装配。",
+           role=display_term(str(role_name))),
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )
@@ -254,7 +257,7 @@ def _delete_role_equipment(
         with UserDataDao(database_path) as dao:
             dao.deactivate_loadout_plan(plan["plan_id"])
     except Exception as exc:
-        QMessageBox.warning(self, "删除角色配装", str(exc))
+        QMessageBox.warning(self, tr("删除角色配装"), str(exc))
         return
     self._saved_equipment_cache_valid = False
     self._refresh_equip()
@@ -276,7 +279,7 @@ def _manage_loadout_slot(
         if initial_slot is None or initial_slot.get("is_archived"):
             raise RuntimeError("当前配装槽位已不存在，请刷新页面。")
     except Exception as exc:
-        QMessageBox.warning(self, "管理配装槽位", str(exc))
+        QMessageBox.warning(self, tr("管理配装槽位"), str(exc))
         return
 
     character_id = int(initial_slot["character_id"])
@@ -287,16 +290,16 @@ def _manage_loadout_slot(
                 dao.rename_loadout_slot(int(initial_slot["slot_id"]), role_name)
             initial_slot["slot_name"] = role_name
         except Exception as exc:
-            QMessageBox.warning(self, "管理配装槽位", str(exc))
+            QMessageBox.warning(self, tr("管理配装槽位"), str(exc))
             return
     dialog = QDialog(self)
-    dialog.setWindowTitle(f"{character_label} · 配装槽位管理")
+    dialog.setWindowTitle(tr("{role} · 配装槽位管理", role=display_term(character_label)))
     dialog.setFixedWidth(360)
     layout = QVBoxLayout(dialog)
     layout.setSpacing(12)
 
     selector_row = QHBoxLayout()
-    selector_row.addWidget(QLabel("管理槽位："))
+    selector_row.addWidget(QLabel(tr("管理槽位：")))
     selector = QComboBox(dialog)
     selector.setMinimumWidth(260)
     selector_row.addWidget(selector, 1)
@@ -310,9 +313,9 @@ def _manage_loadout_slot(
     layout.addWidget(plan_status)
 
     actions = QHBoxLayout()
-    create_button = QPushButton("新增槽位", dialog)
-    rename_button = QPushButton("重命名", dialog)
-    archive_button = QPushButton("删除槽位", dialog)
+    create_button = QPushButton(tr("新增槽位"), dialog)
+    rename_button = QPushButton(tr("重命名"), dialog)
+    archive_button = QPushButton(tr("删除槽位"), dialog)
     archive_button.setStyleSheet("QPushButton{color:#ff8b8b}")
     actions.addWidget(create_button)
     actions.addWidget(rename_button)
@@ -354,7 +357,7 @@ def _manage_loadout_slot(
     def update_selected_slot() -> None:
         slot = selected_slot()
         if slot is None:
-            plan_status.setText("没有可管理的配装槽位。")
+            plan_status.setText(tr("没有可管理的配装槽位。"))
             rename_button.setEnabled(False)
             archive_button.setEnabled(False)
             return
@@ -371,7 +374,7 @@ def _manage_loadout_slot(
         plan_status.setText(f"{status}\n{slot_suit_text(slot)}")
         rename_button.setEnabled(True)
         archive_button.setEnabled(len(slots) > 1)
-        archive_button.setToolTip("至少保留一个配装槽位" if len(slots) <= 1 else "")
+        archive_button.setToolTip(tr("至少保留一个配装槽位") if len(slots) <= 1 else "")
 
     def reload_slots(selected_id: int | None = None) -> None:
         nonlocal slots
@@ -397,7 +400,7 @@ def _manage_loadout_slot(
             with UserDataDao(database_path) as dao:
                 new_slot_id = dao.create_loadout_slot(character_id, name)
         except Exception as exc:
-            QMessageBox.warning(dialog, "新增配装槽位", str(exc))
+            QMessageBox.warning(dialog, tr("新增配装槽位"), str(exc))
             return
         changed = True
         reload_slots(new_slot_id)
@@ -419,7 +422,7 @@ def _manage_loadout_slot(
             with UserDataDao(database_path) as dao:
                 dao.rename_loadout_slot(int(slot["slot_id"]), name)
         except Exception as exc:
-            QMessageBox.warning(dialog, "重命名配装槽位", str(exc))
+            QMessageBox.warning(dialog, tr("重命名配装槽位"), str(exc))
             return
         changed = True
         reload_slots(int(slot["slot_id"]))
@@ -431,8 +434,9 @@ def _manage_loadout_slot(
             return
         answer = QMessageBox.question(
             dialog,
-            "删除配装槽位",
-            f"删除 [{slot_label(slot)}] 后，该槽位当前方案不再参与展示和装配；历史记录保留。是否继续？",
+            tr("删除配装槽位"),
+            tr("删除 [{slot}] 后，该槽位当前方案不再参与展示和装配；历史记录保留。是否继续？",
+               slot=slot_label(slot)),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -442,7 +446,7 @@ def _manage_loadout_slot(
             with UserDataDao(database_path) as dao:
                 dao.archive_loadout_slot(int(slot["slot_id"]))
         except Exception as exc:
-            QMessageBox.warning(dialog, "删除配装槽位", str(exc))
+            QMessageBox.warning(dialog, tr("删除配装槽位"), str(exc))
             return
         changed = True
         reload_slots()
@@ -477,7 +481,7 @@ def _toggle_role_allocation_lock(
             dao.set_allocation_lock(int(plan["plan_id"]), locked)
     except Exception as exc:
         logger.warning(f"切换配装锁定失败 role={role_name}: {exc}")
-        QMessageBox.warning(self, "配装锁定", str(exc))
+        QMessageBox.warning(self, tr("配装锁定"), str(exc))
         return None
     logger.info(
         f"配装锁定已{'开启' if locked else '解除'}: role={role_name}, plan_id={plan['plan_id']}"
@@ -511,14 +515,14 @@ def _game_loadout_scores(
 def _import_game_loadout(self: Any, role_name: str) -> None:
     state = (getattr(self, "_game_loadout_states", {}) or {}).get(role_name)
     if not isinstance(state, dict):
-        QMessageBox.warning(self, "导入游戏内方案", "当前展示已失效，请刷新后重试。")
+        QMessageBox.warning(self, tr("导入游戏内方案"), tr("当前展示已失效，请刷新后重试。"))
         return
     projection = state.get("_game_projection")
     if projection is None or not bool(state.get("_game_importable")):
         QMessageBox.warning(
             self,
-            "导入游戏内方案",
-            str(state.get("_game_reason") or "当前游戏内装备不能形成完整方案。"),
+            tr("导入游戏内方案"),
+            str(state.get("_game_reason") or tr("当前游戏内装备不能形成完整方案。")),
         )
         return
     database_path, static_database_path, _ = _equipment_paths(self)
@@ -551,16 +555,16 @@ def _import_game_loadout(self: Any, role_name: str) -> None:
                 return
             target_slot = slots[labels.index(label)]
         if (target_slot.get("current_plan") or {}).get("allocation_locked"):
-            QMessageBox.warning(self, "导入游戏内方案", "目标配装槽位已锁定，请先解除锁定。")
+            QMessageBox.warning(self, tr("导入游戏内方案"), tr("目标配装槽位已锁定，请先解除锁定。"))
             return
     except Exception as exc:
-        QMessageBox.warning(self, "导入游戏内方案", str(exc))
+        QMessageBox.warning(self, tr("导入游戏内方案"), str(exc))
         return
     if state.get("_game_existing_plan_id") is not None and not bool(state.get("_game_imported")):
         answer = QMessageBox.question(
             self,
-            "导入游戏内方案",
-            f"导入后将替换 [{role_name}] 当前的计算器配装方案，是否继续？",
+            tr("导入游戏内方案"),
+            tr("导入后将替换 [{role}] 当前的计算器配装方案，是否继续？", role=display_term(role_name)),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -578,10 +582,13 @@ def _import_game_loadout(self: Any, role_name: str) -> None:
             )
     except Exception as exc:
         logger.warning(f"导入游戏内配装失败 role={role_name}: {exc}")
-        QMessageBox.warning(self, "导入游戏内方案", str(exc))
+        QMessageBox.warning(self, tr("导入游戏内方案"), str(exc))
         return
     logger.info(f"已导入游戏内配装 role={role_name}, plan_id={plan_id}")
-    QMessageBox.information(self, "导入游戏内方案", f"[{role_name}] 已导入为计算器配装方案。")
+    QMessageBox.information(
+        self, tr("导入游戏内方案"),
+        tr("[{role}] 已导入为计算器配装方案。", role=display_term(role_name))
+    )
     self._saved_equipment_cache_valid = False
     self._refresh_equip(restore_role_name=role_name)
 
@@ -603,7 +610,7 @@ def _import_all_game_loadouts(self: Any) -> None:
         for state in states.values()
     )
     if not eligible:
-        QMessageBox.information(self, "一键导入", "当前没有待导入的完整游戏内方案。")
+        QMessageBox.information(self, tr("一键导入"), tr("当前没有待导入的完整游戏内方案。"))
         return
     prompt = (
         f"将导入 {len(eligible)} 名角色的游戏内方案。"
@@ -613,7 +620,7 @@ def _import_all_game_loadouts(self: Any) -> None:
         prompt += f"\n\n另有 {locked_count} 名角色因现有方案已锁定而跳过。"
     answer = QMessageBox.question(
         self,
-        "一键导入",
+        tr("一键导入"),
         prompt,
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
@@ -641,13 +648,13 @@ def _import_all_game_loadouts(self: Any) -> None:
             )
     except Exception as exc:
         logger.warning(f"一键导入游戏内配装失败: {exc}")
-        QMessageBox.warning(self, "一键导入", str(exc))
+        QMessageBox.warning(self, tr("一键导入"), str(exc))
         return
     logger.info(f"已一键导入游戏内配装 count={len(plan_ids)}")
     message = f"已导入 {len(plan_ids)} 名角色的游戏内方案。"
     if locked_count:
         message += f"\n{locked_count} 名角色因方案已锁定而跳过。"
-    QMessageBox.information(self, "一键导入", message)
+    QMessageBox.information(self, tr("一键导入"), message)
     self._saved_equipment_cache_valid = False
     self._refresh_equip()
 

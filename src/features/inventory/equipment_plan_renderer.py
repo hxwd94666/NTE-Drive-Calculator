@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.i18n import tr, display_term
 from src.app.theme import (
     GRADE_COLORS,
     current_theme_name,
@@ -155,9 +156,9 @@ def _set_allocation_lock_button_state(button: QPushButton, locked: bool) -> None
     button.setIconSize(QSize(20, 20))
     button.setAccessibleName("解除配装锁定" if locked else "锁定配装")
     button.setToolTip(
-        "当前方案已锁定：其装备不会进入其他角色的计算或替换候选"
+        tr("当前方案已锁定：其装备不会进入其他角色的计算或替换候选")
         if locked
-        else "当前方案未锁定：点击后保留本方案及其装备"
+        else tr("当前方案未锁定：点击后保留本方案及其装备")
     )
     light_locked = locked and current_theme_name() == "light"
     background = "#f2cc60" if light_locked else "#3a2f13" if locked else "#21262d"
@@ -239,12 +240,14 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     if rd.get("_empty_slot"):
         group = QGroupBox(str(rd.get("_display_name") or role_name))
         layout = QVBoxLayout(group)
-        layout.addWidget(QLabel("此配装槽位为空；在计算保存时选择它即可写入方案。"))
+        layout.addWidget(QLabel(tr("此配装槽位为空；在计算保存时选择它即可写入方案。")))
         (target_layout or self.equip_content_layout).addWidget(group)
         return group
     presentation = equipment_presentation(self)
     source_role_name = str(rd.get("_role_name") or role_name)
-    display_role_name = str(rd.get("_display_name") or source_role_name)
+    # Slot names default to the character name; display_term translates those
+    # and leaves a renamed slot untouched. source_role_name stays the key.
+    display_role_name = display_term(str(rd.get("_display_name") or source_role_name))
     plan_id = rd.get("_sqlite_plan_id")
     slot_id = rd.get("_loadout_slot_id")
     role_cfg = self.roles_db.get(source_role_name, {})
@@ -304,7 +307,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     role_hdr.addWidget(rnl)
     last_diff = rd.get(ROLE_LAST_DIFF, {}) or {}
     if last_diff.get(DIFF_CHANGED):
-        diff_btn = QPushButton("变动")
+        diff_btn = QPushButton(tr("变动"))
         diff_btn.setFixedSize(76, header_height)
         diff_btn.setStyleSheet(
             themed_style(
@@ -322,10 +325,10 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     _sm = rd.get("strategy_mode", "")
     if _sm:
         _ml = {
-            "role_priority": "角色优先",
-            "global_optimal": "全局最优",
-            "update_mode": "增量更新",
-            "game_inventory": "游戏配装",
+            "role_priority": tr("角色优先"),
+            "global_optimal": tr("全局最优"),
+            "update_mode": tr("增量更新"),
+            "game_inventory": tr("游戏配装"),
         }.get(_sm, _sm)
         sml = QLabel(_ml)
         sml.setStyleSheet(
@@ -343,7 +346,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     graduation_layout = QHBoxLayout(graduation_frame)
     graduation_layout.setSpacing(6)
     graduation_layout.setContentsMargins(4, 0, 4, 0)
-    graduation_label = QLabel("毕业率")
+    graduation_label = QLabel(tr("毕业率"))
     graduation_label.setObjectName("equipmentGraduationLabel")
     graduation_layout.addWidget(graduation_label)
     graduation_value = QLabel("--")
@@ -376,7 +379,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     total_layout = QHBoxLayout(total_frame)
     total_layout.setSpacing(7)
     total_layout.setContentsMargins(4, 0, 4, 0)
-    total_layout.addWidget(QLabel("总评"))
+    total_layout.addWidget(QLabel(tr("总评")))
     score_value = QLabel(f"{total_score:.1f}")
     score_value.setObjectName("equipmentTotalScoreValue")
     score_value.setStyleSheet(
@@ -391,7 +394,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     total_layout.addWidget(grade_value)
     role_hdr.addWidget(total_frame)
     if is_game_mode:
-        import_btn = QPushButton("已导入" if rd.get("_game_imported") else "导入")
+        import_btn = QPushButton(tr("已导入") if rd.get("_game_imported") else tr("导入"))
         import_btn.setObjectName("btnPrimary")
         import_btn.setFixedHeight(header_height)
         import_enabled = bool(rd.get("_game_importable")) and not bool(
@@ -399,22 +402,22 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         )
         import_btn.setEnabled(import_enabled)
         if rd.get("_game_existing_plan_locked"):
-            import_btn.setToolTip("现有计算器方案已锁定，请先解除锁定")
+            import_btn.setToolTip(tr("现有计算器方案已锁定，请先解除锁定"))
         elif not rd.get("_game_importable"):
-            import_btn.setToolTip(str(rd.get("_game_reason") or "当前方案不完整"))
+            import_btn.setToolTip(str(rd.get("_game_reason") or tr("当前方案不完整")))
         import_btn.clicked.connect(
             lambda _=False, rn=source_role_name: self._import_game_loadout(rn)
         )
         role_hdr.addWidget(import_btn)
     else:
-        del_btn = QPushButton("删除")
+        del_btn = QPushButton(tr("删除"))
         del_btn.setObjectName("btnDanger")
         del_btn.setFixedSize(64, header_height)
         del_btn.clicked.connect(
             lambda _=False, rn=source_role_name, pid=plan_id: self._delete_role_equipment(rn, plan_id=pid)
         )
         role_hdr.addWidget(del_btn)
-        import_btn = QPushButton("装配")
+        import_btn = QPushButton(tr("装配"))
         import_btn.setObjectName("btnPrimary")
         import_btn.setFixedHeight(header_height)
         import_btn.clicked.connect(
@@ -464,13 +467,13 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
             comparison_layout = QHBoxLayout(comparison_control)
             comparison_layout.setContentsMargins(0, 0, 0, 0)
             comparison_layout.setSpacing(5)
-            comparison_label = QLabel("对比槽位：")
+            comparison_label = QLabel(tr("对比槽位："))
             comparison_label.setStyleSheet(
                 themed_style("font-size:12px;color:#8b949e;border:none")
             )
             comparison_layout.addWidget(comparison_label)
             comparison_selector = QComboBox(comparison_control)
-            comparison_selector.setToolTip("选择用于属性汇总的计算配装槽位")
+            comparison_selector.setToolTip(tr("选择用于属性汇总的计算配装槽位"))
             comparison_selector.setFixedWidth(108)
             comparison_selector.setSizeAdjustPolicy(
                 QComboBox.AdjustToMinimumContentsLengthWithIcon
@@ -515,7 +518,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
 
                 comparison_selector.currentIndexChanged.connect(select_comparison_slot)
             else:
-                comparison_selector.addItem("无对比方案")
+                comparison_selector.addItem(tr("无对比方案"))
                 comparison_selector.setEnabled(False)
             comparison_layout.addWidget(comparison_selector)
         if is_game_mode and isinstance(saved_state, dict):
@@ -555,7 +558,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                 tape_data.get(EQUIP_MAIN_STATS, ""), tape_data.get(EQUIP_SUB_STATS, {}), wts, t_q, main_wts
             )
             t_g = allocation_grade(t_s, 15)
-        gl.addWidget(presentation.section_label("卡带:"))
+        gl.addWidget(presentation.section_label(tr("卡带:")))
         tape_changed = bool(tape_data.get(EQUIP_IS_CHANGED))
         tape_uid = tape_data.get(EQUIP_UID, "")
         gl.addWidget(
@@ -585,7 +588,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
             )
         )
     if drives:
-        gl.addWidget(presentation.section_label(f"驱动 ({len(drives)}个):"))
+        gl.addWidget(presentation.section_label(tr("驱动 ({count}个):", count=len(drives))))
         for d in drives:
             d_q = d.get(EQUIP_QUALITY, "Gold")
             if EQUIP_SCORE in d and d.get(EQUIP_GRADE):

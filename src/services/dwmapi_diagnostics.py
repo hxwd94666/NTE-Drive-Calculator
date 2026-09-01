@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from src.i18n import tr
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
     GAME_EXECUTABLE_NAME,
@@ -29,10 +30,10 @@ from src.services.equipment_plugin_deployment import (
 EQUIPMENT_PIPE_NAME = r"\\.\pipe\nte-mods-plugin-v7"
 
 _PIPE_ERROR_NAMES = {
-    2: "ERROR_FILE_NOT_FOUND（管道不存在）",
-    5: "ERROR_ACCESS_DENIED（访问被拒绝）",
-    121: "ERROR_SEM_TIMEOUT（管道等待超时）",
-    231: "ERROR_PIPE_BUSY（管道繁忙）",
+    2: tr("ERROR_FILE_NOT_FOUND（管道不存在）"),
+    5: tr("ERROR_ACCESS_DENIED（访问被拒绝）"),
+    121: tr("ERROR_SEM_TIMEOUT（管道等待超时）"),
+    231: tr("ERROR_PIPE_BUSY（管道繁忙）"),
 }
 
 
@@ -66,7 +67,7 @@ def probe_equipment_pipe() -> dict[str, Any]:
 
     result: dict[str, Any] = {"name": EQUIPMENT_PIPE_NAME, "supported": os.name == "nt"}
     if os.name != "nt":
-        result.update({"state": "unsupported", "message": "仅支持 Windows 命名管道诊断"})
+        result.update({"state": "unsupported", "message": tr("仅支持 Windows 命名管道诊断")})
         return result
     try:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -76,7 +77,7 @@ def probe_equipment_pipe() -> dict[str, Any]:
         if wait_named_pipe(EQUIPMENT_PIPE_NAME, 0):
             result.update({
                 "state": "available",
-                "message": "已发现可连接的装备插件命名管道。",
+                "message": tr("已发现可连接的装备插件命名管道。"),
             })
             return result
         error_code = ctypes.get_last_error()
@@ -87,16 +88,16 @@ def probe_equipment_pipe() -> dict[str, Any]:
     error_name = _PIPE_ERROR_NAMES.get(error_code, f"Windows 错误 {error_code}")
     if error_code == 2:
         state = "missing"
-        message = "未发现装备插件命名管道：DLL 未被当前游戏进程加载、插件初始化失败，或 DLL 使用了其他 IPC 版本。"
+        message = tr("未发现装备插件命名管道：DLL 未被当前游戏进程加载、插件初始化失败，或 DLL 使用了其他 IPC 版本。")
     elif error_code in {121, 231}:
         state = "busy"
-        message = "已发现装备插件命名管道，但当前没有空闲连接实例；请结合极速装配运行日志判断是否为连接时机或超时问题。"
+        message = tr("已发现装备插件命名管道，但当前没有空闲连接实例；请结合极速装配运行日志判断是否为连接时机或超时问题。")
     elif error_code == 5:
         state = "access_denied"
-        message = "命名管道访问被拒绝：请检查应用与游戏是否以相同权限级别运行。"
+        message = tr("命名管道访问被拒绝：请检查应用与游戏是否以相同权限级别运行。")
     else:
         state = "error"
-        message = "命名管道探测失败；请将错误码和完整诊断一并反馈。"
+        message = tr("命名管道探测失败；请将错误码和完整诊断一并反馈。")
     result.update({"state": state, "error_code": error_code, "error_name": error_name, "message": message})
     return result
 
@@ -182,27 +183,38 @@ def collect_dwmapi_diagnostics(
 def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
     """Format a copyable diagnostic report without leaking unrelated settings."""
 
-    lines = ["NTE Drive Calc · dwmapi 装备插件诊断"]
+    lines = [tr("NTE Drive Calc · dwmapi 装备插件诊断")]
     if not result.get("ok"):
-        lines.extend(["", "检测失败", f"原因：{result.get('error', '未选择有效的 HTGame.exe')} "])
+        lines.extend([
+            "",
+            tr("检测失败"),
+            tr("原因：{reason} ", reason=result.get("error", tr("未选择有效的 HTGame.exe"))),
+        ])
     else:
         target = result.get("target_plugin") if isinstance(result.get("target_plugin"), Mapping) else {}
         bundled = result.get("bundled_plugin") if isinstance(result.get("bundled_plugin"), Mapping) else {}
         lines.extend([
-            f"游戏主程序：{result.get('game_executable', '未知')}",
-            f"游戏目录 dwmapi.dll：{'存在' if target.get('exists') else '缺失'}",
-            f"游戏目录 SHA-256：{target.get('sha256', '无')}",
-            f"打包 DLL SHA-256：{bundled.get('sha256', '无')}",
-            f"游戏目录 DLL 与打包 DLL：{'一致' if result.get('target_matches_bundled') else '不一致或无法读取'}",
-            f"游戏目录 DLL 类型：{'新版 nte-mods-plugin' if result.get('target_plugin_is_mods') else '缺失、旧版或非本插件'}",
-            f"打包 Mod 工作区：{result.get('bundled_workspace', '无')}",
-            f"已注册 Mod 工作区：{result.get('registered_workspace') or '无'}",
-            f"已注册工作区完整性：{'就绪' if result.get('registered_workspace_ready') else '文件不完整或未注册'}",
+            tr("游戏主程序：{value}", value=result.get("game_executable", tr("未知"))),
+            tr("游戏目录 dwmapi.dll：{value}",
+               value=tr("存在") if target.get("exists") else tr("缺失")),
+            tr("游戏目录 SHA-256：{value}", value=target.get("sha256", tr("无"))),
+            tr("打包 DLL SHA-256：{value}", value=bundled.get("sha256", tr("无"))),
+            tr("游戏目录 DLL 与打包 DLL：{value}",
+               value=tr("一致") if result.get("target_matches_bundled") else tr("不一致或无法读取")),
+            tr("游戏目录 DLL 类型：{value}",
+               value=tr("新版 nte-mods-plugin") if result.get("target_plugin_is_mods")
+               else tr("缺失、旧版或非本插件")),
+            tr("打包 Mod 工作区：{value}", value=result.get("bundled_workspace", tr("无"))),
+            tr("已注册 Mod 工作区：{value}", value=result.get("registered_workspace") or tr("无")),
+            tr("已注册工作区完整性：{value}",
+               value=tr("就绪") if result.get("registered_workspace_ready")
+               else tr("文件不完整或未注册")),
         ])
         if result.get("recorded_workspace"):
             lines.append(
-                "已注册工作区与本程序部署记录："
-                + ("一致" if result.get("registered_workspace_matches_record") else "不一致")
+                tr("已注册工作区与本程序部署记录：{value}",
+                   value=tr("一致") if result.get("registered_workspace_matches_record")
+                   else tr("不一致"))
             )
         sdk_cache = (
             result.get("registered_workspace_sdk_cache")
@@ -214,28 +226,31 @@ def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
         sdk_binary_exists = isinstance(sdk_binary, Mapping) and bool(sdk_binary.get("exists"))
         sdk_checksum_exists = isinstance(sdk_checksum, Mapping) and bool(sdk_checksum.get("exists"))
         lines.extend([
-            "运行时 SDK 缓存：" + ("已生成" if sdk_binary_exists else "尚未生成"),
-            "SDK 校验记录：" + ("存在" if sdk_checksum_exists else "尚未生成"),
+            tr("运行时 SDK 缓存：{value}",
+               value=tr("已生成") if sdk_binary_exists else tr("尚未生成")),
+            tr("SDK 校验记录：{value}",
+               value=tr("存在") if sdk_checksum_exists else tr("尚未生成")),
         ])
         configured_hash = str(result.get("configured_deployed_sha256") or "")
         if configured_hash:
             lines.append(
-                "游戏目录 DLL 与本程序部署记录："
-                + ("一致" if result.get("target_matches_recorded_deployment") else "不一致")
+                tr("游戏目录 DLL 与本程序部署记录：{value}",
+                   value=tr("一致") if result.get("target_matches_recorded_deployment")
+                   else tr("不一致"))
             )
 
     pipe = result.get("pipe") if isinstance(result.get("pipe"), Mapping) else {}
     lines.extend([
         "",
-        "命名管道检测",
-        f"管道：{pipe.get('name', EQUIPMENT_PIPE_NAME)}",
-        f"状态：{pipe.get('state', '未知')}",
-        f"说明：{pipe.get('message', '无')}",
+        tr("命名管道检测"),
+        tr("管道：{value}", value=pipe.get("name", EQUIPMENT_PIPE_NAME)),
+        tr("状态：{value}", value=pipe.get("state", tr("未知"))),
+        tr("说明：{value}", value=pipe.get("message", tr("无"))),
     ])
     if pipe.get("error_name"):
-        lines.append(f"系统结果：{pipe['error_name']}")
+        lines.append(tr("系统结果：{value}", value=pipe["error_name"]))
     lines.append(
-        "\n说明：新版插件会为当前游戏映像自动生成 NTE_SDK.bin，并在校验记录匹配时复用；"
-        "本诊断不执行装备操作。管道“存在”仅表示游戏内插件已建立 IPC，不能代替实际装配结果。"
+        tr("\n说明：新版插件会为当前游戏映像自动生成 NTE_SDK.bin，并在校验记录匹配时复用；"
+           "本诊断不执行装备操作。管道“存在”仅表示游戏内插件已建立 IPC，不能代替实际装配结果。")
     )
     return "\n".join(lines)

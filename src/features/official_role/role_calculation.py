@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QHeaderView
 
+from src.i18n import tr, display_term
 from src.services.official_role_graduation_service import (
     graduation_benchmark_damage,
     graduation_tooltip as _graduation_tooltip,
@@ -32,7 +33,9 @@ __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes
 
 def _attribute_name(detail: dict, property_id: str) -> str:
     attribute = detail.get("attributes", {}).get(property_id, {})
-    return str(attribute.get("display_name_zh") or attribute.get("filter_name_zh") or property_id)
+    return display_term(
+        str(attribute.get("display_name_zh") or attribute.get("filter_name_zh") or property_id)
+    )
 
 
 def _clear_layout(layout) -> None:
@@ -168,20 +171,20 @@ def _build_margin_group(
     detail: dict,
     editor: dict,
 ) -> QGroupBox:
-    group = QGroupBox("边际收益（按每单位收益排序）")
+    group = QGroupBox(tr("边际收益（按每单位收益排序）"))
     group.setObjectName("officialRoleMarginalGroup")
     layout = QVBoxLayout(group)
     state = {"margins": None, "initialized": False}
     header = QHBoxLayout()
-    graduation_label = QLabel("直伤毕业率 : --")
+    graduation_label = QLabel(tr("直伤毕业率 : --"))
     graduation_label.setObjectName("officialRoleGraduationRate")
     graduation_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
     graduation_label.setToolTip(_graduation_tooltip(detail))
     header.addWidget(graduation_label)
-    damage_label = QLabel("直伤评分 : --")
+    damage_label = QLabel(tr("直伤评分 : --"))
     damage_label.setObjectName("officialRoleDamageScore")
     damage_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
-    damage_label.setToolTip("使用当前官方角色指针和所选装备上下文计算。")
+    damage_label.setToolTip(tr("使用当前官方角色指针和所选装备上下文计算。"))
     header.addWidget(damage_label)
     header.addStretch()
     layout.addLayout(header)
@@ -215,19 +218,21 @@ def _build_margin_group(
         _clear_layout(table_layout)
         damage = float((margins or {}).get("damage") or 0.0)
         graduation_label.setText(
-            f"直伤毕业率 : {damage / graduation_benchmark * 100:.1f}%"
-            if damage > 0 and graduation_benchmark else "直伤毕业率 : --"
+            tr("直伤毕业率 : {value}%", value=f"{damage / graduation_benchmark * 100:.1f}")
+            if damage > 0 and graduation_benchmark else tr("直伤毕业率 : --")
         )
-        damage_label.setText(f"直伤评分 : {damage:.2f}" if margins else "直伤评分 : --")
+        damage_label.setText(
+            tr("直伤评分 : {value}", value=f"{damage:.2f}") if margins else tr("直伤评分 : --")
+        )
         if not margins:
-            note = QLabel("当前角色状态尚无可计算的官方直伤技能或装备上下文。")
+            note = QLabel(tr("当前角色状态尚无可计算的官方直伤技能或装备上下文。"))
             note.setWordWrap(True)
             table_layout.addWidget(note)
             state["initialized"] = True
             return
         table = QTableWidget(len(margins["rows"]), 4)
         table.setObjectName("officialRoleMarginalTable")
-        table.setHorizontalHeaderLabels(["参数", "当前值", "1单位", "每单位提升"])
+        table.setHorizontalHeaderLabels([tr("参数"), tr("当前值"), tr("1单位"), tr("每单位提升")])
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectRows)
         table.verticalHeader().setVisible(False)
@@ -239,7 +244,7 @@ def _build_margin_group(
             unit_value = float(row.get("unit") or 0.0)
             current_text = f"{current_value * 100:.2f}%" if is_percent else f"{current_value:.2f}"
             unit_text = f"{unit_value * 100:g}%" if is_percent else f"{unit_value:g}"
-            table.setItem(row_index, 0, QTableWidgetItem(row["label"]))
+            table.setItem(row_index, 0, QTableWidgetItem(display_term(str(row["label"]))))
             table.setItem(row_index, 1, QTableWidgetItem(current_text))
             table.setItem(row_index, 2, QTableWidgetItem(unit_text))
             table.setItem(row_index, 3, QTableWidgetItem(f"{row['gain_percent']:.4f}%"))
@@ -264,23 +269,28 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     context_title = detail["equipment_contexts"][context_key]["title"]
     breakdown = calculate_official_role_damage_breakdown(detail, context_key)
     if not breakdown:
-        note = QLabel(f"计算上下文：{context_title}。当前没有可解释的直伤输入。")
+        note = QLabel(
+            tr("计算上下文：{context}。当前没有可解释的直伤输入。", context=context_title)
+        )
         note.setWordWrap(True)
         layout.addWidget(note)
         return
 
-    context_label = QLabel(f"计算上下文：{context_title} ｜ 技能倍率统一按 100% ｜ 百分比内部按小数参与计算")
+    context_label = QLabel(
+        tr("计算上下文：{context} ｜ 技能倍率统一按 100% ｜ 百分比内部按小数参与计算",
+           context=context_title)
+    )
     context_label.setStyleSheet("color:#8b949e;")
     context_label.setWordWrap(True)
     layout.addWidget(context_label)
 
-    bonus_title = QLabel("已有加成项目")
+    bonus_title = QLabel(tr("已有加成项目"))
     bonus_title.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(bonus_title)
     bonuses = list(breakdown["bonuses"])
     bonus_table = QTableWidget(len(bonuses), 3)
     bonus_table.setObjectName("officialRoleDamageBonusTable")
-    bonus_table.setHorizontalHeaderLabels(["来源", "项目", "数值"])
+    bonus_table.setHorizontalHeaderLabels([tr("来源"), tr("项目"), tr("数值")])
     bonus_table.setEditTriggers(QTableWidget.NoEditTriggers)
     bonus_table.setSelectionBehavior(QTableWidget.SelectRows)
     bonus_table.verticalHeader().setVisible(False)
@@ -289,8 +299,8 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     for row_index, bonus in enumerate(bonuses):
         value = float(bonus["value"])
         shown = f"{value * 100:.2f}%" if bonus.get("percent") else f"{value:.2f}"
-        bonus_table.setItem(row_index, 0, QTableWidgetItem(str(bonus["source"])))
-        bonus_table.setItem(row_index, 1, QTableWidgetItem(str(bonus["label"])))
+        bonus_table.setItem(row_index, 0, QTableWidgetItem(tr(str(bonus["source"]))))
+        bonus_table.setItem(row_index, 1, QTableWidgetItem(display_term(str(bonus["label"]))))
         bonus_table.setItem(row_index, 2, QTableWidgetItem(shown))
     for column in range(3):
         bonus_table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
@@ -301,13 +311,13 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     )
     layout.addWidget(bonus_table)
 
-    factor_title = QLabel("直伤乘区明细")
+    factor_title = QLabel(tr("直伤乘区明细"))
     factor_title.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(factor_title)
     factors = list(breakdown["factors"])
     factor_table = QTableWidget(len(factors), 3)
     factor_table.setObjectName("officialRoleDamageFactorTable")
-    factor_table.setHorizontalHeaderLabels(["乘区", "结果", "组成"])
+    factor_table.setHorizontalHeaderLabels([tr("乘区"), tr("结果"), tr("组成")])
     factor_table.setEditTriggers(QTableWidget.NoEditTriggers)
     factor_table.setSelectionBehavior(QTableWidget.SelectRows)
     factor_table.verticalHeader().setVisible(False)
@@ -316,7 +326,7 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     for row_index, factor in enumerate(factors):
         value = float(factor["value"])
         shown = "100%" if row_index == 0 else (f"{value:.2f}" if row_index == 1 else f"× {value:.6f}")
-        factor_table.setItem(row_index, 0, QTableWidgetItem(str(factor["name"])))
+        factor_table.setItem(row_index, 0, QTableWidgetItem(tr(str(factor["name"]))))
         factor_table.setItem(row_index, 1, QTableWidgetItem(shown))
         factor_table.setItem(row_index, 2, QTableWidgetItem(str(factor["detail"])))
     factor_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -331,7 +341,10 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
 
     values = [float(value) for value in breakdown["formula_values"]]
     expression = " × ".join(["100%", f"{values[1]:.2f}", *(f"{value:.6f}" for value in values[2:])])
-    final_label = QLabel(f"最终直伤 = {expression} = {float(breakdown['damage']):.2f}")
+    final_label = QLabel(
+        tr("最终直伤 = {expression} = {damage}",
+           expression=expression, damage=f"{float(breakdown['damage']):.2f}")
+    )
     final_label.setObjectName("officialRoleDamageFormulaResult")
     final_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
     final_label.setWordWrap(True)
@@ -340,7 +353,7 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
 
 
 def _build_damage_formula_group(detail: dict, editor: dict) -> QGroupBox:
-    group = QGroupBox("直伤公式详情")
+    group = QGroupBox(tr("直伤公式详情"))
     group.setObjectName("officialRoleDamageFormulaGroup")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)

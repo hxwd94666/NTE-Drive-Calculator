@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import current_style_sheet, theme_color, themed_style
+from src.i18n import display_term, tr
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +231,7 @@ class AttributeSummaryPanel(QFrame):
         rows = self._rows_by_mode.get(self._mode, ())
         self._more_button.setVisible(bool(rows))
         if not rows:
-            empty = QLabel("暂无可汇总属性")
+            empty = QLabel(tr("暂无可汇总属性"))
             empty.setStyleSheet(themed_style(
                 "color:#6e7681;border:none;background:transparent"
             ))
@@ -258,7 +259,7 @@ class AttributeSummaryPanel(QFrame):
             if self._color_for_weight is not None and row.weight > 0
             else theme_color("#8b949e")
         )
-        label = QLabel(row.label)
+        label = QLabel(display_term(row.label))
         label.setStyleSheet(
             f"font-size:12px;font-weight:700;color:{color};"
             "border:none;background:transparent"
@@ -283,10 +284,10 @@ class AttributeSummaryPanel(QFrame):
         if not rows:
             return
         label = (
-            "角色属性汇总" if self._mode == "character" else "空幕属性汇总"
+            tr("角色属性汇总") if self._mode == "character" else tr("空幕属性汇总")
         )
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"{self._role_name} {label}")
+        dialog.setWindowTitle(f"{display_term(self._role_name)} {label}")
         dialog.setMinimumSize(360, 420)
         dialog.setStyleSheet(current_style_sheet())
         layout = QVBoxLayout(dialog)

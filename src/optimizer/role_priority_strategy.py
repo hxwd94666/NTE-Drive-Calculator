@@ -3,6 +3,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 
+from src.i18n import tr
 from src.models.equipment import Drive, Tape
 from src.optimizer.allocation_matrix_builder import AllocationMatrixBuilder
 from src.optimizer.crit_constraint_repair import CritConstraintRepairMixin
@@ -57,11 +58,11 @@ class RolePriorityStrategy(
             if index not in used_indices
         ]
         if not same_shape:
-            return f"候选池缺少 {shape_id} 驱动（图纸无法填满）"
+            return tr("候选池缺少 {shape} 驱动（图纸无法填满）", shape=shape_id)
         cap = self._crit_rate_cap(role_name, crit_rate_caps)
         if cap is not None:
-            return f"暴击率上限 {cap:g}% 使 {shape_id} 驱动无法加入当前组合"
-        return f"{shape_id} 驱动候选无法满足图纸约束"
+            return tr("暴击率上限 {cap:g}% 使 {shape} 驱动无法加入当前组合", cap=cap, shape=shape_id)
+        return tr("{shape} 驱动候选无法满足图纸约束", shape=shape_id)
 
     def _find_best_fit(self, role_name: str, blueprint: Dict, available_pool: List[Drive], target_set: str,
                        crit_mode: str | None = None, assigned_tape: Tape | None = None,

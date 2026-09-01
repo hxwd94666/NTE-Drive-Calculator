@@ -21,6 +21,10 @@ def bundled_config_dir() -> Path:
     return bundled_root() / "config"
 
 
+def bundled_locales_dir() -> Path:
+    return bundled_root() / "locales"
+
+
 def bundled_game_ui_asset_root() -> Path:
     return bundled_root() / "assets" / "game_ui"
 

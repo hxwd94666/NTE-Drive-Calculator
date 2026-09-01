@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
 from PySide6.QtWidgets import QMessageBox
 
 
@@ -54,7 +55,11 @@ def _save_hotkeys(self, *, announce=False):
             stop_hotkey=stop,
         )
     if announce:
-        QMessageBox.information(self,"保存","快捷键已保存！\n全局截图: "+self._hk_capture+"\n截图完成: "+self._hk_finish+"\n停止: "+self._hk_stop)
+        QMessageBox.information(
+            self, tr("保存"),
+            tr("快捷键已保存！\n全局截图: {capture}\n截图完成: {finish}\n停止: {stop}",
+               capture=self._hk_capture, finish=self._hk_finish, stop=self._hk_stop)
+        )
     return True
 
 

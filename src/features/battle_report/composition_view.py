@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr, display_term
 from src.app.theme import themed_style
 from src.domain.battle_report import (
     BattleDamageComposition,
@@ -100,11 +101,11 @@ class BattleDamageCompositionPanel(QWidget):
                 )
             )
             header.addWidget(icon)
-        name = QLabel(role.character_name)
+        name = QLabel(display_term(str(role.character_name)))
         name.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#f0f6fc"))
         header.addWidget(name)
         header.addStretch()
-        total = QLabel(f"总伤害  {_format_damage(role.total_damage)}")
+        total = QLabel(tr("总伤害  {value}", value=_format_damage(role.total_damage)))
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
         layout.addLayout(header)
@@ -115,7 +116,7 @@ class BattleDamageCompositionPanel(QWidget):
     def _other_card(self, composition: BattleDamageComposition) -> QFrame:
         card, layout = self._card_shell()
         header = QHBoxLayout()
-        badge = QLabel("其他")
+        badge = QLabel(tr("其他"))
         badge.setAlignment(Qt.AlignCenter)
         badge.setFixedSize(44, 30)
         badge.setStyleSheet(
@@ -125,13 +126,14 @@ class BattleDamageCompositionPanel(QWidget):
             )
         )
         header.addWidget(badge)
-        description = QLabel("倾陷、环境、共享及未归因伤害")
+        description = QLabel(tr("倾陷、环境、共享及未归因伤害"))
         description.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(description)
         header.addStretch()
         total = QLabel(
-            f"{_format_damage(composition.other_total_damage)}  ·  "
-            f"{composition.other_share_percent:.1f}% 半场伤害"
+            tr("{value}  ·  {percent}% 半场伤害",
+               value=_format_damage(composition.other_total_damage),
+               percent=f"{composition.other_share_percent:.1f}")
         )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
@@ -140,7 +142,7 @@ class BattleDamageCompositionPanel(QWidget):
         layout.addWidget(
             self._rows_scroll(
                 composition.other_entries,
-                empty_text="当前范围内没有公共其他伤害",
+                empty_text=tr("当前范围内没有公共其他伤害"),
             )
         )
         return card
@@ -220,7 +222,7 @@ class BattleDamageCompositionPanel(QWidget):
             for entry in entries:
                 rows.addWidget(self._damage_row(entry))
         else:
-            placeholder = QLabel(empty_text or "暂无伤害数据")
+            placeholder = QLabel(empty_text or tr("暂无伤害数据"))
             placeholder.setFixedHeight(_DAMAGE_ROW_HEIGHT)
             placeholder.setStyleSheet(themed_style("color:#6e7681;font-size:11px"))
             rows.addWidget(placeholder)
@@ -242,7 +244,7 @@ class BattleDamageCompositionPanel(QWidget):
             "border:none;border-radius:4px"
         )
         layout.addWidget(marker)
-        label = QLabel(entry.label)
+        label = QLabel(tr(str(entry.label)))
         label.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
         layout.addWidget(label)
         layout.addStretch()

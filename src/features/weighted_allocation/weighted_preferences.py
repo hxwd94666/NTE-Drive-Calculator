@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.workers import WorkerThread
 from src.domain.grade_limits import GRADE_LADDER
 from src.features.allocation.priority_groups import priority_groups_to_links
@@ -132,17 +133,20 @@ def _load_weighted_persistence(window, database_path: Path) -> None:
         persistence = replace(persistence, restore_request=None)
     if persistence.restore_request is None:
         if weights_changed:
-            window.weighted_status_label.setText("账号词条权重已更新；已保留角色与卡带选择，请重新计算。")
+            window.weighted_status_label.setText(tr("账号词条权重已更新；已保留角色与卡带选择，请重新计算。"))
         elif persistence.profile_version is None:
-            window.weighted_status_label.setText("请选择角色并设置优先级。")
+            window.weighted_status_label.setText(tr("请选择角色并设置优先级。"))
         else:
             window.weighted_status_label.setText(
-                f"已自动读取卡带偏好（v{persistence.profile_version}）；未找到与该版本完整对应的已保存方案。"
+                tr("已自动读取卡带偏好（v{version}）；未找到与该版本完整对应的已保存方案。",
+                   version=persistence.profile_version)
             )
         return
     token = object()
     window._weighted_restore_token = token
-    window.weighted_status_label.setText(f"已自动读取卡带偏好（v{persistence.profile_version}），正在恢复已保存方案…")
+    window.weighted_status_label.setText(
+        tr("已自动读取卡带偏好（v{version}），正在恢复已保存方案…", version=persistence.profile_version)
+    )
     worker = WorkerThread(
         target=lambda: restore_weighted_allocation_preview(persistence),
         parent=window,
@@ -227,7 +231,8 @@ def _on_weighted_restore_done(
     )
     _set_weighted_equipment_actions_enabled(window, bool(preview.result.unified.selected))
     window.weighted_status_label.setText(
-        f"已自动读取保存方案：{len(preview.result.unified.selected)} 个角色，卡带偏好 v{persistence.profile_version}。"
+        tr("已自动读取保存方案：{count} 个角色，卡带偏好 v{version}。",
+           count=len(preview.result.unified.selected), version=persistence.profile_version)
     )
 
 
@@ -241,7 +246,8 @@ def _on_weighted_restore_error(
         return
     window._weighted_allocation_restore_worker = None
     window.weighted_status_label.setText(
-        f"已自动读取卡带偏好（v{persistence.profile_version}），但保存方案无法安全恢复：{error}"
+        tr("已自动读取卡带偏好（v{version}），但保存方案无法安全恢复：{error}",
+           version=persistence.profile_version, error=error)
     )
 
 
@@ -253,7 +259,7 @@ def _mark_weighted_preferences_dirty(window) -> None:
         window.weighted_save_button.setEnabled(False)
     _set_weighted_equipment_actions_enabled(window, False)
     if hasattr(window, "weighted_status_label"):
-        window.weighted_status_label.setText("配置已修改，请重新计算。")
+        window.weighted_status_label.setText(tr("配置已修改，请重新计算。"))
 
 
 def _effective_core_main_property_id(
@@ -357,10 +363,10 @@ def _build_single_select_row(selector: RoleSelector, title: str, choices: list[s
     combo = SearchableComboBox()
     selector._fill_search_combo(combo, choices)
     row.addWidget(combo, 1)
-    add_button = QPushButton("添加")
+    add_button = QPushButton(tr("添加"))
     add_button.setObjectName("btnAction")
     add_button.setFixedWidth(60)
-    clear_button = QPushButton("清空")
+    clear_button = QPushButton(tr("清空"))
     clear_button.setObjectName("btnDanger")
     clear_button.setFixedWidth(74)
     row.addWidget(add_button)
@@ -393,7 +399,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     overrides = getattr(window, "_weighted_preference_overrides", {})
     current = overrides.get(character_id, {})
     dialog = QDialog(window)
-    dialog.setWindowTitle(f"{role_name} · 管理")
+    dialog.setWindowTitle(tr("{role} · 管理", role=display_term(role_name)))
     dialog.setMinimumSize(560, 320)
     layout = QVBoxLayout(dialog)
     layout.setSpacing(8)
@@ -402,10 +408,10 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     suit_names = getattr(window, "_weighted_suit_names", {})
     suit_ids_by_name = {name: suit_id for suit_id, name in suit_names.items()}
     current_suit_id = current.get("target_suit_id", window._weighted_default_suits.get(character_id))
-    config_box = QGroupBox("卡带配置")
+    config_box = QGroupBox(tr("卡带配置"))
     config_layout = QVBoxLayout(config_box)
     suit_row = QHBoxLayout()
-    suit_row.addWidget(QLabel("套装："))
+    suit_row.addWidget(QLabel(tr("套装：")))
     suit_combo = SearchableComboBox()
     selector._fill_search_combo(
         suit_combo,
@@ -449,7 +455,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
         for property_id in current.get("substat_blacklist") or ()
         if property_id in substat_label_by_id
     ]
-    stats_box = QGroupBox("词条自选")
+    stats_box = QGroupBox(tr("词条自选"))
     stats_layout = QVBoxLayout(stats_box)
     stats_layout.addWidget(
         _build_single_select_row(
@@ -480,15 +486,15 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     stat_options = QHBoxLayout()
     stat_options.setContentsMargins(0, 4, 0, 0)
     stat_options.setSpacing(12)
-    equal_priority = QCheckBox("副词条优先级一致")
+    equal_priority = QCheckBox(tr("副词条优先级一致"))
     equal_priority.setChecked(bool(current.get("equal_priority", False)))
-    blacklist_zero_weight = QCheckBox("黑名单为零权重")
+    blacklist_zero_weight = QCheckBox(tr("黑名单为零权重"))
     blacklist_zero_weight.setChecked(
         bool(current.get("blacklist_zero_weight", False))
     )
-    ignore_grade_limit = QCheckBox("不限制评分等级")
+    ignore_grade_limit = QCheckBox(tr("不限制评分等级"))
     ignore_grade_limit.setChecked(bool(current.get("ignore_grade_limit", False)))
-    min_grade_label = QLabel("最低生效等级：")
+    min_grade_label = QLabel(tr("最低生效等级："))
     min_grade_combo = QComboBox()
     min_grade_combo.setFixedWidth(84)
     for grade in GRADE_LADDER:
@@ -521,23 +527,23 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     )
     stats_layout.addLayout(stat_options)
     priority_tip = QLabel(
-        "副词条黑名单默认最先从驱动候选池硬过滤，不淘汰卡带；开启“黑名单为零权重”后改为在驱动 Top-K 评分中按 0 分计算；"
+        tr("副词条黑名单默认最先从驱动候选池硬过滤，不淘汰卡带；开启“黑名单为零权重”后改为在驱动 Top-K 评分中按 0 分计算；"
         "套装与卡带主词条随后硬过滤；"
         "副词条自选先使用连续前缀的最深候选池，"
-        "组合无解时逐层放宽，最后回到完整候选池。"
+        "组合无解时逐层放宽，最后回到完整候选池。")
     )
     priority_tip.setWordWrap(True)
     stats_layout.addWidget(priority_tip)
     layout.addWidget(stats_box)
 
-    other_box = QGroupBox("其他配置")
+    other_box = QGroupBox(tr("其他配置"))
     other_layout = QVBoxLayout(other_box)
     effect_row = QHBoxLayout()
-    effect_row.addWidget(QLabel("套装效果："))
+    effect_row.addWidget(QLabel(tr("套装效果：")))
     effect_combo = QComboBox()
-    effect_combo.addItem("四件套", FOUR_PIECE)
-    effect_combo.addItem("二件套", TWO_PIECE)
-    effect_combo.addItem("无效果", NO_EFFECT)
+    effect_combo.addItem(tr("四件套"), FOUR_PIECE)
+    effect_combo.addItem(tr("二件套"), TWO_PIECE)
+    effect_combo.addItem(tr("无效果"), NO_EFFECT)
     current_effect = normalize_set_effect_mode(
         str(current.get("suit_requirement_mode") or FOUR_PIECE)
     )
@@ -554,7 +560,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
     other_layout.addLayout(effect_row)
 
     crit_row = QHBoxLayout()
-    crit_row.addWidget(QLabel("暴击率最小值："))
+    crit_row.addWidget(QLabel(tr("暴击率最小值：")))
     crit_threshold = QLineEdit()
     crit_threshold.setFixedWidth(84)
     crit_threshold.setValidator(QIntValidator(0, 100, crit_threshold))

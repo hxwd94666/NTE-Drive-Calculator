@@ -125,11 +125,14 @@ if sys.platform == "win32":
 
 config_dir = ROOT / "config"
 assets_dir = ROOT / "assets"
+locales_dir = ROOT / "locales"
 icon_path = assets_dir / "app_icon.ico"
 sep = ";" if sys.platform == "win32" else ":"
 args.append(f"--add-data={config_dir}{sep}config")
 if assets_dir.exists():
     args.append(f"--add-data={assets_dir}{sep}assets")
+if locales_dir.exists():
+    args.append(f"--add-data={locales_dir}{sep}locales")
 if icon_path.exists():
     args.append(f"--icon={icon_path}")
 

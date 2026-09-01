@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.i18n import tr
 from typing import Any
 
 from PySide6.QtWidgets import (
@@ -23,7 +24,7 @@ def select_assembly_slot_ids(parent: Any, selections: tuple[Any, ...]) -> list[i
     for selection in selections:
         by_character.setdefault(int(selection.character_id), []).append(selection)
     if not by_character:
-        QMessageBox.information(parent, "装配", "当前没有已保存的配装槽位方案。")
+        QMessageBox.information(parent, tr("装配"), tr("当前没有已保存的配装槽位方案。"))
         return None
 
     defaults: dict[int, Any] = {
@@ -37,11 +38,11 @@ def select_assembly_slot_ids(parent: Any, selections: tuple[Any, ...]) -> list[i
         return [selection.slot_id for selection in defaults.values()]
 
     dialog = QDialog(parent)
-    dialog.setWindowTitle("选择装配槽位")
+    dialog.setWindowTitle(tr("选择装配槽位"))
     dialog.setModal(True)
     dialog.setMinimumWidth(390)
     layout = QVBoxLayout(dialog)
-    layout.addWidget(QLabel("请选择多槽位角色本次要装配的方案。", dialog))
+    layout.addWidget(QLabel(tr("请选择多槽位角色本次要装配的方案。"), dialog))
     form = QFormLayout()
     selectors: dict[int, QComboBox] = {}
     for character_id, slots in by_character.items():

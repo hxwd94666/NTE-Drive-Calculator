@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.i18n import tr, display_term
 from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.features.drive_assembly.ui_bridge import (
@@ -71,14 +72,14 @@ def _prompt_protagonist_alias_if_needed(
         return {role_name: default_name for role_name in protagonist_roles}
 
     dialog = QDialog(window)
-    dialog.setWindowTitle("主角名称")
+    dialog.setWindowTitle(tr("主角名称"))
     dialog.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dialog)
-    layout.addWidget(QLabel("零在游戏内显示为玩家名字，请输入该名字后继续自动装配。"))
+    layout.addWidget(QLabel(tr("零在游戏内显示为玩家名字，请输入该名字后继续自动装配。")))
     name_edit = QLineEdit()
-    name_edit.setPlaceholderText("游戏内主角名字")
+    name_edit.setPlaceholderText(tr("游戏内主角名字"))
     layout.addWidget(name_edit)
-    dont_remind = QCheckBox("记住此名字，不再提醒")
+    dont_remind = QCheckBox(tr("记住此名字，不再提醒"))
     layout.addWidget(dont_remind)
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
     buttons.accepted.connect(dialog.accept)
@@ -88,7 +89,7 @@ def _prompt_protagonist_alias_if_needed(
         return {}
     player_name = name_edit.text().strip()
     if not player_name:
-        QMessageBox.warning(window, "主角名称", "需要输入主角在游戏中显示的名字。")
+        QMessageBox.warning(window, tr("主角名称"), tr("需要输入主角在游戏中显示的名字。"))
         return {}
     window._drive_assembly_protagonist_name = player_name
     if isinstance(preferences, dict):
@@ -105,7 +106,7 @@ def _account_database_path(window: Any) -> Path:
     if app_context is None:
         explicit = getattr(window, "user_database_path", None)
         if explicit is None:
-            raise RuntimeError("装配控制器缺少当前账号数据库依赖")
+            raise RuntimeError(tr("装配控制器缺少当前账号数据库依赖"))
         return Path(explicit)
     return Path(app_context.account.user_database_path)
 
@@ -118,7 +119,7 @@ def _assembly_runtime_paths(window: Any) -> tuple[Path, Path]:
         template_dir = getattr(window, "role_template_dir", None)
         screenshot_dir = getattr(window, "screenshot_dir", None)
         if template_dir is None or screenshot_dir is None:
-            raise RuntimeError("自动装配缺少角色模板或当前账号截图目录依赖")
+            raise RuntimeError(tr("自动装配缺少角色模板或当前账号截图目录依赖"))
         return Path(template_dir), Path(screenshot_dir) / "record"
     return (
         Path(app_context.paths.template_dir) / "roles",
@@ -167,8 +168,8 @@ def _start_automatic_equipment_assembly(
     if current_worker is not None and current_worker.isRunning():
         QMessageBox.information(
             window,
-            "自动装配",
-            "已有自动装配任务正在执行，请等待它结束。",
+            tr("自动装配"),
+            tr("已有自动装配任务正在执行，请等待它结束。"),
         )
         return
     # 云异环路径仍保留在自动装配实现中，但当前没有前端入口。
@@ -180,7 +181,9 @@ def _start_automatic_equipment_assembly(
             slot_ids=slot_ids,
         )
     except Exception as exc:
-        QMessageBox.warning(window, "自动装配", f"无法读取官方 SQLite 方案：{exc}")
+        QMessageBox.warning(
+            window, tr("自动装配"), tr("无法读取官方 SQLite 方案：{error}", error=exc)
+        )
         return
 
     execution_role_names = list(state)
@@ -192,13 +195,13 @@ def _start_automatic_equipment_assembly(
         return
     hotkey_manager = getattr(window, "global_hotkey_manager", None)
     configuration = getattr(hotkey_manager, "configuration", None)
-    stop_hotkey = str(getattr(configuration, "stop", "全局停止键"))
+    stop_hotkey = str(getattr(configuration, "stop", tr("全局停止键")))
     confirmation = QMessageBox.question(
         window,
-        "自动装配准备",
-        "将模拟游戏内操作逐步装配。请在 3 秒内切换到游戏的角色详情页，"
-        f"并保持游戏窗口可见；执行期间可按设置中的全局停止键（{stop_hotkey}）停止。\n\n"
-        "请保证游戏里的 C 键角色页面已打开，且游戏分辨率为 1080p 或 2K。",
+        tr("自动装配准备"),
+        tr("将模拟游戏内操作逐步装配。请在 3 秒内切换到游戏的角色详情页，"
+           "并保持游戏窗口可见；执行期间可按设置中的全局停止键（{key}）停止。\n\n"
+           "请保证游戏里的 C 键角色页面已打开，且游戏分辨率为 1080p 或 2K。", key=stop_hotkey),
         QMessageBox.Ok | QMessageBox.Cancel,
         QMessageBox.Cancel,
     )
@@ -209,8 +212,8 @@ def _start_automatic_equipment_assembly(
     if active_hotkey_owner not in (None, hotkey_owner):
         QMessageBox.information(
             window,
-            "自动装配",
-            "当前全局停止键正由其他任务使用，请先停止该任务后再开始自动装配。",
+            tr("自动装配"),
+            tr("当前全局停止键正由其他任务使用，请先停止该任务后再开始自动装配。"),
         )
         return
     stop_requested = threading.Event()
@@ -249,7 +252,7 @@ def _start_automatic_equipment_assembly(
             hotkey_manager.stop(owner=hotkey_owner)
         _return_to_equipment_after_assembly(window)
         title, message, completed = _assembly_report_dialog(
-            "自动装配",
+            tr("自动装配"),
             report,
             len(execution_role_names),
         )
@@ -268,8 +271,8 @@ def _start_automatic_equipment_assembly(
         _return_to_equipment_after_assembly(window)
         QMessageBox.critical(
             window,
-            "自动装配失败",
-            f"自动装配未能完成：\n{message}",
+            tr("自动装配失败"),
+            tr("自动装配未能完成：\n{message}", message=message),
         )
 
     worker.result_ready.connect(on_result)
@@ -287,13 +290,13 @@ def _confirm_automatic_assembly_duplicate_warning(window: Any) -> bool:
         return True
 
     dialog = QMessageBox(window)
-    dialog.setWindowTitle("自动装配提示")
+    dialog.setWindowTitle(tr("自动装配提示"))
     dialog.setIcon(QMessageBox.Warning)
-    dialog.setText("自动装配无法完美处理重复驱动情况。")
-    dialog.setInformativeText("运行结束后，请自行填补因重复驱动产生的空缺。")
+    dialog.setText(tr("自动装配无法完美处理重复驱动情况。"))
+    dialog.setInformativeText(tr("运行结束后，请自行填补因重复驱动产生的空缺。"))
     dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
     dialog.setDefaultButton(QMessageBox.Cancel)
-    dont_remind = QCheckBox("不再提醒")
+    dont_remind = QCheckBox(tr("不再提醒"))
     dialog.setCheckBox(dont_remind)
     confirm_button = dialog.button(QMessageBox.Ok)
     dialog.exec()
@@ -325,10 +328,11 @@ def _preview_automatic_assemble_role(
     if not confirmed:
         result = QMessageBox.question(
             window,
-            "自动装配",
-            f"将模拟游戏内操作逐步装配 [{role_name}]。\n\n"
-            "不需要装备插件，但需切换到游戏角色详情页，耗时更长；"
-            "执行期间可按设置中的全局停止键停止。是否继续？",
+            tr("自动装配"),
+            tr("将模拟游戏内操作逐步装配 [{role}]。\n\n"
+               "不需要装备插件，但需切换到游戏角色详情页，耗时更长；"
+               "执行期间可按设置中的全局停止键停止。是否继续？",
+               role=display_term(str(role_name))),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -362,8 +366,9 @@ def _preview_automatic_assemble_all_roles(
                 if missing:
                     QMessageBox.information(
                         window,
-                        "自动装配",
-                        f"以下角色尚未保存当前方案：{'、'.join(missing)}",
+                        tr("自动装配"),
+                        tr("以下角色尚未保存当前方案：{names}",
+                           names=tr("、").join(display_term(n) for n in missing)),
                     )
                     return
                 current_slots = tuple(
@@ -378,23 +383,23 @@ def _preview_automatic_assemble_all_roles(
     except Exception as exc:
         QMessageBox.warning(
             window,
-            "自动装配",
-            f"无法读取官方 SQLite 方案：{exc}",
+            tr("自动装配"),
+            tr("无法读取官方 SQLite 方案：{error}", error=exc),
         )
         return
     if not selections:
         QMessageBox.information(
             window,
-            "自动装配",
-            "当前没有来自官方背包快照的已保存方案。请先重新计算并保存。",
+            tr("自动装配"),
+            tr("当前没有来自官方背包快照的已保存方案。请先重新计算并保存。"),
         )
         return
     result = QMessageBox.question(
         window,
-        "自动装配",
-        f"将模拟游戏内操作，依次装配 {len(selected_slot_ids)} 个角色。\n\n"
-        "无需装备插件，但需切换到游戏角色详情页，耗时更长；"
-        "执行期间可按设置中的全局停止键停止。是否继续？",
+        tr("自动装配"),
+        tr("将模拟游戏内操作，依次装配 {count} 个角色。\n\n"
+           "无需装备插件，但需切换到游戏角色详情页，耗时更长；"
+           "执行期间可按设置中的全局停止键停止。是否继续？", count=len(selected_slot_ids)),
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )

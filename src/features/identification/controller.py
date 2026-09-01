@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.theme import current_style_sheet
 from src.app.context import AppContext
 from src.app.workers import WorkerThread
@@ -208,7 +209,10 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         for sid in sorted(
             [s for s in self._shape_areas.keys() if s != "TAPE_15"], key=lambda x: (self._shape_areas.get(x, 0), x)
         ):
-            self.ident_shape_combo.addItem(f"{sid} ({self._shape_areas.get(sid, 0)}格)", sid)
+            self.ident_shape_combo.addItem(
+                tr("{shape} ({cells}格)", shape=sid, cells=self._shape_areas.get(sid, 0)),
+                sid,
+            )
         idx = self.ident_shape_combo.findData(current_shape)
         if idx >= 0:
             self.ident_shape_combo.setCurrentIndex(idx)
@@ -294,7 +298,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self.ident_path_edit.clear()
         self.ident_manual_text.clear()
         self._clear_identify_results()
-        self.ident_summary.setText("等待输入装备数据")
+        self.ident_summary.setText(tr("等待输入装备数据"))
         self._refresh_identify_previews()
 
     def _clear_identify_results(self):
@@ -367,8 +371,9 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         )
         QMessageBox.information(
             self._dialog_parent,
-            "截图鉴定",
-            f"点击 OK 后请切回游戏。\n\n按 {hotkeys.capture} 连续截图，按 {hotkeys.finish} 完成并返回鉴定页。",
+            tr("截图鉴定"),
+            tr("点击 OK 后请切回游戏。\n\n按 {capture} 连续截图，按 {finish} 完成并返回鉴定页。",
+               capture=hotkeys.capture, finish=hotkeys.finish),
         )
         self._identify_capture_dir = dependencies.account_data_root / "identify_captures"
         self._identify_capture_dir.mkdir(parents=True, exist_ok=True)
@@ -376,7 +381,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self.showMinimized()
         self._start_capture_hotkeys()
         self.ident_summary.setText(
-            f"截图鉴定已启动：{hotkeys.capture} 截图，{hotkeys.finish} 完成"
+            tr("截图鉴定已启动：{capture} 截图，{finish} 完成",
+               capture=hotkeys.capture, finish=hotkeys.finish)
         )
 
     def _capture_identify_foreground(self):
@@ -437,7 +443,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             ),
             captured_count=count,
         )
-        self.ident_summary.setText(f"已完成鉴定截图 {count} 张，点击开始鉴定继续。")
+        self.ident_summary.setText(tr("已完成鉴定截图 {count} 张，点击开始鉴定继续。", count=count))
 
     def _identify_choose_file(self):
         dependencies = _current_identification_dependencies(self)
@@ -467,8 +473,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         if not text:
             QMessageBox.information(
                 self._dialog_parent,
-                "粘贴",
-                "剪贴板中没有图片、路径或文本数据。",
+                tr("粘贴"),
+                tr("剪贴板中没有图片、路径或文本数据。"),
             )
             return
         maybe_paths = [
@@ -486,16 +492,16 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         if not paths:
             QMessageBox.warning(
                 self._dialog_parent,
-                "鉴定",
-                "请先选择或粘贴图片路径。",
+                tr("鉴定"),
+                tr("请先选择或粘贴图片路径。"),
             )
             return
         missing = [str(path) for path in paths if not path.exists()]
         if missing:
             QMessageBox.warning(
                 self._dialog_parent,
-                "鉴定",
-                f"图片不存在：{missing[0]}",
+                tr("鉴定"),
+                tr("图片不存在：{path}", path=missing[0]),
             )
             return
         image_jobs = []
@@ -554,8 +560,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             )
             QMessageBox.warning(
                 self._dialog_parent,
-                "鉴定",
-                "未从图片中识别到可鉴定的驱动或卡带。",
+                tr("鉴定"),
+                tr("未从图片中识别到可鉴定的驱动或卡带。"),
             )
             return
         if not self._confirm_identify_tape_main_stats(items):
@@ -566,7 +572,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
                 "用户取消卡带主词条确认",
                 item_count=len(items),
             )
-            self.ident_summary.setText("已取消鉴定")
+            self.ident_summary.setText(tr("已取消鉴定"))
             return
         self._load_identify_item_to_form(items[0])
         self._start_identify_items(items)
@@ -633,8 +639,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             )
             QMessageBox.critical(
                 self._dialog_parent,
-                "鉴定",
-                f"装备数据无效：\n{e}",
+                tr("鉴定"),
+                tr("装备数据无效：\n{error}", error=e),
             )
             return
         self._start_identify_item(item)
@@ -730,6 +736,6 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         _cleanup_pending_identify_clipboard_files(self)
         QMessageBox.critical(
             self._dialog_parent,
-            "鉴定失败",
+            tr("鉴定失败"),
             str(err),
         )

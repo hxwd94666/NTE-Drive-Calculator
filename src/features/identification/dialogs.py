@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.theme import current_style_sheet, themed_style
 from src.features.inventory.warehouse import warehouse_shape_pixmap
 from src.models.equipment import Tape
@@ -49,7 +50,7 @@ def group_shape_ids_by_area(shape_areas: dict) -> dict[int, list[str]]:
 
 def choose_identify_image_options(self, path: Path, *, parent=None):
     dlg = QDialog(parent)
-    dlg.setWindowTitle("选择鉴定类型")
+    dlg.setWindowTitle(tr("选择鉴定类型"))
     dlg.setMinimumSize(900, 720)
     dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
@@ -64,10 +65,10 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     layout.addWidget(image_label, 1)
 
     type_row = QHBoxLayout()
-    type_row.addWidget(QLabel("装备类型"))
+    type_row.addWidget(QLabel(tr("装备类型")))
     type_group = QButtonGroup(dlg)
-    drive_rb = QRadioButton("驱动")
-    tape_rb = QRadioButton("卡带")
+    drive_rb = QRadioButton(tr("驱动"))
+    tape_rb = QRadioButton(tr("卡带"))
     drive_rb.setChecked(True)
     type_group.addButton(drive_rb, 0)
     type_group.addButton(tape_rb, 1)
@@ -80,7 +81,7 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     drive_layout = QVBoxLayout(drive_widget)
     drive_layout.setContentsMargins(0, 0, 0, 0)
     drive_layout.setSpacing(6)
-    drive_layout.addWidget(QLabel("驱动形状"))
+    drive_layout.addWidget(QLabel(tr("驱动形状")))
     selected_shape = {"value": None}
     shape_buttons = []
 
@@ -104,7 +105,7 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     for area in (2, 3, 4):
         shape_row = QHBoxLayout()
         shape_row.setSpacing(8)
-        title = QLabel(f"{area}型")
+        title = QLabel(tr("{area}型", area=area))
         title.setFixedWidth(36)
         shape_row.addWidget(title)
         for sid in grouped_shapes.get(area, []):
@@ -130,17 +131,17 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     layout.addWidget(drive_widget)
 
     tape_row = QHBoxLayout()
-    tape_row.addWidget(QLabel("卡带套装"))
+    tape_row.addWidget(QLabel(tr("卡带套装")))
     set_combo = SearchableComboBox()
-    set_combo.addItem("自动识别", AUTO_CHOICE)
+    set_combo.addItem(tr("自动识别"), AUTO_CHOICE)
     for set_name in self.all_set_names:
         set_combo.addItem(set_name, set_name)
     self._make_combo_searchable(set_combo)
     tape_row.addWidget(set_combo, 1)
-    tape_row.addWidget(QLabel("主词条"))
+    tape_row.addWidget(QLabel(tr("主词条")))
     main_combo = SearchableComboBox()
     main_pool = self._get_tape_main_stats_pool()
-    main_combo.addItem("自动识别", AUTO_CHOICE)
+    main_combo.addItem(tr("自动识别"), AUTO_CHOICE)
     for stat_name in main_pool:
         main_combo.addItem(stat_name, stat_name)
     self._make_combo_searchable(main_combo)
@@ -194,12 +195,12 @@ def confirm_identify_tape_main_stats(self, items, *, parent=None):
 
     main_pool = self._get_tape_main_stats_pool()
     dlg = QDialog(parent)
-    dlg.setWindowTitle("确认卡带主词条")
+    dlg.setWindowTitle(tr("确认卡带主词条"))
     dlg.setMinimumSize(720, 420)
     dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
     layout.setSpacing(10)
-    hint = QLabel("请为每个识别到的卡带分别确认主词条；可直接输入中文或拼音搜索。")
+    hint = QLabel(tr("请为每个识别到的卡带分别确认主词条；可直接输入中文或拼音搜索。"))
     hint.setStyleSheet(themed_style("color:#8b949e;border:none"))
     hint.setWordWrap(True)
     layout.addWidget(hint)
@@ -219,7 +220,10 @@ def confirm_identify_tape_main_stats(self, items, *, parent=None):
         row.setContentsMargins(10, 8, 10, 8)
         row.setSpacing(10)
         summary = ", ".join(f"{k}{v:g}" for k, v in list(item.sub_stats.items())[:4])
-        label = QLabel(f"卡带 {idx}  {item.set_name or ''}  {summary}")
+        label = QLabel(
+            tr("卡带 {index}  {name}  {summary}", index=idx,
+               name=display_term(item.set_name or ""), summary=summary)
+        )
         label.setWordWrap(True)
         row.addWidget(label, 1)
         combo = SearchableComboBox()

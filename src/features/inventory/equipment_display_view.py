@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.features.scanning.file_lifecycle import equipment_compare_signature
@@ -144,11 +145,12 @@ def build_equipment_mode_switch(self: Any, parent: QWidget | None = None) -> QWi
     layout = QHBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(6)
-    self.equip_saved_mode_btn = QPushButton("计算配装")
-    self.equip_game_mode_btn = QPushButton("游戏配装")
+    self.equip_saved_mode_btn = QPushButton(tr("计算配装"))
+    self.equip_game_mode_btn = QPushButton(tr("游戏配装"))
     for button in (self.equip_saved_mode_btn, self.equip_game_mode_btn):
         button.setCheckable(True)
-        button.setFixedWidth(104)
+        # Sized to the label: English runs wider than the Chinese source.
+        button.setMinimumWidth(104)
         button.setStyleSheet(
             themed_style(
                 "QPushButton{padding:5px 14px;border:1px solid #30363d;"
@@ -185,9 +187,9 @@ def _page_equipment(self):
     self.equip_mode_status = QLabel("", page)
     self.equip_mode_status.hide()
     sh = QHBoxLayout()
-    sh.addWidget(QLabel("搜索"))
+    sh.addWidget(QLabel(tr("搜索")))
     self.equip_search = QLineEdit()
-    self.equip_search.setPlaceholderText("搜索角色名称（支持拼音）...")
+    self.equip_search.setPlaceholderText(tr("搜索角色名称（支持拼音）..."))
     self.equip_search.setClearButtonEnabled(True)
     self._equip_search_timer = QTimer(page)
     self._equip_search_timer.setSingleShot(True)
@@ -197,27 +199,27 @@ def _page_equipment(self):
     )
     self.equip_search.textChanged.connect(lambda _text: self._equip_search_timer.start())
     sh.addWidget(self.equip_search, 1)
-    self.equip_import_all_btn = QPushButton("一键导入")
+    self.equip_import_all_btn = QPushButton(tr("一键导入"))
     self.equip_import_all_btn.setObjectName("btnPrimary")
-    self.equip_import_all_btn.setToolTip("导入全部完整且未锁定的游戏内方案")
+    self.equip_import_all_btn.setToolTip(tr("导入全部完整且未锁定的游戏内方案"))
     self.equip_import_all_btn.clicked.connect(
         lambda _checked=False: self._import_all_game_loadouts()
     )
     self.equip_import_all_btn.setVisible(False)
     sh.addWidget(self.equip_import_all_btn)
-    clear_btn = QPushButton("清空配装")
+    clear_btn = QPushButton(tr("清空配装"))
     clear_btn.setObjectName("btnDanger")
     clear_btn.clicked.connect(self._clear_all_equipment)
     sh.addWidget(clear_btn)
-    fast_btn = QPushButton("极速装配")
+    fast_btn = QPushButton(tr("极速装配"))
     fast_btn.setObjectName("btnPrimary")
     fast_btn.clicked.connect(self._preview_fast_assemble_all_roles)
-    fast_btn.setToolTip("通过游戏内装备插件直接写入已保存方案")
+    fast_btn.setToolTip(tr("通过游戏内装备插件直接写入已保存方案"))
     sh.addWidget(fast_btn)
-    automatic_btn = QPushButton("自动装配")
+    automatic_btn = QPushButton(tr("自动装配"))
     automatic_btn.setObjectName("btnPrimary")
     automatic_btn.clicked.connect(self._preview_automatic_assemble_all_roles)
-    automatic_btn.setToolTip("模拟游戏内操作，逐步完成已保存方案")
+    automatic_btn.setToolTip(tr("模拟游戏内操作，逐步完成已保存方案"))
     sh.addWidget(automatic_btn)
     self._equip_saved_action_buttons = (clear_btn, fast_btn, automatic_btn)
     self._equipment_mode = getattr(self, "_equipment_mode", "saved")
@@ -240,7 +242,7 @@ def _set_equipment_mode(self: Any, mode: str) -> None:
     self.equip_import_all_btn.setVisible(selected == "game")
     self.equip_import_all_btn.setEnabled(False)
     self.equip_mode_status.setText(
-        "正在读取最近一次 nte-core 游戏装备…"
+        tr("正在读取最近一次 nte-core 游戏装备…")
         if selected == "game"
         else ""
     )
@@ -294,7 +296,7 @@ def _queue_equipment_render(self, eq):
     empty_text = (
         getattr(self, "_game_loadout_message", "")
         if getattr(self, "_equipment_mode", "saved") == "game"
-        else "暂无已保存的配装。请先执行分配并保存。"
+        else tr("暂无已保存的配装。请先执行分配并保存。")
     )
     if isinstance(self, QWidget):
         show_equipment_master_detail(
@@ -307,7 +309,7 @@ def _queue_equipment_render(self, eq):
         return
 
     if not roles:
-        ph = QLabel(empty_text or "当前游戏快照中没有可展示的角色装备。")
+        ph = QLabel(empty_text or tr("当前游戏快照中没有可展示的角色装备。"))
         ph.setStyleSheet(themed_style("color:#6e7681;padding:24px"))
         ph.setAlignment(Qt.AlignCenter)
         self.equip_content_layout.addWidget(ph)
@@ -338,13 +340,13 @@ def _on_sqlite_equipment_display_error(self, token, error):
     if token is not getattr(self, "_equip_load_token", None):
         return
     logger.error(f"刷新 SQLite 配装展示失败: {error}")
-    self.equip_mode_status.setText("读取已保存配装失败")
+    self.equip_mode_status.setText(tr("读取已保存配装失败"))
     QMessageBox.warning(
         self,
-        "已保存方案兼容性错误",
-        "无法按当前官方静态数据解释部分已保存方案。"
-        "方案未被修改；请查看日志中的形状、套装或属性 ID 后再决定是否重新计算。\n\n"
-        f"详细原因：{error}",
+        tr("已保存方案兼容性错误"),
+        tr("无法按当前官方静态数据解释部分已保存方案。"
+           "方案未被修改；请查看日志中的形状、套装或属性 ID 后再决定是否重新计算。\n\n"
+           "详细原因：{error}", error=error),
     )
     _clear_equip_content(self)
     self._saved_equipment_states = {}
@@ -377,7 +379,7 @@ def _on_game_equipment_display_loaded(self, token, result):
         self.equip_mode_status.setText("")
         self.equip_import_all_btn.setEnabled(ready_count > 0)
         self.equip_import_all_btn.setToolTip(
-            f"导入全部 {ready_count} 套完整且未锁定的游戏内方案"
+            tr("导入全部 {count} 套完整且未锁定的游戏内方案", count=ready_count)
         )
         self._game_loadout_message = (
             "当前游戏快照中没有已装备驱动或卡带。"
@@ -412,7 +414,7 @@ def _on_game_equipment_display_error(self, token, error):
     if token is not getattr(self, "_equip_load_token", None):
         return
     logger.error(f"刷新游戏内配装展示失败: {error}")
-    self.equip_mode_status.setText("读取游戏内装备失败")
+    self.equip_mode_status.setText(tr("读取游戏内装备失败"))
     self.equip_import_all_btn.setEnabled(False)
     self._game_loadout_message = f"读取游戏内装备失败：{error}"
     _clear_equip_content(self)
@@ -442,7 +444,7 @@ def _refresh_equip(self, *, restore_role_name=None):
         self._equip_load_token = token
         game_mode = getattr(self, "_equipment_mode", "saved") == "game"
         loading = QLabel(
-            "正在读取游戏内装备…" if game_mode else "正在读取已保存的配装…"
+            tr("正在读取游戏内装备…") if game_mode else tr("正在读取已保存的配装…")
         )
         loading.setStyleSheet(themed_style("color:#8b949e;padding:24px"))
         loading.setAlignment(Qt.AlignCenter)

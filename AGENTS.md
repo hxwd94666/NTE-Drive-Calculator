@@ -270,7 +270,7 @@ grade_ratio: D=0, C=.2, B=.3, A=.4, S=.5, SS=.6, SSS=.7, ACE=.8
 Controller/Integration 负责版本检查、下载、取消和安装器启动；远端版本低于当前版本时按已是最新版本处理，
 不下载历史版本。Mirror 失败提示提供可点击项目页，日志不记录 CDK、Token 或鉴权 URL。
 
-## 11. UI、外部集成与日志
+## 11. UI、本地化、外部集成与日志
 
 一级导航固定为工作台、计算、配装、角色、仓库、鉴定、战报、工具、设置；角色图纸和基础权重是角色子页，
 通过 `parent_key` 保持父导航高亮。MainWindow 只负责组合、导航、账号切换、页面生命周期和退出。
@@ -278,6 +278,23 @@ Controller/Integration 负责版本检查、下载、取消和安装器启动；
 新弹窗和修改过的弹窗使用 `src.app.window_geometry` 按当前屏幕可用区域限制尺寸并相对 owner/当前屏幕居中，
 覆盖常见 DPI 缩放和混合 DPI，不只针对 125%。自定义颜色、选中态和控件状态必须同时兼容原色、黑色、
 白色主题；滚轮浏览不得制造未发生的数据变更。
+
+新增或修改的界面文案一律走 `src/i18n`，并区分两类文本：
+
+- **界面文案**用 `tr("中文源串")`，f-string 改写为 `tr("...{name}...", name=value)`，同时把该中文源串
+  作为键补进 `locales/en.json`。目录以源串为键，缺翻译回落中文而不是键名。
+- **游戏术语**用 `display_term()`。中文键同时是 OCR 匹配值和 `game_static.sqlite3` 查询键，禁止就地
+  翻译、改写或加工；只有即将写入控件时才替换显示名，权重、评分、排序、筛选键和状态判断继续使用中文键。
+  百分号后缀从中文键推导，不得判断显示名是否含 `%`。
+- nte-core 已经给出 `names`/`suit_names`（`en`/`ja`/`zh_cn`）的字段用 `display_localized()`，不再补词表。
+
+日志文本保持中文：`logger.*`、`log_event` 和 `operation_scope(message=)` 不进 `tr()`。Service 与
+Integration 中**会显示给用户**的异常消息走 `tr()`；纯参数契约检查（`timeout 必须大于 0` 一类）保持中文。
+
+语言在 `src/ui/app.py` 导入期激活，模块级文案必须保持“先 `set_language()` 再导入界面模块”的顺序；
+测试由 `NTE_UI_LANGUAGE` 固定源语言，断言不得依赖本机偏好文件。英文单复数用兄弟键
+`"<源串>::one::<字段>"`，字段名必须写明，避免同句中的第二个整数误触发。细则见
+`docs/reference/localization.md`。
 
 nte-core、Npcap、dwmapi、mods、OCR 和游戏输入都属于 Integration。根目录本机二进制保持忽略；只有记录
 上游 commit/版本/许可/SHA-256，并通过协议、打包和真实 Windows 验证后，才更新 `third_party` 发行组件。
@@ -292,6 +309,8 @@ Windows 验证器只供维护，不进入安装包。
 - 新增或修改后的 `src/`、`tools/`、`tests/` Python 文件不得超过 800 行；存量超限文件只许收缩，触及时
   按状态所有权拆分，不通过压缩排版规避。
 - 新 `type: ignore` 必须含错误码和原因。Ruff `E9/F63/F7/F821/F401` 是全仓硬门禁。
+- 新增界面文案必须通过 `tests.test_i18n`：`test_every_tr_key_resolves` 会解析 `src/` 中每个 `tr()` 键，
+  未补进 `locales/en.json` 即失败；单复数兄弟键必须对应真实源串和真实占位符。
 - 新依赖同步更新 `pyproject.toml` 与 `uv.lock`；测试不依赖开发机偶然安装包。
 - feature 只复用公开组件和 contract，不跨 feature 调下划线私有实现或访问其他页面 widget/worker。
 - 不新增 `setattr(MainWindow, ...)`、`globals()` 动态导出、模块全局扫描、页面索引跳转或服务定位器。
@@ -302,6 +321,9 @@ Windows 验证器只供维护，不进入安装包。
 文档入口固定为：`docs/README.md`（索引）、`architecture.md`（边界与数据流）、`features.md`（当前功能）、
 `integrations.md`（外部能力）、`roadmap.md`（未完成事项）、`reference/`（公式与字段）、`validation/`（实机
 证据）。修改时遵守第 1 节覆盖式维护规则，并检查全部相对链接。
+
+`docs/en/` 与 `README.en.md` 是英文镜像，中文为权威版本：先改中文，再同步镜像，不在镜像里新增中文
+没有的事实。本文件（`AGENTS.md`）只维护中文，不做镜像。
 
 ## 13. 验证要求
 

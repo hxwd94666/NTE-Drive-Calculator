@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.theme import themed_style
 from src.features.inventory.warehouse import warehouse_shape_pixmap
 from src.ui.widgets import match_pinyin
@@ -42,7 +43,7 @@ class TypeRangeDialog(QDialog):
         selected_set_names: list[str],
     ):
         super().__init__(parent)
-        self.setWindowTitle("选择类型范围")
+        self.setWindowTitle(tr("选择类型范围"))
         self.setMinimumSize(760, 560)
         self.shape_options = shape_options
         self.set_options = set_options
@@ -64,8 +65,8 @@ class TypeRangeDialog(QDialog):
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout()
-        header.addWidget(QLabel("驱动形状"))
-        select_all = QPushButton("全选")
+        header.addWidget(QLabel(tr("驱动形状")))
+        select_all = QPushButton(tr("全选"))
         select_all.clicked.connect(lambda: self._set_all_shapes(True))
         header.addStretch()
         header.addWidget(select_all)
@@ -81,7 +82,7 @@ class TypeRangeDialog(QDialog):
                 continue
             row = QHBoxLayout()
             row.setSpacing(8)
-            title = QLabel(f"{area}型")
+            title = QLabel(tr("{area}型", area=area))
             title.setFixedWidth(36)
             row.addWidget(title)
             for shape_id in shape_ids:
@@ -107,8 +108,8 @@ class TypeRangeDialog(QDialog):
         outer = QVBoxLayout(section)
         outer.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout()
-        header.addWidget(QLabel("卡带套装"))
-        select_all = QPushButton("全选")
+        header.addWidget(QLabel(tr("卡带套装")))
+        select_all = QPushButton(tr("全选"))
         select_all.clicked.connect(lambda: self._set_all_sets(True))
         header.addStretch()
         header.addWidget(select_all)
@@ -121,7 +122,8 @@ class TypeRangeDialog(QDialog):
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(6)
         for index, set_name in enumerate(self.set_options):
-            checkbox = QCheckBox(set_name)
+            # set_name stays Chinese in set_checks: it is the lookup key.
+            checkbox = QCheckBox(display_term(set_name))
             checkbox.setChecked(set_name in selected)
             self.set_checks.append((checkbox, set_name))
             grid.addWidget(checkbox, index // 2, index % 2)
@@ -155,7 +157,7 @@ class RoleScopeDialog(QDialog):
         selected_character_ids: list[int],
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("选择弃置/锁定评估角色")
+        self.setWindowTitle(tr("选择弃置/锁定评估角色"))
         self.setMinimumSize(620, 500)
         self.resize(700, 620)
         self._role_options = list(role_options)
@@ -163,19 +165,19 @@ class RoleScopeDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.setSpacing(10)
-        description = QLabel("这些角色只用于本次弃置/锁定评分，不会改变计算页面的角色选择或优先级。")
+        description = QLabel(tr("这些角色只用于本次弃置/锁定评分，不会改变计算页面的角色选择或优先级。"))
         description.setWordWrap(True)
         description.setStyleSheet(themed_style("color:#8b949e"))
         root.addWidget(description)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜索角色（支持拼音）")
+        self.search_edit.setPlaceholderText(tr("搜索角色（支持拼音）"))
         self.search_edit.textChanged.connect(self._apply_filter)
         root.addWidget(self.search_edit)
 
         toolbar = QHBoxLayout()
-        select_all = QPushButton("全选")
-        clear_all = QPushButton("清空")
+        select_all = QPushButton(tr("全选"))
+        clear_all = QPushButton(tr("清空"))
         select_all.clicked.connect(lambda: self._set_visible_items_checked(True))
         clear_all.clicked.connect(lambda: self._set_visible_items_checked(False))
         toolbar.addWidget(select_all)
@@ -262,7 +264,7 @@ class RoleScopeDialog(QDialog):
         self._update_count()
 
     def _update_count(self, _checked: bool | None = None) -> None:
-        self.count_label.setText(f"已选{len(self.selected_character_ids())}名")
+        self.count_label.setText(tr("已选{count}名", count=len(self.selected_character_ids())))
 
     def selected_character_ids(self) -> list[int]:
         return [

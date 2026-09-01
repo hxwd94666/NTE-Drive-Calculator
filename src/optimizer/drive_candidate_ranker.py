@@ -4,6 +4,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 
+from src.i18n import tr
 from src.domain.crit_threshold import (
     BASE_CRIT_RATE,
     DEFAULT_CRIT_THRESHOLD,
@@ -140,9 +141,9 @@ class BaseDispatchStrategy:
         current = self._current_role_crit(role, tape, drives)
         if current + 1e-9 >= threshold:
             return None
-        return (
-            f"没有达成暴击率最小值 {threshold:g}% 的方案"
-            f"（当前 {current:g}%）"
+        return tr(
+            "没有达成暴击率最小值 {threshold:g}% 的方案（当前 {current:g}%）",
+            threshold=threshold, current=current,
         )
 
     def _item_has_stat(self, item, stat_key: str) -> bool:

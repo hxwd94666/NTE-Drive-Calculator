@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from src.i18n import display_term, tr
 from src.integrations.nte_core import equipment_request_failure_kind
 from src.observability.context import OperationContext
 from src.observability.operation import operation_scope
@@ -83,7 +84,7 @@ class BulkEquipmentApplyService:
         progress_callback: ProgressCallback = None,
     ) -> dict[str, Any]:
         if job_id is None and bool(role_names) == bool(slot_ids):
-            raise RuntimeError("极速装配必须指定角色或显式配装槽位（二者只能选其一）")
+            raise RuntimeError(tr("极速装配必须指定角色或显式配装槽位（二者只能选其一）"))
         requested_count = len(slot_ids or ()) if slot_ids else len(role_names or ())
         with operation_scope(
             self.operation_context,
@@ -314,7 +315,7 @@ class BulkEquipmentApplyService:
     ) -> tuple[list[dict], int | None, dict | None]:
         job = user_dao.get_equipment_apply_job(job_id)
         if job is None:
-            raise RuntimeError(f"装配任务 {job_id} 不存在")
+            raise RuntimeError(tr("装配任务 {job} 不存在", job=job_id))
         user_dao.reset_failed_equipment_apply_job_items(job_id)
         prepared = []
         for row in job["items"]:
@@ -371,7 +372,7 @@ class BulkEquipmentApplyService:
     ) -> tuple[list[dict], list[dict], int | None, dict | None]:
         snapshot_id = user_dao.current_inventory_snapshot_id()
         if snapshot_id is None:
-            raise RuntimeError("用户数据库中还没有稳定背包快照")
+            raise RuntimeError(tr("用户数据库中还没有稳定背包快照"))
         prepared: list[dict] = []
         identity_requests: list[dict] = []
         preflight_errors: list[dict] = []
@@ -399,7 +400,7 @@ class BulkEquipmentApplyService:
                     "preflight_errors": [
                         {
                             "role_name": selection.role_name,
-                            "error": "自建角色没有游戏角色实例，极速装配不适用；请使用自动装配。",
+                            "error": tr("自建角色没有游戏角色实例，极速装配不适用；请使用自动装配。"),
                         }
                         for selection in custom_selections
                     ],
@@ -418,8 +419,9 @@ class BulkEquipmentApplyService:
             )
             if source_summary is None or source_summary.get("source") != "nte_core":
                 raise RuntimeError(
-                    f"装配前检查 [{role_name}] 失败，视觉扫描库存没有本地组件可用的原生 UID。"
-                    "请改用自动装配；极速装配仅支持抓包稳定快照。"
+                    tr("装配前检查 [{role}] 失败，视觉扫描库存没有本地组件可用的原生 UID。"
+                       "请改用自动装配；极速装配仅支持抓包稳定快照。",
+                       role=display_term(role_name))
                 )
             try:
                 apply_service.validate_plan_for_fast_apply(
@@ -491,7 +493,7 @@ class BulkEquipmentApplyService:
                 {
                     "applied": [],
                     "identity_requests": identity_requests,
-                    "preflight_errors": [{"role_name": "全角色方案", "error": str(exc)}],
+                    "preflight_errors": [{"role_name": tr("全角色方案"), "error": str(exc)}],
                 },
             )
         job_id = user_dao.create_equipment_apply_job(
@@ -529,9 +531,9 @@ class BulkEquipmentApplyService:
                 }
             )
         if not targets:
-            raise RuntimeError("当前主角实例与手动选择结果不匹配")
+            raise RuntimeError(tr("当前主角实例与手动选择结果不匹配"))
         if override is not None and int(override["character_id"]) != int(targets[0]["character_id"]):
-            raise RuntimeError("手动选择的角色实例与当前主角装配目标不匹配")
+            raise RuntimeError(tr("手动选择的角色实例与当前主角装配目标不匹配"))
         return targets
 
     @staticmethod
@@ -557,7 +559,7 @@ class BulkEquipmentApplyService:
                 stable_snapshot_id=snapshot_id,
             )
         except Exception as exc:
-            return [{"role_name": "全角色方案", "error": str(exc)}]
+            return [{"role_name": tr("全角色方案"), "error": str(exc)}]
         return []
 
     def _execute_prepared(
@@ -575,7 +577,7 @@ class BulkEquipmentApplyService:
             progress_callback,
             current=0,
             total=len(prepared),
-            message="正在顺序下发全角色装配指令…",
+            message=tr("正在顺序下发全角色装配指令…"),
         )
         for index, role in enumerate(prepared, start=1):
             role_name = role["role_name"]
@@ -583,7 +585,7 @@ class BulkEquipmentApplyService:
                 progress_callback,
                 current=index - 1,
                 total=len(prepared),
-                message=f"正在下发 [{role_name}] 的装配指令…",
+                message=tr("正在下发 [{role}] 的装配指令…", role=display_term(role_name)),
             )
             user_dao.mark_equipment_apply_job_item(
                 role["job_item_id"],
@@ -634,7 +636,11 @@ class BulkEquipmentApplyService:
                     progress_callback,
                     current=index,
                     total=len(prepared),
-                    message=(f"[{role_name}] 已确认" if result.verified else f"[{role_name}] 指令已下发"),
+                    message=(
+                        tr("[{role}] 已确认", role=display_term(role_name))
+                        if result.verified
+                        else tr("[{role}] 指令已下发", role=display_term(role_name))
+                    ),
                 )
             except Exception as exc:
                 user_dao.mark_equipment_apply_job_item(
@@ -646,7 +652,7 @@ class BulkEquipmentApplyService:
                     progress_callback,
                     current=index - 1,
                     total=len(prepared),
-                    message=f"[{role_name}] 下发失败",
+                    message=tr("[{role}] 下发失败", role=display_term(role_name)),
                 )
                 return {
                     "job_id": job_id,
@@ -697,7 +703,7 @@ class BulkEquipmentApplyService:
                     exc,
                 )
         if result is None:
-            raise last_error or RuntimeError("主角装配未返回结果")
+            raise last_error or RuntimeError(tr("主角装配未返回结果"))
         return result, character_id
 
     def _postcheck_and_repair(

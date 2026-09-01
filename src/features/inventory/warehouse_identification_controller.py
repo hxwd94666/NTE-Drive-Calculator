@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import tr
 from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.features.identification.page import build_identify_result_row
@@ -85,8 +86,8 @@ def show_warehouse_item_identification(
     worker.error.connect(
         lambda error: QMessageBox.warning(
             owner,
-            "装备鉴定失败",
-            f"未能完成角色匹配评分：\n{error}",
+            tr("装备鉴定失败"),
+            tr("未能完成角色匹配评分：\n{error}", error=error),
         )
     )
     worker.start()
@@ -112,20 +113,20 @@ def select_warehouse_compare_item(
             "category": category,
         }
         owner.warehouse_hint.setText(
-            f"已选择左栏 [{item.get('display_name') or item.get('title')}]；"
-            "请选择同类别装备作为右栏。"
+            tr("已选择左栏 [{name}]；请选择同类别装备作为右栏。",
+               name=item.get("display_name") or item.get("title"))
         )
         owner.warehouse_hint.show()
         return
     first_item = first["item"]
     if str(first_item.get("uid")) == str(item.get("uid")):
         QMessageBox.information(
-            owner, "装备对比", "请再选择另一件同类别装备进行对比。"
+            owner, tr("装备对比"), tr("请再选择另一件同类别装备进行对比。")
         )
         return
     if first["category"] != category:
         QMessageBox.warning(
-            owner, "装备对比", "驱动和卡带不能互相对比；请选择同类别装备。"
+            owner, tr("装备对比"), tr("驱动和卡带不能互相对比；请选择同类别装备。")
         )
         return
     active_worker = getattr(owner, "_warehouse_identification_worker", None)
@@ -158,8 +159,8 @@ def select_warehouse_compare_item(
     worker.error.connect(
         lambda error: QMessageBox.warning(
             owner,
-            "装备对比失败",
-            f"未能完成同类别装备鉴定对比：\n{error}",
+            tr("装备对比失败"),
+            tr("未能完成同类别装备鉴定对比：\n{error}", error=error),
         )
     )
     worker.start()
@@ -172,7 +173,7 @@ def show_warehouse_identification_dialog(
 ) -> None:
     del item
     dialog = QDialog(owner)
-    dialog.setWindowTitle("装备鉴定结果")
+    dialog.setWindowTitle(tr("装备鉴定结果"))
     dialog.setFixedSize(560, 520)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(16, 16, 16, 12)
@@ -186,7 +187,7 @@ def show_warehouse_identification_dialog(
     content_layout = QVBoxLayout(content)
     content_layout.setContentsMargins(2, 2, 2, 2)
     content_layout.setSpacing(8)
-    match_group = QGroupBox("匹配角色评分")
+    match_group = QGroupBox(tr("匹配角色评分"))
     match_layout = QVBoxLayout(match_group)
     match_layout.setSpacing(8)
     rows = list(result.get("rows") or []) if isinstance(result, dict) else []
@@ -200,7 +201,7 @@ def show_warehouse_identification_dialog(
                 )
             )
     else:
-        empty = QLabel("没有找到图纸可使用该装备的角色。")
+        empty = QLabel(tr("没有找到图纸可使用该装备的角色。"))
         empty.setStyleSheet(themed_style("color:#8b949e"))
         match_layout.addWidget(empty)
     content_layout.addWidget(match_group)
@@ -221,7 +222,7 @@ def show_warehouse_identification_comparison(
     results: tuple[dict[str, Any], dict[str, Any]],
 ) -> None:
     dialog = QDialog(owner)
-    dialog.setWindowTitle("装备鉴定对比")
+    dialog.setWindowTitle(tr("装备鉴定对比"))
     dialog.setFixedSize(1120, 620)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(16, 16, 16, 12)
@@ -260,7 +261,7 @@ def show_warehouse_identification_comparison(
                     )
                 )
         else:
-            empty = QLabel("没有找到图纸可使用该装备的角色。")
+            empty = QLabel(tr("没有找到图纸可使用该装备的角色。"))
             empty.setStyleSheet(themed_style("color:#8b949e"))
             content_layout.addWidget(empty)
         content_layout.addStretch()

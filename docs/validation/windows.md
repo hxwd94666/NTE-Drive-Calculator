@@ -1,5 +1,7 @@
 # Windows 人工验证清单
 
+*[English](../en/validation/windows.md) · 简体中文*
+
 本文件统一保存依赖真实 Windows、游戏、驱动、插件或人工画面判断的验收步骤。自动化测试已覆盖的纯规则
 不在此重复。维护者按改动范围选择章节；Release 执行全部适用章节。
 

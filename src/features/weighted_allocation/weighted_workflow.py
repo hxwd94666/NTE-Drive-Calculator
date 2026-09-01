@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.i18n import display_term, tr
 from src.app.workers import WorkerThread
 from src.domain.allocation_rating import allocation_grade
 from src.observability import OperationContext, log_event
@@ -112,7 +113,7 @@ def start_weighted_allocation(window) -> None:
     try:
         snapshot_id, profile_id, version = _current_snapshot_and_profile(window)
     except Exception as exc:
-        QMessageBox.warning(window, "无法开始计算", str(exc))
+        QMessageBox.warning(window, tr("无法开始计算"), str(exc))
         return
     request = WeightedAllocationRequest(
         dependencies.user_database_path,
@@ -141,7 +142,7 @@ def start_weighted_allocation(window) -> None:
     window.weighted_run_button.setEnabled(False)
     window._weighted_allocation_saved_preview = None
     _set_weighted_equipment_actions_enabled(window, False)
-    window.weighted_status_label.setText("正在计算…")
+    window.weighted_status_label.setText(tr("正在计算…"))
     worker = WorkerThread(target=lambda: run_weighted_allocation(request), parent=window)
     token = object()
     window._weighted_calculation_token = token
@@ -179,7 +180,7 @@ def _on_done(
     window._weighted_allocation_saved_preview = None
     window.weighted_save_button.setEnabled(bool(preview.result.unified.selected))
     captured_at = preview.context.snapshot.captured_at_utc
-    window.weighted_status_label.setText(f"计算完成。背包数据截至 {captured_at}")
+    window.weighted_status_label.setText(tr("计算完成。背包数据截至 {time}", time=captured_at))
     render_weighted_allocation_result(
         window,
         preview,
@@ -192,8 +193,8 @@ def _on_error(window, token: object, error: str) -> None:
         return
     window._weighted_allocation_worker = None
     window.weighted_run_button.setEnabled(True)
-    window.weighted_status_label.setText(f"计算失败：{error}")
-    QMessageBox.critical(window, "计算失败", error)
+    window.weighted_status_label.setText(tr("计算失败：{error}", error=error))
+    QMessageBox.critical(window, tr("计算失败"), error)
 
 
 def _prompt_weighted_save_slots(
@@ -237,7 +238,10 @@ def _prompt_weighted_save_slots(
                 target_id = int(slots[labels.index(selected)]["slot_id"])
             target = user_dao.get_loadout_slot(target_id) or {}
             if (target.get("current_plan") or {}).get("allocation_locked"):
-                QMessageBox.warning(window, "保存方案", f"[{role_name}] 选择的槽位已锁定，不能覆盖。")
+                QMessageBox.warning(
+                    window, tr("保存方案"),
+                    tr("[{role}] 选择的槽位已锁定，不能覆盖。", role=display_term(role_name))
+                )
                 return None
             targets[character_id] = target_id
     return targets
@@ -289,7 +293,7 @@ def _on_weighted_save_done(
     window._weighted_allocation_saved_preview = preview
     window.weighted_save_button.setEnabled(True)
     _set_weighted_equipment_actions_enabled(window, True)
-    window.weighted_status_label.setText("方案已保存。")
+    window.weighted_status_label.setText(tr("方案已保存。"))
     if after_save is not None:
         after_save()
 
@@ -308,7 +312,7 @@ def _on_weighted_save_error(
         window,
         isinstance(preview, WeightedAllocationPreview) and bool(preview.result.unified.selected),
     )
-    QMessageBox.critical(window, "保存失败", error)
+    QMessageBox.critical(window, tr("保存失败"), error)
 
 
 def _set_weighted_equipment_actions_enabled(window, enabled: bool) -> None:
@@ -342,7 +346,7 @@ def _perform_weighted_equipment_action(
     try:
         method = "gamepad" if mode == "automatic" else _configured_equipment_apply_method(window)
     except Exception as exc:
-        QMessageBox.warning(window, "无法装配", str(exc))
+        QMessageBox.warning(window, tr("无法装配"), str(exc))
         return
     if role_name is None:
         preview = getattr(window, "_weighted_allocation_preview", None)
@@ -391,7 +395,7 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         None,
     )
     if role_option is None:
-        QMessageBox.warning(window, "无法替换", "当前角色结果已变化，请重新计算。")
+        QMessageBox.warning(window, tr("无法替换"), tr("当前角色结果已变化，请重新计算。"))
         return
 
     same_role_uids = {item.uid for item in role_option.assignments if item.uid != assignment.uid}
@@ -438,8 +442,8 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
     if not compatible:
         QMessageBox.information(
             window,
-            "替换优化",
-            "当前计算临时候选池中没有可替换的同套装、同形状装备。",
+            tr("替换优化"),
+            tr("当前计算临时候选池中没有可替换的同套装、同形状装备。"),
         )
         return
 
@@ -480,7 +484,7 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         None,
     )
     if current_item is None:
-        QMessageBox.warning(window, "无法替换", "当前装备不在计算临时候选池中。")
+        QMessageBox.warning(window, tr("无法替换"), tr("当前装备不在计算临时候选池中。"))
         return
 
     context_key = "_weighted_replacement"
@@ -649,10 +653,16 @@ def _validated_weighted_preview(
 
     preview = getattr(window, "_weighted_allocation_preview", None)
     if not isinstance(preview, WeightedAllocationPreview) or not preview.result.unified.selected:
-        QMessageBox.information(window, f"无法{action_name}", "请先完成一次有效的配装计算。")
+        QMessageBox.information(
+            window, tr("无法{action}", action=tr(action_name)),
+            tr("请先完成一次有效的配装计算。")
+        )
         return None
     if preview.user_database_path != weighted_allocation_dependencies(window).user_database_path:
-        QMessageBox.warning(window, "账号已切换", f"请在当前账号重新计算后再{action_name}。")
+        QMessageBox.warning(
+            window, tr("账号已切换"),
+            tr("请在当前账号重新计算后再{action}。", action=tr(action_name))
+        )
         return None
     return preview
 
@@ -711,4 +721,4 @@ def _on_weighted_replacement_done(
         restore_viewport_offset=restore_viewport_offset,
     )
     _set_weighted_equipment_actions_enabled(window, True)
-    window.weighted_status_label.setText("替换已保存为新的 SQLite 配装方案；重新计算会重新生成推荐方案。")
+    window.weighted_status_label.setText(tr("替换已保存为新的 SQLite 配装方案；重新计算会重新生成推荐方案。"))

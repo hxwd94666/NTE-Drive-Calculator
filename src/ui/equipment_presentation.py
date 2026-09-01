@@ -36,6 +36,7 @@ from src.features.allocation.results_diff_view import (
 )
 
 
+from src.i18n import display_term, tr
 from src.features.allocation.results_bonus_view import (
     _stat_w,
     _stat_c,
@@ -259,7 +260,7 @@ def _equip_card(
     label_color = theme_color("#4dd0e1")
     label_bg = theme_rgba("#4dd0e1", 0.10)
     label_border = label_color
-    name_lbl = QLabel(f"<b>{label}</b>")
+    name_lbl = QLabel(f"<b>{display_term(str(label))}</b>")
     # Both result and saved-plan cards use a modestly larger, consistent
     # header line.  The stat line stays at 12px, so the hierarchy is clear
     # without making the card disproportionately tall.
@@ -294,7 +295,7 @@ def _equip_card(
     if is_discarded:
         status_labels.append(_status_label("弃置", "#ff7b72", "#ff7b72", "rgba(218,54,51,0.16)"))
     if is_duplicate_drive:
-        status_labels.append(_status_label("重复", "#ffb86c", "#ff9d3d", "rgba(255,152,0,0.16)"))
+        status_labels.append(_status_label(tr("重复"), "#ffb86c", "#ff9d3d", "rgba(255,152,0,0.16)"))
     if status_labels and shape_id:
         for status_label in status_labels:
             hdr.addWidget(status_label, 0, Qt.AlignTop)
@@ -304,9 +305,14 @@ def _equip_card(
         mw = self._stat_w(main_stat, main_weight_source)
         mc = self._stat_c(mw)
         qc = QColor(mc)
-        main_text = str(main_stat)
+        # 百分号后缀取自中文词条键，翻译后的显示名不再带 %。
+        main_key = str(main_stat)
+        main_text = display_term(main_key)
         if main_value is not None:
-            main_text = f"{main_text} {_format_equipment_stat_display(main_value)}{'%' if '%' in main_text else ''}"
+            percent_suffix = "%" if "%" in main_key else ""
+            main_text = (
+                f"{main_text} {_format_equipment_stat_display(main_value)}{percent_suffix}"
+            )
         ms_block = QLabel(main_text)
         ms_block.setStyleSheet(
             f"border:1px solid {mc};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);"
@@ -346,7 +352,11 @@ def _equip_card(
     if score_frame is not None:
         hdr.addWidget(score_frame, 0, Qt.AlignTop)
     if replacement_callback:
-        replacement_btn = QPushButton(str(replacement_text or ("优化" if shape_id else "替换")))
+        # Callers may pass a Chinese label; tr() resolves it by source string.
+        default_text = tr("优化") if shape_id else tr("替换")
+        replacement_btn = QPushButton(
+            tr(str(replacement_text)) if replacement_text else default_text
+        )
         replacement_btn.setObjectName("btnAction")
         if is_feature_card:
             replacement_btn.setFixedSize(74, 33)
@@ -365,12 +375,14 @@ def _equip_card(
             sw = self._stat_w(sn, weights)
             color = self._stat_c(sw)
             qc = QColor(color)
-            block = QLabel(f"{sn} <b>{_format_equipment_stat_display(sv)}</b>")
+            block = QLabel(
+                f"{display_term(sn)} <b>{_format_equipment_stat_display(sv)}</b>"
+            )
             block.setAlignment(Qt.AlignCenter)
             block.setStyleSheet(
                 f"border:1px solid {color};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);border-radius:6px;padding:5px 12px;font-size:{'13px' if is_feature_card else '12px'};color:{color};font-weight:600"
             )
-            block.setToolTip(f"权重: {sw:.2f}")
+            block.setToolTip(tr("权重: {value:.2f}", value=sw))
             br.addWidget(block)
         br.addStretch()
         inner.addLayout(br)
