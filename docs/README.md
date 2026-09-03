@@ -1,31 +1,29 @@
 # NTE Drive Calc 开发文档
 
-根目录 [`AGENTS.md`](../AGENTS.md) 是仓库强制契约；本目录只保存系统原理、现有功能、外部边界、仍未完成
-事项和真实环境验收。阅读时先确认任务类型，再进入对应文档。
+根目录 [`AGENTS.md`](../AGENTS.md) 是强制契约。本目录只保存当前系统事实、外部边界、公式、路线图与实机验收；
+不保存个人环境、临时调查过程或已完成实施计划。
 
-## 文档地图
+## 从任务进入文档
 
-| 文档 | 适用场景 |
+| 任务 | 权威文档 |
 | --- | --- |
-| [系统架构](architecture.md) | 理解分层、组合根、数据域、快照、配装槽位和副作用确认 |
-| [功能原理](features.md) | 修改同步、扫描、计算、配装、仓库、倒带、装配、战报或设置 |
-| [外部集成](integrations.md) | 接入 nte-core、插件、OCR、鼠标/手柄、静态数据或新算法 |
-| [当前路线图](roadmap.md) | 判断某项能力是否仍在开发、受何种上游条件阻塞 |
-| [伤害计算规则](reference/damage-calculation.md) | 修改直伤、DOT、环合、倾陷、怪物属性或技能档位 |
-| [战报治疗事件](reference/treatment-events.md) | 修改治疗生产器、治疗触发 Buff、时停周期或满血事件语义 |
-| [战斗反事实文本盘点](reference/counterfactual/README.md) | 逐项审计技能、觉醒、弧盘、空幕、Buff 和特殊机制的重放覆盖 |
-| [游戏资料库](reference/static-catalog.md) | 按角色、弧盘、空幕与驱动、怪物与玩法、战斗机制浏览正式数据与本地化术语 |
-| [养成体力计算](reference/progression-stamina-calculator.md) | 汇总材料缺口、鉴别等级、副本产出、预计次数和最低体力 |
-| [日志事件规范](reference/logging-events.md) | 增加结构化事件、运行日志或脱敏字段 |
-| [战报包格式](reference/battle-report-package.md) | 修改战报导出、压缩容器、读取校验或数据库导入 |
-| [装配插件版本适配](reference/mods-plugin-version-adaptation.md) | 排查代理/Loader、IPC 管道、动态 SDK 和插件升级 |
-| [Windows 验收](validation/windows.md) | 验证真实游戏、驱动、插件、扫描、装配和更新 |
+| 分层、数据域、快照、方案和副作用 | [系统架构](architecture.md) |
+| 已交付的页面、计算、同步、配装、战报和设置 | [功能原理](features.md) |
+| nte-core、插件、OCR、输入、静态库与外部算法 | [外部集成](integrations.md) |
+| 尚未稳定或尚待上游事实的能力 | [当前路线图](roadmap.md) |
+| 通用伤害、DOT、环合、倾陷与怪物公式 | [伤害计算规则](reference/damage-calculation.md) |
+| 战报派生治疗事件 | [治疗事件](reference/treatment-events.md) |
+| 战报反事实的静态目录与人工规则 | [反事实审计](reference/counterfactual/README.md) |
+| 游戏资料库、术语、角色、弧盘、敌人与覆盖审计 | [静态资料库](reference/static-catalog.md) |
+| 确定副本产出的最低活力规划 | [养成体力规划](reference/progression-stamina-calculator.md) |
+| 战报导入导出格式 | [战报包格式](reference/battle-report-package.md) |
+| 结构化日志与脱敏字段 | [日志事件规范](reference/logging-events.md) |
+| Windows、插件、扫描与更新实机验收 | [Windows 验收](validation/windows.md) |
 
-## 维护规则
+## 目录规则
 
-- 当前能力只写入 `features.md`，未完成事项只写入 `roadmap.md`。
-- 架构事实只写入 `architecture.md`；具体公式和字段放入 `reference/`。
-- 真实设备步骤统一放入 `validation/windows.md`，不再为单个功能维护重复验收清单。
-- 功能落地后，将稳定契约整合进架构/功能文档并删除实施方案、调查笔记和阶段流水账。
-- 一个事实只保留一个权威位置，其他文件通过相对链接引用。
-- 所有文档使用 UTF-8，提交前检查相对链接与 `git diff --check`。
+- `architecture.md` 只写结构与数据流；`features.md` 只写当前产品行为；`roadmap.md` 只写未完成能力。
+- `reference/` 放公式、字段、格式与只读资料域；`reference/counterfactual/` 放战报反事实的目录和人工审计。
+- `integrations.md` 是所有第三方组件、插件与静态构建的唯一集成说明；不再拆分版本适配专题。
+- `validation/` 只保存真实环境验收步骤与证据要求。
+- 一个事实只有一个权威位置。修改后检查相对链接、UTF-8 与 `git diff --check`。

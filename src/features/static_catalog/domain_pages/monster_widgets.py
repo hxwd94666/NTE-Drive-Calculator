@@ -35,8 +35,8 @@ class ArchiveCard(QFrame):
         self.setMaximumHeight(228)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(themed_style(
-            "QFrame#monsterArchiveCard{background:#161b22;border:0;"
-            "border-radius:15px;}QFrame#monsterArchiveCard:hover{background:#182434;}"
+            "QFrame#monsterArchiveCard{background:#161b22;border:1px solid transparent;"
+            "border-radius:15px;}QFrame#monsterArchiveCard:hover{border-color:#58a6ff;}"
         ))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(13, 12, 13, 12)

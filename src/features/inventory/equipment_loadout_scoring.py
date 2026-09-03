@@ -43,6 +43,7 @@ def score_equipment_display_state(
                 weights,
                 tape.get(EQUIP_QUALITY, "Gold"),
                 main_weights,
+                tape.get("main_value"),
             )
         )
         tape[EQUIP_SCORE] = score

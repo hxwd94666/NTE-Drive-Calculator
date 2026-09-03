@@ -92,16 +92,18 @@ class CatalogMenuCard(QFrame):
         self.setFocusPolicy(Qt.StrongFocus if available else Qt.NoFocus)
         self.setCursor(Qt.PointingHandCursor if available else Qt.ForbiddenCursor)
         self.setMinimumSize(250, 104)
-        self.setStyleSheet(themed_style(
+        base_style = (
             "QFrame[catalogMenuCard='true']{"
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
             "stop:0 #161b22,stop:0.72 #10151c,stop:1 #0d1117);"
             "border:1px solid #30363d;border-radius:14px;}"
             "QFrame[catalogMenuCard='true']:hover{"
-            f"border:2px solid {entry.accent};background:#1c2128;}}"
+            f"border:2px solid {entry.accent};}}"
             "QFrame[catalogMenuCard='true']:focus{"
             f"border:2px solid {entry.accent};}}"
-        ))
+        )
+        self.setProperty("_nte_base_style", base_style)
+        self.setStyleSheet(themed_style(base_style))
         self._build(art)
 
     def _build(self, art: QPixmap | None) -> None:

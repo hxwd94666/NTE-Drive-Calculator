@@ -14,7 +14,7 @@ from src.domain.official_role import (
 )
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
 from src.services.advancement_stage_service import (
-    fork_panel_stats,
+    fork_active_panel_stats,
     select_fork_breakthrough,
 )
 from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
@@ -211,10 +211,11 @@ def _fork_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
         (fork for fork in detail.get("forks") or [] if fork.get("fork_id") == fork_id),
         None,
     )
-    return fork_panel_stats(
+    return fork_active_panel_stats(
         template,
         level,
         breakthrough_stage=profile.get("fork_breakthrough_stage"),
+        refinement_level=profile.get("fork_refinement_level"),
     )
 
 

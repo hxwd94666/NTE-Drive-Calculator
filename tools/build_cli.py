@@ -54,26 +54,3 @@ def skip(message: str) -> None:
 def run(cmd: list[str], cwd: Path) -> None:
     print("[RUN]", " ".join(cmd))
     subprocess.run(cmd, cwd=str(cwd), check=True)
-
-
-def choose_build_mode(
-    *,
-    skip_workshop_sync: bool = False,
-    require_workshop_sync: bool = False,
-    has_explicit_choice: bool = False,
-) -> tuple[bool, bool]:
-    if has_explicit_choice or skip_workshop_sync or require_workshop_sync:
-        return skip_workshop_sync, require_workshop_sync
-    if running_in_automation():
-        return True, False
-
-    info("\n请选择打包模式：")
-    info("1. 普通模式（有 Key 同步，无 Key 继承发行备份）")
-    info("2. 开发者模式（缺 Key 时允许手动输入，留空则继承备份）")
-    try:
-        choice = input("请输入 1 或 2，直接回车默认为 1: ").strip()
-    except EOFError:
-        choice = "1"
-    if choice != "2":
-        return False, False
-    return False, True

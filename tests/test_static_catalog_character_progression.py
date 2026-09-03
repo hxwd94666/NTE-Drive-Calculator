@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.features.static_catalog.domain_pages.character_progression import (
+from src.services.character_progression_requirements import (
     project_character_level_requirements,
 )
 from src.services.static_catalog_character_models import (

@@ -15,6 +15,7 @@ from src.services.virtual_equipment_service import (
     grid_count_from_geometry,
 )
 from src.optimizer.scoring import ScoringEngine
+from src.services.equipment_scoring_service import score_drive_stats, score_tape_stats
 from src.services.damage_calculation_service import (
     DamageScalingStat,
 )
@@ -110,7 +111,7 @@ def calculate_official_role_margins(detail: Mapping[str, Any], context_key: str)
         "damage": base_damage,
         "rows": rows,
         "context_key": context_key,
-        "warning": "精炼被保存为官方弧盘指针；其条件被动尚未规范化为静态数值。",
+        "warning": "弧盘无条件常驻属性已按当前精炼计入；条件被动沿用战斗状态计算。",
     }
 
 
@@ -208,21 +209,19 @@ def calculate_official_role_hidden_equipment_score(
         _property_label(detail, str(property_id)): float(value)
         for property_id, value in property_weights.items()
     }
-    main_weights = {
-        _property_label(detail, str(property_id)): float(value)
-        for property_id, value in (main_property_weights or property_weights).items()
-    }
-    maximum_weight = engine.max_theoretical_weight(weights)
-    if maximum_weight <= 0:
-        return 0.0
+    main_weights = (
+        {
+            _property_label(detail, str(property_id)): float(value)
+            for property_id, value in main_property_weights.items()
+        }
+        if isinstance(main_property_weights, Mapping)
+        else None
+    )
     quality = {
         "orange": "Gold", "gold": "Gold", "purple": "Purple", "blue": "Blue",
     }.get(str(item.get("quality") or "").casefold(), "Gold")
-    quality_coefficient = engine.quality_map.get(quality, 1.0)
-    sub_weight = sum(
-        engine.flexible_weight(
-            _property_label(detail, str(stat.get("property_id") or "")), weights,
-        )
+    sub_stat_names = tuple(
+        _property_label(detail, str(stat.get("property_id") or ""))
         for stat in item.get("sub_stats") or ()
     )
     if str(item.get("kind") or "") == "core":
@@ -232,21 +231,30 @@ def calculate_official_role_hidden_equipment_score(
             if main_stats and isinstance(main_stats[0], Mapping)
             else {}
         )
-        main_property_id = str(first_main_stat.get("property_id") or "")
-        main_weight = engine.flexible_weight(
-            _property_label(detail, main_property_id), main_weights,
-        )
-        return round(
-            main_weight * 50.0 * quality_coefficient
-            + (10.0 / maximum_weight) * sub_weight * 10.0 * quality_coefficient,
-            2,
+        raw_main_value = first_main_stat.get("value")
+        try:
+            main_value = float(raw_main_value) if raw_main_value is not None else None
+        except (TypeError, ValueError):
+            main_value = None
+        return score_tape_stats(
+            engine,
+            main_stat_name=_property_label(
+                detail,
+                str(first_main_stat.get("property_id") or ""),
+            ),
+            sub_stat_names=sub_stat_names,
+            weights=weights,
+            quality=quality,
+            main_weights=main_weights,
+            main_value=main_value,
         )
     area = int(item.get("grid_count") or 0) or grid_count_from_geometry(
         item.get("geometry")
     )
-    if area <= 0 or sub_weight <= 0:
-        return 0.0
-    return round(
-        (10.0 / maximum_weight) * sub_weight * area * quality_coefficient,
-        2,
+    return score_drive_stats(
+        engine,
+        sub_stat_names=sub_stat_names,
+        area=area,
+        weights=weights,
+        quality=quality,
     )

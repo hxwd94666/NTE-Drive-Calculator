@@ -148,6 +148,16 @@ class CritThresholdDomainTests(unittest.TestCase):
             minimum_crit_total(role_data, tape, drives, tape_main_values={"攻击力%": 37.5}),
         )
 
+    def test_minimum_crit_total_includes_selected_fork_permanent_crit(self):
+        role_data = {
+            "fork_crit_rate": 40.0,  # 弧盘 24% + 常驻属性 16%
+            "extra_shape_label": "",
+            "extra_shape_buffs": {},
+        }
+        tape = {"main_stats": "攻击力%", "sub_stats": {"暴击率%": 10.0}, "quality": "Gold"}
+
+        self.assertAlmostEqual(55.0, minimum_crit_total(role_data, tape, []))
+
     def test_character_crit_baseline_ignores_weapon_skill(self):
         character = {
             "sub_stats": {"暴击率%": 5.0},

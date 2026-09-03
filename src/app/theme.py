@@ -103,7 +103,7 @@ QTabWidget::pane{border:1px solid #21262d;background:#0d1117;border-radius:8px}
 QTabBar::tab{background:#161b22;color:#8b949e;padding:8px 18px;border:1px solid #21262d;border-bottom:none;border-top-left-radius:8px;border-top-right-radius:8px}
 QTabBar::tab:selected{background:#0d1117;color:#58a6ff;border-bottom:2px solid #58a6ff}
 
-QToolTip{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px 10px;font-size:12px}
+QToolTip{background-color:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px 10px;font-size:12px;opacity:255}
 
 QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:16px;padding:22px;padding-top:34px;font-size:14px;font-weight:700;color:#58a6ff}
 QGroupBox::title{subcontrol-origin:margin;left:14px;padding:0 8px}
@@ -117,6 +117,10 @@ QKeySequenceEdit{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;borde
 
 LIGHT_COLOR_MAP = {
     "#0d1117": "#ffffff",
+    # Catalog landing cards use this intermediate stop in their background
+    # gradient. Keep it in the light palette instead of leaving a nearly
+    # black band behind otherwise readable foreground text.
+    "#10151c": "#eef2f6",
     "#161b22": "#f6f8fa",
     "#1c2128": "#eef2f6",
     "#21262d": "#d0d7de",
@@ -131,6 +135,9 @@ LIGHT_COLOR_MAP = {
     "#1b3a24": "#d8f5df",
     "#0d1f35": "#ddf4ff",
     "#10243f": "#ddf4ff",
+    # Battle marginal's active-role selector needs a light selected surface;
+    # leaving this navy literal unmapped made its dark foreground illegible.
+    "#13233a": "#ddf4ff",
     "#23863622": "#1a7f3718",
     # Warehouse card action backgrounds: keep lock/discard/inspect controls
     # neutral on white theme instead of carrying the dark navy/brown fills.

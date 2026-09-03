@@ -1,3 +1,4 @@
+# 规范化正式人物等级、突破与经验材料来源。
 """Normalize formal character level, breakthrough and EXP material sources."""
 
 from __future__ import annotations
@@ -35,8 +36,11 @@ def import_character_progression(
         [str, Any], tuple[int, list[tuple[str, int]]] | None
     ],
 ) -> None:
+    upgrade_rows = context.rows.get("character_upgrades")
+    if not isinstance(upgrade_rows, dict):
+        raise StaticDatabaseError("静态来源缺少人物升级表：character_upgrades")
     upgrade_packs: dict[str, str] = {}
-    for row_key, row in sorted(context.rows["character_upgrades"].items()):
+    for row_key, row in sorted(upgrade_rows.items()):
         if not isinstance(row, dict):
             raise StaticDatabaseError(f"人物升级记录结构无效：{row_key}")
         pack_id, level = _pack_row_identity(str(row_key), context="人物升级")

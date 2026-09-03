@@ -15,9 +15,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLayout,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -70,7 +68,7 @@ def build_attribute_summary_mode_switch(
     button_group.setExclusive(True)
     toggle_style = themed_style(
         "QPushButton{background:#161b22;color:#8b949e;border:1px solid #30363d;"
-        "border-radius:6px;font-size:12px;font-weight:700;padding:3px 8px;min-height:28px}"
+        "border-radius:6px;font-size:10px;font-weight:700;padding:2px 6px;min-height:22px}"
         "QPushButton:checked{background:#1f6feb22;color:#58a6ff;border-color:#58a6ff}"
         "QPushButton:hover{border-color:#58a6ff;color:#c9d1d9}"
     )
@@ -142,6 +140,11 @@ class AttributeSummaryPanel(QFrame):
         parent: QWidget | None = None,
         default_mode: str = "equipment",
         color_for_weight: Callable[[float], str] | None = None,
+        mode_labels: Mapping[str, str] | None = None,
+        comparison_rows_by_mode: Mapping[
+            str,
+            tuple[Sequence[AttributeSummaryRow], Sequence[AttributeSummaryRow]],
+        ] | None = None,
     ) -> None:
         super().__init__(parent)
         self._role_name = str(role_name)
@@ -153,9 +156,22 @@ class AttributeSummaryPanel(QFrame):
             default_mode if default_mode in self._rows_by_mode else "equipment"
         )
         self._color_for_weight = color_for_weight
-        self.setMinimumWidth(300)
-        self.setFixedHeight(202)
-        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self._comparison_rows_by_mode = {
+            str(mode): (tuple(old_rows), tuple(new_rows))
+            for mode, (old_rows, new_rows) in dict(
+                comparison_rows_by_mode or {}
+            ).items()
+        }
+        self._mode_labels = {
+            "equipment": "空幕属性汇总",
+            "character": "角色属性汇总",
+            **dict(mode_labels or {}),
+        }
+        self.setMinimumWidth(560 if self._comparison_rows_by_mode else 300)
+        self.setSizePolicy(
+            QSizePolicy.Expanding if self._comparison_rows_by_mode else QSizePolicy.Maximum,
+            QSizePolicy.Preferred,
+        )
         self.setStyleSheet(themed_style(
             "QFrame{background:#0d1117;border:1px solid #30363d;"
             "border-radius:8px;padding:6px}"
@@ -169,6 +185,10 @@ class AttributeSummaryPanel(QFrame):
         switch = build_attribute_summary_mode_switch(
             self._mode,
             self.set_mode,
+            mode_defs=tuple(
+                (mode, self._mode_labels.get(mode, mode))
+                for mode in self._rows_by_mode
+            ),
         )
         switch.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         header.addWidget(switch)
@@ -178,7 +198,7 @@ class AttributeSummaryPanel(QFrame):
         self._more_button.setCursor(Qt.PointingHandCursor)
         self._more_button.setStyleSheet(themed_style(
             "QPushButton{background:#161b22;color:#c9d1d9;border:1px solid #30363d;"
-            "border-radius:8px;font-size:14px;font-weight:800;padding:0}"
+            "border-radius:8px;font-size:13px;font-weight:800;padding:0}"
             "QPushButton:hover{border-color:#58a6ff;color:#58a6ff}"
         ))
         self._more_button.clicked.connect(self.show_details)
@@ -186,27 +206,13 @@ class AttributeSummaryPanel(QFrame):
         header.addStretch()
         root.addLayout(header)
 
-        self._scroll = QScrollArea()
-        self._scroll.setObjectName("attributeSummaryScroll")
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self._scroll.setStyleSheet(themed_style(
-            "QScrollArea#attributeSummaryScroll{background:transparent;border:none}"
-            "QScrollArea#attributeSummaryScroll>QWidget>QWidget{background:transparent}"
-            "QScrollBar:vertical{width:8px;background:#0d1117;border:none}"
-            "QScrollBar::handle:vertical{background:#484f58;border-radius:4px;min-height:24px}"
-            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0}"
-        ))
         self._content_host = QWidget()
         self._content_host.setStyleSheet("background:transparent")
         self._content = QVBoxLayout(self._content_host)
-        self._content.setSizeConstraint(QLayout.SetMinAndMaxSize)
         self._content.setContentsMargins(0, 0, 0, 0)
         self._content.setSpacing(4)
-        self._scroll.setWidget(self._content_host)
-        root.addWidget(self._scroll, 1)
+        root.addWidget(self._content_host)
+        root.addStretch()
         self._refresh()
 
     def set_mode(self, mode: str) -> None:
@@ -228,24 +234,38 @@ class AttributeSummaryPanel(QFrame):
     def _refresh(self) -> None:
         self._clear_content()
         rows = self._rows_by_mode.get(self._mode, ())
-        self._more_button.setVisible(bool(rows))
+        comparison = self._comparison_rows_by_mode.get(self._mode)
+        self._more_button.setVisible(bool(rows) or comparison is not None)
+        if comparison is not None:
+            old_rows, new_rows = comparison
+            self._content.addWidget(
+                self._comparison_widget(old_rows, new_rows, limit=4)
+            )
+            self._content_host.adjustSize()
+            self.adjustSize()
+            return
         if not rows:
             empty = QLabel("暂无可汇总属性")
             empty.setStyleSheet(themed_style(
                 "color:#6e7681;border:none;background:transparent"
             ))
             self._content.addWidget(empty)
-            self._content.addStretch()
             self._content_host.adjustSize()
             return
-        for row in rows:
+        for row in rows[:5]:
             self._content.addWidget(self._row_widget(row))
-        self._content.addStretch()
         self._content_host.adjustSize()
+        self.adjustSize()
 
-    def _row_widget(self, row: AttributeSummaryRow) -> QWidget:
+    def _row_widget(
+        self,
+        row: AttributeSummaryRow,
+        *,
+        display_text: str | None = None,
+        value_color: str | None = None,
+    ) -> QWidget:
         frame = QFrame()
-        frame.setFixedHeight(32)
+        frame.setFixedHeight(26)
         frame.setMinimumWidth(130)
         frame.setStyleSheet(themed_style(
             "QFrame{background:#161b22;border:1px solid #21262d;"
@@ -260,12 +280,12 @@ class AttributeSummaryPanel(QFrame):
         )
         label = QLabel(row.label)
         label.setStyleSheet(
-            f"font-size:12px;font-weight:700;color:{color};"
+            f"font-size:10px;font-weight:700;color:{color};"
             "border:none;background:transparent"
         )
-        value = QLabel(self._value_text(row))
+        value = QLabel(display_text if display_text is not None else self._value_text(row))
         value.setStyleSheet(
-            f"font-size:12px;font-weight:800;color:{theme_color('#f0f6fc')};"
+            f"font-size:10px;font-weight:800;color:{value_color or theme_color('#f0f6fc')};"
             "border:none;background:transparent"
         )
         value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -276,24 +296,141 @@ class AttributeSummaryPanel(QFrame):
     @staticmethod
     def _value_text(row: AttributeSummaryRow) -> str:
         number = f"{float(row.value):.2f}".rstrip("0").rstrip(".")
-        return f"+{number}{'%' if row.percent else ''}"
+        prefix = "+" if float(row.value) >= 0 else ""
+        return f"{prefix}{number}{'%' if row.percent else ''}"
+
+    @staticmethod
+    def _aligned_comparison_rows(
+        old_rows: Sequence[AttributeSummaryRow],
+        new_rows: Sequence[AttributeSummaryRow],
+    ) -> tuple[tuple[str, str, float | None, float | None, bool], ...]:
+        old_by_key = {row.key: row for row in old_rows}
+        new_by_key = {row.key: row for row in new_rows}
+        keys = [row.key for row in new_rows]
+        keys.extend(row.key for row in old_rows if row.key not in new_by_key)
+        aligned = []
+        for key in keys:
+            old = old_by_key.get(key)
+            new = new_by_key.get(key)
+            old_value = float(old.value) if old is not None else None
+            new_value = float(new.value) if new is not None else None
+            source = new or old
+            if source is None:
+                continue
+            aligned.append(
+                (str(key), source.label, old_value, new_value, bool(source.percent))
+            )
+        return tuple(aligned)
+
+    def _comparison_column(
+        self,
+        title: str,
+        rows: Sequence[tuple[str, str, float | None, float | None, bool]],
+        value_index: int,
+    ) -> QWidget:
+        column = QFrame()
+        names = (
+            "attributeSummaryComparisonOld",
+            "attributeSummaryComparisonNew",
+            "attributeSummaryComparisonDelta",
+        )
+        column.setObjectName(names[value_index])
+        background = "#161b22" if value_index == 2 else "#0d1117"
+        column.setStyleSheet(themed_style(
+            f"QFrame#{names[value_index]}{{background:{background};border:1px solid #30363d;"
+            "border-radius:8px;padding:6px}"
+        ))
+        layout = QVBoxLayout(column)
+        layout.setContentsMargins(7, 5, 7, 5)
+        layout.setSpacing(4)
+        header = QLabel(title)
+        header.setStyleSheet(themed_style(
+            "font-size:11px;font-weight:800;color:#8b949e;"
+            "border:none;background:transparent"
+        ))
+        layout.addWidget(header)
+        if not rows:
+            empty = QLabel("无变化" if value_index == 2 else "暂无属性变化")
+            empty.setStyleSheet(themed_style(
+                "color:#6e7681;border:none;background:transparent"
+            ))
+            layout.addWidget(empty)
+            layout.addStretch()
+            return column
+        for key, label, old_value, new_value, percent in rows:
+            values = (old_value, new_value)
+            if value_index < 2:
+                value = values[value_index]
+                display = "—" if value is None else self._value_text(
+                    AttributeSummaryRow(key, label, value, percent)
+                )
+                color = None
+            else:
+                delta = float(new_value or 0.0) - float(old_value or 0.0)
+                if (
+                    old_value is not None
+                    and new_value is not None
+                    and abs(delta) < 1e-9
+                ):
+                    spacer = QWidget()
+                    spacer.setFixedHeight(26)
+                    spacer.setStyleSheet("background:transparent;border:none")
+                    layout.addWidget(spacer)
+                    continue
+                value = delta
+                display = self._value_text(
+                    AttributeSummaryRow(key, label, delta, percent)
+                )
+                color = theme_color("#56d364" if delta > 0 else "#f85149")
+            layout.addWidget(
+                self._row_widget(
+                    AttributeSummaryRow(key, label, float(value or 0.0), percent),
+                    display_text=display,
+                    value_color=color,
+                )
+            )
+        layout.addStretch()
+        return column
+
+    def _comparison_widget(
+        self,
+        old_rows: Sequence[AttributeSummaryRow],
+        new_rows: Sequence[AttributeSummaryRow],
+        *,
+        limit: int | None,
+    ) -> QWidget:
+        aligned = self._aligned_comparison_rows(old_rows, new_rows)
+        if limit is not None:
+            aligned = aligned[:limit]
+        container = QFrame()
+        container.setStyleSheet(themed_style(
+            "QFrame{background:transparent;border:none}"
+        ))
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        for index, title in enumerate(("旧", "新", "变化")):
+            layout.addWidget(self._comparison_column(title, aligned, index), 1)
+        return container
 
     def show_details(self) -> None:
         rows = self._rows_by_mode.get(self._mode, ())
-        if not rows:
+        comparison = self._comparison_rows_by_mode.get(self._mode)
+        if not rows and comparison is None:
             return
-        label = (
-            "角色属性汇总" if self._mode == "character" else "空幕属性汇总"
-        )
+        label = self._mode_labels.get(self._mode, self._mode)
         dialog = QDialog(self)
         dialog.setWindowTitle(f"{self._role_name} {label}")
-        dialog.setMinimumSize(360, 420)
+        dialog.setMinimumSize(680 if comparison is not None else 360, 420)
         dialog.setStyleSheet(current_style_sheet())
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(8)
-        for row in rows:
-            layout.addWidget(self._row_widget(row))
+        if comparison is not None:
+            layout.addWidget(self._comparison_widget(*comparison, limit=None))
+        else:
+            for row in rows:
+                layout.addWidget(self._row_widget(row))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok)
         buttons.accepted.connect(dialog.accept)
         layout.addWidget(buttons)

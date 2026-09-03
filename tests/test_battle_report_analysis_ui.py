@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QScrollArea,
@@ -44,6 +45,7 @@ from src.features.battle_report.timeline_layout import (
     TimelinePaintedBar,
     TimelineSelection,
 )
+from src.features.battle_report.timeline_view import BattleUnifiedTimelineWidget
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
@@ -63,6 +65,7 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
             Qt.ScrollBarAlwaysOff,
             view.timeline_scroll.verticalScrollBarPolicy(),
         )
+
         self.assertEqual(view.timeline.minimumHeight(), view.timeline.maximumHeight())
         self.assertFalse(hasattr(view, "action_timeline_scroll"))
         self.assertFalse(hasattr(view.timeline, "hit_selected"))
@@ -83,6 +86,19 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
             )
         )
 
+    def test_unified_axis_uses_a_light_canvas_in_light_theme(self) -> None:
+        previous = self.app.property("nte_effective_theme")
+        self.app.setProperty("nte_effective_theme", "light")
+        try:
+            timeline = BattleUnifiedTimelineWidget()
+            timeline.resize(800, 300)
+            image = QPixmap(timeline.size())
+            timeline.render(image)
+            self.assertEqual("#ffffff", image.toImage().pixelColor(1, 1).name())
+            timeline.deleteLater()
+        finally:
+            self.app.setProperty("nte_effective_theme", previous)
+
     def test_analysis_status_label_is_embedded_in_the_timeline_card(self) -> None:
         view = BattleLongAnalysisView()
 
@@ -97,6 +113,7 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
         view._render_targets = lambda: calls.append("render")
         view.target_vital_panel.open_environment_dialog = lambda: calls.append("open")
 
+        self.assertEqual("确认环境", view.environment_button.text())
         view.environment_button.click()
 
         self.assertEqual(["render", "open"], calls)

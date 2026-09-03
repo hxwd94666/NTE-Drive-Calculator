@@ -64,6 +64,7 @@ class NTEAppFacade:
         set_effect_modes=None,
         priority_groups=None,
         crit_rate_caps=None,
+        crit_rate_baselines=None,
         custom_weapons=None,
         locked_uids=None,
     ):
@@ -99,6 +100,7 @@ class NTEAppFacade:
             set_effect_modes=set_effect_modes or {},
             priority_groups=priority_groups,
             crit_rate_caps=crit_rate_caps or {},
+            crit_rate_baselines=crit_rate_baselines or {},
             custom_weapons=custom_weapons or {},
         )
         return final_plan, None

@@ -6,6 +6,205 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
+def test_rewind_role_picker_adds_highest_calculation_score_below_name() -> None:
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from src.app.theme import GRADE_COLORS
+    from src.features.toolbox.page import _RoleSelectionDialog
+    from src.services.rewind_shape_recommendation_service import RewindTargetRole
+
+    QApplication.instance() or QApplication([])
+    dialog = _RoleSelectionDialog(
+        None,
+        title="选择角色",
+        description="测试",
+        roles=(
+            RewindTargetRole(1004, "安魂曲", None, calculation_score=251.25),
+            RewindTargetRole(9001, "自建角色", None, is_custom=True),
+        ),
+        selected_character_ids=set(),
+    )
+
+    cards = {character_id: card for card, character_id, _name in dialog._cards}
+    scored_label = cards[1004].findChild(QLabel, "rewindRoleCalculationScore")
+    empty_label = cards[9001].findChild(QLabel, "rewindRoleCalculationScore")
+    assert cards[1004].text() == "安魂曲"
+    assert scored_label.text() == "最高分 251.25 · SS"
+    assert GRADE_COLORS["SS"] in scored_label.styleSheet()
+    assert cards[1004].property("rewindCalculationScore") == 251.25
+    assert cards[9001].text() == "自建角色"
+    assert empty_label.text() == ""
+    assert cards[9001].property("rewindCalculationScore") is None
+    assert cards[1004].height() == cards[9001].height() == 132
+
+
+def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() -> None:
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+
+    from src.services.character_progression_requirements import (
+        MaterialSummaryStatus,
+    )
+    from src.features.toolbox.cultivation_calculator import CultivationCalculatorDialog
+    from src.services.cultivation_planner_service import (
+        CultivationMaterial,
+        CultivationPlan,
+        CultivationRole,
+        CultivationSection,
+        CultivationForkSeed,
+        CultivationSeed,
+        CultivationSkill,
+    )
+
+    class Service:
+        def __init__(self):
+            self.requests = []
+
+        def list_roles(self):
+            return (CultivationRole(1004, "安魂曲"),)
+
+        def load_seed(self, _character_id):
+            return CultivationSeed(
+                1004, "安魂曲", 20, 1,
+                (CultivationSkill("skill-a", "Q", "终结技", 3, 10),),
+                CultivationForkSeed("fork-a", "专属弧盘", 40, 2),
+            )
+
+        def calculate(self, request):
+            self.requests.append(request)
+            assert request.current_level == 20
+            assert request.current_breakthrough_stage == 1
+            assert request.target_level == 80
+            if request.include_character_progression:
+                assert request.fork is not None
+                assert request.fork.fork_id == "fork-a"
+                assert request.fork.current_level == 40
+            else:
+                assert not request.include_skills
+                assert request.fork is None
+            return CultivationPlan(
+                "安魂曲", MaterialSummaryStatus.COMPLETE,
+                (CultivationSection("Q · 终结技", (CultivationMaterial("m-1", "材料甲", 4),)),),
+                (CultivationMaterial("m-1", "材料甲", 4),), 100, 0, (2,), (), 300,
+            )
+
+    QApplication.instance() or QApplication([])
+    service = Service()
+    dialog = CultivationCalculatorDialog(service, None)
+    QApplication.processEvents()
+
+    assert dialog._current_level.value() == 20
+    assert dialog._current_stage.currentData() == 1
+    assert dialog._target_level.value() == 80
+    assert dialog._skill_inputs["skill-a"][0].value() == 3
+    assert dialog._fork.text() == "专属弧盘"
+    assert dialog._fork_current_level.value() == 40
+    assert dialog._fork_current_level.isEnabled()
+    assert dialog._result.parentWidget().objectName() == "cultivationCalculatorResultPanel"
+    assert not any(label.text() == "养成计算器" for label in dialog.findChildren(QLabel))
+    assert dialog.findChild(QPushButton, "cultivationCalculatorCalculate").text() == "计算所需材料"
+    assert dialog.findChild(QPushButton, "cultivationCalculatorCalculate").minimumHeight() == 44
+    dialog.resize(1120, 740)
+    dialog.show()
+    QApplication.processEvents()
+    skill_x = dialog._skills_toggle.mapTo(dialog, QPoint()).x()
+    fork_x = dialog._fork_toggle.mapTo(dialog, QPoint()).x()
+    assert skill_x <= fork_x
+
+    dialog._calculate()
+    rendered = "\n".join(label.text() for label in dialog.findChildren(QLabel))
+    assert "材料数据完整" in rendered
+    assert "材料甲 × 4" in rendered
+    assert "Q · 终结技" in rendered
+    assert dialog._copy_button.isEnabled()
+    assert service.requests[-1].include_character_progression
+    assert service.requests[-1].include_skills
+
+    dialog._character_toggle.setChecked(False)
+    dialog._fork_toggle.setChecked(False)
+    dialog._skills_toggle.setChecked(False)
+    assert not dialog._current_level.isEnabled()
+    assert not dialog._fork_current_level.isEnabled()
+    assert not dialog._skill_inputs["skill-a"][0].isEnabled()
+    dialog._calculate()
+    assert not service.requests[-1].include_character_progression
+    assert not service.requests[-1].include_skills
+    assert service.requests[-1].fork is None
+
+
+def test_cultivation_image_selector_is_a_searchable_single_choice_card_grid() -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from src.features.toolbox.cultivation_selectors import CultivationImageSelector
+
+    QApplication.instance() or QApplication([])
+    dialog = CultivationImageSelector(
+        None,
+        title="选择弧盘",
+        description="测试",
+        options=(("fork-a", "赤红弧盘", None), ("fork-b", "青蓝弧盘", None)),
+        selected_id="fork-a",
+    )
+
+    cards = {option_id: card for card, option_id, _name in dialog._cards}
+    assert dialog.selected_id() == "fork-a"
+    assert cards["fork-a"].size().width() == 116
+    assert cards["fork-a"].size().height() == 132
+    cards["fork-b"].setChecked(True)
+    assert dialog.selected_id() == "fork-b"
+    dialog._search.setText("qinglan")
+    QApplication.processEvents()
+    assert cards["fork-a"].isHidden()
+    assert not cards["fork-b"].isHidden()
+
+
+def test_cultivation_spinboxes_draw_theme_contrast_step_chevrons() -> None:
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSpinBox
+
+    from src.app.theme import theme_color
+    from src.features.toolbox.cultivation_calculator import _CultivationSpinBox
+
+    app = QApplication.instance() or QApplication([])
+    previous = app.property("nte_effective_theme")
+    try:
+        for theme in ("light", "black"):
+            app.setProperty("nte_effective_theme", theme)
+            spinbox = _CultivationSpinBox()
+            spinbox.resize(100, 42)
+            spinbox.show()
+            QApplication.processEvents()
+            option = QStyleOptionSpinBox()
+            spinbox.initStyleOption(option)
+            rect = spinbox.style().subControlRect(
+                QStyle.ComplexControl.CC_SpinBox,
+                option,
+                QStyle.SubControl.SC_SpinBoxUp,
+                spinbox,
+            )
+            color = spinbox.grab().toImage().pixelColor(
+                rect.center().x(), rect.center().y() - 2,
+            )
+            expected = QColor(theme_color("#8b949e"))
+            assert abs(color.red() - expected.red()) < 60
+            assert abs(color.green() - expected.green()) < 60
+            assert abs(color.blue() - expected.blue()) < 60
+            spinbox.close()
+    finally:
+        app.setProperty("nte_effective_theme", previous)
+
+
+def test_official_replacement_summary_explains_score_and_third_percentage() -> None:
+    from src.ui.controllers.official_role_replacement_controller import (
+        OFFICIAL_ROLE_REPLACEMENT_SUMMARY,
+    )
+
+    assert OFFICIAL_ROLE_REPLACEMENT_SUMMARY == (
+        "评分按该角色的直伤权重计算，候选由高到低排列；"
+        "卡片第三项百分比表示该装备带来的直伤收益。"
+    )
+
+
 def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
     monkeypatch,
 ) -> None:

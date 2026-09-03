@@ -98,7 +98,7 @@
 - Mirror酱（付费）: <https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&channel=stable>
 - 夸克网盘（免费）: <https://pan.quark.cn/s/82f16b845aec>
 - 百度网盘（免费）: <https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke>
-- B站主页: <https://b23.tv/nXJGdh3>
+- 迅雷网盘（免费）: <https://pan.xunlei.com/s/VP0W_ptzSZwkVamy2UvF_CliA1?pwd=2hb6#>
 > 每次更新使用网盘转存本人会有一定收益，手机转存收益更高，可将此当做无消费支持。
 
 安装时建议保留 `Install ViGEmBus virtual gamepad driver` 勾选。扫描功能需要虚拟手柄驱动来模拟背包翻页操作。

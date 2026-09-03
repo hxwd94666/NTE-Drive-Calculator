@@ -45,7 +45,10 @@ def _clear_layout(layout) -> None:
         if item.widget() is not None:
             widget = item.widget()
             widget.hide()
-            widget.setParent(None)
+            # Keep deferred-deletion widgets owned by the visible role page.
+            # Detaching them turns them into transient top-level windows; on
+            # Windows the native handle can flash as a tiny popup before the
+            # deleteLater event is delivered during a role-tab switch.
             widget.deleteLater()
         if item.layout() is not None:
             _clear_layout(item.layout())

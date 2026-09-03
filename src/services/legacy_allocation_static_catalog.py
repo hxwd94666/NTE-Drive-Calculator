@@ -74,6 +74,31 @@ def _custom_weight_labels(
     }
 
 
+def _likeability_crit_rate_bonus(
+    static_dao: StaticGameDataDao,
+    user_dao: UserDataDao | None,
+    character_id: int,
+) -> float:
+    """Return this account's enabled level-10 affinity CritBase bonus."""
+
+    bonus = static_dao.get_character_likeability_bonus(character_id)
+    if not bonus:
+        return 0.0
+    profile = user_dao.get_character_profile(character_id) if user_dao else None
+    enabled = (
+        bool(profile.get("likeability_level_10_enabled"))
+        if profile is not None
+        else True
+    )
+    if not enabled:
+        return 0.0
+    return sum(
+        float(row.get("value") or 0.0)
+        for row in bonus.get("properties") or ()
+        if str(row.get("property_id") or "") == "CritBase"
+    )
+
+
 def build_legacy_allocation_static_catalog(
     *, config_dir: str | Path, user_database_path: str | Path | None = None,
 ) -> LegacyAllocationStaticCatalog:
@@ -115,49 +140,57 @@ def build_legacy_allocation_static_catalog(
             int(template["character_id"]): template
             for template in static_dao.list_character_graduation_templates()
         }
-        for character in characters:
-            character_id = int(character["character_id"])
-            role_name = str(character.get("name_zh") or character_id)
-            plan = static_dao.get_equipment_plan(character_id)
-            default_suit = static_dao.get_character_default_suit(character_id)
-            if plan is None or default_suit is None:
-                continue
-            suit_name = str(default_suit["suit_name_zh"])
-            if suit_name not in sets_db:
-                raise ValueError(f"角色 [{role_name}] 的官方默认套装不存在：{suit_name}")
-            shape_bonus = get_effective_character_shape_bonus(
-                static_dao, character_id,
-            ) or {}
-            extra_shape_label = str(shape_bonus.get("shape_label") or "")
-            extra_shape_buffs = {
-                attributes[str(row["property_id"])]: float(row["display_value"])
-                for row in shape_bonus.get("properties") or ()
-                if attributes.get(str(row["property_id"]))
-            }
-            scoring_role = scoring.roles_db.get(role_name, {})
-            graduation_template = graduation_templates.get(character_id, {})
-            default_weapon = fork_names.get(
-                str(graduation_template.get("fork_id") or ""),
-                "",
-            )
-            roles_db[role_name] = {
-                "character_id": character_id,
-                "default_set": suit_name,
-                "default_weapon": default_weapon,
-                "extra_shape_label": extra_shape_label,
-                "extra_shape_buffs": extra_shape_buffs,
-                "weights": dict(scoring_role.get("weights") or {}),
-                "main_weights": dict(scoring_role.get("main_weights") or {}),
-            }
-            board = [[-1] * 5 for _ in range(5)]
-            for cell in plan.get("cells") or ():
-                board[int(cell["row"]) - 1][int(cell["column"]) - 1] = 0
-            board_matrices[role_name] = board
-        if user_database_path is not None and Path(user_database_path).is_file():
-            suit_name_by_id = {
-                str(data["suit_id"]): name for name, data in sets_db.items()
-            }
-            with UserDataDao(user_database_path) as user_dao:
+        user_dao = (
+            UserDataDao(user_database_path)
+            if user_database_path is not None and Path(user_database_path).is_file()
+            else None
+        )
+        try:
+            for character in characters:
+                character_id = int(character["character_id"])
+                role_name = str(character.get("name_zh") or character_id)
+                plan = static_dao.get_equipment_plan(character_id)
+                default_suit = static_dao.get_character_default_suit(character_id)
+                if plan is None or default_suit is None:
+                    continue
+                suit_name = str(default_suit["suit_name_zh"])
+                if suit_name not in sets_db:
+                    raise ValueError(f"角色 [{role_name}] 的官方默认套装不存在：{suit_name}")
+                shape_bonus = get_effective_character_shape_bonus(
+                    static_dao, character_id,
+                ) or {}
+                extra_shape_label = str(shape_bonus.get("shape_label") or "")
+                extra_shape_buffs = {
+                    attributes[str(row["property_id"])]: float(row["display_value"])
+                    for row in shape_bonus.get("properties") or ()
+                    if attributes.get(str(row["property_id"]))
+                }
+                scoring_role = scoring.roles_db.get(role_name, {})
+                graduation_template = graduation_templates.get(character_id, {})
+                default_weapon = fork_names.get(
+                    str(graduation_template.get("fork_id") or ""),
+                    "",
+                )
+                roles_db[role_name] = {
+                    "character_id": character_id,
+                    "default_set": suit_name,
+                    "default_weapon": default_weapon,
+                    "likeability_crit_rate_bonus": _likeability_crit_rate_bonus(
+                        static_dao, user_dao, character_id,
+                    ),
+                    "extra_shape_label": extra_shape_label,
+                    "extra_shape_buffs": extra_shape_buffs,
+                    "weights": dict(scoring_role.get("weights") or {}),
+                    "main_weights": dict(scoring_role.get("main_weights") or {}),
+                }
+                board = [[-1] * 5 for _ in range(5)]
+                for cell in plan.get("cells") or ():
+                    board[int(cell["row"]) - 1][int(cell["column"]) - 1] = 0
+                board_matrices[role_name] = board
+            if user_dao is not None:
+                suit_name_by_id = {
+                    str(data["suit_id"]): name for name, data in sets_db.items()
+                }
                 for custom in user_dao.list_custom_characters():
                     character_id = int(custom["character_id"])
                     role_name = str(custom.get("name_zh") or character_id)
@@ -189,4 +222,7 @@ def build_legacy_allocation_static_catalog(
                     board_matrices[role_name] = _custom_board_matrix(
                         list(custom.get("board_cells") or ())
                     )
+        finally:
+            if user_dao is not None:
+                user_dao.close()
     return LegacyAllocationStaticCatalog(roles_db, sets_db, shapes_db, board_matrices)

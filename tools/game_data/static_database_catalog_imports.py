@@ -6,8 +6,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from src.storage.sqlite.fork_permanent_projection import (
+    FORK_PERMANENT_EVIDENCE_SQL,
+    FORK_REFINEMENT_LEVEL_SQL,
+    cursor_dicts,
+    resolve_projection_rows,
+)
 from tools.game_data.static_database_build_support import *
-
 
 def _localized_text(value: Any) -> str | None:
     if not isinstance(value, dict):
@@ -33,6 +38,46 @@ class CatalogImportMixin:
         self._import_cultivation_guides()
         self._import_combat_effect_definitions()
         self._validate_fork_refinement_links()
+
+    def _import_fork_permanent_properties(self) -> None:
+        """Project complete unconditional curves and retain an audit for misses."""
+
+        resolved, audit = resolve_projection_rows(
+            cursor_dicts(self.connection.execute(FORK_PERMANENT_EVIDENCE_SQL)),
+            cursor_dicts(self.connection.execute(FORK_REFINEMENT_LEVEL_SQL)),
+        )
+        self.fork_permanent_property_audit = [item.to_dict() for item in audit]
+        for value in resolved:
+            self.connection.execute(
+                """
+                INSERT INTO fork_permanent_property(
+                    fork_id, refinement_level, property_id,
+                    modifier_operation, property_value,
+                    source_parameter_name_id, source_effect_definition_id,
+                    source_calculation_asset_path, source_row_id
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    value.fork_id,
+                    value.refinement_level,
+                    value.property_id,
+                    value.modifier_operation,
+                    value.property_value,
+                    value.parameter_name_id,
+                    value.effect_definition_id,
+                    value.calculation_asset_path,
+                    value.source_row_id,
+                ),
+            )
+
+    def _fork_star_pack_id(self, fork_id: str) -> str:
+        row = self.connection.execute(
+            "SELECT star_pack_id FROM fork_item WHERE fork_id = ?",
+            (fork_id,),
+        ).fetchone()
+        if row is None:
+            raise StaticDatabaseError(f"弧盘不存在：{fork_id}")
+        return str(row[0])
 
     def _import_combat_curves(self) -> None:
         rows = list(self.character_effect_curve_rows)

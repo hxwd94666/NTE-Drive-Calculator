@@ -42,6 +42,8 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "028_game_static_high_risk_commission.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "030_game_static_progression_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "031_game_static_character_progression.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "032_game_static_fork_permanent_property.sql",
 )
 
 
@@ -81,6 +83,8 @@ class StaticGameDataDaoTest(unittest.TestCase):
         connection.execute("INSERT INTO schema_migration VALUES (28, '2026-08-28')")
         connection.execute("INSERT INTO schema_migration VALUES (29, '2026-08-28')")
         connection.execute("INSERT INTO schema_migration VALUES (30, '2026-08-30')")
+        connection.execute("INSERT INTO schema_migration VALUES (31, '2026-08-30')")
+        connection.execute("INSERT INTO schema_migration VALUES (32, '2026-08-31')")
         connection.execute(
             "INSERT INTO dataset VALUES ('fixture', 19, '2026-08-20')"
         )
@@ -413,7 +417,7 @@ class StaticGameDataDaoTest(unittest.TestCase):
     def test_summary_and_read_only_connection(self):
         with StaticGameDataDao(self.database_path) as dao:
             summary = dao.summary()
-            self.assertEqual(summary["schema_version"], 31)
+            self.assertEqual(summary["schema_version"], 32)
             self.assertEqual(summary["counts"]["character"], 1)
             with self.assertRaises(sqlite3.OperationalError):
                 dao._connection.execute("DELETE FROM character")

@@ -56,6 +56,23 @@ class GlobalThemeSettingsTests(unittest.TestCase):
             global_settings.save("black")
             self.assertEqual(global_settings.load(legacy_theme="dark"), "black")
 
+    def test_new_install_does_not_promote_the_obsolete_static_theme_default(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database_path = root / "user_data.sqlite3"
+            with UserDataDao(database_path, account_id="account", account_name="Account"):
+                pass
+            settings = AccountSettingsService(database_path)
+            global_settings = GlobalThemeSettingsService(
+                root / "config" / "global_ui_preferences.json"
+            )
+
+            self.assertIsNone(settings.legacy_theme_preference())
+            self.assertEqual(
+                "black",
+                global_settings.load(legacy_theme=settings.legacy_theme_preference()),
+            )
+
     def test_account_ui_settings_drop_legacy_theme_on_save(self):
         with tempfile.TemporaryDirectory() as temporary:
             database_path = Path(temporary) / "user_data.sqlite3"

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.domain.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
 from src.domain.stat_catalog import StatCatalog
 from src.integrations.bundled_resources import bundled_config_dir
 from src.services.graduation_bonus_service import graduation_extra_shape_stats
@@ -122,6 +123,68 @@ def graduation_template_with_weight_substats(detail: dict) -> dict | None:
                 stat(property_id, catalog.tape_stat_values, 1.0)
                 for property_id in selected
             ]
+    core = next(
+        (item for item in equipment if str(item.get("kind") or "") == "core"),
+        None,
+    )
+    main_weights = detail.get("main_property_weights") or detail.get(
+        "property_weights"
+    ) or {}
+    main_candidates = sorted(
+        (
+            (
+                -float(main_weights.get(property_id, 0.0)),
+                property_id,
+                label,
+            )
+            for label in catalog.tape_main_stat_pool()
+            if (property_id := WORKSHOP_STAT_PROPERTY_IDS.get(label)) is not None
+            and float(main_weights.get(property_id, 0.0)) > 0.0
+        )
+    )
+    if core is not None and main_candidates:
+        profile = dict(template.get("profile") or detail.get("profile") or {})
+        best_damage = -1.0
+        best_main: dict[str, Any] | None = None
+        for _negative_weight, property_id, label in main_candidates:
+            percent = bool((attributes.get(property_id) or {}).get("show_percent"))
+            raw_value = float(catalog.tape_main_values[label])
+            main_stat = {
+                "property_id": property_id,
+                "value": raw_value / 100.0 if percent else raw_value,
+                "percent": percent,
+            }
+            candidate_equipment = [
+                ({**item, "main_stats": [main_stat]} if item is core else item)
+                for item in equipment
+            ]
+            candidate_detail = {
+                **detail,
+                "profile": profile,
+                "equipment_contexts": {
+                    **(detail.get("equipment_contexts") or {}),
+                    "graduation": {
+                        "title": "直伤毕业基准",
+                        "available": True,
+                        "items": candidate_equipment,
+                    },
+                },
+            }
+            damage = float(
+                (
+                    calculate_official_role_margins(
+                        candidate_detail,
+                        "graduation",
+                    )
+                    or {}
+                ).get("damage")
+                or 0.0
+            )
+            if damage > best_damage:
+                best_damage = damage
+                best_main = main_stat
+        if best_main is not None:
+            core["main_stats"] = [best_main]
     return {**template, "equipment": equipment}
 
 
@@ -228,7 +291,10 @@ def graduation_tooltip(detail: dict) -> str:
         "毕业副词条：" + (substat_lines[0] if substat_lines else "未记录"),
     ]
     lines.extend(f"　　　　　{line}" for line in substat_lines[1:])
-    lines.append("仅输出角色有效，且只计算直伤，未统计机制伤害和拐力。")
+    lines.extend((
+        "毕业率 = 当前养成与配装直伤 ÷ 本基准，结果不封顶。",
+        "计入弧盘常驻、好感10、家具加成和额外形状；不计条件被动、机制伤害和队友加成。",
+    ))
     return "\n".join(lines)
 
 

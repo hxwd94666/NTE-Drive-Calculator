@@ -158,7 +158,15 @@ def _score_drive_dict(self, sub_stats, shape_id, weights, quality="Gold"):
     )
 
 
-def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_weights=None):
+def _score_tape_dict(
+    self,
+    main_stats,
+    sub_stats,
+    weights,
+    quality="Gold",
+    main_weights=None,
+    main_value=None,
+):
     if not self.scoring_engine:
         return 0.0
     return score_tape_stats(
@@ -168,6 +176,7 @@ def _score_tape_dict(self, main_stats, sub_stats, weights, quality="Gold", main_
         weights=weights,
         quality=quality,
         main_weights=main_weights if isinstance(main_weights, dict) else None,
+        main_value=main_value,
     )
 
 

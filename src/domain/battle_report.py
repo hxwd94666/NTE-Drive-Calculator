@@ -371,6 +371,7 @@ class BattleTargetCondition:
     enemy_topple_limit: float = 50.0
     environment_kind: str = "manual"
     environment_ref: str = ""
+    environment_name: str = ""
     selected_target_ids: tuple[str, ...] = ()
     primary_target_id: str = ""
     difficulty_id: int | None = None

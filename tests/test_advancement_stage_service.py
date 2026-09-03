@@ -7,7 +7,9 @@ import unittest
 
 from src.services.advancement_stage_service import (
     character_growth_choices,
+    fork_active_panel_stats,
     fork_breakthrough_choices,
+    fork_permanent_stats,
     fork_panel_stats,
     legacy_fork_breakthrough_stage,
     select_character_growth,
@@ -132,6 +134,32 @@ class AdvancementStageServiceTests(unittest.TestCase):
         self.assertEqual(
             {"AtkBase": 118.0, "HPMaxUp": 0.2062},
             fork_panel_stats(template, 21),
+        )
+
+    def test_fork_active_panel_stats_adds_exact_refinement_property(self) -> None:
+        template = {
+            "upgrade_levels": [{
+                "level": 20,
+                "modifiers": [{"property_id": "AtkBase", "value": 100}],
+            }],
+            "breakthroughs": [{
+                "stage": 1,
+                "max_fork_level": 20,
+                "modifiers": [{"property_id": "AtkBase", "value": 25}],
+            }],
+            "permanent_properties": [
+                {"refinement_level": 1, "property_id": "CritBase", "property_value": 0.16},
+                {"refinement_level": 5, "property_id": "CritBase", "property_value": 0.32},
+            ],
+        }
+
+        self.assertEqual({"CritBase": 0.16}, fork_permanent_stats(template, 1))
+        self.assertEqual({"CritBase": 0.32}, fork_permanent_stats(template, 5))
+        self.assertEqual(
+            {"AtkBase": 125.0, "CritBase": 0.32},
+            fork_active_panel_stats(
+                template, 20, breakthrough_stage=1, refinement_level=5,
+            ),
         )
 
 

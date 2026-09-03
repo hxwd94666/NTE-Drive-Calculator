@@ -77,6 +77,27 @@ def test_dialog_with_nested_parent_uses_the_top_level_global_center() -> None:
     top_level.hide()
 
 
+def test_tall_dialog_keeps_requested_margin_when_owner_is_near_screen_bottom() -> None:
+    app = QApplication.instance() or QApplication([])
+    available = QRect(0, 0, 1536, 832)
+    owner = QWidget()
+    owner.show()
+    app.processEvents()
+    owner.setGeometry(468, 532, 600, 400)
+    dialog = QDialog(owner)
+
+    fit_dialog_to_available_screen(
+        dialog,
+        QSize(1064, 920),
+        margin=24,
+        available_geometry=available,
+    )
+
+    assert dialog.geometry().top() >= available.top() + 24
+    assert dialog.geometry().bottom() <= available.bottom() - 24
+    owner.hide()
+
+
 @pytest.mark.parametrize("scale", (1.0, 1.25, 1.5, 1.75, 2.0))
 def test_dialog_geometry_covers_common_windows_scaling_ratios(scale: float) -> None:
     available = QRect(0, 0, round(1920 / scale), round(1040 / scale))
@@ -130,6 +151,8 @@ def test_replacement_dialog_keeps_confirm_action_inside_work_area(
         )
         observed["dialog_width"] = dialog.width()
         observed["dialog_height"] = dialog.height()
+        observed["dialog_top"] = dialog.geometry().top()
+        observed["dialog_bottom"] = dialog.geometry().bottom()
         observed["confirm_bottom"] = confirm.mapTo(
             dialog, confirm.rect().bottomLeft(),
         ).y()
@@ -161,8 +184,17 @@ def test_replacement_dialog_keeps_confirm_action_inside_work_area(
         direct_damage_score=None,
         payload=None,
     )
+    owner = QDialog()
+    owner.show()
+    app.processEvents()
+    owner.setGeometry(
+        available.center().x() - 300,
+        available.bottom() - 300,
+        600,
+        400,
+    )
     show_equipment_replacement_dialog(
-        QDialog(),
+        owner,
         title="替换装备",
         role_name="测试角色",
         summary="缩放适配测试",
@@ -184,4 +216,10 @@ def test_replacement_dialog_keeps_confirm_action_inside_work_area(
     assert 140 <= observed["comparison_minimum"] <= 310
     assert observed["dialog_width"] <= max(1, available.width() - 48)
     assert observed["dialog_height"] <= max(1, available.height() - 48)
+    # Qt's styled dialog frame can shift the post-show client geometry by two
+    # logical pixels; the requested 24 px work-area margin remains intact to
+    # that frame tolerance at every tested scale.
+    assert observed["dialog_top"] >= available.top() + 22
+    assert observed["dialog_bottom"] <= available.bottom() - 22
     assert observed["confirm_bottom"] < observed["dialog_height"]
+    owner.hide()

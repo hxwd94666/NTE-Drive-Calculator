@@ -12,6 +12,7 @@ from src.integrations.bundled_resources import bundled_config_dir
 from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.character_weight_service import is_unmodified_account_weight_cache
 
@@ -101,7 +102,11 @@ class ScoringEngine:
                         else None
                     )
                     if record is None or is_unmodified_account_weight_cache(record):
-                        record = static_dao.get_character_recommended_weights(character_id)
+                        record = effective_workshop_recommended_weights(
+                            None,
+                            character_id,
+                            static_dao.get_character_recommended_weights(character_id),
+                        )
                     if record is None:
                         continue
                     weights = {

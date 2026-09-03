@@ -68,11 +68,10 @@ def _format_damage(value: float) -> str:
 
 
 class _ElidedLabel(QLabel):
-    """Keep a row label inside its available column without hiding the full text."""
+    """Keep a row label inside its available column without native hover overlays."""
 
     def __init__(self, text: str) -> None:
         super().__init__(text)
-        self.setToolTip(text)
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt override
         del event
@@ -368,13 +367,13 @@ class BattleDamageCompositionPanel(QWidget):
         damage.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
         layout.addWidget(damage)
         share = QLabel(f"{entry.share_percent:.1f}%")
-        share.setToolTip("占当前角色/公共块伤害")
+
         share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         share.setFixedWidth(_DAMAGE_SHARE_WIDTH)
         share.setStyleSheet(themed_style("font-size:11px;color:#8b949e"))
         layout.addWidget(share)
         total_share = QLabel(f"{entry.total_share_percent:.1f}%")
-        total_share.setToolTip("占当前范围团队总伤害")
+
         total_share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         total_share.setFixedWidth(_DAMAGE_TOTAL_SHARE_WIDTH)
         total_share.setStyleSheet(themed_style("font-size:11px;color:#6e7681"))

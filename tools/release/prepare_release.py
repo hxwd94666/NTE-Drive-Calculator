@@ -377,11 +377,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--skip-tests", action="store_true", help="仅供调试发布工具。")
     parser.add_argument("--skip-build", action="store_true", help="校验已有安装包，不重新构建。")
     parser.add_argument(
-        "--skip-workshop-sync",
-        action="store_true",
-        help="构建时跳过工坊权重同步；正式发布应确保静态库已同步。",
-    )
-    parser.add_argument(
         "--local-config",
         type=Path,
         default=Path(os.environ[LOCAL_CONFIG_ENV])
@@ -444,7 +439,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--version",
                 __version__,
             ]
-            build_command.append("--skip-workshop-sync" if args.skip_workshop_sync else "--require-workshop-sync")
             run(build_command)
         if not INSTALLER_PATH.is_file():
             raise RuntimeError(f"找不到安装包：{INSTALLER_PATH}")

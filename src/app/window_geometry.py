@@ -78,7 +78,20 @@ def fit_dialog_to_available_screen(
     )
     x = center.x() - target.width() // 2
     y = center.y() - target.height() // 2
-    x = max(available.left(), min(x, available.right() - target.width() + 1))
-    y = max(available.top(), min(y, available.bottom() - target.height() + 1))
+    requested_margin = max(0, int(margin))
+    horizontal_margin = min(
+        requested_margin,
+        max(0, (available.width() - target.width()) // 2),
+    )
+    vertical_margin = min(
+        requested_margin,
+        max(0, (available.height() - target.height()) // 2),
+    )
+    minimum_x = available.left() + horizontal_margin
+    maximum_x = available.right() - horizontal_margin - target.width() + 1
+    minimum_y = available.top() + vertical_margin
+    maximum_y = available.bottom() - vertical_margin - target.height() + 1
+    x = max(minimum_x, min(x, maximum_x))
+    y = max(minimum_y, min(y, maximum_y))
     dialog.move(x, y)
     return target

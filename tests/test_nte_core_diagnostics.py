@@ -78,8 +78,10 @@ class NteCoreDiagnosticsTests(unittest.TestCase):
             ["\\\\Device\\\\NPF_{one}", "\\\\Device\\\\NPF_{two}"],
         )
         report = format_nte_core_diagnostics(result)
-        self.assertIn("可手动选择", report)
+        self.assertIn("默认由 nte-core 自动选择", report)
         self.assertIn("未获得自动推荐", report)
+        self.assertNotIn("可手动选择", report)
+        self.assertNotIn("选择可用网卡", report)
         self.assertNotIn("\\\\Device\\\\NPF_{one}", report)
         self.assertNotIn("原始诊断数据", report)
 

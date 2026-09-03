@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -47,6 +48,7 @@ class RewindTargetRole:
     name: str
     default_suit_id: str | None
     is_custom: bool = False
+    calculation_score: float | None = None
 
 
 class RewindShapeRecommendationService:
@@ -112,9 +114,36 @@ class RewindShapeRecommendationService:
                     key=lambda row: str(row.get("name_zh") or row["character_id"]),
                 )
             ]
+        calculation_scores: dict[int, float] = {}
         if self._user_database_path.is_file():
             with self._user_dao_factory(self._user_database_path) as user_dao:
                 custom_roles = getattr(user_dao, "list_custom_characters", lambda: [])()
+                slot_plans = getattr(
+                    user_dao,
+                    "list_current_loadout_slot_plans",
+                    lambda: [],
+                )()
+                for row in slot_plans:
+                    slot = row.get("slot") or {}
+                    plan = row.get("plan") or {}
+                    payload = plan.get("payload") or {}
+                    if payload.get("schema") != "allocation-official-snapshot-v1":
+                        continue
+                    character_id = plan.get("character_id") or slot.get("character_id")
+                    score = plan.get("score")
+                    if character_id is None or score is None or isinstance(score, bool):
+                        continue
+                    try:
+                        numeric_score = float(score)
+                    except (TypeError, ValueError):
+                        continue
+                    if not math.isfinite(numeric_score):
+                        continue
+                    identifier = int(character_id)
+                    calculation_scores[identifier] = max(
+                        numeric_score,
+                        calculation_scores.get(identifier, numeric_score),
+                    )
             known_ids = {role.character_id for role in roles}
             roles.extend(
                 RewindTargetRole(
@@ -130,6 +159,13 @@ class RewindShapeRecommendationService:
                 for role in custom_roles
                 if (character_id := int(role["character_id"])) not in known_ids
             )
+        roles = [
+            replace(
+                role,
+                calculation_score=calculation_scores.get(role.character_id),
+            )
+            for role in roles
+        ]
         return tuple(sorted(roles, key=lambda role: (role.name, role.character_id)))
 
     def load_owned_shape_counts(self) -> tuple[tuple[str, int], ...]:

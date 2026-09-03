@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.allocation_rating import allocation_grade
 from src.domain.loadout_plan_scores import exact_assignment_score_total
 from src.features.inventory.equipment_plan_projection import (
     display_shape_id as _display_shape_id,
@@ -13,13 +14,16 @@ from src.features.inventory.warehouse import warehouse_item_icon_path
 from src.optimizer.contracts import (
     DIFF_ADDED,
     DIFF_ADDED_UIDS,
+    DIFF_CHANGED,
     DIFF_REMOVED,
     EQUIP_IS_CHANGED,
     EQUIP_IS_NEW,
+    EQUIP_GRADE,
     EQUIP_MAIN_STATS,
     EQUIP_QUALITY,
     EQUIP_SET_NAME,
     EQUIP_SHAPE_ID,
+    EQUIP_SCORE,
     EQUIP_SUB_STATS,
     EQUIP_TYPE,
     EQUIP_UID,
@@ -51,6 +55,11 @@ def _inventory_uid_key(uid):
     return key if min(key) >= 1 else None
 
 
+def _inventory_display_uid(item):
+    kind = "module" if str(item.get("kind") or "") == "module" else "core"
+    return f"nte-{kind}-{item.get('uid_slot')}-{item.get('uid_serial')}"
+
+
 def _sqlite_plan_display_state(
     plan,
     user_dao,
@@ -76,6 +85,27 @@ def _sqlite_plan_display_state(
     if attribute_ids is None:
         attribute_ids = {str(attribute["attribute_id"]) for attribute in static_dao.list_equipment_attributes()}
     payload = plan.get("payload") or {}
+    raw_assignment_scores = payload.get("assignment_scores") or {}
+    assignment_scores = {
+        str(uid): float(score)
+        for uid, score in raw_assignment_scores.items()
+    }
+    assignment_scores_complete = (
+        exact_assignment_score_total(plan["assignments"], assignment_scores)
+        is not None
+    )
+
+    def persisted_score_fields(uid: str, area: int) -> dict[str, float | str]:
+        """Expose the immutable plan score on every saved equipment card."""
+
+        if not assignment_scores_complete or uid not in assignment_scores:
+            return {}
+        score = assignment_scores[uid]
+        return {
+            EQUIP_SCORE: score,
+            EQUIP_GRADE: allocation_grade(score, area),
+        }
+
     last_diff = dict(payload.get("last_diff") or {})
     requested_diff_uids = {
         str(
@@ -127,10 +157,17 @@ def _sqlite_plan_display_state(
         if hydrated:
             last_diff[diff_key] = hydrated
     added_uids = {str(uid) for uid in (last_diff.get(DIFF_ADDED_UIDS) or ()) if uid}
+    added_uids.update(
+        str(entry.get(EQUIP_UID) or "")
+        for entry in (last_diff.get(DIFF_ADDED) or ())
+        if isinstance(entry, dict)
+    )
+    added_uids.discard("")
     changed_uids = {str(uid) for uid in (payload.get("changed_uids") or ()) if uid}
     board = [["0" for _ in range(5)] for _ in range(5)]
     drives = []
     tape = None
+    official_items = []
     for assignment in plan["assignments"]:
         raw = normalized_equipment_assignment(assignment)
         item = (
@@ -146,6 +183,7 @@ def _sqlite_plan_display_state(
             )
             logger.error("已保存方案兼容性错误：{}", message)
             raise RuntimeError(message)
+        official_items.append(dict(item))
         unknown_properties = [
             str(stat.get("property_id") or "")
             for stat in (*item.get("main_stats", ()), *item.get("sub_stats", ()))
@@ -191,6 +229,7 @@ def _sqlite_plan_display_state(
                 "discarded": bool(item.get("discarded")),
                 "item_icon_path": item_icon_path,
                 "virtual": bool(item.get("virtual")),
+                **persisted_score_fields(uid, 15),
                 EQUIP_IS_CHANGED: uid in changed_uids,
                 EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
             }
@@ -220,6 +259,10 @@ def _sqlite_plan_display_state(
                 "duplicate_count": item.get("duplicate_count"),
                 "item_icon_path": item_icon_path,
                 "virtual": bool(item.get("virtual")),
+                **persisted_score_fields(
+                    uid,
+                    int(item.get("grid_count") or len(shape_cells[official_shape])),
+                ),
                 EQUIP_IS_CHANGED: uid in changed_uids,
                 EQUIP_IS_NEW: uid in added_uids and uid not in changed_uids,
             }
@@ -230,6 +273,25 @@ def _sqlite_plan_display_state(
             target_column = int(column) + int(cell["y"]) - 1
             if 0 <= target_row < 5 and 0 <= target_column < 5:
                 board[target_row][target_column] = shape_id
+    previous_official_items = []
+    if bool(last_diff.get(DIFF_CHANGED)):
+        previous_official_items.extend(
+            item for item in official_items
+            if _inventory_display_uid(item) not in added_uids
+        )
+        previous_uids = {
+            _inventory_display_uid(item) for item in previous_official_items
+        }
+        for entry in last_diff.get(DIFF_REMOVED, ()) or ():
+            if not isinstance(entry, dict):
+                continue
+            uid = str(entry.get(EQUIP_UID) or "")
+            key = _inventory_uid_key(uid)
+            item = items.get(key) if key is not None else None
+            if item is not None and uid not in previous_uids:
+                previous_official_items.append(dict(item))
+                previous_uids.add(uid)
+
     return {
         ROLE_BLUEPRINT_LAYOUT: board,
         ROLE_EQUIPPED_TAPE: tape,
@@ -241,11 +303,13 @@ def _sqlite_plan_display_state(
         "strategy_mode": display_strategy_mode(payload),
         "_sqlite_plan_id": plan["plan_id"],
         "_sqlite_source_snapshot_id": snapshot_id,
-        "_sqlite_assignment_scores_complete": exact_assignment_score_total(
-            plan["assignments"],
-            payload.get("assignment_scores") or {},
-        ) is not None,
+        "_sqlite_assignment_scores_complete": assignment_scores_complete,
         "_allocation_locked": bool(plan.get("allocation_locked")),
+        # Preserve the normalized official-ID rows for the background-only
+        # current-progression attribute summary.  UI code never reconstructs
+        # these IDs from localized labels.
+        "_official_items": tuple(official_items),
+        "_previous_official_items": tuple(previous_official_items),
         ROLE_LAST_DIFF: last_diff,
     }
 

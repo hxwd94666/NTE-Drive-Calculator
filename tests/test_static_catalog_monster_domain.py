@@ -178,7 +178,7 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             if value.provenance == FORMULA
         ]
         self.assertTrue(formula_values)
-        self.assertIn("共用数值画像", profile_detail.notices[0])
+        self.assertIn("不建立当前模板与图鉴的身份关系", profile_detail.notices[0])
 
     def test_formula_profile_reports_attack_tier_as_unavailable(self):
         feast = self._page("feast").items[0]
@@ -408,7 +408,7 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             setup.default_difficulty_id,
         )
         self.assertIsNotNone(detail)
-        self.assertEqual("争锋赏宴 · 1.1 往期 · 极难 积分", detail.entry.subtitle)
+        self.assertEqual("争锋赏宴 · 1.1 往期 · 极难 积分倍率x5", detail.entry.subtitle)
         activity = next(
             section for section in detail.sections if section.title == "活动期"
         )

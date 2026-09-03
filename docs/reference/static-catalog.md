@@ -24,7 +24,7 @@
   Buff、技能伤害叶子和反事实覆盖不作为卡墙条目；持续伤害仍以正式 `State.Damage.Dot` 作为领域判定，
   内部身份不进入玩家标题。
 
-schema v31 的 130 表登记、资源关系及来源追溯仍作为内部完整性能力；空表和发行时省略的
+当前发行 v31 与候选 v32 的 schema 覆盖、资源关系及来源追溯仍作为内部完整性能力；空表和发行时省略的
 `source_row.payload_json` 继续接受自动审计，但不进入玩家资料库菜单。
 
 反事实矩阵和 C++ 差分组件仍属于内部审计及生产验证能力，不进入玩家资料库页面。
@@ -36,4 +36,4 @@ schema v31 的 130 表登记、资源关系及来源追溯仍作为内部完整�
 - [弧盘数据域](static-catalog-fork.md)
 - [怪物与玩法域](static-catalog-monster-domain.md)
 - [战斗机制图鉴](static-catalog-formula-model.md)
-- [124 表覆盖清单](static-catalog-coverage.md)
+- [schema 覆盖审计](static-catalog-coverage.md)

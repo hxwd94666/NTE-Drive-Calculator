@@ -1,3 +1,4 @@
+# 提供角色养成材料聚合的纯领域契约与计算。
 """Qt-free material aggregation contracts for character cultivation pages."""
 
 from __future__ import annotations

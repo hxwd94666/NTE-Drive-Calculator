@@ -1,4 +1,4 @@
-# 测试 v30 正式掉落闭包到公共体力计算的只读接线。
+# 测试当前静态掉落闭包到公共体力计算的只读接线。
 from __future__ import annotations
 
 import sqlite3
@@ -21,7 +21,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 class ProgressionStaminaStaticSourceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.database_path = Path(self.temporary.name) / "candidate-v30.sqlite3"
+        self.database_path = Path(self.temporary.name) / "candidate-v32.sqlite3"
         with closing(sqlite3.connect(self.database_path)) as connection:
             connection.executescript(
                 """
@@ -29,7 +29,7 @@ class ProgressionStaminaStaticSourceTests(unittest.TestCase):
                     version INTEGER PRIMARY KEY,
                     applied_at_utc TEXT NOT NULL
                 );
-                INSERT INTO schema_migration VALUES (30, '2026-08-30');
+                INSERT INTO schema_migration VALUES (32, '2026-09-02');
                 CREATE TABLE clone_activity (
                     clone_id TEXT PRIMARY KEY,
                     name_zh TEXT NOT NULL
@@ -137,7 +137,7 @@ class ProgressionStaminaStaticSourceTests(unittest.TestCase):
             for item_id in item_ids
         )
 
-    def test_v30_query_uses_exact_items_even_when_only_name_is_missing(self) -> None:
+    def test_current_query_uses_exact_items_even_when_only_name_is_missing(self) -> None:
         with StaticGameDataDao(self.database_path) as dao:
             stages = dao.list_progression_farming_stages()
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from src.app.context import AccountContext, AppContext, ApplicationPaths
+from src.app.constants import NETDISK_DOWNLOAD_LINKS
 from src.features.settings.page import _settings_paths
 from src.ui.controllers.environment_controller import _new_environment_operation
 from src.ui.controllers.update_controller import _new_update_operation
@@ -32,6 +33,16 @@ def account(root: Path, account_id: str) -> AccountContext:
 
 
 class SettingsContextTests(unittest.TestCase):
+    def test_netdisk_downloads_keep_xunlei_after_quark_and_baidu(self):
+        self.assertEqual(
+            ("夸克网盘", "百度网盘", "迅雷网盘"),
+            tuple(name for name, _url in NETDISK_DOWNLOAD_LINKS),
+        )
+        self.assertEqual(
+            "https://pan.xunlei.com/s/VP0W_ptzSZwkVamy2UvF_CliA1?pwd=2hb6#",
+            NETDISK_DOWNLOAD_LINKS[2][1],
+        )
+
     def test_settings_paths_follow_context_account_switch(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -114,11 +125,6 @@ class SettingsContextTests(unittest.TestCase):
             if ".account.account_id" in source:
                 violations.append(str(path))
         self.assertEqual([], violations)
-
-    def test_cloud_mode_development_label_uses_complete_feature_name(self):
-        source = Path("src/features/settings/page.py").read_text(encoding="utf-8")
-        self.assertIn('QLabel("云异环模式：正在开发中")', source)
-        self.assertNotIn('QLabel("云异环：正在开发中', source)
 
     def test_capture_device_placeholder_warns_against_manual_input(self):
         source = Path("src/features/settings/page.py").read_text(encoding="utf-8")

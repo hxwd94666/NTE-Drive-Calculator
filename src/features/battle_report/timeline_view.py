@@ -20,6 +20,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QMenu, QToolTip, QWidget
 
+from src.app.theme import current_theme_name, theme_color
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleAnalysisSnapshot,
@@ -158,12 +159,12 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#0d1117"))
+        painter.fillRect(self.rect(), QColor(theme_color("#0d1117")))
         self._painted_bars = []
         self._painted_hits = []
         analysis = self._visible_analysis()
         if analysis is None or not analysis.timeline_hits:
-            painter.setPen(QColor("#8b949e"))
+            painter.setPen(QColor(theme_color("#8b949e")))
             painter.drawText(self.rect(), Qt.AlignCenter, "当前战报没有可展示的正式逐击轴")
             return
 
@@ -294,13 +295,14 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
             elif lane.kind == "action":
                 color = QColor(47, 129, 247, 11)
             else:
-                color = QColor(255, 255, 255, 5 if index % 2 == 0 else 9)
+                shade = 0 if current_theme_name() == "light" else 255
+                color = QColor(shade, shade, shade, 5 if index % 2 == 0 else 9)
             painter.fillRect(QRectF(0, lane.top, plot_right, lane.height), color)
-            painter.setPen(QColor("#30363d"))
+            painter.setPen(QColor(theme_color("#30363d")))
             painter.drawLine(LABEL_WIDTH, lane.top, int(plot_right), lane.top)
         if lanes:
             bottom = lanes[-1].top + lanes[-1].height
-            painter.setPen(QColor("#30363d"))
+            painter.setPen(QColor(theme_color("#30363d")))
             painter.drawLine(LABEL_WIDTH, bottom, int(plot_right), bottom)
 
     def _paint_input(
@@ -344,7 +346,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
                 Qt.ElideRight,
                 max(1, round(text_rect.width())),
             )
-            painter.setPen(QColor("#f0f6fc"))
+            painter.setPen(QColor(theme_color("#f0f6fc")))
             painter.drawText(text_rect, Qt.AlignCenter, text)
         self._painted_bars.append(
             TimelinePaintedBar(
@@ -376,7 +378,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         painter.drawRoundedRect(rect, 6, 6)
         label = f"{action.input_sequence} · {action.action_name.split('：', 1)[-1]}"
         text_rect = rect.adjusted(7, 0, -7, 0)
-        painter.setPen(QColor("#f0f6fc"))
+        painter.setPen(QColor(theme_color("#f0f6fc")))
         painter.drawText(
             text_rect,
             Qt.AlignVCenter | Qt.AlignLeft,
@@ -421,7 +423,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         painter.setBrush(color)
         painter.drawRoundedRect(rect, thickness / 2, thickness / 2)
         if rect.width() >= 86:
-            painter.setPen(QColor("#f0f6fc"))
+            painter.setPen(QColor(theme_color("#f0f6fc")))
             painter.drawText(
                 rect.adjusted(7, -5, -7, 5),
                 Qt.AlignVCenter | Qt.AlignLeft,
@@ -475,7 +477,12 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
             )
             if not rect.intersects(visible_rect):
                 continue
-            painter.setPen(QPen(QColor(255, 255, 255, 115), 1))
+            hit_outline = (
+                QColor(36, 41, 47, 145)
+                if current_theme_name() == "light"
+                else QColor(255, 255, 255, 115)
+            )
+            painter.setPen(QPen(hit_outline, 1))
             painter.setBrush(color.lighter(112))
             painter.drawEllipse(rect)
             self._painted_hits.append(TimelinePaintedHit(lane.key, rect, hit))
@@ -494,9 +501,9 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         while tick <= span:
             ratio = tick / span
             x = plot_left + plot_width * ratio
-            painter.setPen(QColor("#21262d"))
+            painter.setPen(QColor(theme_color("#21262d")))
             painter.drawLine(int(x), TOP, int(x), int(plot_bottom))
-            painter.setPen(QColor("#8b949e"))
+            painter.setPen(QColor(theme_color("#8b949e")))
             painter.drawText(
                 int(x) - 45,
                 8,
@@ -507,7 +514,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
             )
             tick += step
         if (tick - step) < span:
-            painter.setPen(QColor("#8b949e"))
+            painter.setPen(QColor(theme_color("#8b949e")))
             painter.drawText(
                 round(plot_left + plot_width) - 90,
                 8,
@@ -772,7 +779,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         if pixmap is not None and not pixmap.isNull():
             painter.drawPixmap(rect, pixmap, QRectF(pixmap.rect()))
         else:
-            painter.setPen(QColor("#ffffff"))
+            painter.setPen(QColor(theme_color("#f0f6fc")))
             painter.drawText(rect, Qt.AlignCenter, character_name[:1] or "?")
         painter.restore()
         painter.setPen(QPen(fallback_color.lighter(145), 1))

@@ -81,8 +81,7 @@ class MechanicsGalleryCard(QFrame):
         self.setStyleSheet(themed_style(
             "QFrame#mechanicsGalleryCard{background:#161b22;"
             "border:1px solid #30363d;border-radius:9px;}"
-            "QFrame#mechanicsGalleryCard:hover{background:#182434;"
-            "border-color:#58a6ff;}"
+            "QFrame#mechanicsGalleryCard:hover{border-color:#58a6ff;}"
         ))
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)

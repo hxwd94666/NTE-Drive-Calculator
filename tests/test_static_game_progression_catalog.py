@@ -1,3 +1,4 @@
+# 测试当前静态库的养成目录导入、术语和掉落闭包。
 from __future__ import annotations
 
 import sqlite3
@@ -5,10 +6,8 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
-from unittest.mock import patch
 
 from src.services.static_catalog_terminology_service import StaticCatalogTerminologyService
-from src.storage.sqlite import static_game_data_dao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from tools.game_data.static_database_build_support import SCHEMA_PATHS
 from tools.game_data.static_database_progression_imports import ProgressionImportMixin
@@ -213,8 +212,11 @@ class _FixtureBuilder(ProgressionImportMixin):
     def source_row_id(self, table: str, row_key: str) -> int:
         return self.source_row_ids[(table, str(row_key))]
 
+    def _import_character_progression(self) -> None:
+        """Keep this catalog fixture scoped to its own importer contracts."""
 
-class StaticGameProgressionV30Test(unittest.TestCase):
+
+class StaticGameProgressionCatalogTest(unittest.TestCase):
     def setUp(self) -> None:
         self.connection = sqlite3.connect(":memory:")
         self.connection.execute("PRAGMA foreign_keys = ON")
@@ -243,6 +245,9 @@ class StaticGameProgressionV30Test(unittest.TestCase):
         )
         self.builder.source_row_ids[(table, row_key)] = source_row_id
         return source_row_id
+
+    def _import_character_progression(self) -> None:
+        """Keep this catalog fixture scoped to its own importer contracts."""
 
     def _insert_sources(self) -> None:
         for table, rows in self.builder.rows.items():
@@ -373,32 +378,31 @@ class StaticGameProgressionV30Test(unittest.TestCase):
         self.builder._import_progression_catalog()
         self.connection.commit()
         with tempfile.TemporaryDirectory() as directory:
-            database_path = Path(directory) / "v30.sqlite3"
+            database_path = Path(directory) / "v32.sqlite3"
             with closing(sqlite3.connect(database_path)) as destination:
                 self.connection.backup(destination)
                 destination.execute(
-                    "INSERT INTO schema_migration VALUES (30, '2026-08-30')"
+                    "INSERT INTO schema_migration VALUES (32, '2026-09-02')"
                 )
                 destination.execute(
-                    "INSERT INTO dataset VALUES ('fixture-v30', 36, '2026-08-30')"
+                    "INSERT INTO dataset VALUES ('fixture-v32', 40, '2026-09-02')"
                 )
                 destination.commit()
 
-            with patch.object(static_game_data_dao, "SCHEMA_VERSION", 30):
-                with StaticGameDataDao(database_path) as dao:
-                    service = StaticCatalogTerminologyService(dao)
-                    cost = service.resolve(
-                        "item", "gold", context="progression_cost"
-                    )
-                    capital = service.resolve(
-                        "item", "Gold", context="progression_cost"
-                    )
-                    grade = service.resolve("item_quality", "ORANGE")
-                    color = service.resolve("item_quality_color", "ORANGE")
-                    missing_item = service.resolve("item", "NotPresent")
-                    missing_effect = service.resolve(
-                        "gameplay_effect", "GE_Internal_Only"
-                    )
+            with StaticGameDataDao(database_path) as dao:
+                service = StaticCatalogTerminologyService(dao)
+                cost = service.resolve(
+                    "item", "gold", context="progression_cost"
+                )
+                capital = service.resolve(
+                    "item", "Gold", context="progression_cost"
+                )
+                grade = service.resolve("item_quality", "ORANGE")
+                color = service.resolve("item_quality_color", "ORANGE")
+                missing_item = service.resolve("item", "NotPresent")
+                missing_effect = service.resolve(
+                    "gameplay_effect", "GE_Internal_Only"
+                )
 
         self.assertEqual(("Fons", "方斯"), (cost.canonical_id, cost.display_name))
         self.assertEqual(
@@ -455,21 +459,20 @@ class StaticGameProgressionV30Test(unittest.TestCase):
             with closing(sqlite3.connect(database_path)) as destination:
                 self.connection.backup(destination)
                 destination.execute(
-                    "INSERT INTO schema_migration VALUES (30, '2026-08-30')"
+                    "INSERT INTO schema_migration VALUES (32, '2026-09-02')"
                 )
                 destination.execute(
-                    "INSERT INTO dataset VALUES ('fixture-v30', 36, '2026-08-30')"
+                    "INSERT INTO dataset VALUES ('fixture-v32', 40, '2026-09-02')"
                 )
                 destination.commit()
-            with patch.object(static_game_data_dao, "SCHEMA_VERSION", 30):
-                with StaticGameDataDao(database_path) as dao:
-                    service = StaticCatalogTerminologyService(dao)
-                    missing = service.resolve("damage_resistance", "normal")
-                    stage = service.resolve(
-                        "outer_realm_fight_stage",
-                        "EAbyssFightStage::FirstHalf",
-                    )
-                    campaigns = service.list_fork_campaigns()
+            with StaticGameDataDao(database_path) as dao:
+                service = StaticCatalogTerminologyService(dao)
+                missing = service.resolve("damage_resistance", "normal")
+                stage = service.resolve(
+                    "outer_realm_fight_stage",
+                    "EAbyssFightStage::FirstHalf",
+                )
+                campaigns = service.list_fork_campaigns()
         self.assertEqual("name_missing", missing.source_kind)
         self.assertIsNone(missing.display_name)
         self.assertEqual(("上半场", "ui_state"), (stage.display_name, stage.source_kind))
@@ -544,7 +547,7 @@ class StaticGameProgressionV30Test(unittest.TestCase):
         self.assertEqual(("Fons", 4000), currency)
         self.assertEqual(("sequence_not_deterministic",), partial_gap)
 
-    def test_failed_import_rolls_back_all_v30_rows_and_can_retry(self) -> None:
+    def test_failed_import_rolls_back_all_catalog_rows_and_can_retry(self) -> None:
         self.builder.rows["fork_breakthroughs"]["Pack_1"]["NeedItems"] = "broken"
         self.connection.execute("BEGIN")
         with self.assertRaisesRegex(RuntimeError, "养成消耗格式无效"):

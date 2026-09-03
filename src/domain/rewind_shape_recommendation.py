@@ -57,19 +57,13 @@ class RewindPricingRule:
 
 @dataclass(frozen=True, slots=True)
 class RewindPlan:
-    """One eight-slot multiset, including score benefit and exact token cost."""
+    """One generated eight-slot recommendation and its current quality gap."""
 
     key: str
     label: str
     recommendations: tuple[RewindShapeRecommendation, ...]
     score_benefit: float
     total_cost: float
-
-    @property
-    def relative_cost(self) -> float:
-        """Compatibility alias for previously persisted/displayed prototype data."""
-
-        return self.total_cost
 
 
 def recommend_rewind_shapes(
@@ -163,139 +157,6 @@ def recommend_rewind_shape_quantities(
             key=lambda item: (-first_scores[item[0]], -shape_demand[item[0]], item[0]),
         )
     )
-
-
-def recommend_rewind_plans(
-    *,
-    shapes: tuple[RewindShape, ...],
-    shape_demand: Counter[str],
-    owned_shape_counts: Counter[str],
-    quality_gaps: Counter[str],
-    pricing_rule: RewindPricingRule,
-    selection_limit: int = 8,
-) -> tuple[RewindPlan, ...]:
-    """Solve all eight-slot multisets for score, balance and economy variants.
-
-    A shape's value combines role-specific high-quality-stock shortage with
-    ordinary tape demand.  Repeats are evaluated as a complete multiset, so
-    the second/third copy pays its own escalating price instead of merely
-    receiving a greedy-count penalty.
-    """
-
-    if selection_limit <= 0:
-        raise ValueError("selection_limit must be positive")
-    ordered_shapes = tuple(sorted(shapes, key=lambda row: row.shape_id))
-    if not ordered_shapes:
-        return ()
-
-    distributions = tuple(_shape_distributions(len(ordered_shapes), selection_limit))
-    variants = (
-        ("score", "冲分方案", 0.02),
-        ("balanced", "综合方案", 0.14),
-        ("economy", "省币方案", 0.55),
-    )
-    plans: list[RewindPlan] = []
-    for key, label, cost_weight in variants:
-        best = max(
-            distributions,
-            key=lambda counts: _plan_objective(
-                counts,
-                ordered_shapes,
-                shape_demand,
-                owned_shape_counts,
-                quality_gaps,
-                pricing_rule,
-                cost_weight,
-            ),
-        )
-        benefit, cost = _plan_metrics(
-            best,
-            ordered_shapes,
-            shape_demand,
-            owned_shape_counts,
-            quality_gaps,
-            pricing_rule,
-        )
-        rows = tuple(
-            RewindShapeRecommendation(
-                shape=shape,
-                suit_demand=int(shape_demand[shape.shape_id]),
-                owned_count=max(0, int(owned_shape_counts.get(shape.shape_id, 0))),
-                priority_score=_shape_value(shape, shape_demand, quality_gaps),
-                quantity=quantity,
-                quality_gap=float(quality_gaps.get(shape.shape_id, 0.0)),
-            )
-            for shape, quantity in zip(ordered_shapes, best)
-            if quantity
-        )
-        plans.append(
-            RewindPlan(
-                key=key,
-                label=label,
-                recommendations=rows,
-                score_benefit=round(benefit, 2),
-                total_cost=round(cost, 2),
-            )
-        )
-    return tuple(plans)
-
-
-def _shape_distributions(shape_count: int, total: int):
-    if shape_count == 1:
-        yield (total,)
-        return
-    for count in range(total + 1):
-        for remainder in _shape_distributions(shape_count - 1, total - count):
-            yield (count, *remainder)
-
-
-def _shape_value(
-    shape: RewindShape,
-    shape_demand: Counter[str],
-    quality_gaps: Counter[str],
-) -> float:
-    return float(shape_demand[shape.shape_id]) + float(quality_gaps[shape.shape_id]) * 6.0
-
-
-def _plan_metrics(
-    counts: tuple[int, ...],
-    shapes: tuple[RewindShape, ...],
-    shape_demand: Counter[str],
-    owned_shape_counts: Counter[str],
-    quality_gaps: Counter[str],
-    pricing_rule: RewindPricingRule,
-) -> tuple[float, float]:
-    benefit = 0.0
-    cost = 0.0
-    for shape, quantity in zip(shapes, counts):
-        value = _shape_value(shape, shape_demand, quality_gaps)
-        owned = max(0, int(owned_shape_counts.get(shape.shape_id, 0)))
-        for copy_index in range(quantity):
-            benefit += value / (1.0 + owned * 0.12 + copy_index * 0.38)
-        cost += pricing_rule.cost_for_quantity(quantity)
-    return benefit, cost
-
-
-def _plan_objective(
-    counts: tuple[int, ...],
-    shapes: tuple[RewindShape, ...],
-    shape_demand: Counter[str],
-    owned_shape_counts: Counter[str],
-    quality_gaps: Counter[str],
-    pricing_rule: RewindPricingRule,
-    cost_weight: float,
-) -> tuple[float, float, tuple[int, ...]]:
-    benefit, cost = _plan_metrics(
-        counts,
-        shapes,
-        shape_demand,
-        owned_shape_counts,
-        quality_gaps,
-        pricing_rule,
-    )
-    # Final deterministic tie-break favours a less concentrated distribution.
-    concentration = -sum(quantity * quantity for quantity in counts)
-    return (benefit - cost * cost_weight, concentration, counts)
 
 
 GRADE_RATIOS = {"D": 0.0, "C": 0.2, "B": 0.3, "A": 0.4, "S": 0.5, "SS": 0.6, "SSS": 0.7, "ACE": 0.8}

@@ -26,7 +26,6 @@
 | [空幕套装](equipment-suits.md) | 二件套和四件套效果 |
 | [公共与特殊机制](system-mechanics.md) | DOT、环合、倾陷、最大生命、多目标和轴变化 |
 | [人工审计结论](review-notes.md) | 用户确认的触发、乘区、消费者和反事实规则 |
-| [薄荷创生范围专题审计](mint-creation-radius-audit.md) | 薄荷被动 `+400` 范围语义及 `AtkRateBaseArray=2.0` 排除证据 |
 
 ## 状态口径
 

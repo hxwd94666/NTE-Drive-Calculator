@@ -125,7 +125,7 @@ def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline
                     "character": "人物",
                     "fork": "弧盘",
                     "likeability": "好感度 10 级",
-                    "world_bonus": "世界加成",
+                    "world_bonus": "家具加成",
                     "equipment": "装备",
                     "battle_override": "边际手工调整",
                 }.get(str(row.get("source_group") or ""), "其他"),

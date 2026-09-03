@@ -4,7 +4,7 @@
 
 ## 数据原则
 
-- 游戏记录、ID、名称和关系只来自开发者本机的游戏官方数据文件；角色推荐权重是单独标注来源的工坊 API 开发期快照，不冒充游戏官方字段。
+- 游戏记录、ID、名称和关系只来自开发者本机的游戏官方数据文件；发行库中的角色推荐权重只是离线基线，运行时由公开工坊模板更新，不冒充游戏官方字段。
 - 标准化查询表以原始游戏 ID 为主键，同时在 `source_row.payload_json` 保留完整来源行。
 - 人工确认的特殊角色分类单独进入 `character_annotation`，不能修改原始角色记录。
 - 新数据库和新运行链路不读取旧 `roles.json`、`sets.json`、`shapes.json`、`tapes.json` 或 `weapons.json`。
@@ -67,40 +67,9 @@ python tools/game_data/build_static_database.py `
 
 完整审计数据库放在项目外；发行候选完成最终晋升后才进入 `data/game_static.sqlite3`。游戏版本更新时，开发者
 从本机官方文件重新整理候选，检查来源哈希、数量和外键后再晋升；官方文件和中间数据不进入开源仓库。
-旧正式库在晋升成功前保持不动，也是无 Key 时继承工坊权重的唯一输入。不得先覆盖正式库，再从账号库、
-共享库或旧 `roles.json` 补值；全 `default` 候选也不得覆盖有效正式库。
-
-新库生成后，打包入口按以下二选一门禁更新角色推荐权重：
-
-1. 存在异环工坊 Open API Key 时，必须用 API 原子同步：
-
-```powershell
-python tools/game_data/sync_recommended_weights.py `
-  --database "$releaseCandidate\game_static.sqlite3" `
-  --manifest "$releaseCandidate\manifest.json" `
-  --config-dir config
-```
-
-API 没有返回的角色保留本次构建产生的角色级发行回退；`character_weight_overrides.json` 仅保存角色尚未
-实装、工坊暂时缺行期间的临时回退。工坊 API 一旦返回该角色，API 权重优先并替换临时回退。Key 只从开发机
-隐藏输入、环境或 `.env` 读取，不写入数据库或安装包；
-应用运行时只读静态库，不访问 API，也不读取旧 `roles.json` 权重。
-
-2. 没有 API Key 时，打包入口自动从构建前备份的发行库继承带
-   `workshop_api`/`workshop_cache` 来源的行。也可以单独执行：
-
-```powershell
-python tools/game_data/sync_recommended_weights.py `
-  --database "$releaseCandidate\game_static.sqlite3" `
-  --reuse-database data/game_static.sqlite3 `
-  --manifest "$releaseCandidate\manifest.json"
-```
-
-继承时，旧库已有角色继续使用旧工坊权重，只有旧库不存在的新角色保留新库的角色级发行回退。API 同步和
-旧库继承都会按最终权重重新生成全部角色毕业模板，保证推荐词条与毕业基准来自同一版静态快照。如果既没有
-可用 Key，也没有构建前备份，发布必须失败；不得跳过同步并把整库 `default` 权重作为正式发行产物。
-正式发布入口必须自动执行同一套“保留旧正式库 → 新建候选 → API 同步或旧库继承 → 最终晋升”流程；
-`--skip-workshop-sync` 只允许开发期诊断，不得用于生成正式发行包。所有后处理完成后只运行以下晋升命令：
+新库生成后保留本次构建产生的角色级离线权重基线；`character_weight_overrides.json` 只保存角色尚未实装或
+公开模板暂缺时的发行回退。打包不访问工坊接口，也不需要 Key。应用每次启动以无鉴权 GET 请求公开接口，
+成功时原子替换应用级模板；请求失败时使用上次有效模板或发行基线。所有后处理完成后只运行以下晋升命令：
 
 ```powershell
 python tools/game_data/promote_static_release.py `

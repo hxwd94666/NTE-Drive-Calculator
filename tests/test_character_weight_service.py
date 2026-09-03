@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -69,6 +70,55 @@ class CharacterWeightServiceTests(unittest.TestCase):
         self.assertTrue(restored["seeded_at_utc"] == restored["updated_at_utc"])
         self.assertEqual(before["property_weights"], restored["property_weights"])
         self.assertEqual(before["main_property_weights"], restored["main_property_weights"])
+
+    def test_runtime_template_refreshes_default_but_never_account_override(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            static_database = root / "game_static.sqlite3"
+            user_database = root / "user.sqlite3"
+            template_file = root / "workshop_weight_template.json"
+            shutil.copy2(PROJECT_DATABASE, static_database)
+            template_file.write_text(json.dumps({
+                "schema_version": 1,
+                "payload_sha256": "first",
+                "characters": {
+                    "1051": {
+                        "character_id": 1051,
+                        "source_kind": "workshop_runtime",
+                        "properties": [{
+                            "property_id": "CritBase", "weight": 1.4,
+                            "main_weight": 0.8, "ordinal": 0,
+                        }],
+                        "property_weights": {"CritBase": 1.4},
+                        "main_property_weights": {"CritBase": 0.8},
+                    },
+                },
+            }), encoding="utf-8")
+            with UserDataDao(user_database, account_id="weights"):
+                pass
+            with patch.dict("os.environ", {
+                "NTE_GAME_STATIC_DB": str(static_database),
+                "NTE_WORKSHOP_WEIGHT_TEMPLATE_FILE": str(template_file),
+            }, clear=False):
+                default = ensure_account_character_weights(user_database, (1051,))[1051]
+                account = save_account_character_weights(
+                    user_database,
+                    1051,
+                    {"CritBase": 2.0},
+                    main_property_weights={"CritBase": 1.0},
+                )
+                template = json.loads(template_file.read_text(encoding="utf-8"))
+                template["payload_sha256"] = "second"
+                template["characters"]["1051"]["property_weights"] = {"CritBase": 1.8}
+                template["characters"]["1051"]["properties"][0]["weight"] = 1.8
+                template_file.write_text(json.dumps(template), encoding="utf-8")
+                after_refresh = ensure_account_character_weights(user_database, (1051,))[1051]
+                reset = reset_account_character_weights(user_database, (1051,))[1051]
+
+        self.assertEqual({"CritBase": 1.4}, default["property_weights"])
+        self.assertEqual("account", account["source_kind"])
+        self.assertEqual({"CritBase": 2.0}, after_refresh["property_weights"])
+        self.assertEqual({"CritBase": 1.8}, reset["property_weights"])
 
     def test_custom_character_has_an_account_owned_weight_seed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

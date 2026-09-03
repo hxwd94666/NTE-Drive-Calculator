@@ -2,7 +2,6 @@
 """Scanning workflow implementation used by ScanningController."""
 
 from __future__ import annotations
-
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
 from src.app.constants import DRONE_HELP, OFFLINE_HELP, SCAN_HELP
@@ -10,7 +9,7 @@ from src.app.dialogs import show_help
 from src.app.theme import current_style_sheet
 from src.app.workers import FullVisualScanParseWorkerThread, ScanWorkerThread
 from src.features.allocation.execute_page import build_execute_page
-from src.features.allocation.preference_modes import role_preference_mode_error
+from src.features.allocation.preference_modes import role_preference_mode_error, without_crit_rate_bounds
 from src.features.allocation.role_selector import RoleSelector
 from src.features.scanning.dependencies import (
     current_scanning_dependencies as _current_scanning_dependencies,
@@ -145,13 +144,12 @@ def _do_exec(self):
     tmf = self.role_selector.get_tape_main_filters()
     cpm = self.role_selector.get_crit_priority_modes()
     crc = self.role_selector.get_crit_rate_caps()
+    crb = self.role_selector.get_crit_rate_baselines()
     if strat == "global_optimal":
-        # Global solving has no per-role preference contract.  Keep it usable
-        # with the new defaults, and only send user-authored overrides so the
-        # existing validation can explain unsupported combinations.
+        # Keep unsupported user-authored stat preferences visible to validation.
         tmf = self.role_selector.get_tape_main_filter_overrides()
         cpm = self.role_selector.get_crit_priority_mode_overrides()
-        crc = self.role_selector.get_crit_rate_cap_overrides()
+        cpm, crc = without_crit_rate_bounds(cpm, self.role_selector.get_crit_rate_cap_overrides())
     sem = self.role_selector.get_set_effect_modes()
     pg = self.role_selector.get_priority_groups() if hasattr(self.role_selector, "get_priority_groups") else None
     preference_error = role_preference_mode_error(strat, tmf, cpm, crc)
@@ -190,6 +188,7 @@ def _do_exec(self):
     self._pending_tape_main_filters = tmf
     self._pending_crit_priority_modes = cpm
     self._pending_crit_rate_caps = crc
+    self._pending_crit_rate_baselines = crb
     self._pending_set_effect_modes = sem
     self._pending_priority_groups = pg
     self._pending_filter_settings = self._allocation_filter_settings
@@ -229,6 +228,7 @@ def _do_exec(self):
             set_effect_modes=sem,
             priority_groups=pg,
             crit_rate_caps=crc,
+            crit_rate_baselines=crb,
             custom_weapons=cw,
             filter_settings=self._allocation_filter_settings,
         )

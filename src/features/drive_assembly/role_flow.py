@@ -633,19 +633,12 @@ def plan_role_assembly_from_role_list_roster(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
     current_index: int | None = None,
-    cloud_nte_mode: bool = False,
 ) -> dict[str, Any]:
     """Plan descending assembly through the role list's remembered position."""
 
     required = [str(role) for role in required_roles if str(role).strip()]
-    entry = map_role_navigation_controls(
-        screen_size,
-        content_rect,
-        cloud_nte_mode=cloud_nte_mode,
-    )
-    role_list_entry = map_role_list_mouse_entry(
-        screen_size, content_rect, cloud_nte_mode=cloud_nte_mode
-    )
+    entry = map_role_navigation_controls(screen_size, content_rect)
+    role_list_entry = map_role_list_mouse_entry(screen_size, content_rect)
     roster = [str(role) for role in role_roster.get("roles", []) if str(role).strip()]
     role_positions = {
         str(role): int(index)

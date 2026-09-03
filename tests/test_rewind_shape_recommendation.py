@@ -8,7 +8,6 @@ import pytest
 from src.domain.rewind_shape_recommendation import (
     RewindPricingRule,
     RewindShape,
-    recommend_rewind_plans,
     recommend_rewind_shape_quantities,
     recommend_rewind_shapes,
     recommend_score_shortfall_shapes,
@@ -216,27 +215,6 @@ def test_focused_shortfall_reserves_only_one_slot_for_each_tiny_gap_shape() -> N
         "shape_3": 1,
         "shape_4": 1,
     }
-
-
-def test_plans_use_the_documented_linear_repeat_price() -> None:
-    plans = recommend_rewind_plans(
-        shapes=(RewindShape("shape_a", 2), RewindShape("shape_b", 2)),
-        shape_demand=Counter({"shape_a": 8, "shape_b": 1}),
-        owned_shape_counts=Counter(),
-        quality_gaps=Counter({"shape_a": 5}),
-        pricing_rule=RewindPricingRule(base_cost=10, repeat_increment=5),
-        selection_limit=3,
-    )
-
-    score_plan = next(plan for plan in plans if plan.key == "score")
-    selected_a = next(
-        row.quantity for row in score_plan.recommendations
-        if row.shape.shape_id == "shape_a"
-    )
-    assert selected_a > 1
-    assert score_plan.total_cost >= 10 + 15
-    economy_plan = next(plan for plan in plans if plan.key == "economy")
-    assert economy_plan.total_cost <= score_plan.total_cost
 
 
 def test_custom_pool_price_and_probability_follow_the_game_rule() -> None:
@@ -625,6 +603,77 @@ def test_target_role_picker_includes_account_custom_roles(tmp_path) -> None:
         (1004, "安魂曲", None, False),
         (9001, "自建角色", "Suit_Custom", True),
     ]
+
+
+def test_target_role_picker_shows_highest_current_calculation_plan_score(tmp_path) -> None:
+    class StaticDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def list_characters(self):
+            return [{"character_id": 1004, "name_zh": "安魂曲"}]
+
+        def get_character_graduation_template(self, _character_id):
+            return None
+
+    class UserDao:
+        def __init__(self, *_args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def list_custom_characters(self):
+            return []
+
+        def list_current_loadout_slot_plans(self):
+            return [
+                {
+                    "slot": {"character_id": 1004},
+                    "plan": {
+                        "character_id": 1004,
+                        "score": 228.4,
+                        "payload": {"schema": "allocation-official-snapshot-v1"},
+                    },
+                },
+                {
+                    "slot": {"character_id": 1004},
+                    "plan": {
+                        "character_id": 1004,
+                        "score": 251.25,
+                        "payload": {"schema": "allocation-official-snapshot-v1"},
+                    },
+                },
+                {
+                    "slot": {"character_id": 1004},
+                    "plan": {
+                        "character_id": 1004,
+                        "score": 999.0,
+                        "payload": {"schema": "game-observed-loadout-v1"},
+                    },
+                },
+            ]
+
+    database_path = tmp_path / "user.sqlite3"
+    database_path.touch()
+    service = RewindShapeRecommendationService(
+        user_database_path=database_path,
+        static_database_path=tmp_path / "static.sqlite3",
+        user_dao_factory=UserDao,
+        static_dao_factory=StaticDao,
+    )
+
+    role, = service.list_target_roles()
+    assert role.calculation_score == 251.25
 
 
 def test_target_role_picker_excludes_transformations_and_merges_avatar_variants(tmp_path) -> None:

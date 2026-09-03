@@ -39,3 +39,22 @@ class PlanDiffPairingTests(unittest.TestCase):
         self.assertEqual([("old", "new")], [(left["uid"], right["uid"]) for left, right in pairs])
         self.assertEqual([], unmatched_old)
         self.assertEqual([], unmatched_new)
+
+    def test_pair_drive_diff_items_keeps_cross_area_replacements_together(self):
+        removed = [
+            {"uid": "old-l", "shape_id": "L_3_BR", "area": 3},
+            {"uid": "old-v", "shape_id": "V_2", "area": 2},
+        ]
+        added = [
+            {"uid": "new-h", "shape_id": "H_2", "area": 2},
+            {"uid": "new-trap", "shape_id": "Trap_4_H", "area": 4},
+        ]
+
+        pairs, unmatched_old, unmatched_new = pair_drive_diff_items(removed, added)
+
+        self.assertEqual(2, len(pairs))
+        self.assertEqual(set(), {item["uid"] for item in unmatched_old})
+        self.assertEqual(set(), {item["uid"] for item in unmatched_new})
+        self.assertIn(("old-l", "new-trap"), {
+            (old["uid"], new["uid"]) for old, new in pairs
+        })

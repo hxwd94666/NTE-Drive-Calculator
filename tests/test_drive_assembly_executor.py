@@ -68,7 +68,7 @@ class DriveAssemblyActionExecutorTests(unittest.TestCase):
         backend = PointerBackend()
 
         execute_action_sequence(
-            [{"name": "role_list_wake_mouse_after_gamepad", "position": (165, 185), "mouse_move_only": True}],
+            [{"name": "pointer_only_move", "position": (165, 185), "mouse_move_only": True}],
             backend=backend,
             pause_seconds=0.0,
         )

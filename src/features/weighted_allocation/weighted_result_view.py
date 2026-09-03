@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QGridLayout,
     QScrollArea,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
 from src.domain.allocation_rating import loadout_total_grade
+from src.optimizer.contracts import DIFF_CHANGED
 from src.features.weighted_allocation.result_equipment_card import (
     result_equipment_card,
 )
@@ -128,6 +130,7 @@ def render_weighted_allocation_result(
     card = window._card("计算结果")
     card_layout = card.layout()
     window._weighted_role_equip_buttons = []
+    window._weighted_result_loadout_comparisons = dict(preview.loadout_comparisons)
     candidates = {candidate.uid: candidate for candidate in (context.candidates if context else ())}
     role_preferences = {role.character_id: role for role in (context.roles if context else ())}
     shape_resources = _shape_resource_ids(context)
@@ -354,6 +357,38 @@ def _role_option_card(
         f"padding:4px 14px;background:{theme_rgba('#4dd0e1', 0.10)}"
     )
     role_header.addWidget(role_label)
+    comparisons = tuple(
+        (getattr(window, "_weighted_result_loadout_comparisons", {}) or {}).get(
+            int(option.character_id), ()
+        )
+    )
+    changed_comparisons = tuple(
+        comparison for comparison in comparisons
+        if bool(comparison.diff.get(DIFF_CHANGED))
+    )
+    if changed_comparisons:
+        diff_button = QPushButton("变动")
+        diff_button.setStyleSheet(themed_style(
+            "QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;"
+            "border-radius:6px;font-size:13px;font-weight:700;padding:4px 12px}"
+            "QPushButton:hover{background:#388bfd}"
+        ))
+        diff_button.setToolTip("选择已保存配装槽位，查看本次结果的新旧装备与属性变化")
+        menu = QMenu(diff_button)
+        for comparison in changed_comparisons:
+            label = comparison.slot_name
+            if comparison.slot_key == "primary":
+                label += "（主力）"
+            action = menu.addAction(label)
+            action.triggered.connect(
+                lambda _checked=False, current=comparison: (
+                    getattr(window, "equipment_presentation")
+                    .plan_diff_dialog(name, dict(current.diff))
+                    .exec()
+                )
+            )
+        diff_button.setMenu(menu)
+        role_header.addWidget(diff_button)
     role_header.addStretch()
     role_header.addWidget(_result_badge("评分", f"{option.score:.1f}", grade_color))
     role_header.addWidget(_result_badge("评级", grade, grade_color))
@@ -400,7 +435,7 @@ def _role_option_card(
         board_row.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         board_row.addWidget(PuzzleBoardWidget([list(row) for row in option.generated_board]), 0, Qt.AlignTop)
         if summary_panel is not None:
-            board_row.addWidget(summary_panel, 1, Qt.AlignTop)
+            board_row.addWidget(summary_panel, 0, Qt.AlignTop)
         layout.addLayout(board_row)
         layout.addSpacing(8)
     elif summary_panel is not None:
@@ -640,7 +675,7 @@ def _official_summary_rows_by_mode(
 ) -> dict[str, tuple[AttributeSummaryRow, ...]]:
     selected = [item for item in (loadout.core, *loadout.drives) if item is not None]
     if detail is None:
-        return {"equipment": (), "character": ()}
+        return {"equipment": ()}
     summaries = calculate_official_role_attribute_summaries(
         detail,
         selected,
@@ -664,10 +699,10 @@ def _official_summary_rows_by_mode(
         result.sort(key=lambda item: (-item.weight, item.label))
         return tuple(result)
 
-    return {
-        "equipment": rows("equipment"),
-        "character": rows("character"),
-    }
+    # A calculation preview freezes equipment and scoring inputs, but it is
+    # not a saved role loadout.  The complete current-progression panel lives
+    # on the saved-loadout page where its slot and role profile are explicit.
+    return {"equipment": rows("equipment")}
 
 
 def _official_bonus_summary_panel(

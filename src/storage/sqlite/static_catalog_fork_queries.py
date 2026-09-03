@@ -29,7 +29,11 @@ class StaticCatalogForkDao(StaticGameDataDao):
 
     def fork_catalog_metadata(self) -> dict[str, Any]:
         dataset = self._one(
-            "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
+            """
+            SELECT dataset_id, importer_version, built_at_utc,
+                   (SELECT MAX(version) FROM schema_migration) AS schema_version
+            FROM dataset
+            """
         ) or {}
         counts = {
             str(row["table_name"]): int(row["row_count"])

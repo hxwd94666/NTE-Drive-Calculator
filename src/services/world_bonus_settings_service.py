@@ -1,4 +1,4 @@
-# 管理当前账号的大世界异象属性加成并投影为正式属性。
+# 管理当前账号的家具属性加成并投影为正式属性。
 """Account-owned world bonuses shared by every official-role calculation."""
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ class WorldBonusSettings:
     def validate(self) -> None:
         values = (self.yaodao_attack_add, self.quantao_crit_damage)
         if not all(math.isfinite(float(value)) for value in values):
-            raise ValueError("世界加成必须是有限数值。")
+            raise ValueError("家具加成必须是有限数值。")
         if not 0.0 <= float(self.yaodao_attack_add) <= 20.0:
             raise ValueError("妖刀攻击力加成必须在 0 到 20 之间。")
         if not 0.0 <= float(self.quantao_crit_damage) <= 0.04:

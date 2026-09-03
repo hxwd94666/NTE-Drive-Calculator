@@ -128,6 +128,7 @@ def _run_allocation(
     set_effect_modes: dict[str, Any] | None = None,
     priority_groups: Any = None,
     crit_rate_caps: dict[str, Any] | None = None,
+    crit_rate_baselines: dict[str, Any] | None = None,
     custom_weapons: dict[str, Any] | None = None,
     filter_settings: AllocationFilterSettings | None = None,
 ) -> Any:
@@ -162,6 +163,7 @@ def _run_allocation(
             "set_effect_modes": set_effect_modes or {},
             "priority_groups": unlocked_priority_groups,
             "crit_rate_caps": crit_rate_caps or {},
+            "crit_rate_baselines": crit_rate_baselines or {},
             "custom_weapons": custom_weapons or {},
         }
         logger.info(
@@ -220,6 +222,7 @@ def _start_allocation_worker(self: Any) -> None:
             getattr(self, "_pending_set_effect_modes", {}),
             getattr(self, "_pending_priority_groups", None),
             getattr(self, "_pending_crit_rate_caps", {}),
+            getattr(self, "_pending_crit_rate_baselines", {}),
             getattr(self, "_pending_custom_weapons", {}),
             getattr(self, "_pending_filter_settings", AllocationFilterSettings()),
         ),
@@ -645,6 +648,7 @@ class AllocationController(QObject):
         self._pending_set_effect_modes: dict[str, Any] = {}
         self._pending_priority_groups: Any = None
         self._pending_crit_rate_caps: dict[str, Any] = {}
+        self._pending_crit_rate_baselines: dict[str, Any] = {}
         self._pending_custom_weapons: dict[str, Any] = {}
         self._pending_filter_settings = AllocationFilterSettings()
         self._allocation_custom_weapons: dict[str, Any] = {}
@@ -664,6 +668,7 @@ class AllocationController(QObject):
         set_effect_modes: dict[str, Any],
         priority_groups: Any,
         crit_rate_caps: dict[str, Any],
+        crit_rate_baselines: dict[str, Any],
         custom_weapons: dict[str, Any],
         filter_settings: AllocationFilterSettings,
     ) -> None:
@@ -677,6 +682,7 @@ class AllocationController(QObject):
         self._pending_set_effect_modes = set_effect_modes
         self._pending_priority_groups = priority_groups
         self._pending_crit_rate_caps = crit_rate_caps
+        self._pending_crit_rate_baselines = crit_rate_baselines
         self._pending_custom_weapons = custom_weapons
         filter_settings.validate()
         self._pending_filter_settings = filter_settings

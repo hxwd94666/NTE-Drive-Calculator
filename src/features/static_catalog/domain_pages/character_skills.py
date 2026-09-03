@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.features.static_catalog.domain_pages.character_progression import (
+from src.services.character_progression_requirements import (
     MaterialSummaryStatus,
     project_skill_level_requirements,
 )

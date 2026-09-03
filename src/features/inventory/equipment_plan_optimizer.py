@@ -474,6 +474,7 @@ def _optimize_saved_equipment(
                 weights,
                 item.get(EQUIP_QUALITY, "Gold"),
                 main_weights,
+                item.get("main_value"),
             )
         )
         title = f"替换{core_term} - {current.get(EQUIP_SET_NAME) or core_term}"

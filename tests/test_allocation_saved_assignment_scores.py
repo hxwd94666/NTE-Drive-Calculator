@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from src.features.weighted_allocation.runner import _option_tape_main_values
 
-from src.features.allocation.slot_plan_diff import selected_slot_plan_diff
+from src.features.allocation.slot_plan_diff import loadout_plan_state, selected_slot_plan_diff
 from src.features.allocation.runner import (
     _plan_assignment_scores,
     _plan_changed_uids,
@@ -170,3 +170,21 @@ def test_selected_slot_diff_uses_the_selected_slot_as_its_only_baseline() -> Non
 
     assert result["早雾"][DIFF_CHANGED] is True
     assert result["早雾"][DIFF_ADDED_UIDS] == {"nte-core-2-20"}
+
+
+def test_loadout_plan_state_preserves_frozen_item_score_and_area() -> None:
+    uid = "nte-module-1-10"
+    state = loadout_plan_state({
+        "payload": {"assignment_scores": {uid: 12.5}},
+        "assignments": [{
+            "kind": "module",
+            "uid_slot": 1,
+            "uid_serial": 10,
+            "raw_assignment": {"geometry": "EquipmentGeometry_Hen2"},
+        }],
+    })
+
+    drive = state["equipped_drives"][0]
+    assert drive["score"] == 12.5
+    assert drive["area"] == 2
+    assert drive["score_area"] == 2

@@ -91,4 +91,11 @@ def pair_drive_diff_items(
     ):
         round_pairs, unmatched_old, unmatched_new = pair_diff_items_by_key(unmatched_old, unmatched_new, key_fn)
         pairs.extend(round_pairs)
+    # A recalculated board may replace one shape with a different-area shape.
+    # Those rows are still one equipment swap, not an unrelated removal and
+    # addition.  Preserve source order as the deterministic final fallback.
+    remaining_count = min(len(unmatched_old), len(unmatched_new))
+    pairs.extend(zip(unmatched_old[:remaining_count], unmatched_new[:remaining_count]))
+    unmatched_old = unmatched_old[remaining_count:]
+    unmatched_new = unmatched_new[remaining_count:]
     return pairs, unmatched_old, unmatched_new

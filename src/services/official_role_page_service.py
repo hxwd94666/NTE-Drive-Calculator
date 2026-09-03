@@ -30,6 +30,7 @@ from src.services.damage_calculation_service import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
 
 __all__ = [
     "OfficialAttributeSummaryValue",
@@ -57,6 +58,7 @@ from src.services.official_role_attribute_service import (
     _context_calculation_items,
     _equipment_property_stats,
     _property_stats_by_source,
+    _likeability_property_stats,
     _world_bonus_property_stats,
     _element_damage_property,
     _role_panel_damage_inputs,
@@ -156,7 +158,8 @@ def calculate_official_role_damage_breakdown(
         if value - raw_equipment_stats.get(property_id, 0.0)
     }
     for source, source_stats in (
-        ("世界加成", _world_bonus_property_stats(detail)),
+        ("家具加成", _world_bonus_property_stats(detail)),
+        ("好感度 10 级", _likeability_property_stats(detail)),
         ("弧盘", fork_stats),
         ("空幕/驱动", raw_equipment_stats),
         ("额外形状", shape_stats),
@@ -625,9 +628,11 @@ def load_official_role_detail(
         graduation_template = static_dao.get_character_graduation_template(character_id)
         # 角色页只读显示当前账号在“权重”页已保存的基础权重；角色页本身
         # 绝不写回它。账号尚未生成该角色记录时，才回落公共默认。
-        public_weight_record = (
-            static_dao.get_character_recommended_weights(character_id) or {}
-        )
+        public_weight_record = effective_workshop_recommended_weights(
+            None,
+            character_id,
+            static_dao.get_character_recommended_weights(character_id),
+        ) or {}
         account_weight_record = user_dao.get_character_weight_preferences(character_id)
         world_bonus = WorldBonusSettings.from_payload(
             user_dao.list_application_setting_copies().get(WORLD_BONUS_SETTING_KEY)

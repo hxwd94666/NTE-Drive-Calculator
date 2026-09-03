@@ -55,7 +55,12 @@ def stat_number_value(value: Any) -> float:
 
 
 def quality_coef(quality: Any) -> float:
-    return {"Gold": 1.0, "Purple": 0.8, "Blue": 0.6}.get(str(quality or "Gold"), 1.0)
+    normalized = str(quality or "Gold").strip().casefold()
+    if normalized in {"purple", "紫", "紫色"}:
+        return 0.8
+    if normalized in {"blue", "蓝", "蓝色"}:
+        return 0.6
+    return 1.0
 
 
 def canonical_stat_name(stat: Any, aliases: dict[str, str]) -> str:
@@ -119,7 +124,13 @@ def drive_area(drive: Any, shape_areas: dict[str, Any]) -> int:
 
 def shape_intrinsic_stats(drive: Any, shape_areas: dict[str, Any]) -> StatTotals:
     area = drive_area(drive, shape_areas)
-    return {"攻击力": float(area * 21), "生命值": float(area * 280)} if area > 0 else {}
+    if area <= 0:
+        return {}
+    coef = quality_coef(item_value(drive, "quality", "Gold"))
+    return {
+        "攻击力": round(float(area * 21) * coef, 2),
+        "生命值": round(float(area * 280) * coef, 2),
+    }
 
 
 def _highest_available_level(level_stats: Any) -> int | None:

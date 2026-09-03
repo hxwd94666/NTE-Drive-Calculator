@@ -325,8 +325,11 @@ class StaticCatalogMonsterPageUiTests(unittest.TestCase):
         page.open_mode("outer_realm")
         self.assertFalse(page.more_filters.isVisible())
         self.assertEqual("搜索怪物或玩法", page.browser_search.placeholderText())
-        self.assertEqual(3, len(page._active_state.sections[-1].cards[:3]))
-        self.assertEqual(3, page._active_state.sections[-1].initial_limit)
+        history = next(
+            section for section in page._active_state.sections if section.title == "往期"
+        )
+        self.assertEqual(3, len(history.cards[:3]))
+        self.assertEqual(3, history.initial_limit)
         page.deleteLater()
 
     def test_primary_category_filters_use_formal_card_categories(self) -> None:
@@ -584,6 +587,9 @@ class _StubMonsterService:
 
     def list_entries(self, filters) -> CatalogPage:
         return CatalogPage((), 0, filters.offset, filters.page_size, False)
+
+    def list_feast_periods(self) -> tuple[object, ...]:
+        return ()
 
     def get_detail(self, key: str) -> CatalogDetail | None:
         return self.detail if key == self.detail.entry.key else None

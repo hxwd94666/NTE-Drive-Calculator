@@ -108,7 +108,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
                 ).fetchone()[0]
             self.assertEqual("workshop_api", source_kind)
 
-    def test_unsynchronized_rebuild_does_not_overwrite_valid_release_backup(self):
+    def test_rebuild_backs_up_release_database_regardless_of_weight_source(self):
         module = load_builder_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -128,7 +128,11 @@ class StaticGameDatabaseTests(unittest.TestCase):
 
             module.backup_existing_release_database(output, backup)
 
-            self.assertEqual(b"valid-previous-release", backup.read_bytes())
+            with closing(sqlite3.connect(backup)) as connection:
+                source_kind = connection.execute(
+                    "SELECT source_kind FROM character_weight_recommendation"
+                ).fetchone()[0]
+            self.assertEqual("default", source_kind)
 
     def test_new_role_likeability_bonuses_follow_actor_identity(self):
         connection = sqlite3.connect(PROJECT_DATABASE_PATH)
