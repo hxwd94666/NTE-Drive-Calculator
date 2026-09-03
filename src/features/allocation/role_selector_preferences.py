@@ -28,6 +28,7 @@ from src.features.allocation.priority_groups import (
     cycle_priority_link,
     links_to_priority_groups,
     load_priority_selection,
+    relink_forward_drop,
     normalize_priority_links,
     shift_crossed_priority_boundaries,
 )
@@ -266,11 +267,14 @@ class RoleSelectorPreferencesMixin:
         crit_row.addSpacing(12)
         crit_row.addWidget(QLabel("暴击率上限："))
         crit_cap_edit = QLineEdit()
-        current_cap = self.crit_rate_caps.get(name)
-        if current_cap is None:
-            current_cap = self._weapon_crit_rate_cap(
-                self.custom_weapons.get(name, "") or default_weapon
-            )
+        automatic_cap = self._automatic_crit_rate_cap(
+            name,
+            self.custom_weapons.get(name, "") or default_weapon
+        )
+        configured_cap = self.crit_rate_caps.get(name)
+        current_cap = automatic_cap if configured_cap is None else configured_cap
+        if automatic_cap is not None and configured_cap is not None:
+            current_cap = min(float(automatic_cap), float(configured_cap))
         if current_cap is not None:
             crit_cap_edit.setText(f"{float(current_cap):g}")
         crit_cap_edit.setPlaceholderText("留空不限制")
@@ -280,7 +284,10 @@ class RoleSelectorPreferencesMixin:
             if not raw:
                 return
             resolved = resolve_optional_priority_choice(weapon_names, raw)
-            cap = self._weapon_crit_rate_cap(resolved) if resolved in weapon_names else None
+            cap = (
+                self._automatic_crit_rate_cap(name, resolved)
+                if resolved in weapon_names else None
+            )
             if cap is not None:
                 crit_cap_edit.setText(f"{float(cap):g}")
 
@@ -368,6 +375,23 @@ class RoleSelectorPreferencesMixin:
     def _drop_selected_on(self, index, target_index):
         if index == target_index:
             return
+        if (
+            index < 0
+            or target_index < 0
+            or index >= len(self.selected)
+            or target_index >= len(self.selected)
+        ):
+            return
+        if index < target_index:
+            self.selected, self.priority_links = relink_forward_drop(
+                self.selected,
+                self.priority_links,
+                index,
+                target_index,
+            )
+            self._render_grid(self.search.text())
+            self.orderChanged.emit()
+            return
         insert_index = target_index - 1 if index < target_index else target_index
         self._reorder_selected(index, insert_index)
 
@@ -444,9 +468,14 @@ class RoleSelectorPreferencesMixin:
     def get_crit_rate_caps(self):
         caps = {}
         for name in self.selected:
-            cap = self.crit_rate_caps.get(name)
-            if cap is None:
-                cap = self._weapon_crit_rate_cap(self._effective_weapon_for_role(name))
+            configured_cap = self.crit_rate_caps.get(name)
+            automatic_cap = self._automatic_crit_rate_cap(
+                name,
+                self._effective_weapon_for_role(name)
+            )
+            cap = automatic_cap if configured_cap is None else configured_cap
+            if automatic_cap is not None and configured_cap is not None:
+                cap = min(float(configured_cap), float(automatic_cap))
             if cap is not None:
                 caps[name] = float(cap)
         return caps

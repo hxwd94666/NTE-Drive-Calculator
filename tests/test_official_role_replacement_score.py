@@ -147,6 +147,69 @@ def test_role_replacement_keeps_the_selected_secondary_slot() -> None:
     assert captured["plan"]["assignments"][0]["uid_slot"] == 12
 
 
+def test_role_replacement_keeps_complete_non_target_scores_frozen() -> None:
+    captured: dict = {}
+
+    class FakeDao:
+        def __init__(self, _path) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def replace_active_loadout_plans(self, plans):
+            captured["plan"] = plans[0]
+            return (101,)
+
+    target = {"uid_slot": 10, "uid_serial": 20, "kind": "core"}
+    other = {"uid_slot": 11, "uid_serial": 21, "kind": "module"}
+    replacement = {"uid_slot": 12, "uid_serial": 22, "kind": "core"}
+    detail = {
+        "character": {"name_zh": "测试角色"},
+        "equipment_contexts": {
+            "saved": {
+                "plan": {
+                    "plan_id": 8,
+                    "character_id": 1003,
+                    "source_snapshot_id": 1,
+                    "score": 90.0,
+                    "payload": {
+                        "assignment_scores": {
+                            "nte-core-10-20": 10.0,
+                            "nte-module-11-21": 80.0,
+                        },
+                    },
+                    "assignments": [target, other],
+                },
+            },
+        },
+    }
+
+    with patch("src.services.official_role_replacement_service.UserDataDao", FakeDao):
+        saved_id = save_official_role_replacement(
+            Path("test.sqlite3"),
+            detail,
+            target,
+            replacement,
+            replacement_score=25.0,
+            current_score=999.0,
+            current_assignment_scores={
+                "nte-core-10-20": 999.0,
+                "nte-module-11-21": 999.0,
+            },
+        )
+
+    assert saved_id == 101
+    assert captured["plan"]["score"] == 105.0
+    assert captured["plan"]["payload"]["assignment_scores"] == {
+        "nte-core-12-22": 25.0,
+        "nte-module-11-21": 80.0,
+    }
+
+
 def test_virtual_drive_replacement_rebuilds_stale_plan_total() -> None:
     _assert_virtual_replacement_rebuilds_total("module")
 

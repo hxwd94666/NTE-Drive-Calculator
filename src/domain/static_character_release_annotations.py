@@ -1,3 +1,4 @@
+# 定义角色发行注释的稳定领域记录。
 """Reviewed character release annotations used as v30 build inputs.
 
 Official ``character.mainland_show_time`` remains authoritative for release dates.

@@ -216,11 +216,13 @@ class NTEPipelineOrchestrator:
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
                             crit_priority_modes: Dict[str, str] = None, set_effect_modes: Dict[str, str] = None,
                             priority_groups: List[List[str]] = None, crit_rate_caps: Dict[str, float] = None,
+                            crit_rate_baselines: Dict[str, float] = None,
                             custom_weapons: Dict[str, str] = None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
         crit_rate_caps = crit_rate_caps or {}
+        crit_rate_baselines = crit_rate_baselines or {}
         set_effect_modes = set_effect_modes or {}
         custom_weapons = custom_weapons or {}
         priority_groups = priority_groups or None
@@ -228,6 +230,17 @@ class NTEPipelineOrchestrator:
             tape_main_filters = {}
             crit_priority_modes = {}
             crit_rate_caps = {}
+        for role_name, value in crit_rate_baselines.items():
+            if role_name not in self.roles_db:
+                continue
+            try:
+                fork_crit_rate = max(0.0, float(value))
+            except (TypeError, ValueError):
+                continue
+            self.roles_db[role_name] = {
+                **self.roles_db[role_name],
+                "fork_crit_rate": fork_crit_rate,
+            }
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         total_t0 = time.perf_counter()
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")

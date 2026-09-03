@@ -329,12 +329,14 @@ def minimum_crit_total(
 ) -> float:
     """Crit total used by the minimum-crit preference.
 
-    The game grants every role a fixed 5% base crit rate.  This preference
-    deliberately excludes character growth and weapon/arc stats, then adds
-    only the equipped tape, drives, and extra-shape buff.
+    The game grants every role a fixed 5% base crit rate.  Role management
+    additionally supplies the selected fork's unconditional crit projection
+    (including its permanent refinement property); equipment and extra-shape
+    crit are then added for the candidate being evaluated.
     """
     return round(
         BASE_CRIT_RATE
+        + _stat_number_value((role_data or {}).get("fork_crit_rate", 0.0))
         + loadout_crit_total(
             role_data,
             tape,

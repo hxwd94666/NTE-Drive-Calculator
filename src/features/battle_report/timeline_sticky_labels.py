@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 
+from src.app.theme import current_theme_name, theme_color
 from src.features.battle_report.timeline_layout import (
     LABEL_WIDTH,
     ROLE_COLORS,
@@ -36,19 +37,23 @@ def paint_sticky_lane_labels(
     )
     painter.save()
     painter.setClipRect(overlay)
-    painter.fillRect(overlay, QColor("#0d1117"))
+    light_theme = current_theme_name() == "light"
+    painter.fillRect(overlay, QColor(theme_color("#0d1117")))
     for index, lane in enumerate(lanes):
         if lane.kind == "input":
-            background = QColor("#17150f")
+            background = QColor("#fff8c5" if light_theme else "#17150f")
         elif lane.kind == "action":
-            background = QColor("#101927")
+            background = QColor("#ddf4ff" if light_theme else "#101927")
         else:
-            background = QColor("#10151d" if index % 2 == 0 else "#121821")
+            if light_theme:
+                background = QColor("#f6f8fa" if index % 2 == 0 else "#eef2f6")
+            else:
+                background = QColor("#10151d" if index % 2 == 0 else "#121821")
         painter.fillRect(
             QRectF(sticky_left, lane.top, LABEL_WIDTH, lane.height),
             background,
         )
-        painter.setPen(QColor("#30363d"))
+        painter.setPen(QColor(theme_color("#30363d")))
         painter.drawLine(
             round(sticky_left),
             lane.top,
@@ -71,7 +76,7 @@ def paint_sticky_lane_labels(
                 ROLE_COLORS[lane.role_index % len(ROLE_COLORS)],
             )
             text_left = sticky_left + 36
-        painter.setPen(QColor("#c9d1d9"))
+        painter.setPen(QColor(theme_color("#c9d1d9")))
         painter.drawText(
             round(text_left),
             lane.top,
@@ -81,7 +86,7 @@ def paint_sticky_lane_labels(
             lane.label,
         )
     painter.restore()
-    painter.setPen(QPen(QColor("#30363d"), 1))
+    painter.setPen(QPen(QColor(theme_color("#30363d")), 1))
     painter.drawLine(
         round(sticky_left + LABEL_WIDTH),
         TOP,

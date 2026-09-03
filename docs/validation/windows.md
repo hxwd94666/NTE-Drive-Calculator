@@ -170,11 +170,6 @@ python tools/windows_validation/run_validation.py --profile vision `
 - [ ] 缺少插件、角色实例或原生来源时启动；写入前停止并区分错误类型。
 - [ ] 使用普通鼠标执行游戏界面自动装配；角色识别、卸载、筛选、拖拽和返回符合槽位方案。
 - [ ] 自动装配过程中按 F12；鼠标/手柄在安全检查点释放，后续角色不执行。
-- [ ] 设置页云模式保持开发状态，普通流程传入 `cloud_nte_mode=False`。
-
-云模式相关代码发生变化时，额外执行：单角色完整路径三轮、两角色重入三轮、列表/装配页/拖拽前三个
-停止点，以及普通鼠标回归。未达到路线图门槛时不恢复用户开关。
-
 测试角色、槽位、任务 ID 与结果：
 
 ```text
@@ -204,7 +199,7 @@ python tools/windows_validation/run_validation.py --profile vision `
 - [ ] 代理 DLL 不会自动加载的环境先安全还原代理，再经 UAC 启动备用 Loader；游戏启动后 IPC v7 管道出现。
 - [ ] Loader 运行时尝试切到代理方式；应用拒绝。停止 Loader 后确认本次注入的启动器退出，再允许部署代理。
 - [ ] 取消 UAC、Loader 文件缺失、payload 缺失、VC++ 运行库缺失和停止超时分别显示明确错误，不报告加载成功。
-- [ ] 游戏更新后按 [插件适配文档](../reference/mods-plugin-version-adaptation.md) 验证 DLL 哈希、工作区、
+- [ ] 游戏更新后按 [外部集成：插件发行基线与升级复核](../integrations.md#插件发行基线与升级复核) 验证 DLL 哈希、工作区、
   SDK 重建、presence、pipe 和一次受控装配。
 - [ ] 执行 Mirror 更新检查、取消、失败重试和安装器启动；日志无 CDK、Token 和鉴权 URL。
 - [ ] 运行打包测试，确认 Windows 验证器、本机数据库、日志、截图、SDK 缓存和安装器旧输出不进入安装包。

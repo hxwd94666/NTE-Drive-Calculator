@@ -85,9 +85,7 @@ _RECORDED_ASSEMBLY_ACTIONS = {
     "close_role_list_after_confirmation",
     "left_kongmu_tab",
     "wait_after_left_kongmu_tab",
-    "activate_assemble_button_gamepad",
     "assemble_button",
-    "assembly_page_wake_mouse_after_gamepad",
     "wait_after_assemble_button",
     "assembly_back_to_role_page",
 }
@@ -240,7 +238,6 @@ def execute_all_roles_from_current_game_page(
     verification_enabled: bool = True,
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
-    cloud_nte_mode: bool = False,
     should_stop: Callable[[], bool] | None = None,
 ) -> AssemblyExecutionReport:
     """Recognize the current game role list, traverse roles, and execute assembly."""
@@ -256,7 +253,6 @@ def execute_all_roles_from_current_game_page(
         verification_enabled=verification_enabled,
         role_name_aliases=role_name_aliases,
         record_root=record_root,
-        cloud_nte_mode=cloud_nte_mode,
         should_stop=should_stop,
     )
 
@@ -272,7 +268,6 @@ def execute_selected_role_from_current_game_page(
     verification_enabled: bool = True,
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
-    cloud_nte_mode: bool = False,
     should_stop: Callable[[], bool] | None = None,
 ) -> AssemblyExecutionReport:
     """Find one selected role in the game sidebar and assemble only its blueprint."""
@@ -288,7 +283,6 @@ def execute_selected_role_from_current_game_page(
         verification_enabled=verification_enabled,
         role_name_aliases=role_name_aliases,
         record_root=record_root,
-        cloud_nte_mode=cloud_nte_mode,
         should_stop=should_stop,
     )
 
@@ -304,7 +298,6 @@ def _execute_roles_from_current_game_page(
     verification_enabled: bool,
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
-    cloud_nte_mode: bool = False,
     should_stop: Callable[[], bool] | None = None,
 ) -> AssemblyExecutionReport:
     """Shared game-page flow: find target roles first, then assemble their blueprints."""
@@ -366,7 +359,7 @@ def _execute_roles_from_current_game_page(
         f"窗口尺寸={screen_size} | 操作区域={action_rect} | 向上复位次数=5"
     )
     logger.info(
-        f"角色列表扫描路径 | 模式={'云异环' if cloud_nte_mode else '普通鼠标'} | 右侧下滑×2 | 首个头像 | 信息页签 | 右下角色列表按钮 | "
+        "角色列表扫描路径 | 普通鼠标 | 右侧下滑×2 | 首个头像 | 信息页签 | 右下角色列表按钮 | "
         "首屏12格一次识别，随后滚轮逐行并只检查第4行；首次重复即到底"
     )
     action_backend = backend or PyAutoGuiMouseBackend()
@@ -378,9 +371,7 @@ def _execute_roles_from_current_game_page(
     )
 
     def open_role_list() -> None:
-        sequence = map_role_list_mouse_entry(
-            screen_size, action_rect, cloud_nte_mode=cloud_nte_mode
-        )["entry_sequence"]
+        sequence = map_role_list_mouse_entry(screen_size, action_rect)["entry_sequence"]
         execute_action_sequence(
             sequence,
             backend=action_backend,
@@ -474,7 +465,6 @@ def _execute_roles_from_current_game_page(
         screen_size=screen_size,
         content_rect=action_rect,
         current_index=role_roster.get("current_index", max(0, len(role_roster.get("roles", []) or []) - 1)),
-        cloud_nte_mode=cloud_nte_mode,
     )
     _log_traversal_plan_diagnostics(traversal_plan)
     def verifier(role_name: str, role_plan: dict[str, Any]) -> dict[str, Any] | None:

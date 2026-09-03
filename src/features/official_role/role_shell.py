@@ -87,10 +87,11 @@ def _build_world_bonus_card(window) -> QFrame:
     settings = _role_controller(window).load_world_bonus()
     card = QFrame()
     card.setObjectName("officialRoleWorldBonusCard")
+    card.setFixedHeight(35)
     layout = QHBoxLayout(card)
-    layout.setContentsMargins(10, 3, 10, 3)
+    layout.setContentsMargins(10, 0, 10, 0)
     layout.setSpacing(6)
-    title = QLabel("世界加成")
+    title = QLabel("家具加成")
     title.setObjectName("officialRoleWorldBonusTitle")
     layout.addWidget(title)
 
@@ -99,18 +100,20 @@ def _build_world_bonus_card(window) -> QFrame:
     attack.setRange(0, 20)
     attack.setSingleStep(2)
     attack.setSuffix(" 攻")
-    attack.setToolTip("妖刀：正式大世界加成 AtkAdd；每级 +2，满级 +20")
+    attack.setToolTip("妖刀家具加成：每级攻击力 +2，满级 +20")
     attack.setFixedWidth(72)
+    attack.setFixedHeight(29)
+    attack.setStyleSheet("padding:1px 6px")
     crit_damage = NoWheelDoubleSpinBox()
     crit_damage.setObjectName("officialRoleWorldCritDamage")
     crit_damage.setRange(0.0, 4.0)
     crit_damage.setDecimals(1)
     crit_damage.setSingleStep(0.4)
     crit_damage.setSuffix("% 爆伤")
-    crit_damage.setToolTip(
-        "拳套：正式大世界加成 CritDamageBase；每级 +0.4%，满级 +4%"
-    )
+    crit_damage.setToolTip("拳套家具加成：每级暴击伤害 +0.4%，满级 +4%")
     crit_damage.setFixedWidth(96)
+    crit_damage.setFixedHeight(29)
+    crit_damage.setStyleSheet("padding:1px 6px")
     layout.addWidget(QLabel("妖刀"))
     layout.addWidget(attack)
     layout.addWidget(QLabel("拳套"))
@@ -148,22 +151,32 @@ def _populate_role_tab(window, scroll: QScrollArea, character_id: int) -> None:
         "equipment_context_key": ("saved" if detail["equipment_contexts"]["saved"]["available"] else "current"),
     }
     window._official_role_editors[character_id] = editor
-    content = QWidget()
-    form = QVBoxLayout(content)
-    form.setSpacing(15)
-    form.setContentsMargins(15, 15, 15, 15)
-    form.addWidget(_build_base_group(window, character_id, detail, editor))
-    form.addWidget(_build_awakening_group(window, character_id, detail, editor))
-    form.addWidget(_build_skill_group(window, character_id, detail, editor))
-    form.addWidget(_build_margin_group(window, character_id, detail, editor))
-    form.addWidget(_build_fork_group(window, character_id, detail, editor))
-    form.addWidget(_build_drive_summary_group(window, detail, editor))
-    form.addWidget(_build_damage_formula_group(detail, editor))
-    form.addWidget(_build_weight_group(window, character_id, detail, editor))
-    form.addSpacing(100)
-    form.addStretch()
-    scroll.setWidget(content)
-    scroll.setProperty("loaded", True)
+    # Keep the lazily-built page a hidden child throughout construction.  A
+    # parentless QWidget is a transient top-level window on Windows and can be
+    # painted as a small popup while the heavy role form is being assembled.
+    content = QWidget(scroll.viewport())
+    content.hide()
+    scroll.setUpdatesEnabled(False)
+    try:
+        form = QVBoxLayout(content)
+        form.setSpacing(15)
+        form.setContentsMargins(15, 15, 15, 15)
+        form.addWidget(_build_base_group(window, character_id, detail, editor))
+        form.addWidget(_build_awakening_group(window, character_id, detail, editor))
+        form.addWidget(_build_skill_group(window, character_id, detail, editor))
+        form.addWidget(_build_margin_group(window, character_id, detail, editor))
+        form.addWidget(_build_fork_group(window, character_id, detail, editor))
+        form.addWidget(_build_drive_summary_group(window, detail, editor))
+        form.addWidget(_build_damage_formula_group(detail, editor))
+        form.addWidget(_build_weight_group(window, character_id, detail, editor))
+        form.addSpacing(100)
+        form.addStretch()
+        scroll.setWidget(content)
+        scroll.setProperty("loaded", True)
+        content.show()
+    finally:
+        scroll.setUpdatesEnabled(True)
+    scroll.viewport().update()
 
 
 def _save_profiles(window, *, show_message: bool = True) -> bool:
@@ -237,7 +250,7 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
         QMessageBox.information(
             window,
             "保存",
-            "角色养成指针与世界加成已保存到当前账号数据库。",
+            "角色养成指针与家具加成已保存到当前账号数据库。",
         )
     _refresh_my_role(window)
     return True
@@ -254,6 +267,10 @@ def _reload_current_role_tab(window, character_id: int) -> None:
     if index < 0:
         return
     scroll = tabs.widget(index)
+    scroll.setUpdatesEnabled(False)
+    existing = scroll.widget()
+    if existing is not None:
+        existing.hide()
     old = scroll.takeWidget()
     if old is not None:
         old.deleteLater()
@@ -400,11 +417,11 @@ def _refresh_my_role(window, *, restore_scroll_value: int | None = None) -> None
     search = getattr(window, "official_role_search", None)
     if not isinstance(search, QLineEdit):
         return
-    tabs = QTabWidget()
+    tabs = QTabWidget(window.my_role_form_widget)
     tabs.setObjectName("officialRoleTabs")
     tab_ids = {}
     for role in roles:
-        scroll = QScrollArea()
+        scroll = QScrollArea(tabs)
         scroll.setWidgetResizable(True)
         scroll.setProperty("loaded", False)
         character_id = int(role["character_id"])
@@ -471,7 +488,7 @@ def confirm_pending_my_role_changes(window) -> bool:
     answer = QMessageBox.question(
         window,
         "未保存角色状态",
-        "角色养成指针或世界加成有未保存修改，是否先保存？",
+        "角色养成指针或家具加成有未保存修改，是否先保存？",
         QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
         QMessageBox.Save,
     )

@@ -16,6 +16,7 @@ from src.domain.equipment_normalizer import (
 from src.services.equipment_level_projection_service import (
     project_equipment_items_to_max_level,
 )
+from src.services.equipment_scoring_service import score_drive_stats, score_tape_stats
 from src.services.official_role_equipment_scoring_service import (
     score_official_role_equipment,
 )
@@ -312,6 +313,55 @@ class OfficialEquipmentScoringTests(unittest.TestCase):
         self.assertEqual("Blue", drive_score.call_args.kwargs["quality"])
 
 
+def test_public_equipment_scoring_delegates_to_workshop_engine() -> None:
+    """展示与游戏配装入口只能适配工坊评分器，不能保留第二套公式。"""
+
+    class Engine:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def max_theoretical_weight(self, weights):
+            self.calls.append(("max", dict(weights)))
+            return 9.0
+
+        def calculate_drive_score(self, drive, weights, maximum_weight):
+            self.calls.append(("drive", drive, weights, maximum_weight))
+            return 12.34
+
+        def calculate_cartridge_score(self, tape, weights, maximum_weight, main_weights):
+            self.calls.append(("tape", tape, weights, maximum_weight, main_weights))
+            return 56.78
+
+    engine = Engine()
+    assert score_drive_stats(
+        engine,
+        sub_stat_names=("暴击率%", "攻击力"),
+        area=3,
+        weights={"暴击率%": 2.0},
+        quality="Purple",
+    ) == 12.34
+    assert score_tape_stats(
+        engine,
+        main_stat_name="暴击率%",
+        sub_stat_names=("攻击力",),
+        weights={"攻击力": 1.0},
+        main_weights={"暴击率%": 3.0},
+        main_value=0.24,
+    ) == 56.78
+    _, drive, drive_weights, drive_maximum = engine.calls[1]
+    assert (drive.sub_stats, drive.area, drive.quality) == (
+        {"暴击率%": 0.0, "攻击力": 0.0}, 3, "Purple"
+    )
+    assert (drive_weights, drive_maximum) == ({"暴击率%": 2.0}, 9.0)
+    _, tape, tape_weights, tape_maximum, tape_main_weights = engine.calls[3]
+    assert (tape.main_stats, tape.sub_stats, tape.main_value) == (
+        "暴击率%", {"攻击力": 0.0}, 0.24
+    )
+    assert (tape_weights, tape_maximum, tape_main_weights) == (
+        {"攻击力": 1.0}, 9.0, {"暴击率%": 3.0}
+    )
+
+
 class VirtualEquipmentTests(unittest.TestCase):
     def test_uid_assignment_and_inventory_projection(self):
         self.assertTrue(is_virtual_equipment_assignment({"virtual": True}))
@@ -542,7 +592,7 @@ class OfficialRoleReplacementTests(unittest.TestCase):
             )
         self.assertEqual(77, saved_id)
         saved = captured["plans"][0]
-        self.assertEqual(105.0, saved["score"])
+        self.assertEqual(20.0, saved["score"])
         self.assertEqual("saved", saved["status"])
         self.assertEqual(
             ["nte-module-2-2"],

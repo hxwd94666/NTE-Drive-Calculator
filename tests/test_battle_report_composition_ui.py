@@ -133,17 +133,20 @@ class BattleReportCompositionUiTests(unittest.TestCase):
         self.app.processEvents()
 
         labels = row.findChildren(QLabel)
-        name = next(label for label in labels if label.toolTip() == entry.label)
+        name = next(label for label in labels if label.text() == entry.label)
         damage = next(label for label in labels if label.text() == "123,456")
-        share = next(label for label in labels if label.toolTip() == "占当前角色/公共块伤害")
-        total_share = next(label for label in labels if label.toolTip() == "占当前范围团队总伤害")
+        share = next(label for label in labels if label.text() == "12.3%")
+        total_share = next(label for label in labels if label.text() == "4.5%")
 
         self.assertEqual(entry.label, name.text())
+        self.assertEqual("", name.toolTip())
         self.assertGreater(
             name.fontMetrics().horizontalAdvance(name.text()),
             name.width(),
         )
         self.assertEqual(92, damage.width())
+        self.assertEqual("", share.toolTip())
+        self.assertEqual("", total_share.toolTip())
         self.assertEqual(52, share.width())
         self.assertEqual("4.5%", total_share.text())
         self.assertLessEqual(total_share.geometry().right(), row.rect().right())

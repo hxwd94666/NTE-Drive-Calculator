@@ -1,3 +1,4 @@
+# 投影战报边际分析的展示指标。
 """Decision-oriented panel and damage-share metrics for marginal result rows."""
 
 from __future__ import annotations

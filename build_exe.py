@@ -40,7 +40,6 @@ MOD_LOADER_ENV = "NTE_MOD_LOADER_EXE"
 LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"
 STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
 STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"
-PREVIOUS_RELEASE_DATABASE_PATH = BUILD / "previous" / "data" / "game_static.sqlite3"
 STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"
 SHARED_DATABASE_SEED_PATH = ROOT / "data" / "app_shared.sqlite3"
 MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"
@@ -55,7 +54,6 @@ NTE_CORE_RELEASE_FILES = (
     "THIRD_PARTY_LICENSES.md",
 )
 
-EXPLICIT_WORKSHOP_ARGS = {"--skip-workshop-sync", "--require-workshop-sync", "--prompt-workshop-key"}
 SYSTEM_ICU_SHADOW_DLL = "icuuc.dll"
 FORBIDDEN_AMBIENT_ICU_DLLS = ("icuuc.dll", "icudt78.dll")
 
@@ -115,40 +113,6 @@ def _validate_no_ambient_icu_dlls(output: Path) -> None:
 def _running_in_automation() -> bool:
     return build_cli.running_in_automation()
 
-
-def _choose_workshop_sync_mode() -> tuple[bool, bool]:
-    if any(arg in sys.argv for arg in EXPLICIT_WORKSHOP_ARGS):
-        return build_cli.choose_build_mode(
-            skip_workshop_sync="--skip-workshop-sync" in sys.argv,
-            require_workshop_sync="--require-workshop-sync" in sys.argv,
-            has_explicit_choice=True,
-        )
-    return build_cli.choose_build_mode()
-
-
-skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode()
-
-
-def _sync_workshop_weights_before_build() -> None:
-    if skip_workshop_sync:
-        build_cli.skip("开发诊断：跳过异环工坊权重发布门禁")
-        return
-    cmd = [
-        sys.executable,
-        str(ROOT / "tools" / "game_data" / "sync_recommended_weights.py"),
-        "--database", str(STATIC_DATABASE_PATH),
-        "--manifest", str(STATIC_MANIFEST_PATH),
-        "--reuse-database-if-missing", str(PREVIOUS_RELEASE_DATABASE_PATH),
-    ]
-    if (
-        "--prompt-workshop-key" in sys.argv
-        or (require_workshop_sync and "--require-workshop-sync" not in sys.argv)
-    ):
-        cmd.append("--prompt-key")
-    build_cli.run(cmd, ROOT)
-
-
-_sync_workshop_weights_before_build()
 
 def _remove_package_artifact(path: Path) -> None:
     """Remove only this package's PyInstaller output, never unrelated build worktrees."""

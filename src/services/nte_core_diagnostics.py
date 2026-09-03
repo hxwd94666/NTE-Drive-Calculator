@@ -132,7 +132,7 @@ def _format_capture_summary(detected: Mapping[str, Any]) -> list[str]:
         f"自动选择：{_format_compact_value(detected.get('recommended_device'))}",
     ]
     if devices:
-        lines.append("可手动选择：设置页提供“选择可用网卡”，无需复制设备内部名称。")
+        lines.append("已发现可选网卡；默认由 nte-core 自动选择。")
     else:
         lines.extend(
             [
@@ -173,7 +173,7 @@ def _format_next_step(detected: Mapping[str, Any], support: Mapping[str, Any]) -
             return [
                 "",
                 "下一步",
-                "未获得自动推荐；在“背包同步 > 抓取网卡”选择其中一项并保存后重试。",
+                "未获得自动推荐；先保持自动选择并重新启动背包同步。持续失败时再使用高级排障。",
             ]
         return ["", "下一步", "抓包环境已满足枚举条件；若同步仍失败，请提交同步阶段错误。"]
 

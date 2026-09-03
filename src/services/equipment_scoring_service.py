@@ -4,8 +4,28 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 
 from src.optimizer.scoring import ScoringEngine
+
+
+@dataclass(frozen=True)
+class _DriveScoreInput:
+    """适配展示词条到工坊评分器所需的最小驱动对象。"""
+
+    sub_stats: dict[str, float]
+    area: int
+    quality: str
+
+
+@dataclass(frozen=True)
+class _TapeScoreInput:
+    """适配展示词条到工坊评分器所需的最小卡带对象。"""
+
+    main_stats: str
+    sub_stats: dict[str, float]
+    quality: str
+    main_value: float | None
 
 
 def score_drive_stats(
@@ -18,20 +38,14 @@ def score_drive_stats(
 ) -> float:
     """Score one drive from normalized stat names and its occupied area."""
 
-    maximum_weight = engine.max_theoretical_weight(weights)
-    actual_weight = sum(
-        engine.flexible_weight(stat_name, weights)
-        for stat_name in sub_stat_names
-    )
-    if actual_weight <= 0 or maximum_weight <= 0 or int(area) <= 0:
-        return 0.0
-    quality_coefficient = engine.quality_map.get(str(quality), 1.0)
-    return round(
-        (10.0 / maximum_weight)
-        * actual_weight
-        * int(area)
-        * quality_coefficient,
-        2,
+    return engine.calculate_drive_score(
+        _DriveScoreInput(
+            sub_stats={str(name): 0.0 for name in sub_stat_names},
+            area=int(area),
+            quality=str(quality),
+        ),
+        dict(weights),
+        engine.max_theoretical_weight(dict(weights)),
     )
 
 
@@ -43,28 +57,19 @@ def score_tape_stats(
     weights: Mapping[str, float],
     quality: str = "Gold",
     main_weights: Mapping[str, float] | None = None,
+    main_value: float | None = None,
 ) -> float:
     """Score one tape from normalized main/sub-stat names."""
 
-    maximum_weight = engine.max_theoretical_weight(weights)
-    quality_coefficient = engine.quality_map.get(str(quality), 1.0)
-    main_weight_source = main_weights if main_weights is not None else weights
-    main_weight = (
-        engine.flexible_weight(main_stat_name, main_weight_source)
-        if main_stat_name
-        else 0.0
+    normalized_weights = dict(weights)
+    return engine.calculate_cartridge_score(
+        _TapeScoreInput(
+            main_stats=str(main_stat_name),
+            sub_stats={str(name): 0.0 for name in sub_stat_names},
+            quality=str(quality),
+            main_value=main_value,
+        ),
+        normalized_weights,
+        engine.max_theoretical_weight(normalized_weights),
+        dict(main_weights) if main_weights is not None else None,
     )
-    main_score = main_weight * 50.0 * quality_coefficient
-    sub_weight = sum(
-        engine.flexible_weight(stat_name, weights)
-        for stat_name in sub_stat_names
-    )
-    sub_score = (
-        (10.0 / maximum_weight)
-        * sub_weight
-        * 10.0
-        * quality_coefficient
-        if maximum_weight > 0
-        else 0.0
-    )
-    return round(main_score + sub_score, 2)

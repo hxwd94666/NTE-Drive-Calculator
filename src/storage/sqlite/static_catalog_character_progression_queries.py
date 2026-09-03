@@ -1,3 +1,4 @@
+# 查询角色养成静态库记录。
 """Read normalized character level and breakthrough progression rows."""
 
 from __future__ import annotations

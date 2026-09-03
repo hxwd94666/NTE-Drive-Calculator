@@ -11,6 +11,49 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 class PriorityGroupWorkflowTests(unittest.TestCase):
+    def test_auto_selected_fork_crit_bonus_reduces_equipment_cap(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles(
+            {"A": {"default_weapon": "暴击弧盘"}},
+            [],
+            weapons_db={"暴击弧盘": {"sub_stats": {"暴击率%": 32.0}}},
+        )
+        selector.selected = ["A"]
+
+        self.assertEqual({"A": 68.0}, selector.get_crit_rate_caps())
+        selector.crit_rate_caps["A"] = 80.0
+        self.assertEqual({"A": 68.0}, selector.get_crit_rate_caps())
+
+    def test_release_demon_blade_automatic_cap_is_sixty(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+        from src.services.role_fork_template_service import (
+            fork_templates_as_weapon_models,
+            load_official_role_fork_templates,
+        )
+
+        QApplication.instance() or QApplication([])
+        weapons = fork_templates_as_weapon_models(load_official_role_fork_templates())
+        fork_name, model = next(
+            (name, item) for name, item in weapons.items()
+            if item["fork_id"] == "fork_DemonBlade"
+        )
+        selector = RoleSelector()
+        selector.load_roles({"A": {"default_weapon": fork_name}}, [], weapons_db=weapons)
+        selector.selected = ["A"]
+
+        self.assertEqual(40.0, model["sub_stats"]["暴击率%"])  # 24 + 常驻 16
+        self.assertEqual({"A": 60.0}, selector.get_crit_rate_caps())
+        self.assertEqual({"A": 40.0}, selector.get_crit_rate_baselines())
+        selector.crit_rate_caps["A"] = 76.0  # 历史自动上限被保存为旧覆盖。
+        self.assertEqual({"A": 60.0}, selector.get_crit_rate_caps())
+
     def test_explicit_empty_protagonist_preferences_round_trip(self):
         from PySide6.QtWidgets import QApplication
 
@@ -293,7 +336,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         selector.selected, selector.priority_links = ["九原", "娜娜莉"], [">"]
         self.assertEqual({}, selector._load_custom_set_overrides(legacy_data))
 
-    def test_role_selector_drop_selected_to_target_position_from_front(self):
+    def test_role_selector_front_drop_uses_strict_link_without_reachable_boundary(self):
         from PySide6.QtWidgets import QApplication
 
         from src.features.allocation.role_selector import RoleSelector
@@ -307,7 +350,59 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         selector._drop_selected_on(0, 2)
 
         self.assertEqual(["B", "A", "C", "D"], selector.selected)
-        self.assertEqual([">", ">>", "="], selector.priority_links)
+        self.assertEqual([">>", ">", "="], selector.priority_links)
+        self.assertEqual([["B"], ["A"], ["C", "D"]], selector.get_priority_groups())
+
+    def test_role_selector_front_drop_on_adjacent_role_joins_target_group(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}}, [])
+        selector.selected = ["A", "B", "C"]
+        selector.priority_links = [">>", ">>"]
+
+        selector._drop_selected_on(0, 1)
+
+        self.assertEqual(["A", "B", "C"], selector.selected)
+        self.assertEqual(["=", ">>"], selector.priority_links)
+        self.assertEqual([["A", "B"], ["C"]], selector.get_priority_groups())
+
+    def test_role_selector_front_drop_preserves_target_equal_group(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
+        selector.selected = ["A", "B", "C", "D"]
+        selector.priority_links = [">>", "=", ">>"]
+
+        selector._drop_selected_on(0, 2)
+
+        self.assertEqual(["B", "A", "C", "D"], selector.selected)
+        self.assertEqual(["=", "=", ">>"], selector.priority_links)
+        self.assertEqual([["B", "A", "C"], ["D"]], selector.get_priority_groups())
+
+    def test_role_selector_front_drop_stops_equal_reachability_at_strict_link(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({name: {} for name in "ABCDE"}, [])
+        selector.selected = ["A", "B", "C", "D", "E"]
+        selector.priority_links = [">>", "=", ">", ">>"]
+
+        selector._drop_selected_on(0, 1)
+
+        self.assertEqual(["A", "B", "C", "D", "E"], selector.selected)
+        self.assertEqual([">", "=", ">", ">>"], selector.priority_links)
+        self.assertEqual([["A"], ["B", "C"], ["D"], ["E"]], selector.get_priority_groups())
 
     def test_role_selector_drop_selected_to_target_position_from_back(self):
         from PySide6.QtWidgets import QApplication

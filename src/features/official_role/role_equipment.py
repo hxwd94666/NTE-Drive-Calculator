@@ -341,10 +341,14 @@ def _build_drive_summary_group(
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
     top = QHBoxLayout()
+    # Attach the row before any child is made visible.  Calling setVisible(True)
+    # on the previous parentless context combo created a real top-level native
+    # window for one event-loop turn whenever a role tab was built.
+    layout.addLayout(top)
     count_label = QLabel()
     top.addWidget(count_label)
     top.addStretch()
-    context_combo = NoWheelComboBox()
+    context_combo = NoWheelComboBox(group)
     context_combo.setObjectName("officialRoleEquipmentContextSelector")
     for key, context in detail["equipment_contexts"].items():
         if key != "theory":
@@ -369,7 +373,6 @@ def _build_drive_summary_group(
     margin_label = QLabel("直伤收益: --")
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
     top.addWidget(margin_label)
-    layout.addLayout(top)
     summary_host = QWidget()
     summary_layout = QVBoxLayout(summary_host)
     summary_layout.setContentsMargins(0, 0, 0, 0)

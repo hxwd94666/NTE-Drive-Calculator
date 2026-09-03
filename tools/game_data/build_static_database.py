@@ -98,6 +98,7 @@ class StaticDatabaseBuilder(
         self.connection.execute("INSERT INTO schema_migration VALUES (29, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (30, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (31, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (32, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
@@ -129,6 +130,7 @@ class StaticDatabaseBuilder(
         self._import_combat_curves()
         self._import_combat_blueprints()
         self._import_buff_definitions()
+        self._import_fork_permanent_properties()
         self._import_encounter_catalogs()
         self._import_progression_catalog()
         violations = [tuple(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
@@ -159,18 +161,6 @@ def backup_existing_release_database(output: Path, backup: Path) -> None:
     if backup == output:
         raise ValueError("静态数据库备份路径不能与输出路径相同")
     if not output.is_file():
-        return
-    try:
-        with closing(
-            sqlite3.connect(f"{output.as_uri()}?mode=ro", uri=True)
-        ) as connection:
-            attributed_count = int(connection.execute(
-                """SELECT COUNT(*) FROM character_weight_recommendation
-                   WHERE source_kind IN ('workshop_api', 'workshop_cache')"""
-            ).fetchone()[0])
-    except sqlite3.Error as exc:
-        raise RuntimeError(f"无法审计待备份的发行静态库：{output}") from exc
-    if attributed_count <= 0:
         return
     backup.parent.mkdir(parents=True, exist_ok=True)
     handle, backup_name = tempfile.mkstemp(
@@ -231,6 +221,9 @@ def build_database(
                 include_source_payloads=include_source_payloads,
             )
             counts = builder.build()
+            fork_permanent_property_audit = tuple(
+                builder.fork_permanent_property_audit
+            )
             try:
                 from .build_graduation_templates import (
                     populate_graduation_templates,
@@ -259,6 +252,7 @@ def build_database(
         "database_sha256": file_sha256(output),
         "source_payloads_included": include_source_payloads,
         "database_counts": counts,
+        "fork_permanent_property_audit": fork_permanent_property_audit,
         "foreign_key_violations": [],
     }
     (report_dir / "static_database_report.json").write_text(
@@ -267,6 +261,15 @@ def build_database(
     )
     (report_dir / "static_database_report.md").write_text(
         render_report(report), encoding="utf-8"
+    )
+    (report_dir / "fork_permanent_property_audit.json").write_text(
+        json.dumps(
+            fork_permanent_property_audit,
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     if manifest_path is not None:
         write_static_manifest(output, manifest_path)
@@ -285,9 +288,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backup-existing-to",
         type=Path,
-        help=(
-            "覆盖输出前原子备份现有发行静态库；无工坊 API Key 时用于继承旧权重"
-        ),
+        help="覆盖输出前原子备份现有发行静态库。",
     )
     parser.add_argument(
         "--manifest",

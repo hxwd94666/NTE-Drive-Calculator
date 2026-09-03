@@ -54,6 +54,7 @@ from src.features.inventory.equipment_display_context import (
     equipment_presentation,
 )
 from src.ui.puzzle_board import PuzzleBoardWidget
+from src.ui.attribute_summary_panel import AttributeSummaryPanel, AttributeSummaryRow
 from src.ui.equipment_state_icons import warehouse_lock_icon
 
 
@@ -138,6 +139,55 @@ def _saved_plan_requires_score_recalculation(
     return (
         not bool(role_data.get("_sqlite_assignment_scores_complete"))
         or _saved_plan_contains_virtual_equipment(role_data)
+    )
+
+
+def _saved_official_attribute_panel(
+    role_name: str,
+    state: Mapping[str, Any],
+    *,
+    parent: QWidget | None = None,
+) -> AttributeSummaryPanel | None:
+    summaries = state.get("_official_attribute_summaries")
+    if not isinstance(summaries, Mapping):
+        return None
+
+    def rows(
+        source: Mapping[str, Any], mode: str
+    ) -> tuple[AttributeSummaryRow, ...]:
+        return tuple(
+            AttributeSummaryRow(
+                key=str(row.key),
+                label=str(row.label),
+                value=round(float(row.value) * (100.0 if row.percent else 1.0), 2),
+                percent=bool(row.percent),
+            )
+            for row in source.get(mode, ())
+        )
+
+    current_rows = {
+        "equipment": rows(summaries, "equipment"),
+        "character": rows(summaries, "character"),
+    }
+    previous = state.get("_official_previous_attribute_summaries")
+    comparisons = None
+    if isinstance(previous, Mapping):
+        comparisons = {
+            "equipment": (
+                rows(previous, "equipment"),
+                current_rows["equipment"],
+            ),
+            "character": (
+                rows(previous, "character"),
+                current_rows["character"],
+            ),
+        }
+
+    return AttributeSummaryPanel(
+        role_name,
+        current_rows,
+        parent=parent,
+        comparison_rows_by_mode=comparisons,
     )
 
 
@@ -265,7 +315,8 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         if tape_data:
             t_q = tape_data.get(EQUIP_QUALITY, "Gold")
             t_s = presentation.score_tape(
-                tape_data.get(EQUIP_MAIN_STATS, ""), tape_data.get(EQUIP_SUB_STATS, {}), wts, t_q, main_wts
+                tape_data.get(EQUIP_MAIN_STATS, ""), tape_data.get(EQUIP_SUB_STATS, {}), wts, t_q, main_wts,
+                tape_data.get("main_value"),
             )
             total_score += t_s
         for d in rd.get(ROLE_EQUIPPED_DRIVES, []):
@@ -530,15 +581,26 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
             )
             bonus_stretch = 1
         else:
-            bonus_panel = presentation.role_bonus_summary_panel(
+            official_bonus_panel = _saved_official_attribute_panel(
                 source_role_name,
-                tape_data,
-                drives,
-                compare_with_saved=compare_with_saved,
-                priority_stats=presentation.role_stat_priority_stats(source_role_name),
-                role_diff=last_diff,
+                rd,
+                parent=self if isinstance(self, QWidget) else None,
             )
-            bonus_stretch = 1 if compare_with_saved else 0
+            if official_bonus_panel is not None:
+                bonus_panel = official_bonus_panel
+                # The compact summary belongs directly beside the board.  A
+                # persisted change must not turn it into the expanding column.
+                bonus_stretch = 0
+            else:
+                bonus_panel = presentation.role_bonus_summary_panel(
+                    source_role_name,
+                    tape_data,
+                    drives,
+                    compare_with_saved=compare_with_saved,
+                    priority_stats=presentation.role_stat_priority_stats(source_role_name),
+                    role_diff=last_diff,
+                )
+                bonus_stretch = 1 if compare_with_saved else 0
         bp_panel = _ResponsivePairWidget(
             PuzzleBoardWidget(bp),
             bonus_panel,
@@ -552,7 +614,8 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
             t_g = str(tape_data.get(EQUIP_GRADE) or "D")
         else:
             t_s = presentation.score_tape(
-                tape_data.get(EQUIP_MAIN_STATS, ""), tape_data.get(EQUIP_SUB_STATS, {}), wts, t_q, main_wts
+                tape_data.get(EQUIP_MAIN_STATS, ""), tape_data.get(EQUIP_SUB_STATS, {}), wts, t_q, main_wts,
+                tape_data.get("main_value"),
             )
             t_g = allocation_grade(t_s, 15)
         gl.addWidget(presentation.section_label("卡带:"))

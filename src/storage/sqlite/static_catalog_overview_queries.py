@@ -1,4 +1,4 @@
-# 提供游戏资料库 124 张发行静态表的固定只读登记。
+# 提供游戏资料库 125 张发行静态表的固定只读登记。
 """Fixed-table coverage queries for the release static catalog overview."""
 
 from __future__ import annotations
@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.storage.sqlite.static_game_data_dao import StaticGameDataError, resolve_static_database
-from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION
+from src.storage.sqlite.static_game_data_metadata import (
+    MINIMUM_SUPPORTED_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+)
 
 
 # 表名只来自本固定登记，绝不接受 UI 输入。状态是独立覆盖审计结论：
@@ -54,6 +57,7 @@ STATIC_TABLE_CATALOG: tuple[tuple[str, str, str], ...] = (
     ("fork_upgrade_level", "弧盘", "B"),
     ("fork_breakthrough", "弧盘", "A"),
     ("fork_refinement_parameter_value", "弧盘", "A"),
+    ("fork_permanent_property", "弧盘", "A"),
     ("fork_star_level", "弧盘", "A"),
     ("fork_star_parameter", "弧盘", "A"),
     ("fork_lottery_campaign", "弧盘", "A"),
@@ -164,10 +168,12 @@ class StaticCatalogOverviewQueries:
         version = self._connection.execute(
             "SELECT MAX(version) FROM schema_migration"
         ).fetchone()[0]
-        if int(version or 0) != SCHEMA_VERSION:
+        self._schema_version = int(version or 0)
+        if not MINIMUM_SUPPORTED_SCHEMA_VERSION <= self._schema_version <= SCHEMA_VERSION:
             self.close()
             raise StaticGameDataError(
-                f"不支持的静态数据库结构版本：{version!r}；需要 {SCHEMA_VERSION}"
+                f"不支持的静态数据库结构版本：{version!r}；支持 "
+                f"{MINIMUM_SUPPORTED_SCHEMA_VERSION} 至 {SCHEMA_VERSION}"
             )
 
     def close(self) -> None:
@@ -179,8 +185,16 @@ class StaticCatalogOverviewQueries:
     def list_tables(self) -> tuple[StaticTableOverview, ...]:
         if self._connection is None:
             raise StaticGameDataError("资料库覆盖总览连接已关闭")
+        available_tables = {
+            str(row[0])
+            for row in self._connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
         rows: list[StaticTableOverview] = []
         for name, domain, state in STATIC_TABLE_CATALOG:
+            if name not in available_tables:
+                continue
             count = self._connection.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
             rows.append(StaticTableOverview(name, domain, state, int(count)))
         return tuple(rows)

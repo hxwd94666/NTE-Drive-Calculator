@@ -364,7 +364,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.QMessageBox.warning = old_warning
             page_module.QMessageBox.critical = old_critical
 
-    def test_automatic_assembly_keeps_cloud_nte_mode_disabled_without_frontend_entry(self):
+    def test_automatic_assembly_uses_mouse_only_execution_contract(self):
         import src.features.inventory.equipment_automatic_assembly_controller as page_module
 
         class Signal:
@@ -399,7 +399,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.execute_selected_role_from_current_game_page = lambda *_args, **kwargs: calls.append(kwargs)
             page_module._assembly_runtime_paths = lambda _window: (Path("templates"), Path("record"))
 
-            window = SimpleNamespace(user_database_path="unused.sqlite3", _ui_preferences={"cloud_nte_mode": True})
+            window = SimpleNamespace(user_database_path="unused.sqlite3")
             page_module._start_automatic_equipment_assembly(window, ["角色"])
             window._automatic_equipment_apply_worker.target()
         finally:
@@ -411,7 +411,16 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.execute_selected_role_from_current_game_page = old_execute
             page_module._assembly_runtime_paths = old_paths
 
-        self.assertEqual([False], [call["cloud_nte_mode"] for call in calls])
+        self.assertEqual(1, len(calls))
+        self.assertEqual(
+            {
+                "template_dir",
+                "record_root",
+                "role_name_aliases",
+                "should_stop",
+            },
+            set(calls[0]),
+        )
 
     def test_automatic_assembly_uses_configured_global_stop_hotkey(self):
         import src.features.inventory.equipment_automatic_assembly_controller as page_module

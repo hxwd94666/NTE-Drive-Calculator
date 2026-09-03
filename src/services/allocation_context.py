@@ -19,6 +19,7 @@ from src.services.character_weight_service import is_unmodified_account_weight_c
 from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.services.equipment_level_projection_service import project_equipment_items_to_max_level
 from src.services.inventory_source_capabilities import is_visual_inventory_source
+from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
 
 
 ALLOCATION_CONTEXT_SOLVER_VERSION = "allocation-context-v1"
@@ -418,7 +419,11 @@ def _allocation_role_values(
 ) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
     account_weights = user_dao.get_character_weight_preferences(character_id)
     weight_record = (
-        static_dao.get_character_recommended_weights(character_id)
+        effective_workshop_recommended_weights(
+            None,
+            character_id,
+            static_dao.get_character_recommended_weights(character_id),
+        )
         if account_weights is None or is_unmodified_account_weight_cache(account_weights)
         else account_weights
     )

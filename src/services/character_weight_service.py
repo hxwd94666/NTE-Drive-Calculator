@@ -10,6 +10,10 @@ from typing import Any
 from src.observability import OperationContext, operation_scope
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.workshop_weight_template_service import (
+    effective_workshop_recommended_weights,
+    workshop_weight_template_revision,
+)
 
 
 def is_unmodified_account_weight_cache(record: Mapping[str, Any] | None) -> bool:
@@ -45,8 +49,9 @@ def ensure_account_character_weights(
 ) -> dict[int, dict[str, Any]]:
     """Refresh public defaults while preserving only genuine account edits.
 
-    Public recommendations always live in ``game_static.sqlite3``.  The
-    account database stores a refreshable ``default`` cache for untouched
+    Public recommendations resolve from the startup-refreshed Workshop template
+    and then the packaged static fallback.  The account database stores a
+    refreshable ``default`` cache for untouched
     roles; saving a role changes its source to ``account`` and freezes it
     against later public-data updates.
     """
@@ -61,9 +66,14 @@ def ensure_account_character_weights(
             ]
         )
         dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
+        public_revision = workshop_weight_template_revision() or dataset_id
         result: dict[int, dict[str, Any]] = {}
         for character_id in wanted_ids:
-            recommended = static_dao.get_character_recommended_weights(character_id)
+            recommended = effective_workshop_recommended_weights(
+                None,
+                character_id,
+                static_dao.get_character_recommended_weights(character_id),
+            )
             if recommended is None:
                 continue
             properties = list(recommended.get("properties") or ())
@@ -74,12 +84,12 @@ def ensure_account_character_weights(
                 result[character_id] = user_dao.seed_character_weight_preferences(
                     character_id,
                     properties=properties,
-                    source_dataset_id=dataset_id,
+                    source_dataset_id=public_revision,
                     source_kind="default",
                 )
             elif is_unmodified_account_weight_cache(existing):
                 if (
-                    str(existing.get("source_dataset_id") or "") == dataset_id
+                    str(existing.get("source_dataset_id") or "") == public_revision
                     and _same_weight_rows(existing, properties)
                 ):
                     result[character_id] = existing
@@ -87,7 +97,7 @@ def ensure_account_character_weights(
                     refreshed = user_dao.refresh_unmodified_character_weight_preferences(
                         character_id,
                         properties=properties,
-                        source_dataset_id=dataset_id,
+                        source_dataset_id=public_revision,
                         source_kind="default",
                     )
                     result[character_id] = refreshed or existing
@@ -151,6 +161,7 @@ def _save_account_character_weights(
             str(row["attribute_id"]) for row in static_dao.list_equipment_attributes()
         }
         dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
+        public_revision = workshop_weight_template_revision() or dataset_id
     normalized = {
         str(property_id): float(weight)
         for property_id, weight in property_weights.items()
@@ -255,14 +266,19 @@ def _reset_account_character_weights(
 ) -> dict[int, dict[str, Any]]:
     with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
         dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
+        public_revision = workshop_weight_template_revision() or dataset_id
         restored: dict[int, dict[str, Any]] = {}
         for character_id in wanted_ids:
-            recommended = static_dao.get_character_recommended_weights(character_id)
+            recommended = effective_workshop_recommended_weights(
+                None,
+                character_id,
+                static_dao.get_character_recommended_weights(character_id),
+            )
             if recommended is None or not recommended.get("properties"):
                 continue
             restored[character_id] = user_dao.reset_character_weight_preferences_to_default(
                 character_id,
                 properties=list(recommended["properties"]),
-                source_dataset_id=dataset_id,
+                source_dataset_id=public_revision,
             )
         return restored

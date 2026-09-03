@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .protocols import StaticDataDaoMixinHost
+from .static_game_data_fork_permanent_queries import ForkPermanentPropertyProjectionMixin
 
 
 def _official_pack_key(value: object) -> str:
@@ -15,7 +15,8 @@ def _official_pack_key(value: object) -> str:
     return str(value or "").casefold()
 
 
-class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
+class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
+
     def list_forks(self) -> list[dict[str, Any]]:
         rows = self._rows(
             """
@@ -147,6 +148,25 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             )
             stars_by_pack.setdefault(_official_pack_key(pack_id), []).append(row)
 
+        permanent_by_fork: dict[str, list[dict[str, Any]]] = {}
+        table_exists = self._one(
+            "SELECT 1 AS found FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'fork_permanent_property'"
+        )
+        if table_exists is not None:
+            for row in self._rows(
+                """
+                SELECT fork_id, refinement_level, property_id, modifier_operation,
+                       property_value, source_parameter_name_id,
+                       source_effect_definition_id, source_calculation_asset_path
+                FROM fork_permanent_property
+                ORDER BY fork_id, refinement_level
+                """
+            ):
+                permanent_by_fork.setdefault(str(row.pop("fork_id")), []).append(row)
+        else:
+            permanent_by_fork = self._legacy_fork_permanent_properties()
+
         templates: list[dict[str, Any]] = []
         for fork in self.list_forks():
             template = dict(fork)
@@ -158,6 +178,9 @@ class StaticGameDataExtendedQueriesMixin(StaticDataDaoMixinHost):
             )
             template["star_levels"] = stars_by_pack.get(
                 _official_pack_key(template.get("star_pack_id")), []
+            )
+            template["permanent_properties"] = permanent_by_fork.get(
+                str(template.get("fork_id") or ""), []
             )
             template["cultivation_recommendations"] = recommendations_by_fork.get(
                 str(template.get("fork_id") or ""), []

@@ -101,7 +101,7 @@ class OfficialRoleController:
             started_event="role.world_bonus_save_started",
             succeeded_event="role.world_bonus_save_succeeded",
             failed_event="role.world_bonus_save_failed",
-            message="保存世界加成",
+            message="保存家具加成",
         ):
             return self._world_bonus_service.save(settings)
 

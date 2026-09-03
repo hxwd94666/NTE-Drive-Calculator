@@ -389,39 +389,6 @@ class DriveAssemblyRolePlanningTests(unittest.TestCase):
                 names.index("close_role_list_to_role_page"),
             )
 
-    def test_cloud_nte_role_list_exit_uses_gamepad_to_enter_assembly(self):
-        from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
-
-        plan = plan_role_assembly_from_role_list_roster(
-            ["A"],
-            {"roles": ["A"], "role_positions": {"A": 0}, "current_index": 0, "list_open": True},
-            cloud_nte_mode=True,
-        )
-
-        actions = plan["plans"][0]["action_sequence"]
-        self.assertEqual(
-            [
-                "role_list_select_grid_slot",
-                "close_role_list_to_role_page",
-                "left_kongmu_tab",
-                "wait_after_left_kongmu_tab",
-                "activate_assemble_button_gamepad",
-                "assemble_button",
-                "assembly_page_wake_mouse_after_gamepad",
-                "assemble_current_role_from_blueprint",
-                "assembly_back_to_role_page",
-            ],
-            [action["name"] for action in actions],
-        )
-        self.assertEqual(
-            "dpad_right",
-            next(action["gamepad_button"] for action in actions if action["name"] == "activate_assemble_button_gamepad"),
-        )
-        self.assertEqual(
-            "y",
-            next(action["gamepad_button"] for action in actions if action["name"] == "assemble_button"),
-        )
-
     def test_later_page_target_reuses_its_remembered_fourth_row_without_reset_wheels(self):
         from src.features.drive_assembly.role_flow import plan_role_assembly_from_role_list_roster
 

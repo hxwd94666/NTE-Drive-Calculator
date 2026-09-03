@@ -20,9 +20,11 @@ GROUP_CHAT_NOTICE = (
 WORKSHOP_WEIGHT_CONFIGS_API = "https://yh.zzzmap.com/api/open/game-character/weight-configs"
 QUARK_NETDISK_URL = "https://pan.quark.cn/s/82f16b845aec"
 BAIDU_NETDISK_URL = "https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke"
+XUNLEI_NETDISK_URL = "https://pan.xunlei.com/s/VP0W_ptzSZwkVamy2UvF_CliA1?pwd=2hb6#"
 NETDISK_DOWNLOAD_LINKS = (
     ("夸克网盘", QUARK_NETDISK_URL),
     ("百度网盘", BAIDU_NETDISK_URL),
+    ("迅雷网盘", XUNLEI_NETDISK_URL),
 )
 
 CORE_CONFIG_FILES = ("stats.json",)

@@ -159,3 +159,71 @@ def shift_crossed_priority_boundaries(
             if links[pos] == GROUP_BOUNDARY_LINK and pos + 1 < len(links):
                 links[pos], links[pos + 1] = links[pos + 1], links[pos]
                 promote_priority_boundary(links, pos + 1)
+
+
+def _link_after_removing_role(left: str, right: str) -> str:
+    """Keep the surrounding batch relationship when one role is removed."""
+
+    if left == EQUAL_LINK and right == EQUAL_LINK:
+        return EQUAL_LINK
+    if left == EQUAL_LINK:
+        return right
+    if right == EQUAL_LINK:
+        return left
+    if GROUP_BOUNDARY_LINK in {left, right}:
+        return GROUP_BOUNDARY_LINK
+    return STRICT_LINK
+
+
+def _forward_drop_link(links: list[str], target_index: int) -> str:
+    """Return the link for a front-to-back drop on the target role.
+
+    A target joins a same-priority batch only when following its contiguous
+    equal links reaches a batch boundary. A strict link or the end of the
+    selection ends that reachability.
+    """
+
+    cursor = target_index
+    while cursor < len(links) and links[cursor] == EQUAL_LINK:
+        cursor += 1
+    if cursor < len(links) and links[cursor] == GROUP_BOUNDARY_LINK:
+        return EQUAL_LINK
+    return STRICT_LINK
+
+
+def relink_forward_drop(
+    selected: list[str],
+    links: Iterable[str] | None,
+    source_index: int,
+    target_index: int,
+) -> tuple[list[str], list[str]]:
+    """Move a role before a later target and derive its new priority link."""
+
+    roles = list(selected)
+    clean_links = normalize_priority_links(roles, links)
+    if (
+        source_index < 0
+        or target_index < 0
+        or source_index >= len(roles)
+        or target_index >= len(roles)
+        or source_index >= target_index
+    ):
+        return roles, clean_links
+
+    target_role = roles[target_index]
+    moved_role = roles.pop(source_index)
+    if source_index == 0:
+        clean_links.pop(0)
+    elif source_index == len(clean_links):
+        clean_links.pop(source_index - 1)
+    else:
+        clean_links[source_index - 1] = _link_after_removing_role(
+            clean_links[source_index - 1], clean_links[source_index]
+        )
+        clean_links.pop(source_index)
+
+    insert_index = roles.index(target_role)
+    inserted_link = _forward_drop_link(clean_links, insert_index)
+    roles.insert(insert_index, moved_role)
+    clean_links.insert(insert_index, inserted_link)
+    return roles, normalize_priority_links(roles, clean_links)

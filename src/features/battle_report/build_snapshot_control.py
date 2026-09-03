@@ -61,7 +61,7 @@ class BattleBuildSnapshotControl(QWidget):
         elif not has_edit:
             text = "当前使用原始快照；首次编辑会复制本场原始冻结配置。"
         elif active:
-            text = "当前使用修改副本；养成与已保存的边际空幕/驱动按副本重放。"
+            text = "当前使用修改副本；它只用于逐击重放和边际计算，主页面实测数据不变。"
         else:
             text = "当前已恢复原始快照；修改副本仍保留，可继续编辑或重新启用。"
         self.status.setText(text)

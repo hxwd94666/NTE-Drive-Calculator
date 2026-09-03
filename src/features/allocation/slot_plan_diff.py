@@ -5,8 +5,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.optimizer.contracts import EQUIP_UID, ROLE_EQUIPPED_DRIVES, ROLE_EQUIPPED_TAPE
+from src.optimizer.contracts import (
+    EQUIP_AREA,
+    EQUIP_SCORE,
+    EQUIP_SCORE_AREA,
+    EQUIP_UID,
+    ROLE_EQUIPPED_DRIVES,
+    ROLE_EQUIPPED_TAPE,
+)
 from src.optimizer.plan_diff import build_plan_diff
+from src.services.virtual_equipment_service import (
+    grid_count_from_geometry,
+    normalized_equipment_assignment,
+)
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -15,19 +26,30 @@ def loadout_plan_state(plan: dict[str, Any]) -> dict[str, Any]:
 
     tape = None
     drives = []
+    assignment_scores = (plan.get("payload") or {}).get("assignment_scores") or {}
     for assignment in plan.get("assignments") or []:
-        kind = str(assignment.get("kind") or "")
+        resolved = normalized_equipment_assignment(assignment)
+        kind = str(resolved.get("kind") or "")
         try:
             uid = (
                 f"nte-{'module' if kind == 'module' else 'core'}-"
-                f"{int(assignment['uid_slot'])}-{int(assignment['uid_serial'])}"
+                f"{int(resolved['uid_slot'])}-{int(resolved['uid_serial'])}"
             )
         except (KeyError, TypeError, ValueError):
             continue
+        area = (
+            15
+            if kind == "core"
+            else int(resolved.get("grid_count") or 0)
+            or grid_count_from_geometry(resolved.get("geometry"))
+        )
+        item = {EQUIP_UID: uid, EQUIP_AREA: area, EQUIP_SCORE_AREA: area}
+        if uid in assignment_scores:
+            item[EQUIP_SCORE] = float(assignment_scores[uid])
         if kind == "core":
-            tape = {EQUIP_UID: uid}
+            tape = item
         elif kind == "module":
-            drives.append({EQUIP_UID: uid})
+            drives.append(item)
     return {
         ROLE_EQUIPPED_TAPE: tape,
         ROLE_EQUIPPED_DRIVES: drives,

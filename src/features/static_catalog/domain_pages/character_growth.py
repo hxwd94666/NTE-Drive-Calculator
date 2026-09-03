@@ -19,7 +19,7 @@ from src.app.theme import themed_style
 from src.features.static_catalog.domain_pages.character_terminology import (
     project_character_term,
 )
-from src.features.static_catalog.domain_pages.character_progression import (
+from src.services.character_progression_requirements import (
     CharacterMaterialRequirement,
     MaterialSummaryStatus,
     project_character_level_requirements,

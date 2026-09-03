@@ -92,6 +92,7 @@ def resolve_battle_target_condition(
         enemy_topple_limit=float(value.get("enemy_topple_limit") or 50.0),
         environment_kind=_text(value.get("environment_kind"), "manual"),
         environment_ref=_text(value.get("environment_ref")),
+        environment_name=_text(value.get("environment_name")),
         selected_target_ids=tuple(
             str(item) for item in (value.get("selected_target_ids") or ())
         ),
@@ -118,6 +119,33 @@ def resolve_battle_target_condition(
             value.get("selected_target_profiles")
         ),
     )
+
+
+def display_battle_environment_name(condition: BattleTargetCondition) -> str:
+    """Return the compact player-facing environment name for a saved condition."""
+
+    saved_name = _text(condition.environment_name)
+    if saved_name:
+        return saved_name
+    kind = _text(condition.environment_kind)
+    if condition.environment_ref.startswith("clone|"):
+        return "材料 / 养成副本"
+    if kind == "outer_realm":
+        parts = condition.environment_ref.split("|")
+        if len(parts) >= 3 and parts[1].isdigit():
+            half = "上半" if "FirstHalf" in parts[2] else "下半"
+            return f"轨外之境第{int(parts[1])}层{half}"
+        return "轨外之境"
+    prefix = {
+        "open_world": "大世界",
+        "clone": "材料 / 养成副本",
+        "feast": "争锋赏宴",
+        "high_risk_commission": "高危委托",
+    }.get(kind, "大世界" if condition.scene == "open_world" else "战斗环境")
+    target_name = _text(condition.target_name)
+    if not target_name or "/" in target_name or "\\" in target_name:
+        return prefix
+    return target_name if target_name.startswith(prefix) else f"{prefix} · {target_name}"
 
 
 def battle_witch_buff_interval(

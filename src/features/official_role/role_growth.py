@@ -29,7 +29,8 @@ from src.app.window_geometry import fit_dialog_to_available_screen
 from src.services.advancement_stage_service import (
     character_growth_choices,
     fork_breakthrough_choices,
-    fork_panel_stats,
+    fork_active_panel_stats,
+    fork_permanent_stats,
     select_character_growth,
     select_fork_breakthrough,
 )
@@ -56,6 +57,7 @@ from .role_calculation import (
     _selected_fork_stage,
     _selected_growth,
 )
+from .fork_display import render_fork_skill_description
 
 __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
 
@@ -617,25 +619,6 @@ def _display_property_value(detail: dict, property_id: str, value: float) -> str
     return f"+{value:.2f}".rstrip("0").rstrip(".")
 
 
-def _fork_skill_description(star: dict) -> str:
-    """Render official refinement placeholders with the selected level's curve values."""
-
-    description = str(star.get("description_zh") or "")
-    for parameter in star.get("parameters") or ():
-        value = parameter.get("value")
-        if value is None:
-            continue
-        number = float(value) * (100.0 if parameter.get("is_percent") else 1.0)
-        shown = f"{number:.6f}".rstrip("0").rstrip(".")
-        if parameter.get("is_percent"):
-            shown += "%"
-        description = description.replace(
-            "{" + str(int(parameter.get("ordinal") or 0)) + "}",
-            shown,
-        )
-    return description.replace("<lv>", "").replace("</>", "")
-
-
 def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> QGroupBox:
     profile = detail["profile"]
     group = QGroupBox("弧盘加成")
@@ -675,7 +658,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
     identity.addWidget(margin_label)
     layout.addLayout(identity)
-    base_label = QLabel("基础加成：")
+    base_label = QLabel("基础加成（橙色为精炼无条件常驻）：")
     base_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(base_label)
     stats_widget = QWidget()
@@ -734,19 +717,26 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
         level = fork_level.value()
         breakthrough_stage = _selected_fork_stage(editor)
         fork = selected_fork_template()
-        stats = fork_panel_stats(
-            fork,
-            level,
+        permanent_stats = fork_permanent_stats(fork, refinement.currentData())
+        stats = fork_active_panel_stats(fork, level,
             breakthrough_stage=breakthrough_stage,
+            refinement_level=refinement.currentData(),
         )
         if not stats:
             stats_layout.addWidget(QLabel("未装备弧盘"))
         for property_id, value in stats.items():
             row = QHBoxLayout()
-            row.addWidget(QLabel(_attribute_name(detail, property_id)))
+            property_label = _attribute_name(detail, property_id)
+            permanent_value = permanent_stats.get(property_id)
+            if permanent_value is not None:
+                property_label += f"（常驻 {_display_property_value(detail, property_id, permanent_value)}）"
+            row.addWidget(QLabel(property_label))
             row.addStretch()
             shown = QLabel(_display_property_value(detail, property_id, value))
-            shown.setStyleSheet("color:#58a6ff;font-weight:700;")
+            shown.setStyleSheet(
+                "color:#ffb75d;font-weight:700;" if permanent_value is not None
+                else "color:#58a6ff;font-weight:700;"
+            )
             row.addWidget(shown)
             stats_layout.addLayout(row)
         context_key = str(editor.get("equipment_context_key") or "current")
@@ -758,6 +748,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
                 "fork_id": fork_id,
                 "fork_level": level,
                 "fork_breakthrough_stage": breakthrough_stage,
+                "fork_refinement_level": refinement.currentData(),
             },
         }
         without_fork = {
@@ -777,7 +768,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
             star_rows[0] if star_rows else None,
         )
         if star:
-            description = _fork_skill_description(star)
+            description = render_fork_skill_description(star)
             effect_text.setText(f"{star.get('title_zh') or ''}\n{description}".strip())
         else:
             effect_text.setText("暂无官方精炼说明。")

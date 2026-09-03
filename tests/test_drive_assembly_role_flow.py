@@ -37,35 +37,6 @@ class DriveAssemblyRoleRecognitionTests(unittest.TestCase):
             controls["exit_sequence"],
         )
 
-    def test_maps_cloud_nte_assembly_to_gamepad_dpad_right_then_y(self):
-        from src.features.drive_assembly.role_flow import map_role_navigation_controls
-
-        controls = map_role_navigation_controls(cloud_nte_mode=True)
-
-        self.assertEqual(
-            [
-                {"name": "left_kongmu_tab", "position": (88, 581)},
-                {"name": "wait_after_left_kongmu_tab", "wait_seconds": 1.0},
-                {
-                    "name": "activate_assemble_button_gamepad",
-                    "gamepad_button": "dpad_right",
-                    "post_action_pause_seconds": 0.2,
-                },
-                {
-                    "name": "assemble_button",
-                    "gamepad_button": "y",
-                    "post_action_pause_seconds": 1.2,
-                },
-                {
-                    "name": "assembly_page_wake_mouse_after_gamepad",
-                    "position": (1524, 1252),
-                    "mouse_move_only": True,
-                    "post_action_pause_seconds": 0.25,
-                },
-            ],
-            controls["entry_sequence"],
-        )
-
     def test_maps_five_visible_role_slots_and_scroll(self):
         from src.features.drive_assembly.role_flow import (
             map_role_list_mouse_entry,
@@ -144,15 +115,6 @@ class DriveAssemblyRoleRecognitionTests(unittest.TestCase):
                 },
             ],
             entry["reentry_sequence"],
-        )
-        cloud_entry = map_role_list_mouse_entry(cloud_nte_mode=True)
-        self.assertEqual(
-            ["activate_role_list_gamepad", "open_role_list", "role_list_wake_mouse_after_gamepad"],
-            [action["name"] for action in cloud_entry["entry_sequence"][-3:]],
-        )
-        self.assertEqual(
-            ["activate_role_list_gamepad", "open_role_list_from_current_role", "role_list_wake_mouse_after_gamepad"],
-            [action["name"] for action in cloud_entry["reentry_sequence"]],
         )
         compact_entry = map_role_list_mouse_entry(screen_size=(1920, 1080))
         self.assertEqual((1841, 156), compact_entry["role_list_entry_scroll_start"])

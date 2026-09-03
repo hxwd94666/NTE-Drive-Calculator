@@ -1,3 +1,4 @@
+# 导入静态养成目录、掉落与术语来源。
 """Import v30 release annotations and conservative progression-drop facts."""
 
 from __future__ import annotations

@@ -76,9 +76,10 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "030_game_static_progression_catalog.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "031_game_static_character_progression.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "032_game_static_fork_permanent_property.sql",
 )
-SCHEMA_VERSION = 31
-IMPORTER_VERSION = 37
+SCHEMA_VERSION = 32
+IMPORTER_VERSION = 40
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",

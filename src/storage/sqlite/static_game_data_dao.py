@@ -11,7 +11,11 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Iterable, NoReturn
 
-from .static_game_data_metadata import SCHEMA_VERSION, SUMMARY_TABLES
+from .static_game_data_metadata import (
+    MINIMUM_SUPPORTED_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    SUMMARY_TABLES,
+)
 
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 _DEFAULT_LOGICAL_CHARACTER_IDS = {"protagonist": 1051}
@@ -111,13 +115,13 @@ class StaticGameDataDao(
         expected_schema_version: int | None = None,
     ) -> None:
         expected_version = (
-            SCHEMA_VERSION
-            if expected_schema_version is None
-            else int(expected_schema_version)
+            int(expected_schema_version)
+            if expected_schema_version is not None
+            else None
         )
-        if expected_version <= 0:
+        if expected_version is not None and expected_version <= 0:
             raise ValueError("expected_schema_version 必须为正整数")
-        self._schema_version = expected_version
+        self._schema_version = SCHEMA_VERSION
         self.database_path = resolve_static_database(database_path)
         uri = f"{self.database_path.as_uri()}?mode=ro"
         try:
@@ -138,11 +142,21 @@ class StaticGameDataDao(
             self.close()
             raise StaticGameDataError("文件不是 NTE 静态游戏数据库") from exc
         version = version_row["version"] if version_row is not None else None
-        if version != expected_version:
+        resolved_version = int(version or 0)
+        if expected_version is not None and resolved_version != expected_version:
             self.close()
             raise StaticGameDataError(
                 f"不支持的静态数据库结构版本：{version!r}；需要 {expected_version}"
             )
+        if expected_version is None and resolved_version not in range(
+            MINIMUM_SUPPORTED_SCHEMA_VERSION, SCHEMA_VERSION + 1,
+        ):
+            self.close()
+            raise StaticGameDataError(
+                f"不支持的静态数据库结构版本：{version!r}；支持 "
+                f"{MINIMUM_SUPPORTED_SCHEMA_VERSION} 至 {SCHEMA_VERSION}"
+            )
+        self._schema_version = resolved_version
 
     def __enter__(self) -> "StaticGameDataDao":
         return self

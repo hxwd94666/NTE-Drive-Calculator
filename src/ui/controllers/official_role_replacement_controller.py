@@ -25,6 +25,12 @@ from src.ui.equipment_replacement_dialog import (
 )
 
 
+OFFICIAL_ROLE_REPLACEMENT_SUMMARY = (
+    "评分按该角色的直伤权重计算，候选由高到低排列；"
+    "卡片第三项百分比表示该装备带来的直伤收益。"
+)
+
+
 def show_official_role_replacement(
     window: QWidget,
     detail: Mapping[str, Any],
@@ -46,6 +52,7 @@ def show_official_role_replacement(
 
     scoring_engine = getattr(window, "scoring_engine", None)
     shape_areas = getattr(window, "_shape_areas", {})
+
     current_item = dict(candidates[0]["current_item"])
     current_base_score = score_official_role_equipment(
         scoring_engine,
@@ -139,10 +146,7 @@ def show_official_role_replacement(
         window,
         title="替换优化",
         role_name=str((detail.get("character") or {}).get("name_zh") or ""),
-        summary=(
-            "候选已按该角色最终权重的隐藏装备评分降序排列；"
-            "直伤边际收益仅用于展示比较。所有卡片均按官方满级主属性计算。"
-        ),
+        summary=OFFICIAL_ROLE_REPLACEMENT_SUMMARY,
         current=current,
         candidates=choices,
         on_confirm=save_choice,

@@ -63,6 +63,7 @@ class EquipmentLoadoutComparisonPresentationMixin:
                 priority_stats,
                 mode,
             ),
+            mode_defs=(("equipment", "空幕属性汇总"),),
         )
         mode_switch.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         header.addWidget(mode_switch, 0, Qt.AlignLeft)

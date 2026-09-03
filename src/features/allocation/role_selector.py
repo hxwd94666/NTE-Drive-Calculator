@@ -326,7 +326,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
 
             name_btn = PriorityRoleButton(self, name, index)
             name_btn.setObjectName("btnSm")
-            name_btn.setToolTip("点击移出当前优先级；拖动可调整顺序")
+            name_btn.setToolTip("点击移出当前优先级；向后拖拽会按目标同级组调整优先级")
             name_btn.setFixedWidth(self._priority_role_name_width())
             name_size = self._priority_role_name_font_size(name)
             name_btn.setStyleSheet(
@@ -434,7 +434,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             self.custom_weapons[name] = weapon
         else:
             self.custom_weapons.pop(name, None)
-        cap = self._weapon_crit_rate_cap(weapon)
+        cap = self._automatic_crit_rate_cap(name, weapon)
         if cap is not None:
             self.crit_rate_caps[name] = cap
         self.orderChanged.emit()
@@ -453,6 +453,28 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self.orderChanged.emit()
 
     def _weapon_crit_rate_cap(self, weapon_name):
+        crit_rate = self._weapon_crit_rate(weapon_name)
+        if crit_rate is None:
+            return None
+        return round(max(0.0, 100.0 - crit_rate), 4)
+
+    def _likeability_crit_rate(self, name: str) -> float:
+        role = self.all_roles.get(name) or {}
+        try:
+            return max(0.0, float(role.get("likeability_crit_rate_bonus") or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _automatic_crit_rate_cap(self, name: str, weapon_name: str) -> float | None:
+        """Leave room for the selected fork and enabled level-10 affinity."""
+
+        fork_crit = self._weapon_crit_rate(weapon_name) or 0.0
+        affinity_crit = self._likeability_crit_rate(name)
+        if fork_crit <= 0.0 and affinity_crit <= 0.0:
+            return None
+        return round(max(0.0, 100.0 - fork_crit - affinity_crit * 100.0), 4)
+
+    def _weapon_crit_rate(self, weapon_name):
         info = self.weapons_db.get(weapon_name)
         if not isinstance(info, dict):
             return None
@@ -466,10 +488,24 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             normalized = str(key or "").replace("%", "")
             if "暴击率" in normalized or "鏆村嚮鐜" in normalized:
                 try:
-                    return round(max(0.0, 100.0 - float(value)), 4)
+                    return max(0.0, float(value))
                 except (TypeError, ValueError):
                     return None
         return None
+
+    def get_crit_rate_baselines(self):
+        """Return active fork-only crit for the role-priority floor check.
+
+        The solver already owns the universal 5% base rate and all selected
+        equipment stats.  This value contains the selected fork's permanent,
+        breakthrough and level crit projection exactly once.
+        """
+
+        return {
+            name: crit_rate
+            for name in self.selected
+            if (crit_rate := self._weapon_crit_rate(self._effective_weapon_for_role(name))) is not None
+        }
 
     def _set_tape_main_filter(self, name, values):
         self.tape_main_filter_override_roles.add(name)

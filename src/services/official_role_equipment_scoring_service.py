@@ -55,13 +55,16 @@ def score_official_role_equipment(
         "blue": "Blue",
     }.get(str(item.get("quality") or "").casefold(), "Gold")
     if str(item.get("kind") or "") == "core":
-        main_stat = next(
-            (
-                _attribute_name(detail, str(stat.get("property_id") or ""))
-                for stat in item.get("main_stats") or ()
-            ),
-            "",
+        main_entry = next(
+            (stat for stat in item.get("main_stats") or () if isinstance(stat, Mapping)),
+            {},
         )
+        main_stat = _attribute_name(detail, str(main_entry.get("property_id") or ""))
+        raw_main_value = main_entry.get("value")
+        try:
+            main_value = float(raw_main_value) if raw_main_value is not None else None
+        except (TypeError, ValueError):
+            main_value = None
         return score_tape_stats(
             engine,
             main_stat_name=main_stat,
@@ -69,6 +72,7 @@ def score_official_role_equipment(
             weights=weights,
             quality=quality,
             main_weights=main_weights,
+            main_value=main_value,
         )
     geometry = str(item.get("geometry") or "")
     try:

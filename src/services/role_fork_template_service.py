@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.services.advancement_stage_service import fork_panel_stats
+from src.services.advancement_stage_service import fork_active_panel_stats
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -36,10 +36,16 @@ def load_official_role_fork_templates() -> dict[str, Any]:
         }
 
 
-def _fork_stats_at_level(template: dict[str, Any], level: int) -> dict[str, float]:
+def _fork_stats_at_level(
+    template: dict[str, Any], level: int, refinement_level: int | None,
+) -> dict[str, float]:
     """Project the legacy template model through the shared stage resolver."""
     stats: dict[str, float] = {}
-    for property_id, value in fork_panel_stats(template, level).items():
+    for property_id, value in fork_active_panel_stats(
+        template,
+        level,
+        refinement_level=refinement_level,
+    ).items():
         mapped = _FORK_PROPERTY_DISPLAY.get(property_id)
         if mapped is None:
             continue
@@ -63,14 +69,21 @@ def fork_templates_as_weapon_models(payload: dict[str, Any]) -> dict[str, dict[s
             for row in template.get("upgrade_levels", [])
             if isinstance(row, dict) and row.get("level") is not None
         })
-        level_stats = {str(level): _fork_stats_at_level(template, level) for level in levels}
+        # Role management has no per-role refinement selector.  Its automatic
+        # cap therefore uses the live default model (精炼 1), not a fictitious
+        # max-refinement fork.
+        refinement_level = 1
+        level_stats = {
+            str(level): _fork_stats_at_level(template, level, refinement_level)
+            for level in levels
+        }
         maximum_level = levels[-1] if levels else 1
         models[name] = {
             "fork_id": fork_id,
             "name": name,
             "type": str(template.get("fork_type_name_zh") or ""),
             "level": maximum_level,
-            "mix_level": 1,
+            "mix_level": refinement_level,
             "max_breakthrough": int(template.get("max_breakthrough") or 0),
             "max_star": int(template.get("max_star") or 0),
             "level_sub_stats": level_stats,

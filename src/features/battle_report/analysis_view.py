@@ -68,6 +68,9 @@ from src.services.battle_timeline_time_service import (
     projected_range_duration_us,
     unproject_timeline_time_us,
 )
+from src.services.battle_environment_condition_service import (
+    display_battle_environment_name,
+)
 from src.services.skill_name_rendering_service import (
     preferred_battle_damage_name,
     render_battle_classification,
@@ -190,14 +193,14 @@ class BattleLongAnalysisView(
         self.scope_buttons["second"].setEnabled(False)
         context_row.addStretch()
         context_row.addWidget(self.build_edit_control)
-        self.current_scope_title = QLabel("当前范围")
+        self.current_scope_title = QLabel("当前环境")
         context_row.addWidget(self.current_scope_title)
         self.current_scope_label = QLabel("未知")
         self.current_scope_label.setStyleSheet(
             themed_style("color:#58a6ff;font-weight:600")
         )
         context_row.addWidget(self.current_scope_label)
-        self.environment_button = QPushButton("编辑")
+        self.environment_button = QPushButton("确认环境")
         context_row.addWidget(self.environment_button)
         timeline_layout.addLayout(context_row)
 
@@ -447,7 +450,9 @@ class BattleLongAnalysisView(
             condition is not None
             and condition.source_kind == "inferred_encounter_hp_injective_default"
         ):
-            self.current_scope_label.setText(condition.target_name or "推断目标")
+            self.current_scope_label.setText(
+                display_battle_environment_name(condition)
+            )
             self.environment_button.setToolTip(
                 (
                     getattr(analysis, "target_identity_inference_basis", "")
@@ -455,14 +460,14 @@ class BattleLongAnalysisView(
                 ) + outer_tip
             )
         elif condition is not None:
-            target_name = condition.target_name or "已确认目标"
-            summary = target_name
+            environment_name = display_battle_environment_name(condition)
+            summary = environment_name
             if condition.feast_options:
                 summary += f"；争锋加成 {len(condition.feast_options)} 项"
             if condition.witch_buff_name_zh:
                 summary += f"；{condition.witch_buff_name_zh}"
             summary += outer_tip
-            self.current_scope_label.setText(target_name)
+            self.current_scope_label.setText(environment_name)
             self.environment_button.setToolTip(summary)
         elif getattr(analysis, "detected_environment_kind", ""):
             self.current_scope_label.setText(

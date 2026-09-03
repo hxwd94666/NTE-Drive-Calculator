@@ -12,7 +12,10 @@ from src.storage.sqlite.static_game_data_dao import (
     StaticGameDataError,
     resolve_static_database,
 )
-from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION
+from src.storage.sqlite.static_game_data_metadata import (
+    MINIMUM_SUPPORTED_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,10 +75,12 @@ class StaticCatalogFormulaQueries:
         except sqlite3.Error as exc:
             self.close()
             raise StaticGameDataError("静态数据库缺少公式资料 schema") from exc
-        if int(version or 0) != SCHEMA_VERSION:
+        self._schema_version = int(version or 0)
+        if not MINIMUM_SUPPORTED_SCHEMA_VERSION <= self._schema_version <= SCHEMA_VERSION:
             self.close()
             raise StaticGameDataError(
-                f"不支持的静态数据库结构版本：{version!r}；需要 {SCHEMA_VERSION}"
+                f"不支持的静态数据库结构版本：{version!r}；支持 "
+                f"{MINIMUM_SUPPORTED_SCHEMA_VERSION} 至 {SCHEMA_VERSION}"
             )
 
     def __enter__(self) -> "StaticCatalogFormulaQueries":
@@ -183,7 +188,7 @@ class StaticCatalogFormulaQueries:
         return StaticFormulaEvidenceSnapshot(
             dataset_id=str(dataset["dataset_id"]),
             importer_version=int(dataset["importer_version"]),
-            schema_version=SCHEMA_VERSION,
+            schema_version=self._schema_version,
             skill_damage_rows=self._table_count("skill_damage"),
             skill_damage_modifier_rows=self._table_count("skill_damage_modifier"),
             awakening_effect_rows=self._table_count("character_awaken_effect"),

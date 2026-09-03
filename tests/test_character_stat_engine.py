@@ -63,6 +63,23 @@ class CharacterStatEngineTests(unittest.TestCase):
         self.assertEqual(840.0, panel.totals["总生命值"])
         self.assertEqual(2.0, panel.totals["暴击伤害%"])
 
+    def test_drive_shape_main_stats_scale_with_quality(self):
+        purple = build_character_panel(
+            self._context(),
+            "测试角色",
+            drives=[{"shape_id": "H_3", "quality": "Purple", "sub_stats": {}}],
+        )
+        blue = build_character_panel(
+            self._context(),
+            "测试角色",
+            drives=[{"shape_id": "H_3", "quality": "blue", "sub_stats": {}}],
+        )
+
+        self.assertEqual(672.0, purple.totals["总生命值"])
+        self.assertEqual(504.0, blue.totals["总生命值"])
+        self.assertEqual(206.4, purple.totals["总攻击力"])
+        self.assertEqual(193.8, blue.totals["总攻击力"])
+
     def test_saved_tape_main_value_is_used_without_a_quality_fallback(self):
         panel = build_character_panel(
             self._context(),

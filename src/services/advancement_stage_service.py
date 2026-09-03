@@ -8,10 +8,16 @@ from typing import Any
 
 
 def _integer(value: object, default: int = 0) -> int:
-    try:
+    if isinstance(value, bool):
         return int(value)
-    except (TypeError, ValueError):
-        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, (float, str)):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def legacy_fork_breakthrough_stage(level: int) -> int:
@@ -165,4 +171,47 @@ def fork_panel_stats(
                     totals.get(property_id, 0.0)
                     + float(modifier.get("value") or 0.0)
                 )
+    return totals
+
+
+def fork_permanent_stats(
+    template: Mapping[str, Any] | None,
+    refinement_level: int | None,
+) -> dict[str, float]:
+    """Resolve the captured unconditional panel bonus for one refinement."""
+
+    if not template or refinement_level is None:
+        return {}
+    row = next(
+        (
+            item
+            for item in template.get("permanent_properties") or ()
+            if _integer(item.get("refinement_level")) == int(refinement_level)
+        ),
+        None,
+    )
+    if row is None:
+        return {}
+    property_id = str(row.get("property_id") or "")
+    if not property_id:
+        return {}
+    return {property_id: float(row.get("property_value") or 0.0)}
+
+
+def fork_active_panel_stats(
+    template: Mapping[str, Any] | None,
+    level: int,
+    *,
+    breakthrough_stage: int | None = None,
+    refinement_level: int | None = None,
+) -> dict[str, float]:
+    """Combine growth, breakthrough and unconditional refinement panel stats."""
+
+    totals = fork_panel_stats(
+        template,
+        level,
+        breakthrough_stage=breakthrough_stage,
+    )
+    for property_id, value in fork_permanent_stats(template, refinement_level).items():
+        totals[property_id] = totals.get(property_id, 0.0) + value
     return totals

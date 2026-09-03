@@ -454,6 +454,7 @@ class BattleTargetVitalPanel(QWidget):
             for key in (
                 "environment_kind",
                 "environment_ref",
+                "environment_name",
                 "selected_target_ids",
                 "selected_target_profiles",
                 "primary_target_id",

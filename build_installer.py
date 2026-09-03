@@ -96,16 +96,6 @@ def _configured_path(
     return None
 
 
-def _choose_workshop_sync_mode(skip_workshop_sync: bool, require_workshop_sync: bool) -> tuple[bool, bool]:
-    if skip_workshop_sync or require_workshop_sync:
-        return build_cli.choose_build_mode(
-            skip_workshop_sync=skip_workshop_sync,
-            require_workshop_sync=require_workshop_sync,
-            has_explicit_choice=True,
-        )
-    return build_cli.choose_build_mode()
-
-
 def _find_iscc(explicit_path: Path | None = None) -> Path | None:
     if explicit_path is not None:
         explicit_path = explicit_path.expanduser().resolve()
@@ -204,10 +194,8 @@ def _validate_app_bundle() -> None:
         raise RuntimeError("PyInstaller 产物不完整，缺少：\n" + "\n".join(missing))
 
 
-def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False, require_workshop_sync: bool = False) -> None:
+def _ensure_app_bundle(skip_app_build: bool) -> None:
     if skip_app_build:
-        if require_workshop_sync:
-            raise RuntimeError("--require-workshop-sync cannot be used with --skip-app-build because the existing app bundle cannot be refreshed.")
         if not APP_EXE.exists() or not APP_INTERNAL.exists():
             raise RuntimeError(
                 "dist/NTE_Drive_Calc is missing. Run build_exe.py first or omit --skip-app-build."
@@ -219,12 +207,7 @@ def _ensure_app_bundle(skip_app_build: bool, *, skip_workshop_sync: bool = False
                 "or use --skip-app-build to package the existing app bundle."
             )
 
-        build_cmd = [sys.executable, str(ROOT / "build_exe.py")]
-        if skip_workshop_sync:
-            build_cmd.append("--skip-workshop-sync")
-        else:
-            build_cmd.append("--require-workshop-sync")
-        _run(build_cmd)
+        _run([sys.executable, str(ROOT / "build_exe.py")])
 
     _validate_app_bundle()
 
@@ -461,12 +444,6 @@ def main() -> int:
     parser.add_argument("--version", default=os.environ.get("APP_VERSION") or _read_app_version())
     parser.add_argument("--skip-app-build", action="store_true", help="Use existing dist/NTE_Drive_Calc.")
     parser.add_argument("--generate-only", action="store_true", help="Generate .iss but do not run Inno Setup.")
-    parser.add_argument("--skip-workshop-sync", action="store_true", help="Do not sync workshop weights before building the app bundle.")
-    parser.add_argument(
-        "--require-workshop-sync",
-        action="store_true",
-        help="Require API synchronization or inheritance from the prebuild release backup.",
-    )
     parser.add_argument(
         "--iscc",
         type=Path,
@@ -494,15 +471,7 @@ def main() -> int:
             local_config,
             "vigem_installer",
         )
-        skip_workshop_sync, require_workshop_sync = _choose_workshop_sync_mode(
-            args.skip_workshop_sync,
-            args.require_workshop_sync,
-        )
-        _ensure_app_bundle(
-            skip_app_build=args.skip_app_build,
-            skip_workshop_sync=skip_workshop_sync,
-            require_workshop_sync=require_workshop_sync,
-        )
+        _ensure_app_bundle(skip_app_build=args.skip_app_build)
         vigem_installer, vigem_is_exe = _find_vigem_installer(args.vigem_installer)
         _write_iss(version=args.version, vigem_installer=vigem_installer, vigem_is_exe=vigem_is_exe)
 

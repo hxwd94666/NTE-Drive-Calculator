@@ -29,15 +29,21 @@ from src.services.allocation_solver import (
     solve_allocation_context,
 )
 from src.services.saved_state_loadout_bridge import SavedStateLoadoutBridge
-from src.services.official_role_page_service import load_official_role_detail
 from src.services.sqlite_allocation_inventory import legacy_shape_id
 from src.services.virtual_equipment_service import (
     grid_count_from_geometry,
     virtual_equipment_item_id,
     virtual_equipment_uid,
 )
+from src.services.weighted_loadout_comparison_service import (
+    WeightedLoadoutComparison,
+    freeze_weighted_loadout_comparisons,
+    refresh_weighted_loadout_comparisons,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+
+from .role_weight_freeze import freeze_official_role_final_weights
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +73,7 @@ class WeightedAllocationPreview:
     # intentionally exclude current/saved inventory contexts: result cards
     # provide the immutable AllocationContext candidates themselves.
     role_details: Mapping[int, Mapping[str, Any]] = field(default_factory=dict)
+    loadout_comparisons: Mapping[int, tuple[WeightedLoadoutComparison, ...]] = field(default_factory=dict)
     operation_context: OperationContext | None = None
     shared_database_path: Path | None = None
 
@@ -286,7 +293,13 @@ def restore_weighted_allocation_preview(
         selected=tuple(updated_options),
         explanation=tuple(preview.result.unified.explanation) + ("已按当前官方蓝图恢复保存方案",),
     )
-    return replace(preview, result=replace(preview.result, unified=unified))
+    return replace(
+        preview,
+        result=replace(preview.result, unified=unified),
+        loadout_comparisons=refresh_weighted_loadout_comparisons(
+            preview.loadout_comparisons, preview.context, updated_options,
+        ),
+    )
 
 
 def _restore_saved_option(context, option, signature: WeightedSavedPlanSignature):
@@ -435,23 +448,21 @@ def _run_weighted_allocation(
             solver_version=ALLOCATION_CONTEXT_SOLVER_VERSION,
             shared_database_path=request.shared_database_path,
         )
+        static_database_path = static_dao.database_path
+    context, role_details = freeze_official_role_final_weights(
+        context,
+        user_database_path=request.user_database_path,
+        shared_database_path=request.shared_database_path,
+        static_database_path=static_database_path,
+    )
     result = solve_allocation_context(
         context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
         allow_missing_core=True,
     )
-    role_details: dict[int, Mapping[str, Any]] = {}
-    for option in result.unified.selected:
-        try:
-            role_details[option.character_id] = load_official_role_detail(
-                request.user_database_path,
-                option.character_id,
-                include_inventory_contexts=False,
-                shared_database_path=request.shared_database_path,
-            )
-        except (OSError, ValueError):
-            # The allocation itself remains valid when an optional UI-only
-            # damage summary cannot be prepared for one official role.
-            continue
+    with UserDataDao(request.user_database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
+        loadout_comparisons = freeze_weighted_loadout_comparisons(
+            user_dao, static_dao, context, result.unified.selected,
+        )
     return WeightedAllocationPreview(
         result=result,
         static_dataset=context.static_dataset,
@@ -459,6 +470,7 @@ def _run_weighted_allocation(
         user_database_path=request.user_database_path,
         context=context,
         role_details=role_details,
+        loadout_comparisons=loadout_comparisons,
         operation_context=operation,
         shared_database_path=request.shared_database_path,
     )
@@ -711,7 +723,13 @@ def replace_weighted_allocation_assignment(
             "用户手动优化替换；跨角色借装时原槽位使用虚拟占位",
         ),
     )
-    return replace(preview, result=replace(preview.result, unified=unified))
+    return replace(
+        preview,
+        result=replace(preview.result, unified=unified),
+        loadout_comparisons=refresh_weighted_loadout_comparisons(
+            preview.loadout_comparisons, preview.context, updated_options,
+        ),
+    )
 
 
 def _role_state(option: RoleAllocationOption) -> dict[str, object]:

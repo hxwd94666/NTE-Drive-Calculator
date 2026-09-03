@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from src.features.inventory.equipment_plan_display_state import (
@@ -13,6 +14,16 @@ from src.features.inventory.equipment_plan_display_state import (
 from src.services.virtual_equipment_service import (
     is_virtual_equipment_assignment,
     normalized_equipment_assignment,
+)
+from src.optimizer.contracts import (
+    DIFF_ADDED,
+    DIFF_REMOVED,
+    EQUIP_SCORE,
+    EQUIP_UID,
+    ROLE_LAST_DIFF,
+)
+from src.services.saved_loadout_attribute_summary_service import (
+    load_saved_loadout_attribute_summaries,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -69,10 +80,15 @@ def _load_sqlite_equipment_display_states(
             snapshot_id: set() for snapshot_id in snapshot_ids
         }
         historical_snapshot_by_uid: dict[tuple[int, int], int] = {}
+        historical_score_by_uid: dict[str, float] = {}
         for historical_plan in historical_plans:
             historical_snapshot_id = historical_plan.get("source_snapshot_id")
             if historical_snapshot_id is None:
                 continue
+            for uid, score in (
+                ((historical_plan.get("payload") or {}).get("assignment_scores") or {})
+            ).items():
+                historical_score_by_uid.setdefault(str(uid), float(score))
             for assignment in historical_plan.get("assignments") or ():
                 resolved = normalized_equipment_assignment(assignment)
                 if is_virtual_equipment_assignment(resolved):
@@ -194,6 +210,14 @@ def _load_sqlite_equipment_display_states(
                 suit_names=suit_names,
                 attribute_ids=attribute_ids,
             )
+            display_diff = display.get(ROLE_LAST_DIFF) or {}
+            for diff_key in (DIFF_REMOVED, DIFF_ADDED):
+                for item in display_diff.get(diff_key, ()) or ():
+                    if not isinstance(item, dict) or EQUIP_SCORE in item:
+                        continue
+                    uid = str(item.get(EQUIP_UID) or "")
+                    if uid in historical_score_by_uid:
+                        item[EQUIP_SCORE] = historical_score_by_uid[uid]
             payload = plan.get("payload") or {}
             role_name = str(payload.get("source_role_name") or plan["character_id"])
             display["_character_id"] = int(plan["character_id"])
@@ -207,6 +231,37 @@ def _load_sqlite_equipment_display_states(
                 "",
             )
             displays[state_key] = display
+        resolved_static_path = Path(getattr(static_dao, "database_path", static_database_path or ""))
+        if Path(database_path).is_file() and resolved_static_path.is_file():
+            summary_cache: dict[object, Any] = {}
+            for display in displays.values():
+                character_id = int(display.get("_character_id") or 0)
+                official_items = display.get("_official_items") or ()
+                if character_id <= 0 or not official_items:
+                    continue
+                try:
+                    display["_official_attribute_summaries"] = (
+                        load_saved_loadout_attribute_summaries(
+                            database_path,
+                            resolved_static_path,
+                            character_id,
+                            official_items,
+                            request_cache=summary_cache,
+                        )
+                    )
+                    previous_items = display.get("_previous_official_items") or ()
+                    if previous_items:
+                        display["_official_previous_attribute_summaries"] = (
+                            load_saved_loadout_attribute_summaries(
+                                database_path,
+                                resolved_static_path,
+                                character_id,
+                                previous_items,
+                                request_cache=summary_cache,
+                            )
+                        )
+                except (OSError, RuntimeError, ValueError):
+                    logger.warning("已保存配装的当前养成属性汇总加载失败，本次保留空幕汇总")
         return displays
 
 

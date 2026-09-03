@@ -1,3 +1,4 @@
+# 验证资料库角色页面的公共界面行为。
 from __future__ import annotations
 
 import os
@@ -16,7 +17,7 @@ from src.features.static_catalog.domain_pages.character_page import (
     CharacterCatalogPage,
     build_character_catalog_page,
 )
-from src.features.static_catalog.domain_pages.character_progression import (
+from src.services.character_progression_requirements import (
     project_skill_level_requirements,
 )
 from src.services.static_catalog_character_release_metadata import (

@@ -1,3 +1,4 @@
+# 验证静态术语查询服务。
 from __future__ import annotations
 
 import unittest

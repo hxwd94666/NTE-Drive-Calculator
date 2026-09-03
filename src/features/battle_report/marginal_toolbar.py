@@ -1,3 +1,4 @@
+# 组合战报边际分析工具栏控件。
 """Fixed navigation and role-selection toolbar for battle marginal analysis."""
 
 from __future__ import annotations

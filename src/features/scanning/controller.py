@@ -165,6 +165,7 @@ class ScanningController(QObject):
         self._pending_tape_main_filters: dict[str, Any] = {}
         self._pending_crit_priority_modes: dict[str, Any] = {}
         self._pending_crit_rate_caps: dict[str, Any] = {}
+        self._pending_crit_rate_baselines: dict[str, Any] = {}
         self._pending_set_effect_modes: dict[str, Any] = {}
         self._pending_priority_groups: Any = None
         self._pending_filter_settings = AllocationFilterSettings()
@@ -371,6 +372,7 @@ class ScanningController(QObject):
             set_effect_modes=self._pending_set_effect_modes,
             priority_groups=self._pending_priority_groups,
             crit_rate_caps=self._pending_crit_rate_caps,
+            crit_rate_baselines=self._pending_crit_rate_baselines,
             custom_weapons=self._pending_custom_weapons,
             filter_settings=self._pending_filter_settings,
         )

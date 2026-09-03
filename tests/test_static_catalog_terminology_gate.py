@@ -1,3 +1,4 @@
+# 验证静态术语资料的准入门禁。
 from __future__ import annotations
 
 import tempfile

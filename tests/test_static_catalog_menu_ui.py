@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
+from src.app.theme import refresh_inline_theme_styles
 from src.domain.static_catalog import (
     CatalogDomain,
     CatalogItem,
@@ -133,6 +134,30 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         for card in menu.findChildren(CatalogMenuCard):
             self.assertLessEqual(card.minimumHeight(), 104)
         menu.deleteLater()
+
+    def test_light_theme_menu_cards_keep_the_readable_resting_surface(self) -> None:
+        previous = self.app.property("nte_effective_theme")
+        try:
+            self.app.setProperty("nte_effective_theme", "black")
+            menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)
+            menu.set_domains(_domains())
+            self.app.setProperty("nte_effective_theme", "light")
+            refresh_inline_theme_styles(menu, self.app)
+            cards = {
+                card.objectName(): card for card in menu.findChildren(CatalogMenuCard)
+            }
+            for name in (
+                "staticCatalogMenuCard_monsters",
+                "staticCatalogMenuCard_combat_mechanics",
+            ):
+                style = cards[name].styleSheet()
+                self.assertIn("#eef2f6", style)
+                self.assertNotIn("#10151c", style)
+                hover = style.split(":hover{", 1)[1].split("}", 1)[0]
+                self.assertNotIn("background", hover)
+            menu.deleteLater()
+        finally:
+            self.app.setProperty("nte_effective_theme", previous)
 
     def test_page_starts_on_menu_and_opens_only_the_selected_domain(self) -> None:
         controller = _Controller()

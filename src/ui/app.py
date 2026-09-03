@@ -21,6 +21,10 @@ from src.app.context import (
 )
 from src.app.shared_data_seed import seed_shared_database
 from src.services.character_shape_bonus_service import SHARED_DATABASE_ENV
+from src.services.workshop_weight_template_service import (
+    WORKSHOP_WEIGHT_TEMPLATE_ENV,
+    start_workshop_weight_template_refresh,
+)
 from src.app.constants import (
     ACCOUNT_USER_FILES,
     APP_VERSION,
@@ -68,6 +72,9 @@ APPLICATION_PATHS = ApplicationPaths.from_roots(
     app_icon_path=_APP_ICON_PATH,
 )
 os.environ[SHARED_DATABASE_ENV] = str(APPLICATION_PATHS.shared_database_path)
+os.environ[WORKSHOP_WEIGHT_TEMPLATE_ENV] = str(
+    APPLICATION_PATHS.workshop_weight_template_file
+)
 
 
 def _initialize_accounts():
@@ -79,7 +86,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
 )
-from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtCore import QTimer, Qt, Signal, QPoint
 from PySide6.QtGui import QIcon
 
 from src.features.scanning.file_lifecycle import (
@@ -103,6 +110,7 @@ from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxDependencies, ToolboxPage
+from src.services.cultivation_planner_service import CultivationPlannerService
 from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.dependencies import (
     build_static_catalog_domain_pages,
@@ -315,6 +323,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                     user_database_path=self.app_context.account.user_database_path,
                     static_database_path=self.app_context.paths.static_database_path,
                 ),
+                cultivation_service_factory=lambda: CultivationPlannerService(
+                    user_database_path=self.app_context.account.user_database_path,
+                    static_database_path=self.app_context.paths.static_database_path,
+                ),
                 navigate_static_catalog=lambda: self._go("static_catalog"),
             ),
             dialog_parent=self,
@@ -383,6 +395,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         if self._ui_preferences["log_enabled"]:
             self._toggle_log(True)
         self._load_data()
+        self._workshop_weight_refresh_thread = None
+        QTimer.singleShot(1500, lambda: setattr(
+            self, "_workshop_weight_refresh_thread", start_workshop_weight_template_refresh(
+                self.app_context.paths.workshop_weight_template_file, self.app_context.paths.static_database_path)))
         self._refresh_home()
         self._maybe_auto_start_inventory_sync()
         self._on_log("系统就绪")
@@ -728,13 +744,6 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             self._switch_account,
             self._refresh_account_combo,
         )
-
-    # ── Log
-
-
-
-# ── Facade
-
 
 # ── Entry
 def _global_exception_handler(exc_type, exc_value, exc_tb):

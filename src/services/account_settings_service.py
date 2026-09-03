@@ -31,7 +31,6 @@ _UI_RUNTIME_DEFAULTS = {
     "equipment_plugin_workspace_registry_value_existed": False,
     "equipment_plugin_loading_method": "proxy",
     "equipment_plugin_risk_acknowledged": False,
-    "cloud_nte_mode": False,
     # Full visual-scan controls belong to the active account.  The capture
     # method may differ by account hardware and its completed inventory data.
     "full_scan_capture_driver": "mouse",
@@ -86,8 +85,8 @@ class AccountSettingsService:
             account_copy = dao.list_application_setting_copies().get(key, {})
         return self._normalize(key, {**defaults, **account_copy}, defaults)
 
-    def legacy_theme_preference(self) -> str:
-        """Read the former account theme only for one-time global migration."""
+    def legacy_theme_preference(self) -> str | None:
+        """Read only an explicitly saved former account theme for migration."""
 
         with UserDataDao(self.user_database_path) as dao:
             account_ui = dao.list_application_setting_copies().get("ui", {})
@@ -98,12 +97,11 @@ class AccountSettingsService:
             )
             if legacy_ui is not None:
                 candidates.append(legacy_ui.get("theme"))
-        candidates.append(self._defaults()["ui"].get("theme"))
         for candidate in candidates:
             theme = str(candidate or "").strip()
             if theme in _LEGACY_THEME_PREFERENCES:
                 return theme
-        return "dark"
+        return None
 
     def remove_legacy_theme_preference(self) -> None:
         """Remove the obsolete theme field without changing other account UI settings."""
@@ -273,7 +271,6 @@ class AccountSettingsService:
                 "skip_automatic_assembly_duplicate_warning",
                 "full_scan_dual_thread_processing",
                 "full_scan_amd_compatibility",
-                "cloud_nte_mode",
             ):
                 normalized[name] = bool(normalized[name])
             if normalized["full_scan_amd_compatibility"]:

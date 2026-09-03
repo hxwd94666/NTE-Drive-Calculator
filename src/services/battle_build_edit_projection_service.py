@@ -45,7 +45,7 @@ def apply_battle_build_edit(
             "selected_skill_id": edited.get("selected_skill_id"),
             "profile": profile,
             "skills": list(edited.get("skills") or ()),
-            # 世界加成属于本场冻结环境，不随养成/配装反事实改用当前账号值。
+            # 家具加成属于本场冻结环境，不随养成/配装反事实改用当前账号值。
             "stats": frozen_world_bonus,
             "stat_snapshot_source": "missing",
             "_edited_snapshot_active": True,

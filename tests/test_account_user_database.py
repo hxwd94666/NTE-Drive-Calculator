@@ -74,21 +74,6 @@ class AccountUserDatabaseTests(unittest.TestCase):
             self.assertEqual(first_settings.load("ui")["protagonist_game_name"], "无度")
             self.assertEqual(second_settings.load("ui")["protagonist_game_name"], "")
 
-    def test_cloud_nte_mode_is_account_scoped_ui_setting(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            manager = self.make_manager(Path(temporary))
-            first = manager.initialize()
-            second_id = manager.create_account("第二账号")
-            second_path = manager.account_dir(second_id) / "user_data.sqlite3"
-
-            first_settings = AccountSettingsService(first.user_database_path)
-            second_settings = AccountSettingsService(second_path)
-            self.assertFalse(first_settings.load("ui")["cloud_nte_mode"])
-            first_settings.save("ui", {"cloud_nte_mode": True})
-
-            self.assertTrue(first_settings.load("ui")["cloud_nte_mode"])
-            self.assertFalse(second_settings.load("ui")["cloud_nte_mode"])
-
     def test_mod_plugin_loading_preferences_default_and_validate(self):
         with tempfile.TemporaryDirectory() as temporary:
             manager = self.make_manager(Path(temporary))

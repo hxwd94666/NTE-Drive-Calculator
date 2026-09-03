@@ -133,12 +133,13 @@ def build_home_page(window) -> QScrollArea:
     title_column.addWidget(window.home_account_label)
     hero_layout.addLayout(title_column)
     hero_layout.addStretch()
-    # 工作台的后台监听提示使用残虹头像，避免与角色功能中的默认示例混淆。
+    # 工作台使用灵可的正式头像。
     hero_icon_path = GameUiAssetCatalog(
         window.app_context.paths.asset_dir / "game_ui"
-    ).character_icon(1036)
+    ).character_icon(1072)
     if hero_icon_path is not None:
         hero_icon = QLabel()
+        hero_icon.setObjectName("homeHeroAvatar")
         hero_icon.setFixedSize(72, 72)
         hero_icon.setPixmap(
             QPixmap(str(hero_icon_path)).scaled(

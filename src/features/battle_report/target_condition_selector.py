@@ -696,6 +696,7 @@ class BattleTargetConditionSelector(QGroupBox):
         return {
             "environment_kind": kind,
             "environment_ref": ref,
+            "environment_name": BattleTargetConditionSelector._environment_name(kind, ref),
             "selected_target_ids": tuple(str(row["target_id"]) for row in selected),
             "primary_target_id": "" if not primary else str(primary["target_id"]),
             "difficulty_id": difficulty,
@@ -720,6 +721,16 @@ class BattleTargetConditionSelector(QGroupBox):
                 for damage_type in _DAMAGE_TYPES
             },
         }
+
+    @staticmethod
+    def _environment_name(kind: str, ref: str) -> str:
+        if str(ref).startswith("clone|"):
+            return "材料 / 养成副本"
+        if kind == "outer_realm":
+            parts = str(ref).split("|")
+            if len(parts) >= 3 and parts[1].isdigit():
+                return f"轨外之境第{int(parts[1])}层{'上半' if 'FirstHalf' in parts[2] else '下半'}"
+        return {"open_world": "大世界", "feast": "争锋赏宴"}.get(kind, "战斗环境")
 
     @staticmethod
     def _option_label(option: dict[str, Any]) -> str:

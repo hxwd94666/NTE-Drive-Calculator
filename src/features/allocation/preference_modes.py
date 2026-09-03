@@ -4,6 +4,28 @@
 from __future__ import annotations
 
 
+def without_crit_rate_bounds(crit_priority_modes=None, crit_rate_caps=None):
+    """Drop only crit-floor/cap constraints for global allocation.
+
+    Global optimal still reports unsupported per-role stat selections.  Crit
+    bounds are deliberately different: they are role-panel constraints and
+    global allocation simply does not consume them.
+    """
+
+    modes = {}
+    for role, raw_config in (crit_priority_modes or {}).items():
+        if not isinstance(raw_config, dict):
+            continue
+        config = {
+            key: value
+            for key, value in raw_config.items()
+            if key not in {"crit_threshold", "crit_min_threshold"}
+        }
+        if config:
+            modes[role] = config
+    return modes, {}
+
+
 def has_role_preference_configs(tape_main_filters, crit_priority_modes, crit_rate_caps=None) -> bool:
     if tape_main_filters:
         return True

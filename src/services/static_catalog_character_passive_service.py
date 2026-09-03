@@ -1,3 +1,4 @@
+# 读取角色常驻属性的静态资料。
 """Project the two official cultivation passives for a logical character."""
 
 from __future__ import annotations

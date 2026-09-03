@@ -203,7 +203,7 @@ def _bonus_summary_mode_label(self, mode):
     return bonus_summary_mode_label(mode)
 
 
-def _make_bonus_mode_switch(self, default_mode, on_change):
+def _make_bonus_mode_switch(self, default_mode, on_change, mode_defs=None):
     container = QWidget()
     layout = QHBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -216,7 +216,7 @@ def _make_bonus_mode_switch(self, default_mode, on_change):
         "QPushButton:checked{background:#1f6feb22;color:#58a6ff;border-color:#58a6ff}"
         "QPushButton:hover{border-color:#58a6ff;color:#c9d1d9}"
     )
-    mode_defs = [("equipment", "空幕属性汇总"), ("character", "角色属性汇总")]
+    mode_defs = list(mode_defs or (("equipment", "空幕属性汇总"), ("character", "角色属性汇总")))
     for index, (mode, label) in enumerate(mode_defs):
         btn = QPushButton(label)
         btn.setCheckable(True)
@@ -547,6 +547,7 @@ def _role_bonus_summary_panel(
         lambda mode: self._refresh_bonus_summary_panel(
             box, role_name, tape, drives, compare_with_saved, priority_stats, mode, role_diff
         ),
+        mode_defs=(("equipment", "空幕属性汇总"),),
     )
     mode_switch.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
     header.addWidget(mode_switch, 0, Qt.AlignLeft)

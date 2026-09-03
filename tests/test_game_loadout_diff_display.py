@@ -84,6 +84,53 @@ def test_saved_plan_minimal_diff_is_hydrated_from_its_source_snapshot() -> None:
         "V_3",
         {"暴击伤害%": 6.4},
     )
+    assert state["_previous_official_items"] == (old_item,)
+
+
+def test_saved_plan_cards_use_its_frozen_assignment_scores() -> None:
+    """当前方案的单件分数必须与保存时的冻结总分来自同一份数据。"""
+
+    from src.features.inventory.equipment_plan_optimizer import (
+        _sqlite_plan_display_state,
+    )
+
+    drive = {
+        "kind": "module",
+        "uid_serial": 10,
+        "uid_slot": 11,
+        "geometry": "Hen2",
+        "quality": "orange",
+        "main_stats": [],
+        "sub_stats": [],
+    }
+    uid = "nte-module-11-10"
+    state = _sqlite_plan_display_state(
+        {
+            "plan_id": 1,
+            "source_snapshot_id": 43,
+            "score": 17.25,
+            "payload": {"assignment_scores": {uid: 17.25}},
+            "assignments": [{
+                "kind": "module",
+                "uid_serial": 10,
+                "uid_slot": 11,
+                "target_row": 1,
+                "target_column": 1,
+            }],
+            "allocation_locked": False,
+        },
+        object(),
+        object(),
+        inventory_by_snapshot={43: {(10, 11): drive}},
+        shape_cells={"EquipmentGeometry_Hen2": [{"x": 1, "y": 1}]},
+        suit_names={},
+        attribute_ids=set(),
+    )
+
+    card = state["equipped_drives"][0]
+    assert state["_sqlite_assignment_scores_complete"] is True
+    assert state["total_score"] == card["score"] == 17.25
+    assert card["grade"]
 
 
 def test_diff_tape_card_renders_its_projected_item_icon(tmp_path) -> None:
@@ -223,7 +270,7 @@ def test_virtual_core_diff_is_hydrated_and_grouped_as_one_tape_swap() -> None:
     app.processEvents()
 
 
-def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch) -> None:
+def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch, tmp_path) -> None:
     import src.features.inventory.equipment_display_view as display_view
 
     old_item = {
@@ -255,6 +302,7 @@ def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch) -> Non
         "score": 12.0,
         "payload": {
             "source_role_name": "角色一",
+            "assignment_scores": {new_uid: 20.0},
             "last_diff": {
                 "changed": True,
                 "removed": [{"uid": old_uid}],
@@ -274,7 +322,10 @@ def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch) -> Non
         "plan_id": 1,
         "character_id": 1003,
         "source_snapshot_id": 42,
-        "payload": {"source_role_name": "角色一"},
+        "payload": {
+            "source_role_name": "角色一",
+            "assignment_scores": {old_uid: 12.0},
+        },
         "assignments": [{
             "uid_serial": 10,
             "uid_slot": 11,
@@ -336,10 +387,25 @@ def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch) -> Non
 
     monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
     monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
+    summary_calls = []
+
+    def load_summaries(_user_path, _static_path, _character_id, items, **_kwargs):
+        summary_calls.append(tuple(item["item_id"] for item in items))
+        return {"equipment": (), "character": ()}
+
+    monkeypatch.setattr(
+        equipment_display_loaders,
+        "load_saved_loadout_attribute_summaries",
+        load_summaries,
+    )
+    user_path = tmp_path / "user.sqlite3"
+    static_path = tmp_path / "static.sqlite3"
+    user_path.touch()
+    static_path.touch()
 
     states = display_view._load_sqlite_equipment_display_states(
-        "user.sqlite3",
-        static_database_path="static.sqlite3",
+        user_path,
+        static_database_path=static_path,
     )
 
     removed = states["角色一"]["last_diff"]["removed"][0]
@@ -347,6 +413,10 @@ def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch) -> Non
     assert removed["type"] == "drive"
     assert removed["shape_id"] == "H_2"
     assert removed["sub_stats"] == {"暴击率%": 3.2}
+    assert removed["score"] == 12.0
+    assert states["角色一"]["last_diff"]["added"][0]["score"] == 20.0
+    assert summary_calls == [("new-drive",), ("old-drive",)]
+    assert "_official_previous_attribute_summaries" in states["角色一"]
 
 
 def test_persisted_virtual_slot_is_not_queried_as_snapshot_uid(

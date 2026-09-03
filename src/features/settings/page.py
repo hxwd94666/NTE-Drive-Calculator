@@ -245,7 +245,6 @@ def _build_environment_card(window):
     equipment_description = QLabel(
         "<b>简单原理：</b>默认把 dwmapi.dll 放入游戏目录，由游戏代理加载；"
         "少数环境不加载代理 DLL 时，可显式改用管理员 Mod Loader。"
-        "两种方式都会通过装备 Mod 脚本调用或 Hook 游戏内部功能，且不会同时启用。"
         "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
         "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
     )
@@ -397,11 +396,6 @@ def build_settings_page(
     log_row.addStretch()
     log_card.layout().addLayout(log_row)
     window._refresh_log_session_status()
-
-    cloud_mode_row = QHBoxLayout()
-    cloud_mode_row.addWidget(QLabel("云异环模式：正在开发中"))
-    cloud_mode_row.addStretch()
-    log_card.layout().addLayout(cloud_mode_row)
 
     protagonist_row = QHBoxLayout()
     protagonist_row.addWidget(QLabel("主角游戏名:"))

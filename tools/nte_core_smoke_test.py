@@ -203,15 +203,17 @@ def wait_for_inventory_snapshots(
 
     while time.monotonic() < deadline:
         print_new_diagnostics(client)
-        stable = stabilizer.ready()
-        if stable is not None:
-            return stable.message, stable.item_count, True
-
-        remaining = max(0.1, deadline - time.monotonic())
         try:
-            event = client.events.get(timeout=min(0.5, remaining))
+            event = client.events.get_nowait()
         except queue.Empty:
-            continue
+            stable = stabilizer.ready()
+            if stable is not None:
+                return stable.message, stable.item_count, True
+            remaining = max(0.1, deadline - time.monotonic())
+            try:
+                event = client.events.get(timeout=min(0.5, remaining))
+            except queue.Empty:
+                continue
 
         method = event.get("method", "event")
         if method == "event.capture.status":

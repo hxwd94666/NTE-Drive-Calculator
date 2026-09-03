@@ -339,7 +339,13 @@ def _diagnose_nte_core(self):
             diagnostic_section_count=len(result),
         )
         self._show_nte_core_diagnostic_report(
-            format_nte_core_diagnostics(result), devices
+            format_nte_core_diagnostics(result),
+            devices,
+            allow_manual_device_selection=bool(
+                devices
+                and isinstance(detected, dict)
+                and detected.get("recommended_device") is None
+            ),
         )
 
     def failed(error):
@@ -364,6 +370,8 @@ def _show_nte_core_diagnostic_report(
     self: Any,
     report: str,
     devices: list[str] | None = None,
+    *,
+    allow_manual_device_selection: bool = False,
 ) -> None:
     dialog = QDialog(self)
     dialog.setWindowTitle("nte-core 诊断结果")
@@ -380,17 +388,27 @@ def _show_nte_core_diagnostic_report(
     content.setPlainText(report)
     layout.addWidget(content, 1)
     actions = QDialogButtonBox(QDialogButtonBox.Close, parent=dialog)
-    if devices:
+    if devices and allow_manual_device_selection:
         select_device_button = cast(
             QAbstractButton,
-            actions.addButton("选择可用网卡", QDialogButtonBox.ActionRole),
+            actions.addButton("高级排障…", QDialogButtonBox.ActionRole),
         )
 
         def select_capture_device() -> None:
+            proceed = QMessageBox.question(
+                dialog,
+                "高级排障",
+                "手动指定网卡会覆盖自动选择，并可能导致同步失败。"
+                "仅在自动选择反复失败时继续。",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if proceed != QMessageBox.Yes:
+                return
             selected, accepted = QInputDialog.getItem(
                 dialog,
-                "选择抓取网卡",
-                "请选择要手动启用的网卡：",
+                "手动指定抓取网卡",
+                "选择诊断确认的网卡：",
                 devices,
                 0,
                 False,
@@ -401,15 +419,15 @@ def _show_nte_core_diagnostic_report(
             if capture_device_edit is None:
                 QMessageBox.warning(
                     self,
-                    "抓取网卡",
+                    "高级排障",
                     "未找到“抓取网卡”设置，请重新打开设置页面后重试。",
                 )
                 return
             capture_device_edit.setText(selected)
             QMessageBox.information(
                 self,
-                "抓取网卡",
-                "已将所选网卡填入“抓取网卡”。请点击“保存同步设置”后重新启动同步。",
+                "高级排障",
+                "已填入抓取网卡。请点击“保存同步设置”后重新启动同步。",
             )
 
         select_device_button.clicked.connect(select_capture_device)

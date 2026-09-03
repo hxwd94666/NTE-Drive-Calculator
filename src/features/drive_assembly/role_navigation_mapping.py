@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.features.drive_assembly.page_mapping_helpers import DEFAULT_ASSEMBLY_PAGE_CONTROLS
-
 from src.features.drive_assembly.role_flow_helpers import (
     _scale_controls,
     _scale_point,
@@ -47,50 +45,18 @@ from src.features.drive_assembly.role_flow_helpers import (
 def map_role_navigation_controls(
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
-    cloud_nte_mode: bool = False,
 ) -> dict[str, Any]:
-    """Return controls for entering the assembly page from a role page.
-
-    Cloud NTE mode keeps the mouse click that switches to Kongmu, then uses
-    gamepad D-pad right followed by Y to activate the assembly action.
-    """
+    """Return mouse controls for entering the assembly page from a role page."""
 
     controls = _scale_controls(DEFAULT_ROLE_NAVIGATION_CONTROLS, screen_size, content_rect)
-    assembly_page_controls = _scale_controls(
-        DEFAULT_ASSEMBLY_PAGE_CONTROLS,
-        screen_size,
-        content_rect,
-    )
     controls["kongmu_sequence"] = [
         {"name": "left_kongmu_tab", "position": controls["left_kongmu_tab"]},
         {"name": "wait_after_left_kongmu_tab", "wait_seconds": ROLE_KONGMU_TAB_SETTLE_SECONDS},
     ]
-    cloud_assemble_sequence = [
-        {
-            "name": "activate_assemble_button_gamepad",
-            "gamepad_button": "dpad_right",
-            "post_action_pause_seconds": 0.2,
-        },
-        {
-            "name": "assemble_button",
-            "gamepad_button": "y",
-            "post_action_pause_seconds": ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS,
-        },
-        {
-            "name": "assembly_page_wake_mouse_after_gamepad",
-            "position": assembly_page_controls["unload_existing_drives"],
-            "mouse_move_only": True,
-            "post_action_pause_seconds": 0.25,
-        },
+    controls["assemble_sequence"] = [
+        {"name": "assemble_button", "position": controls["assemble_button"]},
+        {"name": "wait_after_assemble_button", "wait_seconds": ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS},
     ]
-    controls["assemble_sequence"] = (
-        cloud_assemble_sequence
-        if cloud_nte_mode
-        else [
-            {"name": "assemble_button", "position": controls["assemble_button"]},
-            {"name": "wait_after_assemble_button", "wait_seconds": ROLE_ASSEMBLE_PAGE_SETTLE_SECONDS},
-        ]
-    )
     controls["entry_sequence"] = [*controls["kongmu_sequence"], *controls["assemble_sequence"]]
     controls["exit_sequence"] = [
         {
@@ -119,13 +85,8 @@ def map_role_list_mouse_entry(
     content_rect: tuple[int, int, int, int] | None = None,
     reset_scroll_count: int = ROLE_LIST_ENTRY_RESET_SCROLLS,
     duration_ms: int = ROLE_LIST_ENTRY_SCROLL_DURATION_MS,
-    cloud_nte_mode: bool = False,
 ) -> dict[str, Any]:
-    """Return the selected input-mode sequence that opens the three-column role list.
-
-    The normal route uses mouse input for every action. Cloud NTE mode keeps the
-    mouse sidebar reset but uses D-pad-up and RS only for the list control.
-    """
+    """Return the mouse sequence that opens the three-column role list."""
 
     entry_controls = _scale_controls(DEFAULT_ROLE_LIST_ENTRY_CONTROLS, screen_size, content_rect)
     scroll_controls = _scale_controls(DEFAULT_ROLE_LIST_ENTRY_SCROLL, screen_size, content_rect)
@@ -148,52 +109,13 @@ def map_role_list_mouse_entry(
         "position": entry_controls["role_list_button"],
         "post_action_pause_seconds": ROLE_LIST_ENTRY_OPEN_SETTLE_SECONDS,
     }
-    cloud_open_sequence = [
+    reentry_sequence = [
         {
-            "name": "activate_role_list_gamepad",
-            "gamepad_button": "dpad_up",
-            "post_action_pause_seconds": 0.2,
-        },
-        {
-            "name": "open_role_list",
-            "gamepad_button": "rs",
+            "name": "open_role_list_from_current_role_mouse",
+            "position": entry_controls["role_list_button"],
             "post_action_pause_seconds": ROLE_LIST_ENTRY_OPEN_SETTLE_SECONDS,
-        },
-        {
-            "name": "role_list_wake_mouse_after_gamepad",
-            "position": first_grid_slot,
-            "mouse_move_only": True,
-            "post_action_pause_seconds": 0.25,
-        },
+        }
     ]
-    reentry_sequence = (
-        [
-            {
-                "name": "open_role_list_from_current_role_mouse",
-                "position": entry_controls["role_list_button"],
-                "post_action_pause_seconds": ROLE_LIST_ENTRY_OPEN_SETTLE_SECONDS,
-            }
-        ]
-        if not cloud_nte_mode
-        else [
-            {
-                "name": "activate_role_list_gamepad",
-                "gamepad_button": "dpad_up",
-                "post_action_pause_seconds": 0.2,
-            },
-            {
-                "name": "open_role_list_from_current_role",
-                "gamepad_button": "rs",
-                "post_action_pause_seconds": ROLE_LIST_ENTRY_OPEN_SETTLE_SECONDS,
-            },
-            {
-                "name": "role_list_wake_mouse_after_gamepad",
-                "position": first_grid_slot,
-                "mouse_move_only": True,
-                "post_action_pause_seconds": 0.25,
-            },
-        ]
-    )
     return {
         "role_list_entry_scroll_start": scroll_start,
         "role_list_entry_scroll_end": scroll_end,
@@ -221,7 +143,7 @@ def map_role_list_mouse_entry(
                 "position": entry_controls["left_information_tab"],
                 "post_action_pause_seconds": ROLE_LIST_ENTRY_INFORMATION_SETTLE_SECONDS,
             },
-            *(cloud_open_sequence if cloud_nte_mode else [mouse_open_action]),
+            mouse_open_action,
         ],
     }
 

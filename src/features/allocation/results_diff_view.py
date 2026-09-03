@@ -137,8 +137,16 @@ def _calc_grade(self, score, area):
 
 
 def _plan_diff_text(self, role_name, diff):
-    removed = diff.get(DIFF_REMOVED, []) or []
-    added = diff.get(DIFF_ADDED, []) or []
+    removed = [
+        _hydrate_diff_item(self, role_name, item)
+        for item in (diff.get(DIFF_REMOVED, []) or [])
+        if isinstance(item, dict)
+    ]
+    added = [
+        _hydrate_diff_item(self, role_name, item)
+        for item in (diff.get(DIFF_ADDED, []) or [])
+        if isinstance(item, dict)
+    ]
     if not removed and not added:
         return "本次配装与已保存方案没有装备变动。"
     lines = [f"{role_name} 配装变动："]
@@ -151,14 +159,43 @@ def _plan_diff_text(self, role_name, diff):
     return "\n".join(lines)
 
 
-def _diff_item_score_info(self, item):
-    if EQUIP_SCORE not in item:
+def _diff_item_score_info(self, item, role_name=None):
+    item_type = item.get(EQUIP_TYPE, "drive")
+    if EQUIP_SCORE in item:
+        score = float(item.get(EQUIP_SCORE, 0.0) or 0.0)
+    elif role_name:
+        role_cfg = (getattr(self, "roles_db", {}) or {}).get(role_name, {})
+        weights = role_cfg.get("weights", {})
+        quality = item.get(EQUIP_QUALITY, "Gold")
+        sub_stats = item.get(EQUIP_SUB_STATS, {}) or {}
+        if item_type == "tape":
+            main_stat = item.get(EQUIP_MAIN_STATS, "")
+            if isinstance(main_stat, dict):
+                main_stat = next(iter(main_stat), "")
+            score = float(self._score_tape_dict(
+                str(main_stat or ""),
+                sub_stats,
+                weights,
+                quality,
+                role_cfg.get("main_weights"),
+            ))
+        else:
+            score = float(self._score_drive_dict(
+                sub_stats,
+                item.get(EQUIP_SHAPE_ID, ""),
+                weights,
+                quality,
+            ))
+    else:
         return None
-    score = float(item.get(EQUIP_SCORE, 0.0) or 0.0)
     grade = item.get(EQUIP_GRADE)
     if not grade:
         area = int(
-            item.get(EQUIP_SCORE_AREA) or item.get(EQUIP_AREA) or (15 if item.get(EQUIP_TYPE) == "tape" else 0) or 0
+            item.get(EQUIP_SCORE_AREA)
+            or item.get(EQUIP_AREA)
+            or (15 if item_type == "tape" else 0)
+            or getattr(self, "_shape_areas", {}).get(item.get(EQUIP_SHAPE_ID, ""), 0)
+            or 0
         )
         grade = self._calc_grade(score, area) if area else "D"
     return score, str(grade)
@@ -377,7 +414,7 @@ def _diff_item_card(self, role_name, item, is_new=False):
     weights = role_cfg.get("weights", {})
     main_weights = role_cfg.get("main_weights")
     score_info = getattr(self, "_diff_item_score_info", None) or (
-        lambda diff_item: _diff_item_score_info(self, diff_item)
+        lambda diff_item, role=None: _diff_item_score_info(self, diff_item, role)
     )
     item_type = item.get(EQUIP_TYPE, "drive")
     if item_type == "tape":
@@ -396,7 +433,7 @@ def _diff_item_card(self, role_name, item, is_new=False):
         shape_id,
         item.get(EQUIP_UID, ""),
         weights,
-        score_info(item),
+        score_info(item, role_name),
         item.get(EQUIP_QUALITY, "Gold"),
         is_new=is_new and not is_changed,
         is_changed=is_changed,
@@ -466,8 +503,16 @@ def _build_plan_diff_dialog(self, role_name, diff):
         lambda role, item, is_new=False: _diff_item_card(self, role, item, is_new)
     )
 
-    removed = diff.get(DIFF_REMOVED, []) or []
-    added = diff.get(DIFF_ADDED, []) or []
+    removed = [
+        _hydrate_diff_item(self, role_name, item)
+        for item in (diff.get(DIFF_REMOVED, []) or [])
+        if isinstance(item, dict)
+    ]
+    added = [
+        _hydrate_diff_item(self, role_name, item)
+        for item in (diff.get(DIFF_ADDED, []) or [])
+        if isinstance(item, dict)
+    ]
 
     if not removed and not added:
         body_layout.addWidget(QLabel("本次配装与已保存方案没有装备变动。"))

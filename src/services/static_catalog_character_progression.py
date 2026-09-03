@@ -1,3 +1,4 @@
+# 投影角色成长静态记录为领域数据。
 """Project normalized character progression rows into immutable DTOs."""
 
 from __future__ import annotations

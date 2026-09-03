@@ -31,6 +31,7 @@ from src.features.inventory.equipment_display_context import equipment_presentat
 from src.features.inventory.equipment_loadout_scoring import (
     score_equipment_display_state,
 )
+from src.app.theme import themed_style
 from src.features.inventory.equipment_master_detail_view import (
     update_equipment_role_status,
 )
@@ -304,16 +305,16 @@ def _manage_loadout_slot(
 
     plan_status = QLabel(dialog)
     plan_status.setWordWrap(True)
-    plan_status.setStyleSheet(
+    plan_status.setStyleSheet(themed_style(
         "QLabel{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:9px;}"
-    )
+    ))
     layout.addWidget(plan_status)
 
     actions = QHBoxLayout()
     create_button = QPushButton("新增槽位", dialog)
     rename_button = QPushButton("重命名", dialog)
     archive_button = QPushButton("删除槽位", dialog)
-    archive_button.setStyleSheet("QPushButton{color:#ff8b8b}")
+    archive_button.setStyleSheet(themed_style("QPushButton{color:#f85149}"))
     actions.addWidget(create_button)
     actions.addWidget(rename_button)
     actions.addWidget(archive_button)

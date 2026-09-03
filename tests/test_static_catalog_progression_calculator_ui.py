@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 import unittest
 from pathlib import Path
 
@@ -72,7 +73,12 @@ class StaticCatalogProgressionCalculatorUiTests(unittest.TestCase):
         self.dialog.show()
         self.app.processEvents()
         self.dialog.calculate_button.click()
+        deadline = time.monotonic() + 3.0
+        while not self.dialog.calculate_button.isEnabled() and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
         self.app.processEvents()
+        self.assertTrue(self.dialog.calculate_button.isEnabled())
 
         visible_text = "\n".join(
             label.text()

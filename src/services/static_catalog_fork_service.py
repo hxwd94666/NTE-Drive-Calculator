@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from src.storage.sqlite.static_catalog_fork_queries import StaticCatalogForkDao
-from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION
 
 
 class CatalogOrigin(StrEnum):
@@ -367,7 +366,7 @@ class StaticCatalogForkService:
         )
         return ForkCatalogMetadata(
             dataset_id=str(dataset.get("dataset_id") or ""),
-            schema_version=SCHEMA_VERSION,
+            schema_version=int(dataset.get("schema_version") or 0),
             importer_version=int(dataset.get("importer_version") or 0),
             built_at_utc=str(dataset.get("built_at_utc") or ""),
             counts=tuple(

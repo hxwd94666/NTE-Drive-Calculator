@@ -64,6 +64,30 @@ class RoleSelectorPreferenceTests(unittest.TestCase):
         self.assertEqual({}, selector.get_crit_priority_mode_overrides())
         self.assertEqual({}, selector.get_crit_rate_cap_overrides())
 
+    def test_automatic_cap_reserves_enabled_level_ten_affinity_crit(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles(
+            {
+                "角色甲": {
+                    "default_weapon": "暴击弧盘",
+                    "likeability_crit_rate_bonus": 0.04,
+                },
+            },
+            [],
+            weapons_db={
+                "暴击弧盘": {"sub_stats": {"暴击率%": 40.0}},
+            },
+        )
+        selector.selected = ["角色甲"]
+
+        self.assertEqual({"角色甲": 56.0}, selector.get_crit_rate_caps())
+        self.assertEqual({"角色甲": 40.0}, selector.get_crit_rate_baselines())
+
     def test_legacy_default_mag_character_ids_do_not_inject_preferences(self) -> None:
         from PySide6.QtWidgets import QApplication
 
