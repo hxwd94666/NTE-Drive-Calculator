@@ -15,6 +15,8 @@
 
 [下载安装](#download) · [功能亮点](#features) · [快速开始](#quick-start) · [反馈问题](#feedback)
 
+🐧QQ交流群：1029030672
+
 </div>
 
 <a id="intro"></a>
