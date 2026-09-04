@@ -46,6 +46,10 @@ class UpdateWorkflowTests(unittest.TestCase):
             "https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&channel=stable",
             MIRROR_PROJECT_URL,
         )
+        self.assertEqual(
+            "QQ交流群：1029030672\n开发交流群请入群私聊群主。",
+            GROUP_CHAT_NOTICE,
+        )
         with patch.object(update_controller.QMessageBox, "information") as information:
             update_controller._show_group_chat_notice(window)
         information.assert_called_once_with(window, "加入群聊", GROUP_CHAT_NOTICE)
