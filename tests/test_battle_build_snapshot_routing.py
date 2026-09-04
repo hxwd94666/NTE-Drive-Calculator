@@ -175,6 +175,56 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
         )
         service.load_build_editor_data.assert_not_called()
 
+    def test_open_marginal_freezes_candidate_before_loading_benefits(self) -> None:
+        page = BattleReportPage(game_ui_asset_root="data/game_ui")
+        reload_analysis = Mock()
+        service = Mock()
+        service.load_build_editor_data.return_value = {
+            "equipment_editable": True,
+            "details": [],
+        }
+        profile = {
+            "character_id": 1001,
+            "equipment_override": [],
+        }
+        controller = BattleMarginalSessionController(
+            page=page,
+            service_provider=lambda: service,
+            record_id_provider=lambda: 7,
+            is_running=lambda: False,
+            reload_analysis=reload_analysis,
+            invalidate_analysis=Mock(),
+            show_error=lambda _title, error: self.fail(str(error)),
+        )
+
+        with (
+            patch.object(page, "show_marginal") as show_marginal,
+            patch.object(page, "marginal_profiles", return_value=[profile]),
+            patch.object(page, "marginal_equipment_editable", return_value=True),
+            patch.object(page, "analysis_character_id", return_value=1001),
+            patch.object(page, "marginal_detail_scope", return_value="first"),
+        ):
+            controller.open()
+
+        candidate = BattleMarginalCandidateService.freeze(
+            7,
+            [profile],
+            equipment_editable=True,
+        )
+        show_marginal.assert_called_once_with(
+            unittest.mock.ANY,
+            request_automatic_recalculation=False,
+        )
+        reload_analysis.assert_called_once_with(
+            7,
+            selected_character_id=1001,
+            detail_scope="first",
+            detail_level="marginal",
+            marginal_candidate=None,
+            marginal_benefit_candidate=candidate,
+            completion_kind="marginal",
+        )
+
     def test_open_marginal_lazily_recalculates_missing_buff_counterfactuals(
         self,
     ) -> None:

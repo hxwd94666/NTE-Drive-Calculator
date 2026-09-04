@@ -88,6 +88,68 @@ def _hit(
 
 
 class BattleForkRefinementServiceTests(unittest.TestCase):
+    def test_rules_do_not_repeat_unconditional_refinement_panel_stats(self) -> None:
+        cases = (
+            (
+                "upgradestar_pack_Fork_wushoutieyu",
+                {
+                    "buff_wushoutieyu_Up": 0.10,
+                    "buff_wushoutieyu_CD": 10.0,
+                    "buff_wushoutieyu_Up2": 0.05,
+                    "buff_wushoutieyu_UpLakshana": 0.15,
+                },
+                "DamageUpLakshanaBase",
+            ),
+            (
+                "upgradestar_pack_fork_Arachne",
+                {
+                    "buff_Arachne_Hp": 0.20,
+                    "buff_Arachne_Up": 0.10,
+                    "buff_Arachne_CD": 10.0,
+                },
+                "HPMaxUp",
+            ),
+            (
+                "upgradestar_pack_fork_DemonBlade",
+                {
+                    "buff_DemonBlade_Crit": 0.16,
+                    "buff_DemonBlade_CritDamageUp": 0.09,
+                    "buff_DemonBlade_CD": 15.0,
+                },
+                "CritBase",
+            ),
+            (
+                "upgradestar_pack_fork_Door",
+                {
+                    "buff_Door_Atk": 0.16,
+                    "buff_Door_OtherUp": 0.15,
+                    "buff_Door_Up": 0.30,
+                    "buff_Door_CD": 20.0,
+                },
+                "AtkUp",
+            ),
+            (
+                "upgradestar_pack_fork_GoldRecord",
+                {
+                    "buff_GoldRecord_AtkUp": 0.24,
+                    "buff_GoldRecord_QteCritDmaUp": 0.66,
+                    "buff_GoldRecord_QCritDmaUp": 0.22,
+                    "buff_GoldRecord_CD": 3.0,
+                },
+                "AtkUp",
+            ),
+        )
+
+        for owner_id, parameters, permanent_property in cases:
+            with self.subTest(owner_id=owner_id):
+                rules = _rules(owner_id, parameters)
+                projected_properties = {
+                    modifier.property_id
+                    for rule in rules
+                    for modifier in rule.modifiers
+                }
+                self.assertNotIn(permanent_property, projected_properties)
+
     def test_catalog_owns_all_manually_audited_batches(self) -> None:
         for owner_id in (
             "upgradestar_pack_Fork_wushoutieyu",

@@ -28,10 +28,20 @@ from src.services.battle_analysis_progress import (
 from src.services.battle_build_counterfactual_service import (
     BattleBuildCounterfactualService,
 )
+from src.services.battle_build_awakening_gap_service import with_awakening_gaps
+from src.services.battle_build_quantification_service import (
+    BattleBuildQuantificationService,
+)
 from src.services.battle_build_timeline_projection_service import (
     BattleBuildTimelineProjectionService,
 )
 from src.services.battle_marginal_candidate_service import BattleMarginalCandidate
+from src.services.battle_marginal_benefit_scope import (
+    BattleMarginalBenefitRoleScope,
+    marginal_benefit_role_rows,
+    observed_marginal_benefit_role_damage,
+    prepare_marginal_benefit_role_scope,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -85,6 +95,7 @@ class BattleMarginalBenefitService:
                 character_id=character_id,
                 core_notice="当前固定轴缺少该角色面板基线。",
             )
+        role_scope = prepare_marginal_benefit_role_scope(current, character_id)
 
         core_catalog, fork_names = cls._static_catalog(
             static_database_path,
@@ -95,6 +106,7 @@ class BattleMarginalBenefitService:
             candidate=candidate,
             profile=profile,
             character_id=character_id,
+            role_scope=role_scope,
             core_catalog=core_catalog,
             load_variant=load_variant,
             progress_callback=progress_callback,
@@ -104,6 +116,7 @@ class BattleMarginalBenefitService:
             candidate=candidate,
             profile=profile,
             character_id=character_id,
+            role_scope=role_scope,
             fork_names=fork_names,
             load_variant=load_variant,
             progress_callback=progress_callback,
@@ -123,6 +136,7 @@ class BattleMarginalBenefitService:
         candidate: BattleMarginalCandidate,
         profile: Mapping[str, Any],
         character_id: int,
+        role_scope: BattleMarginalBenefitRoleScope,
         core_catalog: Mapping[str, tuple[str, bool, float]],
         load_variant: LoadVariant,
         progress_callback: BattleAnalysisProgressCallback | None,
@@ -185,7 +199,10 @@ class BattleMarginalBenefitService:
             )
             if matches_current:
                 variant = current
-                replacement = cls._unchanged_delta(current, character_id)
+                replacement = cls._unchanged_delta(
+                    current,
+                    role_scope,
+                )
                 contribution_comparison = current_from_no_main
             else:
                 variant_profile = cls._replace_core_main(
@@ -232,7 +249,7 @@ class BattleMarginalBenefitService:
                 )
                 replacement = cls._delta(
                     replacement_comparison,
-                    character_id,
+                    role_scope,
                 )
             rows.append(BattleCoreMainStatMarginal(
                 property_id=property_id,
@@ -242,7 +259,7 @@ class BattleMarginalBenefitService:
                 is_current=is_current,
                 contribution=cls._delta(
                     contribution_comparison,
-                    character_id,
+                    role_scope,
                 ),
                 replacement=replacement,
             ))
@@ -263,6 +280,7 @@ class BattleMarginalBenefitService:
         candidate: BattleMarginalCandidate,
         profile: Mapping[str, Any],
         character_id: int,
+        role_scope: BattleMarginalBenefitRoleScope,
         fork_names: Mapping[str, str],
         load_variant: LoadVariant,
         progress_callback: BattleAnalysisProgressCallback | None,
@@ -335,7 +353,10 @@ class BattleMarginalBenefitService:
                 fork_id=fork_id,
                 fork_name=fork_name,
                 no_fork_team_damage=float(no_fork.effective_damage),
-                no_fork_role_damage=cls._observed_role_damage(no_fork, character_id),
+                no_fork_role_damage=cls._observed_panel_damage(
+                    no_fork,
+                    role_scope,
+                ),
                 permanent=None,
                 skill=None,
                 comprehensive=None,
@@ -361,26 +382,29 @@ class BattleMarginalBenefitService:
             candidate=current,
             progress_callback=progress_callback,
         )
-        current_role_damage = cls._observed_role_damage(current, character_id)
-        stats_only_role_damage = cls._observed_role_damage(
+        current_role_damage = cls._observed_panel_damage(
+            current,
+            role_scope,
+        )
+        stats_only_role_damage = cls._observed_panel_damage(
             stats_only,
-            character_id,
+            role_scope,
         )
         comprehensive = cls._delta(
             comprehensive_comparison,
-            character_id,
+            role_scope,
             team_endpoint_damage=float(current.effective_damage),
             role_endpoint_damage=current_role_damage,
         )
         permanent = cls._delta(
             permanent_comparison,
-            character_id,
+            role_scope,
             team_endpoint_damage=float(stats_only.effective_damage),
             role_endpoint_damage=stats_only_role_damage,
         )
         skill = cls._delta(
             skill_comparison,
-            character_id,
+            role_scope,
             team_endpoint_damage=float(current.effective_damage),
             role_endpoint_damage=current_role_damage,
             team_percent_denominator=comprehensive.baseline_team_damage,
@@ -550,16 +574,32 @@ class BattleMarginalBenefitService:
     def _delta(
         cls,
         comparison: BattleBuildCounterfactual,
-        character_id: int,
+        role_scope: BattleMarginalBenefitRoleScope,
         *,
         team_endpoint_damage: float | None = None,
         role_endpoint_damage: float | None = None,
         team_percent_denominator: float | None = None,
         role_percent_denominator: float | None = None,
     ) -> BattleMarginalDelta:
-        role = next(
-            (row for row in comparison.roles if row.character_id == character_id),
-            None,
+        role_rows = marginal_benefit_role_rows(comparison, role_scope)
+        role_quantification = BattleBuildQuantificationService.aggregate(
+            rows=role_rows,
+            fixed_damage=0.0,
+            fixed_unchanged=True,
+        )
+        role_quantification = with_awakening_gaps(
+            role_quantification,
+            tuple(
+                gap
+                for gap in comparison.quantification.gaps
+                if gap.dimension_id.startswith("linko_awaken_")
+            ),
+        )
+        role_baseline = sum(row.baseline_damage for row in role_rows)
+        role_known_projection = (
+            None
+            if role_quantification.quantified_increment is None
+            else role_baseline + role_quantification.quantified_increment
         )
         team_projected = cls._projection(
             comparison.quantification,
@@ -569,24 +609,19 @@ class BattleMarginalBenefitService:
                 else team_endpoint_damage
             ),
         )
-        role_projected = (
-            None
-            if role is None
-            else cls._projection(
-                role.quantification,
-                (
-                    role.known_projection_damage
-                    if role_endpoint_damage is None
-                    else role_endpoint_damage
-                ),
-            )
+        role_projected = cls._projection(
+            role_quantification,
+            (
+                role_known_projection
+                if role_endpoint_damage is None
+                else role_endpoint_damage
+            ),
         )
         team_gain = (
             None
             if team_projected is None
             else team_projected - comparison.baseline_damage
         )
-        role_baseline = 0.0 if role is None else float(role.baseline_damage)
         role_gain = (
             None if role_projected is None else role_projected - role_baseline
         )
@@ -604,16 +639,13 @@ class BattleMarginalBenefitService:
             gap.explanation
             for quantification in (
                 comparison.quantification,
-                None if role is None else role.quantification,
+                role_quantification,
             )
-            if quantification is not None
             for gap in quantification.gaps
         ))
         return BattleMarginalDelta(
             team_status=comparison.quantification.status,
-            role_status=(
-                "unavailable" if role is None else role.quantification.status
-            ),
+            role_status=role_quantification.status,
             baseline_team_damage=float(comparison.baseline_damage),
             projected_team_damage=team_projected,
             team_gain_damage=team_gain,
@@ -623,9 +655,7 @@ class BattleMarginalBenefitService:
             role_gain_damage=role_gain,
             role_gain_percent=cls._gain_percent(role_gain, role_denominator),
             team_coverage_percent=cls._coverage(comparison.quantification),
-            role_coverage_percent=(
-                0.0 if role is None else cls._coverage(role.quantification)
-            ),
+            role_coverage_percent=cls._coverage(role_quantification),
             gap_explanations=gaps,
         )
 
@@ -633,9 +663,9 @@ class BattleMarginalBenefitService:
     def _unchanged_delta(
         cls,
         analysis: BattleAnalysisSnapshot,
-        character_id: int,
+        role_scope: BattleMarginalBenefitRoleScope,
     ) -> BattleMarginalDelta:
-        role_damage = cls._observed_role_damage(analysis, character_id)
+        role_damage = cls._observed_panel_damage(analysis, role_scope)
         team_damage = float(analysis.effective_damage)
         return BattleMarginalDelta(
             team_status="not_applicable",
@@ -679,18 +709,11 @@ class BattleMarginalBenefitService:
         return gain / denominator * 100.0
 
     @staticmethod
-    def _observed_role_damage(
+    def _observed_panel_damage(
         analysis: BattleAnalysisSnapshot,
-        character_id: int,
+        role_scope: BattleMarginalBenefitRoleScope,
     ) -> float:
-        return next(
-            (
-                float(row.damage)
-                for row in analysis.roles
-                if row.character_id == character_id
-            ),
-            0.0,
-        )
+        return observed_marginal_benefit_role_damage(analysis, role_scope)
 
     @staticmethod
     def _closure(

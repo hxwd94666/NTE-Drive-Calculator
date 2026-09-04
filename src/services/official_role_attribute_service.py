@@ -630,10 +630,10 @@ def calculate_official_role_combat_stat_components(
     add("DefIgnore", "防御忽略", totals.get("DefIgnore", 0.0), percent=True)
     add("MagBase", "环合强度", totals.get("MagBase", 0.0))
     add("UnbalIntensityBase", "倾陷强度", totals.get("UnbalIntensityBase", 0.0))
-    element_property = _element_damage_property(
-        str((detail.get("character") or {}).get("element_type") or "")
-    )
-    if element_property:
+    element_properties = tuple(dict.fromkeys(
+        ELEMENT_DAMAGE_PROPERTY_BY_TYPE.values()
+    ))
+    for element_property in element_properties:
         add(
             element_property,
             _property_label(detail, element_property),

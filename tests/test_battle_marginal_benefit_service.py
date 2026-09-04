@@ -6,16 +6,27 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
 from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
     BattleDamageQuantification,
+    BattleQuantificationGap,
 )
 from src.domain.battle_marginal_benefit import BattleMarginalDelta
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report import (
+    BattleAnalysisHit,
+    BattleAnalysisSnapshot,
+    BattleHitReplayFactor,
+    BattleHitReplayResult,
+)
 from src.services.battle_marginal_benefit_service import (
     BattleMarginalBenefitService,
 )
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidateService,
+)
+from src.services.battle_marginal_benefit_scope import (
+    prepare_marginal_benefit_role_scope,
 )
 
 
@@ -75,6 +86,8 @@ def _complete_comparison(
     projected_team: float,
     baseline_role: float,
     projected_role: float,
+    *,
+    role_character_id: int = CHARACTER_ID,
 ) -> SimpleNamespace:
     team_quantification = BattleDamageQuantification(
         status="complete",
@@ -94,16 +107,80 @@ def _complete_comparison(
         proven_unchanged_damage=0.0,
         quantified_increment=projected_role - baseline_role,
     )
+    hit_quantification = BattleCounterfactualRatio.complete(
+        projected_role / baseline_role,
+        method="fixture",
+        confidence="高",
+        dependency_scope="character_only",
+        included_dimension_ids=("fixture",),
+        explanation="fixture",
+    )
     return SimpleNamespace(
         baseline_damage=baseline_team,
         known_projection_damage=projected_team,
         quantification=team_quantification,
         roles=(SimpleNamespace(
-            character_id=CHARACTER_ID,
+            character_id=role_character_id,
             baseline_damage=baseline_role,
             known_projection_damage=projected_role,
             quantification=role_quantification,
         ),),
+        hits=(BattleBuildHitCounterfactual(
+            event_id="panel-hit",
+            character_id=role_character_id,
+            character_name="测试角色",
+            skill_name="测试技能",
+            damage_name="测试伤害",
+            baseline_damage=baseline_role,
+            known_projection_damage=projected_role,
+            candidate_damage=projected_role,
+            heuristic_projection_damage=None,
+            quantification=hit_quantification,
+        ),),
+        vital_events=(),
+    )
+
+
+def _panel_hit(
+    damage: float,
+    *,
+    character_id: int = CHARACTER_ID,
+) -> BattleAnalysisHit:
+    return BattleAnalysisHit(
+        event_id="panel-hit",
+        sequence=1,
+        relative_time_us=100_000,
+        character_id=character_id,
+        character_name="残虹" if character_id == 1036 else "测试角色",
+        skill_name="同频·Effect6",
+        damage_name="同频伤害",
+        damage_component="direct",
+        attack_type="QTE",
+        damage_attribute="incantation",
+        target_id="target:1",
+        target_name="目标",
+        damage=damage,
+        direction="outgoing",
+        is_follow_up=False,
+        classification="direct",
+    )
+
+
+def _panel_replay(hit: BattleAnalysisHit) -> BattleHitReplayResult:
+    return BattleHitReplayResult(
+        event_id=hit.event_id,
+        observed_damage=hit.damage,
+        non_critical_damage=hit.damage,
+        critical_damage=None,
+        selected_damage=hit.damage,
+        selected_error_percent=0.0,
+        critical_state="non_critical",
+        confidence="高",
+        factors=(),
+        expected_damage=hit.damage,
+        critical_policy="character",
+        formula_panel_character_id=1072,
+        formula_context_kind="linko_coattack:skill",
     )
 
 
@@ -112,16 +189,19 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
         no_fork = replace(
             _snapshot(),
             effective_damage=100.0,
+            hits=(_panel_hit(40.0),),
             roles=(SimpleNamespace(character_id=CHARACTER_ID, damage=40.0),),
         )
         stats_only = replace(
             _snapshot(),
             effective_damage=130.0,
+            hits=(_panel_hit(55.0),),
             roles=(SimpleNamespace(character_id=CHARACTER_ID, damage=55.0),),
         )
         current = replace(
             _snapshot(),
             effective_damage=150.0,
+            hits=(_panel_hit(70.0),),
             roles=(SimpleNamespace(character_id=CHARACTER_ID, damage=70.0),),
             baselines=(SimpleNamespace(
                 character_id=CHARACTER_ID,
@@ -156,6 +236,10 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
                 candidate=candidate,
                 profile=candidate.profiles[0],
                 character_id=CHARACTER_ID,
+                role_scope=prepare_marginal_benefit_role_scope(
+                    current,
+                    CHARACTER_ID,
+                ),
                 fork_names={"fork_test": "测试弧盘"},
                 load_variant=lambda _candidate: _snapshot(),
                 progress_callback=None,
@@ -171,6 +255,123 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
         self.assertEqual(30.0, result.comprehensive.role_gain_damage)
         self.assertAlmostEqual(0.0, result.closure_team_damage)
         self.assertAlmostEqual(0.0, result.closure_role_damage)
+
+    def test_linko_panel_delta_uses_formula_owner_without_rewriting_raw_roles(
+        self,
+    ) -> None:
+        hit = _panel_hit(100.0, character_id=1036)
+        current = replace(
+            _snapshot(),
+            hits=(hit,),
+            timeline_hits=(hit,),
+            hit_replays=(_panel_replay(hit),),
+            effective_damage=100.0,
+            roles=(SimpleNamespace(character_id=1036, damage=100.0),),
+        )
+        role_scope = prepare_marginal_benefit_role_scope(
+            current,
+            1072,
+        )
+        comparison = _complete_comparison(
+            100.0,
+            120.0,
+            100.0,
+            120.0,
+            role_character_id=1036,
+        )
+        awakening_gap = BattleQuantificationGap(
+            code="linko_effect6_resource_restore_unquantified",
+            dimension_id="linko_awaken_effect6_resource_restore",
+            dependency_scope="mechanic_specific",
+            property_ids=(),
+            explanation="灵可六觉资源回复未生成额外事件。",
+        )
+        comparison.quantification = replace(
+            comparison.quantification,
+            status="partial",
+            gaps=(awakening_gap,),
+        )
+
+        delta = BattleMarginalBenefitService._delta(
+            comparison,
+            role_scope,
+        )
+        unchanged = BattleMarginalBenefitService._unchanged_delta(
+            current,
+            role_scope,
+        )
+
+        self.assertEqual(
+            ("panel-hit",),
+            tuple(row.event_id for row in role_scope.hit_shares),
+        )
+        self.assertEqual(20.0, delta.team_gain_damage)
+        self.assertEqual(20.0, delta.role_gain_damage)
+        self.assertEqual(20.0, delta.team_gain_percent)
+        self.assertEqual(20.0, delta.role_gain_percent)
+        self.assertEqual(100.0, unchanged.baseline_role_damage)
+        self.assertEqual("partial", delta.role_status)
+        self.assertIn(awakening_gap.explanation, delta.gap_explanations)
+        self.assertEqual((1036,), tuple(
+            row.character_id for row in comparison.roles
+        ))
+
+    def test_linko_topple_uses_own_share_but_keeps_full_packet_increment(
+        self,
+    ) -> None:
+        hit = replace(
+            _panel_hit(220.0, character_id=1036),
+            classification="topple",
+            skill_name="倾陷伤害",
+            damage_name="倾陷伤害",
+            attack_type="倾陷伤害",
+        )
+        replay = replace(
+            _panel_replay(hit),
+            formula_panel_character_id=None,
+            factors=(
+                BattleHitReplayFactor(
+                    "topple_character:1072",
+                    "灵可倾陷贡献",
+                    104.0,
+                    "fixture",
+                ),
+                BattleHitReplayFactor(
+                    "topple_character:1036",
+                    "残虹倾陷贡献",
+                    116.0,
+                    "fixture",
+                ),
+            ),
+        )
+        current = replace(
+            _snapshot(),
+            hits=(hit,),
+            timeline_hits=(hit,),
+            hit_replays=(replay,),
+            effective_damage=220.0,
+            roles=(SimpleNamespace(character_id=1036, damage=220.0),),
+        )
+        role_scope = prepare_marginal_benefit_role_scope(current, 1072)
+        comparison = _complete_comparison(
+            220.0,
+            226.0,
+            220.0,
+            226.0,
+            role_character_id=1036,
+        )
+
+        delta = BattleMarginalBenefitService._delta(comparison, role_scope)
+        unchanged = BattleMarginalBenefitService._unchanged_delta(
+            current,
+            role_scope,
+        )
+
+        self.assertAlmostEqual(104.0, delta.baseline_role_damage)
+        self.assertAlmostEqual(110.0, delta.projected_role_damage)
+        self.assertAlmostEqual(6.0, delta.role_gain_damage)
+        self.assertAlmostEqual(delta.team_gain_damage, delta.role_gain_damage)
+        self.assertAlmostEqual(104.0, unchanged.baseline_role_damage)
 
     def test_gold_main_value_accepts_capture_float_noise(self) -> None:
         self.assertTrue(BattleMarginalBenefitService._same_stat_value(
@@ -246,6 +447,10 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
                 candidate=candidate,
                 profile=profile,
                 character_id=CHARACTER_ID,
+                role_scope=prepare_marginal_benefit_role_scope(
+                    _snapshot(),
+                    CHARACTER_ID,
+                ),
                 core_catalog={"AtkUp": ("攻击力提升", True, 0.30)},
                 load_variant=load_variant,
                 progress_callback=None,

@@ -262,7 +262,12 @@ class BattleReportPage(QWidget):
         self.marginal_page.role_changed.connect(self._marginal_role_changed)
         self._stack.addWidget(self.marginal_page)
 
-    def show_marginal(self, editor_data: dict) -> None:
+    def show_marginal(
+        self,
+        editor_data: dict,
+        *,
+        request_automatic_recalculation: bool = True,
+    ) -> None:
         self.marginal_page.set_editor_data(
             editor_data,
             selected_character_id=self.long_analysis_view.selected_character_id(),
@@ -273,7 +278,8 @@ class BattleReportPage(QWidget):
         if source_analysis is not None:
             self.marginal_page.set_source_analysis(source_analysis)
         self._stack.setCurrentWidget(self.marginal_page)
-        self._request_marginal_lazy_recalculation()
+        if request_automatic_recalculation:
+            self._request_marginal_lazy_recalculation()
 
     def show_report(self) -> None:
         self.marginal_page.clear_candidate()

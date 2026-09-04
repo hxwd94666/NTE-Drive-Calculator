@@ -6,6 +6,7 @@ from unittest.mock import patch
 from src.services.damage_calculation_service import DamageScalingStat, DirectDamageInput
 from src.services import official_role_page_service as role_service
 from src.services.official_role_attribute_service import (
+    calculate_official_role_combat_stat_components,
     calculate_official_role_combat_stat_sources,
 )
 from src.services import official_role_replacement_service as replacement_service
@@ -37,6 +38,38 @@ def _direct_input() -> DirectDamageInput:
 
 
 class OfficialRoleEquipmentCalculationTests(unittest.TestCase):
+    def test_combat_components_keep_off_element_equipment_damage(self) -> None:
+        detail = {
+            "profile": {"character_level": 80, "breakthrough_stage": 6},
+            "growth_rows": [{
+                "level": 80,
+                "breakthrough_stage": 6,
+                "hp_base": 1_000.0,
+                "atk_base": 200.0,
+                "def_base": 100.0,
+            }],
+            "character": {"element_type": "Element_NATURE"},
+            "attributes": {
+                "DamageUpNatureBase": {"show_percent": True},
+                "DamageUpIncantationBase": {"show_percent": True},
+            },
+        }
+        items = ({
+            "kind": "core",
+            "main_stats": ({
+                "property_id": "DamageUpIncantationBase",
+                "value": 0.375,
+                "percent": True,
+            },),
+            "sub_stats": (),
+        },)
+
+        rows = calculate_official_role_combat_stat_components(detail, items)
+        values = {row.key: row.value for row in rows}
+
+        self.assertEqual(0.0, values["DamageUpNatureBase"])
+        self.assertAlmostEqual(0.375, values["DamageUpIncantationBase"])
+
     def test_role_panel_uses_fixed_attack_hit_and_character_element(self) -> None:
         detail = {
             "profile": {

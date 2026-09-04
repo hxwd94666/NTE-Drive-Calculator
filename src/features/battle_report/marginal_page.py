@@ -40,11 +40,14 @@ from src.features.battle_report.marginal_benefit_view import (
     build_marginal_benefit_sections,
     render_marginal_benefits,
 )
+from src.features.battle_report.marginal_character_panel import (
+    BattleMarginalCharacterPanel,
+    render_character_panel_and_margins,
+)
 from src.features.battle_report.marginal_result_table_view import (
     BUFF_BENEFIT_HEADERS,
     BUFF_BENEFIT_WIDTHS,
     display_projection,
-    render_attribute_results,
 )
 from src.features.battle_report.marginal_toolbar import build_marginal_toolbar
 from src.features.battle_report.marginal_replacement_controller import (
@@ -63,12 +66,6 @@ from src.services.battle_build_timeline_projection_service import (
 )
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidateService,
-)
-from src.services.battle_marginal_calculation_service import (
-    BattleMarginalCalculationService,
-)
-from src.services.battle_marginal_calculation_support import (
-    drive_substat_marginal_units,
 )
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
@@ -229,6 +226,8 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         )
         timeline_layout.addWidget(self.counterfactual_timeline_scroll)
         root.addWidget(timeline_card)
+        self.character_panel = BattleMarginalCharacterPanel()
+        root.addWidget(self.character_panel)
         attribute_card, attribute_layout = analysis_section("驱动副词条单位边际")
         attribute_note = QLabel(
             "只展示实际可刷出的金色驱动副词条，每行默认单位为一格；面板属性是当前生效基线，"
@@ -381,6 +380,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.metric_subtitles[key].setText(text)
         self.counterfactual_timeline.set_analysis(None)
         self.composition_panel.clear()
+        self.character_panel.clear()
         self.attribute_table.setRowCount(0)
         self.core_main_table.setRowCount(0)
         self.fork_benefit_table.setRowCount(0)
@@ -720,6 +720,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         analysis = self._analysis
         character_id = self.selected_character_id()
         if analysis is None or character_id is None:
+            self.character_panel.clear()
             self.attribute_table.setRowCount(0)
             self.buff_benefit_table.setRowCount(0)
             self.metric_labels["role"].setText("—")
@@ -778,22 +779,13 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             )
 
     def _render_attributes(self, baseline: BattleCharacterBaseline | None) -> None:
-        analysis = self._analysis
-        if baseline is None or analysis is None:
-            self.attribute_table.setRowCount(0)
-            return
-        scoring_engine = getattr(self.window(), "scoring_engine", None)
-        stat_catalog = getattr(scoring_engine, "stat_catalog", None)
-        units = drive_substat_marginal_units(
-            getattr(stat_catalog, "gold_base_values", None),
+        render_character_panel_and_margins(
+            self.character_panel,
+            self.attribute_table,
+            analysis=self._analysis,
+            baseline=baseline,
+            scoring_engine=getattr(self.window(), "scoring_engine", None),
         )
-        results = BattleMarginalCalculationService.calculate(
-            analysis=analysis,
-            character_id=baseline.character_id,
-            edited_values={},
-            units=units,
-        )
-        render_attribute_results(self.attribute_table, results)
 
     def _request_recalculate(self) -> None:
         self._refresh_change_summary()

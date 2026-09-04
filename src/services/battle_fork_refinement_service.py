@@ -31,7 +31,7 @@ from src.services.battle_timeline_time_service import (
 )
 
 
-FORK_REFINEMENT_MODEL_VERSION = "battle-fork-refinement-v5"
+FORK_REFINEMENT_MODEL_VERSION = "battle-fork-refinement-v6"
 WUSHOUTIEYU_Q_WINDOW_EVENT = "FORK_WUSHOUTIEYU_Q_BEGIN"
 WUSHOUTIEYU_E_STACK_EVENT = "FORK_WUSHOUTIEYU_E_END_STACK"
 GOLD_RECORD_QTE_STACK_EVENT = "FORK_GOLD_RECORD_QTE_ACTION_STACK"
@@ -156,17 +156,9 @@ def _rules_wushoutieyu(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...
     q_up = _parameter(selected.definition, "buff_wushoutieyu_Up")
     duration = _parameter(selected.definition, "buff_wushoutieyu_CD")
     e_stack = _parameter(selected.definition, "buff_wushoutieyu_Up2")
-    lakshana = _parameter(selected.definition, "buff_wushoutieyu_UpLakshana")
-    if None in {q_up, duration, e_stack, lakshana}:
+    if None in {q_up, duration, e_stack}:
         return ()
     return (
-        _static_rule(
-            selected,
-            rule_factory,
-            suffix="wushoutieyu-lakshana",
-            target_name="焰魂狂飙：相属性异能增伤",
-            modifiers=(_modifier("DamageUpLakshanaBase", lakshana),),
-        ),
         _make_rule(
             selected,
             rule_factory,
@@ -207,19 +199,11 @@ def _rules_wushoutieyu(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...
 
 
 def _rules_arachne(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...]:
-    hp_up = _parameter(selected.definition, "buff_Arachne_Hp")
     damage_up = _parameter(selected.definition, "buff_Arachne_Up")
     duration = _parameter(selected.definition, "buff_Arachne_CD")
-    if None in {hp_up, damage_up, duration}:
+    if None in {damage_up, duration}:
         return ()
     return (
-        _static_rule(
-            selected,
-            rule_factory,
-            suffix="arachne-hp",
-            target_name="永恒圆舞曲：生命值",
-            modifiers=(_modifier("HPMaxUp", hp_up),),
-        ),
         _make_rule(
             selected,
             rule_factory,
@@ -235,37 +219,19 @@ def _rules_arachne(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...]:
 
 
 def _rules_demon_blade(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...]:
-    crit = _parameter(selected.definition, "buff_DemonBlade_Crit")
     dynamic = demon_blade_damage_stack_rules(selected, rule_factory)
-    if crit is None or not dynamic:
+    if not dynamic:
         return ()
-    return (
-        _static_rule(
-            selected,
-            rule_factory,
-            suffix="demon-blade-crit",
-            target_name="噬心诡刃：暴击率",
-            modifiers=(_modifier("CritBase", crit),),
-        ),
-        *dynamic,
-    )
+    return tuple(dynamic)
 
 
 def _rules_door(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...]:
-    attack = _parameter(selected.definition, "buff_Door_Atk")
     other_up = _parameter(selected.definition, "buff_Door_OtherUp")
     self_up = _parameter(selected.definition, "buff_Door_Up")
     duration = _parameter(selected.definition, "buff_Door_CD")
-    if None in {attack, other_up, self_up, duration}:
+    if None in {other_up, self_up, duration}:
         return ()
     return (
-        _static_rule(
-            selected,
-            rule_factory,
-            suffix="door-attack",
-            target_name="错误的门：攻击力",
-            modifiers=(_modifier("AtkUp", attack),),
-        ),
         _make_rule(
             selected,
             rule_factory,
@@ -292,20 +258,18 @@ def _rules_door(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...]:
 
 
 def _rules_gold_record(selected: Any, rule_factory: type[Any]) -> tuple[Any, ...]:
-    attack = _parameter(selected.definition, "buff_GoldRecord_AtkUp")
     qte_crit = _parameter(selected.definition, "buff_GoldRecord_QteCritDmaUp")
     q_crit = _parameter(selected.definition, "buff_GoldRecord_QCritDmaUp")
     duration = _parameter(selected.definition, "buff_GoldRecord_CD")
-    if None in {attack, qte_crit, q_crit, duration}:
+    if None in {qte_crit, q_crit, duration}:
         return ()
     return (
         _static_rule(
             selected,
             rule_factory,
             suffix="gold-record-static",
-            target_name="远行者之声：攻击力与 QTE 暴击伤害",
+            target_name="远行者之声：QTE 暴击伤害",
             modifiers=(
-                _modifier("AtkUp", attack),
                 _modifier(
                     "CritDamageBase",
                     qte_crit,

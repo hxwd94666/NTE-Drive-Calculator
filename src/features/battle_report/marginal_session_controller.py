@@ -76,7 +76,13 @@ class BattleMarginalSessionController:
             record_id=record_id,
             entry_editor_data=deepcopy(candidate_data),
         )
-        self._page.show_marginal(candidate_data)
+        # The benefit request needs the frozen equipment candidate.  Showing the
+        # page first is required to construct its role editors, so suppress the
+        # page-level lazy request until that candidate exists.
+        self._page.show_marginal(
+            candidate_data,
+            request_automatic_recalculation=False,
+        )
         try:
             self._session.entry_candidate = BattleMarginalCandidateService.freeze(
                 record_id,
@@ -88,6 +94,8 @@ class BattleMarginalSessionController:
             )
         except (KeyError, TypeError, ValueError):
             self._session.entry_candidate = None
+        if self._session.entry_candidate is not None:
+            self.load_baseline()
 
     def reset(self) -> None:
         session = self._current_session()

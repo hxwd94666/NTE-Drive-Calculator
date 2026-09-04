@@ -561,6 +561,7 @@ class BattleCharacterBaseline:
     inherent_hp: float | None = None
     source_max_hp: float | None = None
     enabled_team_passive_ids: tuple[str, ...] = ()
+    selected_awaken_effect_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

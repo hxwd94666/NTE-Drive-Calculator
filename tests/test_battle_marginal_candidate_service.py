@@ -76,6 +76,25 @@ class BattleMarginalCandidateServiceTests(unittest.TestCase):
         )
         self.assertEqual("battle_frozen", prepared["marginal_baseline_kind"])
 
+    def test_candidate_uses_only_selected_context_frozen_replacement_pool(self) -> None:
+        editor_data = _editor_data(active=False)
+        editor_data["details"][0]["equipment_contexts"]["battle"][
+            "replacement_items"
+        ] = [{"uid_slot": 4, "uid_serial": 40}]
+        editor_data["details"][0]["equipment_contexts"]["edited"][
+            "replacement_items"
+        ] = [{"uid_slot": 5, "uid_serial": 50}]
+
+        prepared = BattleMarginalCandidateService.prepare_editor_data(
+            editor_data,
+            equipment_editable=True,
+        )
+
+        replacements = prepared["details"][0]["equipment_contexts"][
+            "candidate"
+        ]["replacement_items"]
+        self.assertEqual([40], [row["uid_serial"] for row in replacements])
+
     def test_explicit_effect_in_active_baseline_hides_redundant_inferred_fact(
         self,
     ) -> None:

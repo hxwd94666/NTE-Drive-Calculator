@@ -51,23 +51,22 @@ from src.services.battle_analysis_progress import (
     BattleAnalysisProgressCallback,
     report_battle_analysis_progress,
 )
-from src.services.battle_build_role_counterfactual_support import (
-    build_role_counterfactuals,
+from src.services.battle_build_awakening_gap_service import (
+    linko_awakening_change_gaps as awakening_change_gaps,
+    mark_linko_role_partial,
+    with_awakening_gaps,
 )
+from src.services.battle_build_role_counterfactual_support import build_role_counterfactuals
+from src.services.battle_build_weave_counterfactual_service import link_weave
 from src.services.battle_build_vital_support import (
     linked_lacrimosa_vital_hits,
     safe_ratio,
 )
-BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v6"
-_STRUCTURED_METHODS = {
-    "structured_expected",
-    "structured_selected",
-    DAFFODILL_EFFECT_FIVE_METHOD,
-}
+BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v8"
+_STRUCTURED_METHODS = {"structured_expected", "structured_selected", DAFFODILL_EFFECT_FIVE_METHOD}
 _STRUCTURED_VITAL_METHODS = {
     "linked_source_hit_ratio", "linked_source_hit_ratio_observed_anchor",
-    "mechanic_enabled_expected_hp_ratio",
-    "fadia_source_max_hp_ratio", "mechanic_disabled",
+    "mechanic_enabled_expected_hp_ratio", "fadia_source_max_hp_ratio", "mechanic_disabled",
 }
 class BattleBuildCounterfactualService:
     """Compare two independently replayed builds while preserving the real axis."""
@@ -106,6 +105,7 @@ class BattleBuildCounterfactualService:
         candidate_baselines = {
             row.character_id: row for row in candidate.baselines
         }
+        awakening_gaps = awakening_change_gaps(original_baselines, candidate_baselines)
         build_inputs_unchanged = (
             BattleDaffodillMarginalService.direct_formula_inputs_unchanged(
                 original, candidate,
@@ -226,6 +226,7 @@ class BattleBuildCounterfactualService:
                     completed=ordinal,
                     total=total_hits,
                 )
+        projected_hits = list(link_weave(projected_hits, original_hits))
         skill_ratios, type_ratios, role_ratios = cls._ratio_catalogs(
             original_hits,
             projected_hits,
@@ -266,6 +267,7 @@ class BattleBuildCounterfactualService:
             fixed_damage=fixed_derived_damage,
             fixed_unchanged=fixed_derived_unchanged,
         )
+        quantification = with_awakening_gaps(quantification, awakening_gaps)
         known_projection_damage = (
             None
             if quantification.quantified_increment is None
@@ -313,6 +315,7 @@ class BattleBuildCounterfactualService:
             structured_methods=_STRUCTURED_METHODS,
             structured_vital_methods=_STRUCTURED_VITAL_METHODS,
         )
+        role_rows = mark_linko_role_partial(role_rows, awakening_gaps)
         assumptions = (
             "固定原战报动作、逐击、目标与时段，只替换角色配置后重放。",
             "原击已识别暴击分支时，候选沿用同一分支；分支不唯一但暴击策略已知时才使用期望公式。",

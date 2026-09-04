@@ -314,11 +314,11 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         page.character_combo.addItem("测试角色", 1001)
         page.character_combo.blockSignals(False)
         with patch(
-            "src.features.battle_report.marginal_page."
+            "src.features.battle_report.marginal_character_panel."
             "BattleMarginalCalculationService.default_units",
             return_value={"CritBase": 0.01},
         ), patch(
-            "src.features.battle_report.marginal_page."
+            "src.features.battle_report.marginal_character_panel."
             "BattleMarginalCalculationService.calculate",
             return_value=(result,),
         ):
@@ -333,6 +333,9 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         self.assertEqual("暴击率 +1.00%", page.attribute_table.item(0, 0).text())
         self.assertEqual("+1.00%", page.attribute_table.item(0, 3).text())
         self.assertEqual("+0.40%", page.attribute_table.item(0, 4).text())
+        self.assertEqual("属性", page.character_panel.table.horizontalHeaderItem(0).text())
+        self.assertEqual("静态面板", page.character_panel.table.item(0, 0).text())
+        self.assertEqual("动态面板", page.character_panel.table.item(1, 0).text())
 
     def test_page_renders_team_buff_gain_by_beneficiary(self) -> None:
         page = BattleMarginalPage()

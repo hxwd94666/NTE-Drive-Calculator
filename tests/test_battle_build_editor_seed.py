@@ -13,10 +13,12 @@ from src.services.battle_report_history_service import BattleReportHistoryServic
 class _FakeBattleDao:
     def __init__(self) -> None:
         self.build_edit = None
+        self.current_snapshot_id = None
+        self.loaded_snapshot_ids = []
 
-    @staticmethod
-    def load_battle_build_snapshot(_record_id: int) -> dict:
+    def load_battle_build_snapshot(self, _record_id: int) -> dict:
         return {
+            "source_inventory_snapshot_id": 8,
             "characters": [{
                 "character_id": 1036,
                 "observed_name": "残虹",
@@ -44,6 +46,30 @@ class _FakeBattleDao:
     @staticmethod
     def load_battle_import_equipment_locks(_record_id: int) -> dict:
         return {}
+
+    @staticmethod
+    def list_allocation_locked_equipment_owners() -> list[dict]:
+        return [{"uid_slot": 3, "uid_serial": 30}]
+
+    def list_inventory_items(self, snapshot_id: int) -> list[dict]:
+        self.loaded_snapshot_ids.append(snapshot_id)
+        return [
+            {
+                "uid_slot": 3,
+                "uid_serial": 30,
+                "kind": "module",
+                "geometry": "Hen3",
+            },
+            {
+                "uid_slot": 4,
+                "uid_serial": 40,
+                "kind": "core",
+                "geometry": "Core",
+            },
+        ]
+
+    def current_inventory_snapshot_id(self):
+        return self.current_snapshot_id
 
 
 class _FakeStaticDao:
@@ -134,6 +160,17 @@ class BattleBuildEditorSeedTests(unittest.TestCase):
         self.assertEqual(60, detail["profile"]["character_level"])
         self.assertEqual([], detail["profile"]["selected_awaken_effect_ids"])
         self.assertIn("equipment_override", detail["profile"])
+
+    def test_battle_context_freezes_current_inventory_for_replacements(self) -> None:
+        self.dao.current_snapshot_id = 9
+
+        detail = self._load(seed_from_role_page=False)
+
+        candidates = detail["equipment_contexts"]["battle"]["replacement_items"]
+        self.assertEqual([9], self.dao.loaded_snapshot_ids)
+        self.assertEqual(2, len(candidates))
+        self.assertTrue(candidates[0]["allocation_reserved"])
+        self.assertFalse(candidates[1]["allocation_reserved"])
 
 
 if __name__ == "__main__":

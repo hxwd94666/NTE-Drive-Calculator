@@ -28,6 +28,9 @@ from src.services.battle_report_history_support import (
 from src.services.battle_build_equipment_service import (
     battle_equipment_items,
 )
+from src.services.battle_build_editor_inventory_pool_service import (
+    current_inventory_replacement_items,
+)
 from src.services.battle_build_edit_projection_service import apply_battle_build_edit
 from src.services.battle_marginal_candidate_service import (
     BattleMarginalCandidate,
@@ -649,6 +652,10 @@ class BattleReportHistoryService(
             import_equipment_locks = user_dao.load_battle_import_equipment_locks(
                 battle_record_id
             )
+            battle_replacement_items = current_inventory_replacement_items(
+                user_dao,
+                equipment_editable=import_origin is None,
+            )
         if build is None:
             raise UserDataError("当前战报没有可编辑的角色配置快照")
         apply_import_equipment_locks(build, import_equipment_locks)
@@ -736,6 +743,7 @@ class BattleReportHistoryService(
                     ),
                     "items": frozen_items,
                     "calculation_items": frozen_items,
+                    "replacement_items": battle_replacement_items,
                     "available": bool(frozen_items),
                 }
             }
@@ -754,6 +762,7 @@ class BattleReportHistoryService(
                     ),
                     "items": edited_items,
                     "calculation_items": edited_items,
+                    "replacement_items": battle_replacement_items,
                     "available": bool(edited_items),
                 }
             equipment_contexts.update(role_contexts)

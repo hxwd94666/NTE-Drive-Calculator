@@ -72,14 +72,21 @@ class BattleMarginalCandidateService:
             )
             replacement_items: list[dict[str, Any]] = []
             seen_uids: set[tuple[int, int]] = set()
-            candidate_pools = () if not equipment_editable else (
-                detail.get("replacement_items") or (),
-                *(
-                    context.get("replacement_items") or ()
-                    for context in contexts.values()
-                    if isinstance(context, Mapping)
-                ),
-            )
+            if not equipment_editable:
+                candidate_pools = ()
+            elif "replacement_items" in baseline_context:
+                candidate_pools = (
+                    baseline_context.get("replacement_items") or (),
+                )
+            else:
+                candidate_pools = (
+                    detail.get("replacement_items") or (),
+                    *(
+                        context.get("replacement_items") or ()
+                        for context in contexts.values()
+                        if isinstance(context, Mapping)
+                    ),
+                )
             for source in candidate_pools:
                 for item in source:
                     if not isinstance(item, Mapping):

@@ -179,6 +179,13 @@ def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline
                     else None
                 ),
                 enabled_team_passive_ids=enabled_team_passive_ids,
+                selected_awaken_effect_ids=tuple(sorted({
+                    str(value) for value in (
+                        (character.get("profile") or {}).get(
+                            "selected_awaken_effect_ids"
+                        ) or character.get("selected_awaken_effect_ids") or ()
+                    )
+                })),
             )
         )
     return tuple(baselines)
