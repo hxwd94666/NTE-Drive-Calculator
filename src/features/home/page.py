@@ -177,7 +177,7 @@ def build_home_page(window) -> QScrollArea:
 
     sync_card, sync_layout = _section(
         "背包同步",
-        "请先关闭代理和加速器，停留在游戏登录页，再启动同步并进入游戏；稳定后仍会在后台监听后续变化。",
+        "请关闭代理和加速器，停留在游戏登录页，再启动同步并进入游戏，期间保证自己的网络通畅！！！",
     )
     window.home_sync_detail = QLabel("尚未启动 nte-core")
     window.home_sync_detail.setWordWrap(True)

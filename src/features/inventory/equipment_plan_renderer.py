@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -147,6 +147,7 @@ def _saved_official_attribute_panel(
     state: Mapping[str, Any],
     *,
     parent: QWidget | None = None,
+    weight_for_stat: Callable[[str, str], float] | None = None,
 ) -> AttributeSummaryPanel | None:
     summaries = state.get("_official_attribute_summaries")
     if not isinstance(summaries, Mapping):
@@ -161,6 +162,11 @@ def _saved_official_attribute_panel(
                 label=str(row.label),
                 value=round(float(row.value) * (100.0 if row.percent else 1.0), 2),
                 percent=bool(row.percent),
+                weight=(
+                    float(weight_for_stat(str(row.label), mode))
+                    if weight_for_stat is not None
+                    else 0.0
+                ),
             )
             for row in source.get(mode, ())
         )
@@ -585,6 +591,9 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                 source_role_name,
                 rd,
                 parent=self if isinstance(self, QWidget) else None,
+                weight_for_stat=lambda stat, mode: presentation.attribute_summary_weight(
+                    source_role_name, stat, mode
+                ),
             )
             if official_bonus_panel is not None:
                 bonus_panel = official_bonus_panel

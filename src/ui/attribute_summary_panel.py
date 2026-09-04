@@ -49,6 +49,30 @@ class AttributeSummaryLoadout:
         return "empty"
 
 
+def attribute_summary_weight_color(weight: float) -> str:
+    """Return the established attribute-name color for one normalized weight."""
+
+    value = max(0.0, min(1.0, float(weight)))
+    if value < 0.3:
+        return theme_color("#8b949e")
+    if value < 0.5:
+        return "#58a6ff"
+    if value < 0.7:
+        return "#56d364"
+    if value < 0.85:
+        return "#d2991d"
+    return "#f0883e"
+
+
+def _weighted_rows(
+    rows: Sequence[AttributeSummaryRow],
+) -> tuple[AttributeSummaryRow, ...]:
+    normalized = tuple(rows)
+    if not any(float(row.weight) > 0 for row in normalized):
+        return normalized
+    return tuple(sorted(normalized, key=lambda row: (-float(row.weight), row.label)))
+
+
 def build_attribute_summary_mode_switch(
     default_mode: str,
     on_change: Callable[[str], None],
@@ -149,15 +173,15 @@ class AttributeSummaryPanel(QFrame):
         super().__init__(parent)
         self._role_name = str(role_name)
         self._rows_by_mode = {
-            str(mode): tuple(rows)
+            str(mode): _weighted_rows(rows)
             for mode, rows in rows_by_mode.items()
         }
         self._mode = (
             default_mode if default_mode in self._rows_by_mode else "equipment"
         )
-        self._color_for_weight = color_for_weight
+        self._color_for_weight = color_for_weight or attribute_summary_weight_color
         self._comparison_rows_by_mode = {
-            str(mode): (tuple(old_rows), tuple(new_rows))
+            str(mode): (_weighted_rows(old_rows), _weighted_rows(new_rows))
             for mode, (old_rows, new_rows) in dict(
                 comparison_rows_by_mode or {}
             ).items()
@@ -327,6 +351,7 @@ class AttributeSummaryPanel(QFrame):
         title: str,
         rows: Sequence[tuple[str, str, float | None, float | None, bool]],
         value_index: int,
+        weights: Mapping[str, float],
     ) -> QWidget:
         column = QFrame()
         names = (
@@ -384,7 +409,13 @@ class AttributeSummaryPanel(QFrame):
                 color = theme_color("#56d364" if delta > 0 else "#f85149")
             layout.addWidget(
                 self._row_widget(
-                    AttributeSummaryRow(key, label, float(value or 0.0), percent),
+                    AttributeSummaryRow(
+                        key,
+                        label,
+                        float(value or 0.0),
+                        percent,
+                        float(weights.get(key, 0.0)),
+                    ),
                     display_text=display,
                     value_color=color,
                 )
@@ -400,6 +431,19 @@ class AttributeSummaryPanel(QFrame):
         limit: int | None,
     ) -> QWidget:
         aligned = self._aligned_comparison_rows(old_rows, new_rows)
+        old_weights = {row.key: float(row.weight) for row in old_rows}
+        new_weights = {row.key: float(row.weight) for row in new_rows}
+        weights = {
+            key: max(old_weights.get(key, 0.0), new_weights.get(key, 0.0))
+            for key in old_weights.keys() | new_weights.keys()
+        }
+        if any(weight > 0 for weight in weights.values()):
+            aligned = tuple(
+                sorted(
+                    aligned,
+                    key=lambda item: (-float(weights.get(item[0], 0.0)), item[1]),
+                )
+            )
         if limit is not None:
             aligned = aligned[:limit]
         container = QFrame()
@@ -410,7 +454,9 @@ class AttributeSummaryPanel(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         for index, title in enumerate(("旧", "新", "变化")):
-            layout.addWidget(self._comparison_column(title, aligned, index), 1)
+            layout.addWidget(
+                self._comparison_column(title, aligned, index, weights), 1
+            )
         return container
 
     def show_details(self) -> None:

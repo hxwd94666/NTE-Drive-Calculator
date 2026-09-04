@@ -52,16 +52,40 @@ class AttributeSummaryPanelTests(unittest.TestCase):
         self.assertFalse(any("（" in label for label in labels))
         self.assertFalse(panel.findChildren(QScrollArea))
 
+    def test_weighted_rows_sort_first_and_color_only_the_attribute_name(self) -> None:
+        panel = AttributeSummaryPanel(
+            "角色",
+            {
+                "equipment": (
+                    AttributeSummaryRow("low", "低权重", 10.0, weight=0.2),
+                    AttributeSummaryRow("high", "高权重", 20.0, weight=0.9),
+                    AttributeSummaryRow("mid", "中权重", 30.0, weight=0.5),
+                ),
+            },
+        )
+
+        labels = [
+            label for label in panel._content_host.findChildren(QLabel)
+            if label.text() in {"低权重", "中权重", "高权重"}
+        ]
+        self.assertEqual(["高权重", "中权重", "低权重"], [label.text() for label in labels])
+        self.assertIn("#f0883e", labels[0].styleSheet())
+        values = [
+            label for label in panel._content_host.findChildren(QLabel)
+            if label.text() in {"+10", "+20", "+30"}
+        ]
+        self.assertTrue(all("#f0883e" not in label.styleSheet() for label in values))
+
     def test_saved_panel_keeps_compact_old_new_equipment_comparison(self) -> None:
         old_rows = (
-            AttributeSummaryRow("AtkAdd", "攻击力", 100.0),
-            AttributeSummaryRow("CritBase", "暴击率", 10.0, percent=True),
-            AttributeSummaryRow("HPMaxAdd", "生命值", 1000.0),
+            AttributeSummaryRow("AtkAdd", "攻击力", 100.0, weight=0.2),
+            AttributeSummaryRow("CritBase", "暴击率", 10.0, percent=True, weight=0.9),
+            AttributeSummaryRow("HPMaxAdd", "生命值", 1000.0, weight=0.5),
         )
         new_rows = (
-            AttributeSummaryRow("AtkAdd", "攻击力", 120.0),
-            AttributeSummaryRow("CritBase", "暴击率", 8.0, percent=True),
-            AttributeSummaryRow("HPMaxAdd", "生命值", 1000.0),
+            AttributeSummaryRow("AtkAdd", "攻击力", 120.0, weight=0.2),
+            AttributeSummaryRow("CritBase", "暴击率", 8.0, percent=True, weight=0.9),
+            AttributeSummaryRow("HPMaxAdd", "生命值", 1000.0, weight=0.5),
         )
         panel = AttributeSummaryPanel(
             "角色",
@@ -81,6 +105,13 @@ class AttributeSummaryPanelTests(unittest.TestCase):
         self.assertIsNotNone(panel.findChild(QWidget, "attributeSummaryComparisonOld"))
         self.assertIsNotNone(panel.findChild(QWidget, "attributeSummaryComparisonNew"))
         self.assertIsNotNone(panel.findChild(QWidget, "attributeSummaryComparisonDelta"))
+        old_column = panel.findChild(QWidget, "attributeSummaryComparisonOld")
+        old_labels = [
+            label for label in old_column.findChildren(QLabel)
+            if label.text() in {"攻击力", "暴击率", "生命值"}
+        ]
+        self.assertEqual(["暴击率", "生命值", "攻击力"], [label.text() for label in old_labels])
+        self.assertIn("#f0883e", old_labels[0].styleSheet())
         self.assertIn(
             ("HPMaxAdd", "生命值", 1000.0, 1000.0, False),
             panel._aligned_comparison_rows(old_rows, new_rows),
@@ -136,6 +167,27 @@ class AttributeSummaryPanelTests(unittest.TestCase):
         self.assertIn("+1000", character_texts)
         self.assertIn("+1120", character_texts)
         self.assertIn("+120", character_texts)
+
+    def test_saved_official_panel_applies_role_weight_sort_and_color(self) -> None:
+        low = SimpleNamespace(
+            key="HPMaxAdd", label="生命值", value=1000.0, percent=False,
+        )
+        high = SimpleNamespace(
+            key="CritBase", label="暴击率", value=0.1, percent=True,
+        )
+        panel = _saved_official_attribute_panel(
+            "角色",
+            {"_official_attribute_summaries": {"equipment": (low, high), "character": ()}},
+            weight_for_stat=lambda stat, _mode: {"生命值": 0.2, "暴击率": 0.9}[stat],
+        )
+
+        self.assertIsNotNone(panel)
+        labels = [
+            label for label in panel._content_host.findChildren(QLabel)
+            if label.text() in {"生命值", "暴击率"}
+        ]
+        self.assertEqual(["暴击率", "生命值"], [label.text() for label in labels])
+        self.assertIn("#f0883e", labels[0].styleSheet())
 
     def test_weighted_result_shows_changed_saved_slot_menu(self) -> None:
         comparison = WeightedLoadoutComparison(

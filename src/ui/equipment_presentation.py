@@ -517,6 +517,16 @@ class EquipmentPresentation(EquipmentLoadoutComparisonPresentationMixin):
     def role_stat_priority_stats(self, role_name: str):
         return self._role_stat_priority_stats(role_name)
 
+    def attribute_summary_weight(
+        self, role_name: str, stat: str, mode: str = "equipment"
+    ) -> float:
+        weight = float(self._bonus_stat_weight(role_name, stat, mode))
+        weights = ((self.roles_db.get(role_name, {}) or {}).get("weights", {}) or {})
+        flexible_weight = getattr(self.scoring_engine, "flexible_weight", None)
+        if callable(flexible_weight):
+            weight = max(weight, float(flexible_weight(stat, weights)))
+        return weight
+
     def score_drive(self, *args, **kwargs) -> float:
         return float(self._score_drive_dict(*args, **kwargs))
 
