@@ -154,31 +154,42 @@
 
 ## 🧑‍💻本地开发
 
-`2.0.0` 已使用 SQLite 作为运行数据边界，并以游戏官方 ID 驱动角色、库存和配装服务。详细设计见
-[系统架构](docs/architecture.md) 与 [外部集成](docs/integrations.md)；开发者和
-编码代理从 [开发文档入口](docs/README.md) 进入。
+> [!IMPORTANT]
+> 准备 Fork 开发前，请先加入 QQ 交流群 `1029030672` 并私聊群主。主仓库持续开发，提交通常按版本发布或开发交接整理；Fork 的 HEAD 可能不是当前协作基线。请先确认当前基线与合并方式，再开始开发。
+
+项目使用 Python 3.11、SQLite 与 PySide6。详细设计见 [系统架构](docs/architecture.md) 与 [外部集成](docs/integrations.md)；开发文档从 [开发文档入口](docs/README.md) 进入。
+
+安装 [uv](https://docs.astral.sh/uv/) 后，在仓库根目录执行：
 
 ```powershell
-uv sync --group build --group dev
+uv sync --locked --group build --group dev
 uv run python main.py
 ```
 
-未安装 `uv` 时，可直接让 pip 从 `pyproject.toml` 安装运行依赖：
+未使用 `uv` 时，创建虚拟环境并安装运行、测试与打包依赖：
 
 ```powershell
-python -m pip install .
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e . coverage mypy pytest ruff pyinstaller
+```
+
+执行测试：
+
+```powershell
+uv run python tools/quality/run_tests.py core -j 3
+uv run python tools/quality/run_tests.py full
 ```
 
 打包桌面程序：
 
 ```powershell
-.\.venv\Scripts\python.exe .\build_exe.py
+uv run python build_exe.py
 ```
 
 生成安装包：
 
 ```powershell
-.\.venv\Scripts\python.exe .\build_installer.py
+uv run python build_installer.py
 ```
 
 ## 📑许可证与第三方组件
